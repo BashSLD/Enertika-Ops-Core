@@ -33,11 +33,10 @@ class MicrosoftAuth:
         if "error" in result:
             raise Exception(f"Error login: {result.get('error_description')}")
         
-        self.token_cache = result # Guardamos el token en memoria
+        self.token_cache = result 
         return result
 
     def get_headers(self):
-        """Recupera el token valido (o lanza error si no hay login)"""
         if not self.token_cache or "access_token" not in self.token_cache:
             raise Exception("Usuario no autenticado. Inicie sesión primero.")
         return {
@@ -46,34 +45,40 @@ class MicrosoftAuth:
         }
 
     def send_email_with_attachments(self, subject, body, recipients, attachments_files=[]):
-        """
-        Envía un correo usando Microsoft Graph API.
-        attachments_files: Lista de objetos FilePicker (o rutas)
-        """
+        print(f"--- INICIANDO ENVÍO DE CORREO ---")
+        print(f"Destinatarios: {recipients}")
+        print(f"Archivos a adjuntar: {len(attachments_files)}")
+
         if not recipients: return False, "Sin destinatarios"
 
-        # 1. Preparar adjuntos en base64
+        # 1. Preparar adjuntos
         attachments_data = []
         for file_obj in attachments_files:
             try:
-                # Si es un objeto de Flet (FilePickerResultEvent) o ruta string
+                # Obtenemos ruta y nombre
                 path = file_obj.path if hasattr(file_obj, "path") else file_obj
                 name = file_obj.name if hasattr(file_obj, "name") else os.path.basename(path)
                 
+                print(f"Procesando adjunto: {name} desde {path}")
+
                 with open(path, "rb") as f:
                     content_bytes = f.read()
                 
+                # Codificar a Base64
                 b64_content = base64.b64encode(content_bytes).decode("utf-8")
                 
+                # Estructura exacta requerida por Graph API
                 attachments_data.append({
                     "@odata.type": "#microsoft.graph.fileAttachment",
                     "name": name,
+                    "contentType": "application/octet-stream", # Tipo genérico seguro
                     "contentBytes": b64_content
                 })
+                print(f"-> Adjunto {name} procesado OK.")
             except Exception as e:
-                print(f"Error procesando adjunto {name}: {e}")
+                print(f"-> ERROR procesando adjunto {name}: {e}")
 
-        # 2. Construir el JSON del correo
+        # 2. Construir el JSON
         email_msg = {
             "message": {
                 "subject": subject,
@@ -89,9 +94,12 @@ class MicrosoftAuth:
 
         # 3. Enviar a Graph API
         endpoint = "https://graph.microsoft.com/v1.0/me/sendMail"
+        print("Enviando request a Graph API...")
         response = requests.post(endpoint, headers=self.get_headers(), json=email_msg)
         
+        print(f"Respuesta Graph: {response.status_code}")
         if response.status_code == 202:
             return True, "Enviado exitosamente"
         else:
+            print(f"Error detalle: {response.text}")
             return False, f"Error {response.status_code}: {response.text}"
