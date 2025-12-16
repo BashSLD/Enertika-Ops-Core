@@ -154,7 +154,7 @@ def ViewComercial(page: ft.Page):
                 page.update()
         
         except Exception as ex:
-            print(f"❌ Error en callback upload: {ex}")
+            print(f" Error en callback upload: {ex}")
             page.open(ft.SnackBar(ft.Text(f"Error procesando: {ex}"), bgcolor="red"))
             page.update()
         
