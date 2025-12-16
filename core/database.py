@@ -1,30 +1,51 @@
-import os
-from supabase import create_client, Client
-from dotenv import load_dotenv
+# Archivo: core/database.py (Conexión Asíncrona para FastAPI)
 
-# Cargar secretos del .env
-load_dotenv()
+import asyncpg
+from core.config import settings
+from typing import Optional
 
-url: str = os.environ.get("SUPABASE_URL")
-key: str = os.environ.get("SUPABASE_KEY")
+# Almacenamos el pool de conexiones globalmente
+_connection_pool: Optional[asyncpg.Pool] = None
 
-# Validación simple para que no truene si faltan datos
-if not url or not key:
-    print("ADVERTENCIA: No se encontraron credenciales de Supabase en .env")
-    # Usamos valores dummy para que la app no se cierre, pero la conexión fallará
-    url = "https://ejemplo.supabase.co"
-    key = "dummy"
+async def connect_to_db():
+    """Inicializa el pool de conexiones al inicio de la aplicación (startup)."""
+    global _connection_pool
+    if not _connection_pool:
+        try:
+            print("Inicializando conexión a Supabase (asyncpg)...")
+            
+            _connection_pool = await asyncpg.create_pool(
+                settings.DB_URL_ASYNC,
+                min_size=5,
+                max_size=20,
+                timeout=30 # segundos
+            )
+            print("Pool de conexiones a Supabase creado exitosamente.")
+        except Exception as e: # <-- CAPTURAMOS LA EXCEPCIÓN
+            print("----------------------------------------------------------------")
+            import sys
+            print(f"Tipo de Error: {sys.exc_info()[0].__name__}")
+            print(f"Mensaje Detallado: {e!r}")
+            print(f"Stack Trace: {sys.exc_info()[2]}")
+            print("----------------------------------------------------------------")
+            print(f"ERROR CRÍTICO al conectar a Supabase: {e}") # <-- LA IMPRIMIMOS
+            print("----------------------------------------------------------------")
+            # En producción, forzaríamos un os._exit(1) para detener la app si la DB es crítica.
+            
+async def close_db_connection():
+    """Cierra el pool de conexiones al apagado de la aplicación (shutdown)."""
+    global _connection_pool
+    if _connection_pool:
+        print("Cerrando pool de conexiones de Supabase.")
+        await _connection_pool.close()
+        _connection_pool = None
 
-# Crear la conexión
-db: Client = create_client(url, key)
-
-def probar_conexion():
-    """Verifica si podemos leer la tabla de clientes"""
-    try:
-        # Intentamos leer 1 fila de clientes
-        response = db.table("tb_clientes").select("*").limit(1).execute()
-        print("Conexión a Supabase EXITOSA.")
-        return True
-    except Exception as e:
-        print(f"Error conectando a Supabase: {e}")
-        return False
+async def get_db_connection() -> asyncpg.Connection:
+    """Dependencia de FastAPI para obtener una conexión del pool."""
+    if not _connection_pool:
+        # En caso de que se intente usar antes del startup
+        raise Exception("El pool de conexiones no está inicializado. Verifique el log de startup.")
+        
+    # Usamos pool.acquire() como un gestor de contexto (with), que la libera automáticamente.
+    # El usuario de FastAPI solo necesita la conexión.
+    return _connection_pool.acquire()

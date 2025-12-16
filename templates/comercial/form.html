@@ -1,0 +1,25 @@
+<div class="space-y-6">
+    <h2 class="text-3xl font-light text-gray-700">Módulo Comercial: Registro y Carga Multisitio</h2>
+    
+    <div class="bg-white p-6 rounded-lg shadow">
+        <h3 class="text-xl font-semibold mb-4 text-gray-800">Paso 1: Datos de la Oportunidad</h3>
+        <form hx-post="/comercial/" hx-target="#oportunidad-status" hx-swap="outerHTML" class="space-y-4">
+            
+            <input type="text" name="nombre_cliente" placeholder="Nombre del Cliente" required 
+                   class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500">
+            
+            <input type="email" name="email_contacto" placeholder="Email de Contacto" required
+                   class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500">
+            
+            <textarea name="descripcion" placeholder="Descripción breve de la oportunidad" 
+                      class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"></textarea>
+
+            <button type="submit" class="bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition duration-150">
+                Crear Oportunidad
+            </button>
+        </form>
+    </div>
+
+    <div id="oportunidad-status">
+        </div>
+</div>

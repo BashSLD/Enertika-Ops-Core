@@ -1,7 +1,16 @@
-flet
+# Core FastAPI / Servidor
+fastapi
+uvicorn[standard]
+pydantic
+pydantic-settings
+asyncpg                # Para la conexión asíncrona a PostgreSQL (Supabase)
+python-dotenv          # Para cargar el archivo .env
+
+# UI/Templating
+jinja2                 # Para renderizar las vistas HTMX/Tailwind
+python-multipart       # Para manejo de UploadFile (Excel Multisitio)
+
+# Lógica de Negocio
+pandas                 # Para el procesamiento de Excel Multisitio
+openpyxl               # Backend necesario para que Pandas lea .xlsx
 msal
-supabase
-python-dotenv
-requests
-pandas
-openpyxl
