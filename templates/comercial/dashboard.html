@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
+    <div class="px-4 py-6 sm:px-0">
+        
+        <div class="flex justify-between items-center mb-6">
+            <h1 class="text-3xl font-bold text-gray-900">Dashboard Comercial</h1>
+            
+            {% if user_token %}
+                <div class="flex items-center space-x-4">
+                    <span class="text-green-600 font-semibold text-sm">● Conectado a Microsoft</span>
+                    <a href="/auth/logout" class="bg-red-500 hover:bg-red-700 text-white font-bold py-2 px-4 rounded text-sm">
+                        Cerrar Sesión
+                    </a>
+                </div>
+            {% else %}
+                <a href="/auth/login" class="bg-blue-600 hover:bg-blue-800 text-white font-bold py-2 px-4 rounded shadow flex items-center">
+                    <svg class="h-5 w-5 mr-2" fill="currentColor" viewBox="0 0 20 20"><!-- Microsoft Icon Placeholder -->
+                        <path d="M1 1h8v8H1V1zm10 0h8v8h-8V1zM1 11h8v8H1v-8zm10 0h8v8h-8v-8z"/>
+                    </svg>
+                    Iniciar Sesión con Microsoft
+                </a>
+            {% endif %}
+        </div>
+
+        <!-- Tabla de Oportunidades -->
+        <div class="flex flex-col">
+            <div class="-my-2 overflow-x-auto sm:-mx-6 lg:-mx-8">
+                <div class="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
+                    <div class="shadow overflow-hidden border-b border-gray-200 sm:rounded-lg">
+                        <table class="min-w-full divide-y divide-gray-200">
+                            <thead class="bg-gray-50">
+                                <tr>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        ID
+                                    </th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Proyecto / Cliente
+                                    </th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Fecha
+                                    </th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Status
+                                    </th>
+                                    <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                        Acciones
+                                    </th>
+                                </tr>
+                            </thead>
+                            <tbody class="bg-white divide-y divide-gray-200">
+                                {% for op in oportunidades %}
+                                <tr>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        {{ op.id_interno_simulacion or 'N/A' }}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <div class="text-sm font-medium text-gray-900">{{ op.nombre_proyecto }}</div>
+                                        <div class="text-sm text-gray-500">{{ op.cliente_nombre }}</div>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                        {{ op.fecha_solicitud.strftime('%Y-%m-%d') if op.fecha_solicitud else '-' }}
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap">
+                                        <span class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {{ 'bg-green-100 text-green-800' if op.email_enviado else 'bg-yellow-100 text-yellow-800' }}">
+                                            {{ 'Notificado' if op.email_enviado else 'Pendiente' }}
+                                        </span>
+                                    </td>
+                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                                        {% if not op.email_enviado %}
+                                            <div id="action-{{ op.id_oportunidad }}">
+                                                {% if user_token %}
+                                                    <button 
+                                                        hx-post="/comercial/notificar/{{ op.id_oportunidad }}"
+                                                        hx-swap="innerHTML"
+                                                        hx-target="#action-{{ op.id_oportunidad }}"
+                                                        class="text-indigo-600 hover:text-indigo-900 font-bold hover:underline"
+                                                    >
+                                                        Enviar Correo
+                                                    </button>
+                                                {% else %}
+                                                    <span class="text-gray-400 text-xs italic">Requiere Login</span>
+                                                {% endif %}
+                                            </div>
+                                        {% else %}
+                                            <span class="text-gray-400">Enviado</span>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+{% endblock %}

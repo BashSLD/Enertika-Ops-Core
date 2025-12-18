@@ -18,8 +18,6 @@ class MicrosoftAuth:
                 authority=settings.AUTHORITY_URL, # Usamos la URL calculada
                 client_credential=settings.GRAPH_CLIENT_SECRET,
             )
-            # El token de cache es para el flujo de Delegación (user login)
-            cls._instance.token_cache = None 
         return cls._instance
 
     def get_auth_url(self):
@@ -32,32 +30,21 @@ class MicrosoftAuth:
 
     def get_token_from_code(self, code):
         scopes = settings.GRAPH_SCOPES.split(" ") if isinstance(settings.GRAPH_SCOPES, str) else settings.GRAPH_SCOPES
-        result = self.app.acquire_token_by_authorization_code(
+        # Retorna el diccionario del token completo, NO lo guardamos en self
+        return self.app.acquire_token_by_authorization_code(
             code,
             scopes=scopes,
             redirect_uri=settings.REDIRECT_URI
         )
-        if "error" in result:
-            raise Exception(f"Error login: {result.get('error_description')}")
-        
-        self.token_cache = result 
-        return result
 
-    def get_headers(self):
-        """Retorna los headers de autorización para Graph API."""
-        if not self.token_cache or "access_token" not in self.token_cache:
-            # En un entorno de backend donde se envía correo SIN un usuario logueado 
-            # (Service Principal), necesitarías adquirir un token de aplicación.
-            # Por ahora, mantendremos la dependencia del token de usuario (Delegated Flow)
-            # hasta que se defina si el envío es por usuario o por servicio.
-            raise Exception("Usuario no autenticado. Inicie sesión primero.")
-            
+    def get_headers(self, access_token: str):
+        """Retorna los headers de autorización para Graph API usando el token proporcionado."""
         return {
-            "Authorization": "Bearer " + self.token_cache["access_token"],
+            "Authorization": "Bearer " + access_token,
             "Content-Type": "application/json"
         }
 
-    def send_email_with_attachments(self, subject, body, recipients, attachments_files=[]):
+    def send_email_with_attachments(self, access_token: str, subject, body, recipients, attachments_files=[]):
         print(f"--- INICIANDO ENVÍO DE CORREO ---")
         print(f"Destinatarios: {recipients}")
         print(f"Archivos a adjuntar: {len(attachments_files)}")
@@ -111,7 +98,7 @@ class MicrosoftAuth:
         print("Enviando request a Graph API...")
         try:
             # Check headers before sending to catch auth errors early
-            headers = self.get_headers()
+            headers = self.get_headers(access_token)
             response = requests.post(endpoint, headers=headers, json=email_msg)
             
             print(f"Respuesta Graph: {response.status_code}")

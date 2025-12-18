@@ -154,6 +154,28 @@ class ComercialService:
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error BD: {e}"
             )
+
+    async def get_oportunidades_list(self, conn) -> List[dict]:
+        """Recupera la lista de todas las oportunidades para el dashboard."""
+        query = """
+            SELECT 
+                o.id_oportunidad,
+                o.titulo_proyecto,
+                o.nombre_proyecto,
+                o.cliente_nombre,
+                o.fecha_solicitud,
+                o.status_global,
+                o.email_enviado,
+                o.id_interno_simulacion
+            FROM tb_oportunidades o
+            ORDER BY o.fecha_solicitud DESC
+        """
+        rows = await conn.fetch(query)
+        return [dict(row) for row in rows]
+
+    async def update_email_status(self, conn, id_oportunidad: UUID):
+        await conn.execute("UPDATE tb_oportunidades SET email_enviado = TRUE WHERE id_oportunidad = $1", id_oportunidad)
+
             
     # El método process_multisitio_excel se queda igual...
     async def process_multisitio_excel(self, conn, id_oportunidad: UUID, file: UploadFile) -> int:
@@ -222,7 +244,90 @@ def get_comercial_service():
 
 @router.get("/ui", include_in_schema=False)
 async def get_comercial_ui(request: Request):
+    """Main Entry: Shows the Tabbed Dashboard (Graphs + Records)."""
+    return templates.TemplateResponse("comercial/tabs.html", {"request": request})
+
+@router.get("/form", include_in_schema=False)
+async def get_comercial_form(request: Request):
+    """Shows the creation form (Partial or Full Page)."""
     return templates.TemplateResponse("comercial/form.html", {"request": request})
+
+@router.get("/partials/graphs", include_in_schema=False)
+async def get_graphs_partial(request: Request):
+    """Partial: Graphs Tab Content."""
+    # Data for charts could be passed here
+    return templates.TemplateResponse("comercial/partials/graphs.html", {"request": request})
+
+@router.get("/partials/cards", include_in_schema=False)
+async def get_cards_partial(
+    request: Request,
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection)
+):
+    """Partial: List of Opportunities (Cards/Grid)."""
+    items = await service.get_oportunidades_list(conn)
+    return templates.TemplateResponse(
+        "comercial/partials/cards.html", 
+        {
+            "request": request, 
+            "oportunidades": items,
+            "user_token": request.session.get("access_token") 
+        }
+    )
+
+@router.post("/notificar/{id_oportunidad}")
+async def notificar_oportunidad(
+    request: Request,
+    id_oportunidad: UUID,
+    service: ComercialService = Depends(get_comercial_service),
+    ms_auth: MicrosoftAuth = Depends(get_ms_auth),
+    conn = Depends(get_db_connection)
+):
+    """Envía el correo de notificación usando el token de la sesión."""
+    access_token = request.session.get("access_token")
+    if not access_token:
+        # Si es HTMX, podríamos retornar un div con error o redirect
+        return HTMLResponse(
+            "<div class='text-red-500'>Error: No has iniciado sesión con Microsoft. <a href='/auth/login' class='underline'>Log In</a></div>",
+            status_code=401
+        )
+
+    # 1. Recuperar info de la oportunidad para el cuerpo del correo
+    row = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
+    if not row:
+        return HTMLResponse("<div class='text-red-500'>Oportunidad no encontrada</div>", status_code=404)
+        
+    subject = f"Nueva Oportunidad Comercial: {row['titulo_proyecto']}"
+    body = f"""
+    Se ha generado una nueva oportunidad comercial.
+    
+    ID: {row['op_id_estandar']}
+    Proyecto: {row['nombre_proyecto']}
+    Cliente: {row['cliente_nombre']}
+    Link SharePoint: {row['sharepoint_folder_url'] or 'N/A'}
+    
+    Favor de revisar.
+    """
+    
+    # Destinatarios hardcodeados por ahora o config
+    recipients = ["vendedores@enertika.com"] # Ajustar a real
+    # Si quieres enviártelo a ti mismo para probar:
+    # recipients = [payload_del_token.get("email")] # Si decodificaras el token
+    
+    # 2. Enviar Correo
+    # Opcional: Adjuntar archivos si existieran (aquí enviamos sin adjuntos por simplicidad inicial, 
+    # o podríamos buscar los excels generados).
+    ok, msg = ms_auth.send_email_with_attachments(access_token, subject, body, recipients)
+    
+    if ok:
+        await service.update_email_status(conn, id_oportunidad)
+        return HTMLResponse(f"""
+            <span class="text-green-600 font-bold">✓ Enviado</span>
+        """, status_code=200)
+    else:
+        return HTMLResponse(f"""
+            <span class="text-red-600">Error: {msg}</span>
+        """, status_code=200)
 
 @router.get("/plantilla", response_class=StreamingResponse)
 async def descargar_plantilla_sitios():

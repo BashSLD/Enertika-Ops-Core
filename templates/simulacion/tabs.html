@@ -1,0 +1,64 @@
+<div class="flex flex-col h-full">
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-6">
+        <div>
+            <h2 class="text-3xl font-light text-gray-700">Módulo Simulación</h2>
+            <p class="text-sm text-gray-500">Monitor en Tiempo Real y Gestión de Simulaciones</p>
+        </div>
+    </div>
+
+    <!-- Tabs Navigation -->
+    <div
+        class="mb-4 text-sm font-medium text-center text-gray-500 border-b border-gray-200 dark:text-gray-400 dark:border-gray-700">
+        <ul class="flex flex-wrap -mb-px">
+            <li class="me-2">
+                <a href="#" hx-get="/simulacion/partials/live" hx-target="#sim-tab-content" hx-swap="innerHTML"
+                    onclick="setActiveSimTab(this)"
+                    class="sim-tab-link inline-block p-4 text-emerald-600 border-b-2 border-emerald-600 rounded-t-lg active group"
+                    aria-current="page">
+                    <div class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
+                        </svg>
+                        Monitor TR
+                    </div>
+                </a>
+            </li>
+            <li class="me-2">
+                <a href="#" hx-get="/simulacion/partials/table" hx-target="#sim-tab-content" hx-swap="innerHTML"
+                    onclick="setActiveSimTab(this)"
+                    class="sim-tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
+                    <div class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                        </svg>
+                        Simulaciones
+                    </div>
+                </a>
+            </li>
+        </ul>
+    </div>
+
+    <!-- Tab Content Area -->
+    <div id="sim-tab-content" class="flex-1 overflow-y-auto p-2" hx-get="/simulacion/partials/live" hx-trigger="load">
+        <!-- Content will be loaded here via HTMX -->
+        <div class="flex justify-center items-center h-full">
+            <div class="animate-spin rounded-full h-32 w-32 border-b-2 border-emerald-500"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    function setActiveSimTab(element) {
+        document.querySelectorAll('.sim-tab-link').forEach(el => {
+            el.classList.remove('text-emerald-600', 'border-emerald-600', 'active');
+            el.classList.add('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
+        });
+        element.classList.remove('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
+        element.classList.add('text-emerald-600', 'border-emerald-600', 'active');
+    }
+</script>

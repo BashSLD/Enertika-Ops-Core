@@ -7,11 +7,17 @@ from modules.comercial import router as comercial_router
 from core.database import connect_to_db, close_db_connection
 from modules.proyectos import router as proyectos_router
 from modules.levantamientos import router as levantamientos_router
+from starlette.middleware.sessions import SessionMiddleware
+from core.config import settings
 from modules.compras import router as compras_router
+from modules.auth import router as auth_router
 
 # Inicialización de la app
 
 app = FastAPI(title="Enertika Ops Core",on_startup=[connect_to_db],on_shutdown=[close_db_connection])
+
+# Middleware de Sesión (Cookie Segura)
+app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
 # Configuración de Jinja2 Templates (para HTMX/Tailwind)
 # Asumimos que tendremos una carpeta 'templates' y 'static' para CSS/JS
@@ -22,10 +28,13 @@ templates = Jinja2Templates(directory="templates")
 
 # Registrar Routers Modulares
 # El Backlog Priorizado comienza aquí
+app.include_router(auth_router.router)
 app.include_router(comercial_router.router)
 app.include_router(levantamientos_router.router)
 app.include_router(proyectos_router.router)
 app.include_router(compras_router.router)
+from modules.simulacion import router as simulacion_router
+app.include_router(simulacion_router.router)
 
 @app.get("/", tags=["Home"])
 async def root(request: Request):
