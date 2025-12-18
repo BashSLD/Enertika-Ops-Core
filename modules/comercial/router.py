@@ -1,261 +1,362 @@
-# Archivo: modules/comercial/router.py
+from fastapi import APIRouter, Depends, status, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import StreamingResponse, HTMLResponse
 
-from fastapi import APIRouter, Depends, status, HTTPException, UploadFile, File
-from typing import List
-from datetime import datetime
-from uuid import uuid4, UUID
-import pandas as pd
-import io # Para manejar archivos en memoria
-import os
-from pydantic import BaseModel
 from fastapi.templating import Jinja2Templates
-from fastapi import Request
+from typing import List, Optional
+from datetime import datetime, timedelta, time as dt_time
+from uuid import UUID, uuid4
+import pandas as pd
+import io
+import logging
 
-# Inicializar templates (tomando la configuración de main.py)
-templates = Jinja2Templates(directory="templates")
-
-# Importamos dependencias y Auth
+# --- Imports de Core ---
+from core.database import get_db_connection
 from core.microsoft import MicrosoftAuth, get_ms_auth
 
-# Importamos los modelos Pydantic
-from .schemas import (
-    OportunidadCreate, OportunidadRead, 
-    SitioOportunidadBase, SitioOportunidadRead, 
-)
-# Asumimos que el servicio de conexión a DB se define en core/service.py
-# from core.database import get_db_connection 
+# Configuración básica de logging
+logger = logging.getLogger("ComercialModule")
+
+templates = Jinja2Templates(directory="templates")
 
 router = APIRouter(
     prefix="/comercial",
     tags=["Módulo Comercial"],
-    # Aquí se añadirán dependencias de Auth (e.g., Depends(validar_rol_comercial))
 )
 
 # ----------------------------------------
-# ENDPOINTS DE UI (JINJA2/HTMX)
+# CAPA DE SERVICIO (LÓGICA DE NEGOCIO)
+# ----------------------------------------
+class ComercialService:
+    """Implementa la lógica de negocio del módulo Comercial (Legacy Port)."""
+
+    @staticmethod
+    def calcular_deadline() -> datetime:
+        ahora = datetime.now()
+        fecha_base = ahora.date()
+        hora_actual = ahora.time()
+        corte = dt_time(17, 30, 0)
+        
+        if hora_actual > corte: 
+            fecha_base += timedelta(days=1)
+            
+        dia_semana = fecha_base.weekday()
+        if dia_semana == 5: fecha_base += timedelta(days=2) 
+        elif dia_semana == 6: fecha_base += timedelta(days=1) 
+        
+        return fecha_base + timedelta(days=7)
+
+    async def get_or_create_cliente(self, conn, nombre_cliente: str) -> UUID:
+        """
+        Busca el cliente por nombre fiscal. 
+        NOTA: Asumimos que la tabla tb_clientes tiene columna 'id' (estándar).
+        Si falla aquí, es porque tb_clientes usa otro nombre de PK.
+        """
+        nombre_clean = nombre_cliente.strip().upper()
+        
+        # Intentamos buscar
+        row = await conn.fetchrow("SELECT id FROM tb_clientes WHERE nombre_fiscal = $1", nombre_clean)
+        if row:
+            return row['id']
+            
+        # Intentamos crear
+        try:
+            val = await conn.fetchval(
+                "INSERT INTO tb_clientes (nombre_fiscal) VALUES ($1) RETURNING id",
+                nombre_clean
+            )
+            return val
+        except Exception:
+             # Fallback: Generamos UUID nosotros si la DB no tiene default
+             new_id = uuid4()
+             await conn.execute(
+                 "INSERT INTO tb_clientes (id, nombre_fiscal) VALUES ($1, $2)",
+                 new_id, nombre_clean
+             )
+             return new_id
+
+    async def create_oportunidad(self, conn, datos_form: dict) -> UUID:
+        try:
+            # 1. Preparar datos auxiliares
+            cliente_id = await self.get_or_create_cliente(conn, datos_form['nombre_cliente'])
+            timestamp_id = datetime.now().strftime('%y%m%d%H%M')
+            
+            # Generamos códigos Legacy
+            titulo_proyecto = f"{datos_form['tipo_solicitud']}_{datos_form['nombre_cliente']}_{datos_form['nombre_proyecto']}_{datos_form['tipo_tecnologia']}_{datos_form['canal_venta']}".upper()
+            id_interno_simulacion = f"OP - {timestamp_id}_{datos_form['nombre_proyecto']}_{datos_form['nombre_cliente']}".upper()[:50]
+            op_id_estandar = f"OP-{timestamp_id}" # Requerido por tu esquema NOT NULL
+            
+            deadline = self.calcular_deadline()
+            status_global = "Pendiente"
+            
+            # ID Dummy para creado_por_id (Requerido NOT NULL en tu esquema)
+            # Cuando tengas Auth real, esto vendrá del token.
+            dummy_user_id = UUID('00000000-0000-0000-0000-000000000000')
+
+            # Query corregida: Mapeo exacto a columnas
+            query = """
+                INSERT INTO tb_oportunidades (
+                    -- Campos Legacy Nuevos
+                    titulo_proyecto, nombre_proyecto, canal_venta, solicitado_por,
+                    tipo_tecnologia, tipo_solicitud, cantidad_sitios, prioridad,
+                    direccion_obra, coordenadas_gps, google_maps_link, sharepoint_folder_url,
+                    deadline_calculado, codigo_generado, id_interno_simulacion,
+                    fecha_solicitud, email_enviado, 
+                    
+                    -- Campos Originales
+                    id_oportunidad,
+                    creado_por_id,
+                    op_id_estandar,
+                    cliente_nombre,
+                    status_global, 
+                    cliente_id
+                ) 
+                VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), FALSE,
+                    $16, $17, $18, $19, $20, $21
+                )
+                RETURNING id_oportunidad
+            """
+            
+            # Generamos UUID para el insert manual (para evitar problemas con gen_random_uuid si no está activo)
+            new_uuid = uuid4()
+
+            oportunidad_id = await conn.fetchval(
+                query,
+                titulo_proyecto,                  # 1
+                datos_form['nombre_proyecto'],    # 2
+                datos_form['canal_venta'],        # 3
+                datos_form['canal_venta'],        # 4 (Solicitado por)
+                datos_form['tipo_tecnologia'],    # 5
+                datos_form['tipo_solicitud'],     # 6
+                int(datos_form['cantidad_sitios']),# 7
+                datos_form['prioridad'],          # 8
+                datos_form['direccion_obra'],     # 9
+                datos_form['coordenadas_gps'],    # 10
+                datos_form['google_maps_link'],   # 11
+                datos_form['sharepoint_folder_url'], # 12
+                deadline,                         # 13
+                titulo_proyecto,                  # 14 (Codigo generado)
+                id_interno_simulacion,            # 15
+                
+                new_uuid,                         # 16 (id_oportunidad)
+                dummy_user_id,                    # 17 (creado_por_id)
+                op_id_estandar,                   # 18 (op_id_estandar)
+                datos_form['nombre_cliente'],     # 19 (cliente_nombre)
+                status_global,                    # 20 (status_global)
+                cliente_id                        # 21 (cliente_id FK)
+            )
+            
+            return oportunidad_id
+            
+        except Exception as e:
+            logger.error(f"Error creando oportunidad: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Error BD: {e}"
+            )
+            
+    # El método process_multisitio_excel se queda igual...
+    async def process_multisitio_excel(self, conn, id_oportunidad: UUID, file: UploadFile) -> int:
+        # ... (código existente)
+        try:
+            # 1. Obtener cantidad declarada en BD
+            cant_declarada = await conn.fetchval(
+                "SELECT cantidad_sitios FROM tb_oportunidades WHERE id_oportunidad = $1", 
+                id_oportunidad
+            )
+            
+            contents = await file.read()
+            df = pd.read_excel(io.BytesIO(contents), engine='openpyxl')
+            df.columns = [str(c).strip().upper() for c in df.columns]
+            
+            cols_req = ["NOMBRE", "DIRECCION"]
+            if not all(col in df.columns for col in cols_req):
+                raise ValueError(f"Faltan columnas: {cols_req}")
+
+            # 2. VALIDACIÓN DE CANTIDAD (NUEVO)
+            cant_real = len(df)
+            if cant_real != cant_declarada:
+                raise ValueError(
+                    f"Discrepancia de sitios: Declaraste {cant_declarada} en el paso anterior, "
+                    f"pero el archivo contiene {cant_real} filas."
+                )
+
+            # OJO: Aquí también corregimos para usar id_oportunidad en el WHERE
+            await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
+            
+            records = []
+            for _, row in df.iterrows():
+                records.append((
+                    uuid4(), # id_sitio (según tu radiografía)
+                    id_oportunidad,
+                    str(row.get("NOMBRE", "")).strip(),
+                    str(row.get("DIRECCION", "")).strip(),
+                    str(row.get("TARIFA", "")).strip() if row.get("TARIFA") else None,
+                    str(row.get("LINK GOOGLE", "")).strip() if row.get("LINK GOOGLE") else None
+                ))
+
+            # Ajustamos INSERT a tb_sitios_oportunidad según radiografía
+            q = """
+                INSERT INTO tb_sitios_oportunidad (
+                    id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link
+                ) VALUES ($1, $2, $3, $4, $5, $6)
+            """
+            if records:
+                await conn.executemany(q, records)
+            return len(records)
+
+        except Exception as e:
+            logger.error(f"Error Excel: {e}")
+            raise HTTPException(500, f"Error Excel: {e}")
+
+
+# ----------------------------------------
+# DEPENDENCIES
+# ----------------------------------------
+def get_comercial_service():
+    return ComercialService()
+
+# ----------------------------------------
+# ENDPOINTS
 # ----------------------------------------
 
 @router.get("/ui", include_in_schema=False)
 async def get_comercial_ui(request: Request):
-    """Renderiza la vista inicial del Módulo Comercial (Formulario de Solicitud)."""
-    # Usaremos una vista específica: templates/comercial/form.html
-    return templates.TemplateResponse(
-        "comercial/form.html",
-        {"request": request, "page_title": "Módulo Comercial: Solicitud de Oportunidad"}
-    )
+    return templates.TemplateResponse("comercial/form.html", {"request": request})
 
-# --- Capa de Servicio Simulada (Service Layer) ---
-# En un proyecto real, esta clase manejaría el CRUD con Supabase (asyncpg)
-
-class ComercialService:
-    """Implementa la lógica de negocio del módulo Comercial."""
-
-    @staticmethod
-    def generar_op_id() -> str:
-        """
-        Genera el ID Estándar: OP-YYMMDDhhmm... 
-        (Formato estricto requerido por el Contexto)
-        """
-        # Formato: OP-YYMMDDhhmm... (se incluye segundos para mayor unicidad)
-        timestamp = datetime.now().strftime("%y%m%d%H%M%S") 
-        return f"OP-{timestamp}"
-
-    # Simulación de la función que interactuaría con la DB
-    async def create_oportunidad(self, data: OportunidadCreate) -> OportunidadRead:
-        """Crea Oportunidad, genera ID y la inserta en tb_oportunidades."""
-        
-        op_id = self.generar_op_id()
-        
-        # --- LÓGICA DE INSERCIÓN EN SUPABASE IRÍA AQUÍ ---
-        # data_to_insert = {..., "op_id_estandar": op_id, "status_global": "Comercial"}
-        # await db.fetch_one(QUERY_INSERT)
-        
-        # Simulación de respuesta de la DB
-        db_data = {
-            "id_oportunidad": uuid4(), 
-            "op_id_estandar": op_id,
-            "cliente_nombre": data.cliente_nombre,
-            "status_global": "Comercial",
-            "fecha_creacion": datetime.now(),
-            "creado_por_id": data.creado_por_id
-        }
-        # Usamos model_validate para convertir el dict de la DB simulada a Pydantic
-        return OportunidadRead.model_validate(db_data, from_attributes=True)
+@router.get("/plantilla", response_class=StreamingResponse)
+async def descargar_plantilla_sitios():
+    """Genera y descarga la plantilla Excel oficial."""
+    # Columnas actualizadas según requerimiento
+    cols = ["#", "NOMBRE", "# DE SERVICIO", "TARIFA", "LINK GOOGLE", "DIRECCION", "COMENTARIOS"]
+    df = pd.DataFrame(columns=cols)
     
-    # ----------------------------------------------------
-    # Procesamiento y Carga de Excel Multisitio
-    # ----------------------------------------------------
-    async def process_multisitio_excel(self, id_oportunidad: UUID, file: UploadFile) -> int:
-        """
-        Procesa el archivo Excel y extrae los sitios.
-        """
-        
-        # 1. Leer el archivo cargado en memoria
-        content = await file.read()
-        try:
-            # Usamos io.BytesIO para que Pandas pueda leer el contenido binario
-            df = pd.read_excel(io.BytesIO(content), engine='openpyxl')
-        except Exception as e:
-            # Esto captura errores de formato o corrupción del Excel
-            print(f"Error al leer Excel: {e}")
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, 
-                detail="Error al procesar el Excel. Asegúrate que el formato sea correcto."
-            )
-        
-        # 2. Mapeo y Validación de Columnas (Asumimos que el Excel tiene estas columnas)
-        required_columns = ['Direccion', 'Coordenadas', 'Tipo Tarifa']
-        if not all(col in df.columns for col in required_columns):
-             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST, 
-                detail=f"El Excel debe contener las columnas: {', '.join(required_columns)}"
-            )
+    # Fila de ejemplo actualizada
+    df.loc[0] = [1, "SUCURSAL NORTE", "123456789012", "GDMTO", "http://maps...", "Av. Reforma 123", "ejemplo de coments"]
+    
+    # Guardar en buffer de memoria
+    buffer = io.BytesIO()
+    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
+        df.to_excel(writer, index=False, sheet_name='Sitios')
+    buffer.seek(0)
+    
+    headers = {"Content-Disposition": 'attachment; filename="plantilla_sitios_enertika.xlsx"'}
+    return StreamingResponse(buffer, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-        sitios_a_insertar: List[SitioOportunidadBase] = []
-        
-        for index, row in df.iterrows():
-            try:
-                # Se valida contra el schema Pydantic para asegurar tipos de datos
-                sitios_a_insertar.append(SitioOportunidadBase(
-                    direccion=str(row['Direccion']),
-                    coordenadas=str(row['Coordenadas']) if pd.notna(row['Coordenadas']) else None,
-                    tipo_tarifa=str(row['Tipo Tarifa']) if pd.notna(row['Tipo Tarifa']) else None
-                ))
-            except Exception as e:
-                # Captura errores en la fila específica
-                print(f"Error de validación en la fila {index}: {e}")
-                # Podrías registrar el error y continuar, o detener la carga.
-                continue 
-            
-        # 3. Lógica de inserción MÚLTIPLE en tb_sitios_oportunidad (Supabase)
-        # Aquí iría el bucle o el método bulk_insert(sitios_a_insertar)
-        # Ej: await db.execute("INSERT INTO tb_sitios_oportunidad (id_oportunidad, ...) VALUES (%s, %s, ...)", [id_oportunidad, ...])
-
-        sitios_cargados_count = len(sitios_a_insertar)
-        # if sitios_cargados_count == 0:
-        #     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="No se encontraron sitios válidos para cargar.")
-
-        return sitios_cargados_count
-
-    # NUEVO MÉTODO: Envío de Correo (Acción Final del Módulo Comercial)
-    async def send_simulacion_email(self, auth_service: MicrosoftAuth, email_data: dict, file_paths: List[str]) -> bool:
-        """
-        Llama a la capa de MicrosoftAuth para enviar el correo al departamento de Simulación.
-        """
-        try:
-            # Reconstruimos la lista de archivos para Graph API
-            attachments = [{"name": os.path.basename(p), "path": p} for p in file_paths]
-            
-            # Dirección de Simulación (Debe estar en settings o db)
-            recipients = ["simulacion@enertika.mx", "direccion@enertika.mx"] # EJEMPLO
-            
-            # Usamos el método existente del legacy
-            exito, mensaje = auth_service.send_email_with_attachments(
-                subject=email_data['subject'],
-                body=email_data['body'],
-                recipients=recipients,
-                attachments_files=attachments
-            )
-            
-            if not exito:
-                raise Exception(f"Fallo en Graph API: {mensaje}")
-            
-            # Si el envío fue exitoso, actualiza el status en la DB.
-            # Aquí iría la lógica: await conn.execute("UPDATE tb_oportunidades SET email_enviado=TRUE WHERE id=$1", email_data['oportunidad_id'])
-
-            return True
-            
-        except Exception as e:
-            print(f"Error al enviar correo: {e}")
-            # El router capturará esto y lo devolverá como un 500
-            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Error al enviar solicitud: {e}")
-
-
-def get_comercial_service():
-    """Dependencia para inyectar la capa de servicio."""
-    return ComercialService()
-
-
-# --- Endpoints ---
-
-@router.post("/", response_model=OportunidadRead, status_code=status.HTTP_201_CREATED)
-async def crear_oportunidad_endpoint(
-    oportunidad: OportunidadCreate,
-    service: ComercialService = Depends(get_comercial_service)
+@router.post("/", status_code=status.HTTP_201_CREATED)
+async def handle_oportunidad_creation(
+    request: Request,
+    # --- Coincidencia exacta con los 'name'  ---
+    nombre_cliente: str = Form(...),
+    nombre_proyecto: str = Form(...),
+    canal_venta: str = Form(...),
+    tipo_tecnologia: str = Form(...),
+    tipo_solicitud: str = Form(...),
+    cantidad_sitios: int = Form(...), # Asegura que el input HTML tenga value por defecto o type="number"
+    prioridad: str = Form(...),
+    direccion_obra: str = Form(...),
+    google_maps_link: str = Form(...),
+    # Campos Opcionales (Deben tener default=None)
+    coordenadas_gps: Optional[str] = Form(None),
+    sharepoint_folder_url: Optional[str] = Form(None),
+    # Inyecciones de Dependencia
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection) 
 ):
-    """
-    Crea una nueva oportunidad y genera automáticamente el ID Estándar (OP-YYMMDDhhmm...).
-    """
-    return await service.create_oportunidad(oportunidad)
-
-@router.post("/multisitio/{id_oportunidad}", status_code=status.HTTP_200_OK)
-async def cargar_multisitio_endpoint(
-    id_oportunidad: UUID,
-    # UploadFile maneja el archivo binario
-    file: UploadFile = File(..., description="Archivo Excel con la lista de sitios."),
-    service: ComercialService = Depends(get_comercial_service)
-):
-    """
-    Procesa un archivo Excel, valida el tipo de archivo y carga múltiples sitios 
-    vinculados a una oportunidad usando Pandas.
-    """
-    # Validar tipo de archivo antes de leer
-    if file.content_type not in [
-        "application/vnd.ms-excel", 
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    ]:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Tipo de archivo no soportado. Debe ser un archivo Excel (.xls o .xlsx)."
-        )
+    # 1. Empaquetamos datos
+    datos_form = {
+        "nombre_cliente": nombre_cliente,
+        "nombre_proyecto": nombre_proyecto,
+        "canal_venta": canal_venta,
+        "tipo_tecnologia": tipo_tecnologia,
+        "tipo_solicitud": tipo_solicitud,
+        "cantidad_sitios": cantidad_sitios,
+        "prioridad": prioridad,
+        "direccion_obra": direccion_obra,
+        "google_maps_link": google_maps_link,
+        "coordenadas_gps": coordenadas_gps,
+        "sharepoint_folder_url": sharepoint_folder_url
+    }
 
     try:
-        sitios_cargados = await service.process_multisitio_excel(id_oportunidad, file)
-        return {
-            "mensaje": f"Carga de multisitio completada. {sitios_cargados} sitios listos para inserción.",
-            "sitios_cargados": sitios_cargados
-        }
-    except HTTPException as e:
-        # Re-lanza la HTTPException con el código de error específico
-        raise e
-    except Exception:
-        # Captura cualquier otro error no esperado
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Error interno del servidor durante la carga del archivo."
+        # 2. Llamada al servicio
+        oportunidad_id = await service.create_oportunidad(conn, datos_form)
+        
+        # 3. Recuperar datos visuales para el Paso 2
+        row = await conn.fetchrow(
+            "SELECT id_interno_simulacion, codigo_generado FROM tb_oportunidades WHERE id_oportunidad = $1", 
+            oportunidad_id
         )
 
-# --- NUEVO ENDPOINT PARA EL ENVÍO FINAL ---
+        # 4. Renderizar respuesta (Paso 2: Multisitio)
+        if cantidad_sitios >= 1: # Nota: Ajustado a >= 1 para mostrar siempre el paso 2 y confirmar/cargar
+            return templates.TemplateResponse(
+                "comercial/multisitio_form.html",
+                {
+                    "request": request,
+                    "oportunidad_id": oportunidad_id, 
+                    "nombre_cliente": nombre_cliente,
+                    "id_interno": row['id_interno_simulacion'],
+                    "codigo_generado": row['codigo_generado'],
+                    "cantidad_declarada": cantidad_sitios
+                }
+            )
+            
+    except HTTPException as e:
+        return templates.TemplateResponse(
+            "comercial/error_message.html", 
+            {"request": request, "detail": e.detail},
+            status_code=e.status_code
+        )
 
-class EmailSendRequest(BaseModel):
-    oportunidad_id: UUID
-    subject: str
-    body: str
-    # Lista de rutas temporales o URLs de almacenamiento (depende del modo web/desktop)
-    attached_files: List[str] 
-
-@router.post("/send_request", status_code=status.HTTP_200_OK)
-async def enviar_solicitud_simulacion(
-    data: EmailSendRequest,
-    service: ComercialService = Depends(get_comercial_service),
-    ms_auth: MicrosoftAuth = Depends(get_ms_auth) # <--- INYECTAMOS MS AUTH
+# (El endpoint de Excel se mantiene igual, asegúrate de que esté incluido en tu archivo)
+@router.delete("/{id_oportunidad}", status_code=204)
+async def cancelar_oportunidad(
+    id_oportunidad: UUID, 
+    conn = Depends(get_db_connection)
 ):
-    """
-    Finaliza el proceso Comercial: Guarda la Oportunidad en BD y envía el correo a Simulación.
-    """
-    email_data = {
-        "subject": data.subject,
-        "body": data.body,
-        "oportunidad_id": data.oportunidad_id
-    }
-    
-    await service.send_simulacion_email(ms_auth, email_data, data.attached_files)
-    
-    return {"mensaje": "Solicitud enviada a Simulación exitosamente y registrada."}
+    """Elimina una oportunidad en borrador (Limpieza de fantasmas)."""
+    # Primero borramos sitios hijos por FK
+    await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
+    # Borramos cabecera
+    await conn.execute("DELETE FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
+    return 
+@router.post("/multisitio/{id_oportunidad}", status_code=status.HTTP_200_OK, response_class=HTMLResponse)
+async def cargar_multisitio_endpoint(
+    request: Request,
+    id_oportunidad: str, # Recibe UUID como string
+    file: UploadFile = File(...),
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection)
+):
+    # Usar id_oportunidad convertido a UUID si la base de datos es estricta
+    try:
+        uuid_op = UUID(id_oportunidad)
+    except:
+        uuid_op = id_oportunidad # Intentamos como string si falla
 
-# Agregamos la ruta de lectura de oportunidad básica para verificación
-@router.get("/{op_id}", response_model=OportunidadRead)
-def get_oportunidad_by_op_id(op_id: str):
-    """Obtiene una Oportunidad por su ID Estándar."""
-    # En la implementación real, esta función llama a service.get_oportunidad(op_id)
-    raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail="Endpoint de lectura aún no implementado en la capa de servicio.")
+    try:
+        cantidad = await service.process_multisitio_excel(conn, uuid_op, file)
+        return HTMLResponse(content=f"""
+        <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4 animate-fade-in-down" role="alert">
+            <p class="font-bold">Carga Masiva Exitosa</p>
+            <p>Se cargaron {cantidad} sitios correctamente.</p>
+        </div>
+        """, status_code=200)
+        
+    except ValueError as e:
+        return HTMLResponse(content=f"""
+        <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mt-4 animate-fade-in-down" role="alert">
+            <p class="font-bold">Atención</p>
+            <p>{str(e)}</p>
+        </div>
+        """, status_code=200)
+
+    except Exception as e:
+         logger.error(f"Error carga multisitio: {e}")
+         return HTMLResponse(content=f"""
+            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mt-4 animate-fade-in-down" role="alert">
+                <p class="font-bold">Error procesando archivo</p>
+                <p>{str(e)}</p>
+            </div>
+        """, status_code=200)

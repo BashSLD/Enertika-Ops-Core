@@ -32,8 +32,8 @@ async def root(request: Request):
     """Endpoint principal que renderizará la vista HTMX/Dashboard inicial."""
     # Ejemplo de renderizado con Jinja2 (para la UI/UX)
     return templates.TemplateResponse(
-        "index.html",
-        {"request": request, "app_name": "Enertika Ops Core Dashboard"}
+        "base.html",
+        {"request": request, "app_name": "Enertika Ops Core"}
     )
     
 # Si quisieras levantar el servidor: uvicorn main:app --reload

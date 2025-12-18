@@ -40,12 +40,12 @@ async def close_db_connection():
         await _connection_pool.close()
         _connection_pool = None
 
-async def get_db_connection() -> asyncpg.Connection:
+async def get_db_connection():
     """Dependencia de FastAPI para obtener una conexión del pool."""
     if not _connection_pool:
         # En caso de que se intente usar antes del startup
         raise Exception("El pool de conexiones no está inicializado. Verifique el log de startup.")
         
     # Usamos pool.acquire() como un gestor de contexto (with), que la libera automáticamente.
-    # El usuario de FastAPI solo necesita la conexión.
-    return _connection_pool.acquire()
+    async with _connection_pool.acquire() as conn:
+        yield conn

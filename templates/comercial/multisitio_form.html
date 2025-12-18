@@ -1,0 +1,52 @@
+<div class="space-y-6 animate-fade-in-down">
+
+    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+        <div class="flex justify-between items-start">
+            <div>
+                <h3 class="text-lg font-bold text-[#123456]">Paso 2: Carga Masiva de Sitios</h3>
+                <p class="text-sm text-gray-600 mt-1">Cliente: <strong>{{ nombre_cliente }}</strong></p>
+            </div>
+            <div class="text-right">
+                <p class="text-xs text-gray-500 font-mono">{{ id_interno }}</p>
+                <p class="text-md font-bold text-[#00BABB]">{{ codigo_generado }}</p>
+            </div>
+        </div>
+        <div class="mt-2 text-xs text-orange-600 bg-orange-50 px-2 py-1 rounded inline-block">
+            ⚠️ Esperando archivo con <strong>{{ cantidad_declarada }}</strong> sitios.
+        </div>
+    </div>
+
+    <div class="bg-white p-6 rounded-lg shadow">
+        <div class="mb-6 flex justify-end">
+            <a href="/comercial/plantilla" target="_blank"
+                class="flex items-center gap-2 text-sm text-green-700 hover:text-green-900 font-semibold border border-green-200 bg-green-50 px-3 py-2 rounded hover:bg-green-100 transition">
+                <span>📥 Descargar Plantilla Excel</span>
+            </a>
+        </div>
+
+        <form hx-post="/comercial/multisitio/{{ oportunidad_id }}" hx-encoding="multipart/form-data"
+            hx-target="#upload-result" class="space-y-4">
+
+            <div
+                class="space-y-2 border-dashed border-2 border-gray-300 p-6 rounded-lg text-center hover:bg-[#dfddd9]/20 transition">
+                <input type="file" name="file" accept=".xlsx, .xls" required
+                    class="block w-full text-sm text-[#262626] file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-[#123456] file:text-white hover:file:bg-[#0E2A47] cursor-pointer focus:ring-[#00BABB] focus:border-[#00BABB]">
+            </div>
+
+            <div class="flex justify-between items-center pt-4">
+                <button type="button" hx-delete="/comercial/{{ oportunidad_id }}"
+                    hx-confirm="¿Seguro que deseas cancelar? Se borrará el registro." hx-target="closest div.space-y-6"
+                    hx-swap="outerHTML" class="text-red-500 hover:text-red-700 text-sm font-medium px-4 py-2">
+                    Cancelar Proceso
+                </button>
+
+                <button type="submit"
+                    class="bg-[#123456] text-white px-6 py-2 rounded shadow hover:bg-[#0E2A47] transition duration-150 border-b-4 border-[#0A1F35] active:border-b-0">
+                    Procesar Carga
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <div id="upload-result"></div>
+</div>

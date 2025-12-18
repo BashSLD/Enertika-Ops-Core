@@ -1,52 +1,54 @@
 <!DOCTYPE html>
 <html lang="es">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Enertika Ops Core | {{ app_name }}</title>
-    
-    <script src="https://cdn.tailwindcss.com"></script>
-    
-    <script src="https://unpkg.com/htmx.org@1.9.10" integrity="sha384-D1Kt99CQgOAS6B9uPRiInLzN2gT70GkCK4zW8pnyC2d7syU84XpqqEyE8ISMyFho" crossorigin="anonymous"></script>
 
-    <script src="https://unpkg.com/htmx.org/ext/json-enc.js"></script> 
+    <script src="https://cdn.tailwindcss.com"></script>
+
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+
+    <script src="https://unpkg.com/htmx.org/ext/json-enc.js"></script>
+    <style>
+        @keyframes fadeInDown {
+            from {
+                opacity: 0;
+                transform: translate3d(0, -20px, 0);
+            }
+
+            to {
+                opacity: 1;
+                transform: translate3d(0, 0, 0);
+            }
+        }
+
+        .animate-fade-in-down {
+            animation: fadeInDown 0.5s ease-out;
+        }
+    </style>
 </head>
+
 <body class="bg-gray-100">
 
     <div class="flex h-screen">
-        
+
         <aside class="w-64 bg-gray-800 text-white p-4 space-y-4">
             <h1 class="text-2xl font-bold border-b border-gray-700 pb-4">{{ app_name }}</h1>
-            
+
             <nav class="space-y-2">
-                <a 
-                    href="#" 
-                    hx-get="/comercial/ui" 
-                    hx-target="#main-content" 
-                    hx-swap="innerHTML"
-                    class="block p-2 rounded hover:bg-gray-700 transition duration-150"
-                >
-                    Módulo Comercial
+                <a href="#" hx-get="/comercial/ui" hx-target="#main-content" hx-swap="innerHTML"
+                    class="block p-2 rounded hover:bg-gray-700 transition duration-150">
+                    Comercial </a>
+                <a href="#" hx-get="/simulacion/ui" hx-target="#main-content" hx-swap="innerHTML"
+                    class="block p-2 rounded hover:bg-gray-700 transition duration-150">
+                    Simulación </a>
+                <a href="#" hx-get="/levantamientos/ui" hx-target="#main-content" hx-swap="innerHTML"
+                    class="block p-2 rounded hover:bg-gray-700 transition duration-150">
+                    Levantamientos
                 </a>
-                <a 
-                    href="#" 
-                    hx-get="/simulacion/ui" 
-                    hx-target="#main-content" 
-                    hx-swap="innerHTML"
-                    class="block p-2 rounded hover:bg-gray-700 transition duration-150"
-                >
-                    Módulo Simulación
-                </a>
-                <a 
-                    href="#" 
-                    hx-get="/levantamientos/ui" 
-                    hx-target="#main-content" 
-                    hx-swap="innerHTML"
-                    class="block p-2 rounded hover:bg-gray-700 transition duration-150"
-                >
-                    Módulo Levantamientos
-                </a>
-                </nav>
+            </nav>
         </aside>
 
         <main id="main-content" class="flex-1 overflow-y-auto p-8">
@@ -58,4 +60,5 @@
     </div>
 
 </body>
+
 </html>

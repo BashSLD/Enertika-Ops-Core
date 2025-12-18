@@ -14,3 +14,4 @@ python-multipart       # Para manejo de UploadFile (Excel Multisitio)
 pandas                 # Para el procesamiento de Excel Multisitio
 openpyxl               # Backend necesario para que Pandas lea .xlsx
 msal
+xlsxwriter

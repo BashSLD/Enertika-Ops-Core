@@ -1,25 +1,114 @@
-<div class="space-y-6">
-    <h2 class="text-3xl font-light text-gray-700">Módulo Comercial: Registro y Carga Multisitio</h2>
-    
-    <div class="bg-white p-6 rounded-lg shadow">
-        <h3 class="text-xl font-semibold mb-4 text-gray-800">Paso 1: Datos de la Oportunidad</h3>
-        <form hx-post="/comercial/" hx-target="#oportunidad-status" hx-swap="outerHTML" class="space-y-4">
-            
-            <input type="text" name="nombre_cliente" placeholder="Nombre del Cliente" required 
-                   class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500">
-            
-            <input type="email" name="email_contacto" placeholder="Email de Contacto" required
-                   class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500">
-            
-            <textarea name="descripcion" placeholder="Descripción breve de la oportunidad" 
-                      class="w-full p-2 border border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500"></textarea>
-
-            <button type="submit" class="bg-blue-600 text-white p-2 rounded hover:bg-blue-700 transition duration-150">
-                Crear Oportunidad
-            </button>
-        </form>
+<div class="space-y-6 animate-fade-in-down">
+    <div class="flex justify-between items-center">
+        <h2 class="text-2xl font-bold text-[#123456]">Nueva Solicitud Comercial</h2>
+        <span class="text-sm text-gray-500">Paso 1 de 2: Datos del Proyecto</span>
     </div>
 
-    <div id="oportunidad-status">
+    <form hx-post="/comercial/" hx-target="#main-content" hx-swap="innerHTML"
+        class="space-y-6 bg-white p-6 rounded-lg shadow-md border-t-4 border-[#123456]">
+
+        <div>
+            <h3 class="text-lg font-semibold text-[#123456] mb-3 border-b pb-1">Datos Generales</h3>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-[#262626]">Nombre del Cliente *</label>
+                    <input type="text" name="nombre_cliente" required
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm p-2 border"
+                        placeholder="Ej. AMAZON MÉXICO">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-[#262626]">Nombre del Proyecto *</label>
+                    <input type="text" name="nombre_proyecto" required
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm p-2 border"
+                        placeholder="Ej. CEDIS TEPOTZOTLAN">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-[#262626]">Canal de Venta *</label>
+                    <input type="text" name="canal_venta" required
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm p-2 border">
+                </div>
+            </div>
         </div>
+
+        <div>
+            <h3 class="text-lg font-semibold text-[#123456] mb-3 border-b pb-1">Especificaciones</h3>
+            <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-[#262626]">Tecnología</label>
+                    <select name="tipo_tecnologia"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm p-2 border">
+                        <option value="FV">FV</option>
+                        <option value="BESS">BESS</option>
+                        <option value="FV + BESS">FV + BESS</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-[#262626]">Tipo Solicitud</label>
+                    <select name="tipo_solicitud"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm p-2 border">
+                        <option value="PRE OFERTA">PRE OFERTA</option>
+                        <option value="LICITACION">LICITACION</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-[#262626]">Cant. Sitios *</label>
+                    <input type="number" name="cantidad_sitios" value="1" min="1" required
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm p-2 border">
+                    <p class="text-xs text-gray-500 mt-1">Requiere confirmación en Paso 2</p>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Prioridad</label>
+                    <select name="prioridad"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border">
+                        <option value="Normal">Normal</option>
+                        <option value="Low">Low</option>
+                        <option value="High">High</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
+        <div>
+            <h3 class="text-lg font-semibold text-[#123456] mb-3 border-b pb-1">Ubicación y Referencias</h3>
+            <div class="grid grid-cols-1 gap-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Dirección (Obligatorio)</label>
+                    <input type="text" name="direccion_obra" required
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border">
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-blue-700">Link Google Maps (Obligatorio)</label>
+                        <input type="text" name="google_maps_link" required
+                            placeholder="Pegar link o texto de ubicación"
+                            class="mt-1 block w-full rounded-md border-blue-200 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2 border text-blue-800">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700">Coordenadas GPS</label>
+                        <input type="text" name="coordenadas_gps" placeholder="Ej: 19.4326, -99.1332"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm p-2 border">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-700">Link Carpeta SharePoint (Opcional)</label>
+                    <div class="mt-1 flex rounded-md shadow-sm">
+                        <span
+                            class="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">
+                            📂
+                        </span>
+                        <input type="url" name="sharepoint_folder_url"
+                            class="flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md border-gray-300 focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm border"
+                            placeholder="https://enertika.sharepoint.com/...">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex justify-end pt-4">
+            <button type="submit"
+                class="bg-[#123456] text-white px-6 py-2 rounded shadow hover:bg-blue-900 transition duration-150 font-semibold">
+                Guardar y Continuar
+            </button>
+        </div>
+    </form>
 </div>
