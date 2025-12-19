@@ -58,12 +58,21 @@ class MicrosoftAuth:
                 # Obtenemos ruta y nombre
                 # Maneja tanto objetos con atributo .path como diccionarios con clave 'path'
                 path = file_obj.path if hasattr(file_obj, "path") else (file_obj.get("path") if isinstance(file_obj, dict) else file_obj)
+                
+                # Check for in-memory bytes content
+                content_bytes = None
+                if isinstance(file_obj, dict) and "content_bytes" in file_obj:
+                    content_bytes = file_obj["content_bytes"]
+                    path = "in-memory-file" # Placeholder
+
                 name = file_obj.name if hasattr(file_obj, "name") else (file_obj.get("name") if isinstance(file_obj, dict) else os.path.basename(path))
                 
                 print(f"Procesando adjunto: {name} desde {path}")
 
-                with open(path, "rb") as f:
-                    content_bytes = f.read()
+                if content_bytes is None:
+                    # Si no vino en bytes, leemos de disco
+                    with open(path, "rb") as f:
+                        content_bytes = f.read()
                 
                 # Codificar a Base64
                 b64_content = base64.b64encode(content_bytes).decode("utf-8")

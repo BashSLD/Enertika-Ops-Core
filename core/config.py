@@ -27,6 +27,6 @@ class Settings(BaseSettings):
     REDIRECT_URI: str = os.getenv("REDIRECT_URI", "http://localhost:8000/auth/callback")
     
     AUTHORITY_URL: str = f"https://login.microsoftonline.com/{GRAPH_TENANT_ID}"
-    GRAPH_SCOPES: str = "User.Read Mail.Send Files.ReadWrite.All Sites.Read.All"
+    GRAPH_SCOPES: str = "openid profile email User.Read Mail.Send Files.ReadWrite.All Sites.Read.All"
 
 settings = Settings()

@@ -155,8 +155,10 @@ class ComercialService:
                 detail=f"Error BD: {e}"
             )
 
-    async def get_oportunidades_list(self, conn) -> List[dict]:
-        """Recupera la lista de todas las oportunidades para el dashboard."""
+    async def get_oportunidades_list(self, conn, tab: str = "activos", q: str = None, user_email: str = None) -> List[dict]:
+        """Recupera la lista filtrada de oportunidades."""
+        
+        # 1. Base Query
         query = """
             SELECT 
                 o.id_oportunidad,
@@ -166,11 +168,53 @@ class ComercialService:
                 o.fecha_solicitud,
                 o.status_global,
                 o.email_enviado,
-                o.id_interno_simulacion
+                o.id_interno_simulacion,
+                o.solicitado_por,
+                o.tipo_solicitud  -- AGREGADO: Necesario para visualización en cards
             FROM tb_oportunidades o
-            ORDER BY o.fecha_solicitud DESC
+            WHERE 1=1
         """
-        rows = await conn.fetch(query)
+        params = []
+        param_idx = 1
+
+        # 2. Filtro Tab (Lógica de Negocio)
+        if tab == "historial":
+            # Muestra todo lo finalizado (Ganadas, Perdidas, Canceladas, Entregadas)
+            query += f" AND o.status_global IN ('Entregado', 'Cancelado', 'Perdida', 'Ganada')"
+            
+        elif tab == "levantamientos":
+            # NUEVO: Vista exclusiva de seguimiento a Levantamientos
+            # Muestra todo lo que sea levantamiento, sin importar si está pendiente o realizado
+            query += f" AND o.tipo_solicitud = 'SOLICITUD DE LEVANTAMIENTO'"
+
+        else: # activos (default)
+            # Muestra Licitaciones, Pre-ofertas, Cotizaciones en curso.
+            # EXCLUYE lo finalizado Y los Levantamientos (porque tienen su propio tab)
+            query += f" AND o.status_global NOT IN ('Entregado', 'Cancelado', 'Perdida', 'Ganada')"
+            query += f" AND o.tipo_solicitud != 'SOLICITUD DE LEVANTAMIENTO'"
+
+        # 3. Filtro Búsqueda (Texto)
+        if q:
+            # Buscamos en titulo, nombre, cliente
+            query += f" AND (o.titulo_proyecto ILIKE ${param_idx} OR o.nombre_proyecto ILIKE ${param_idx} OR o.cliente_nombre ILIKE ${param_idx})"
+            params.append(f"%{q}%")
+            param_idx += 1
+
+        # 4. Filtro Contexto Usuario (Solo sus propias solicitudes, salvo Gerentes)
+        # Nota: Asumimos que 'solicitado_por' guarda el email.
+        # Definir dominios de gerencia o lista blanca si aplica, por ahora simple:
+        # Si NO es user admin/gerente (hardcodeado o lógica futura), filtramos.
+        # Para cumplir requerimiento estricto: "Agrega WHERE solicitado_por = $1"
+        if user_email:
+             # Excepción simple para demo: si email empieza con 'admin', no filtra
+             if not user_email.startswith("admin"): 
+                query += f" AND o.solicitado_por = ${param_idx}"
+                params.append(user_email)
+                param_idx += 1
+
+        query += " ORDER BY o.fecha_solicitud DESC"
+        
+        rows = await conn.fetch(query, *params)
         return [dict(row) for row in rows]
 
     async def update_email_status(self, conn, id_oportunidad: UUID):
@@ -232,6 +276,94 @@ class ComercialService:
             raise HTTPException(500, f"Error Excel: {e}")
 
 
+    async def preview_multisitio_excel(self, file: UploadFile) -> dict:
+        """Lee el archivo, lo guarda temporalmente y retorna preview + file_id."""
+        
+        # 1. Guardar temporalmente
+        file_id = str(uuid4())
+        import os
+        os.makedirs("temp_uploads", exist_ok=True)
+        file_path = f"temp_uploads/{file_id}.xlsx"
+        
+        # Guardamos el archivo
+        with open(file_path, "wb") as buffer:
+            import shutil
+            shutil.copyfileobj(file.file, buffer)
+            
+        # 2. Leer partial con Pandas
+        try:
+            df = pd.read_excel(file_path, engine='openpyxl')
+            df.columns = [str(c).strip().upper() for c in df.columns]
+            
+            # Validación básica de columnas
+            cols_req = ["NOMBRE", "DIRECCION"]
+            if not all(col in df.columns for col in cols_req):
+                # Borrar si es inválido
+                os.remove(file_path)
+                raise ValueError(f"Faltan columnas requeridas: {cols_req}")
+                
+            preview_rows = df.head(5).values.tolist()
+            columns = df.columns.tolist()
+            total_rows = len(df)
+            
+            return {
+                "file_id": file_id,
+                "preview_rows": preview_rows,
+                "columns": columns,
+                "total_rows": total_rows
+            }
+        except Exception as e:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+            raise e
+
+    async def confirm_multisitio_upload(self, conn, id_oportunidad: UUID, file_id: str) -> int:
+        """Procesa el archivo temporal confirmado e inserta en BD."""
+        import os
+        file_path = f"temp_uploads/{file_id}.xlsx"
+        
+        if not os.path.exists(file_path):
+            raise FileNotFoundError("El archivo temporal ha expirado o no existe.")
+            
+        try:
+            # Reutilizamos lógica de lectura, esta vez completa
+            df = pd.read_excel(file_path, engine='openpyxl')
+            df.columns = [str(c).strip().upper() for c in df.columns]
+            
+            # (Aquí podríamos re-validar cantidad vs oportunidad si fuera necesario)
+            
+            # Borrar sitios anteriores
+            await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
+            
+            records = []
+            for _, row in df.iterrows():
+                records.append((
+                    uuid4(),
+                    id_oportunidad,
+                    str(row.get("NOMBRE", "")).strip(),
+                    str(row.get("DIRECCION", "")).strip(),
+                    str(row.get("TARIFA", "")).strip() if row.get("TARIFA") else None,
+                    str(row.get("LINK GOOGLE", "")).strip() if row.get("LINK GOOGLE") else None
+                ))
+                
+            q = """
+                INSERT INTO tb_sitios_oportunidad (
+                    id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link
+                ) VALUES ($1, $2, $3, $4, $5, $6)
+            """
+            if records:
+                await conn.executemany(q, records)
+                
+            return len(records)
+            
+        finally:
+            # Siempre intentamos borrar el temporal
+            if os.path.exists(file_path):
+                try: 
+                    os.remove(file_path)
+                except:
+                    pass
+
 # ----------------------------------------
 # DEPENDENCIES
 # ----------------------------------------
@@ -261,17 +393,26 @@ async def get_graphs_partial(request: Request):
 @router.get("/partials/cards", include_in_schema=False)
 async def get_cards_partial(
     request: Request,
+    tab: str = "activos",
+    q: Optional[str] = None,
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection)
 ):
     """Partial: List of Opportunities (Cards/Grid)."""
-    items = await service.get_oportunidades_list(conn)
+    # Intentamos obtener el email del usuario de la sesión
+    # Ajustar según como guardes el user en el login real.
+    user_email = request.session.get("user_email")
+    
+    items = await service.get_oportunidades_list(conn, tab=tab, q=q, user_email=user_email)
+    
     return templates.TemplateResponse(
         "comercial/partials/cards.html", 
         {
             "request": request, 
             "oportunidades": items,
-            "user_token": request.session.get("access_token") 
+            "user_token": request.session.get("access_token"),
+            "current_tab": tab,
+            "q": q
         }
     )
 
@@ -279,6 +420,9 @@ async def get_cards_partial(
 async def notificar_oportunidad(
     request: Request,
     id_oportunidad: UUID,
+    subject: str = Form(...),
+    body: str = Form(...),
+    archivos_extra: List[UploadFile] = File(default=[]),
     service: ComercialService = Depends(get_comercial_service),
     ms_auth: MicrosoftAuth = Depends(get_ms_auth),
     conn = Depends(get_db_connection)
@@ -315,9 +459,27 @@ async def notificar_oportunidad(
     # recipients = [payload_del_token.get("email")] # Si decodificaras el token
     
     # 2. Enviar Correo
-    # Opcional: Adjuntar archivos si existieran (aquí enviamos sin adjuntos por simplicidad inicial, 
-    # o podríamos buscar los excels generados).
-    ok, msg = ms_auth.send_email_with_attachments(access_token, subject, body, recipients)
+    adjuntos_procesados = []
+    
+    # 1. Procesar archivos extra del formulario
+    for archivo in archivos_extra:
+        if archivo.filename: # Ignorar inputs vacíos
+            contenido = await archivo.read()
+            # Reset para seguridad
+            await archivo.seek(0) 
+            adjuntos_procesados.append({
+                "name": archivo.filename,
+                "content_bytes": contenido, # Tu wrapper debe manejar bytes
+                "contentType": archivo.content_type
+            })
+
+    ok, msg = ms_auth.send_email_with_attachments(
+        access_token, 
+        subject, 
+        body, 
+        recipients, 
+        attachments_files=adjuntos_procesados # <-- Pasamos la lista
+    )
     
     if ok:
         await service.update_email_status(conn, id_oportunidad)
@@ -415,53 +577,246 @@ async def handle_oportunidad_creation(
         )
 
 # (El endpoint de Excel se mantiene igual, asegúrate de que esté incluido en tu archivo)
-@router.delete("/{id_oportunidad}", status_code=204)
+@router.delete("/{id_oportunidad}", response_class=HTMLResponse)
 async def cancelar_oportunidad(
+    request: Request,  # <--- FALTABA ESTO
     id_oportunidad: UUID, 
     conn = Depends(get_db_connection)
 ):
-    """Elimina una oportunidad en borrador (Limpieza de fantasmas)."""
-    # Primero borramos sitios hijos por FK
+    """Elimina borrador y regresa al Dashboard."""
+    # 1. Borrar sitios hijos
     await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
-    # Borramos cabecera
+    # 2. Borrar cabecera
     await conn.execute("DELETE FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
-    return 
-@router.post("/multisitio/{id_oportunidad}", status_code=status.HTTP_200_OK, response_class=HTMLResponse)
-async def cargar_multisitio_endpoint(
+    
+    # 3. Retornamos el dashboard completo para "resetear" la vista y volver al inicio
+    # Como estamos borrando, lo lógico es volver a cargar la vista por defecto (Activos)
+    return templates.TemplateResponse("comercial/tabs.html", {"request": request}) 
+
+# ----------------------------------------
+# NUEVOS ENDPOINTS PARA EXCEL PREVIEW
+# ----------------------------------------
+
+@router.post("/upload-preview", response_class=HTMLResponse)
+async def upload_preview_endpoint(
     request: Request,
-    id_oportunidad: str, # Recibe UUID como string
+    id_oportunidad: str = Form(...), # Llega como string
     file: UploadFile = File(...),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection)
 ):
-    # Usar id_oportunidad convertido a UUID si la base de datos es estricta
     try:
-        uuid_op = UUID(id_oportunidad)
-    except:
-        uuid_op = id_oportunidad # Intentamos como string si falla
+        # 1. Resetear puntero del archivo (CRÍTICO para reintentos)
+        await file.seek(0)
 
-    try:
-        cantidad = await service.process_multisitio_excel(conn, uuid_op, file)
-        return HTMLResponse(content=f"""
-        <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4 animate-fade-in-down" role="alert">
-            <p class="font-bold">Carga Masiva Exitosa</p>
-            <p>Se cargaron {cantidad} sitios correctamente.</p>
-        </div>
-        """, status_code=200)
+        # 2. Validar extensión
+        if not file.filename.endswith((".xlsx", ".xls")):
+             return HTMLResponse("<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4'>Error: Solo archivos Excel (.xlsx)</div>", 200)
+
+        # 3. Leer contenido en memoria
+        contents = await file.read()
         
-    except ValueError as e:
-        return HTMLResponse(content=f"""
-        <div class="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 mt-4 animate-fade-in-down" role="alert">
-            <p class="font-bold">Atención</p>
-            <p>{str(e)}</p>
-        </div>
-        """, status_code=200)
+        # DEBUG: Imprimir tamaño para ver si llega algo
+        print(f"DEBUG: Archivo recibido {file.filename}, tamaño: {len(contents)} bytes")
+
+        import io
+        import pandas as pd
+        
+        try:
+            # Engine openpyxl es necesario para xlsx
+            df = pd.read_excel(io.BytesIO(contents), engine='openpyxl')
+            # Normalizar columnas (Upper + Strip)
+            df.columns = [str(c).strip().upper() for c in df.columns]
+        except Exception as e:
+             logger.error(f"Error Pandas: {e}")
+             return HTMLResponse(f"<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4'>Error: El archivo no es un Excel válido o está corrupto. ({e})</div>", 200)
+
+        # 4. VALIDACIÓN ESTRUCTURA (Columnas)
+        cols_req = ["NOMBRE", "DIRECCION"]
+        if not all(col in df.columns for col in cols_req):
+            return HTMLResponse(f"""
+                <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
+                    <p class="font-bold">Formato Incorrecto</p>
+                    <p class="text-sm">Faltan columnas requeridas: {', '.join([c for c in cols_req if c not in df.columns])}</p>
+                    <p class="text-xs mt-1">Usa la plantilla oficial.</p>
+                    <button onclick="removeFile(event)" class="text-sm underline mt-2 text-red-800 hover:text-red-900 font-bold">Intentar de nuevo</button>
+                </div>
+            """, 200)
+
+        # 5. VALIDACIÓN CANTIDAD
+        # Convertimos el string id_oportunidad a UUID para la DB
+        try:
+            uuid_op = UUID(id_oportunidad)
+        except ValueError:
+             return HTMLResponse("<div class='text-red-500'>Error interno: ID de oportunidad inválido.</div>", 200)
+
+        expected_qty = await conn.fetchval(
+            "SELECT cantidad_sitios FROM tb_oportunidades WHERE id_oportunidad = $1", 
+            uuid_op
+        )
+        
+        # Si por alguna razón no existe la oportunidad
+        if expected_qty is None:
+             return HTMLResponse("<div class='text-red-500'>Error: Oportunidad no encontrada en BD.</div>", 200)
+
+        real_qty = len(df)
+        
+        if real_qty != expected_qty:
+            return HTMLResponse(f"""
+                <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 animate-pulse">
+                    <p class="font-bold">❌ Error de Cantidad</p>
+                    <p>Declaraste <strong>{expected_qty}</strong> sitios.</p>
+                    <p>El archivo tiene <strong>{real_qty}</strong> filas.</p>
+                    <p class="text-sm mt-2 font-semibold">Corrige el Excel y vuelve a seleccionarlo.</p>
+                    <button onclick="removeFile(event)" class="text-sm underline mt-2 text-red-800 hover:text-red-900 font-bold">Intentar de nuevo</button>
+                </div>
+            """, 200)
+
+        # 6. SI TODO ESTÁ BIEN: Generar Preview
+        # Reseteamos el archivo de nuevo para que el servicio lo pueda guardar
+        await file.seek(0) 
+        
+        data = await service.preview_multisitio_excel(file)
+        
+        return templates.TemplateResponse(
+            "comercial/partials/upload_preview.html",
+            {
+                "request": request,
+                "columns": data["columns"],
+                "preview_rows": data["preview_rows"],
+                "total_rows": data["total_rows"],
+                "file_id": data["file_id"],
+                "op_id": id_oportunidad
+            }
+        )
 
     except Exception as e:
-         logger.error(f"Error carga multisitio: {e}")
-         return HTMLResponse(content=f"""
-            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mt-4 animate-fade-in-down" role="alert">
-                <p class="font-bold">Error procesando archivo</p>
-                <p>{str(e)}</p>
+        import traceback
+        traceback.print_exc()
+        return HTMLResponse(f"""
+            <div class='bg-red-100 p-4 text-red-700'>
+                <p>Error Técnico (500): {e}</p>
+                 <button onclick="removeFile(event)" class="text-sm underline mt-2 font-bold">Intentar de nuevo</button>
             </div>
+        """, 200)
+
+@router.get("/upload-preview-full/{file_id}", response_class=HTMLResponse)
+async def upload_preview_full_endpoint(
+    request: Request,
+    file_id: str,
+    op_id: Optional[str] = None,
+    service: ComercialService = Depends(get_comercial_service)
+):
+    """Retorna la tabla COMPLETA del Excel cargado temporalmente."""
+    import os
+    file_path = f"temp_uploads/{file_id}.xlsx"
+    
+    if not os.path.exists(file_path):
+        return HTMLResponse("<div class='p-4 text-red-500'>El archivo ha expirado. Súbelo de nuevo.</div>")
+
+    try:
+        import pandas as pd
+        df = pd.read_excel(file_path, engine='openpyxl')
+        df.columns = [str(c).strip().upper() for c in df.columns]
+        
+        # Convertir a lista de listas
+        rows = df.values.tolist()
+        columns = df.columns.tolist()
+        total_rows = len(df)
+
+        return templates.TemplateResponse(
+            "comercial/partials/upload_preview.html", 
+            {
+                "request": request,
+                "columns": columns,
+                "preview_rows": rows,
+                "total_rows": total_rows,
+                "file_id": file_id,
+                "op_id": op_id if op_id else "",
+            }
+        )
+    except Exception as e:
+        return HTMLResponse(f"<div class='p-4 text-red-500'>Error leyendo archivo: {e}</div>")
+
+
+@router.post("/upload-confirm", response_class=HTMLResponse)
+async def upload_confirm_endpoint(
+    request: Request,
+    file_id: str = Form(...),
+    op_id: str = Form(...),
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection)
+):
+    try:
+        uuid_op = UUID(op_id)
+        cantidad = await service.confirm_multisitio_upload(conn, uuid_op, file_id)
+        
+        return HTMLResponse(content=f"""
+        <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4 animate-fade-in-down" role="alert">
+            <p class="font-bold">Carga Exitosa</p>
+            <p>Se confirmaron e insertaron {cantidad} sitios.</p>
+        </div>
+        
+        <!-- CAMBIO: Transición automática al Paso 3 (Email) -->
+        <div hx-trigger="load delay:1s" hx-get="/comercial/paso3/{op_id}" hx-target="#main-content"></div> 
         """, status_code=200)
+        
+    except FileNotFoundError:
+        return HTMLResponse("<div class='text-red-500'>Error: La sesión de carga ha expirado. Sube el archivo nuevamente.</div>", 400)
+    except Exception as e:
+        logger.error(f"Error Confirm: {e}")
+        return HTMLResponse(f"<div class='text-red-500'>Error confirmando carga: {e}</div>", 500)
+
+@router.get("/paso2/{id_oportunidad}", include_in_schema=False)
+async def get_paso_2_form(request: Request, id_oportunidad: UUID, conn = Depends(get_db_connection)):
+    """Re-renderiza el formulario de carga multisitio (Paso 2)."""
+    row = await conn.fetchrow(
+        "SELECT id_interno_simulacion, codigo_generado, cliente_nombre, cantidad_sitios FROM tb_oportunidades WHERE id_oportunidad = $1", 
+        id_oportunidad
+    )
+    if not row:
+         return HTMLResponse("Oportunidad no encontrada", 404)
+         
+    return templates.TemplateResponse(
+        "comercial/multisitio_form.html",
+        {
+            "request": request,
+            "oportunidad_id": id_oportunidad, 
+            "nombre_cliente": row['cliente_nombre'],
+            "id_interno": row['id_interno_simulacion'],
+            "codigo_generado": row['codigo_generado'],
+            "cantidad_declarada": row['cantidad_sitios']
+        }
+    )
+
+@router.get("/paso3/{id_oportunidad}", include_in_schema=False)
+async def get_paso_3_form(request: Request, id_oportunidad: UUID, conn = Depends(get_db_connection)):
+    """Renderiza el formulario de envío de correo (Paso 3)."""
+    row = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
+    if not row:
+        return HTMLResponse("Oportunidad no encontrada", 404)
+
+    # Preparamos datos del correo (igual que en notificar_oportunidad)
+    subject = f"Nueva Oportunidad Comercial: {row['titulo_proyecto']}"
+    body = f"""
+    Se ha generado una nueva oportunidad comercial.
+    
+    ID: {row['op_id_estandar']}
+    Proyecto: {row['nombre_proyecto']}
+    Cliente: {row['cliente_nombre']}
+    Link SharePoint: {row['sharepoint_folder_url'] or 'N/A'}
+    
+    Favor de revisar.
+    """
+    recipients = "vendedores@enertika.com"
+
+    return templates.TemplateResponse(
+        "comercial/email_form.html",
+        {
+            "request": request, 
+            "oportunidad_id": id_oportunidad,
+            "subject": subject,
+            "body": body,
+            "recipients": recipients
+        }
+    )

@@ -28,13 +28,27 @@ async def callback(request: Request, code: str, ms_auth: MicrosoftAuth = Depends
         # request.session requiere SessionMiddleware configurado en main.py
         request.session["access_token"] = token_result["access_token"]
         
-        # Opcional: Decodificar ID Token para obtener nombre/email si lo necesitas ahora
-        # request.session["user"] = ... 
+        # 3. Extraer información del Usuario (ID Token)
+        # MSAL procesa automáticamente el id_token si se piden scopes openid/profile
+        claims = token_result.get("id_token_claims", {})
         
-        # 3. Redirigir al Dashboard Comercial
+        # Prioridad: preferred_username > email > upn
+        user_email = claims.get("preferred_username") or claims.get("email") or claims.get("upn")
+        
+        if user_email:
+            # Normalizamos a minúsculas para consistencia en BD
+            request.session["user_email"] = user_email.lower()
+            request.session["user_name"] = claims.get("name", "Usuario Desconocido")
+        else:
+            # Fallback si no hay claims (raro si scope está bien)
+            request.session["user_email"] = "unknown@domain.com"
+        
+        # 4. Redirigir al Dashboard Comercial
         return RedirectResponse(url="/comercial/ui")
         
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return f"Excepción interna: {str(e)}"
 
 @router.get("/logout")

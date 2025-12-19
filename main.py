@@ -6,7 +6,7 @@ from fastapi.templating import Jinja2Templates
 from modules.comercial import router as comercial_router
 from core.database import connect_to_db, close_db_connection
 from modules.proyectos import router as proyectos_router
-from modules.levantamientos import router as levantamientos_router
+
 from starlette.middleware.sessions import SessionMiddleware
 from core.config import settings
 from modules.compras import router as compras_router
@@ -30,11 +30,24 @@ templates = Jinja2Templates(directory="templates")
 # El Backlog Priorizado comienza aquí
 app.include_router(auth_router.router)
 app.include_router(comercial_router.router)
-app.include_router(levantamientos_router.router)
+
 app.include_router(proyectos_router.router)
 app.include_router(compras_router.router)
 from modules.simulacion import router as simulacion_router
 app.include_router(simulacion_router.router)
+from modules.levantamientos.router import router as levantamientos_router
+app.include_router(levantamientos_router)
+
+# --- Background Tasks ---
+import asyncio
+from core.tasks import cleanup_temp_uploads_periodically
+
+async def start_background_tasks():
+    """Lanza tareas en segundo plano al inicio."""
+    asyncio.create_task(cleanup_temp_uploads_periodically())
+    
+# Actualizamos el on_startup
+app.router.on_startup.append(start_background_tasks)
 
 @app.get("/", tags=["Home"])
 async def root(request: Request):

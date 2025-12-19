@@ -16,6 +16,15 @@
         </button>
     </div>
 
+    <!-- Search Bar with HTMX -->
+    <div class="mb-4">
+        <input type="hidden" id="active_tab_input" name="tab" value="activos">
+        <input type="text" id="search-input" name="q" hx-get="/comercial/partials/cards"
+            hx-trigger="keyup changed delay:500ms, search" hx-target="#tab-content" hx-include="#active_tab_input"
+            class="w-full md:w-1/3 px-4 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            placeholder="Buscar por cliente, proyecto...">
+    </div>
+
     <!-- Tabs Navigation -->
     <div
         class="mb-4 text-sm font-medium text-center text-gray-500 border-b border-gray-200 dark:text-gray-400 dark:border-gray-700">
@@ -36,8 +45,8 @@
                 </a>
             </li>
             <li class="me-2">
-                <a href="#" hx-get="/comercial/partials/cards" hx-target="#tab-content" hx-swap="innerHTML"
-                    onclick="setActiveTab(this)"
+                <a href="#" hx-get="/comercial/partials/cards?tab=activos" hx-target="#tab-content" hx-swap="innerHTML"
+                    onclick="updateTabContext('activos', this)"
                     class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
@@ -45,7 +54,35 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                         </svg>
-                        Solicitudes
+                        Solicitudes (Activos)
+                    </div>
+                </a>
+            </li>
+            <li class="me-2">
+                <a href="#" hx-get="/comercial/partials/cards?tab=historial" hx-target="#tab-content"
+                    hx-swap="innerHTML" onclick="updateTabContext('historial', this)"
+                    class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
+                    <div class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Historial
+                    </div>
+                </a>
+            </li>
+            <li class="me-2">
+                <a href="#" hx-get="/comercial/partials/cards?tab=levantamientos" hx-target="#tab-content"
+                    hx-swap="innerHTML" onclick="updateTabContext('levantamientos', this)"
+                    class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
+                    <div class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                        </svg>
+                        Levantamientos
                     </div>
                 </a>
             </li>
@@ -62,15 +99,24 @@
 </div>
 
 <script>
-    function setActiveTab(element) {
-        // Remove active class from all tabs
-        document.querySelectorAll('.tab-link').forEach(el => {
-            el.classList.remove('text-blue-600', 'border-blue-600', 'active');
-            el.classList.add('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
-        });
+function updateTabContext(tabName, element) {
+// 1. Actualizar el input oculto
+document.getElementById('active_tab_input').value = tabName;
 
-        // Add active class to clicked tab
-        element.classList.remove('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
-        element.classList.add('text-blue-600', 'border-blue-600', 'active');
-    }
+// 2. Lógica visual
+document.querySelectorAll('.tab-link').forEach(el => {
+el.classList.remove('text-blue-600', 'border-blue-600', 'active');
+el.classList.add('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
+});
+element.classList.remove('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
+element.classList.add('text-blue-600', 'border-blue-600', 'active');
+
+// 3. Disparar búsqueda nueva automáticamente (opcional)
+// htmx.trigger('#search-input', 'keyup');
+}
+
+function setActiveTab(element) {
+// Legacy wrapper if needed, or replace onclicks.
+// For now, onclicks in HTML above need to be updated to use updateTabContext
+}
 </script>

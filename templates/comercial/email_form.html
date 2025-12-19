@@ -1,0 +1,73 @@
+<form hx-post="/comercial/notificar/{{ oportunidad_id }}" hx-encoding="multipart/form-data" hx-target="#main-content"
+    class="bg-white p-6 rounded-lg shadow space-y-4" id="email-form">
+
+    <div>
+        <label class="block text-sm font-bold text-gray-700">Asunto (No editable)</label>
+        <input type="text" name="subject" value="{{ subject }}" readonly
+            class="w-full border p-2 rounded bg-gray-100 text-gray-500 cursor-not-allowed font-mono text-sm">
+        <p class="text-xs text-gray-400 mt-1">El asunto está vinculado al código del proyecto.</p>
+    </div>
+
+    <div>
+        <label class="block text-sm font-bold text-gray-700">Cuerpo del Correo</label>
+        <textarea name="body" rows="6" class="w-full border p-2 rounded">{{ body }}</textarea>
+    </div>
+
+    <div class="border-t pt-4">
+        <label class="block text-sm font-bold text-gray-700 mb-2">Adjuntos Adicionales</label>
+
+        <input type="file" name="archivos_extra" multiple
+            class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
+            onchange="validateSize(this)">
+
+        <p id="size-warning" class="text-xs text-gray-500 mt-1">
+            Máximo 35MB total.
+            <span id="current-size" class="font-bold">0 MB</span> seleccionados.
+        </p>
+    </div>
+
+    <div class="flex justify-between items-center pt-4 border-t">
+        <button type="button" hx-get="/comercial/paso2/{{ oportunidad_id }}" hx-target="#main-content"
+            class="text-gray-500 hover:text-gray-700 px-4 py-2 text-sm font-medium">
+            ← Regresar
+        </button>
+
+        <button type="submit" id="btn-enviar"
+            class="bg-green-600 text-white px-6 py-2 rounded shadow hover:bg-green-700 font-bold flex items-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed">
+            <span>Enviar Solicitud</span>
+        </button>
+    </div>
+</form>
+
+<script>
+    function validateSize(input) {
+        let totalSize = 0;
+        if (input.files) {
+            for (let i = 0; i < input.files.length; i++) {
+                totalSize += input.files[i].size;
+            }
+        }
+
+        const sizeInMB = totalSize / (1024 * 1024);
+        const limitMB = 35;
+
+        const sizeText = document.getElementById('current-size');
+        const warningText = document.getElementById('size-warning');
+        const btn = document.getElementById('btn-enviar');
+
+        sizeText.textContent = sizeInMB.toFixed(2) + " MB";
+
+        if (sizeInMB > limitMB) {
+            warningText.classList.remove('text-gray-500');
+            warningText.classList.add('text-red-600', 'font-bold');
+            warningText.innerHTML = `⚠️ EXCEDIDO: ${sizeInMB.toFixed(2)} MB / 35 MB Máximo`;
+            btn.disabled = true;
+            btn.classList.add('opacity-50');
+        } else {
+            warningText.classList.add('text-gray-500');
+            warningText.classList.remove('text-red-600', 'font-bold');
+            btn.disabled = false;
+            btn.classList.remove('opacity-50');
+        }
+    }
+</script>
