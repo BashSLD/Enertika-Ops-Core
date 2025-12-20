@@ -44,9 +44,21 @@ class MicrosoftAuth:
             "Content-Type": "application/json"
         }
 
-    def send_email_with_attachments(self, access_token: str, subject, body, recipients, attachments_files=[]):
+    def get_user_profile(self, access_token: str):
+        """Obtiene el perfil del usuario logueado desde Microsoft Graph incluyendo departamento."""
+        # Solicitamos campos específicos para permisos
+        endpoint = "https://graph.microsoft.com/v1.0/me?$select=id,displayName,mail,userPrincipalName,department,jobTitle"
+        headers = self.get_headers(access_token)
+        response = requests.get(endpoint, headers=headers)
+        if response.status_code == 200:
+            return response.json() # Returns dict with displayName, mail, id, department, etc.
+        return None
+
+    # Updated method to support CC
+    def send_email_with_attachments(self, access_token: str, subject, body, recipients, cc_recipients=[], attachments_files=[]):
         print(f"--- INICIANDO ENVÍO DE CORREO ---")
-        print(f"Destinatarios: {recipients}")
+        print(f"Destinatarios TO: {recipients}")
+        print(f"Destinatarios CC: {cc_recipients}")
         print(f"Archivos a adjuntar: {len(attachments_files)}")
 
         if not recipients: return False, "Sin destinatarios"
@@ -55,36 +67,24 @@ class MicrosoftAuth:
         attachments_data = []
         for file_obj in attachments_files:
             try:
-                # Obtenemos ruta y nombre
-                # Maneja tanto objetos con atributo .path como diccionarios con clave 'path'
-                path = file_obj.path if hasattr(file_obj, "path") else (file_obj.get("path") if isinstance(file_obj, dict) else file_obj)
-                
-                # Check for in-memory bytes content
-                content_bytes = None
-                if isinstance(file_obj, dict) and "content_bytes" in file_obj:
-                    content_bytes = file_obj["content_bytes"]
-                    path = "in-memory-file" # Placeholder
+                # Caso Dict (ya procesado bytes) o UploadFile (stream)
+                if isinstance(file_obj, dict):
+                    content_b64 = base64.b64encode(file_obj["content_bytes"]).decode("utf-8")
+                    name = file_obj["name"]
+                    ctype = file_obj.get("contentType", "application/octet-stream")
+                else:
+                    # Fallback por si llega directo (pero en router.py ya lo procesamos)
+                    content_bytes = file_obj.file.read()
+                    content_b64 = base64.b64encode(content_bytes).decode("utf-8")
+                    name = file_obj.filename
+                    ctype = file_obj.content_type
 
-                name = file_obj.name if hasattr(file_obj, "name") else (file_obj.get("name") if isinstance(file_obj, dict) else os.path.basename(path))
-                
-                print(f"Procesando adjunto: {name} desde {path}")
-
-                if content_bytes is None:
-                    # Si no vino en bytes, leemos de disco
-                    with open(path, "rb") as f:
-                        content_bytes = f.read()
-                
-                # Codificar a Base64
-                b64_content = base64.b64encode(content_bytes).decode("utf-8")
-                
-                # Estructura exacta requerida por Graph API
                 attachments_data.append({
                     "@odata.type": "#microsoft.graph.fileAttachment",
                     "name": name,
-                    "contentType": "application/octet-stream", # Tipo genérico seguro
-                    "contentBytes": b64_content
+                    "contentType": ctype,
+                    "contentBytes": content_b64
                 })
-                print(f"-> Adjunto {name} procesado OK.")
             except Exception as e:
                 print(f"-> ERROR procesando adjunto {name}: {e}")
 
@@ -97,6 +97,7 @@ class MicrosoftAuth:
                     "content": body
                 },
                 "toRecipients": [{"emailAddress": {"address": email}} for email in recipients],
+                "ccRecipients": [{"emailAddress": {"address": email}} for email in cc_recipients],
                 "attachments": attachments_data
             },
             "saveToSentItems": "true"

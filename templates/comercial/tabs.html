@@ -3,7 +3,9 @@
     <div class="flex justify-between items-center mb-6">
         <div>
             <h2 class="text-3xl font-light text-gray-700">Módulo Comercial</h2>
-            <p class="text-sm text-gray-500">Gestión de Oportunidades y Métricas</p>
+            <div class="flex items-center gap-2 text-sm text-gray-500">
+                <p>Gestión de Oportunidades</p>
+            </div>
         </div>
 
         <button hx-get="/comercial/form" hx-target="#main-content" hx-swap="innerHTML"
@@ -99,24 +101,24 @@
 </div>
 
 <script>
-function updateTabContext(tabName, element) {
-// 1. Actualizar el input oculto
-document.getElementById('active_tab_input').value = tabName;
+    function updateTabContext(tabName, element) {
+        // 1. Actualizar el input oculto
+        document.getElementById('active_tab_input').value = tabName;
 
-// 2. Lógica visual
-document.querySelectorAll('.tab-link').forEach(el => {
-el.classList.remove('text-blue-600', 'border-blue-600', 'active');
-el.classList.add('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
-});
-element.classList.remove('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
-element.classList.add('text-blue-600', 'border-blue-600', 'active');
+        // 2. Lógica visual
+        document.querySelectorAll('.tab-link').forEach(el => {
+            el.classList.remove('text-blue-600', 'border-blue-600', 'active');
+            el.classList.add('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
+        });
+        element.classList.remove('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
+        element.classList.add('text-blue-600', 'border-blue-600', 'active');
 
-// 3. Disparar búsqueda nueva automáticamente (opcional)
-// htmx.trigger('#search-input', 'keyup');
-}
+        // 3. Disparar búsqueda nueva automáticamente (opcional)
+        // htmx.trigger('#search-input', 'keyup');
+    }
 
-function setActiveTab(element) {
-// Legacy wrapper if needed, or replace onclicks.
-// For now, onclicks in HTML above need to be updated to use updateTabContext
-}
+    function setActiveTab(element) {
+        // Legacy wrapper if needed, or replace onclicks.
+        // For now, onclicks in HTML above need to be updated to use updateTabContext
+    }
 </script>

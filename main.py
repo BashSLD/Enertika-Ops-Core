@@ -11,6 +11,7 @@ from starlette.middleware.sessions import SessionMiddleware
 from core.config import settings
 from modules.compras import router as compras_router
 from modules.auth import router as auth_router
+from modules.admin import router as admin_router
 
 # Inicialización de la app
 
@@ -30,6 +31,7 @@ templates = Jinja2Templates(directory="templates")
 # El Backlog Priorizado comienza aquí
 app.include_router(auth_router.router)
 app.include_router(comercial_router.router)
+app.include_router(admin_router.router)
 
 app.include_router(proyectos_router.router)
 app.include_router(compras_router.router)
@@ -49,13 +51,48 @@ async def start_background_tasks():
 # Actualizamos el on_startup
 app.router.on_startup.append(start_background_tasks)
 
+from core.security import get_current_user_context
+from fastapi import Depends
+from fastapi.responses import RedirectResponse
+
 @app.get("/", tags=["Home"])
-async def root(request: Request):
-    """Endpoint principal que renderizará la vista HTMX/Dashboard inicial."""
-    # Ejemplo de renderizado con Jinja2 (para la UI/UX)
+async def root(
+    request: Request,
+    context = Depends(get_current_user_context)
+):
+    """Endpoint principal: Login si no hay sesión, Redirect a Comercial si hay sesión."""
+    user_name = context.get("user_name") # Será None si no hay login
+    
+    if user_name and user_name != "Usuario":
+        # 🟢 USUARIO LOGUEADO -> Redirección Directa
+        # 🟢 USUARIO LOGUEADO -> Redirección Inteligente por Departamento
+        role = context.get("role")
+        department = (context.get("department") or "").lower() # Normalize to lowercase
+        
+        # 1. Admins -> Admin UI
+        if role == 'ADMIN':
+             return RedirectResponse(url="/admin/ui")
+        
+        # 2. Department Dispatch
+        if any(keyword in department for keyword in ["ventas", "comercial"]):
+             return RedirectResponse(url="/comercial/ui")
+             
+        elif any(keyword in department for keyword in ["simulación", "simulacion"]):
+             return RedirectResponse(url="/simulacion/ui")
+             
+        elif any(keyword in department for keyword in ["ingeniería", "ingenieria", "construccion", "construcción", "levantamientos"]):
+             return RedirectResponse(url="/levantamientos/ui")
+             
+        # 3. Fallback Default
+        return RedirectResponse(url="/comercial/ui")
+    
+    # 🔴 NO LOGUEADO -> Mostrar Login
     return templates.TemplateResponse(
-        "base.html",
-        {"request": request, "app_name": "Enertika Ops Core"}
+        "index.html",
+        {
+            "request": request, 
+            "app_name": "Enertika Ops Core"
+        }
     )
     
 # Si quisieras levantar el servidor: uvicorn main:app --reload

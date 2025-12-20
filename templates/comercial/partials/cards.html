@@ -1,15 +1,29 @@
 <div class="animate-fade-in-down">
-    <!-- Filters / Actions Bar (Optional, can be expanded) -->
-    <div class="mb-4 flex justify-between items-center">
-        <h3 class="text-lg font-bold text-gray-700">
-            {% if current_tab == 'activos' %}Solicitudes Activas
-            {% elif current_tab == 'historial' %}Historial y Finalizados
-            {% elif current_tab == 'levantamientos' %}Seguimiento de Levantamientos
-            {% else %}Listado{% endif %}
-        </h3>
-        <!-- Search, Filter placeholders -->
-        <div class="flex gap-2">
+    <!-- Filters / Actions Bar -->
+    <div class="mb-4 flex flex-col sm:flex-row justify-between items-center gap-4">
+        <div class="flex flex-col">
+            <h3 class="text-lg font-bold text-gray-700">
+                {% if current_tab == 'activos' %}Solicitudes Activas
+                {% elif current_tab == 'historial' %}Historial y Finalizados
+                {% elif current_tab == 'levantamientos' %}Seguimiento de Levantamientos
+                {% else %}Listado{% endif %}
+            </h3>
 
+            <!-- Subtabs para Levantamientos -->
+            {% if current_tab == 'levantamientos' %}
+            <div class="flex gap-3 text-sm mt-1">
+                <button hx-get="/comercial/partials/cards?tab=levantamientos&subtab=solicitados"
+                    hx-target="#tab-content"
+                    class="{{ 'font-bold text-blue-600 border-b-2 border-blue-600' if not subtab or subtab == 'solicitados' else 'text-gray-500 hover:text-blue-500' }}">
+                    Solicitados
+                </button>
+                <span class="text-gray-300">|</span>
+                <button hx-get="/comercial/partials/cards?tab=levantamientos&subtab=realizados" hx-target="#tab-content"
+                    class="{{ 'font-bold text-blue-600 border-b-2 border-blue-600' if subtab == 'realizados' else 'text-gray-500 hover:text-blue-500' }}">
+                    Realizados
+                </button>
+            </div>
+            {% endif %}
         </div>
     </div>
 
@@ -23,15 +37,15 @@
                             <tr>
                                 <th scope="col"
                                     class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    ID
+                                    ID / Título
                                 </th>
                                 <th scope="col"
                                     class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Proyecto / Cliente
+                                    Ingeniero Asignado
                                 </th>
                                 <th scope="col"
                                     class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Fecha
+                                    Fecha de Envío
                                 </th>
                                 <th scope="col"
                                     class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
@@ -39,54 +53,174 @@
                                 </th>
                                 <th scope="col"
                                     class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                                    Acciones
+                                    Acciones / Sitios
                                 </th>
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
                             {% for op in oportunidades %}
                             <tr class="hover:bg-gray-50 transition duration-150">
-                                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">
-                                    {{ op.id_interno_simulacion or 'N/A' }}
+                                <!-- COL 1: ID e Info Interna -->
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="text-sm font-mono text-gray-700 font-bold">
+                                        {{ op.id_interno_simulacion or 'N/A' }}
+                                    </div>
+                                    <div class="text-xs text-gray-500 mt-1 truncate max-w-xs"
+                                        title="{{ op.titulo_proyecto }}">
+                                        {{ op.titulo_proyecto or op.nombre_proyecto }}
+                                    </div>
+                                    <div class="text-xs text-gray-400 mt-1">
+                                        <span class="font-semibold text-gray-500">Solicitado por:</span> {{
+                                        op.solicitado_por or 'Desconocido' }}
+                                    </div>
                                 </td>
-                                <td class="px-6 py-4">
-                                    <div class="text-sm font-medium text-gray-900">{{ op.nombre_proyecto }}</div>
-                                    <div class="text-sm text-gray-500">{{ op.cliente_nombre }}</div>
+
+                                <!-- COL 2: Ingeniero Asignado -->
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="flex items-center">
+                                        <div
+                                            class="flex-shrink-0 h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 font-bold border border-gray-300">
+                                            {{ op.responsable_simulacion[:1] if op.responsable_simulacion else '?' }}
+                                        </div>
+                                        <div class="ml-3">
+                                            <div class="text-sm font-medium text-gray-900"
+                                                title="{{ op.responsable_email }}">
+                                                {{ op.responsable_simulacion or 'Sin Asignar' }}
+                                            </div>
+                                        </div>
+                                    </div>
                                 </td>
+
+                                <!-- COL 3: Fecha de Envío -->
                                 <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                                    {{ op.fecha_solicitud.strftime('%Y-%m-%d') if op.fecha_solicitud else '-' }}
+                                    {{ op.fecha_solicitud.strftime('%d/%m/%Y') if op.fecha_solicitud else '-' }}
+
+                                    <div class="text-xs text-blue-600 font-bold mt-1">
+                                        Entrega: {{ op.deadline_calculado.strftime('%d/%m/%Y') if op.deadline_calculado
+                                        else 'N/A' }}
+                                    </div>
                                 </td>
+
+                                <!-- COL 4: Status -->
                                 <td class="px-6 py-4 whitespace-nowrap">
                                     <span
                                         class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full {{ 'bg-green-100 text-green-800' if op.email_enviado else 'bg-yellow-100 text-yellow-800' }}">
                                         {{ 'Notificado' if op.email_enviado else 'Pendiente' }}
                                     </span>
+
                                     {% if op.tipo_solicitud == 'SOLICITUD DE LEVANTAMIENTO' %}
-                                    <span
-                                        class="ml-1 px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
-                                        Levantamiento
-                                    </span>
+                                    <div class="mt-1">
+                                        <span
+                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
+                                            Levantamiento
+                                        </span>
+                                    </div>
                                     {% endif %}
                                 </td>
-                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                                    {% if not op.email_enviado %}
-                                    <div id="action-{{ op.id_oportunidad }}">
-                                        {% if user_token %}
-                                        <button hx-post="/comercial/notificar/{{ op.id_oportunidad }}"
-                                            hx-swap="innerHTML" hx-target="#action-{{ op.id_oportunidad }}"
-                                            class="text-indigo-600 hover:text-indigo-900 font-bold hover:underline">
-                                            Enviar Correo
+                                <!-- COL 5: Acciones (Updated) -->
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium relative">
+                                    <div class="flex flex-col gap-2 items-start">
+
+                                        <!-- Botón Detalles (NUEVO) -->
+                                        <button disabled
+                                            class="text-gray-400 border border-gray-200 px-2 py-1 rounded bg-gray-50 cursor-not-allowed flex items-center gap-1 text-xs transition">
+                                            <span>👁️</span> Detalles
                                         </button>
+
+                                        <!-- Botones de Acción -->
+                                        {% if not op.email_enviado %}
+                                        <div id="action-{{ op.id_oportunidad }}">
+                                            {% if user_token %}
+                                            <button hx-post="/comercial/notificar/{{ op.id_oportunidad }}"
+                                                hx-swap="innerHTML" hx-target="#action-{{ op.id_oportunidad }}"
+                                                hx-confirm="¿Enviar correo de notificación?"
+                                                class="text-indigo-600 hover:text-indigo-900 font-bold text-xs border border-indigo-200 px-2 py-1 rounded bg-indigo-50 hover:bg-indigo-100 transition shadow-sm">
+                                                📧 Enviar Correo
+                                            </button>
+                                            {% else %}
+                                            <span class="text-gray-400 text-xs italic">Login Req.</span>
+                                            {% endif %}
+                                        </div>
                                         {% else %}
-                                        <span class="text-gray-400 text-xs italic"
-                                            title="Inicia Sesión para acciones">Requiere Login</span>
+                                        <span
+                                            class="text-green-600 text-xs font-bold px-2 py-1 bg-green-50 rounded border border-green-200">
+                                            ✅ Enviado
+                                        </span>
                                         {% endif %}
+
+                                        <!-- Desglose de Sitios -->
+                                        {% if op.cantidad_sitios and op.cantidad_sitios > 0 %}
+                                        <div class="flex items-center gap-2 mt-1">
+                                            <span
+                                                class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                                {{ op.cantidad_sitios }} Sitio{{ 's' if op.cantidad_sitios > 1 else ''
+                                                }}
+                                            </span>
+
+                                            <button
+                                                class="text-gray-500 hover:text-blue-600 transition focus:outline-none"
+                                                hx-get="/comercial/partials/sitios/{{ op.id_oportunidad }}"
+                                                hx-target="#sites-row-{{ op.id_oportunidad }}" hx-swap="innerHTML"
+                                                onclick="toggleSites('{{ op.id_oportunidad }}')"
+                                                title="Ver detalle de sitios">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none"
+                                                    viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                                        stroke-width="2" d="M19 9l-7 7-7-7" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        {% endif %}
+
                                     </div>
-                                    {% else %}
-                                    <span class="text-gray-400">Enviado</span>
+
+                                    <!-- Menú Kebab (Solo Historial) -->
+                                    {% if current_tab == 'historial' %}
+                                    <div class="absolute top-2 right-2">
+                                        <details class="group relative">
+                                            <summary
+                                                class="list-none cursor-pointer text-gray-400 hover:text-gray-600 p-1">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5"
+                                                    viewBox="0 0 20 20" fill="currentColor">
+                                                    <path
+                                                        d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                                                </svg>
+                                            </summary>
+                                            <div
+                                                class="absolute right-0 w-48 bg-white rounded-md shadow-lg py-1 z-50 hidden group-open:block border border-gray-200">
+                                                <a href="#" onclick="alert('Próximamente: Actualización')"
+                                                    class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">🔄
+                                                    Actualización</a>
+                                                <a href="#" onclick="alert('Próximamente: Levantamiento')"
+                                                    class="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">👷
+                                                    Levantamiento</a>
+                                            </div>
+                                        </details>
+                                    </div>
                                     {% endif %}
                                 </td>
                             </tr>
+                            <!-- Fila Expansible para Sitios -->
+                            <tr id="row-sites-{{ op.id_oportunidad }}"
+                                class="hidden transition-all duration-300 bg-gray-50 border-b border-gray-200">
+                                <td colspan="5" class="p-0">
+                                    <div id="sites-row-{{ op.id_oportunidad }}" class="w-full">
+                                        <!-- Aquí carga HTMX el contenido -->
+                                        <div class="p-4 text-center text-gray-400 text-xs">Cargando sitios...</div>
+                                    </div>
+                                </td>
+                            </tr>
+
+                            <script>
+                                function toggleSites(id) {
+                                    const row = document.getElementById('row-sites-' + id);
+                                    if (row.classList.contains('hidden')) {
+                                        row.classList.remove('hidden');
+                                    } else {
+                                        row.classList.add('hidden');
+                                    }
+                                }
+                            </script>
                             {% else %}
                             <tr>
                                 <td colspan="5" class="px-6 py-4 text-center text-gray-500">
@@ -99,5 +233,27 @@
                 </div>
             </div>
         </div>
+
+        <!-- Pagination (Historial Only) -->
+        {% if current_tab == 'historial' and (page > 1 or has_more) %}
+        <div class="flex justify-center mt-4 gap-4 items-center">
+            {% if page > 1 %}
+            <button hx-get="/comercial/partials/cards?tab=historial&page={{ page - 1 }}" hx-target="#tab-content"
+                class="px-3 py-1 border rounded bg-white hover:bg-gray-50 text-sm font-medium text-gray-600 transition shadow-sm">
+                &larr; Anterior
+            </button>
+            {% endif %}
+
+            <span class="px-2 text-xs text-gray-400">Página {{ page }}</span>
+
+            {% if has_more %}
+            <button hx-get="/comercial/partials/cards?tab=historial&page={{ page + 1 }}" hx-target="#tab-content"
+                class="px-3 py-1 border rounded bg-white hover:bg-gray-50 text-sm font-medium text-gray-600 transition shadow-sm">
+                Cargar Más &rarr;
+            </button>
+            {% endif %}
+        </div>
+        {% endif %}
+
     </div>
 </div>

@@ -13,10 +13,19 @@ router = APIRouter(
 
 # --- ENDPOINTS UI ---
 
+from core.security import get_current_user_context
+
 @router.get("/ui", include_in_schema=False)
-async def get_simulacion_ui(request: Request):
+async def get_simulacion_ui(
+    request: Request,
+    context = Depends(get_current_user_context)
+):
     """Main Entry: Shows the Tabbed Simulation Module."""
-    return templates.TemplateResponse("simulacion/tabs.html", {"request": request})
+    return templates.TemplateResponse("simulacion/tabs.html", {
+        "request": request,
+        "user_name": context.get("user_name"),
+        "role": context.get("role")
+    })
 
 @router.get("/partials/live", include_in_schema=False)
 async def get_live_graphs_partial(request: Request):

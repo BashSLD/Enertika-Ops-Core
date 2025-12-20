@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="flex flex-col justify-center items-center min-h-[80vh] animate-fade-in">
+    <div class="relative mb-8 group">
+        <!-- Turquesa glow effect -->
+        <div
+            class="absolute -inset-4 bg-[#00BABB]/30 rounded-full blur-xl opacity-70 animate-pulse group-hover:opacity-100 transition duration-1000">
+        </div>
+
+        <!-- Lightning Icon -->
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
+            class="w-32 h-32 text-[#00BABB] relative z-10 drop-shadow-[0_0_15px_rgba(0,186,187,0.6)]">
+            <path fill-rule="evenodd"
+                d="M14.615 1.595a.75.75 0 0 1 .359.852L12.982 9.75h7.268a.75.75 0 0 1 .548 1.262l-10.5 11.25a.75.75 0 0 1-1.272-.71l1.992-7.302H3.75a.75.75 0 0 1-.548-1.262l10.5-11.25a.75.75 0 0 1 .913-.143Z"
+                clip-rule="evenodd" />
+        </svg>
+    </div>
+
+    <!-- Title -->
+    <h1 class="text-5xl font-extrabold text-[#123456] mb-4 text-center tracking-tight">
+        Bienvenido a <span class="text-[#00BABB]">Enertika</span> Ops Core
+    </h1>
+
+    <!-- Subtitle (Removed as per request) -->
+    <div class="mb-4"></div>
+
+    <!-- Login Button / Action Area -->
+    <a href="/auth/login"
+        class="bg-[#00BABB] hover:bg-[#009999] text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition duration-200 flex items-center gap-3">
+        <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
+            <path
+                d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zM24 11.4H12.6V0H24v11.4z" />
+        </svg>
+        Iniciar Sesión con Microsoft
+    </a>
+</div>
+{% endblock %}

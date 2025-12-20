@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     
     # --- Configuración de Seguridad y Sesión ---
     SECRET_KEY: str = os.getenv("SECRET_KEY", "tu_super_secret_key_temporal_dev")
+    DEBUG_MODE: bool = True
 
     # --- Configuración de Microsoft Azure AD ---
     GRAPH_CLIENT_ID: str = os.getenv("CLIENT_ID")
@@ -27,6 +28,10 @@ class Settings(BaseSettings):
     REDIRECT_URI: str = os.getenv("REDIRECT_URI", "http://localhost:8000/auth/callback")
     
     AUTHORITY_URL: str = f"https://login.microsoftonline.com/{GRAPH_TENANT_ID}"
-    GRAPH_SCOPES: str = "openid profile email User.Read Mail.Send Files.ReadWrite.All Sites.Read.All"
+    GRAPH_SCOPES: str = "email User.Read Mail.Send Files.ReadWrite.All Sites.Read.All"
+    
+    # --- Configuración de Permisos (RBAC) ---
+    # Departamentos que tienen acceso GLOBAL por defecto
+    MANAGER_DEPARTMENTS: list = ["Dirección", "Gerencia", "Ventas", "Gerencia General"]
 
 settings = Settings()

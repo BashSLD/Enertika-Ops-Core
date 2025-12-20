@@ -1,0 +1,20 @@
+<div class="container mx-auto px-4 py-6">
+    <!-- Header -->
+    <div class="flex justify-between items-center mb-6 animate-fade-in-down">
+        <div>
+            <h1 class="text-3xl font-light text-gray-700">Tablero de Ingeniería</h1>
+            <p class="text-sm text-gray-500">Gestión de Levantamientos y Operaciones</p>
+        </div>
+    </div>
+
+    <!-- Kanban Container -->
+    <!-- hx-trigger includes 'reloadKanban' which will be fired by the backend after moves -->
+    <div id="kanban-board" class="h-full" hx-get="/levantamientos/partials/kanban"
+        hx-trigger="load, reloadKanban from:body" hx-swap="innerHTML">
+
+        <!-- Loading State -->
+        <div class="flex justify-center items-center h-64">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+        </div>
+    </div>
+</div>

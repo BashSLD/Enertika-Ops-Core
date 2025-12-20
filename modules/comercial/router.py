@@ -11,7 +11,11 @@ import logging
 
 # --- Imports de Core ---
 from core.database import get_db_connection
-from core.microsoft import MicrosoftAuth, get_ms_auth
+from core.database import get_db_connection
+from core.microsoft import get_ms_auth, MicrosoftAuth
+from core.config import settings
+from core.security import get_current_user_context
+from .schemas import OportunidadCreate
 
 # Configuración básica de logging
 logger = logging.getLogger("ComercialModule")
@@ -74,7 +78,8 @@ class ComercialService:
              )
              return new_id
 
-    async def create_oportunidad(self, conn, datos_form: dict) -> UUID:
+    async def create_oportunidad(self, datos_form: dict, conn, user_id: UUID) -> UUID:
+        """Crea una nueva oportunidad en la BBDD y retorna su ID."""
         try:
             # 1. Preparar datos auxiliares
             cliente_id = await self.get_or_create_cliente(conn, datos_form['nombre_cliente'])
@@ -88,18 +93,14 @@ class ComercialService:
             deadline = self.calcular_deadline()
             status_global = "Pendiente"
             
-            # ID Dummy para creado_por_id (Requerido NOT NULL en tu esquema)
-            # Cuando tengas Auth real, esto vendrá del token.
-            dummy_user_id = UUID('00000000-0000-0000-0000-000000000000')
-
-            # Query corregida: Mapeo exacto a columnas
+            # Query corregida: Usamos titulo_proyecto (renombrado en DB)
             query = """
                 INSERT INTO tb_oportunidades (
                     -- Campos Legacy Nuevos
                     titulo_proyecto, nombre_proyecto, canal_venta, solicitado_por,
                     tipo_tecnologia, tipo_solicitud, cantidad_sitios, prioridad,
                     direccion_obra, coordenadas_gps, google_maps_link, sharepoint_folder_url,
-                    deadline_calculado, codigo_generado, id_interno_simulacion,
+                    deadline_calculado, id_interno_simulacion,
                     fecha_solicitud, email_enviado, 
                     
                     -- Campos Originales
@@ -111,13 +112,13 @@ class ComercialService:
                     cliente_id
                 ) 
                 VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, NOW(), FALSE,
-                    $16, $17, $18, $19, $20, $21
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, NOW(), FALSE,
+                    $15, $16, $17, $18, $19, $20
                 )
                 RETURNING id_oportunidad
             """
             
-            # Generamos UUID para el insert manual (para evitar problemas con gen_random_uuid si no está activo)
+            # Generamos UUID para el insert manual
             new_uuid = uuid4()
 
             oportunidad_id = await conn.fetchval(
@@ -125,7 +126,7 @@ class ComercialService:
                 titulo_proyecto,                  # 1
                 datos_form['nombre_proyecto'],    # 2
                 datos_form['canal_venta'],        # 3
-                datos_form['canal_venta'],        # 4 (Solicitado por)
+                datos_form['canal_venta'],        # 4 (Solicitado por) - Mantenemos esto como string legacy? Sí, 'solicitado_por' texto.
                 datos_form['tipo_tecnologia'],    # 5
                 datos_form['tipo_solicitud'],     # 6
                 int(datos_form['cantidad_sitios']),# 7
@@ -135,15 +136,14 @@ class ComercialService:
                 datos_form['google_maps_link'],   # 11
                 datos_form['sharepoint_folder_url'], # 12
                 deadline,                         # 13
-                titulo_proyecto,                  # 14 (Codigo generado)
-                id_interno_simulacion,            # 15
+                id_interno_simulacion,            # 14
                 
-                new_uuid,                         # 16 (id_oportunidad)
-                dummy_user_id,                    # 17 (creado_por_id)
-                op_id_estandar,                   # 18 (op_id_estandar)
-                datos_form['nombre_cliente'],     # 19 (cliente_nombre)
-                status_global,                    # 20 (status_global)
-                cliente_id                        # 21 (cliente_id FK)
+                new_uuid,                         # 15 (id_oportunidad)
+                user_id,                          # 16 (creado_por_id REAL)
+                op_id_estandar,                   # 17 (op_id_estandar)
+                datos_form['nombre_cliente'],     # 18 (cliente_nombre)
+                status_global,                    # 19 (status_global)
+                cliente_id                        # 20 (cliente_id FK)
             )
             
             return oportunidad_id
@@ -155,23 +155,26 @@ class ComercialService:
                 detail=f"Error BD: {e}"
             )
 
-    async def get_oportunidades_list(self, conn, tab: str = "activos", q: str = None, user_email: str = None) -> List[dict]:
-        """Recupera la lista filtrada de oportunidades."""
+    async def get_oportunidades_list(self, conn, user_context: dict, tab: str = "activos", q: str = None, page: int = 1, subtab: str = None) -> List[dict]:
+        """Recupera la lista filtrada de oportunidades, aplicando lógica de permisos y paginación."""
         
+        user_id = user_context.get("user_id")
+        role = user_context.get("role", "USER") 
+        user_email = user_context.get("email")
+
         # 1. Base Query
         query = """
             SELECT 
-                o.id_oportunidad,
-                o.titulo_proyecto,
-                o.nombre_proyecto,
-                o.cliente_nombre,
-                o.fecha_solicitud,
-                o.status_global,
-                o.email_enviado,
-                o.id_interno_simulacion,
-                o.solicitado_por,
-                o.tipo_solicitud  -- AGREGADO: Necesario para visualización en cards
+                o.id_oportunidad, o.titulo_proyecto, o.nombre_proyecto, o.cliente_nombre,
+                o.fecha_solicitud, o.status_global, o.email_enviado, o.id_interno_simulacion,
+                o.tipo_solicitud, o.deadline_calculado, o.cantidad_sitios,
+                -- Alias clave para el frontend (JOINs):
+                u_sim.nombre as responsable_simulacion, 
+                u_sim.email as responsable_email,  
+                u_crea.nombre as solicitado_por    
             FROM tb_oportunidades o
+            LEFT JOIN tb_usuarios u_sim ON o.responsable_simulacion_id = u_sim.id_usuario
+            LEFT JOIN tb_usuarios u_crea ON o.creado_por_id = u_crea.id_usuario
             WHERE 1=1
         """
         params = []
@@ -179,40 +182,37 @@ class ComercialService:
 
         # 2. Filtro Tab (Lógica de Negocio)
         if tab == "historial":
-            # Muestra todo lo finalizado (Ganadas, Perdidas, Canceladas, Entregadas)
             query += f" AND o.status_global IN ('Entregado', 'Cancelado', 'Perdida', 'Ganada')"
-            
         elif tab == "levantamientos":
-            # NUEVO: Vista exclusiva de seguimiento a Levantamientos
-            # Muestra todo lo que sea levantamiento, sin importar si está pendiente o realizado
             query += f" AND o.tipo_solicitud = 'SOLICITUD DE LEVANTAMIENTO'"
+            # Sub-tab Logic
+            if subtab == 'realizados':
+                query += f" AND o.status_global = 'Realizado'" # O el status que signifique terminado en Lev.
+            else: # solicitados (default)
+                query += f" AND o.status_global != 'Realizado'"
+        else: # activos
+             query += f" AND o.status_global NOT IN ('Entregado', 'Cancelado', 'Perdida', 'Ganada')"
+             query += f" AND o.tipo_solicitud != 'SOLICITUD DE LEVANTAMIENTO'"
 
-        else: # activos (default)
-            # Muestra Licitaciones, Pre-ofertas, Cotizaciones en curso.
-            # EXCLUYE lo finalizado Y los Levantamientos (porque tienen su propio tab)
-            query += f" AND o.status_global NOT IN ('Entregado', 'Cancelado', 'Perdida', 'Ganada')"
-            query += f" AND o.tipo_solicitud != 'SOLICITUD DE LEVANTAMIENTO'"
-
-        # 3. Filtro Búsqueda (Texto)
+        # 3. Filtro Búsqueda
         if q:
-            # Buscamos en titulo, nombre, cliente
             query += f" AND (o.titulo_proyecto ILIKE ${param_idx} OR o.nombre_proyecto ILIKE ${param_idx} OR o.cliente_nombre ILIKE ${param_idx})"
             params.append(f"%{q}%")
             param_idx += 1
 
-        # 4. Filtro Contexto Usuario (Solo sus propias solicitudes, salvo Gerentes)
-        # Nota: Asumimos que 'solicitado_por' guarda el email.
-        # Definir dominios de gerencia o lista blanca si aplica, por ahora simple:
-        # Si NO es user admin/gerente (hardcodeado o lógica futura), filtramos.
-        # Para cumplir requerimiento estricto: "Agrega WHERE solicitado_por = $1"
-        if user_email:
-             # Excepción simple para demo: si email empieza con 'admin', no filtra
-             if not user_email.startswith("admin"): 
-                query += f" AND o.solicitado_por = ${param_idx}"
-                params.append(user_email)
-                param_idx += 1
+        # 4. Filtro de Seguridad
+        if role != 'MANAGER' and role != 'ADMIN':
+            query += f" AND o.creado_por_id = ${param_idx}"
+            params.append(user_id)
+            param_idx += 1
 
         query += " ORDER BY o.fecha_solicitud DESC"
+        
+        # 5. Paginación (Solo para Historial por ahora)
+        if tab == "historial":
+            limit = 10
+            offset = (page - 1) * limit
+            query += f" LIMIT {limit} OFFSET {offset}"
         
         rows = await conn.fetch(query, *params)
         return [dict(row) for row in rows]
@@ -370,14 +370,34 @@ class ComercialService:
 def get_comercial_service():
     return ComercialService()
 
+
+
 # ----------------------------------------
 # ENDPOINTS
 # ----------------------------------------
 
 @router.get("/ui", include_in_schema=False)
-async def get_comercial_ui(request: Request):
+async def get_comercial_ui(
+    request: Request,
+    context = Depends(get_current_user_context) # Usar dependencia completa
+):
     """Main Entry: Shows the Tabbed Dashboard (Graphs + Records)."""
-    return templates.TemplateResponse("comercial/tabs.html", {"request": request})
+    user_name = context.get("user_name", "Usuario")
+    role = context.get("role", "USER")
+    
+    # Detección inteligente de contexto:
+    # 1. Si es HTMX (Navegación parcial desde Sidebar), devolvemos solo contenido interno (tabs.html)
+    # 2. Si es Carga Completa (F5 o URL directa), devolvemos el wrapper completo (dashboard.html)
+    if request.headers.get("hx-request"):
+        template = "comercial/tabs.html"
+    else:
+        template = "comercial/dashboard.html"
+        
+    return templates.TemplateResponse(template, {
+        "request": request,
+        "user_name": user_name,
+        "role": role # Pasar rol para el sidebar
+    })
 
 @router.get("/form", include_in_schema=False)
 async def get_comercial_form(request: Request):
@@ -395,15 +415,15 @@ async def get_cards_partial(
     request: Request,
     tab: str = "activos",
     q: Optional[str] = None,
+    page: int = 1,
+    subtab: Optional[str] = None,
     service: ComercialService = Depends(get_comercial_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    user_context: dict = Depends(get_current_user_context)
 ):
     """Partial: List of Opportunities (Cards/Grid)."""
-    # Intentamos obtener el email del usuario de la sesión
-    # Ajustar según como guardes el user en el login real.
-    user_email = request.session.get("user_email")
     
-    items = await service.get_oportunidades_list(conn, tab=tab, q=q, user_email=user_email)
+    items = await service.get_oportunidades_list(conn, user_context=user_context, tab=tab, q=q, page=page, subtab=subtab)
     
     return templates.TemplateResponse(
         "comercial/partials/cards.html", 
@@ -412,83 +432,150 @@ async def get_cards_partial(
             "oportunidades": items,
             "user_token": request.session.get("access_token"),
             "current_tab": tab,
-            "q": q
+            "subtab": subtab,
+            "q": q,
+            "page": page,
+            "has_more": len(items) == 10 if tab == 'historial' else False # Simple check logic
         }
+    )
+
+@router.get("/partials/sitios/{id_oportunidad}", include_in_schema=False)
+async def get_sitios_partial(
+    request: Request,
+    id_oportunidad: UUID,
+    conn = Depends(get_db_connection)
+):
+    """Retorna la sub-tabla de sitios para una oportunidad."""
+    rows = await conn.fetch(
+        "SELECT * FROM tb_sitios_oportunidad WHERE id_oportunidad = $1 ORDER BY id_sitio",
+        id_oportunidad
+    )
+    return templates.TemplateResponse(
+        "comercial/partials/sitios_list.html",
+        {"request": request, "sitios": rows}
     )
 
 @router.post("/notificar/{id_oportunidad}")
 async def notificar_oportunidad(
     request: Request,
     id_oportunidad: UUID,
+    recipients_str: str = Form(""), # Chips de TO
+    fixed_to: List[str] = Form([]), # Hidden fixed TOs
+    fixed_cc: List[str] = Form([]), # Hidden fixed CCs
+    extra_cc: str = Form(""),       # Input manual CC
     subject: str = Form(...),
     body: str = Form(...),
     archivos_extra: List[UploadFile] = File(default=[]),
     service: ComercialService = Depends(get_comercial_service),
-    ms_auth: MicrosoftAuth = Depends(get_ms_auth),
+    ms_auth = Depends(get_ms_auth),
     conn = Depends(get_db_connection)
 ):
     """Envía el correo de notificación usando el token de la sesión."""
     access_token = request.session.get("access_token")
     if not access_token:
-        # Si es HTMX, podríamos retornar un div con error o redirect
         return HTMLResponse(
             "<div class='text-red-500'>Error: No has iniciado sesión con Microsoft. <a href='/auth/login' class='underline'>Log In</a></div>",
             status_code=401
         )
 
-    # 1. Recuperar info de la oportunidad para el cuerpo del correo
+    # 1. Recuperar info de la oportunidad
     row = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
     if not row:
         return HTMLResponse("<div class='text-red-500'>Oportunidad no encontrada</div>", status_code=404)
         
-    subject = f"Nueva Oportunidad Comercial: {row['titulo_proyecto']}"
-    body = f"""
-    Se ha generado una nueva oportunidad comercial.
+    # 2. Procesar Destinatarios (TO)
+    final_to = set()
     
-    ID: {row['op_id_estandar']}
-    Proyecto: {row['nombre_proyecto']}
-    Cliente: {row['cliente_nombre']}
-    Link SharePoint: {row['sharepoint_folder_url'] or 'N/A'}
+    # a) From Chips (recipients_str)
+    if recipients_str:
+        raw_list = recipients_str.replace(";", ",").split(",")
+        for email in raw_list:
+            if email.strip(): final_to.add(email.strip())
+            
+    # b) From Fixed rules
+    for email in fixed_to:
+        if email.strip(): final_to.add(email.strip())
+
+    # Fallback
+    if not final_to:
+        final_to.add("vendedores@enertika.com")
+
+    # 3. Procesar Copias (CC)
+    final_cc = set()
     
-    Favor de revisar.
-    """
-    
-    # Destinatarios hardcodeados por ahora o config
-    recipients = ["vendedores@enertika.com"] # Ajustar a real
-    # Si quieres enviártelo a ti mismo para probar:
-    # recipients = [payload_del_token.get("email")] # Si decodificaras el token
-    
-    # 2. Enviar Correo
+    # a) From Fixed rules
+    for email in fixed_cc:
+        if email.strip(): final_cc.add(email.strip())
+        
+    # b) From Manual Input
+    if extra_cc:
+        raw_cc = extra_cc.replace(";", ",").split(",")
+        for email in raw_cc:
+            if email.strip(): final_cc.add(email.strip())
+
+    recipients_list = list(final_to)
+    cc_list = list(final_cc)
+
+    logger.info(f"Enviando correo OP {row['op_id_estandar']} | TO: {recipients_list} | CC: {cc_list}")
+
+    # 4. Procesar Adjuntos
     adjuntos_procesados = []
     
-    # 1. Procesar archivos extra del formulario
+    # --- LOGICA MULTISITIO: Generar Excel Automáticamente ---
+    if (row['cantidad_sitios'] or 0) > 1:
+        try:
+            sites_rows = await conn.fetch("SELECT nombre_sitio, direccion, tipo_tarifa, google_maps_link FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
+            if sites_rows:
+                df_sites = pd.DataFrame([dict(r) for r in sites_rows])
+                df_sites.columns = ["NOMBRE", "DIRECCION", "TARIFA", "LINK MAPS"]
+                
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                    df_sites.to_excel(writer, index=False, sheet_name='Sitios')
+                
+                adjuntos_procesados.append({
+                    "name": f"Listado_Sitios_{row['op_id_estandar']}.xlsx",
+                    "content_bytes": buf.getvalue(),
+                    "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                })
+        except Exception as e:
+            logger.error(f"Error generando excel adjunto: {e}")
+            
+    # 5. Procesar archivos extra del formulario
     for archivo in archivos_extra:
-        if archivo.filename: # Ignorar inputs vacíos
+        if archivo.filename: 
             contenido = await archivo.read()
-            # Reset para seguridad
             await archivo.seek(0) 
             adjuntos_procesados.append({
                 "name": archivo.filename,
-                "content_bytes": contenido, # Tu wrapper debe manejar bytes
+                "content_bytes": contenido, 
                 "contentType": archivo.content_type
             })
 
+    # 6. Enviar
     ok, msg = ms_auth.send_email_with_attachments(
         access_token, 
         subject, 
         body, 
-        recipients, 
-        attachments_files=adjuntos_procesados # <-- Pasamos la lista
+        recipients_list,
+        cc_recipients=cc_list, # NUEVO
+        attachments_files=adjuntos_procesados 
     )
     
     if ok:
         await service.update_email_status(conn, id_oportunidad)
         return HTMLResponse(f"""
-            <span class="text-green-600 font-bold">✓ Enviado</span>
+            <div class="text-center">
+                <p class="text-green-600 font-bold text-xl mb-2">✓ Enviado Exitosamente</p>
+                <div hx-get="/comercial/ui" hx-target="#main-content" hx-trigger="load delay:1s">
+                    <span class="text-gray-500 text-sm">Redirigiendo al inicio...</span>
+                </div>
+            </div>
         """, status_code=200)
     else:
+        logger.error(f"Fallo envio correo Graph: {msg}")
         return HTMLResponse(f"""
-            <span class="text-red-600">Error: {msg}</span>
+            <span class="text-red-600">Error enviando correo: {msg}</span>
         """, status_code=200)
 
 @router.get("/plantilla", response_class=StreamingResponse)
@@ -510,53 +597,90 @@ async def descargar_plantilla_sitios():
     headers = {"Content-Disposition": 'attachment; filename="plantilla_sitios_enertika.xlsx"'}
     return StreamingResponse(buffer, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
-@router.post("/", status_code=status.HTTP_201_CREATED)
+@router.post("/form")
 async def handle_oportunidad_creation(
     request: Request,
-    # --- Coincidencia exacta con los 'name'  ---
-    nombre_cliente: str = Form(...),
     nombre_proyecto: str = Form(...),
+    nombre_cliente: str = Form(...),
     canal_venta: str = Form(...),
     tipo_tecnologia: str = Form(...),
     tipo_solicitud: str = Form(...),
-    cantidad_sitios: int = Form(...), # Asegura que el input HTML tenga value por defecto o type="number"
+    cantidad_sitios: int = Form(...),
     prioridad: str = Form(...),
     direccion_obra: str = Form(...),
-    google_maps_link: str = Form(...),
-    # Campos Opcionales (Deben tener default=None)
-    coordenadas_gps: Optional[str] = Form(None),
-    sharepoint_folder_url: Optional[str] = Form(None),
-    # Inyecciones de Dependencia
+    coordenadas_gps: str = Form(None),
+    google_maps_link: str = Form(None),
+    sharepoint_folder_url: str = Form(None),
+    conn = Depends(get_db_connection),
     service: ComercialService = Depends(get_comercial_service),
-    conn = Depends(get_db_connection) 
+    ms_auth = Depends(get_ms_auth)
 ):
-    # 1. Empaquetamos datos
-    datos_form = {
-        "nombre_cliente": nombre_cliente,
-        "nombre_proyecto": nombre_proyecto,
-        "canal_venta": canal_venta,
-        "tipo_tecnologia": tipo_tecnologia,
-        "tipo_solicitud": tipo_solicitud,
-        "cantidad_sitios": cantidad_sitios,
-        "prioridad": prioridad,
-        "direccion_obra": direccion_obra,
-        "google_maps_link": google_maps_link,
-        "coordenadas_gps": coordenadas_gps,
-        "sharepoint_folder_url": sharepoint_folder_url
-    }
-
     try:
-        # 2. Llamada al servicio
-        oportunidad_id = await service.create_oportunidad(conn, datos_form)
+        # 1. Obtener usuario de MS Graph
+        token = request.session.get("access_token")
+        user_id = UUID('00000000-0000-0000-0000-000000000000') # Fallback por si acaso
+
+        if token:
+            profile = ms_auth.get_user_profile(token)
+            if profile:
+                email = profile.get("mail") or profile.get("userPrincipalName")
+                nombre = profile.get("displayName")
+                
+                # Check / Create user in DB
+                row = await conn.fetchrow("SELECT id_usuario FROM tb_usuarios WHERE email = $1", email)
+                if row:
+                    user_id = row['id_usuario']
+                else:
+                    # Crear usuario nuevo
+                    user_id = uuid4()
+                    await conn.execute(
+                        "INSERT INTO tb_usuarios (id_usuario, nombre, email) VALUES ($1, $2, $3)",
+                        user_id, nombre, email
+                    )
+
+        # 2. Diccionario de datos
+        datos_form = {
+            "nombre_proyecto": nombre_proyecto,
+            "nombre_cliente": nombre_cliente,
+            "canal_venta": canal_venta,
+            "tipo_tecnologia": tipo_tecnologia,
+            "tipo_solicitud": tipo_solicitud,
+            "cantidad_sitios": cantidad_sitios,
+            "prioridad": prioridad,
+            "direccion_obra": direccion_obra,
+            "coordenadas_gps": coordenadas_gps,
+            "google_maps_link": google_maps_link,
+            "sharepoint_folder_url": sharepoint_folder_url
+        }
+
+        # 3. Crear Oportunidad con user_id real
+        oportunidad_id = await service.create_oportunidad(datos_form, conn, user_id)
         
-        # 3. Recuperar datos visuales para el Paso 2
+        # 4. Recuperar datos visuales para el Paso 2
         row = await conn.fetchrow(
-            "SELECT id_interno_simulacion, codigo_generado FROM tb_oportunidades WHERE id_oportunidad = $1", 
+            "SELECT id_interno_simulacion, titulo_proyecto FROM tb_oportunidades WHERE id_oportunidad = $1", 
             oportunidad_id
         )
 
-        # 4. Renderizar respuesta (Paso 2: Multisitio)
-        if cantidad_sitios >= 1: # Nota: Ajustado a >= 1 para mostrar siempre el paso 2 y confirmar/cargar
+        # 4. Lógica Condicional de Pasos
+        if cantidad_sitios == 1:
+            # CASO 1 SITIO: Auto-crear sitio y saltar al Paso 3 (Email)
+            # Usamos los datos de cabecera como el "Sitio Único"
+            try:
+                # Insertamos el sitio único en tb_sitios_oportunidad
+                await conn.execute("""
+                    INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link)
+                    VALUES ($1, $2, $3, $4, $5)
+                """, uuid4(), oportunidad_id, nombre_proyecto, direccion_obra, google_maps_link)
+            except Exception as e:
+                logger.error(f"Error auto-creando sitio único: {e}")
+            
+            # Redirigir al Paso 3 (Email) via HTMX
+            # Usamos HX-Location para que el cliente haga el GET
+            return HTMLResponse(headers={"HX-Location": f"/comercial/paso3/{oportunidad_id}"})
+            
+        else:
+            # CASO MULTISITIOS (>1): Mostrar Paso 2 (Excel)
             return templates.TemplateResponse(
                 "comercial/multisitio_form.html",
                 {
@@ -564,7 +688,7 @@ async def handle_oportunidad_creation(
                     "oportunidad_id": oportunidad_id, 
                     "nombre_cliente": nombre_cliente,
                     "id_interno": row['id_interno_simulacion'],
-                    "codigo_generado": row['codigo_generado'],
+                    "titulo_proyecto": row['titulo_proyecto'],
                     "cantidad_declarada": cantidad_sitios
                 }
             )
@@ -589,9 +713,98 @@ async def cancelar_oportunidad(
     # 2. Borrar cabecera
     await conn.execute("DELETE FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
     
-    # 3. Retornamos el dashboard completo para "resetear" la vista y volver al inicio
-    # Como estamos borrando, lo lógico es volver a cargar la vista por defecto (Activos)
-    return templates.TemplateResponse("comercial/tabs.html", {"request": request}) 
+    # 3. Retornamos respuesta vacía con header de redirección HTMX
+    # Esto fuerza al cliente a hacer un GET completo a /comercial/ui, restaurando Sidebar y Contexto
+    from fastapi import Response
+    return Response(status_code=200, headers={"HX-Location": "/comercial/ui"}) 
+
+
+# ----------------------------------------
+# NEW ENDPOINTS FOR STEP 3 & DEBUG
+# ----------------------------------------
+
+@router.get("/paso3/{id_oportunidad}", include_in_schema=False)
+async def get_paso3_email_form(
+    request: Request,
+    id_oportunidad: UUID,
+    conn = Depends(get_db_connection)
+):
+    """Muestra el formulario final de envío de correo (Paso 3)."""
+    # Recuperar datos para pre-llenar
+    row = await conn.fetchrow(
+        "SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", 
+        id_oportunidad
+    )
+    if not row:
+        return HTMLResponse("Oportunidad no encontrada", 404)
+        
+    # Verificar si es multisitio para mostrar badge
+    has_multisitio = (row['cantidad_sitios'] or 0) > 1
+    
+    # --- LOGICA DE CORREOS DINÁMICA (Desde tb_config_emails) ---
+    fixed_to = ["vendedores@enertika.com"] # Default hardcoded
+    fixed_cc = []
+
+    # 1. Traer todas las reglas del módulo COMERCIAL
+    rules = await conn.fetch("SELECT * FROM tb_config_emails WHERE modulo = 'COMERCIAL'")
+    
+    # 2. Evaluar reglas
+    for rule in rules:
+        field = rule['trigger_field']    # e.g., 'tecnologia'
+        val_trigger = rule['trigger_value'].upper() # e.g., 'BESS'
+        val_actual = str(row.get(field) or "").upper()
+        
+        # Lógica de coincidencia (Contains)
+        if val_trigger in val_actual:
+            email = rule['email_to_add']
+            tipo = rule['type'] # TO o CC
+            
+            if tipo == 'TO':
+                if email not in fixed_to: fixed_to.append(email)
+            else:
+                if email not in fixed_cc: fixed_cc.append(email)
+    
+    # 3. Determinar Template (HTMX vs Full Load)
+    if request.headers.get("hx-request"):
+        template = "comercial/email_form.html"
+    else:
+        template = "comercial/email_full.html" # Wrapper que extiende base.html
+
+    return templates.TemplateResponse(
+        template,
+        {
+            "request": request,
+            "op": row,
+            "has_multisitio_file": has_multisitio,
+            "fixed_to": fixed_to,
+            "fixed_cc": fixed_cc,
+            # Contexto necesario para base.html en Full Load
+            "user_name": request.session.get("user_name", "Usuario"),
+            "role": request.session.get("role", "USER")
+        }
+    )
+
+@router.get("/debug/set-dept")
+async def debug_set_department(request: Request, dept: str = ""):
+    """
+    Endpoint de Debug para 'sistemas@enertika.mx'.
+    Permite simular ser de otro departamento para probar permisos.
+    Uso: /comercial/debug/set-dept?dept=Logistica
+    Para resetear: /comercial/debug/set-dept?dept=
+    """
+    user_email = request.session.get("user_email", "")
+    if user_email != "sistemas@enertika.mx":
+        raise HTTPException(status_code=403, detail="Solo admin puede usar debug")
+        
+    if not dept:
+        if "mock_department" in request.session:
+            del request.session["mock_department"]
+        msg = "Debug Mode OFF: Eres Admin (Manager) de nuevo."
+    else:
+        request.session["mock_department"] = dept
+        msg = f"Debug Mode ON: Simulando departamento '{dept}'"
+        
+    return HTMLResponse(f"<div class='p-4 bg-yellow-100 text-yellow-800 font-bold'>{msg} <a href='/comercial/ui' class='underline ml-2'>Ir al Dashboard</a></div>")
 
 # ----------------------------------------
 # NUEVOS ENDPOINTS PARA EXCEL PREVIEW
@@ -771,7 +984,7 @@ async def upload_confirm_endpoint(
 async def get_paso_2_form(request: Request, id_oportunidad: UUID, conn = Depends(get_db_connection)):
     """Re-renderiza el formulario de carga multisitio (Paso 2)."""
     row = await conn.fetchrow(
-        "SELECT id_interno_simulacion, codigo_generado, cliente_nombre, cantidad_sitios FROM tb_oportunidades WHERE id_oportunidad = $1", 
+        "SELECT id_interno_simulacion, titulo_proyecto, cliente_nombre, cantidad_sitios FROM tb_oportunidades WHERE id_oportunidad = $1", 
         id_oportunidad
     )
     if not row:
@@ -784,7 +997,7 @@ async def get_paso_2_form(request: Request, id_oportunidad: UUID, conn = Depends
             "oportunidad_id": id_oportunidad, 
             "nombre_cliente": row['cliente_nombre'],
             "id_interno": row['id_interno_simulacion'],
-            "codigo_generado": row['codigo_generado'],
+            "titulo_proyecto": row['titulo_proyecto'],
             "cantidad_declarada": row['cantidad_sitios']
         }
     )
@@ -794,6 +1007,7 @@ async def get_paso_3_form(request: Request, id_oportunidad: UUID, conn = Depends
     """Renderiza el formulario de envío de correo (Paso 3)."""
     row = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
     if not row:
+        logger.error(f"Paso 3: Oportunidad {id_oportunidad} no encontrada.")
         return HTMLResponse("Oportunidad no encontrada", 404)
 
     # Preparamos datos del correo (igual que en notificar_oportunidad)
@@ -810,10 +1024,15 @@ async def get_paso_3_form(request: Request, id_oportunidad: UUID, conn = Depends
     """
     recipients = "vendedores@enertika.com"
 
+    # Multisitio Check
+    has_multisitio = (row['cantidad_sitios'] or 1) > 1
+
     return templates.TemplateResponse(
         "comercial/email_form.html",
         {
             "request": request, 
+            "op": row, # <--- FIXED: template expects 'op'
+            "has_multisitio_file": has_multisitio, # <--- FIXED
             "oportunidad_id": id_oportunidad,
             "subject": subject,
             "body": body,
