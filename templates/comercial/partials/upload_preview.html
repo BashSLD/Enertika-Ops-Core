@@ -1,6 +1,7 @@
-<div id="preview-container" class="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4 animate-fade-in">
+<div id="preview-container" x-data="{ showAll: false }"
+    class="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4 animate-fade-in">
     <div class="flex justify-between items-center mb-4">
-        <h3 class="text-lg font-medium text-gray-700">Previsualización de Carga (Primeras 5 filas)</h3>
+        <h3 class="text-lg font-medium text-gray-700">Previsualización de Carga</h3>
         <span class="text-sm text-gray-500">Total detectado: {{ total_rows }} filas</span>
     </div>
 
@@ -18,7 +19,7 @@
             </thead>
             <tbody class="divide-y divide-gray-200">
                 {% for row in preview_rows %}
-                <tr class="hover:bg-gray-50">
+                <tr class="hover:bg-gray-50" x-show="showAll || {{ loop.index0 }} < 5">
                     {% for cell in row %}
                     <td class="px-4 py-2 text-gray-700 whitespace-nowrap">
                         {{ cell }}
@@ -30,35 +31,36 @@
         </table>
     </div>
 
-    {% if preview_rows|length < total_rows %} <div class="text-center mb-4">
-        <button hx-get="/comercial/upload-preview-full/{{ file_id }}?op_id={{ op_id }}" hx-target="#preview-container"
-            hx-swap="outerHTML"
+    {% if preview_rows|length > 5 %}
+    <div class="text-center mb-4">
+        <button @click="showAll = !showAll" type="button"
             class="text-blue-600 hover:text-blue-800 text-sm font-semibold underline cursor-pointer">
-            Ver los {{ total_rows }} registros
+            <span x-show="!showAll">▼ Ver los {{ total_rows }} registros completos</span>
+            <span x-show="showAll">▲ Ver menos (primeros 5 registros)</span>
         </button>
-</div>
-{% endif %}
+    </div>
+    {% endif %}
 
-<!-- Actions -->
-<div class="flex justify-end gap-3 mt-4">
-    <button hx-on:click="htmx.find('#upload-result').innerHTML = ''" type="button"
-        class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors">
-        Cancelar / Reintentar
-    </button>
-
-    <form hx-post="/comercial/upload-confirm" hx-target="#upload-result" hx-swap="innerHTML">
-        <input type="hidden" name="sitios_json" value='{{ json_data | safe }}'>
-        <input type="hidden" name="op_id" value="{{ op_id }}">
-        <button type="submit"
-            class="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 shadow-md transition-transform hover:scale-105 flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-            </svg>
-            Confirmar Carga
+    <!-- Actions -->
+    <div class="flex justify-end gap-3 mt-4">
+        <button hx-on:click="htmx.find('#upload-result').innerHTML = ''" type="button"
+            class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors">
+            Cancelar / Reintentar
         </button>
-    </form>
-</div>
 
-<div id="upload-result"></div>
+        <form hx-post="/comercial/upload-confirm" hx-target="#upload-result" hx-swap="innerHTML">
+            <input type="hidden" name="sitios_json" value='{{ json_data | safe }}'>
+            <input type="hidden" name="op_id" value="{{ op_id }}">
+            <button type="submit"
+                class="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 shadow-md transition-transform hover:scale-105 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                Confirmar Carga
+            </button>
+        </form>
+    </div>
+
+    <div id="upload-result"></div>
 </div>

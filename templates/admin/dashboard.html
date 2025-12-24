@@ -265,8 +265,13 @@
 
 <script>
     function updateTriggerValues() {
-        const field = document.getElementById('triggerFieldSelect').value;
+        const fieldSelect = document.getElementById('triggerFieldSelect');
         const container = document.getElementById('triggerValueContainer');
+
+        // Validación: Solo ejecutar si los elementos existen en el DOM
+        if (!fieldSelect || !container) return;
+
+        const field = fieldSelect.value;
 
         let html = '';
 

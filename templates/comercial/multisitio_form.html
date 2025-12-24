@@ -3,7 +3,7 @@
     <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
         <div class="flex justify-between items-start">
             <div>
-                <h3 class="text-lg font-bold text-[#123456]">Paso 2: Carga Masiva de Sitios</h3>
+                <h3 class="text-lg font-bold text-[#123456]">Paso 2: Carga Multisitios</h3>
                 <p class="text-sm text-gray-600 mt-1">Cliente: <strong>{{ nombre_cliente }}</strong></p>
             </div>
             <div class="text-right">
@@ -82,7 +82,7 @@
                 }
 
                 function removeFile(event) {
-                    // MAGIA AQUÍ: Detiene que el click pase al input file de abajo
+                    // Detiene que el click pase al input file de abajo
                     event.stopPropagation();
                     event.preventDefault();
 
@@ -104,16 +104,11 @@
                 }
             </script>
 
-            <div class="flex justify-between items-center pt-4">
+            <div class="flex justify-start pt-4">
                 <button type="button" hx-delete="/comercial/{{ oportunidad_id }}"
                     hx-confirm="¿Seguro que deseas cancelar? Se borrará el registro." hx-target="closest div.space-y-6"
                     hx-swap="outerHTML" class="text-red-500 hover:text-red-700 text-sm font-medium px-4 py-2">
                     Cancelar Proceso
-                </button>
-
-                <button type="submit"
-                    class="bg-[#123456] text-white px-6 py-2 rounded shadow hover:bg-[#0E2A47] transition duration-150 border-b-4 border-[#0A1F35] active:border-b-0">
-                    Procesar Carga
                 </button>
             </div>
         </form>

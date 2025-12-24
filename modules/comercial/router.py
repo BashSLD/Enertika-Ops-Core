@@ -149,7 +149,7 @@ class ComercialService:
                 detail=f"Error BD: {e}"
             )
 
-    async def get_oportunidades_list(self, conn, user_context: dict, tab: str = "activos", q: str = None, page: int = 1, subtab: str = None) -> List[dict]:
+    async def get_oportunidades_list(self, conn, user_context: dict, tab: str = "activos", q: str = None, limit: int = 15, subtab: str = None) -> List[dict]:
         """Recupera la lista filtrada de oportunidades, aplicando lógica de permisos y paginación."""
         
         user_id = user_context.get("user_id")
@@ -176,17 +176,19 @@ class ComercialService:
 
         # 2. Filtro Tab (Lógica de Negocio)
         if tab == "historial":
-            query += f" AND o.status_global IN ('Entregado', 'Cancelado', 'Perdida', 'Ganada')"
+            query += f" AND LOWER(o.status_global) IN ('entregado', 'cancelado', 'perdida')"
         elif tab == "levantamientos":
-            query += f" AND o.tipo_solicitud = 'SOLICITUD DE LEVANTAMIENTO'"
+            query += f" AND LOWER(o.tipo_solicitud) = 'solicitud de levantamiento'"
             # Sub-tab Logic
             if subtab == 'realizados':
-                query += f" AND o.status_global = 'Realizado'" # O el status que signifique terminado en Lev.
+                query += f" AND LOWER(o.status_global) = 'realizado'" # O el status que signifique terminado en Lev.
             else: # solicitados (default)
-                query += f" AND o.status_global != 'Realizado'"
+                query += f" AND LOWER(o.status_global) != 'realizado'"
+        elif tab == "ganadas":
+            query += f" AND LOWER(o.status_global) = 'cerrada'"
         else: # activos
-             query += f" AND o.status_global NOT IN ('Entregado', 'Cancelado', 'Perdida', 'Ganada')"
-             query += f" AND o.tipo_solicitud != 'SOLICITUD DE LEVANTAMIENTO'"
+             query += f" AND LOWER(o.status_global) NOT IN ('entregado', 'cancelado', 'perdida', 'cerrada')"
+             query += f" AND LOWER(o.tipo_solicitud) != 'solicitud de levantamiento'"
 
         # 3. Filtro Búsqueda
         if q:
@@ -202,11 +204,9 @@ class ComercialService:
 
         query += " ORDER BY o.fecha_solicitud DESC"
         
-        # 5. Paginación (Solo para Historial por ahora)
-        if tab == "historial":
-            limit = 10
-            offset = (page - 1) * limit
-            query += f" LIMIT {limit} OFFSET {offset}"
+        # 5. Límite de registros (configurable por usuario)
+        if limit > 0:  # Si limit es 0 o negativo, mostrar todos
+            query += f" LIMIT {limit}"
         
         rows = await conn.fetch(query, *params)
         return [dict(row) for row in rows]
@@ -296,7 +296,7 @@ async def get_cards_partial(
     request: Request,
     tab: str = "activos",
     q: Optional[str] = None,
-    page: int = 1,
+    limit: int = 15,
     subtab: Optional[str] = None,
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
@@ -304,7 +304,7 @@ async def get_cards_partial(
 ):
     """Partial: List of Opportunities (Cards/Grid)."""
     
-    items = await service.get_oportunidades_list(conn, user_context=user_context, tab=tab, q=q, page=page, subtab=subtab)
+    items = await service.get_oportunidades_list(conn, user_context=user_context, tab=tab, q=q, limit=limit, subtab=subtab)
     
     return templates.TemplateResponse(
         "comercial/partials/cards.html", 
@@ -315,8 +315,7 @@ async def get_cards_partial(
             "current_tab": tab,
             "subtab": subtab,
             "q": q,
-            "page": page,
-            "has_more": len(items) == 10 if tab == 'historial' else False # Simple check logic
+            "limit": limit
         }
     )
 
@@ -345,7 +344,9 @@ async def notificar_oportunidad(
     fixed_cc: List[str] = Form([]), # Hidden fixed CCs
     extra_cc: str = Form(""),       # Input manual CC
     subject: str = Form(...),
-    body: str = Form(...),
+    body: str = Form(""),           # Mensaje adicional del usuario
+    auto_message: str = Form(...),  # Mensaje automático
+    prioridad: str = Form("normal"),  # ACCIÓN 3: Prioridad del email
     archivos_extra: List[UploadFile] = File(default=[]),
     service: ComercialService = Depends(get_comercial_service),
     ms_auth = Depends(get_ms_auth),
@@ -354,15 +355,24 @@ async def notificar_oportunidad(
     """Envía el correo de notificación usando el token de la sesión."""
     access_token = request.session.get("access_token")
     if not access_token:
-        return HTMLResponse(
-            "<div class='text-red-500'>Error: No has iniciado sesión con Microsoft. <a href='/auth/login' class='underline'>Log In</a></div>",
-            status_code=401
-        )
+        # ACCIÓN 1: Toast de error
+        return HTMLResponse("""
+            <div class='fixed top-4 right-4 z-50 bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-lg animate-fade-in-down max-w-md'>
+                <p class='font-bold'>⚠️ Sesión Expirada</p>
+                <p class='text-sm'>Por favor <a href='/auth/login' class='underline font-semibold'>inicia sesión</a> nuevamente.</p>
+            </div>
+        """, status_code=401)
 
     # 1. Recuperar info de la oportunidad
     row = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
     if not row:
-        return HTMLResponse("<div class='text-red-500'>Oportunidad no encontrada</div>", status_code=404)
+        # ACCIÓN 1: Toast de error
+        return HTMLResponse("""
+            <div class='fixed top-4 right-4 z-50 bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-lg animate-fade-in-down max-w-md'>
+                <p class='font-bold'>❌ Error</p>
+                <p class='text-sm'>Oportunidad no encontrada. Por favor intenta nuevamente.</p>
+            </div>
+        """, status_code=404)
         
     # --- 1.5 RECUPERAR DEFAULTS (Admin Config) ---
     defaults = await conn.fetchrow("SELECT * FROM tb_email_defaults WHERE id = 1")
@@ -422,17 +432,17 @@ async def notificar_oportunidad(
     # --- LOGICA MULTISITIO: Generar Excel Automáticamente ---
     if (row['cantidad_sitios'] or 0) > 1:
         try:
-            sites_rows = await conn.fetch("SELECT nombre_sitio, direccion, tipo_tarifa, google_maps_link FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
+            sites_rows = await conn.fetch("SELECT nombre_sitio, numero_servicio, direccion, tipo_tarifa, google_maps_link, comentarios FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
             if sites_rows:
                 df_sites = pd.DataFrame([dict(r) for r in sites_rows])
-                df_sites.columns = ["NOMBRE", "DIRECCION", "TARIFA", "LINK MAPS"]
+                df_sites.columns = ["NOMBRE", "# DE SERVICIO", "DIRECCION", "TARIFA", "LINK GOOGLE", "COMENTARIOS"]
                 
                 buf = io.BytesIO()
                 with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
                     df_sites.to_excel(writer, index=False, sheet_name='Sitios')
                 
                 adjuntos_procesados.append({
-                    "name": f"Listado_Sitios_{row['op_id_estandar']}.xlsx",
+                    "name": f"Listado_Multisitios_{row['id_interno_simulacion']}.xlsx",
                     "content_bytes": buf.getvalue(),
                     "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
                 })
@@ -450,14 +460,21 @@ async def notificar_oportunidad(
                 "contentType": archivo.content_type
             })
 
-    # 5. Llamada a MicrosoftAuth (Con manejo de expiración)
+    # 5. Concatenar mensajes: Usuario primero, automático al final
+    final_body = body if body.strip() else ""
+    if final_body:
+        final_body += "<br><br>"
+    final_body += auto_message
+
+    # 6. Llamada a MicrosoftAuth (Con manejo de expiración)
     ok, msg = ms_auth.send_email_with_attachments(
         access_token=access_token, 
         subject=subject,
-        body=body,
+        body=final_body,  # Usar mensaje concatenado
         recipients=recipients_list,
         cc_recipients=cc_list, 
-        bcc_recipients=bcc_list, # Soportado ahora
+        bcc_recipients=bcc_list,
+        importance=prioridad.lower(),  # ACCIÓN 3: Pasar prioridad
         attachments_files=adjuntos_procesados 
     )
     
@@ -520,7 +537,7 @@ async def descargar_plantilla_sitios():
     df = pd.DataFrame(columns=cols)
     
     # Fila de ejemplo actualizada
-    df.loc[0] = [1, "SUCURSAL NORTE", "123456789012", "GDMTO", "http://maps...", "Av. Reforma 123", "ejemplo de coments"]
+    df.loc[0] = [1, "SUCURSAL NORTE", "123456789012", "GDMTO", "https://maps.google.com/?q=19.4326,-99.1332", "Av. Reforma 123, Col. Centro", "Ejemplo de comentario"]
     
     # Guardar en buffer de memoria
     buffer = io.BytesIO()
@@ -588,6 +605,7 @@ async def handle_oportunidad_creation(
                  headers={"HX-Redirect": "/auth/login"}
              )
 
+
         # 2. Diccionario de datos
         datos_form = {
             "nombre_proyecto": nombre_proyecto,
@@ -619,9 +637,9 @@ async def handle_oportunidad_creation(
             try:
                 # Insertamos el sitio único en tb_sitios_oportunidad
                 await conn.execute("""
-                    INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link)
-                    VALUES ($1, $2, $3, $4, $5)
-                """, uuid4(), oportunidad_id, nombre_proyecto, direccion_obra, google_maps_link)
+                    INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link, numero_servicio, comentarios)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                """, uuid4(), oportunidad_id, nombre_proyecto, direccion_obra, google_maps_link, None, None)
             except Exception as e:
                 logger.error(f"Error auto-creando sitio único: {e}")
             
@@ -848,11 +866,11 @@ async def upload_preview_endpoint(
                 </div>
             """, 200)
 
-        # 6. SI TODO ESTÁ BIEN: Generar Preview (Stateless)
+        # 6. SI TODO ESTÁ BIEN: Generar Preview
         # Convertimos DataFrame a lista de diccionarios para el frontend
         
         # Formato esperado por el frontend: List[Dict]
-        preview_rows = df.head(5).values.tolist()
+        preview_rows = df.values.tolist()  # Todas las filas para toggle local
         columns = df.columns.tolist()
         total_rows = len(df)
         
@@ -866,7 +884,7 @@ async def upload_preview_endpoint(
             {
                 "request": request,
                 "columns": columns,
-                "preview_rows": preview_rows,
+                "preview_rows": preview_rows,  # Todas las filas ahora
                 "total_rows": total_rows,
                 "json_data": json_payload, # <--- La papa caliente
                 "op_id": id_oportunidad
@@ -960,7 +978,9 @@ async def upload_confirm_endpoint(
                     sitio_obj.nombre_sitio,
                     sitio_obj.direccion,
                     sitio_obj.tipo_tarifa,
-                    sitio_obj.google_maps_link
+                    sitio_obj.google_maps_link,
+                    sitio_obj.numero_servicio,
+                    sitio_obj.comentarios
                 ))
             except Exception as e:
                 logger.error(f"Error parseando fila: {item} -> {e}")
@@ -968,13 +988,15 @@ async def upload_confirm_endpoint(
                 continue
 
         # 4. Insertar
+        logger.info(f"Preparados {len(records)} registros para insertar en tb_sitios_oportunidad")
         q = """
             INSERT INTO tb_sitios_oportunidad (
-                id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link
-            ) VALUES ($1, $2, $3, $4, $5, $6)
+                id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         """
         if records:
             await conn.executemany(q, records)
+            logger.info(f"✅ Insertados {len(records)} sitios exitosamente")
         
         return HTMLResponse(content=f"""
         <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4 animate-fade-in-down" role="alert">

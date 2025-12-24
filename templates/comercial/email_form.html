@@ -1,4 +1,5 @@
 <div class="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-lg animate-fade-in-up">
+
     <div class="mb-8 flex items-center justify-between text-sm text-gray-500">
         <div class="flex items-center gap-2">
             <span
@@ -18,13 +19,8 @@
         </div>
     </div>
 
-    <h2 class="text-2xl font-bold text-gray-800 mb-6">Confirmar y Notificar</h2>
-
-    <p class="mb-4 text-gray-600">
-        Estás a punto de crear la oportunidad <strong>{{ op.op_id_estandar }}</strong> para <strong>{{ op.cliente_nombre
-            }}</strong>.
-        <br>Revisa los datos del correo automático.
-    </p>
+    <h2 class="text-2xl font-bold text-gray-800 mb-6">Confirmar y Enviar</h2>
+    <p class="mb-4 text-gray-600">Detalles de la oportunidad: <strong>{{ op.id_interno_simulacion }}</strong>.</p>
 
     <form hx-post="/comercial/notificar/{{ op.id_oportunidad }}" hx-encoding="multipart/form-data" hx-target="this"
         hx-swap="outerHTML" hx-indicator="#loading-indicator" class="space-y-6">
@@ -38,95 +34,81 @@
 
         <div class="chip-wrapper">
             <label class="block text-sm font-medium text-gray-700">Para (To)</label>
-
             {% if fixed_to %}
-            <p class="text-xs text-blue-600 mb-2 font-mono">
-                Este correo se envía a: <strong>{{ fixed_to|join('; ') }}</strong> (Defecto/Reglas)
-            </p>
-            {% for email in fixed_to %}
-            <input type="hidden" name="fixed_to" value="{{ email }}">
-            {% endfor %}
+            <p class="text-xs text-blue-600 mb-2 font-mono">Fijos: <strong>{{ fixed_to|join('; ') }}</strong></p>
+            {% for email in fixed_to %}<input type="hidden" name="fixed_to" value="{{ email }}">{% endfor %}
             {% endif %}
-
             <div class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-blue-500 bg-white">
                 <div class="chips-container flex flex-wrap gap-1"></div>
                 <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
-                    placeholder="Escribe un correo y pulsa Enter o ;">
+                    placeholder="Escribe correo y Enter o ;">
             </div>
-
-            <input type="hidden" name="recipients_str" value="" class="recipients-hidden">
-            <p class="text-xs text-gray-500 mt-1">Presiona Enter, Tab o ; para agregar un correo.</p>
+            <input type="hidden" name="recipients_str" class="recipients-hidden">
         </div>
 
         <div class="chip-wrapper">
             <label class="block text-sm font-medium text-gray-700">CC (Copia)</label>
-
             {% if fixed_cc %}
-            <p class="text-xs text-blue-600 mb-2 font-mono">
-                Con copia a: <strong>{{ fixed_cc|join('; ') }}</strong>
-            </p>
-            {% for email in fixed_cc %}
-            <input type="hidden" name="fixed_cc" value="{{ email }}">
-            {% endfor %}
+            <p class="text-xs text-blue-600 mb-2 font-mono">Fijos: <strong>{{ fixed_cc|join('; ') }}</strong></p>
+            {% for email in fixed_cc %}<input type="hidden" name="fixed_cc" value="{{ email }}">{% endfor %}
             {% endif %}
-
             <div class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-blue-500 bg-white">
                 <div class="chips-container flex flex-wrap gap-1"></div>
                 <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
                     placeholder="Agregar copias extra...">
             </div>
-            <input type="hidden" name="extra_cc" value="" class="recipients-hidden">
+            <input type="hidden" name="extra_cc" class="recipients-hidden">
         </div>
 
         <div>
-            <label class="block text-sm font-medium text-gray-700">Mensaje</label>
-            <textarea name="body" rows="6"
-                class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm">
-Se ha generado una nueva oportunidad comercial.
+            <label class="block text-sm font-medium text-gray-700 mb-1">Mensaje</label>
 
-ID: {{ op.id_interno_simulacion }}
-Proyecto: {{ op.nombre_proyecto }}
-Cliente: {{ op.cliente_nombre }}
-Link SharePoint: {{ op.sharepoint_folder_url or 'N/A' }}
- 
-Favor de revisar.
-            </textarea>
+            <div id="quill-editor"></div>
+
+            <input type="hidden" name="body" id="hidden-body-input">
+            <input type="hidden" name="auto_message" value="">
+
+            <div class="static-footer">
+                <p class="font-bold mb-2 border-b border-gray-300 pb-1">Información Adjunta Automáticamente:</p>
+                <div id="footer-preview">
+                    ID: {{ op.id_interno_simulacion }}<br>
+                    Proyecto: {{ op.nombre_proyecto }}<br>
+                    Cliente: {{ op.cliente_nombre }}<br>
+                    Link SharePoint: {{ op.sharepoint_folder_url or 'N/A' }}<br>
+                    Atentamente: {{ user_name }}
+                </div>
+            </div>
         </div>
 
         <div class="bg-gray-50 p-4 rounded-md border border-gray-200">
-            <label class="block text-sm font-medium text-gray-700 mb-2">Archivos Adjuntos</label>
-
+            <label class="block text-sm font-medium text-gray-700 mb-3">Archivos Adjuntos</label>
             {% if has_multisitio_file %}
-            <div class="flex items-center justify-between bg-white p-2 border border-blue-200 rounded mb-2 shadow-sm">
+            <div class="flex items-center justify-between bg-white p-2 border border-blue-200 rounded mb-3 shadow-sm">
                 <div class="flex items-center gap-2 text-sm text-blue-800">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z">
-                        </path>
-                    </svg>
-                    <span class="font-bold">Listado_Sitios_Oficial.xlsx</span>
-                    <span class="text-xs text-gray-500">(Auto-generado)</span>
+                    <span class="font-bold">📄 Listado_Multisitios.xlsx</span>
                 </div>
-                <div class="text-xs text-gray-400 flex items-center gap-1 cursor-not-allowed">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z">
-                        </path>
-                    </svg>
-                    Bloqueado
-                </div>
+                <div class="text-xs text-gray-400">Protegido</div>
             </div>
             {% endif %}
-
-            <input type="file" name="archivos_extra" multiple
-                class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
-            <p class="text-xs text-gray-400 mt-1">Puedes adjuntar cotizaciones, planos, etc.</p>
+            <div id="selected-files-list" class="space-y-2 mb-3"></div>
+            <button type="button" onclick="document.getElementById('file-input-hidden').click()"
+                class="w-full flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-blue-300 rounded-lg text-blue-600 hover:bg-blue-50 transition">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                <span class="font-semibold">Agregar Adjuntos</span>
+            </button>
+            <input type="file" id="file-input-hidden" name="archivos_extra" multiple class="hidden"
+                onchange="window.handleFileSelection(this)">
+            <div id="size-warning"
+                class="hidden mt-2 p-2 bg-red-100 text-red-700 rounded text-sm border border-red-300">⚠️ El tamaño total
+                excede 35MB.</div>
         </div>
 
         <div class="flex justify-end gap-3 pt-4 border-t border-gray-100 items-center">
-
             <div id="loading-indicator" class="htmx-indicator flex items-center gap-2 text-blue-600 mr-4">
-                <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <svg class="animate-spin h-5 w-5" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor"
                         d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
@@ -134,21 +116,208 @@ Favor de revisar.
                 </svg>
                 <span class="text-sm font-medium">Enviando...</span>
             </div>
-
             <button type="button" hx-delete="/comercial/{{ op.id_oportunidad }}" hx-target="body"
-                hx-confirm="¿Estás seguro/a que deseas CANCELAR esta oportunidad? Se borrarán todos los datos capturados."
-                class="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors">
-                Cancelar y Borrar
-            </button>
-
-            <button type="submit" hx-disabled-elt="this"
-                class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 flex items-center gap-2 disabled:opacity-50 disabled:cursor-wait">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
-                </svg>
-                Enviar y Finalizar
+                hx-confirm="¿Cancelar y borrar todo?"
+                class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>
+            <button type="submit" id="submit-btn" disabled
+                class="px-4 py-2 bg-blue-600 text-white rounded-md shadow-sm text-sm font-medium hover:bg-blue-700 flex items-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all">
+                <span id="btn-text">⏳ Preparando editor...</span>
             </button>
         </div>
     </form>
+
+    <style>
+        .ql-toolbar svg,
+        .ql-container svg,
+        .ql-picker-label svg {
+            width: 20px !important;
+            height: 20px !important;
+            display: inline-block !important;
+        }
+
+        .ql-toolbar {
+            background-color: #f3f4f6;
+            border: 1px solid #d1d5db;
+            border-top-left-radius: 0.5rem;
+            border-top-right-radius: 0.5rem;
+            padding: 8px;
+        }
+
+        .ql-container {
+            border: 1px solid #d1d5db;
+            border-top: none;
+            border-bottom-left-radius: 0.5rem;
+            border-bottom-right-radius: 0.5rem;
+            background: white;
+            min-height: 150px;
+        }
+
+        .static-footer {
+            background-color: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 0.375rem;
+            padding: 1rem;
+            margin-top: 0.5rem;
+            font-size: 0.75rem;
+            color: #4b5563;
+            font-family: monospace;
+        }
+
+        /* Estilos para botón deshabilitado con cursor prohibido */
+        #submit-btn:disabled {
+            cursor: not-allowed !important;
+            opacity: 0.6;
+        }
+
+        #submit-btn.sending {
+            background-color: #9CA3AF !important;
+            cursor: not-allowed !important;
+        }
+    </style>
+
+    <script>
+        // Configuración del Footer
+        window.EMAIL_FOOTER_HTML = `
+            <br><br>
+            <hr style="border: 0; border-top: 1px solid #eee;">
+            <p style="font-family: monospace; color: #555;">
+                <strong>ID:</strong> {{ op.id_interno_simulacion }}<br>
+                <strong>Proyecto:</strong> {{ op.nombre_proyecto }}<br>
+                <strong>Cliente:</strong> {{ op.cliente_nombre }}<br>
+                <strong>Link SharePoint:</strong> <a href="{{ op.sharepoint_folder_url or '#' }}">{{ op.sharepoint_folder_url or 'N/A' }}</a><br>
+                <strong>Atentamente:</strong> {{ user_name }}
+            </p>
+        `;
+
+        (function () {
+            // Cargar CSS de Quill
+            if (!document.querySelector('link[href*="quill.snow.css"]')) {
+                var css = document.createElement('link');
+                css.rel = 'stylesheet';
+                css.href = 'https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css';
+                document.head.appendChild(css);
+            }
+
+            // Inicializador seguro con control de botón
+            window.initQuillSafe = function () {
+                const submitBtn = document.getElementById('submit-btn');
+                const btnText = document.getElementById('btn-text');
+                const form = document.querySelector('form');
+
+                // ⚡ PASO 1: Registrar TODOS los listeners INMEDIATAMENTE (fuera del setTimeout)
+                // Esto asegura que estén disponibles ANTES de que el usuario pueda hacer clic
+
+                // Listener para llenar campos antes de enviar
+                form.addEventListener('htmx:configRequest', function (evt) {
+                    var hiddenBodyInput = document.getElementById('hidden-body-input');
+                    var autoMessageInput = document.querySelector('input[name="auto_message"]');
+
+                    // Verificar que Quill esté listo
+                    if (window.quillInstance && hiddenBodyInput && autoMessageInput) {
+                        const bodyContent = window.quillInstance.root.innerHTML;
+                        const footerContent = window.EMAIL_FOOTER_HTML;
+
+                        // 1. Actualizar el DOM (para consistencia visual)
+                        hiddenBodyInput.value = bodyContent;
+                        autoMessageInput.value = footerContent;
+
+                        // 2. ⚡ CRÍTICO: Actualizar los parámetros HTTP que HTMX envía
+                        // HTMX ya serializó el form ANTES de este evento, así que debemos
+                        // modificar directamente evt.detail.parameters
+                        evt.detail.parameters['body'] = bodyContent;
+                        evt.detail.parameters['auto_message'] = footerContent;
+
+                        console.log('✅ Campos llenados correctamente');
+                        console.log('  - body length:', bodyContent.length);
+                        console.log('  - auto_message length:', footerContent.length);
+                    } else {
+                        console.error("❌ ERROR: Componentes no listos");
+                        if (!window.quillInstance) console.error("  - Quill no inicializado");
+                        if (!hiddenBodyInput) console.error("  - Falta: hidden-body-input");
+                        if (!autoMessageInput) console.error("  - Falta: input[name='auto_message']");
+                    }
+                });
+
+                // Listener para bloquear botón durante envío
+                form.addEventListener('htmx:beforeRequest', function () {
+                    submitBtn.disabled = true;
+                    submitBtn.classList.add('sending');
+                    btnText.innerHTML = '📤 Enviando...';
+                    console.log('🔒 Botón bloqueado durante envío');
+                });
+
+                // Listener para re-habilitar botón si hay error
+                form.addEventListener('htmx:afterRequest', function (evt) {
+                    if (evt.detail.xhr.status >= 400) {
+                        submitBtn.disabled = false;
+                        submitBtn.classList.remove('sending');
+                        btnText.innerHTML = 'Enviar Correo';
+                        console.log('🔓 Botón re-habilitado (error ' + evt.detail.xhr.status + ')');
+                    }
+                });
+
+                // ⚡ PASO 2: Inicializar Quill con delay (para DOM ready)
+                setTimeout(function () {
+                    const container = document.getElementById('quill-editor');
+                    if (!container || container.classList.contains('ql-container')) return;
+
+                    // Crear Quill y guardarlo globalmente
+                    window.quillInstance = new Quill('#quill-editor', {
+                        theme: 'snow',
+                        placeholder: 'Escribe tu mensaje aquí...',
+                        modules: { toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered' }, { 'list': 'bullet' }], [{ 'header': [1, 2, 3, false] }], ['clean']] }
+                    });
+
+                    // ✅ PASO 3: Habilitar botón SOLO después de que Quill esté listo
+                    if (submitBtn && btnText) {
+                        submitBtn.disabled = false;
+                        btnText.innerHTML = 'Enviar Correo';
+                        console.log('✅ Editor Quill listo - Botón habilitado');
+                    }
+                }, 200);
+            };
+
+            // Carga de Librería JS
+            if (typeof Quill !== 'undefined') { window.initQuillSafe(); }
+            else if (!document.querySelector('script[src*="quill.js"]')) {
+                var script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js';
+                script.onload = function () { window.initQuillSafe(); };
+                document.head.appendChild(script);
+            } else {
+                var check = setInterval(function () {
+                    if (typeof Quill !== 'undefined') { clearInterval(check); window.initQuillSafe(); }
+                }, 100);
+            }
+        })();
+
+        // Gestión de Archivos
+        window.emailFiles = [];
+        window.handleFileSelection = function (input) {
+            Array.from(input.files).forEach(file => {
+                if (!window.emailFiles.find(f => f.name === file.name && f.size === file.size)) window.emailFiles.push(file);
+            });
+            window.updateUI();
+        };
+        window.removeFile = function (index) { window.emailFiles.splice(index, 1); window.updateUI(); };
+        window.updateUI = function () {
+            const container = document.getElementById('selected-files-list');
+            if (!container) return;
+            container.innerHTML = '';
+            window.emailFiles.forEach((file, index) => {
+                const div = document.createElement('div');
+                div.className = 'flex items-center justify-between bg-white p-2 border border-gray-200 rounded text-sm mb-1';
+                div.innerHTML = `<div class="flex items-center gap-2 overflow-hidden"><span class="truncate text-gray-700">${file.name}</span><span class="text-xs text-gray-400">(${(file.size / 1024).toFixed(0)}KB)</span></div><button type="button" onclick="window.removeFile(${index})" class="text-red-500 font-bold px-2">✕</button>`;
+                container.appendChild(div);
+            });
+            const dt = new DataTransfer();
+            window.emailFiles.forEach(file => dt.items.add(file));
+            document.getElementById('file-input-hidden').files = dt.files;
+            const total = window.emailFiles.reduce((acc, f) => acc + f.size, 0);
+            const btn = document.getElementById('submit-btn');
+            const warn = document.getElementById('size-warning');
+            if (total > 36700160) { warn.classList.remove('hidden'); btn.disabled = true; btn.classList.add('opacity-50', 'cursor-not-allowed'); }
+            else { warn.classList.add('hidden'); btn.disabled = false; btn.classList.remove('opacity-50', 'cursor-not-allowed'); }
+        };
+    </script>
 </div>

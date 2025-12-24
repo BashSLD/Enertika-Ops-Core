@@ -3,7 +3,7 @@
 from typing import List, Optional
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # --- Base Schemas (Common Attributes) ---
 
@@ -42,8 +42,9 @@ class OportunidadRead(BaseSchema):
 class SitioOportunidadBase(BaseModel):
     """Campos base para un sitio, usados en la carga Multisitio (Excel)."""
     direccion: str = Field(..., description="Dirección física del sitio.")
-    coordenadas: Optional[str] = Field(None, description="Latitud y Longitud.")
     tipo_tarifa: Optional[str] = Field(None, description="Tipo de tarifa eléctrica.")
+    numero_servicio: Optional[str] = Field(None, description="Número de servicio.")
+    comentarios: Optional[str] = Field(None, description="Comentarios adicionales.")
 
 class SitioOportunidadCreate(SitioOportunidadBase):
     """Schema de Creación para un sitio, si se inserta individualmente."""
@@ -61,3 +62,18 @@ class SitioImportacion(BaseModel):
     direccion: str = Field(..., alias='DIRECCION')
     tipo_tarifa: Optional[str] = Field(None, alias='TARIFA')
     google_maps_link: Optional[str] = Field(None, alias='LINK GOOGLE')
+    numero_servicio: Optional[str] = Field(None, alias='# DE SERVICIO')
+    comentarios: Optional[str] = Field(None, alias='COMENTARIOS')
+    
+    class Config:
+        populate_by_name = True  # Permite usar tanto alias como nombres de campo
+    
+    @staticmethod
+    def convert_to_string(v):
+        """Convierte ints/floats del Excel a string."""
+        if v is None:
+            return None
+        return str(v) if not isinstance(v, str) else v
+    
+    # Validators para convertir números a string
+    _numero_servicio_validator = field_validator('numero_servicio', mode='before')(convert_to_string.__func__)

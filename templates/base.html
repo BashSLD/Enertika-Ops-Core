@@ -9,6 +9,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org/ext/json-enc.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
         @keyframes fadeInDown {
@@ -155,8 +156,13 @@
                             clearInterval(timer); // Dejar de vigilar
 
                             if (popup) popup.close(); // Cerrar la ventana hija automáticamente
-                            console.log("Sesión validada. Recargando...");
-                            window.location.reload();
+                            console.log("Sesión validada. Recargando contenido...");
+
+                            // FIX: Usar HTMX para recargar solo el contenido, no toda la página
+                            htmx.ajax('GET', window.location.pathname, { target: '#main-content', swap: 'innerHTML' });
+
+                            // Cerrar el modal
+                            document.getElementById('session-modal').classList.add('hidden');
                         }
                     })
                     .catch(() => { /* Ignorar errores de red mientras esperamos */ });

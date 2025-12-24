@@ -60,7 +60,7 @@ class MicrosoftAuth:
             return {}
 
     # --- Envío de Correos (Híbrido) ---
-    def send_email_with_attachments(self, access_token, subject, body, recipients, cc_recipients=None, bcc_recipients=None, attachments_files=None):
+    def send_email_with_attachments(self, access_token, subject, body, recipients, cc_recipients=None, bcc_recipients=None, importance="normal", attachments_files=None):
         if not access_token:
             print("❌ Error: Token nulo.")
             return False, "No hay sesión activa"
@@ -98,7 +98,8 @@ class MicrosoftAuth:
             email_msg = {
                 "message": {
                     "subject": subject,
-                    "body": {"contentType": "HTML", "content": body},
+                    "importance": importance,  # ACCIÓN 3: Agregar importance
+                    "body": {"contentType": "HTML", "content": body.replace('\n', '<br>')},
                     "toRecipients": [{"emailAddress": {"address": e}} for e in recipients],
                     "ccRecipients": [{"emailAddress": {"address": e}} for e in cc_recipients],
                     "bccRecipients": [{"emailAddress": {"address": e}} for e in bcc_recipients],
@@ -120,13 +121,14 @@ class MicrosoftAuth:
         # B: Envío Pesado (Draft + Upload)
         else:
             print("🐢 Modo: Archivos Grandes (Draft + Upload)")
-            return self._send_heavy_email(headers, subject, body, recipients, cc_recipients, bcc_recipients, attachments_files)
+            return self._send_heavy_email(headers, subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments_files)
 
-    def _send_heavy_email(self, headers, subject, body, recipients, cc, bcc, attachments):
+    def _send_heavy_email(self, headers, subject, body, recipients, cc, bcc, importance, attachments):
         try:
             draft_payload = {
                 "subject": subject,
-                "body": {"contentType": "HTML", "content": body},
+                "importance": importance,  # ACCIÓN 3: Agregar importance
+                "body": {"contentType": "HTML", "content": body.replace('\n', '<br>')},
                 "toRecipients": [{"emailAddress": {"address": e}} for e in recipients],
                 "ccRecipients": [{"emailAddress": {"address": e}} for e in cc],
                 "bccRecipients": [{"emailAddress": {"address": e}} for e in bcc]
