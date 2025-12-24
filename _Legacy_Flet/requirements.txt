@@ -1,7 +1,0 @@
-flet
-msal
-supabase
-python-dotenv
-requests
-pandas
-openpyxl

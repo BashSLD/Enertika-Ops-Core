@@ -4,12 +4,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Enertika Ops Core | {{ app_name }}</title>
+    <title>{% block title %}Enertika Ops Core{% endblock %}</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
-
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
-
     <script src="https://unpkg.com/htmx.org/ext/json-enc.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
@@ -31,143 +29,226 @@
     </style>
 </head>
 
-<body class="bg-gray-100">
+<body class="bg-gray-100 font-sans text-gray-900">
 
-    <div class="flex h-screen">
-
+    <div class="flex h-screen overflow-hidden">
         {% if user_name %}
-        <aside class="w-64 bg-[#123456] text-white flex flex-col shadow-xl">
-            <div class="p-6 text-center border-b border-blue-900">
-                <h1 class="text-2xl font-bold tracking-wider">Enertika Ops Core</h1>
-                <p class="text-xs text-blue-200 mt-2 font-mono bg-blue-900/50 rounded py-1">{{ user_name }}</p>
+        <aside class="w-64 bg-[#123456] text-white flex flex-col shadow-2xl z-10 hidden md:flex">
+            <div class="p-6 text-center border-b border-blue-900 bg-[#0E2A47]">
+                <h1 class="text-xl font-bold tracking-wider text-[#00BABB]">Enertika Ops Core</h1>
+                <div
+                    class="mt-3 inline-block px-3 py-1 bg-blue-900/50 rounded-full text-xs font-mono text-blue-200 border border-blue-800">
+                    {{ user_name }}
+                </div>
             </div>
 
-            <nav class="flex-1 p-4 space-y-2">
-                <a href="#" hx-get="/comercial/ui" hx-target="#main-content" hx-swap="innerHTML"
-                    class="block px-4 py-3 rounded-lg hover:bg-blue-800 transition duration-150 flex items-center gap-3">
-                    <span>💼</span> Comercial
+            <nav class="flex-1 p-4 space-y-1 overflow-y-auto text-sm">
+                <a href="#" hx-get="/comercial/ui" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                    class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-blue-800/50 transition duration-150 group">
+                    <span class="text-lg group-hover:scale-110 transition">💼</span>
+                    <span class="font-medium">Comercial</span>
                 </a>
-                <a href="#" hx-get="/simulacion/ui" hx-target="#main-content" hx-swap="innerHTML"
-                    class="block px-4 py-3 rounded-lg hover:bg-blue-800 transition duration-150 flex items-center gap-3">
-                    <span>⚡</span> Simulación
+                <a href="#" hx-get="/simulacion/ui" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                    class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-blue-800/50 transition duration-150 group">
+                    <span class="text-lg group-hover:scale-110 transition">⚡</span>
+                    <span class="font-medium">Simulación</span>
                 </a>
-                <a href="#" hx-get="/levantamientos/ui" hx-target="#main-content" hx-swap="innerHTML"
-                    class="block px-4 py-3 rounded-lg hover:bg-blue-800 transition duration-150 flex items-center gap-3">
-                    <span>📋</span> Levantamientos
+                <a href="#" hx-get="/levantamientos/ui" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                    class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-blue-800/50 transition duration-150 group">
+                    <span class="text-lg group-hover:scale-110 transition">📋</span>
+                    <span class="font-medium">Levantamientos</span>
                 </a>
-                <!-- Nuevos Módulos (Visualización) -->
+
+                <div class="my-4 border-t border-blue-900/30"></div>
+                <p class="px-4 text-xs text-blue-400 font-semibold mb-2 uppercase tracking-wider">Futuros Módulos</p>
+
                 <a href="#"
-                    class="block px-4 py-3 rounded-lg hover:bg-blue-800 transition duration-150 flex items-center gap-3 opacity-75 cursor-not-allowed"
-                    title="Próximamente">
+                    class="flex items-center gap-3 px-4 py-2 rounded-lg text-blue-300/50 cursor-not-allowed hover:bg-blue-900/20">
                     <span>🏗️</span> Ingeniería
                 </a>
                 <a href="#"
-                    class="block px-4 py-3 rounded-lg hover:bg-blue-800 transition duration-150 flex items-center gap-3 opacity-75 cursor-not-allowed"
-                    title="Próximamente">
+                    class="flex items-center gap-3 px-4 py-2 rounded-lg text-blue-300/50 cursor-not-allowed hover:bg-blue-900/20">
                     <span>🚧</span> Construcción
                 </a>
                 <a href="#"
-                    class="block px-4 py-3 rounded-lg hover:bg-blue-800 transition duration-150 flex items-center gap-3 opacity-75 cursor-not-allowed"
-                    title="Próximamente">
+                    class="flex items-center gap-3 px-4 py-2 rounded-lg text-blue-300/50 cursor-not-allowed hover:bg-blue-900/20">
                     <span>🔧</span> OyM
                 </a>
                 <a href="#"
-                    class="block px-4 py-3 rounded-lg hover:bg-blue-800 transition duration-150 flex items-center gap-3 opacity-75 cursor-not-allowed"
-                    title="Próximamente">
+                    class="flex items-center gap-3 px-4 py-2 rounded-lg text-blue-300/50 cursor-not-allowed hover:bg-blue-900/20">
                     <span>🛒</span> Compras
                 </a>
 
                 {% if role == 'ADMIN' %}
-                <div class="pt-4 mt-4 border-t border-blue-900">
-                    <a href="/admin/ui"
-                        class="block px-4 py-3 rounded-lg bg-blue-900/50 hover:bg-blue-800 transition duration-150 flex items-center gap-3 text-yellow-300 font-semibold">
-                        <span>⚙️</span> Admin
-                    </a>
-                </div>
+                <div class="my-4 border-t border-blue-900/30"></div>
+                <a href="/admin/ui"
+                    class="flex items-center gap-3 px-4 py-3 rounded-lg bg-blue-900/20 hover:bg-blue-800/50 text-yellow-100 border border-transparent hover:border-yellow-500/30 transition duration-150">
+                    <span>⚙️</span> <span class="font-medium">Admin</span>
+                </a>
                 {% endif %}
-
             </nav>
 
-            <!-- Logout al final -->
-            <div class="mt-auto p-4 border-t border-blue-900">
+            <div class="p-4 bg-[#0E2A47] border-t border-blue-900">
                 <a href="/auth/logout"
-                    class="block px-4 py-3 rounded-lg hover:bg-red-800 transition duration-150 flex items-center gap-3 text-red-200">
+                    class="flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg bg-red-900/20 text-red-200 hover:bg-red-900/40 transition duration-150 text-sm">
                     <span>🚪</span> Cerrar Sesión
                 </a>
             </div>
         </aside>
         {% endif %}
 
-        <main id="main-content" class="flex-1 overflow-y-auto p-8">
+        <main id="main-content" class="flex-1 overflow-y-auto relative bg-gray-50 w-full p-4 md:p-6 lg:p-8">
             {% block content %}
-            <h2 class="text-3xl font-light text-gray-700 mb-6">Bienvenido al Dashboard</h2>
-            <div class="bg-white p-6 rounded-lg shadow">
-                <p class="text-gray-500">Contenido por defecto.</p>
+            <div class="bg-white p-8 rounded-xl shadow-sm border border-gray-100 text-center">
+                <h2 class="text-2xl font-light text-gray-400">Selecciona un módulo del menú</h2>
             </div>
             {% endblock %}
         </main>
     </div>
 
+    <div id="session-modal"
+        class="fixed inset-0 bg-gray-900/80 backdrop-blur-sm z-[9999] hidden flex items-center justify-center transition-opacity duration-300">
+        <div
+            class="bg-white rounded-xl shadow-2xl p-8 max-w-md w-full text-center border-t-8 border-orange-500 transform scale-100 animate-fade-in-down">
+            <div class="mx-auto flex items-center justify-center h-16 w-16 rounded-full bg-orange-100 mb-6">
+                <svg class="h-8 w-8 text-orange-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+            </div>
+            <h3 class="text-2xl font-bold text-gray-900 mb-2">Sesión Expirada</h3>
+            <p class="text-gray-600 mb-8">Tu conexión segura ha terminado. <br><strong>No recargues la página</strong>
+                para no perder tu avance.</p>
+
+            <div class="space-y-3">
+                <button onclick="reconnectAndWatch()" id="reconnect-btn"
+                    class="w-full inline-flex justify-center items-center px-4 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-lg transition">
+                    🔄 Re-conectar
+                </button>
+                <button onclick="document.getElementById('session-modal').classList.add('hidden')"
+                    class="w-full inline-flex justify-center items-center px-4 py-3 border border-gray-300 shadow-sm text-base font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 transition">
+                    Ya inicié sesión, continuar!!!
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
-        // Global Email Chips Logic (Event Integration for HTMX)
-        document.addEventListener('keydown', function (e) {
-            if (e.target.classList.contains('chip-input')) {
-                if (['Enter', 'Tab', ';', ','].includes(e.key)) {
-                    e.preventDefault();
-                    addChip(e.target);
+        // --- FUNCIÓN DE RECONEXIÓN INTELIGENTE ---
+        function reconnectAndWatch() {
+            const btn = document.getElementById('reconnect-btn');
+            const originalText = btn.innerHTML;
+            btn.innerHTML = '<span class="animate-pulse">Esperando login...</span>';
+            btn.disabled = true;
+
+            // 1. Abrir Popup
+            const popup = window.open('/auth/login', 'LoginPopup', 'width=500,height=600,left=200,top=200');
+
+            // 2. Iniciar vigilancia (Polling)
+            // Preguntamos al servidor cada 1 segundo: "¿Ya revivió la sesión?"
+            const timer = setInterval(() => {
+                fetch('/comercial/form', { method: 'GET' })
+                    .then(res => {
+                        // Si recibimos OK (200) y NO es una redirección al login...
+                        if (res.ok && !res.redirected) {
+                            // ¡ÉXITO!
+                            clearInterval(timer); // Dejar de vigilar
+
+                            if (popup) popup.close(); // Cerrar la ventana hija automáticamente
+                            console.log("Sesión validada. Recargando...");
+                            window.location.reload();
+                        }
+                    })
+                    .catch(() => { /* Ignorar errores de red mientras esperamos */ });
+
+                // Seguridad: Si el usuario cierra el popup manualmente, dejar de buscar a los 2 minutos
+                if (popup && popup.closed) {
+                    // Opcional: Podríamos detener el timer, pero mejor seguir intentando un poco más
+                }
+            }, 1000); // Checar cada 1 segundo
+        }
+
+        // --- INTERCEPTOR DE ERRORES 401 (Tu guardián de datos) ---
+        document.body.addEventListener('htmx:responseError', function (evt) {
+            if (evt.detail.xhr.status === 401) {
+                evt.preventDefault();
+                evt.stopPropagation();
+                document.getElementById('session-modal').classList.remove('hidden');
+            }
+        });
+
+        // 1. SISTEMA DE ALERTA TEMPRANA (Heartbeat)
+        setInterval(() => {
+            fetch('/comercial/ui', { method: 'HEAD' }).then(res => {
+                if (res.redirected || res.status === 401 || res.status === 403) {
+                    document.getElementById('session-modal').classList.remove('hidden');
+                }
+            }).catch(() => { });
+        }, 60000);
+
+        // 2. CAJA FUERTE LOCAL (Auto-Save)
+        document.addEventListener('input', (e) => {
+            if (e.target.name && !e.target.type.match(/password|hidden|file/)) {
+                localStorage.setItem('draft_' + window.location.pathname + '_' + e.target.name, e.target.value);
+            }
+        });
+
+        // 3. RESTAURACIÓN AUTOMÁTICA
+        document.addEventListener("DOMContentLoaded", () => {
+            document.querySelectorAll('input, textarea, select').forEach(input => {
+                if (input.name) {
+                    const val = localStorage.getItem('draft_' + window.location.pathname + '_' + input.name);
+                    if (val && !input.value) {
+                        input.value = val;
+                        input.style.borderColor = "#FBBF24";
+                    }
+                }
+            });
+        });
+
+        // 4. LIMPIEZA POST-ENVÍO
+        document.body.addEventListener('htmx:afterOnLoad', (evt) => {
+            if (evt.detail.xhr.status >= 200 && evt.detail.xhr.status < 300) {
+                if (evt.detail.requestConfig.verb !== 'get') {
+                    Object.keys(localStorage).forEach(k => {
+                        if (k.startsWith('draft_' + window.location.pathname)) localStorage.removeItem(k);
+                    });
                 }
             }
         });
 
-        document.addEventListener('click', function (e) {
-            if (e.target.classList.contains('chip-remove')) {
-                removeChip(e.target);
+        // Scripts de Chips (Correos)
+        document.addEventListener('keydown', function (e) {
+            if (e.target.classList.contains('chip-input') && ['Enter', 'Tab', ';', ','].includes(e.key)) {
+                e.preventDefault();
+                addChip(e.target);
             }
         });
-
+        document.addEventListener('click', function (e) {
+            if (e.target.classList.contains('chip-remove')) removeChip(e.target);
+        });
         function addChip(input) {
             const container = input.closest('.chip-wrapper');
             const hiddenInput = container.querySelector('.recipients-hidden');
             const chipsContainer = container.querySelector('.chips-container');
-
             let value = input.value.trim().replace(/[;,]/g, '');
             if (!value) return;
-
-            // Basic Email Validation
-            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) {
-                alert("Correo inválido: " + value);
-                return;
-            }
-
-            // Add Chip UI
+            if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) { alert("Correo inválido"); return; }
             const chip = document.createElement('div');
-            chip.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200 mr-2 mb-1';
-            chip.innerHTML = `
-                <span>${value}</span>
-                <button type="button" class="chip-remove ml-1.5 inline-flex items-center justify-center text-blue-400 hover:text-blue-600 focus:outline-none">
-                    <svg class="h-4 w-4 pointer-events-none" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clip-rule="evenodd"/></svg>
-                </button>
-            `;
+            chip.className = 'inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200 mr-2 mb-2 animate-fade-in-down';
+            chip.innerHTML = `<span>${value}</span><button type="button" class="chip-remove ml-2 text-blue-500 hover:text-blue-700 font-bold">×</button>`;
             chipsContainer.appendChild(chip);
-
-            // Update Hidden Input
             updateHiddenInput(hiddenInput, chipsContainer);
             input.value = '';
         }
-
         function removeChip(button) {
             const chip = button.closest('div');
             const container = button.closest('.chip-wrapper');
-            const hiddenInput = container.querySelector('.recipients-hidden');
-            const chipsContainer = container.querySelector('.chips-container');
-
             chip.remove();
-            updateHiddenInput(hiddenInput, chipsContainer);
+            updateHiddenInput(container.querySelector('.recipients-hidden'), container.querySelector('.chips-container'));
         }
-
-        function updateHiddenInput(hiddenInput, chipsContainer) {
-            const emails = Array.from(chipsContainer.querySelectorAll('span')).map(s => s.textContent);
-            hiddenInput.value = emails.join(';');
+        function updateHiddenInput(hidden, container) {
+            hidden.value = Array.from(container.querySelectorAll('span')).map(s => s.textContent).join(';');
         }
     </script>
 </body>

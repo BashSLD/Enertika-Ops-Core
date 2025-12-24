@@ -16,3 +16,8 @@ openpyxl               # Backend necesario para que Pandas lea .xlsx
 msal
 xlsxwriter
 itsdangerous
+
+# Testing
+pytest
+pytest-asyncio
+httpx

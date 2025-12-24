@@ -14,6 +14,18 @@ from modules.auth import router as auth_router
 from modules.admin import router as admin_router
 
 # Inicialización de la app
+import logging
+from logging.handlers import RotatingFileHandler
+
+# Configurar Logging Global
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+    handlers=[
+        logging.StreamHandler(), # Consola
+        RotatingFileHandler("system_errors.log", maxBytes=5*1024*1024, backupCount=3) # Archivo 5MB
+    ]
+)
 
 app = FastAPI(title="Enertika Ops Core",on_startup=[connect_to_db],on_shutdown=[close_db_connection])
 

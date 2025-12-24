@@ -1,21 +1,21 @@
-from fastapi import APIRouter, Depends, status, HTTPException, UploadFile, File, Form, Request
-from fastapi.responses import StreamingResponse, HTMLResponse
 
+from fastapi import APIRouter, Request, Depends, HTTPException, Form, UploadFile, File
 from fastapi.templating import Jinja2Templates
-from typing import List, Optional
-from datetime import datetime, timedelta, time as dt_time
+from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from uuid import UUID, uuid4
+from typing import Optional, List
 import pandas as pd
 import io
+import json
 import logging
+from datetime import datetime, timedelta, time as dt_time # Keep timedelta and dt_time as they are used later
 
 # --- Imports de Core ---
 from core.database import get_db_connection
-from core.database import get_db_connection
-from core.microsoft import get_ms_auth, MicrosoftAuth
+from core.microsoft import get_ms_auth, MicrosoftAuth # Keep MicrosoftAuth as it's used in get_ms_auth
 from core.config import settings
 from core.security import get_current_user_context
-from .schemas import OportunidadCreate
+from .schemas import OportunidadCreate, SitioImportacion
 
 # Configuración básica de logging
 logger = logging.getLogger("ComercialModule")
@@ -50,11 +50,6 @@ class ComercialService:
         return fecha_base + timedelta(days=7)
 
     async def get_or_create_cliente(self, conn, nombre_cliente: str) -> UUID:
-        """
-        Busca el cliente por nombre fiscal. 
-        NOTA: Asumimos que la tabla tb_clientes tiene columna 'id' (estándar).
-        Si falla aquí, es porque tb_clientes usa otro nombre de PK.
-        """
         nombre_clean = nombre_cliente.strip().upper()
         
         # Intentamos buscar
@@ -78,7 +73,7 @@ class ComercialService:
              )
              return new_id
 
-    async def create_oportunidad(self, datos_form: dict, conn, user_id: UUID) -> UUID:
+    async def create_oportunidad(self, datos_form: dict, conn, user_id: UUID, user_name: str) -> UUID:
         """Crea una nueva oportunidad en la BBDD y retorna su ID."""
         try:
             # 1. Preparar datos auxiliares
@@ -93,7 +88,6 @@ class ComercialService:
             deadline = self.calcular_deadline()
             status_global = "Pendiente"
             
-            # Query corregida: Usamos titulo_proyecto (renombrado en DB)
             query = """
                 INSERT INTO tb_oportunidades (
                     -- Campos Legacy Nuevos
@@ -126,7 +120,7 @@ class ComercialService:
                 titulo_proyecto,                  # 1
                 datos_form['nombre_proyecto'],    # 2
                 datos_form['canal_venta'],        # 3
-                datos_form['canal_venta'],        # 4 (Solicitado por) - Mantenemos esto como string legacy? Sí, 'solicitado_por' texto.
+                user_name,                        # 4 (AHORA ES EL NOMBRE REAL)
                 datos_form['tipo_tecnologia'],    # 5
                 datos_form['tipo_solicitud'],     # 6
                 int(datos_form['cantidad_sitios']),# 7
@@ -149,7 +143,7 @@ class ComercialService:
             return oportunidad_id
             
         except Exception as e:
-            logger.error(f"Error creando oportunidad: {e}")
+            logger.exception(f"Error creando oportunidad (Code 500): {e}")
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Error BD: {e}"
@@ -220,149 +214,6 @@ class ComercialService:
     async def update_email_status(self, conn, id_oportunidad: UUID):
         await conn.execute("UPDATE tb_oportunidades SET email_enviado = TRUE WHERE id_oportunidad = $1", id_oportunidad)
 
-            
-    # El método process_multisitio_excel se queda igual...
-    async def process_multisitio_excel(self, conn, id_oportunidad: UUID, file: UploadFile) -> int:
-        # ... (código existente)
-        try:
-            # 1. Obtener cantidad declarada en BD
-            cant_declarada = await conn.fetchval(
-                "SELECT cantidad_sitios FROM tb_oportunidades WHERE id_oportunidad = $1", 
-                id_oportunidad
-            )
-            
-            contents = await file.read()
-            df = pd.read_excel(io.BytesIO(contents), engine='openpyxl')
-            df.columns = [str(c).strip().upper() for c in df.columns]
-            
-            cols_req = ["NOMBRE", "DIRECCION"]
-            if not all(col in df.columns for col in cols_req):
-                raise ValueError(f"Faltan columnas: {cols_req}")
-
-            # 2. VALIDACIÓN DE CANTIDAD (NUEVO)
-            cant_real = len(df)
-            if cant_real != cant_declarada:
-                raise ValueError(
-                    f"Discrepancia de sitios: Declaraste {cant_declarada} en el paso anterior, "
-                    f"pero el archivo contiene {cant_real} filas."
-                )
-
-            # OJO: Aquí también corregimos para usar id_oportunidad en el WHERE
-            await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
-            
-            records = []
-            for _, row in df.iterrows():
-                records.append((
-                    uuid4(), # id_sitio (según tu radiografía)
-                    id_oportunidad,
-                    str(row.get("NOMBRE", "")).strip(),
-                    str(row.get("DIRECCION", "")).strip(),
-                    str(row.get("TARIFA", "")).strip() if row.get("TARIFA") else None,
-                    str(row.get("LINK GOOGLE", "")).strip() if row.get("LINK GOOGLE") else None
-                ))
-
-            # Ajustamos INSERT a tb_sitios_oportunidad según radiografía
-            q = """
-                INSERT INTO tb_sitios_oportunidad (
-                    id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link
-                ) VALUES ($1, $2, $3, $4, $5, $6)
-            """
-            if records:
-                await conn.executemany(q, records)
-            return len(records)
-
-        except Exception as e:
-            logger.error(f"Error Excel: {e}")
-            raise HTTPException(500, f"Error Excel: {e}")
-
-
-    async def preview_multisitio_excel(self, file: UploadFile) -> dict:
-        """Lee el archivo, lo guarda temporalmente y retorna preview + file_id."""
-        
-        # 1. Guardar temporalmente
-        file_id = str(uuid4())
-        import os
-        os.makedirs("temp_uploads", exist_ok=True)
-        file_path = f"temp_uploads/{file_id}.xlsx"
-        
-        # Guardamos el archivo
-        with open(file_path, "wb") as buffer:
-            import shutil
-            shutil.copyfileobj(file.file, buffer)
-            
-        # 2. Leer partial con Pandas
-        try:
-            df = pd.read_excel(file_path, engine='openpyxl')
-            df.columns = [str(c).strip().upper() for c in df.columns]
-            
-            # Validación básica de columnas
-            cols_req = ["NOMBRE", "DIRECCION"]
-            if not all(col in df.columns for col in cols_req):
-                # Borrar si es inválido
-                os.remove(file_path)
-                raise ValueError(f"Faltan columnas requeridas: {cols_req}")
-                
-            preview_rows = df.head(5).values.tolist()
-            columns = df.columns.tolist()
-            total_rows = len(df)
-            
-            return {
-                "file_id": file_id,
-                "preview_rows": preview_rows,
-                "columns": columns,
-                "total_rows": total_rows
-            }
-        except Exception as e:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-            raise e
-
-    async def confirm_multisitio_upload(self, conn, id_oportunidad: UUID, file_id: str) -> int:
-        """Procesa el archivo temporal confirmado e inserta en BD."""
-        import os
-        file_path = f"temp_uploads/{file_id}.xlsx"
-        
-        if not os.path.exists(file_path):
-            raise FileNotFoundError("El archivo temporal ha expirado o no existe.")
-            
-        try:
-            # Reutilizamos lógica de lectura, esta vez completa
-            df = pd.read_excel(file_path, engine='openpyxl')
-            df.columns = [str(c).strip().upper() for c in df.columns]
-            
-            # (Aquí podríamos re-validar cantidad vs oportunidad si fuera necesario)
-            
-            # Borrar sitios anteriores
-            await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
-            
-            records = []
-            for _, row in df.iterrows():
-                records.append((
-                    uuid4(),
-                    id_oportunidad,
-                    str(row.get("NOMBRE", "")).strip(),
-                    str(row.get("DIRECCION", "")).strip(),
-                    str(row.get("TARIFA", "")).strip() if row.get("TARIFA") else None,
-                    str(row.get("LINK GOOGLE", "")).strip() if row.get("LINK GOOGLE") else None
-                ))
-                
-            q = """
-                INSERT INTO tb_sitios_oportunidad (
-                    id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link
-                ) VALUES ($1, $2, $3, $4, $5, $6)
-            """
-            if records:
-                await conn.executemany(q, records)
-                
-            return len(records)
-            
-        finally:
-            # Siempre intentamos borrar el temporal
-            if os.path.exists(file_path):
-                try: 
-                    os.remove(file_path)
-                except:
-                    pass
 
 # ----------------------------------------
 # DEPENDENCIES
@@ -375,6 +226,14 @@ def get_comercial_service():
 # ----------------------------------------
 # ENDPOINTS
 # ----------------------------------------
+
+@router.head("/ui", include_in_schema=False)
+async def check_comercial_ui(
+    request: Request,
+    context = Depends(get_current_user_context)
+):
+    """Heartbeat endpoint to check session status without rendering."""
+    return HTMLResponse("", status_code=200)
 
 @router.get("/ui", include_in_schema=False)
 async def get_comercial_ui(
@@ -397,12 +256,34 @@ async def get_comercial_ui(
         "request": request,
         "user_name": user_name,
         "role": role # Pasar rol para el sidebar
-    })
+    }, headers={"HX-Title": "Enertika Ops Core | Comercial"})
 
 @router.get("/form", include_in_schema=False)
-async def get_comercial_form(request: Request):
+async def get_comercial_form(
+    request: Request,
+    user_context = Depends(get_current_user_context)
+):
     """Shows the creation form (Partial or Full Page)."""
-    return templates.TemplateResponse("comercial/form.html", {"request": request})
+    
+    # 1. Validación Estricta: Si no hay email, cortamos aquí.
+    if not user_context.get("email"):
+        # Retornamos 401 SIN redirección automática. HTMX lo atrapará.
+        return HTMLResponse(status_code=401)
+    
+    # Lógica: Tomar primera palabra + guion bajo + segunda palabra (si existe)
+    user_name = user_context.get("user_name")
+    parts = (user_name or "").strip().split()
+    if len(parts) >= 2:
+        canal_default = f"{parts[0]}_{parts[1]}".upper()
+    elif len(parts) == 1:
+        canal_default = parts[0].upper()
+    else:
+        canal_default = "OFICINA_CENTRAL" # Fallback
+
+    return templates.TemplateResponse("comercial/form.html", {
+        "request": request, 
+        "canal_default": canal_default
+    }, headers={"HX-Title": "Enertika Ops Core | Nuevo Comercial"})
 
 @router.get("/partials/graphs", include_in_schema=False)
 async def get_graphs_partial(request: Request):
@@ -483,40 +364,57 @@ async def notificar_oportunidad(
     if not row:
         return HTMLResponse("<div class='text-red-500'>Oportunidad no encontrada</div>", status_code=404)
         
+    # --- 1.5 RECUPERAR DEFAULTS (Admin Config) ---
+    defaults = await conn.fetchrow("SELECT * FROM tb_email_defaults WHERE id = 1")
+    def_to = (defaults['default_to'] or "").upper().replace(",", ";").split(";") if defaults else []
+    def_cc = (defaults['default_cc'] or "").upper().replace(",", ";").split(";") if defaults else []
+    def_cco = (defaults['default_cco'] or "").upper().replace(",", ";").split(";") if defaults else []
+    
     # 2. Procesar Destinatarios (TO)
     final_to = set()
     
-    # a) From Chips (recipients_str)
+    # a) Defaults
+    for email in def_to:
+        if email.strip(): final_to.add(email.strip())
+
+    # b) From Chips (recipients_str)
     if recipients_str:
-        raw_list = recipients_str.replace(";", ",").split(",")
+        # Aseguramos soporte de ; como separador
+        raw_list = recipients_str.replace(",", ";").split(";")
         for email in raw_list:
             if email.strip(): final_to.add(email.strip())
             
-    # b) From Fixed rules
+    # c) From Fixed rules (Legacy Params)
     for email in fixed_to:
         if email.strip(): final_to.add(email.strip())
-
-    # Fallback
-    if not final_to:
-        final_to.add("vendedores@enertika.com")
 
     # 3. Procesar Copias (CC)
     final_cc = set()
     
-    # a) From Fixed rules
+    # a) Defaults
+    for email in def_cc:
+        if email.strip(): final_cc.add(email.strip())
+    
+    # b) From Fixed rules
     for email in fixed_cc:
         if email.strip(): final_cc.add(email.strip())
         
-    # b) From Manual Input
+    # c) From Manual Input (Chips now)
     if extra_cc:
-        raw_cc = extra_cc.replace(";", ",").split(",")
+        raw_cc = extra_cc.replace(",", ";").split(";")
         for email in raw_cc:
             if email.strip(): final_cc.add(email.strip())
 
+    # 4. Procesar Ocultos (BCC - Solo Defaults por ahora)
+    final_bcc = set()
+    for email in def_cco:
+        if email.strip(): final_bcc.add(email.strip())
+
     recipients_list = list(final_to)
     cc_list = list(final_cc)
+    bcc_list = list(final_bcc)
 
-    logger.info(f"Enviando correo OP {row['op_id_estandar']} | TO: {recipients_list} | CC: {cc_list}")
+    logger.info(f"Enviando correo OP {row['op_id_estandar']} | TO: {recipients_list} | CC: {cc_list} | BCC: {bcc_list}")
 
     # 4. Procesar Adjuntos
     adjuntos_procesados = []
@@ -552,31 +450,67 @@ async def notificar_oportunidad(
                 "contentType": archivo.content_type
             })
 
-    # 6. Enviar
+    # 5. Llamada a MicrosoftAuth (Con manejo de expiración)
     ok, msg = ms_auth.send_email_with_attachments(
-        access_token, 
-        subject, 
-        body, 
-        recipients_list,
-        cc_recipients=cc_list, # NUEVO
+        access_token=access_token, 
+        subject=subject,
+        body=body,
+        recipients=recipients_list,
+        cc_recipients=cc_list, 
+        bcc_recipients=bcc_list, # Soportado ahora
         attachments_files=adjuntos_procesados 
     )
     
-    if ok:
-        await service.update_email_status(conn, id_oportunidad)
-        return HTMLResponse(f"""
-            <div class="text-center">
-                <p class="text-green-600 font-bold text-xl mb-2">✓ Enviado Exitosamente</p>
-                <div hx-get="/comercial/ui" hx-target="#main-content" hx-trigger="load delay:1s">
-                    <span class="text-gray-500 text-sm">Redirigiendo al inicio...</span>
-                </div>
-            </div>
-        """, status_code=200)
-    else:
+    # --- LOGICA DE AUTO-RECARGA / REDIRECCIÓN ---
+    if not ok:
+        # Detectamos palabras clave de token vencido en el mensaje de error de Graph
+        if "expired" in str(msg).lower() or "InvalidAuthenticationToken" in str(msg):
+            print(" Sesión expirada. Forzando redirección al login...")
+            
+            # Limpiamos la sesión del lado del servidor (Opcional pero recomendado)
+            request.session.clear()
+            
+            # TRUCO HTMX: Esta cabecera obliga al navegador a cambiar de página,
+            # ignorando que fue una petición AJAX parcial.
+            from fastapi import Response
+            return Response(
+                status_code=200, 
+                headers={"HX-Redirect": "/auth/login?expired=1"}
+            )
+
+        # Si es otro error (ej. archivo muy pesado, email inválido), mostramos el error normal
         logger.error(f"Fallo envio correo Graph: {msg}")
         return HTMLResponse(f"""
-            <span class="text-red-600">Error enviando correo: {msg}</span>
+            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
+                <p class="font-bold">Error enviando correo</p>
+                <p>{msg}</p>
+            </div>
         """, status_code=200)
+
+    # Si todo salió bien
+    # Si todo salió bien
+    await service.update_email_status(conn, id_oportunidad) 
+
+    # CAMBIO: Usamos window.location.href en lugar de htmx.ajax
+    # Esto fuerza al navegador a ir realmente a la URL, corrigiendo la barra lateral y la dirección
+    return HTMLResponse(f"""
+        <div class="text-center p-8 bg-green-50 rounded-lg border border-green-200 animate-fade-in-down">
+            <div class="mb-4">
+                <svg class="w-16 h-16 text-green-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+                </svg>
+            </div>
+            <p class="text-green-800 font-bold text-xl mb-2">✓ Enviado Exitosamente</p>
+            <p class="text-green-600 text-sm">Regresando al tablero...</p>
+            
+            <script>
+                // Esperar 1.5 segundos y luego MUDARNOS de página
+                setTimeout(function() {{
+                    window.location.href = '/comercial/ui'; 
+                }}, 1500);
+            </script>
+        </div>
+    """, status_code=200)
 
 @router.get("/plantilla", response_class=StreamingResponse)
 async def descargar_plantilla_sitios():
@@ -618,25 +552,41 @@ async def handle_oportunidad_creation(
     try:
         # 1. Obtener usuario de MS Graph
         token = request.session.get("access_token")
-        user_id = UUID('00000000-0000-0000-0000-000000000000') # Fallback por si acaso
+        
+        # --- CAMBIO IMPORTANTE ---
+        # Antes: Retornaba HTML con HX-Redirect (Esto recargaba la página y borraba datos)
+        # Ahora: Solo retornamos status 401. El Javascript de base.html hará el resto.
+        if not token:
+             return HTMLResponse(status_code=401)
+             
+        # Inicializamos variables obligatorias (ya no usamos defaults inseguros)
+        user_id = None
+        nombre = request.session.get("user_name", "Desconocido")
+        email = None
 
-        if token:
-            profile = ms_auth.get_user_profile(token)
-            if profile:
-                email = profile.get("mail") or profile.get("userPrincipalName")
-                nombre = profile.get("displayName")
-                
-                # Check / Create user in DB
-                row = await conn.fetchrow("SELECT id_usuario FROM tb_usuarios WHERE email = $1", email)
-                if row:
-                    user_id = row['id_usuario']
-                else:
-                    # Crear usuario nuevo
-                    user_id = uuid4()
-                    await conn.execute(
-                        "INSERT INTO tb_usuarios (id_usuario, nombre, email) VALUES ($1, $2, $3)",
-                        user_id, nombre, email
-                    )
+        profile = ms_auth.get_user_profile(token)
+        if profile:
+            email = profile.get("mail") or profile.get("userPrincipalName")
+            nombre = profile.get("displayName") or nombre 
+            
+            # Check / Create user in DB
+            row = await conn.fetchrow("SELECT id_usuario FROM tb_usuarios WHERE email = $1", email)
+            if row:
+                user_id = row['id_usuario']
+            else:
+                # Crear usuario nuevo
+                user_id = uuid4()
+                await conn.execute(
+                    "INSERT INTO tb_usuarios (id_usuario, nombre, email) VALUES ($1, $2, $3)",
+                    user_id, nombre, email
+                )
+        else:
+             # Tenemos token pero Graph falló --> Token Inválido o Expirado
+             return HTMLResponse(
+                 "<div class='text-red-600 p-4 font-bold'>Error validando credenciales con Microsoft.</div>", 
+                 status_code=401,
+                 headers={"HX-Redirect": "/auth/login"}
+             )
 
         # 2. Diccionario de datos
         datos_form = {
@@ -654,7 +604,7 @@ async def handle_oportunidad_creation(
         }
 
         # 3. Crear Oportunidad con user_id real
-        oportunidad_id = await service.create_oportunidad(datos_form, conn, user_id)
+        oportunidad_id = await service.create_oportunidad(datos_form, conn, user_id, nombre)
         
         # 4. Recuperar datos visuales para el Paso 2
         row = await conn.fetchrow(
@@ -703,20 +653,25 @@ async def handle_oportunidad_creation(
 # (El endpoint de Excel se mantiene igual, asegúrate de que esté incluido en tu archivo)
 @router.delete("/{id_oportunidad}", response_class=HTMLResponse)
 async def cancelar_oportunidad(
-    request: Request,  # <--- FALTABA ESTO
-    id_oportunidad: UUID, 
+    request: Request,
+    id_oportunidad: UUID,
     conn = Depends(get_db_connection)
 ):
-    """Elimina borrador y regresa al Dashboard."""
-    # 1. Borrar sitios hijos
+    """Elimina borrador y fuerza una recarga completa al Dashboard."""
+    
+    # 1. Protección de Sesión (Conserva esto, es importante)
+    if not request.session.get("access_token"):
+        return HTMLResponse(status_code=401)
+        
+    # 2. Borrar datos en BD
     await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
-    # 2. Borrar cabecera
     await conn.execute("DELETE FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
     
-    # 3. Retornamos respuesta vacía con header de redirección HTMX
-    # Esto fuerza al cliente a hacer un GET completo a /comercial/ui, restaurando Sidebar y Contexto
+    # 3. CAMBIO CLAVE: Usamos HX-Redirect en lugar de HX-Location
+    # HX-Redirect obliga al navegador a cambiar de URL (como un F5 + ir a nueva página)
+    # Esto limpia la memoria y carga los estilos/scripts correctamente.
     from fastapi import Response
-    return Response(status_code=200, headers={"HX-Location": "/comercial/ui"}) 
+    return Response(status_code=200, headers={"HX-Redirect": "/comercial/ui"}) 
 
 
 # ----------------------------------------
@@ -741,9 +696,17 @@ async def get_paso3_email_form(
     # Verificar si es multisitio para mostrar badge
     has_multisitio = (row['cantidad_sitios'] or 0) > 1
     
-    # --- LOGICA DE CORREOS DINÁMICA (Desde tb_config_emails) ---
-    fixed_to = ["vendedores@enertika.com"] # Default hardcoded
-    fixed_cc = []
+    # --- LOGICA DE CORREOS DINÁMICA (Desde tb_config_emails + Defaults) ---
+    
+    # 0. Defaults
+    defaults_row = await conn.fetchrow("SELECT * FROM tb_email_defaults WHERE id = 1")
+    # Parseamos a listas para el frontend (evitar nulos)
+    def_to = (defaults_row['default_to'] or "").replace(";", ",").split(",") if defaults_row else []
+    def_cc = (defaults_row['default_cc'] or "").replace(";", ",").split(",") if defaults_row else []
+    # No pasamos CCO al frontend por privacidad/regla de negocio
+    
+    fixed_to = [d.strip() for d in def_to if d.strip()] 
+    fixed_cc = [d.strip() for d in def_cc if d.strip()]
 
     # 1. Traer todas las reglas del módulo COMERCIAL
     rules = await conn.fetch("SELECT * FROM tb_config_emails WHERE modulo = 'COMERCIAL'")
@@ -877,7 +840,7 @@ async def upload_preview_endpoint(
         if real_qty != expected_qty:
             return HTMLResponse(f"""
                 <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4 animate-pulse">
-                    <p class="font-bold">❌ Error de Cantidad</p>
+                    <p class="font-bold"> Error de Cantidad</p>
                     <p>Declaraste <strong>{expected_qty}</strong> sitios.</p>
                     <p>El archivo tiene <strong>{real_qty}</strong> filas.</p>
                     <p class="text-sm mt-2 font-semibold">Corrige el Excel y vuelve a seleccionarlo.</p>
@@ -885,20 +848,27 @@ async def upload_preview_endpoint(
                 </div>
             """, 200)
 
-        # 6. SI TODO ESTÁ BIEN: Generar Preview
-        # Reseteamos el archivo de nuevo para que el servicio lo pueda guardar
-        await file.seek(0) 
+        # 6. SI TODO ESTÁ BIEN: Generar Preview (Stateless)
+        # Convertimos DataFrame a lista de diccionarios para el frontend
         
-        data = await service.preview_multisitio_excel(file)
+        # Formato esperado por el frontend: List[Dict]
+        preview_rows = df.head(5).values.tolist()
+        columns = df.columns.tolist()
+        total_rows = len(df)
+        
+        # Serializamos todo el dataframe para pasarlo como "Hot Potato"
+        # Usamos default=str para manejar fechas y UUIDs
+        full_data_list = df.fillna("").to_dict(orient='records')
+        json_payload = json.dumps(full_data_list, default=str)
         
         return templates.TemplateResponse(
             "comercial/partials/upload_preview.html",
             {
                 "request": request,
-                "columns": data["columns"],
-                "preview_rows": data["preview_rows"],
-                "total_rows": data["total_rows"],
-                "file_id": data["file_id"],
+                "columns": columns,
+                "preview_rows": preview_rows,
+                "total_rows": total_rows,
+                "json_data": json_payload, # <--- La papa caliente
                 "op_id": id_oportunidad
             }
         )
@@ -955,27 +925,67 @@ async def upload_preview_full_endpoint(
 @router.post("/upload-confirm", response_class=HTMLResponse)
 async def upload_confirm_endpoint(
     request: Request,
-    file_id: str = Form(...),
+    sitios_json: str = Form(...), # <--- Recibimos el JSON
     op_id: str = Form(...),
-    service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection)
 ):
     try:
         uuid_op = UUID(op_id)
-        cantidad = await service.confirm_multisitio_upload(conn, uuid_op, file_id)
+        
+        # 1. Deserializar
+        try:
+            raw_data = json.loads(sitios_json)
+        except json.JSONDecodeError:
+             return HTMLResponse("<div class='text-red-500'>Error: Data corrupta (JSON inválido).</div>", 400)
+             
+        # 2. Borrar sitios anteriores (Idempotencia)
+        await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", uuid_op)
+        
+        # 3. Preparar Registros
+        records = []
+        
+        for item in raw_data:
+            # Validación con Pydantic (Opcional pero recomendada para sanear)
+            # Mapeamos los alias del Excel a los campos internos
+            # Como Pydantic usa alias 'NOMBRE' -> 'nombre_sitio', le pasamos el dict tal cual
+            try:
+                # Validamos contra el schema. 
+                # NOTA: SitioImportacion espera alias (NOMBRE, DIRECCION).
+                # El json tiene las claves en mayúsculas (NOMBRE, DIRECCION...)
+                sitio_obj = SitioImportacion(**item)
+                
+                records.append((
+                    uuid4(), # id_sitio
+                    uuid_op,
+                    sitio_obj.nombre_sitio,
+                    sitio_obj.direccion,
+                    sitio_obj.tipo_tarifa,
+                    sitio_obj.google_maps_link
+                ))
+            except Exception as e:
+                logger.error(f"Error parseando fila: {item} -> {e}")
+                # Podríamos fallar o saltar. Aquí saltamos filas malas.
+                continue
+
+        # 4. Insertar
+        q = """
+            INSERT INTO tb_sitios_oportunidad (
+                id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link
+            ) VALUES ($1, $2, $3, $4, $5, $6)
+        """
+        if records:
+            await conn.executemany(q, records)
         
         return HTMLResponse(content=f"""
         <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4 animate-fade-in-down" role="alert">
             <p class="font-bold">Carga Exitosa</p>
-            <p>Se confirmaron e insertaron {cantidad} sitios.</p>
+            <p>Se confirmaron e insertaron {len(records)} sitios.</p>
         </div>
         
-        <!-- CAMBIO: Transición automática al Paso 3 (Email) -->
+        <!-- Transición automática al Paso 3 (Email) -->
         <div hx-trigger="load delay:1s" hx-get="/comercial/paso3/{op_id}" hx-target="#main-content"></div> 
         """, status_code=200)
         
-    except FileNotFoundError:
-        return HTMLResponse("<div class='text-red-500'>Error: La sesión de carga ha expirado. Sube el archivo nuevamente.</div>", 400)
     except Exception as e:
         logger.error(f"Error Confirm: {e}")
         return HTMLResponse(f"<div class='text-red-500'>Error confirmando carga: {e}</div>", 500)
@@ -1002,40 +1012,45 @@ async def get_paso_2_form(request: Request, id_oportunidad: UUID, conn = Depends
         }
     )
 
-@router.get("/paso3/{id_oportunidad}", include_in_schema=False)
-async def get_paso_3_form(request: Request, id_oportunidad: UUID, conn = Depends(get_db_connection)):
-    """Renderiza el formulario de envío de correo (Paso 3)."""
-    row = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
-    if not row:
-        logger.error(f"Paso 3: Oportunidad {id_oportunidad} no encontrada.")
-        return HTMLResponse("Oportunidad no encontrada", 404)
 
-    # Preparamos datos del correo (igual que en notificar_oportunidad)
-    subject = f"Nueva Oportunidad Comercial: {row['titulo_proyecto']}"
-    body = f"""
-    Se ha generado una nueva oportunidad comercial.
+# En modules/comercial/router.py
+
+@router.get("/debug/test-email")
+async def test_simple_email(
+    request: Request,
+    ms_auth = Depends(get_ms_auth)
+):
+    """Prueba de fuego visual."""
+    token = request.session.get("access_token")
     
-    ID: {row['op_id_estandar']}
-    Proyecto: {row['nombre_proyecto']}
-    Cliente: {row['cliente_nombre']}
-    Link SharePoint: {row['sharepoint_folder_url'] or 'N/A'}
+    # Validar sesión
+    if not token:
+        return HTMLResponse(
+            "<h1>❌ Error: No estás logueado</h1><p>Ve a <a href='/auth/login'>Iniciar Sesión</a> primero.</p>"
+        )
+        
+    # Obtener tu email
+    profile = ms_auth.get_user_profile(token)
+    my_email = profile.get("mail") or profile.get("userPrincipalName")
     
-    Favor de revisar.
-    """
-    recipients = "vendedores@enertika.com"
-
-    # Multisitio Check
-    has_multisitio = (row['cantidad_sitios'] or 1) > 1
-
-    return templates.TemplateResponse(
-        "comercial/email_form.html",
-        {
-            "request": request, 
-            "op": row, # <--- FIXED: template expects 'op'
-            "has_multisitio_file": has_multisitio, # <--- FIXED
-            "oportunidad_id": id_oportunidad,
-            "subject": subject,
-            "body": body,
-            "recipients": recipients
-        }
+    # Intentar enviar
+    ok, msg = ms_auth.send_email_with_attachments(
+        access_token=token,
+        subject="PRUEBA DE FUEGO (Visual)",
+        body="<h1>Sistema Operativo</h1><p>Si lees esto, el envío funciona.</p>",
+        recipients=[my_email] if my_email else [] 
     )
+    
+    # Resultado Visual
+    color = "green" if ok else "red"
+    titulo = "✅ ÉXITO" if ok else "❌ FALLO"
+    
+    return HTMLResponse(f"""
+        <div style="font-family: sans-serif; padding: 20px; border: 2px solid {color}; background: #f0fdf4;">
+            <h2 style="color: {color};">{titulo}</h2>
+            <p><strong>Destinatario:</strong> {my_email}</p>
+            <p><strong>Resultado Backend:</strong> {msg}</p>
+            <hr>
+            <p><em>Revisa tu terminal de VS Code para ver los logs detallados.</em></p>
+        </div>
+    """)

@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     REDIRECT_URI: str = os.getenv("REDIRECT_URI", "http://localhost:8000/auth/callback")
     
     AUTHORITY_URL: str = f"https://login.microsoftonline.com/{GRAPH_TENANT_ID}"
-    GRAPH_SCOPES: str = "email User.Read Mail.Send Files.ReadWrite.All Sites.Read.All"
+    GRAPH_SCOPES: str = "email User.Read Mail.Send Mail.ReadWrite Files.ReadWrite.All Sites.Read.All"
     
     # --- Configuración de Permisos (RBAC) ---
     # Departamentos que tienen acceso GLOBAL por defecto

@@ -21,11 +21,9 @@ pip-delete-this-directory.txt
 .vscode/
 .idea/
 
-# Project specific
-
-_MisGuias/
-_Legacy_Flet/
 
 # Logs & temporary files
 *.log
 temp_uploads/
+project_rules.txt
+estructura_proyecto.md

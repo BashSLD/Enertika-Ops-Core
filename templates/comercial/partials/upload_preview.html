@@ -47,7 +47,7 @@
     </button>
 
     <form hx-post="/comercial/upload-confirm" hx-target="#upload-result" hx-swap="innerHTML">
-        <input type="hidden" name="file_id" value="{{ file_id }}">
+        <input type="hidden" name="sitios_json" value='{{ json_data | safe }}'>
         <input type="hidden" name="op_id" value="{{ op_id }}">
         <button type="submit"
             class="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 shadow-md transition-transform hover:scale-105 flex items-center gap-2">

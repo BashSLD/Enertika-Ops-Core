@@ -1,5 +1,4 @@
 <div class="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-lg animate-fade-in-up">
-    <!-- Header de Pasos -->
     <div class="mb-8 flex items-center justify-between text-sm text-gray-500">
         <div class="flex items-center gap-2">
             <span
@@ -27,10 +26,9 @@
         <br>Revisa los datos del correo automático.
     </p>
 
-    <form hx-post="/comercial/notificar/{{ op.id_oportunidad }}" hx-encoding="multipart/form-data"
-        hx-target="#main-content" hx-indicator="#loading-indicator" class="space-y-6">
+    <form hx-post="/comercial/notificar/{{ op.id_oportunidad }}" hx-encoding="multipart/form-data" hx-target="this"
+        hx-swap="outerHTML" hx-indicator="#loading-indicator" class="space-y-6">
 
-        <!-- Asunto (Solo Lectura) -->
         <div>
             <label class="block text-sm font-medium text-gray-700">Asunto</label>
             <input type="text" name="subject" value="{{ op.titulo_proyecto }}"
@@ -38,83 +36,66 @@
                 readonly required>
         </div>
 
-        <!-- Destinatarios (TO) con Chips -->
         <div class="chip-wrapper">
             <label class="block text-sm font-medium text-gray-700">Para (To)</label>
 
-            <!-- Fixed Recipients (Visual only, passed via hidden inputs if needed) -->
-            <div class="flex flex-wrap gap-2 mb-2">
-                {% for email in fixed_to %}
-                <span
-                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800 border border-gray-300">
-                    {{ email }} (Fijo)
-                </span>
-                <input type="hidden" name="fixed_to" value="{{ email }}">
-                {% endfor %}
-            </div>
+            {% if fixed_to %}
+            <p class="text-xs text-blue-600 mb-2 font-mono">
+                Este correo se envía a: <strong>{{ fixed_to|join('; ') }}</strong> (Defecto/Reglas)
+            </p>
+            {% for email in fixed_to %}
+            <input type="hidden" name="fixed_to" value="{{ email }}">
+            {% endfor %}
+            {% endif %}
 
             <div class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-blue-500 bg-white">
-                <div class="chips-container flex flex-wrap gap-1">
-                    <!-- Default Chips (Initial Value) -->
-                    <div
-                        class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200 mr-2 mb-1">
-                        <span>vendedores@enertika.com</span>
-                        <button type="button"
-                            class="chip-remove ml-1.5 inline-flex items-center justify-center text-blue-400 hover:text-blue-600 focus:outline-none">
-                            <svg class="h-4 w-4 pointer-events-none" fill="currentColor" viewBox="0 0 20 20">
-                                <path fill-rule="evenodd"
-                                    d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                                    clip-rule="evenodd" />
-                            </svg>
-                        </button>
-                    </div>
-                </div>
+                <div class="chips-container flex flex-wrap gap-1"></div>
                 <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
                     placeholder="Escribe un correo y pulsa Enter o ;">
             </div>
 
-            <!-- Hidden Input for Backend -->
-            <input type="hidden" name="recipients_str" value="vendedores@enertika.com" class="recipients-hidden">
+            <input type="hidden" name="recipients_str" value="" class="recipients-hidden">
             <p class="text-xs text-gray-500 mt-1">Presiona Enter, Tab o ; para agregar un correo.</p>
         </div>
 
-        <!-- Copia (CC) -->
-        <div>
+        <div class="chip-wrapper">
             <label class="block text-sm font-medium text-gray-700">CC (Copia)</label>
-            <div class="flex flex-wrap gap-2 mb-2">
-                {% for email in fixed_cc %}
-                <span
-                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">
-                    {{ email }} (Regla Automática)
-                </span>
-                <input type="hidden" name="fixed_cc" value="{{ email }}">
-                {% endfor %}
+
+            {% if fixed_cc %}
+            <p class="text-xs text-blue-600 mb-2 font-mono">
+                Con copia a: <strong>{{ fixed_cc|join('; ') }}</strong>
+            </p>
+            {% for email in fixed_cc %}
+            <input type="hidden" name="fixed_cc" value="{{ email }}">
+            {% endfor %}
+            {% endif %}
+
+            <div class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-blue-500 bg-white">
+                <div class="chips-container flex flex-wrap gap-1"></div>
+                <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
+                    placeholder="Agregar copias extra...">
             </div>
-            <input type="text" name="extra_cc" placeholder="Agregar copias extra..."
-                class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 text-sm">
+            <input type="hidden" name="extra_cc" value="" class="recipients-hidden">
         </div>
 
-        <!-- Cuerpo -->
         <div>
             <label class="block text-sm font-medium text-gray-700">Mensaje</label>
             <textarea name="body" rows="6"
                 class="mt-1 block w-full border border-gray-300 rounded-md shadow-sm p-2 focus:ring-blue-500 focus:border-blue-500 font-mono text-sm">
 Se ha generado una nueva oportunidad comercial.
 
-ID: {{ op.op_id_estandar }}
+ID: {{ op.id_interno_simulacion }}
 Proyecto: {{ op.nombre_proyecto }}
 Cliente: {{ op.cliente_nombre }}
 Link SharePoint: {{ op.sharepoint_folder_url or 'N/A' }}
-
+ 
 Favor de revisar.
             </textarea>
         </div>
 
-        <!-- Adjuntos -->
         <div class="bg-gray-50 p-4 rounded-md border border-gray-200">
             <label class="block text-sm font-medium text-gray-700 mb-2">Archivos Adjuntos</label>
 
-            <!-- Archivo Bloqueado (Multisitio) -->
             {% if has_multisitio_file %}
             <div class="flex items-center justify-between bg-white p-2 border border-blue-200 rounded mb-2 shadow-sm">
                 <div class="flex items-center gap-2 text-sm text-blue-800">
@@ -126,8 +107,7 @@ Favor de revisar.
                     <span class="font-bold">Listado_Sitios_Oficial.xlsx</span>
                     <span class="text-xs text-gray-500">(Auto-generado)</span>
                 </div>
-                <div class="text-xs text-gray-400 flex items-center gap-1 cursor-not-allowed"
-                    title="Este archivo es obligatorio">
+                <div class="text-xs text-gray-400 flex items-center gap-1 cursor-not-allowed">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z">
@@ -138,16 +118,13 @@ Favor de revisar.
             </div>
             {% endif %}
 
-            <!-- Upload Extra -->
             <input type="file" name="archivos_extra" multiple
                 class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
             <p class="text-xs text-gray-400 mt-1">Puedes adjuntar cotizaciones, planos, etc.</p>
         </div>
 
-        <!-- Botones con Loading Indicator -->
         <div class="flex justify-end gap-3 pt-4 border-t border-gray-100 items-center">
 
-            <!-- Indicador de Carga -->
             <div id="loading-indicator" class="htmx-indicator flex items-center gap-2 text-blue-600 mr-4">
                 <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
@@ -158,12 +135,13 @@ Favor de revisar.
                 <span class="text-sm font-medium">Enviando...</span>
             </div>
 
-            <button type="button" hx-delete="/comercial/{{ op.id_oportunidad }}" hx-target="#main-content"
+            <button type="button" hx-delete="/comercial/{{ op.id_oportunidad }}" hx-target="body"
                 hx-confirm="¿Estás seguro/a que deseas CANCELAR esta oportunidad? Se borrarán todos los datos capturados."
                 class="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:ring-2 focus:ring-offset-2 focus:ring-red-500 transition-colors">
                 Cancelar y Borrar
             </button>
-            <button type="submit"
+
+            <button type="submit" hx-disabled-elt="this"
                 class="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 flex items-center gap-2 disabled:opacity-50 disabled:cursor-wait">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

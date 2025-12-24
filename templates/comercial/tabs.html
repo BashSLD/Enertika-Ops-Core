@@ -8,7 +8,7 @@
             </div>
         </div>
 
-        <button hx-get="/comercial/form" hx-target="#main-content" hx-swap="innerHTML"
+        <button hx-get="/comercial/form" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
             class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow flex items-center gap-2 transition duration-150 ease-in-out">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                 stroke="currentColor">
@@ -33,7 +33,7 @@
         <ul class="flex flex-wrap -mb-px">
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/graphs" hx-target="#tab-content" hx-swap="innerHTML"
-                    onclick="setActiveTab(this)"
+                    hx-push-url="?tab=activos" onclick="updateTabContext('activos', this)"
                     class="tab-link inline-block p-4 text-blue-600 border-b-2 border-blue-600 rounded-t-lg active group"
                     aria-current="page">
                     <div class="flex items-center gap-2">
@@ -48,7 +48,7 @@
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/cards?tab=activos" hx-target="#tab-content" hx-swap="innerHTML"
-                    onclick="updateTabContext('activos', this)"
+                    hx-push-url="?tab=activos" onclick="updateTabContext('activos', this)"
                     class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"

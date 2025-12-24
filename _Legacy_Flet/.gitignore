@@ -1,7 +1,0 @@
-.env
-__pycache__/
-.venv/
-.vscode/
-*.xlsx
-assets/*
-!assets/.gitkeep

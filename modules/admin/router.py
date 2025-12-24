@@ -36,10 +36,17 @@ async def admin_dashboard(
     # 2. Reglas
     rules = await conn.fetch("SELECT * FROM tb_config_emails ORDER BY modulo, trigger_field")
     
+    # 3. Defaults Globales
+    defaults = await conn.fetchrow("SELECT * FROM tb_email_defaults WHERE id = 1")
+    if not defaults:
+        # Fallback in memory object if table empty (shouldn't happen if initialized)
+        defaults = {"default_to": "", "default_cc": "", "default_cco": ""}
+    
     return templates.TemplateResponse("admin/dashboard.html", {
         "request": request,
         "users": users,
         "rules": rules,
+        "defaults": defaults,
         "user_name": context.get("user_name"),
         "role": context.get("role")
     })
@@ -85,10 +92,37 @@ async def delete_user(
     user_id: str,
     conn = Depends(get_db_connection)
 ):
-    """Elimina un usuario (Soft delete o Hard delete según política)."""
-    # Hard Delete por ahora simple
-    await conn.execute("DELETE FROM tb_usuarios WHERE id_usuario = $1", user_id)
-    return HTMLResponse("", status_code=200)
+    """Desactiva un usuario (Soft delete)."""
+    # Soft Delete: Update is_active to False
+    await conn.execute("UPDATE tb_usuarios SET is_active = FALSE WHERE id_usuario = $1", user_id)
+    
+    # Fetch updated user to render row
+    user = await conn.fetchrow("SELECT * FROM tb_usuarios WHERE id_usuario = $1", user_id)
+    
+    # Return the updated row HTML
+    return templates.TemplateResponse("admin/partials/user_row.html", {
+        "request": request,
+        "u": user
+    })
+
+@router.post("/users/{user_id}/restore")
+async def restore_user(
+    request: Request,
+    user_id: str,
+    conn = Depends(get_db_connection)
+):
+    """Reactiva un usuario (Soft delete restore)."""
+    # Restore: Update is_active to True
+    await conn.execute("UPDATE tb_usuarios SET is_active = TRUE WHERE id_usuario = $1", user_id)
+    
+    # Fetch updated user to render row
+    user = await conn.fetchrow("SELECT * FROM tb_usuarios WHERE id_usuario = $1", user_id)
+    
+    # Return the updated row HTML
+    return templates.TemplateResponse("admin/partials/user_row.html", {
+        "request": request,
+        "u": user
+    })
 
 @router.delete("/rules/{id}")
 async def delete_email_rule(
@@ -97,5 +131,36 @@ async def delete_email_rule(
     conn = Depends(get_db_connection)
 ):
     """Elimina una regla."""
-    await conn.execute("DELETE FROM tb_config_emails WHERE id = $1", id)
     return HTMLResponse("", status_code=200) # Empty swap removes element
+
+# --- CONFIG DEFAULT EMAILS (GLOBAL) ---
+@router.post("/defaults/update")
+async def update_email_defaults(
+    request: Request,
+    default_to: str = Form(""),
+    default_cc: str = Form(""),
+    default_cco: str = Form(""),
+    conn = Depends(get_db_connection)
+):
+    """Actualiza configuración global de correos (TO, CC, CCO)."""
+    # Validamos que existe row ID 1 (creado por script init_email_defaults.py)
+    # Si no existe, lo creamos
+    row = await conn.fetchrow("SELECT id FROM tb_email_defaults WHERE id = 1")
+    if not row:
+         await conn.execute("INSERT INTO tb_email_defaults (id, default_to, default_cc, default_cco) VALUES (1, '', '', '')")
+
+    await conn.execute(
+        """UPDATE tb_email_defaults 
+           SET default_to = $1, default_cc = $2, default_cco = $3 
+           WHERE id = 1""",
+        default_to, default_cc, default_cco
+    )
+    
+    return HTMLResponse(f"""
+        <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-2 mb-4 animate-fade-in-down" id="defaults-msg">
+            <p class="font-bold">✓ Configuración Actualizada</p>
+        </div>
+        <script>
+            setTimeout(() => document.getElementById('defaults-msg').remove(), 3000);
+        </script>
+    """, status_code=200)

@@ -54,3 +54,10 @@ class SitioOportunidadRead(SitioOportunidadBase):
     id: UUID = Field(..., alias='id_sitio')
     id_oportunidad: UUID
     fecha_carga: datetime
+
+class SitioImportacion(BaseModel):
+    """Schema para validar la data JSON de la carga masiva en memoria."""
+    nombre_sitio: str = Field(..., alias='NOMBRE')
+    direccion: str = Field(..., alias='DIRECCION')
+    tipo_tarifa: Optional[str] = Field(None, alias='TARIFA')
+    google_maps_link: Optional[str] = Field(None, alias='LINK GOOGLE')
