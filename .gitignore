@@ -25,3 +25,7 @@ pip-delete-this-directory.txt
 
 _MisGuias/
 _Legacy_Flet/
+
+# Logs & temporary files
+*.log
+temp_uploads/
