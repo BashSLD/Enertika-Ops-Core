@@ -77,3 +77,28 @@ class SitioImportacion(BaseModel):
     
     # Validators para convertir números a string
     _numero_servicio_validator = field_validator('numero_servicio', mode='before')(convert_to_string.__func__)
+
+
+# --- 3. Listado de Oportunidades (para get_oportunidades_list) ---
+
+class OportunidadListOut(BaseModel):
+    """Schema para el listado de oportunidades con información resumida y JOINs."""
+    id_oportunidad: UUID
+    titulo_proyecto: str
+    nombre_proyecto: str
+    cliente_nombre: str
+    fecha_solicitud: datetime
+    status_global: str
+    email_enviado: bool
+    id_interno_simulacion: str
+    tipo_solicitud: str
+    deadline_calculado: Optional[datetime] = None
+    cantidad_sitios: Optional[int] = None
+    
+    # Campos de JOINs
+    responsable_simulacion: Optional[str] = None
+    responsable_email: Optional[str] = None
+    solicitado_por: Optional[str] = None
+    
+    class Config:
+        from_attributes = True  # Permite convertir desde asyncpg.Record

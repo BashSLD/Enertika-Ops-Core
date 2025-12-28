@@ -1,55 +1,7 @@
-<div class="space-y-8">
-    <h2 class="text-3xl font-light text-gray-700">Módulo Simulación: Gestión y Reportes</h2>
+{% extends "base.html" %}
 
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div class="bg-white p-6 rounded-lg shadow border-l-4 border-yellow-500">
-            <p class="text-sm font-medium text-gray-500">Tareas Pendientes</p>
-            <p class="text-3xl font-bold text-gray-900" hx-get="/simulacion/kpis/pendientes" hx-trigger="load once"
-                hx-swap="innerHTML">
-                Cargando...
-            </p>
-        </div>
+{% block title %}Enertika Ops Core | Simulación{% endblock %}
 
-        <div class="bg-white p-6 rounded-lg shadow border-l-4 border-blue-500">
-            <p class="text-sm font-medium text-gray-500">Tiempo Promedio Entrega</p>
-            <p class="text-3xl font-bold text-gray-900" hx-get="/simulacion/kpis/tiempo_entrega" hx-trigger="load once"
-                hx-swap="innerHTML">
-                Cargando...
-            </p>
-        </div>
-
-        <div class="bg-white p-6 rounded-lg shadow border-l-4 border-green-500">
-            <p class="text-sm font-medium text-gray-500">Potencia Total (KWp)</p>
-            <p class="text-3xl font-bold text-gray-900" hx-get="/simulacion/kpis/total_kwp" hx-trigger="load once"
-                hx-swap="innerHTML">
-                Cargando...
-            </p>
-        </div>
-    </div>
-
-    <div class="bg-white p-6 rounded-lg shadow">
-        <h3 class="text-xl font-semibold mb-4 text-gray-800">Cola de Trabajo</h3>
-        <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-gray-50">
-                <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">OP ID
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Cliente
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Deadline
-                    </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Acción
-                    </th>
-                </tr>
-            </thead>
-            <tbody id="simulacion-queue-body" class="bg-white divide-y divide-gray-200" hx-get="/simulacion/data/queue"
-                hx-trigger="load, every 30s" hx-swap="innerHTML">
-                <tr>
-                    <td colspan="5" class="p-4 text-center text-gray-400">Cargando tareas...</td>
-                </tr>
-            </tbody>
-        </table>
-    </div>
-</div>
+{% block content %}
+{% include "simulacion/tabs.html" %}
+{% endblock %}

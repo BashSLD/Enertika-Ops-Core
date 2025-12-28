@@ -2,6 +2,9 @@ from fastapi import APIRouter, Request, Depends, HTTPException, Form
 from fastapi.responses import HTMLResponse
 from core.database import get_db_connection
 from fastapi.templating import Jinja2Templates
+from core.security import get_current_user_context
+from core.permissions import require_module_access
+from .service import AdminService, get_admin_service  # ✅ NUEVO: Import service
 
 router = APIRouter(
     prefix="/admin",
@@ -10,45 +13,37 @@ router = APIRouter(
 
 templates = Jinja2Templates(directory="templates")
 
-# --- DEPENDENCY: Admin Check (Placeholder) ---
-# En el futuro, aquí validaremos ms_auth y el rol 'ADMIN' o 'MANAGER'
-async def admin_required(request: Request):
-    # Por ahora simple check de session
-    user = request.session.get("user_name")
-    if not user:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-    return True
-
 # --- CONFIG EMAIL ENDPOINTS ---
-
-from core.security import get_current_user_context
 
 @router.get("/ui", include_in_schema=False)
 async def admin_dashboard(
     request: Request,
     conn = Depends(get_db_connection),
-    context = Depends(get_current_user_context)
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),  # ✅ NUEVO: Inyectar service
+    _ = require_module_access("admin")
 ):
-    """Dashboard principal: Lista usuarios y Reglas."""
-    # 1. Usuarios
-    users = await conn.fetch("SELECT * FROM tb_usuarios ORDER BY nombre")
+    """Dashboard principal: Lista usuarios, Reglas, Departamentos y Módulos."""
     
-    # 2. Reglas
-    rules = await conn.fetch("SELECT * FROM tb_config_emails ORDER BY modulo, trigger_field")
-    
-    # 3. Defaults Globales
-    defaults = await conn.fetchrow("SELECT * FROM tb_email_defaults WHERE id = 1")
-    if not defaults:
-        # Fallback in memory object if table empty (shouldn't happen if initialized)
-        defaults = {"default_to": "", "default_cc": "", "default_cco": ""}
+    # ✅ REFACTORIZADO: Usar service layer en lugar de queries directas
+    users_enriched = await service.get_users_enriched(conn)
+    rules = await service.get_email_rules(conn)
+    defaults = await service.get_email_defaults(conn)
+    departments_dict = await service.get_departments_catalog(conn)
+    modules_dict = await service.get_modules_catalog(conn)
+    catalogos = await service.get_catalogos_reglas(conn)  # ✅ NUEVO: Catálogos para dropdowns
     
     return templates.TemplateResponse("admin/dashboard.html", {
         "request": request,
-        "users": users,
+        "users": users_enriched,
         "rules": rules,
         "defaults": defaults,
+        "departments": departments_dict,
+        "modules": modules_dict,
+        "catalogos": catalogos,  # ✅ NUEVO: Pasar catálogos al template
         "user_name": context.get("user_name"),
-        "role": context.get("role")
+        "role": context.get("role"),
+        "module_roles": context.get("module_roles", {})
     })
 
 @router.post("/users/role")
@@ -56,11 +51,17 @@ async def update_user_role(
     request: Request,
     user_id: str = Form(...),
     role: str = Form(...),
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection)
 ):
     """Actualiza el rol de sistema de un usuario (HTMX)."""
-    # En producción validariamos permisos de quien solicita
-    await conn.execute("UPDATE tb_usuarios SET rol_sistema = $1 WHERE id_usuario = $2", role, user_id)
+    # Validación: Solo ADMIN/MANAGER pueden cambiar roles
+    if context.get("role") not in ["ADMIN", "MANAGER"]:
+        return HTMLResponse("<span class='text-red-600 font-bold'>❌ Acceso denegado</span>", status_code=403)
+    
+    # ✅ REFACTORIZADO: Usar service
+    await service.update_user_role(conn, user_id, role)
     return HTMLResponse(f"<span class='text-green-600 font-bold'>Rol actualizado a {role}</span>", status_code=200)
 
 @router.post("/rules/add")
@@ -71,16 +72,18 @@ async def add_email_rule(
     trigger_value: str = Form(...),
     email_to_add: str = Form(...),
     type: str = Form(...),
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection)
 ):
     """Agrega una nueva regla de correo."""
-    await conn.execute(
-        """INSERT INTO tb_config_emails 
-           (modulo, trigger_field, trigger_value, email_to_add, type) 
-           VALUES ($1, $2, $3, $4, $5)""",
-        modulo, trigger_field, trigger_value, email_to_add, type
-    )
-    # Retornamos a la UI para recargar la tabla (simplificado)
+    # Validación: Solo ADMIN/MANAGER
+    if context.get("role") not in ["ADMIN", "MANAGER"]:
+        return HTMLResponse("<div class='bg-red-100 p-2 rounded'>❌ Acceso denegado</div>", status_code=403)
+    
+    # ✅ REFACTORIZADO: Usar service
+    await service.add_email_rule(conn, modulo, trigger_field, trigger_value, email_to_add, type)
+    
     return HTMLResponse(f"""
         <div class='bg-green-100 p-2 rounded'>Regla agregada</div>
         <script>window.location.reload()</script>
@@ -90,16 +93,22 @@ async def add_email_rule(
 async def delete_user(
     request: Request,
     user_id: str,
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection)
 ):
     """Desactiva un usuario (Soft delete)."""
-    # Soft Delete: Update is_active to False
-    await conn.execute("UPDATE tb_usuarios SET is_active = FALSE WHERE id_usuario = $1", user_id)
+    # Validación: Solo ADMIN/MANAGER
+    if context.get("role") not in ["ADMIN", "MANAGER"]:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
     
-    # Fetch updated user to render row
-    user = await conn.fetchrow("SELECT * FROM tb_usuarios WHERE id_usuario = $1", user_id)
+    # ✅ REFACTORIZADO: Delegar al service
+    user = await service.deactivate_user(conn, user_id)
     
-    # Return the updated row HTML
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Retornar fila actualizada
     return templates.TemplateResponse("admin/partials/user_row.html", {
         "request": request,
         "u": user
@@ -109,16 +118,22 @@ async def delete_user(
 async def restore_user(
     request: Request,
     user_id: str,
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection)
 ):
     """Reactiva un usuario (Soft delete restore)."""
-    # Restore: Update is_active to True
-    await conn.execute("UPDATE tb_usuarios SET is_active = TRUE WHERE id_usuario = $1", user_id)
+    # Validación: Solo ADMIN/MANAGER
+    if context.get("role") not in ["ADMIN", "MANAGER"]:
+        raise HTTPException(status_code=403, detail="Acceso denegado")
     
-    # Fetch updated user to render row
-    user = await conn.fetchrow("SELECT * FROM tb_usuarios WHERE id_usuario = $1", user_id)
+    # ✅ REFACTORIZADO: Delegar al service
+    user = await service.reactivate_user(conn, user_id)
     
-    # Return the updated row HTML
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    
+    # Retornar fila actualizada
     return templates.TemplateResponse("admin/partials/user_row.html", {
         "request": request,
         "u": user
@@ -128,10 +143,18 @@ async def restore_user(
 async def delete_email_rule(
     request: Request,
     id: int,
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection)
 ):
     """Elimina una regla."""
-    return HTMLResponse("", status_code=200) # Empty swap removes element
+    # Validación: Solo ADMIN/MANAGER
+    if context.get("role") not in ["ADMIN", "MANAGER"]:
+        return HTMLResponse("", status_code=403)
+    
+    # ✅ REFACTORIZADO: Usar service
+    await service.delete_email_rule(conn, id)
+    return HTMLResponse("", status_code=200)
 
 # --- CONFIG DEFAULT EMAILS (GLOBAL) ---
 @router.post("/defaults/update")
@@ -140,21 +163,17 @@ async def update_email_defaults(
     default_to: str = Form(""),
     default_cc: str = Form(""),
     default_cco: str = Form(""),
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection)
 ):
     """Actualiza configuración global de correos (TO, CC, CCO)."""
-    # Validamos que existe row ID 1 (creado por script init_email_defaults.py)
-    # Si no existe, lo creamos
-    row = await conn.fetchrow("SELECT id FROM tb_email_defaults WHERE id = 1")
-    if not row:
-         await conn.execute("INSERT INTO tb_email_defaults (id, default_to, default_cc, default_cco) VALUES (1, '', '', '')")
-
-    await conn.execute(
-        """UPDATE tb_email_defaults 
-           SET default_to = $1, default_cc = $2, default_cco = $3 
-           WHERE id = 1""",
-        default_to, default_cc, default_cco
-    )
+    # Validación: Solo ADMIN/MANAGER
+    if context.get("role") not in ["ADMIN", "MANAGER"]:
+        return HTMLResponse("<div class='bg-red-100 p-2 rounded'>❌ Acceso denegado</div>", status_code=403)
+    
+    # ✅ REFACTORIZADO: Usar service
+    await service.update_email_defaults(conn, default_to, default_cc, default_cco)
     
     return HTMLResponse(f"""
         <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-2 mb-4 animate-fade-in-down" id="defaults-msg">
@@ -164,3 +183,95 @@ async def update_email_defaults(
             setTimeout(() => document.getElementById('defaults-msg').remove(), 3000);
         </script>
     """, status_code=200)
+
+# --- USER MANAGEMENT ENDPOINTS ---
+
+from uuid import UUID
+from typing import List
+
+
+@router.post("/users/{user_id}/department")
+async def update_user_department(
+    user_id: UUID,
+    department_slug: str = Form(...),
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection)
+):
+    """Asigna un departamento a un usuario."""
+    # Validación: Solo ADMIN/MANAGER
+    if context.get("role") not in ["ADMIN", "MANAGER"]:
+        return HTMLResponse("<span class='text-red-600 font-bold'>❌ Acceso denegado</span>", status_code=403)
+    
+    try:
+        # ✅ REFACTORIZADO: Usar service
+        dept_nombre = await service.update_user_department(conn, user_id, department_slug)
+        return HTMLResponse(
+            f"<span class='text-green-600 font-bold'>Departamento actualizado a {dept_nombre}</span>",
+            status_code=200
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+@router.post("/users/{user_id}/modules")
+async def update_user_modules(
+    request: Request,
+    user_id: UUID,
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection)
+):
+    """Actualiza los módulos y roles asignados a un usuario."""
+    # Validación: Solo ADMIN/MANAGER
+    if context.get("role") not in ["ADMIN", "MANAGER"]:
+        return HTMLResponse("<span class='text-red-600 font-bold'>❌ Acceso denegado</span>", status_code=403)
+    
+    form_data = await request.form()
+    
+    # Extraer módulos del form data
+    module_roles = {}
+    for key, value in form_data.items():
+        if key.startswith("modulo_"):
+            module_slug = key.replace("modulo_", "")
+            if value:  # Solo si hay un rol seleccionado
+                module_roles[module_slug] = value
+    
+    # ✅ REFACTORIZADO: Usar service
+    await service.update_user_modules(conn, user_id, module_roles)
+    
+    return HTMLResponse(
+        "<span class='text-green-600 font-bold'>Módulos actualizados correctamente</span>",
+        status_code=200
+    )
+
+@router.post("/users/{user_id}/preferred-module")
+async def update_preferred_module(
+    user_id: UUID,
+    modulo_slug: str = Form(...),
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection)
+):
+    """Establece el módulo preferido del usuario (a dónde va al login)."""
+    # Validación: Solo ADMIN/MANAGER
+    if context.get("role") not in ["ADMIN", "MANAGER"]:
+        return HTMLResponse("<span class='text-red-600 font-bold'>❌ Acceso denegado</span>", status_code=403)
+    
+    # ✅ REFACTORIZADO: Usar service
+    await service.update_preferred_module(conn, user_id, modulo_slug if modulo_slug else None)
+    
+    return HTMLResponse(
+        "<span class='text-green-600 font-bold'>Módulo preferido actualizado</span>",
+        status_code=200
+    )
+
+@router.get("/users/{user_id}/modules")
+async def get_user_modules(
+    user_id: UUID, 
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection)
+):
+    """Obtiene los módulos asignados a un usuario."""
+    # ✅ REFACTORIZADO: Usar service
+    return await service.get_user_modules(conn, user_id)
+

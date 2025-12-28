@@ -1,111 +1,71 @@
-# Archivo: modules/simulacion/router.py
+"""
+Router del Módulo Ingeniería
+"""
 
-from fastapi import APIRouter, Depends, status, HTTPException
-from typing import List
-from datetime import datetime
-from uuid import UUID
-
-# Importamos los modelos Pydantic
-from .schemas import SimulacionCreate, SimulacionUpdate, SimulacionRead
-# Importamos la conexión (la cual asumimos funcionará pronto)
-# Importamos los modelos Pydantic
-from .schemas import SimulacionCreate, SimulacionUpdate, SimulacionRead
-# Importamos la conexión (la cual asumimos funcionará pronto)
-from core.database import get_db_connection
-from fastapi import Request
+from fastapi import APIRouter, Request, Depends
 from fastapi.templating import Jinja2Templates
+
+# IMPORTS OBLIGATORIOS para permisos
+from core.security import get_current_user_context
+from core.permissions import require_module_access
 
 templates = Jinja2Templates(directory="templates")
 
 router = APIRouter(
-    prefix="/simulacion",
-    tags=["Módulo Simulación"],
-    # Se asumiría una dependencia para verificar rol Simulación
+    prefix="/ingenieria",
+    tags=["Módulo Ingeniería"],
 )
 
-# --- Capa de Servicio (Service Layer) ---
+# ========================================
+# CAPA DE SERVICIO (Service Layer)
+# ========================================
+class IngenieriaService:
+    """
+    Lógica de negocio del módulo ingeniería.
+    
+    Aquí irá la lógica relacionada con:
+    - Diseño de proyectos
+    - Cálculos de ingeniería
+    - Validaciones técnicas
+    """
+    
+    async def get_data(self, conn):
+        """Obtiene datos de ingeniería desde BD."""
+        # TODO: Implementar query real
+        # query = "SELECT * FROM tb_ingenieria WHERE status = $1"
+        # rows = await conn.fetch(query, "activo")
+        return []
 
-class SimulacionService:
-    """Maneja la lógica de la cola de trabajo y la validación de KWp."""
-
-    # Simulación de la función de lectura (Dashboard)
-    async def get_queue(self, conn) -> List[SimulacionRead]:
-        """Obtiene la lista completa o filtrada de tareas para el Dashboard."""
-        # Query de ejemplo: SELECT * FROM tb_simulaciones_trabajo ORDER BY fecha_solicitud
-        # Esto retornaría una lista de SimulacionRead
-        return [] # Retorno vacío hasta que la DB funcione
-
-    async def update_simulacion(self, conn, simulacion_id: UUID, data: SimulacionUpdate) -> SimulacionRead:
-        """
-        Actualiza una tarea y aplica la validación de la Potencia Simulada (KWp).
-        """
-        # --- REGLA DE NEGOCIO CRÍTICA ---
-        if data.status_simulacion == "Entregado":
-            if data.potencia_simulada_kwp is None or data.potencia_simulada_kwp <= 0:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail="El dato CRÍTICO 'Potencia Simulada (KWp)' DEBE ser capturado para marcar como Entregado."
-                )
-            
-            # Si se marca como entregado, se registra la fecha real
-            data.fecha_entrega_real = datetime.now()
-        # ----------------------------------
-
-        # LÓGICA DE ACTUALIZACIÓN DE DB AQUÍ (usando asyncpg y conn)
-        # await conn.execute(UPDATE_QUERY, data.potencia_simulada_kwp, ...)
-
-        # Simulación de respuesta de la DB
-        return SimulacionRead(
-            id_simulacion=simulacion_id,
-            id_oportunidad=data.id_oportunidad or UUID('00000000-0000-0000-0000-000000000000'),
-            tecnico_asignado_id=data.tecnico_asignado_id,
-            fecha_solicitud=datetime.now(),
-            status_simulacion=data.status_simulacion,
-            potencia_simulada_kwp=data.potencia_simulada_kwp
-        )
-
-
-def get_simulacion_service():
+def get_service():
     """Dependencia para inyectar la capa de servicio."""
-    return SimulacionService()
-def get_simulacion_service():
-    """Dependencia para inyectar la capa de servicio."""
-    return SimulacionService()
+    return IngenieriaService()
 
-# ----------------------------------------
-# ENDPOINTS DE UI (JINJA2/HTMX)
-# ----------------------------------------
-
+# ========================================
+# ENDPOINT PRINCIPAL (UI)
+# ========================================
 @router.get("/ui", include_in_schema=False)
-async def get_simulacion_ui(request: Request):
-    """
-    Renderiza la vista inicial del Módulo Simulación (Dashboard de cola de trabajo).
-    """
-    return templates.TemplateResponse(
-        "simulacion/dashboard.html",
-        {"request": request, "page_title": "Módulo Simulación: Cola de Trabajo"}
-    )
-
-@router.get("/", response_model=List[SimulacionRead])
-async def get_simulacion_queue(
-    service: SimulacionService = Depends(get_simulacion_service),
-    conn = Depends(get_db_connection) # Inyectamos la conexión activa
-):
-    """Dashboard: Muestra la cola de trabajo y el estado de las simulaciones."""
-    # Nota: get_db_connection retorna un Context Manager, necesitas adaptarlo si usas Depends.
-    # Alternativa simple: async with get_db_connection() as conn:
-    return await service.get_queue(conn)
-
-
-@router.patch("/{simulacion_id}", response_model=SimulacionRead)
-async def update_simulacion_task(
-    simulacion_id: UUID,
-    data: SimulacionUpdate,
-    service: SimulacionService = Depends(get_simulacion_service),
-    conn = Depends(get_db_connection)
+async def get_ingenieria_ui(
+    request: Request,
+    context = Depends(get_current_user_context),
+    _ = require_module_access("ingenieria")
 ):
     """
-    Actualiza el status, asignación o el dato KWp. 
-    Aplica la validación crítica de KWp al marcar como Entregado.
+    Dashboard principal del módulo ingeniería.
+    
+    HTMX Detection:
+    - Si viene desde sidebar (HTMX): retorna solo contenido
+    - Si es carga directa (F5/URL): retorna dashboard completo
     """
-    return await service.update_simulacion(conn, simulacion_id, data)
+    # HTMX Detection
+    if request.headers.get("hx-request"):
+        template = "ingenieria/partials/content.html"
+    else:
+        template = "ingenieria/dashboard.html"
+    
+    return templates.TemplateResponse(template, {
+        "request": request,
+        "user_name": context.get("user_name"),
+        "role": context.get("role"),
+        "module_roles": context.get("module_roles", {}),
+        "current_module_role": context.get("module_roles", {}).get("ingenieria", "viewer")
+    })

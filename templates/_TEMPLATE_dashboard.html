@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}Enertika Ops Core | TEMPLATE{% endblock %}
+
+{% block content %}
+<div class="container mx-auto animate-fade-in-down">
+    <div class="bg-white rounded-lg shadow-lg p-6 border-t-4 border-[#00BABB]">
+        <div class="flex justify-between items-center mb-6">
+            <div>
+                <h1 class="text-3xl font-bold text-[#123456] mb-2">
+                    Módulo TEMPLATE
+                </h1>
+                <p class="text-gray-600">
+                    Este es el dashboard del módulo TEMPLATE.
+                </p>
+            </div>
+
+            <!-- Botón de acción principal con ripple effect -->
+            {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'assignor', 'admin']) %}
+            {% if can_edit %}
+            <button hx-get="/TEMPLATE/form" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                class="ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white font-bold py-2.5 px-5 rounded-lg shadow-lg shadow-[#00BABB]/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                </svg>
+                Nuevo Registro
+            </button>
+            {% else %}
+            <div class="relative group">
+                <button disabled
+                    class="bg-gray-300 text-gray-500 font-bold py-2.5 px-5 rounded-lg shadow cursor-not-allowed opacity-50 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Nuevo Registro 🔒
+                </button>
+                <div
+                    class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+                    ⚠️ Solo lectura - Requiere permisos de edición
+                </div>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- KPIs con colores corporativos -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div
+                class="bg-white p-4 rounded-lg shadow-md border-l-4 border-[#00BABB] flex items-center hover:shadow-lg transition-shadow duration-200">
+                <div class="p-3 rounded-full bg-[#E0F7F7] text-[#00BABB] mr-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-500 font-medium">Total Registros</p>
+                    <p class="text-2xl font-bold text-gray-800 animate-pulse-subtle">24</p>
+                </div>
+            </div>
+
+            <div
+                class="bg-white p-4 rounded-lg shadow-md border-l-4 border-green-500 flex items-center hover:shadow-lg transition-shadow duration-200">
+                <div class="p-3 rounded-full bg-green-100 text-green-600 mr-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-500 font-medium">Completados</p>
+                    <p class="text-2xl font-bold text-gray-800">18</p>
+                </div>
+            </div>
+
+            <div
+                class="bg-white p-4 rounded-lg shadow-md border-l-4 border-orange-500 flex items-center hover:shadow-lg transition-shadow duration-200">
+                <div class="p-3 rounded-full bg-orange-100 text-orange-600 mr-4">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                </div>
+                <div>
+                    <p class="text-sm text-gray-500 font-medium">Pendientes</p>
+                    <p class="text-2xl font-bold text-gray-800">6</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Contenido ejemplo con badges corporativos -->
+        <div class="bg-gray-50 p-4 rounded-lg">
+            <h3 class="text-lg font-semibold text-[#123456] mb-3">Ejemplos de Badges</h3>
+            <div class="flex flex-wrap gap-2">
+                <span
+                    class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-[#E0F7F7] text-[#123456] border border-[#00BABB] shadow-sm">
+                    🔵 Estado Corporativo
+                </span>
+                <span
+                    class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-green-100 text-green-800 border border-green-300 shadow-sm">
+                    ✅ Activo
+                </span>
+                <span
+                    class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300 shadow-sm">
+                    ⏳ Pendiente
+                </span>
+                <span
+                    class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-red-100 text-red-800 border border-red-300 shadow-sm">
+                    ❌ Cancelado
+                </span>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

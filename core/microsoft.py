@@ -1,7 +1,7 @@
 import msal
 import requests
 import base64
-# CORRECCIÓN: Usamos 'settings' que es lo que existe en tu core/config.py
+import urllib.parse
 from .config import settings 
 
 class MicrosoftAuth:
@@ -32,6 +32,8 @@ class MicrosoftAuth:
         )
 
     def get_token_from_code(self, code):
+        # MSAL automáticamente incluye refresh_token para ConfidentialClientApplication
+        # No necesitamos agregar 'offline_access' explícitamente
         result = self.app.acquire_token_by_authorization_code(
             code,
             scopes=settings.GRAPH_SCOPES.split(" "),
@@ -40,6 +42,30 @@ class MicrosoftAuth:
         if "error" in result:
             raise Exception(f"Error login: {result.get('error_description')}")
         return result
+
+    # --- GESTIÓN GLOBAL DE TOKEN (REFRESH) ---
+    def refresh_access_token(self, refresh_token):
+        """
+        Renueva el access_token usando el refresh_token de larga duración.
+        Útil para cualquier módulo que requiera Graph API.
+        """
+        try:
+            # MSAL maneja automáticamente refresh_token sin necesidad de offline_access
+            scopes = settings.GRAPH_SCOPES.split(" ")
+            
+            result = self.app.acquire_token_by_refresh_token(
+                refresh_token,
+                scopes=scopes
+            )
+            
+            if "error" in result:
+                print(f"Error renovando token global: {result.get('error_description')}")
+                return None
+                
+            return result # Retorna el nuevo access_token y refresh_token
+        except Exception as e:
+            print(f"Excepción crítica en refresh_token: {e}")
+            return None
 
     # --- Utilidades ---
     def get_headers(self, token):
@@ -59,10 +85,68 @@ class MicrosoftAuth:
             print(f"Error obteniendo perfil: {e}")
             return {}
 
+    # --- LÓGICA DE HILOS ---    
+    def find_thread_id(self, access_token: str, search_text: str) -> str:
+        """Busca el ID de un mensaje existente filtrando por asunto (Lógica Power Automate)."""
+        if not access_token or not search_text: return None
+
+        headers = self.get_headers(access_token)
+        # Limpieza del texto
+        clean_text = search_text.replace('"', '').replace("'", "").strip()
+        encoded_search = urllib.parse.quote(clean_text)
+        
+        # Query: Busca en 'me/messages', no borradores, ordenado por fecha
+        url = f"https://graph.microsoft.com/v1.0/me/messages?$search=\"subject:{encoded_search}\"&$filter=isDraft eq false&$orderby=receivedDateTime desc&$top=1"
+        
+        try:
+            resp = requests.get(url, headers=headers)
+            if resp.status_code == 200:
+                data = resp.json()
+                items = data.get("value", [])
+                if items: return items[0]["id"]
+            return None
+        except Exception as e:
+            print(f"Error buscando hilo: {e}")
+            return None
+
+    def reply_with_new_subject(self, access_token, thread_id, new_subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments):
+        """Estrategia 'Reply-Patch-Send': Crea borrador vinculado -> Modifica Asunto -> Envía."""
+        headers = self.get_headers(access_token)
+        
+        # 1. Crear Respuesta (Draft vinculado)
+        url_reply = f"https://graph.microsoft.com/v1.0/me/messages/{thread_id}/createReply"
+        resp_reply = requests.post(url_reply, headers=headers)
+        if resp_reply.status_code != 201: return False, f"Error creando respuesta: {resp_reply.text}"
+            
+        draft_id = resp_reply.json()["id"]
+        
+        # 2. Modificar Borrador (Inyectar NUEVO Asunto y Destinatarios)
+        patch_payload = {
+            "subject": new_subject,
+            "importance": importance,
+            "body": {"contentType": "HTML", "content": body.replace('\n', '<br>')},
+            "toRecipients": [{"emailAddress": {"address": e}} for e in recipients],
+            "ccRecipients": [{"emailAddress": {"address": e}} for e in cc_recipients],
+            "bccRecipients": [{"emailAddress": {"address": e}} for e in bcc_recipients]
+        }
+        
+        resp_patch = requests.patch(f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}", headers=headers, json=patch_payload)
+        if resp_patch.status_code != 200: return False, f"Error actualizando borrador: {resp_patch.text}"
+
+        # 2.5 Subir Adjuntos (Reutilizamos lógica existente si hay adjuntos)
+        if attachments:
+            for f in attachments:
+                self._upload_session(headers, draft_id, f)
+
+        # 3. Enviar
+        resp_send = requests.post(f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}/send", headers=headers)
+        return (True, "Enviado (Hilo Continuado)") if resp_send.status_code == 202 else (False, resp_send.text)
+
+
     # --- Envío de Correos (Híbrido) ---
     def send_email_with_attachments(self, access_token, subject, body, recipients, cc_recipients=None, bcc_recipients=None, importance="normal", attachments_files=None):
         if not access_token:
-            print("❌ Error: Token nulo.")
+            print("Error: Token nulo.")
             return False, "No hay sesión activa"
 
         headers = self.get_headers(access_token)
@@ -80,11 +164,11 @@ class MicrosoftAuth:
         total_size = sum([len(f.get("content_bytes", b"")) for f in attachments_files])
         LIMIT_DIRECT_SEND = 3 * 1024 * 1024  # 3 MB
 
-        print(f"📧 Enviando a: {recipients} | CC: {cc_recipients} | BCC: {bcc_recipients} | Peso: {total_size/1024:.2f} KB")
+        print(f"Enviando a: {recipients} | CC: {cc_recipients} | BCC: {bcc_recipients} | Peso: {total_size/1024:.2f} KB")
 
         # A: Envío Directo (< 3MB)
         if total_size < LIMIT_DIRECT_SEND:
-            print("⚡ Modo: Envío Directo (/sendMail)")
+            print("Modo: Envío Directo (/sendMail)")
             attachments_payload = []
             for f in attachments_files:
                 b64 = base64.b64encode(f["content_bytes"]).decode("utf-8")
@@ -113,14 +197,14 @@ class MicrosoftAuth:
                 if res.status_code == 202:
                     return True, "Enviado"
                 else:
-                    print(f"❌ ERROR GRAPH: {res.status_code} - {res.text}")
+                    print(f"ERROR GRAPH: {res.status_code} - {res.text}")
                     return False, f"Error Microsoft: {res.status_code}"
             except Exception as e:
                 return False, str(e)
 
         # B: Envío Pesado (Draft + Upload)
         else:
-            print("🐢 Modo: Archivos Grandes (Draft + Upload)")
+            print("Modo: Archivos Grandes (Draft + Upload)")
             return self._send_heavy_email(headers, subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments_files)
 
     def _send_heavy_email(self, headers, subject, body, recipients, cc, bcc, importance, attachments):

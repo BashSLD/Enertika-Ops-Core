@@ -30,11 +30,20 @@ logging.basicConfig(
 app = FastAPI(title="Enertika Ops Core",on_startup=[connect_to_db],on_shutdown=[close_db_connection])
 
 # Middleware de Sesión (Cookie Segura)
-app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
+app.add_middleware(
+    SessionMiddleware, 
+    secret_key=settings.SECRET_KEY,
+    max_age=86400,  # 24 horas en segundos
+    same_site="lax",  # Permite cookies en redirects
+    https_only=False  # True en producción con HTTPS
+)
 
 # Configuración de Jinja2 Templates (para HTMX/Tailwind)
-# Asumimos que tendremos una carpeta 'templates' y 'static' para CSS/JS
 templates = Jinja2Templates(directory="templates")
+
+# Registrar filtros de timezone (México)
+from core.jinja_filters import register_timezone_filters
+register_timezone_filters(templates.env)
 
 # Montar directorios estáticos
 # app.mount("/static", StaticFiles(directory="static"), name="static")
@@ -76,27 +85,66 @@ async def root(
     user_name = context.get("user_name") # Será None si no hay login
     
     if user_name and user_name != "Usuario":
-        # 🟢 USUARIO LOGUEADO -> Redirección Directa
-        # 🟢 USUARIO LOGUEADO -> Redirección Inteligente por Departamento
+        # 🟢 USUARIO LOGUEADO → Redirección Inteligente por Módulos
         role = context.get("role")
-        department = (context.get("department") or "").lower() # Normalize to lowercase
+        module_roles = context.get("module_roles", {})
+        modulo_preferido = context.get("modulo_preferido")
         
-        # 1. Admins -> Admin UI
+        # 1. Admins → Admin UI (siempre tienen acceso total)
         if role == 'ADMIN':
              return RedirectResponse(url="/admin/ui")
         
-        # 2. Department Dispatch
-        if any(keyword in department for keyword in ["ventas", "comercial"]):
-             return RedirectResponse(url="/comercial/ui")
-             
-        elif any(keyword in department for keyword in ["simulación", "simulacion"]):
-             return RedirectResponse(url="/simulacion/ui")
-             
-        elif any(keyword in department for keyword in ["ingeniería", "ingenieria", "construccion", "construcción", "levantamientos"]):
-             return RedirectResponse(url="/levantamientos/ui")
-             
-        # 3. Fallback Default
-        return RedirectResponse(url="/comercial/ui")
+        # 2. Usuarios sin módulos asignados → Mostrar mensaje
+        if not module_roles:
+            return templates.TemplateResponse(
+                "index.html",
+                {
+                    "request": request,
+                    "app_name": "Enertika Ops Core",
+                    "error_message": "⚠️ No tienes módulos asignados. Contacta al administrador para obtener acceso."
+                }
+            )
+        
+        # 3. Función para generar rutas de módulos dinámicamente
+        def get_module_route(slug: str) -> str:
+            """
+            Genera la ruta del módulo basado en su slug.
+            
+            Patrón estándar: /{slug}/ui
+            Valida contra lista de módulos conocidos para evitar rutas inválidas.
+            """
+            # Lista de módulos válidos (actualizar al agregar nuevos módulos)
+            VALID_MODULES = {
+                "comercial", "simulacion", "levantamientos", "proyectos",
+                "construccion", "compras", "oym", "admin", "ingenieria"
+            }
+            
+            if slug not in VALID_MODULES:
+                return None
+            
+            return f"/{slug}/ui"
+        
+        # 4. Si tiene módulo preferido y tiene acceso, ir ahí
+        if modulo_preferido and modulo_preferido in module_roles:
+            ruta = get_module_route(modulo_preferido)
+            if ruta:
+                return RedirectResponse(url=ruta)
+        
+        # 5. Ir al primer módulo disponible (en orden alfabético de slug)
+        primer_slug = sorted(module_roles.keys())[0]
+        ruta = get_module_route(primer_slug)
+        if ruta:
+            return RedirectResponse(url=ruta)
+        
+        # 6. Fallback final (no debería llegar aquí)
+        return templates.TemplateResponse(
+            "index.html",
+            {
+                "request": request,
+                "app_name": "Enertika Ops Core",
+                "error_message": "❌ Error de configuración. Contacta al administrador."
+            }
+        )
     
     # 🔴 NO LOGUEADO -> Mostrar Login
     return templates.TemplateResponse(

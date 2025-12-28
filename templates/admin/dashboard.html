@@ -3,304 +3,707 @@
 {% block content %}
 <div class="max-w-7xl mx-auto space-y-8 animate-fade-in-up">
 
-    <h1 class="text-3xl font-bold text-gray-800">Panel de Administración</h1>
+    <h1 class="text-3xl font-bold text-[#123456]">Panel de Administración</h1>
 
-    <!-- Guía de Roles -->
-    <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded shadow-sm">
-        <h3 class="font-bold text-blue-700 mb-2">Guía de Permisos y Roles:</h3>
-        <ul class="text-sm text-blue-800 space-y-1">
-            <li><strong>VIEWER:</strong> Solo puede consultar información. No ve botones de "Guardar", "Editar" o
-                "Eliminar".</li>
-            <li><strong>USER (Editor):</strong> Puede crear y editar sus propios registros (flujo normal).</li>
-            <li><strong>MANAGER:</strong> Puede editar y reasignar registros de su equipo.</li>
-            <li><strong>ADMIN:</strong> Control total (incluyendo este panel de reglas).</li>
-        </ul>
+    <!-- Tabs Navigation -->
+    <div class="mb-6">
+        <div class="border-b border-gray-200">
+            <nav class="-mb-px flex space-x-8" aria-label="Tabs">
+                <button onclick="switchTab('usuarios')" id="tab-usuarios"
+                    class="tab-button border-b-2 border-[#00BABB] py-4 px-1 text-sm font-medium text-[#123456] whitespace-nowrap">
+                    <svg class="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z">
+                        </path>
+                    </svg>
+                    Usuarios y Roles
+                </button>
+                <button onclick="switchTab('correos')" id="tab-correos"
+                    class="tab-button border-b-2 border-transparent py-4 px-1 text-sm font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300 whitespace-nowrap">
+                    <svg class="w-5 h-5 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+                        </path>
+                    </svg>
+                    Configuración de Correos y Reglas
+                </button>
+            </nav>
+        </div>
     </div>
 
-    <!-- 1. GESTION DE USUARIOS -->
-    <section class="bg-white p-6 rounded-lg shadow">
-        <h2 class="text-xl font-bold mb-4 text-blue-600 flex items-center gap-2">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z">
-                </path>
-            </svg>
-            Usuarios y Roles
-        </h2>
-        <div class="overflow-x-auto">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Nombre</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Email
-                        </th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            Departamento</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Rol
-                            Sistema</th>
-                        <th class="px-6 py-3 text-right">Acciones</th>
-                    </tr>
-                </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                    {% for u in users %}
-                    {% include "admin/partials/user_row.html" %}
-                    {% endfor %}
-                </tbody>
-            </table>
+    <!-- Tab Content: Usuarios y Roles -->
+    <div id="content-usuarios" class="tab-content">
+        <!-- Guía de Roles -->
+        <div class="bg-[#E0F7F7] border-l-4 border-[#00BABB] p-4 rounded shadow-sm">
+            <h3 class="font-bold text-[#123456] mb-2">Guía de Permisos y Roles:</h3>
+            <ul class="text-sm text-[#123456] space-y-1">
+                <li><strong>VIEWER:</strong> Solo puede consultar información. No ve botones de "Guardar", "Editar" o
+                    "Eliminar".</li>
+                <li><strong>USER (Editor):</strong> Puede crear y editar sus propios registros (flujo normal).</li>
+                <li><strong>MANAGER:</strong> Puede editar y reasignar registros de su equipo.</li>
+                <li><strong>ADMIN:</strong> Control total (incluyendo este panel de reglas).</li>
+            </ul>
         </div>
-    </section>
 
-    <!-- 2. CONFIGURACIÓN GLOBAL DE CORREOS -->
-    <section class="bg-white p-6 rounded-lg shadow border-l-4 border-indigo-500">
-        <h2 class="text-xl font-bold mb-4 text-indigo-600 flex items-center gap-2">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
-                </path>
-            </svg>
-            Configuración General de Correos (Defaults)
-        </h2>
-        <p class="text-sm text-gray-500 mb-4">Estos correos se incluirán automáticamente en todos los envíos. Usa
-            <strong>Enter</strong> o <strong>;</strong> para agregar múltiples.
-        </p>
+        <!-- 1. GESTION DE USUARIOS -->
+        <section class="bg-white p-6 rounded-lg shadow">
+            <h2 class="text-xl font-bold mb-4 text-[#123456] flex items-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z">
+                    </path>
+                </svg>
+                Usuarios y Roles
+            </h2>
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Nombre</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Email
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Departamento</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Módulos Asignados</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Módulo Preferido</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                Rol
+                                Sistema</th>
+                            <th class="px-6 py-3 text-right">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for u in users %}
+                        {% include "admin/partials/user_row.html" %}
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </section>
+    </div>
 
-        <form hx-post="/admin/defaults/update" hx-target="#defaults-response" class="space-y-4">
+    <!-- Tab Content: Configuración de Correos y Reglas -->
+    <div id="content-correos" class="tab-content hidden">
 
-            <div id="defaults-response"></div>
+        <!-- 2. CONFIGURACIÓN GLOBAL DE CORREOS -->
+        <section class="bg-white p-6 rounded-lg shadow border-l-4 border-indigo-500">
+            <h2 class="text-xl font-bold mb-4 text-indigo-600 flex items-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+                    </path>
+                </svg>
+                Configuración General de Correos (Defaults)
+            </h2>
+            <p class="text-sm text-gray-500 mb-4">Estos correos se incluirán automáticamente en todos los envíos. Usa
+                <strong>Enter</strong> o <strong>;</strong> para agregar múltiples.
+            </p>
 
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <!-- DEFAULT TO -->
-                <div class="chip-wrapper">
-                    <label class="block text-sm font-bold text-gray-700 mb-1">Default TO</label>
-                    <div
-                        class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-indigo-500 bg-white">
-                        <div class="chips-container flex flex-wrap gap-1">
-                            {% if defaults.default_to %}
-                            {% for email in defaults.default_to.split(';') %}
-                            {% if email %}
-                            <div
-                                class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-indigo-100 text-indigo-800 border border-indigo-200 mr-2 mb-1">
-                                <span>{{ email }}</span>
-                                <button type="button"
-                                    class="chip-remove ml-1.5 inline-flex items-center justify-center text-indigo-400 hover:text-indigo-600 focus:outline-none">
-                                    <svg class="h-4 w-4 pointer-events-none" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd"
-                                            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                                            clip-rule="evenodd" />
-                                    </svg>
-                                </button>
+            <form hx-post="/admin/defaults/update" hx-target="#defaults-response" class="space-y-4">
+
+                <div id="defaults-response"></div>
+
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <!-- DEFAULT TO -->
+                    <div class="chip-wrapper">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Default TO</label>
+                        <div
+                            class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-indigo-500 bg-white">
+                            <div class="chips-container flex flex-wrap gap-1">
+                                {% if defaults.default_to %}
+                                {% for email in defaults.default_to.split(';') %}
+                                {% if email %}
+                                <div
+                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-indigo-100 text-indigo-800 border border-indigo-200 mr-2 mb-1">
+                                    <span>{{ email }}</span>
+                                    <button type="button"
+                                        class="chip-remove ml-1.5 inline-flex items-center justify-center text-indigo-400 hover:text-indigo-600 focus:outline-none">
+                                        <svg class="h-4 w-4 pointer-events-none" fill="currentColor"
+                                            viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd"
+                                                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                                                clip-rule="evenodd" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% endif %}
                             </div>
-                            {% endif %}
-                            {% endfor %}
-                            {% endif %}
+                            <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
+                                placeholder="Agregar correo...">
                         </div>
-                        <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
-                            placeholder="Agregar correo...">
+                        <input type="hidden" name="default_to" value="{{ defaults.default_to }}"
+                            class="recipients-hidden">
                     </div>
-                    <input type="hidden" name="default_to" value="{{ defaults.default_to }}" class="recipients-hidden">
+
+                    <!-- DEFAULT CC -->
+                    <div class="chip-wrapper">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Default CC</label>
+                        <div
+                            class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-indigo-500 bg-white">
+                            <div class="chips-container flex flex-wrap gap-1">
+                                {% if defaults.default_cc %}
+                                {% for email in defaults.default_cc.split(';') %}
+                                {% if email %}
+                                <div
+                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200 mr-2 mb-1">
+                                    <span>{{ email }}</span>
+                                    <button type="button"
+                                        class="chip-remove ml-1.5 inline-flex items-center justify-center text-blue-400 hover:text-blue-600 focus:outline-none">
+                                        <svg class="h-4 w-4 pointer-events-none" fill="currentColor"
+                                            viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd"
+                                                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                                                clip-rule="evenodd" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% endif %}
+                            </div>
+                            <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
+                                placeholder="Agregar correo...">
+                        </div>
+                        <input type="hidden" name="default_cc" value="{{ defaults.default_cc }}"
+                            class="recipients-hidden">
+                    </div>
+
+                    <!-- DEFAULT CCO -->
+                    <div class="chip-wrapper">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Default CCO (Oculto)</label>
+                        <div
+                            class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-indigo-500 bg-white">
+                            <div class="chips-container flex flex-wrap gap-1">
+                                {% if defaults.default_cco %}
+                                {% for email in defaults.default_cco.split(';') %}
+                                {% if email %}
+                                <div
+                                    class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-gray-100 text-gray-800 border border-gray-200 mr-2 mb-1">
+                                    <span>{{ email }}</span>
+                                    <button type="button"
+                                        class="chip-remove ml-1.5 inline-flex items-center justify-center text-gray-400 hover:text-gray-600 focus:outline-none">
+                                        <svg class="h-4 w-4 pointer-events-none" fill="currentColor"
+                                            viewBox="0 0 20 20">
+                                            <path fill-rule="evenodd"
+                                                d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
+                                                clip-rule="evenodd" />
+                                        </svg>
+                                    </button>
+                                </div>
+                                {% endif %}
+                                {% endfor %}
+                                {% endif %}
+                            </div>
+                            <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
+                                placeholder="Agregar correo...">
+                        </div>
+                        <input type="hidden" name="default_cco" value="{{ defaults.default_cco }}"
+                            class="recipients-hidden">
+                    </div>
                 </div>
 
-                <!-- DEFAULT CC -->
-                <div class="chip-wrapper">
-                    <label class="block text-sm font-bold text-gray-700 mb-1">Default CC</label>
-                    <div
-                        class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-indigo-500 bg-white">
-                        <div class="chips-container flex flex-wrap gap-1">
-                            {% if defaults.default_cc %}
-                            {% for email in defaults.default_cc.split(';') %}
-                            {% if email %}
-                            <div
-                                class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200 mr-2 mb-1">
-                                <span>{{ email }}</span>
-                                <button type="button"
-                                    class="chip-remove ml-1.5 inline-flex items-center justify-center text-blue-400 hover:text-blue-600 focus:outline-none">
-                                    <svg class="h-4 w-4 pointer-events-none" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd"
-                                            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                                            clip-rule="evenodd" />
-                                    </svg>
-                                </button>
-                            </div>
-                            {% endif %}
-                            {% endfor %}
-                            {% endif %}
-                        </div>
-                        <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
-                            placeholder="Agregar correo...">
-                    </div>
-                    <input type="hidden" name="default_cc" value="{{ defaults.default_cc }}" class="recipients-hidden">
+                <div class="flex justify-end pt-2">
+                    <button type="submit"
+                        class="bg-[#00BABB] hover:bg-[#009999] text-white px-6 py-2 rounded-lg font-bold shadow-lg shadow-[#00BABB]/30 transition-all duration-200 transform hover:scale-105">
+                        Guardar Configuración General
+                    </button>
                 </div>
+            </form>
+        </section>
 
-                <!-- DEFAULT CCO -->
-                <div class="chip-wrapper">
-                    <label class="block text-sm font-bold text-gray-700 mb-1">Default CCO (Oculto)</label>
-                    <div
-                        class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-indigo-500 bg-white">
-                        <div class="chips-container flex flex-wrap gap-1">
-                            {% if defaults.default_cco %}
-                            {% for email in defaults.default_cco.split(';') %}
-                            {% if email %}
-                            <div
-                                class="inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-medium bg-gray-100 text-gray-800 border border-gray-200 mr-2 mb-1">
-                                <span>{{ email }}</span>
-                                <button type="button"
-                                    class="chip-remove ml-1.5 inline-flex items-center justify-center text-gray-400 hover:text-gray-600 focus:outline-none">
-                                    <svg class="h-4 w-4 pointer-events-none" fill="currentColor" viewBox="0 0 20 20">
-                                        <path fill-rule="evenodd"
-                                            d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z"
-                                            clip-rule="evenodd" />
-                                    </svg>
-                                </button>
-                            </div>
-                            {% endif %}
-                            {% endfor %}
-                            {% endif %}
-                        </div>
-                        <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
-                            placeholder="Agregar correo...">
-                    </div>
-                    <input type="hidden" name="default_cco" value="{{ defaults.default_cco }}"
-                        class="recipients-hidden">
-                </div>
+        <!-- 3. GESTION DE REGLAS DE CORREO -->
+        <section class="bg-white p-6 rounded-lg shadow">
+            <h2 class="text-xl font-bold mb-2 text-[#123456] flex items-center gap-2">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+                    </path>
+                </svg>
+                Reglas de correo (Adicionales)
+            </h2>
+
+            <!-- Texto explicativo -->
+            <div class="mb-4 p-3 bg-[#E0F7F7] border-l-4 border-[#00BABB] rounded">
+                <p class="text-sm text-[#123456]">
+                    <strong>💡 Propósito:</strong> Estas reglas agregan destinatarios automáticamente al formulario de
+                    envío de emails
+                    cuando se cumplen ciertas condiciones (ej: si Tecnología = "BESS", agregar a <code
+                        class="bg-purple-100 px-1 rounded">experto.bess@enertika.mx</code> en CC).
+                </p>
             </div>
 
-            <div class="flex justify-end pt-2">
+            <!-- Add Form -->
+            <form hx-post="/admin/rules/add" hx-target="#rules-table-container"
+                class="mb-6 bg-gray-50 p-4 rounded flex gap-4 items-end">
+                <!-- Campo oculto para módulo (siempre COMERCIAL) -->
+                <input type="hidden" name="modulo" value="COMERCIAL">
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase">Trigger Field</label>
+                    <select name="trigger_field" id="triggerFieldSelect" onchange="updateTriggerValues()"
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
+                        <option value="tipo_tecnologia">Tecnología</option>
+                        <option value="tipo_solicitud">Tipo Solicitud</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase">Valor Trigger</label>
+                    <div id="triggerValueContainer">
+                        <input type="text" name="trigger_value" placeholder="Seleccione un campo primero"
+                            class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase">Email a Agregar</label>
+                    <input type="email" name="email_to_add" placeholder="experto@..."
+                        class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase">Tipo</label>
+                    <select name="type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
+                        <option value="CC">CC</option>
+                        <option value="TO">TO</option>
+                    </select>
+                </div>
                 <button type="submit"
-                    class="bg-indigo-600 text-white px-6 py-2 rounded hover:bg-indigo-700 font-bold shadow transition-colors">
-                    Guardar Configuración General
+                    class="bg-[#00BABB] hover:bg-[#009999] text-white px-4 py-2 rounded-lg font-bold text-sm shadow-lg shadow-[#00BABB]/30 transition-all duration-200 transform hover:scale-105">
+                    + Agregar Regla
                 </button>
-            </div>
-        </form>
-    </section>
+            </form>
 
-    <!-- 3. GESTION DE REGLAS DE CORREO -->
-    <section class="bg-white p-6 rounded-lg shadow">
-        <h2 class="text-xl font-bold mb-4 text-purple-600 flex items-center gap-2">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
-                </path>
-            </svg>
-            Reglas Específicas (Condicionales)
-        </h2>
-
-        <!-- Add Form -->
-        <form hx-post="/admin/rules/add" hx-target="#rules-table-container"
-            class="mb-6 bg-gray-50 p-4 rounded flex gap-4 items-end">
-            <div>
-                <label class="block text-xs font-bold text-gray-500 uppercase">Módulo</label>
-                <select name="modulo" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
-                    <option value="COMERCIAL">COMERCIAL</option>
-                </select>
+            <!-- Rules Table -->
+            <div id="rules-table-container">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Si Campo...</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contiene...</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Agregar Email
+                            </th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Como</th>
+                            <th class="px-6 py-3 text-right"></th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for r in rules %}
+                        <tr id="rule-{{ r.id }}">
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ r.trigger_field }}</td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{{ r.trigger_value
+                                }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">{{ r.email_to_add }}
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                                <span
+                                    class="px-2 py-1 rounded-full text-xs font-bold {{ 'bg-blue-100 text-blue-800' if r.type == 'CC' else 'bg-green-100 text-green-800' }}">
+                                    {{ r.type }}
+                                </span>
+                            </td>
+                            <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                <button hx-delete="/admin/rules/{{ r.id }}" hx-target="#rule-{{ r.id }}"
+                                    hx-swap="outerHTML" class="text-red-600 hover:text-red-900 font-bold">🗑</button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
             </div>
-            <div>
-                <label class="block text-xs font-bold text-gray-500 uppercase">Trigger Field</label>
-                <select name="trigger_field" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
-                    <option value="tecnologia">Tecnología</option>
-                    <option value="tipo_solicitud">Tipo Solicitud</option>
-                </select>
-            </div>
-            <div>
-                <label class="block text-xs font-bold text-gray-500 uppercase">Valor Trigger</label>
-                <input type="text" name="trigger_value" placeholder="e.g. BESS"
-                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
-            </div>
-            <div>
-                <label class="block text-xs font-bold text-gray-500 uppercase">Email a Agregar</label>
-                <input type="email" name="email_to_add" placeholder="experto@..."
-                    class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
-            </div>
-            <div>
-                <label class="block text-xs font-bold text-gray-500 uppercase">Tipo</label>
-                <select name="type" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
-                    <option value="CC">CC</option>
-                    <option value="TO">TO</option>
-                </select>
-            </div>
-            <button type="submit"
-                class="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700 font-bold text-sm">
-                + Agregar Regla
-            </button>
-        </form>
-
-        <!-- Rules Table -->
-        <div id="rules-table-container">
-            <table class="min-w-full divide-y divide-gray-200">
-                <thead class="bg-gray-50">
-                    <tr>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Si Campo...</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Contiene...</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Agregar Email</th>
-                        <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Como</th>
-                        <th class="px-6 py-3 text-right"></th>
-                    </tr>
-                </thead>
-                <tbody class="bg-white divide-y divide-gray-200">
-                    {% for r in rules %}
-                    <tr id="rule-{{ r.id }}">
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">{{ r.trigger_field }}</td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500 font-mono">{{ r.trigger_value }}
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900 font-bold">{{ r.email_to_add }}
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            <span
-                                class="px-2 py-1 rounded-full text-xs font-bold {{ 'bg-blue-100 text-blue-800' if r.type == 'CC' else 'bg-green-100 text-green-800' }}">
-                                {{ r.type }}
-                            </span>
-                        </td>
-                        <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                            <button hx-delete="/admin/rules/{{ r.id }}" hx-target="#rule-{{ r.id }}" hx-swap="outerHTML"
-                                class="text-red-600 hover:text-red-900 font-bold">🗑</button>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
-    </section>
+        </section>
+    </div>
 
 </div>
 
+<style>
+    .tab-content {
+        animation: fadeIn 0.3s ease-in-out;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    .tab-button {
+        transition: all 0.2s ease-in-out;
+    }
+</style>
+
 <script>
+    function switchTab(tabName) {
+        // Hide all tab contents
+        document.querySelectorAll('.tab-content').forEach(content => {
+            content.classList.add('hidden');
+        });
+
+        // Remove active state from all tabs
+        document.querySelectorAll('.tab-button').forEach(button => {
+            button.classList.remove('border-[#00BABB]', 'text-[#123456]');
+            button.classList.add('border-transparent', 'text-gray-500');
+        });
+
+        // Show selected tab content
+        document.getElementById('content-' + tabName).classList.remove('hidden');
+
+        // Activate selected tab
+        const activeTab = document.getElementById('tab-' + tabName);
+        activeTab.classList.remove('border-transparent', 'text-gray-500');
+        activeTab.classList.add('border-[#00BABB]', 'text-[#123456]');
+
+        // Store active tab in sessionStorage to persist across reloads
+        sessionStorage.setItem('activeAdminTab', tabName);
+    }
+
+    // Restore active tab on page load
+    document.addEventListener('DOMContentLoaded', function () {
+        const savedTab = sessionStorage.getItem('activeAdminTab') || 'usuarios';
+        switchTab(savedTab);
+    });
+</script>
+
+<script>
+    // ✅ Catálogos dinámicos desde BD (patrón GUIA_MAESTRA)
+    const catalogosTecnologias = {{ catalogos.tecnologias | tojson | safe }};
+    const catalogosTiposSolicitud = {{ catalogos.tipos_solicitud | tojson | safe }};
+
     function updateTriggerValues() {
         const fieldSelect = document.getElementById('triggerFieldSelect');
         const container = document.getElementById('triggerValueContainer');
 
         // Validación: Solo ejecutar si los elementos existen en el DOM
-        if (!fieldSelect || !container) return;
+        if (!fieldSelect || !container) {
+            console.warn('⚠️ triggerFieldSelect o triggerValueContainer no encontrado');
+            return;
+        }
 
         const field = fieldSelect.value;
-
         let html = '';
 
-        if (field === 'tecnologia') {
-            html = `
-            <select name="trigger_value" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
-                <option value="FV">FV</option>
-                <option value="BESS">BESS</option>
-                <option value="FV + BESS">FV + BESS</option>
-                <option value="EOLICA">EOLICA</option>
-                <option value="COGENERACION">COGENERACION</option>
-            </select>
-            `;
+        if (field === 'tipo_tecnologia') {
+            // ✅ DINÁMICO: Cargar desde catálogo de BD
+            html = '<select name="trigger_value" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">';
+            catalogosTecnologias.forEach(tec => {
+                html += `<option value="${tec.nombre}">${tec.nombre}</option>`;
+            });
+            html += '</select>';
+
         } else if (field === 'tipo_solicitud') {
-            html = `
-            <select name="trigger_value" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">
-                <option value="PRE OFERTA">PRE OFERTA</option>
-                <option value="LICITACION">LICITACION</option>
-                <option value="DUE DILIGENCIA">DUE DILIGENCIA</option>
-            </select>
-            `;
+            // ✅ DINÁMICO: Cargar desde catálogo de BD
+            html = '<select name="trigger_value" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">';
+            catalogosTiposSolicitud.forEach(ts => {
+                html += `<option value="${ts.nombre}">${ts.nombre}</option>`;
+            });
+            html += '</select>';
+
         } else {
-            html = `<input type="text" name="trigger_value" placeholder="Valor..." class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">`;
+            html = '<input type="text" name="trigger_value" placeholder="Valor..." class="mt-1 block w-full rounded-md border-gray-300 shadow-sm sm:text-sm">';
         }
 
         container.innerHTML = html;
+        console.log('✅ Dropdown actualizado para:', field, '- Opciones:', field === 'tipo_tecnologia' ? catalogosTecnologias.length : catalogosTiposSolicitud.length);
     }
 
-    // Init
-    document.addEventListener('DOMContentLoaded', updateTriggerValues);
+    // Ejecutar al cargar página
+    document.addEventListener('DOMContentLoaded', function () {
+        console.log('📦 Catálogos cargados:', catalogosTecnologias.length, 'tecnologías,', catalogosTiposSolicitud.length, 'tipos solicitud');
+        updateTriggerValues();
+    });
 </script>
+
+<!-- ========================================= -->
+<!-- MODAL DE PERMISOS DE USUARIO -->
+<!-- ========================================= -->
+<div id="permissions-modal"
+    class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg shadow-xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+        <div class="p-6">
+            <!-- Header -->
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-2xl font-bold text-gray-800">
+                    <svg class="w-6 h-6 inline-block mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
+                        </path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                    </svg>
+                    Editar Permisos
+                </h3>
+                <button onclick="closePermissionsModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                        </path>
+                    </svg>
+                </button>
+            </div>
+
+            <p class="text-sm text-gray-600 mb-4">Usuario: <span id="modal-user-name" class="font-bold"></span></p>
+
+            <!-- Mensaje de respuesta -->
+            <div id="perms-response" class="mb-4"></div>
+
+            <!-- Formulario -->
+            <form id="permissions-form">
+                <!-- Sección 1: Departamento -->
+                <div class="mb-6 p-4 bg-blue-50 rounded-lg">
+                    <label class="block text-sm font-bold text-blue-900 mb-2">
+                        📁 Departamento
+                    </label>
+                    <select id="user-department" name="department_slug"
+                        class="w-full border-blue-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        <option value="">-- Seleccionar Departamento --</option>
+                        {% for dept in departments %}
+                        <option value="{{ dept.slug }}">{{ dept.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Sección 2: Módulos y Roles -->
+                <div class="mb-6">
+                    <label class="block text-sm font-bold text-gray-900 mb-3">
+                        📦 Módulos y Roles Asignados
+                    </label>
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <table class="w-full text-sm">
+                            <thead class="bg-gray-200">
+                                <tr>
+                                    <th class="text-left p-3 rounded-tl-lg">Módulo</th>
+                                    <th class="text-left p-3 rounded-tr-lg">Rol</th>
+                                </tr>
+                            </thead>
+                            <tbody id="modules-list" class="divide-y divide-gray-200">
+                                <!-- Llenado dinámicamente con JS -->
+                            </tbody>
+                        </table>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2">
+                        💡 <strong>Viewer:</strong> Solo lectura |
+                        <strong>Editor:</strong> Lectura + edición |
+                        <strong>Assignor:</strong> + asignación de tareas |
+                        <strong>Admin:</strong> Control total
+                    </p>
+                </div>
+
+                <!-- Sección 3: Módulo Preferido -->
+                <div class="mb-6 p-4 bg-green-50 rounded-lg">
+                    <label class="block text-sm font-bold text-green-900 mb-2">
+                        ⭐ Módulo de Inicio (Preferido)
+                    </label>
+                    <select id="user-preferred-module" name="modulo_preferido"
+                        class="w-full border-green-300 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                        <option value="">-- Auto (primer módulo) --</option>
+                        <!-- Llenado dinámicamente -->
+                    </select>
+                    <p class="text-xs text-gray-600 mt-1">El módulo al que será redirigido al hacer login</p>
+                </div>
+
+                <!-- Botones -->
+                <div class="flex gap-3 justify-end">
+                    <button type="button" onclick="closePermissionsModal()"
+                        class="px-6 py-2 bg-gray-300 hover:bg-gray-400 rounded-lg font-bold transition-colors">
+                        Cancelar
+                    </button>
+                    <button type="button" onclick="savePermissions()"
+                        class="px-6 py-2 bg-[#00BABB] hover:bg-[#009999] text-white rounded-lg font-bold shadow-lg shadow-[#00BABB]/30 transition-all duration-200 transform hover:scale-105">
+                        💾 Guardar Cambios
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Variables globales
+    let allModules = {{ modules | tojson | safe }};
+    let allDepartments = {{ departments | tojson | safe }};
+    let currentUserId = null;
+
+    /**
+     * Abre el modal de permisos para un usuario
+     */
+    function openPermissionsModal(userId, userName) {
+        currentUserId = userId;
+        document.getElementById('modal-user-name').textContent = userName;
+        document.getElementById('perms-response').innerHTML = '';
+
+        // Cargar datos del usuario
+        loadUserPermissions(userId);
+
+        // Mostrar modal
+        document.getElementById('permissions-modal').classList.remove('hidden');
+    }
+
+    /**
+     * Cierra el modal de permisos
+     */
+    function closePermissionsModal() {
+        document.getElementById('permissions-modal').classList.add('hidden');
+        currentUserId = null;
+    }
+
+    /**
+     * Carga los permisos actuales del usuario
+     */
+    async function loadUserPermissions(userId) {
+        try {
+            // 1. Obtener datos del usuario (departamento actual)
+            const userResponse = await fetch(`/admin/ui`);
+            // Por simplicidad, obtenemos el departamento del DOM
+            const userRow = document.getElementById(`user-${userId}`);
+            const deptCell = userRow?.querySelector('td:nth-child(3)');
+            const currentDept = deptCell?.textContent.trim() || '';
+
+            // Setear departamento
+            const deptSelect = document.getElementById('user-department');
+            const matchingDept = allDepartments.find(d => d.nombre === currentDept);
+            if (matchingDept) {
+                deptSelect.value = matchingDept.slug;
+            }
+
+            // 2. Obtener módulos asignados
+            const permisosResponse = await fetch(`/admin/users/${userId}/modules`);
+            const permisos = await permisosResponse.json();
+
+            // 3. Generar tabla de módulos
+            const modulesList = document.getElementById('modules-list');
+            modulesList.innerHTML = '';
+
+            const preferredSelect = document.getElementById('user-preferred-module');
+            preferredSelect.innerHTML = '<option value="">-- Auto (primer módulo) --</option>';
+
+            allModules.forEach(mod => {
+                const permiso = permisos.find(p => p.modulo_slug === mod.slug);
+                const rolActual = permiso ? permiso.rol_modulo : '';
+
+                // Agregar fila a la tabla
+                const row = document.createElement('tr');
+                row.className = 'hover:bg-gray-100';
+                row.innerHTML = `
+                    <td class="p-3 font-medium text-gray-800">
+                        ${mod.icono ? `<i class="${mod.icono} mr-2"></i>` : ''}
+                        ${mod.nombre}
+                    </td>
+                    <td class="p-3">
+                        <select name="modulo_${mod.slug}" 
+                            class="w-full border-gray-300 rounded focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm">
+                            <option value="">-- Sin acceso --</option>
+                            <option value="viewer" ${rolActual === 'viewer' ? 'selected' : ''}>🔍 Viewer</option>
+                            <option value="editor" ${rolActual === 'editor' ? 'selected' : ''}>✏️ Editor</option>
+                            <option value="assignor" ${rolActual === 'assignor' ? 'selected' : ''}>👥 Assignor</option>
+                            <option value="admin" ${rolActual === 'admin' ? 'selected' : ''}>⚡ Admin</option>
+                        </select>
+                    </td>
+                `;
+                modulesList.appendChild(row);
+
+                // Agregar a selector de módulo preferido (solo si tiene acceso)
+                if (rolActual) {
+                    const option = document.createElement('option');
+                    option.value = mod.slug;
+                    option.textContent = mod.nombre;
+                    preferredSelect.appendChild(option);
+                }
+            });
+
+            // 4. Setear módulo preferido actual
+            const preferredModule = userRow?.querySelector('td:nth-child(5)')?.textContent.trim();
+            const matchingModule = allModules.find(m => m.nombre === preferredModule);
+            if (matchingModule) {
+                preferredSelect.value = matchingModule.slug;
+            }
+
+        } catch (error) {
+            console.error('Error cargando permisos:', error);
+            showModalMessage('Error al cargar los permisos del usuario', 'error');
+        }
+    }
+
+    /**
+     * Guarda los cambios de permisos
+     */
+    async function savePermissions() {
+        if (!currentUserId) return;
+
+        const responseDiv = document.getElementById('perms-response');
+        responseDiv.innerHTML = '<div class="bg-blue-100 p-2 rounded">Guardando...</div>';
+
+        try {
+            // 1. Actualizar departamento
+            const deptSlug = document.getElementById('user-department').value;
+            if (deptSlug) {
+                const deptForm = new FormData();
+                deptForm.append('department_slug', deptSlug);
+
+                await fetch(`/admin/users/${currentUserId}/department`, {
+                    method: 'POST',
+                    body: deptForm
+                });
+            }
+
+            // 2. Actualizar módulos
+            const form = document.getElementById('permissions-form');
+            const formData = new FormData(form);
+
+            await fetch(`/admin/users/${currentUserId}/modules`, {
+                method: 'POST',
+                body: formData
+            });
+
+            // 3. Actualizar módulo preferido
+            const preferredModule = document.getElementById('user-preferred-module').value;
+            const prefForm = new FormData();
+            prefForm.append('modulo_slug', preferredModule || '');
+
+            await fetch(`/admin/users/${currentUserId}/preferred-module`, {
+                method: 'POST',
+                body: prefForm
+            });
+
+            // Éxito
+            showModalMessage('✅ Permisos actualizados correctamente', 'success');
+
+            // Recargar página después de 1.5 segundos
+            setTimeout(() => {
+                window.location.reload();
+            }, 1500);
+
+        } catch (error) {
+            console.error('Error guardando permisos:', error);
+            showModalMessage('❌ Error al guardar los permisos', 'error');
+        }
+    }
+
+    /**
+     * Muestra un mensaje en el modal
+     */
+    function showModalMessage(message, type) {
+        const responseDiv = document.getElementById('perms-response');
+        const bgColor = type === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700';
+        responseDiv.innerHTML = `
+            <div class="${bgColor} p-3 rounded-lg font-bold animate-fade-in-down">
+                ${message}
+            </div>
+        `;
+    }
+
+    // Cerrar modal al hacer clic fuera
+    document.getElementById('permissions-modal')?.addEventListener('click', function (e) {
+        if (e.target === this) {
+            closePermissionsModal();
+        }
+    });
+</script>
+
 {% endblock %}

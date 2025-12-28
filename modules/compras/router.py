@@ -1,6 +1,7 @@
 # Archivo: modules/compras/router.py
 
-from fastapi import APIRouter, Depends, status, HTTPException
+from fastapi import APIRouter, Depends, status, HTTPException, Request
+from fastapi.templating import Jinja2Templates
 from typing import List
 from uuid import UUID
 
@@ -8,10 +9,15 @@ from uuid import UUID
 from .schemas import CompraTrackingCreate, CompraTrackingRead
 from core.database import get_db_connection
 
+# IMPORTS OBLIGATORIOS para permisos
+from core.security import get_current_user_context
+from core.permissions import require_module_access
+
+templates = Jinja2Templates(directory="templates")
+
 router = APIRouter(
     prefix="/compras",
     tags=["Módulo Compras"],
-    # Se asumiría una dependencia para verificar rol Compras
 )
 
 # --- Capa de Servicio (Service Layer) ---
@@ -32,11 +38,45 @@ class ComprasService:
 def get_compras_service():
     return ComprasService()
 
-# --- Endpoints ---
+# ========================================
+# ENDPOINT PRINCIPAL (UI)
+# ========================================
+@router.get("/ui", include_in_schema=False)
+async def get_compras_ui(
+    request: Request,
+    context = Depends(get_current_user_context),
+    _ = require_module_access("compras")
+):
+    """
+    Dashboard principal del módulo compras.
+    
+    HTMX Detection:
+    - Si viene desde sidebar (HTMX): retorna solo contenido
+    - Si es carga directa (F5/URL): retorna dashboard completo
+    """
+    # HTMX Detection
+    if request.headers.get("hx-request"):
+        template = "compras/partials/content.html"
+    else:
+        template = "compras/dashboard.html"
+    
+    return templates.TemplateResponse(template, {
+        "request": request,
+        "user_name": context.get("user_name"),
+        "role": context.get("role"),
+        "module_roles": context.get("module_roles", {}),
+        "current_module_role": context.get("module_roles", {}).get("compras", "viewer")
+    })
+
+# ========================================
+# ENDPOINTS DE API (Tracking de Gastos)
+# ========================================
 
 @router.post("/tracking", response_model=CompraTrackingRead, status_code=status.HTTP_201_CREATED)
 async def create_compra_tracking(
     data: CompraTrackingCreate,
+    context = Depends(get_current_user_context),
+    _ = require_module_access("compras", "editor"),  # ✅ REQUIERE EDITOR
     service: ComprasService = Depends(get_compras_service),
     conn = Depends(get_db_connection)
 ):

@@ -1,0 +1,9 @@
+<div
+    class='fixed top-4 right-4 z-50 bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-lg animate-fade-in-down max-w-md'>
+    <p class='font-bold'>{{ title }}</p>
+    <p class='text-sm'>{{ message }}</p>
+    {% if action_btn %}
+    <button onclick="{{ action_btn }}" class="text-sm underline mt-2 font-bold">{{ action_text | default("Intentar de
+        nuevo") }}</button>
+    {% endif %}
+</div>

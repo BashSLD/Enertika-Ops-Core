@@ -1,5 +1,15 @@
-<div class="p-4 bg-gray-50 rounded-b-lg border-t border-gray-200">
-    <h4 class="text-sm font-bold text-gray-700 mb-2">Sitios Incluidos</h4>
+<div class="p-4 bg-gray-50 rounded-b-lg border-t border-gray-200" id="sitios-container">
+    <div class="flex justify-between items-center mb-2">
+        <h4 class="text-sm font-bold text-gray-700">
+            Sitios Incluidos (<span id="sitios-count">{{ sitios|length }}</span>)
+        </h4>
+        {% if editable %}
+        <span class="text-xs text-orange-600 bg-orange-100 px-2 py-1 rounded animate-pulse-subtle">
+            🗑️ Puedes eliminar sitios que NO apliquen
+        </span>
+        {% endif %}
+    </div>
+
     {% if sitios %}
     <div class="overflow-x-auto border rounded-md">
         <table class="min-w-full divide-y divide-gray-200 text-xs">
@@ -8,26 +18,108 @@
                     <th class="px-3 py-2 text-left font-medium text-gray-500">Nombre</th>
                     <th class="px-3 py-2 text-left font-medium text-gray-500">Dirección</th>
                     <th class="px-3 py-2 text-left font-medium text-gray-500">Tarifa</th>
-                    <th class="px-3 py-2 text-left font-medium text-gray-500">Link</th>
+                    {% if editable %}
+                    <th class="px-3 py-2 text-center font-medium text-gray-500 w-20">Acción</th>
+                    {% endif %}
                 </tr>
             </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
+            <tbody class="bg-white divide-y divide-gray-200" id="sitios-tbody">
                 {% for sitio in sitios %}
-                <tr>
+                <tr class="group hover:bg-gray-50 transition-colors sitio-row" id="sitio-row-{{ sitio.id_sitio }}">
                     <td class="px-3 py-2 text-gray-900">{{ sitio.nombre_sitio }}</td>
-                    <td class="px-3 py-2 text-gray-500">{{ sitio.direccion }}</td>
-                    <td class="px-3 py-2 text-gray-500">{{ sitio.tipo_tarifa or '-' }}</td>
-                    <td class="px-3 py-2 text-blue-600">
-                        {% if sitio.google_maps_link %}
-                        <a href="{{ sitio.google_maps_link }}" target="_blank" class="hover:underline">Ver Mapa</a>
-                        {% else %}-{% endif %}
+                    <td class="px-3 py-2 text-gray-500 truncate max-w-xs" title="{{ sitio.direccion }}">
+                        {{ sitio.direccion }}
                     </td>
+                    <td class="px-3 py-2 text-gray-500">{{ sitio.tipo_tarifa or '-' }}</td>
+
+                    {% if editable %}
+                    <td class="px-3 py-2 text-center">
+                        <button hx-delete="/comercial/sitios/{{ sitio.id_sitio }}"
+                            hx-target="#sitio-row-{{ sitio.id_sitio }}" hx-swap="outerHTML swap:300ms"
+                            hx-on:htmx:before-request="return confirmDelete(event, '{{ sitio.nombre_sitio }}')"
+                            class="text-red-500 hover:text-red-700 hover:bg-red-50 rounded p-1 transition-colors"
+                            title="Eliminar sitio">
+                            🗑️
+                        </button>
+                    </td>
+                    {% endif %}
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
+
+    {% if editable %}
+    <!-- VALIDACIÓN: Mensaje de advertencia mínimo -->
+    <div id="min-sitios-warning"
+        class="hidden mt-2 p-2 bg-red-100 text-red-700 rounded text-sm border border-red-300 flex items-center gap-2">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+            </path>
+        </svg>
+        <span>⚠️ Debe quedar al menos <strong>1 sitio</strong> en la lista.</span>
+    </div>
+
+    <p class="text-xs text-gray-500 italic mt-2">
+        💡 Los cambios en esta lista afectarán el Excel adjunto que se generará.
+    </p>
+
+    <!-- SCRIPT: Validación de mínimo 1 sitio -->
+    <script>
+        function confirmDelete(event, nombreSitio) {
+            // Contar sitios actuales
+            const sitiosRestantes = document.querySelectorAll('.sitio-row').length;
+
+            // Si es el último sitio, mostrar advertencia especial
+            if (sitiosRestantes === 1) {
+                const confirmacion = confirm(
+                    `⚠️ ADVERTENCIA: Estás eliminando el ÚLTIMO sitio.\n\n` +
+                    `Si continúas, el correo NO tendrá Excel adjunto de sitios.\n\n` +
+                    `¿Estás seguro de eliminar "${nombreSitio}"?`
+                );
+
+                if (!confirmacion) {
+                    event.preventDefault();
+                    return false;
+                }
+
+                // Agregar listener para actualizar UI después de eliminar
+                document.body.addEventListener('htmx:afterSwap', function handler() {
+                    document.getElementById('sitios-count').textContent = '0';
+                    document.getElementById('min-sitios-warning').classList.remove('hidden');
+                    document.body.removeEventListener('htmx:afterSwap', handler);
+                }, { once: true });
+
+                return true;
+            }
+
+            // Confirmación normal
+            const confirmacion = confirm(`¿Eliminar "${nombreSitio}" de la lista?`);
+            if (!confirmacion) {
+                event.preventDefault();
+                return false;
+            }
+
+            // Actualizar contador después de eliminar
+            document.body.addEventListener('htmx:afterSwap', function handler() {
+                const nuevoCount = document.querySelectorAll('.sitio-row').length;
+                document.getElementById('sitios-count').textContent = nuevoCount;
+
+                // Mostrar warning si quedó 1 solo
+                if (nuevoCount === 1) {
+                    document.getElementById('min-sitios-warning').classList.remove('hidden');
+                }
+
+                document.body.removeEventListener('htmx:afterSwap', handler);
+            }, { once: true });
+
+            return true;
+        }
+    </script>
+    {% endif %}
+
     {% else %}
-    <p class="text-xs text-gray-500 italic">No hay sitios registrados para esta oportunidad.</p>
+    <p class="text-xs text-gray-500 italic">No hay sitios registrados.</p>
     {% endif %}
 </div>

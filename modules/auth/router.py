@@ -2,6 +2,8 @@ from fastapi import APIRouter, Request, Depends, HTTPException
 from fastapi.responses import RedirectResponse
 from core.microsoft import get_ms_auth, MicrosoftAuth
 from core.config import settings
+from core.database import get_db_connection
+import time
 
 router = APIRouter(
     prefix="/auth",
@@ -15,8 +17,13 @@ async def login(ms_auth: MicrosoftAuth = Depends(get_ms_auth)):
     return RedirectResponse(auth_url)
 
 @router.get("/callback")
-async def callback(request: Request, code: str, ms_auth: MicrosoftAuth = Depends(get_ms_auth)):
-    """Callback tras el login en Microsoft. Obtiene token y lo guarda en sesión."""
+async def callback(
+    request: Request, 
+    code: str, 
+    ms_auth: MicrosoftAuth = Depends(get_ms_auth),
+    conn = Depends(get_db_connection)
+):
+    """Callback tras el login en Microsoft. Guarda tokens en BD y sesión ligera."""
     try:
         # 1. Canjear código por token
         token_result = ms_auth.get_token_from_code(code)
@@ -24,27 +31,39 @@ async def callback(request: Request, code: str, ms_auth: MicrosoftAuth = Depends
         if "error" in token_result:
             return f"Error en login: {token_result.get('error_description')}"
             
-        # 2. Guardar en SESIÓN (Cookie segura)
-        # request.session requiere SessionMiddleware configurado en main.py
-        request.session["access_token"] = token_result["access_token"]
+        # 2. Extraer datos
+        access_token = token_result.get("access_token")
+        refresh_token = token_result.get("refresh_token")
+        expires_in = token_result.get("expires_in", 3600)
+        expires_at = int(time.time() + expires_in)
         
-        # 3. Extraer información del Usuario (ID Token)
-        # MSAL procesa automáticamente el id_token si se piden scopes openid/profile
         claims = token_result.get("id_token_claims", {})
-        
-        # Prioridad: preferred_username > email > upn
         user_email = claims.get("preferred_username") or claims.get("email") or claims.get("upn")
         
-        if user_email:
-            # Normalizamos a minúsculas para consistencia en BD
-            request.session["user_email"] = user_email.lower()
-            request.session["user_name"] = claims.get("name", "Usuario Desconocido")
-        else:
-            # Fallback si no hay claims (raro si scope está bien)
-            request.session["user_email"] = "unknown@domain.com"
+        if not user_email:
+            return "Error: No se pudo obtener el email del usuario."
+            
+        user_email = user_email.lower()
         
-        # 4. Redirigir al Dashboard Comercial
-        return RedirectResponse(url="/comercial/ui")
+        # 3. GUARDAR EN BASE DE DATOS (Lo pesado va aquí)
+        # Actualizamos el usuario existente con sus nuevos tokens
+        await conn.execute("""
+            UPDATE tb_usuarios 
+            SET access_token = $1, 
+                refresh_token = $2, 
+                token_expires_at = $3,
+                ultimo_login = NOW()
+            WHERE email = $4
+        """, access_token, refresh_token, expires_at, user_email)
+        
+        # 4. GUARDAR EN SESIÓN (Solo lo ligero)
+        # Limpiamos la sesión vieja para evitar basura
+        request.session.clear()
+        request.session["user_email"] = user_email
+        request.session["user_name"] = claims.get("name", "Usuario")
+        
+        # Esto pesa muy poco, el navegador lo aceptará felizmente
+        return RedirectResponse(url="/")
         
     except Exception as e:
         import traceback
@@ -53,6 +72,29 @@ async def callback(request: Request, code: str, ms_auth: MicrosoftAuth = Depends
 
 @router.get("/logout")
 async def logout(request: Request):
-    """Cierra la sesión del usuario."""
+    """
+    Cierra sesión local y remota (Microsoft).
+    """
+    # 1. Limpiar sesión de FastAPI (Mata cookies locales)
     request.session.clear()
-    return RedirectResponse(url="/")
+    
+    # --- PUNTO B: Lógica de Microsoft Logout ---
+    
+    # Detectar la URL base actual (ej. http://localhost:8000 o https://tu-dominio.com)
+    # .rstrip("/") quita la barra final si existe para evitar dobles barras
+    base_url = str(request.base_url).rstrip("/")
+    
+    # Definimos a dónde queremos que Microsoft nos regrese después de salir
+    post_logout_redirect_uri = f"{base_url}/auth/login"
+    # O si prefieres la raíz: f"{base_url}/"
+    
+    # Construimos la URL oficial de logout de Microsoft
+    # "common" sirve para multi-tenant. Si usas un tenant específico, cámbialo aquí.
+    ms_logout_url = (
+        f"https://login.microsoftonline.com/common/oauth2/v2.0/logout"
+        f"?post_logout_redirect_uri={post_logout_redirect_uri}"
+    )
+    
+    # Redirigimos al usuario a esa URL externa
+    return RedirectResponse(url=ms_logout_url)
+

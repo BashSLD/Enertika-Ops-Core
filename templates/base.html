@@ -12,6 +12,16 @@
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
+        /* Variables de Colores Corporativos Enertika */
+        :root {
+            --enertika-primary: #123456;
+            --enertika-secondary: #00BABB;
+            --enertika-secondary-dark: #009999;
+            --enertika-dark: #0E2A47;
+            --enertika-secondary-light: #E0F7F7;
+        }
+
+        /* === ANIMACIONES === */
         @keyframes fadeInDown {
             from {
                 opacity: 0;
@@ -24,8 +34,172 @@
             }
         }
 
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translate3d(0, 20px, 0);
+            }
+
+            to {
+                opacity: 1;
+                transform: translate3d(0, 0, 0);
+            }
+        }
+
+        @keyframes pulse-subtle {
+
+            0%,
+            100% {
+                opacity: 1;
+                transform: scale(1);
+            }
+
+            50% {
+                opacity: 0.9;
+                transform: scale(1.02);
+            }
+        }
+
+        @keyframes shimmer {
+            0% {
+                background-position: -1000px 0;
+            }
+
+            100% {
+                background-position: 1000px 0;
+            }
+        }
+
+        @keyframes slideInRight {
+            from {
+                opacity: 0;
+                transform: translateX(20px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+
+        @keyframes ripple {
+            0% {
+                transform: scale(0);
+                opacity: 0.5;
+            }
+
+            100% {
+                transform: scale(2);
+                opacity: 0;
+            }
+        }
+
+        /* === CLASES DE ANIMACIÓN === */
         .animate-fade-in-down {
             animation: fadeInDown 0.5s ease-out;
+        }
+
+        .animate-fade-in-up {
+            animation: fadeInUp 0.4s ease-out;
+        }
+
+        .animate-pulse-subtle {
+            animation: pulse-subtle 2s ease-in-out infinite;
+        }
+
+        .animate-slide-in {
+            animation: slideInRight 0.3s ease-out;
+        }
+
+        /* Skeleton Loader */
+        .skeleton {
+            background: linear-gradient(90deg,
+                    #f0f0f0 0%,
+                    #e0e0e0 50%,
+                    #f0f0f0 100%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 4px;
+        }
+
+        .skeleton-text {
+            height: 1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .skeleton-title {
+            height: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        /* Ripple Effect */
+        .ripple-effect {
+            position: relative;
+            overflow: hidden;
+        }
+
+        .ripple-effect::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 0;
+            height: 0;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.5);
+            transform: translate(-50%, -50%);
+            transition: width 0.6s, height 0.6s;
+        }
+
+        .ripple-effect:active::after {
+            width: 300px;
+            height: 300px;
+        }
+
+        /* Smooth transitions globales */
+        * {
+            transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* Utility classes para colores corporativos */
+        .bg-enertika-primary {
+            background-color: var(--enertika-primary);
+        }
+
+        .bg-enertika-secondary {
+            background-color: var(--enertika-secondary);
+        }
+
+        .text-enertika-primary {
+            color: var(--enertika-primary);
+        }
+
+        .text-enertika-secondary {
+            color: var(--enertika-secondary);
+        }
+
+        .border-enertika-secondary {
+            border-color: var(--enertika-secondary);
+        }
+
+        /* Loading spinner corporativo */
+        .spinner-enertika {
+            border: 3px solid #E0F7F7;
+            border-top: 3px solid #00BABB;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
+            }
+
+            100% {
+                transform: rotate(360deg);
+            }
         }
     </style>
 </head>
@@ -44,41 +218,39 @@
             </div>
 
             <nav class="flex-1 p-4 space-y-1 overflow-y-auto text-sm">
-                <a href="#" hx-get="/comercial/ui" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
-                    class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-blue-800/50 transition duration-150 group">
-                    <span class="text-lg group-hover:scale-110 transition">💼</span>
-                    <span class="font-medium">Comercial</span>
-                </a>
-                <a href="#" hx-get="/simulacion/ui" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
-                    class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-blue-800/50 transition duration-150 group">
-                    <span class="text-lg group-hover:scale-110 transition">⚡</span>
-                    <span class="font-medium">Simulación</span>
-                </a>
-                <a href="#" hx-get="/levantamientos/ui" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
-                    class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-blue-800/50 transition duration-150 group">
-                    <span class="text-lg group-hover:scale-110 transition">📋</span>
-                    <span class="font-medium">Levantamientos</span>
-                </a>
+                <!-- Módulos Principales -->
+                {% set all_modules = [
+                {"slug": "comercial", "name": "Comercial", "icon": "💼", "url": "/comercial/ui"},
+                {"slug": "simulacion", "name": "Simulación", "icon": "⚡", "url": "/simulacion/ui"},
+                {"slug": "levantamientos", "name": "Levantamientos", "icon": "📋", "url": "/levantamientos/ui"},
+                {"slug": "proyectos", "name": "Proyectos", "icon": "📁", "url": "/proyectos/ui"},
+                {"slug": "construccion", "name": "Construcción", "icon": "🚧", "url": "/construccion/ui"},
+                {"slug": "compras", "name": "Compras", "icon": "🛒", "url": "/compras/ui"},
+                {"slug": "oym", "name": "O & M", "icon": "🔧", "url": "/oym/ui"}
+                ] %}
 
-                <div class="my-4 border-t border-blue-900/30"></div>
-                <p class="px-4 text-xs text-blue-400 font-semibold mb-2 uppercase tracking-wider">Futuros Módulos</p>
+                {% for module in all_modules %}
+                {% set has_access = (role == 'ADMIN') or (module.slug in (module_roles or {})) %}
 
-                <a href="#"
-                    class="flex items-center gap-3 px-4 py-2 rounded-lg text-blue-300/50 cursor-not-allowed hover:bg-blue-900/20">
-                    <span>🏗️</span> Ingeniería
-                </a>
-                <a href="#"
-                    class="flex items-center gap-3 px-4 py-2 rounded-lg text-blue-300/50 cursor-not-allowed hover:bg-blue-900/20">
-                    <span>🚧</span> Construcción
-                </a>
-                <a href="#"
-                    class="flex items-center gap-3 px-4 py-2 rounded-lg text-blue-300/50 cursor-not-allowed hover:bg-blue-900/20">
-                    <span>🔧</span> OyM
-                </a>
-                <a href="#"
-                    class="flex items-center gap-3 px-4 py-2 rounded-lg text-blue-300/50 cursor-not-allowed hover:bg-blue-900/20">
-                    <span>🛒</span> Compras
-                </a>
+                <div class="relative group">
+                    {% if has_access %}
+                    <!-- MÓDULO CON ACCESO -->
+                    <a href="#" hx-get="{{ module.url }}" hx-target="#main-content" hx-swap="innerHTML"
+                        hx-push-url="true"
+                        class="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-blue-800/50 transition duration-150 group/module">
+                        <span class="text-lg group-hover/module:scale-110 transition">{{ module.icon }}</span>
+                        <span class="font-medium">{{ module.name }}</span>
+                    </a>
+                    {% else %}
+                    <!-- MÓDULO BLOQUEADO -->
+                    <div class="flex items-center gap-3 px-4 py-3 rounded-lg opacity-40">
+                        <span class="text-lg">{{ module.icon }}</span>
+                        <span class="font-medium text-gray-400">{{ module.name }}</span>
+                        <span class="ml-auto text-xs">🔒</span>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
 
                 {% if role == 'ADMIN' %}
                 <div class="my-4 border-t border-blue-900/30"></div>
@@ -256,7 +428,53 @@
         function updateHiddenInput(hidden, container) {
             hidden.value = Array.from(container.querySelectorAll('span')).map(s => s.textContent).join(';');
         }
+
+        // === SISTEMA DE TOAST AUTOMÁTICO ===
+        // Detecta parámetros en la URL para mostrar mensajes de éxito después de redirecciones
+        document.addEventListener("DOMContentLoaded", function () {
+            const urlParams = new URLSearchParams(window.location.search);
+
+            // Detectar creación de oportunidad
+            if (urlParams.has('new_op')) {
+                const opId = urlParams.get('new_op');
+                const esFuera = urlParams.get('fh') === 'true';
+
+                // SOLO mostrar toast si es FUERA de horario
+                if (esFuera) {
+                    const toastHtml = `
+                        <div class="bg-white border-l-4 border-orange-500 shadow-lg rounded p-4 mb-4 flex items-center gap-3 animate-fade-in-down w-80">
+                            <div class="p-2 rounded-full bg-orange-100 text-orange-600">
+                                🌙
+                            </div>
+                            <div>
+                                <p class="font-bold text-gray-800">Oportunidad Creada</p>
+                                <p class="text-sm text-gray-600">Ref: ${opId}</p>
+                                <p class="text-xs text-orange-600 font-bold mt-1">⚠️ Registrado Fuera de Horario</p>
+                            </div>
+                            <button onclick="this.parentElement.remove()" class="ml-auto text-gray-400 hover:text-gray-600">✕</button>
+                        </div>
+                    `;
+
+                    const container = document.getElementById('global-toast-container');
+                    if (container) {
+                        container.innerHTML = toastHtml;
+
+                        // Autocerrar a los 5 segundos
+                        setTimeout(() => {
+                            if (container.firstChild) container.firstChild.remove();
+                        }, 5000);
+                    }
+                }
+
+                // Limpiar URL para que no salga al recargar
+                window.history.replaceState({}, document.title, window.location.pathname);
+            }
+        });
     </script>
+
+    <!-- Contenedor global para toasts flotantes -->
+    <div id="global-toast-container" class="fixed top-5 right-5 z-50"></div>
+
 </body>
 
 </html>
