@@ -27,6 +27,7 @@
         <form hx-post="/comercial/upload-preview" hx-encoding="multipart/form-data" hx-target="#upload-result"
             class="space-y-4">
             <input type="hidden" name="id_oportunidad" value="{{ oportunidad_id }}">
+            <input type="hidden" name="extraordinaria" value="{{ extraordinaria | default(0) }}">
 
             <div
                 class="space-y-2 border-dashed border-2 border-gray-300 p-6 rounded-lg text-center hover:bg-[#dfddd9]/20 transition relative">

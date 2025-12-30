@@ -8,40 +8,135 @@
             </div>
         </div>
 
-        {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'assignor', 'admin']) %}
 
-        {% if can_edit %}
-        <!-- Botón activo para editores -->
-        <button hx-get="/comercial/form" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
-            class="ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white font-bold py-2.5 px-5 rounded-lg shadow-lg shadow-[#00BABB]/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
-                stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
-            Nuevo Registro
-        </button>
-        {% else %}
-        <!-- Botón deshabilitado para viewers -->
-        <div class="relative group">
-            <button disabled
-                class="bg-gray-300 text-gray-500 font-bold py-2 px-4 rounded shadow flex items-center gap-2 cursor-not-allowed opacity-50">
+        {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'assignor', 'admin']) %}
+        {% set is_admin_or_manager = (role == 'ADMIN') or (role == 'MANAGER') %}
+
+        <div class="flex gap-3">
+            {% if can_edit %}
+            <!-- Botón 1: Nuevo Registro (Todos los editores) -->
+            <button hx-get="/comercial/form" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                class="ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white font-bold py-2.5 px-5 rounded-lg shadow-lg shadow-[#00BABB]/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                 </svg>
                 Nuevo Registro
-                <span class="ml-1">🔒</span>
             </button>
-            <!-- Tooltip -->
-            <div
-                class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
-                ⚠️ Solo lectura - Requiere permisos de edición
-                <div
-                    class="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900">
+
+            {% if is_admin_or_manager %}
+            <!-- Botón 2: Registro Extraordinario (Solo ADMIN/MANAGER) con Popup Advertencia -->
+            <div x-data="{ showWarning: false }" class="relative">
+                <button @click="showWarning = true"
+                    class="ripple-effect bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 px-5 rounded-lg shadow-lg shadow-orange-600/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Registro Extraordinario
+                </button>
+
+                <!-- Popup de Advertencia -->
+                <div x-show="showWarning" x-transition @click.outside="showWarning = false"
+                    class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                    <div class="bg-white rounded-lg shadow-2xl max-w-md mx-4 p-6">
+                        <!-- Header -->
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="flex-shrink-0">
+                                <svg class="h-10 w-10 text-orange-500" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                            </div>
+                            <h3 class="text-lg font-bold text-gray-900">
+                                Registro Extraordinario
+                            </h3>
+                        </div>
+
+                        <!-- Contenido -->
+                        <div class="mb-6 space-y-3">
+                            <p class="text-sm text-gray-700">
+                                Esta opción ha sido diseñada para <strong>solicitudes enviadas fuera del proceso de esta
+                                    aplicación</strong>.
+                            </p>
+
+                            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
+                                <p class="text-sm text-yellow-800">
+                                    <strong>⚠️ Importante:</strong>
+                                </p>
+                                <ul class="text-sm text-yellow-700 mt-2 space-y-1 list-disc list-inside">
+                                    <li>Solo registra la solicitud, <strong>NO envía correo</strong></li>
+                                    <li>Si se da seguimiento después, se generará un <strong>correo nuevo sin hilo
+                                            histórico</strong></li>
+                                    <li>La fecha que ingreses define el cálculo del SLA</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Botones -->
+                        <div class="flex gap-3">
+                            <button @click="showWarning = false"
+                                class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition">
+                                Cancelar
+                            </button>
+                            <button hx-get="/comercial/form-extraordinario" hx-target="#main-content"
+                                hx-swap="innerHTML" hx-push-url="true" @click="showWarning = false"
+                                class="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-lg transition shadow-lg">
+                                Continuar
+                            </button>
+                        </div>
+                    </div>
                 </div>
             </div>
+            {% endif %}
+
+            <!-- Botón 3: Registro Especial (Disabled - Sin acción por ahora) -->
+            <div class="relative group">
+                <button disabled
+                    class="bg-gray-300 text-gray-500 font-bold py-2.5 px-5 rounded-lg shadow flex items-center gap-2 cursor-not-allowed opacity-50">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
+                    </svg>
+                    Registro Especial
+                    <span class="ml-1">🔒</span>
+                </button>
+                <!-- Tooltip -->
+                <div
+                    class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+                    Próximamente disponible
+                    <div
+                        class="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900">
+                    </div>
+                </div>
+            </div>
+
+            {% else %}
+            <!-- Botón deshabilitado para viewers -->
+            <div class="relative group">
+                <button disabled
+                    class="bg-gray-300 text-gray-500 font-bold py-2 px-4 rounded shadow flex items-center gap-2 cursor-not-allowed opacity-50">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Nuevo Registro
+                    <span class="ml-1">🔒</span>
+                </button>
+                <!-- Tooltip -->
+                <div
+                    class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
+                    ⚠️ Solo lectura - Requiere permisos de edición
+                    <div
+                        class="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900">
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </div>
-        {% endif %}
     </div>
 
     <!-- Search Bar with HTMX -->

@@ -3,25 +3,46 @@
 {% endif %}
 
 {% block content %}
-<div class="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-lg border-t-4 border-[#00BABB] animate-fade-in-down"
+<div class="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-lg border-t-4 border-orange-500 animate-fade-in-down"
     x-data="{ 
         isBess: false, 
         hasMotores: false,
         isSubmitting: false,
         checkTecnologia(event) {
-            // Detectar si el texto de la opción seleccionada contiene 'BESS'
             const text = event.target.options[event.target.selectedIndex].text.toUpperCase();
             this.isBess = text.includes('BESS') || text.includes('ALMACENAMIENTO');
         }
      }">
 
-    <h2 class="text-2xl font-bold text-[#123456] mb-6 flex items-center gap-2">
-        <span class="bg-[#E0F7F7] p-2 rounded-lg text-[#00BABB]">🚀</span>
-        Nueva Oportunidad Comercial
-    </h2>
+    <!-- Header Distintivo -->
+    <div class="bg-orange-50 -mx-8 -mt-8 px-8 py-6 mb-6 border-b-2 border-orange-200">
+        <h2 class="text-2xl font-bold text-orange-800 flex items-center gap-2">
+            <span class="bg-orange-100 p-2 rounded-lg text-orange-600">⚠️</span>
+            Solicitud Extraordinaria
+        </h2>
+        <p class="text-sm text-orange-700 mt-2">
+            Para solicitudes recibidas anteriormente que se están registrando ahora. El SLA se calculará desde la fecha
+            que indiques.
+        </p>
+    </div>
 
-    <form hx-post="/comercial/form" hx-target="#main-content" hx-swap="innerHTML" class="space-y-6"
+    <form hx-post="/comercial/form-extraordinario" hx-target="#main-content" hx-swap="innerHTML" class="space-y-6"
         @submit="isSubmitting = true">
+
+        <!-- Fecha Real de Solicitud (OBLIGATORIA) -->
+        <div class="bg-orange-50 -mx-8 px-8 py-6 border-l-4 border-orange-500"
+            x-data="{ get maxDate() { const now = new Date(); const year = now.getFullYear(); const month = String(now.getMonth() + 1).padStart(2, '0'); const day = String(now.getDate()).padStart(2, '0'); const hours = String(now.getHours()).padStart(2, '0'); const minutes = String(now.getMinutes()).padStart(2, '0'); return `${year}-${month}-${day}T${hours}:${minutes}`; } }">
+            <label class="block text-sm font-bold text-orange-900 mb-2">
+                📅 Fecha de envío de la solicitud *
+            </label>
+            <input type="datetime-local" name="fecha_manual" required :max="maxDate"
+                class="w-full rounded-lg border-orange-300 focus:border-orange-500 focus:ring-orange-500 shadow-sm bg-white">
+            <p class="text-xs text-orange-700 mt-2">
+                <strong>Importante:</strong> La fecha y hora debe ser la fecha y hora en la que fue enviada la solicitud
+                original.
+                El sistema calculará el SLA a partir de esta fecha.
+            </p>
+        </div>
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
@@ -63,14 +84,14 @@
                 </select>
             </div>
 
-            <!-- 5. Canal de Venta (EDITABLE + OBLIGATORIO) -->
+            <!-- 5. Canal de Venta -->
             <div>
                 <label class="block text-sm font-bold text-gray-700 mb-1">Canal de Venta *</label>
                 <input type="text" name="canal_venta" value="{{ canal_default }}" required
                     class="w-full rounded-lg border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm">
             </div>
 
-            <!-- 6. Prioridad (INGLÉS SIN EMOJIS) -->
+            <!-- 6. Prioridad -->
             <div>
                 <label class="block text-sm font-bold text-gray-700 mb-1">Prioridad</label>
                 <select name="prioridad"
@@ -99,7 +120,6 @@
                         class="w-full rounded-lg border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm">
                 </div>
 
-                <!-- Google Maps (OBLIGATORIO) -->
                 <div>
                     <label class="block text-sm font-bold text-gray-700 mb-1">Link Google Maps *</label>
                     <input type="text" name="google_maps_link" required placeholder="https://maps.app.goo.gl/..."
@@ -128,7 +148,7 @@
             </div>
         </div>
 
-        <!-- Sección BESS (Reactiva con Alpine.js) -->
+        <!-- Sección BESS (igual que form.html) -->
         <div x-show="isBess" x-transition.duration.500ms class="border-t pt-4 bg-blue-50 -mx-8 px-8 pb-6 mt-4">
 
             <div class="flex items-center gap-2 mb-4 mt-2">
@@ -305,19 +325,19 @@
             </button>
 
             <!-- Spinner de carga (oculto por defecto) -->
-            <div id="submit-indicator" class="htmx-indicator flex items-center gap-2 text-[#00BABB]">
+            <div id="submit-indicator" class="htmx-indicator flex items-center gap-2 text-orange-600">
                 <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                     <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                     <path class="opacity-75" fill="currentColor"
                         d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
                     </path>
                 </svg>
-                <span class="font-medium">Guardando...</span>
+                <span class="font-medium">Registrando...</span>
             </div>
 
             <button type="submit" :disabled="isSubmitting" hx-indicator="#submit-indicator"
-                class="ripple-effect px-6 py-2.5 rounded-lg bg-[#00BABB] hover:bg-[#009999] text-white font-bold shadow-lg shadow-[#00BABB]/30 transition-all transform hover:scale-105 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed htmx-request:hidden">
-                <span>💾</span> Guardar Oportunidad
+                class="ripple-effect px-6 py-2.5 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold shadow-lg shadow-orange-600/30 transition-all transform hover:scale-105 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed htmx-request:hidden">
+                <span>⚡</span> Registrar Extraordinaria
             </button>
         </div>
 

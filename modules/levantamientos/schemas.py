@@ -3,7 +3,7 @@
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 class LevantamientoCreate(BaseModel):
     """Schema para que Comercial solicite un nuevo levantamiento."""
@@ -27,5 +27,4 @@ class LevantamientoRead(BaseModel):
     status_tarea: str
     evidencia_docs_url: Optional[str]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

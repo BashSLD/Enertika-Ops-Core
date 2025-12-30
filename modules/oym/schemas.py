@@ -3,7 +3,7 @@
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 # --- Base Schemas ---
 
@@ -41,5 +41,4 @@ class SimulacionRead(BaseModel):
     potencia_simulada_kwp: Optional[float]
     status_simulacion: str
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

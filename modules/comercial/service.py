@@ -1,11 +1,13 @@
 from datetime import datetime, timedelta, time as dt_time
 from uuid import UUID, uuid4
-from typing import List
+from typing import List, Optional
 import json
 import logging
 import asyncpg
 from fastapi import HTTPException
-from zoneinfo import ZoneInfo  # Nativo de Python 3.9+, no requiere instalación extra
+from zoneinfo import ZoneInfo
+import pandas as pd
+import io
 
 logger = logging.getLogger("ComercialModule")
 
@@ -253,6 +255,134 @@ class ComercialService:
             "tipos_solicitud": [dict(t) for t in tipos]
         }
 
+    async def procesar_fecha_manual(self, conn, fecha_input_str: Optional[str]) -> datetime:
+        """
+        Regla de Negocio: Solicitudes Extraordinarias (Gerentes).
+        Input: "2025-10-20T10:00" (String ISO del navegador, usualmente naive).
+        Output: Datetime con timezone America/Mexico_City.
+        """
+        zona_mx = await self.get_zona_horaria_default(conn)
+        
+        if not fecha_input_str:
+            return datetime.now(zona_mx)
+            
+        try:
+            # 1. Parsear string ISO
+            dt = datetime.fromisoformat(fecha_input_str)
+            
+            # 2. Asignar Zona Horaria
+            # El input datetime-local NO envía zona horaria, asumimos que el gerente
+            # está capturando la hora de CDMX.
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=zona_mx)
+            else:
+                # Si viniera con zona, convertimos a CDMX
+                dt = dt.astimezone(zona_mx)
+                
+            return dt
+        except ValueError:
+            logger.error(f"Fecha manual inválida: {fecha_input_str}, usando NOW()")
+            return datetime.now(zona_mx)
+
+    async def _insertar_bess(self, conn, id_oportunidad: UUID, bess_data):
+        """
+        Helper privado: Inserta detalles BESS.
+        Recibe DetalleBessCreate (Pydantic v2).
+        """
+        query = """
+            INSERT INTO tb_detalles_bess (
+                id_oportunidad, cargas_criticas_kw, tiene_motores, potencia_motor_hp,
+                tiempo_autonomia, voltaje_operacion, cargas_separadas, 
+                objetivos_json, tiene_planta_emergencia
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        """
+        # Pydantic v2: model_dump() y json.dumps para el array
+        objetivos_str = json.dumps(bess_data.objetivos_json)
+        
+        await conn.execute(query,
+            id_oportunidad,
+            bess_data.cargas_criticas_kw,
+            bess_data.tiene_motores,
+            bess_data.potencia_motor_hp,
+            bess_data.tiempo_autonomia,
+            bess_data.voltaje_operacion,
+            bess_data.cargas_separadas,
+            objetivos_str,
+            bess_data.tiene_planta_emergencia
+        )
+
+    async def crear_oportunidad_transaccional(self, conn, datos, user_context: dict) -> tuple:
+        """
+        Orquestador Transaccional (Fase 2).
+        Maneja: Fechas, Identificadores, Oportunidad Base y BESS.
+        
+        Args:
+            conn: Conexión asyncpg
+            datos: OportunidadCreateCompleta (Pydantic v2)
+            user_context: dict con user_db_id, user_name, role
+            
+        Returns:
+            tuple: (new_id, op_id_estandar, es_fuera_horario)
+        """
+        # 1. Procesar Fecha
+        fecha_solicitud = await self.procesar_fecha_manual(conn, datos.fecha_manual_str)
+        es_fuera_horario = await self.calcular_fuera_de_horario(conn, fecha_solicitud)
+        deadline = await self.calcular_deadline_inicial(conn, fecha_solicitud)
+
+        # 2. Generar Identificadores
+        new_id = uuid4()
+        now_mx = await self.get_current_datetime_mx(conn)
+        op_id_estandar = now_mx.strftime("OP - %y%m%d%H%M")
+        
+        # Obtener nombres de catálogos (Queries directos optimizados)
+        nombre_tec = await conn.fetchval("SELECT nombre FROM tb_cat_tecnologias WHERE id = $1", datos.id_tecnologia)
+        nombre_tipo = await conn.fetchval("SELECT nombre FROM tb_cat_tipos_solicitud WHERE id = $1", datos.id_tipo_solicitud)
+        
+        # Generar Títulos Legacy
+        titulo = f"{nombre_tipo}_{datos.cliente_nombre}_{datos.nombre_proyecto}_{nombre_tec}_{datos.canal_venta}".upper()
+        id_interno = f"{op_id_estandar}_{datos.nombre_proyecto}_{datos.cliente_nombre}"[:150]
+
+        # 3. Insertar Oportunidad
+        query_op = """
+            INSERT INTO tb_oportunidades (
+                id_oportunidad, op_id_estandar, id_interno_simulacion,
+                titulo_proyecto, nombre_proyecto, cliente_nombre, canal_venta,
+                id_tecnologia, id_tipo_solicitud, id_estatus_global,
+                cantidad_sitios, prioridad, 
+                direccion_obra, coordenadas_gps, google_maps_link, sharepoint_folder_url,
+                creado_por_id, fecha_solicitud,
+                es_fuera_horario, deadline_calculado,
+                solicitado_por, es_carga_manual
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7,
+                $8, $9, 1, 
+                $10, $11, $12, $13, $14, $15, 
+                $16, $17, 
+                $18, $19,
+                $20, $21
+            )
+        """
+        es_manual = bool(datos.fecha_manual_str)  # Flag de auditoría
+
+        await conn.execute(query_op, 
+            new_id, op_id_estandar, id_interno,
+            titulo, datos.nombre_proyecto, datos.cliente_nombre, datos.canal_venta,
+            datos.id_tecnologia, datos.id_tipo_solicitud,
+            datos.cantidad_sitios, datos.prioridad,
+            datos.direccion_obra, datos.coordenadas_gps, datos.google_maps_link, datos.sharepoint_folder_url,
+            user_context['user_db_id'], fecha_solicitud,
+            es_fuera_horario, deadline,
+            user_context.get('user_name', 'Usuario'), es_manual
+        )
+
+        # 4. Insertar BESS (Si aplica y hay datos)
+        if datos.detalles_bess:
+            # Validación de negocio adicional: ¿Es tecnología BESS?
+            # Se puede relajar si permitimos híbridos, por ahora confiamos en que si mandan datos BESS, se guarden.
+            await self._insertar_bess(conn, new_id, datos.detalles_bess)
+
+        return new_id, op_id_estandar, es_fuera_horario
+
 
     async def get_or_create_cliente(self, conn, nombre_cliente: str) -> UUID:
         """Obtiene o crea un cliente usando upsert atómico."""
@@ -334,10 +464,10 @@ class ComercialService:
                     param_idx += 1
                     
         elif tab == "ganadas":
-            id_cerrada = cats['estatus'].get('cerrada')
-            if id_cerrada:
+            id_ganada = cats['estatus'].get('ganada')
+            if id_ganada:
                 query += f" AND o.id_estatus_global = ${param_idx}"
-                params.append(id_cerrada)
+                params.append(id_ganada)
                 param_idx += 1
                 
         else:  # activos
@@ -446,6 +576,31 @@ class ComercialService:
         
         return new_uuid
 
+
+    async def generate_multisite_excel(self, conn, id_oportunidad: UUID, id_interno: str) -> Optional[dict]:
+        """Genera el archivo Excel para oportunidades multisitio."""
+        try:
+            sites_rows = await conn.fetch(
+                "SELECT nombre_sitio, numero_servicio, direccion, tipo_tarifa, google_maps_link, comentarios FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", 
+                id_oportunidad
+            )
+            if sites_rows:
+                df_sites = pd.DataFrame([dict(r) for r in sites_rows])
+                # Mapeo de columnas para usuario
+                df_sites.columns = ["NOMBRE", "# DE SERVICIO", "DIRECCION", "TARIFA", "LINK GOOGLE", "COMENTARIOS"]
+                
+                buf = io.BytesIO()
+                with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
+                    df_sites.to_excel(writer, index=False, sheet_name='Sitios')
+                
+                return {
+                    "name": f"Listado_Multisitios_{id_interno}.xlsx",
+                    "content_bytes": buf.getvalue(),
+                    "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                }
+        except Exception as e:
+            logger.error(f"Error generando excel adjunto: {e}")
+            return None
 
 # Helper para inyección de dependencias
 def get_comercial_service():

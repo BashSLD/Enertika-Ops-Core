@@ -21,7 +21,7 @@ from core.microsoft import get_ms_auth, MicrosoftAuth # Keep MicrosoftAuth as it
 from core.config import settings
 from core.security import get_current_user_context, get_valid_graph_token  # NUEVO: Sistema de renovación de tokens
 from core.permissions import require_module_access  # NUEVO: Sistema de permisos
-from .schemas import OportunidadCreate, SitioImportacion, OportunidadListOut
+from .schemas import OportunidadCreate, SitioImportacion, OportunidadListOut, OportunidadCreateCompleta, DetalleBessCreate
 from .service import ComercialService, get_comercial_service  # NUEVO: Service Layer
 
 # Configuración básica de logging
@@ -210,12 +210,11 @@ async def notificar_oportunidad(
     row = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
     if not row:
         # ACCIÓN 1: Toast de error
-        return HTMLResponse("""
-            <div class='fixed top-4 right-4 z-50 bg-red-100 border-l-4 border-red-500 text-red-700 p-4 rounded shadow-lg animate-fade-in-down max-w-md'>
-                <p class='font-bold'>Error</p>
-                <p class='text-sm'>Oportunidad no encontrada. Por favor intenta nuevamente.</p>
-            </div>
-        """, status_code=404)
+        return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {
+            "request": request,
+            "title": "Error",
+            "message": "Oportunidad no encontrada. Por favor intenta nuevamente."
+        }, status_code=404)
     
     # Obtener prioridad desde BD (se usa en línea 357 para importance)
     prioridad_bd = row.get('prioridad') or "normal"
@@ -272,23 +271,9 @@ async def notificar_oportunidad(
     
     # --- LOGICA MULTISITIO: Generar Excel Automáticamente ---
     if (row['cantidad_sitios'] or 0) > 1:
-        try:
-            sites_rows = await conn.fetch("SELECT nombre_sitio, numero_servicio, direccion, tipo_tarifa, google_maps_link, comentarios FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
-            if sites_rows:
-                df_sites = pd.DataFrame([dict(r) for r in sites_rows])
-                df_sites.columns = ["NOMBRE", "# DE SERVICIO", "DIRECCION", "TARIFA", "LINK GOOGLE", "COMENTARIOS"]
-                
-                buf = io.BytesIO()
-                with pd.ExcelWriter(buf, engine='xlsxwriter') as writer:
-                    df_sites.to_excel(writer, index=False, sheet_name='Sitios')
-                
-                adjuntos_procesados.append({
-                    "name": f"Listado_Multisitios_{row['id_interno_simulacion']}.xlsx",
-                    "content_bytes": buf.getvalue(),
-                    "contentType": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                })
-        except Exception as e:
-            logger.error(f"Error generando excel adjunto: {e}")
+        excel_attachment = await service.generate_multisite_excel(conn, id_oportunidad, row['id_interno_simulacion'])
+        if excel_attachment:
+            adjuntos_procesados.append(excel_attachment)
             
     # 5. Procesar archivos extra del formulario
     MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
@@ -384,37 +369,23 @@ async def notificar_oportunidad(
 
         # Si es otro error (ej. archivo muy pesado, email inválido), mostramos el error normal
         logger.error(f"Fallo envio correo Graph: {msg}")
-        return HTMLResponse(f"""
-            <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4">
-                <p class="font-bold">Error enviando correo</p>
-                <p>{msg}</p>
-            </div>
-        """, status_code=200)
+        return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {
+             "request": request,
+             "title": "Error enviando correo",
+             "message": msg
+        }, status_code=200)
 
-    # Si todo salió bien
     # Si todo salió bien
     await service.update_email_status(conn, id_oportunidad) 
 
     # CAMBIO: Usamos window.location.href en lugar de htmx.ajax
     # Esto fuerza al navegador a ir realmente a la URL, corrigiendo la barra lateral y la dirección
-    return HTMLResponse(f"""
-        <div class="text-center p-8 bg-green-50 rounded-lg border border-green-200 animate-fade-in-down">
-            <div class="mb-4">
-                <svg class="w-16 h-16 text-green-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
-                </svg>
-            </div>
-            <p class="text-green-800 font-bold text-xl mb-2">✓ Enviado Exitosamente</p>
-            <p class="text-green-600 text-sm">Regresando al tablero...</p>
-            
-            <script>
-                // Esperar 1.5 segundos y luego MUDARNOS de página
-                setTimeout(function() {{
-                    window.location.href = '/comercial/ui'; 
-                }}, 1500);
-            </script>
-        </div>
-    """, status_code=200)
+    return templates.TemplateResponse("comercial/partials/messages/success_sent.html", {
+        "request": request,
+        "title": "✓ Enviado Exitosamente",
+        "message": "Regresando al tablero...",
+        "redirect_url": "/comercial/ui"
+    })
 
 @router.get("/plantilla", response_class=StreamingResponse)
 async def descargar_plantilla_sitios():
@@ -438,137 +409,281 @@ async def descargar_plantilla_sitios():
 @router.post("/form")
 async def handle_oportunidad_creation(
     request: Request,
+    # --- Campos Estándar ---
     nombre_proyecto: str = Form(...),
     nombre_cliente: str = Form(...),
     canal_venta: str = Form(...),
-    id_tecnologia: int = Form(...),  # Recibimos ID (int) en lugar de string
-    id_tipo_solicitud: int = Form(...),  # Recibimos ID (int) en lugar de string
+    id_tecnologia: int = Form(...),
+    id_tipo_solicitud: int = Form(...),
     cantidad_sitios: int = Form(...),
     prioridad: str = Form(...),
     direccion_obra: str = Form(...),
-    coordenadas_gps: str = Form(None),
-    google_maps_link: str = Form(None),
-    sharepoint_folder_url: str = Form(None),
+    coordenadas_gps: Optional[str] = Form(None),
+    google_maps_link: Optional[str] = Form(None),
+    sharepoint_folder_url: Optional[str] = Form(None),
+    
+    # --- Campo Fecha Manual (Gerentes) ---
+    fecha_manual: Optional[str] = Form(None),
+    
+    # --- Campos BESS (HTMX Conditional) ---
+    bess_cargas_criticas: Optional[float] = Form(None),
+    bess_tiene_motores: bool = Form(False),
+    bess_potencia_motor: Optional[float] = Form(None),
+    bess_autonomia: Optional[str] = Form(None),
+    bess_voltaje: Optional[str] = Form(None),
+    bess_planta_emergencia: bool = Form(False),
+    bess_cargas_separadas: Optional[bool] = Form(False), # NUEVO CAMPO
+    bess_objetivos: List[str] = Form([]),  # Recibe lista de checkboxes
+
+    # --- Dependencias ---
     conn = Depends(get_db_connection),
     service: ComercialService = Depends(get_comercial_service),
     context = Depends(get_current_user_context)
 ):
     try:
-        # 1. Seguridad: Token (Validación obligatoria por Guía Maestra)
+        # 1. Seguridad Token
         token = await get_valid_graph_token(request)
         if not token: 
             from fastapi import Response
             return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
 
-        # 2. Generar timestamps (Hora de México desde Service Layer - Dinámico desde BD)
-        now = await service.get_current_datetime_mx(conn)
-        # ID Corto (Ticket)
-        op_id_estandar = now.strftime("OP - %y%m%d%H%M")  # Ej: OP - 2512270930
-        
-        # --- LÓGICA DE SANITIZACIÓN (Limpieza de texto) ---
-        # Quitamos caracteres que rompen carpetas (/, \, :, *, ?, ", <, >, |) y espacios
-        def limpiar_texto(texto):
-            # Reemplaza espacios y caracteres raros por guión bajo
-            return re.sub(r'[^a-zA-Z0-9]', '_', texto).strip('_')
-
-        # NOTA: Las versiones sanitizadas se pueden usar para otros propósitos si es necesario
-        # proyecto_clean = limpiar_texto(nombre_proyecto)
-        # cliente_clean = limpiar_texto(nombre_cliente)
-        
-        # ID Largo (Estructura Solicitada)
-        # Formato: "op_id_estandar"_"nombre_proyecto"_"cliente_nombre" (valores ORIGINALES de columnas)
-        # Ejemplo: "OP - 2512270930_Proyecto Solar_Enertika SA"
-        id_interno_simulacion = f"{op_id_estandar}_{nombre_proyecto}_{nombre_cliente}"
-        
-        # Recortar si quedó excesivamente largo (SharePoint tiene límite de 400 chars en url)
-        # Cortamos a 150 caracteres por seguridad
-        id_interno_simulacion = id_interno_simulacion[:150]
-
-
-        new_id = uuid4()
-        fecha_solicitud = now  # Fecha de la solicitud (base para cálculos de negocio)
-        
-        # 3. Lógica de Negocio (Delegada al Servicio)
-        es_fuera_horario = await service.calcular_fuera_de_horario(conn, fecha_solicitud)
-        
-        # NUEVO: Calcular Deadline basado en fecha_solicitud
-        deadline_calculado = await service.calcular_deadline_inicial(conn, fecha_solicitud)
-        
-        # Obtener nombres de catálogos para el título (legacy)
-        nombre_tecnologia = await conn.fetchval(
-            "SELECT nombre FROM tb_cat_tecnologias WHERE id = $1", id_tecnologia
-        )
-        nombre_tipo_solicitud = await conn.fetchval(
-            "SELECT nombre FROM tb_cat_tipos_solicitud WHERE id = $1", id_tipo_solicitud
-        )
-        
-        # Generar título proyecto (formato legacy)
-        titulo_proyecto = f"{nombre_tipo_solicitud}_{nombre_cliente}_{nombre_proyecto}_{nombre_tecnologia}_{canal_venta}".upper()
-
-        # 4. Guardar en BD (Persistencia)
-        # NOTA: fecha_creacion usa DEFAULT now() en BD (solo para auditoría)
-        query = """
-            INSERT INTO tb_oportunidades (
-                id_oportunidad, op_id_estandar, id_interno_simulacion,
-                titulo_proyecto, nombre_proyecto, cliente_nombre, canal_venta,
-                id_tecnologia, id_tipo_solicitud, id_estatus_global,
-                cantidad_sitios, prioridad, 
-                direccion_obra, coordenadas_gps, google_maps_link, sharepoint_folder_url,
-                creado_por_id, fecha_solicitud,
-                es_fuera_horario, deadline_calculado,
-                solicitado_por
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7,
-                $8, $9, $10, 
-                $11, $12, $13, $14, $15, $16, 
-                $17, $18, 
-                $19, $20,
-                $21
+        # 2. Construir Objeto BESS (Pydantic v2)
+        # Solo si se enviaron datos relevantes o la tecnología implica BESS
+        datos_bess = None
+        if bess_cargas_criticas or bess_tiene_motores or bess_objetivos:
+            # Importar schema BESS
+            from .schemas import DetalleBessCreate
+            datos_bess = DetalleBessCreate(
+                cargas_criticas_kw=bess_cargas_criticas,
+                tiene_motores=bess_tiene_motores,
+                potencia_motor_hp=bess_potencia_motor,
+                tiempo_autonomia=bess_autonomia,
+                voltaje_operacion=bess_voltaje,
+                cargas_separadas=bess_cargas_separadas,
+                objetivos_json=bess_objetivos,
+                tiene_planta_emergencia=bess_planta_emergencia
             )
-        """
-        
-        await conn.execute(query, 
-            new_id, op_id_estandar, id_interno_simulacion,
-            titulo_proyecto, nombre_proyecto, nombre_cliente, canal_venta,
-            id_tecnologia, id_tipo_solicitud, 1,  # id_estatus_global = 1 (Pendiente)
-            cantidad_sitios, prioridad,
-            direccion_obra, coordenadas_gps, google_maps_link, sharepoint_folder_url,
-            context['user_db_id'], fecha_solicitud,  # Solo fecha_solicitud para lógica
-            es_fuera_horario, deadline_calculado,
-            context.get('user_name', 'Usuario')
+
+        # 3. Validar Permiso Fecha Manual
+        role = context.get("role")
+        fecha_final_str = None
+        if role in ['ADMIN', 'MANAGER']:
+            fecha_final_str = fecha_manual
+
+        # 4. Construir Objeto Principal (Pydantic v2)
+        from .schemas import OportunidadCreateCompleta
+        oportunidad_data = OportunidadCreateCompleta(
+            nombre_proyecto=nombre_proyecto,
+            cliente_nombre=nombre_cliente,
+            canal_venta=canal_venta,
+            id_tecnologia=id_tecnologia,
+            id_tipo_solicitud=id_tipo_solicitud,
+            cantidad_sitios=cantidad_sitios,
+            prioridad=prioridad,
+            direccion_obra=direccion_obra,
+            coordenadas_gps=coordenadas_gps,
+            google_maps_link=google_maps_link,
+            sharepoint_folder_url=sharepoint_folder_url,
+            fecha_manual_str=fecha_final_str,
+            detalles_bess=datos_bess
         )
-        
-        # 5. Lógica Condicional de Pasos
+
+        # 5. Ejecutar Transacción en Servicio
+        new_id, op_id_estandar, es_fuera_horario = await service.crear_oportunidad_transaccional(
+            conn, oportunidad_data, context
+        )
+
+        # 6. Redirección (Lógica Multisitos vs Unisitio)
         if cantidad_sitios == 1:
-            # CASO 1 SITIO: Auto-crear sitio y redirigir a Paso 3
+            # Auto-creación de sitio único (Legacy logic mantenida por consistencia)
             try:
                 await conn.execute("""
-                    INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link, numero_servicio, comentarios)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
-                """, uuid4(), new_id, nombre_proyecto, direccion_obra, google_maps_link, None, None)
+                    INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link)
+                    VALUES ($1, $2, $3, $4, $5)
+                """, uuid4(), new_id, nombre_proyecto, direccion_obra, google_maps_link)
+            except Exception as e:
+                logger.error(f"Error auto-creando sitio único: {e}")
+            target_url = f"/comercial/paso3/{new_id}"
+        else:
+            target_url = f"/comercial/paso2/{new_id}"
+        
+        params = f"?new_op={op_id_estandar}&fh={str(es_fuera_horario).lower()}"
+        from fastapi import Response
+        return Response(status_code=200, headers={"HX-Redirect": f"{target_url}{params}"})
+
+    except Exception as e:
+        logger.error(f"Error en creación de oportunidad: {e}")
+        # En producción, mejorar el manejo de error para no exponer detalles técnicos
+        return templates.TemplateResponse(
+            "comercial/error_message.html", 
+            {"request": request, "detail": str(e)},
+            status_code=500
+        )
+
+# ===== FORMULARIO EXTRAORDINARIO (ADMIN/MANAGER ONLY) =====
+@router.get("/form-extraordinario", include_in_schema=False)
+async def get_comercial_form_extraordinario(
+    request: Request,
+    user_context = Depends(get_current_user_context),
+    conn = Depends(get_db_connection),
+    service: ComercialService = Depends(get_comercial_service)
+):
+    """Shows the extraordinary creation form (ADMIN/MANAGER ONLY)."""
+    
+    # Validación de Rol: SOLO ADMIN o MANAGER
+    role = user_context.get("role")
+    if role not in ['ADMIN', 'MANAGER']:
+        from fastapi import Response
+        return Response(status_code=403, content="Acceso denegado. Solo ADMIN y MANAGER pueden acceder.")
+    
+    # Validación de sesión
+    if not user_context.get("email"):
+        return HTMLResponse(status_code=401)
+    
+    # Validar token
+    token = await get_valid_graph_token(request)
+    if not token:
+        from fastapi import Response
+        return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
+    
+    # Generar canal default
+    canal_default = ComercialService.get_canal_from_user_name(user_context.get("user_name"))
+    
+    # Obtener catálogos
+    catalogos = await service.get_catalogos_creacion(conn)
+
+    return templates.TemplateResponse("comercial/form_extraordinario.html", {
+        "request": request, 
+        "canal_default": canal_default,
+        "catalogos": catalogos,
+        "user_name": user_context.get("user_name"),
+        "role": user_context.get("role"),
+        "module_roles": user_context.get("module_roles", {})
+    }, headers={"HX-Title": "Enertika Ops Core | Solicitud Extraordinaria"})
+
+@router.post("/form-extraordinario")
+async def handle_oportunidad_extraordinaria(
+    request: Request,
+    # --- Campos Estándar ---
+    nombre_proyecto: str = Form(...),
+    nombre_cliente: str = Form(...),
+    canal_venta: str = Form(...),
+    id_tecnologia: int = Form(...),
+    id_tipo_solicitud: int = Form(...),
+    cantidad_sitios: int = Form(...),
+    prioridad: str = Form(...),
+    direccion_obra: str = Form(...),
+    coordenadas_gps: Optional[str] = Form(None),
+    google_maps_link: Optional[str] = Form(None),
+    sharepoint_folder_url: Optional[str] = Form(None),
+    
+    # --- Campo Fecha Manual (OBLIGATORIO en extraordinarias) ---
+    fecha_manual: str = Form(...),  # REQUIRED en extraordinarias
+    
+    # --- Campos BESS (Opcionales) ---
+    bess_cargas_criticas: Optional[float] = Form(None),
+    bess_tiene_motores: bool = Form(False),
+    bess_potencia_motor: Optional[float] = Form(None),
+    bess_autonomia: Optional[str] = Form(None),
+    bess_voltaje: Optional[str] = Form(None),
+    bess_planta_emergencia: bool = Form(False),
+    bess_cargas_separadas: Optional[bool] = Form(False), # NUEVO CAMPO
+    bess_objetivos: List[str] = Form([]),
+
+    # --- Dependencias ---
+    conn = Depends(get_db_connection),
+    service: ComercialService = Depends(get_comercial_service),
+    context = Depends(get_current_user_context)
+):
+    """Procesa solicitud extraordinaria: SIN envío de correo, email_enviado=TRUE automático."""
+    try:
+        # 1. Seguridad: Validar rol ADMIN/MANAGER
+        role = context.get("role")
+        if role not in ['ADMIN', 'MANAGER']:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail="Solo ADMIN y MANAGER pueden crear solicitudes extraordinarias")
+        
+        # Validar token
+        token = await get_valid_graph_token(request)
+        if not token: 
+            from fastapi import Response
+            return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
+
+        # 2. Construir Objeto BESS (si aplica)
+        datos_bess = None
+        if bess_cargas_criticas or bess_tiene_motores or bess_objetivos:
+            from .schemas import DetalleBessCreate
+            datos_bess = DetalleBessCreate(
+                cargas_criticas_kw=bess_cargas_criticas,
+                tiene_motores=bess_tiene_motores,
+                potencia_motor_hp=bess_potencia_motor,
+                tiempo_autonomia=bess_autonomia,
+                voltaje_operacion=bess_voltaje,
+                cargas_separadas=bess_cargas_separadas,
+                objetivos_json=bess_objetivos,
+                tiene_planta_emergencia=bess_planta_emergencia
+            )
+
+        # 3. Construir Objeto Principal (fecha_manual siempre presente)
+        from .schemas import OportunidadCreateCompleta
+        oportunidad_data = OportunidadCreateCompleta(
+            nombre_proyecto=nombre_proyecto,
+            cliente_nombre=nombre_cliente,
+            canal_venta=canal_venta,
+            id_tecnologia=id_tecnologia,
+            id_tipo_solicitud=id_tipo_solicitud,
+            cantidad_sitios=cantidad_sitios,
+            prioridad=prioridad,
+            direccion_obra=direccion_obra,
+            coordenadas_gps=coordenadas_gps,
+            google_maps_link=google_maps_link,
+            sharepoint_folder_url=sharepoint_folder_url,
+            fecha_manual_str=fecha_manual,  # SIEMPRE presente en extraordinarias
+            detalles_bess=datos_bess
+        )
+
+        # 4. Ejecutar Transacción en Servicio
+        new_id, op_id_estandar, es_fuera_horario = await service.crear_oportunidad_transaccional(
+            conn, oportunidad_data, context
+        )
+        
+        # 5. MARCAR COMO EXTRAORDINARIA: email_enviado = TRUE (sin envío real)
+        await conn.execute("""
+            UPDATE tb_oportunidades 
+            SET email_enviado = TRUE
+            WHERE id_oportunidad = $1
+        """, new_id)
+        
+        logger.info(f"Solicitud extraordinaria {op_id_estandar} marcada con email_enviado=TRUE (sin envío real)")
+
+        # 6. Redirección (Lógica Multisitos vs Unisitio)
+        if cantidad_sitios == 1:
+            # Auto-creación de sitio único para extraordinarias
+            try:
+                await conn.execute("""
+                    INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link)
+                    VALUES ($1, $2, $3, $4, $5)
+                """, uuid4(), new_id, nombre_proyecto, direccion_obra, google_maps_link)
             except Exception as e:
                 logger.error(f"Error auto-creando sitio único: {e}")
             
-            # Redirigir a Paso 3 (Redacción de Correo)
-            target_url = f"/comercial/paso3/{new_id}"
+            # EXTRAORDINARIAS: Unisitio va directamente al HOME (sin paso 3 de correo)
+            target_url = "/comercial/ui"
+            params = f"?new_op={op_id_estandar}&fh={str(es_fuera_horario).lower()}&extraordinaria=1"
         else:
-            # CASO MULTISITIOS (>1): Redirigir a Paso 2 (Excel)
+            # Multisitio: va a paso 2 (carga Excel), luego volverá al home
             target_url = f"/comercial/paso2/{new_id}"
+            params = f"?new_op={op_id_estandar}&fh={str(es_fuera_horario).lower()}&extraordinaria=1"
         
-        # Agregar parámetros para el toast
-        params = f"?new_op={op_id_estandar}&fh={str(es_fuera_horario).lower()}"
-        final_url = f"{target_url}{params}"
-        
-        # Redirección HTMX
         from fastapi import Response
-        return Response(status_code=200, headers={"HX-Redirect": final_url})
-            
-            
-    except HTTPException as e:
+        return Response(status_code=200, headers={"HX-Redirect": f"{target_url}{params}"})
+
+    except Exception as e:
+        logger.error(f"Error en creación de solicitud extraordinaria: {e}")
         return templates.TemplateResponse(
             "comercial/error_message.html", 
-            {"request": request, "detail": e.detail},
-            status_code=e.status_code
+            {"request": request, "detail": str(e)},
+            status_code=500
         )
 
 # (El endpoint de Excel se mantiene igual, asegúrate de que esté incluido en tu archivo)
@@ -625,11 +740,21 @@ async def get_paso3_email_form(
                   tec.nombre as tipo_tecnologia,
                   tipo_sol.nombre as tipo_solicitud,
                   tipo_sol.es_seguimiento,
-                  eg.nombre as status_global
+                  eg.nombre as status_global,
+                  -- DETALLES BESS
+                  db.cargas_criticas_kw,
+                  db.tiene_motores,
+                  db.potencia_motor_hp,
+                  db.tiempo_autonomia,
+                  db.voltaje_operacion,
+                  db.cargas_separadas,
+                  db.objetivos_json,
+                  db.tiene_planta_emergencia
            FROM tb_oportunidades o
            LEFT JOIN tb_cat_tecnologias tec ON o.id_tecnologia = tec.id
            LEFT JOIN tb_cat_tipos_solicitud tipo_sol ON o.id_tipo_solicitud = tipo_sol.id
            LEFT JOIN tb_cat_estatus_global eg ON o.id_estatus_global = eg.id
+           LEFT JOIN tb_detalles_bess db ON o.id_oportunidad = db.id_oportunidad
            WHERE o.id_oportunidad = $1""", 
         id_oportunidad
     )
@@ -686,11 +811,30 @@ async def get_paso3_email_form(
     else:
         template = "comercial/email_full.html" # Wrapper que extiende base.html
 
+    # --- LOGICA DE FORMATEO DE OBJETIVOS BESS ---
+    bess_objetivos_str = ""
+    raw_objs = row.get('objetivos_json')
+    if raw_objs:
+        try:
+            # Si asyncpg ya lo devolvió como lista
+            if isinstance(raw_objs, list):
+                bess_objetivos_str = ", ".join(raw_objs)
+            # Si es string JSON
+            elif isinstance(raw_objs, str):
+                import json
+                loaded = json.loads(raw_objs)
+                if isinstance(loaded, list):
+                    bess_objetivos_str = ", ".join(loaded)
+        except Exception as e:
+            logger.warning(f"Error parseando objetivos_json: {e}")
+            pass
+
     return templates.TemplateResponse(
         template,
         {
             "request": request,
             "op": row,
+            "bess_objetivos_str": bess_objetivos_str,  # <--- VARIABLE NUEVA
             "has_multisitio_file": has_multisitio,
             "sitios": sitios_rows,
             "editable": editable,              # Basado en BD, no hardcoded
@@ -712,6 +856,7 @@ async def upload_preview_endpoint(
     request: Request,
     id_oportunidad: str = Form(...), # Llega como string
     file: UploadFile = File(...),
+    extraordinaria: int = Form(0),  # <-- Capturar del form
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection)
 ):
@@ -845,7 +990,8 @@ async def upload_preview_endpoint(
                 "preview_rows": preview_rows,
                 "total_rows": total_rows,
                 "json_data": json_payload,
-                "op_id": id_oportunidad
+                "op_id": id_oportunidad,
+                "extraordinaria": extraordinaria  # <-- Pasar al template
             }
         )
 
@@ -867,6 +1013,7 @@ async def upload_confirm_endpoint(
     request: Request,
     sitios_json: str = Form(...), # <--- Recibimos el JSON
     op_id: str = Form(...),
+    extraordinaria: int = Form(0),  # <--- Nuevo parámetro
     conn = Depends(get_db_connection)
 ):
     try:
@@ -920,22 +1067,43 @@ async def upload_confirm_endpoint(
             await conn.executemany(q, records)
             logger.info(f"Insertados {len(records)} sitios exitosamente")
         
-        return HTMLResponse(content=f"""
-        <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4 animate-fade-in-down" role="alert">
-            <p class="font-bold">Carga Exitosa</p>
-            <p>Se confirmaron e insertaron {len(records)} sitios.</p>
-        </div>
-        
-        <!-- Transición automática al Paso 3 (Email) -->
-        <div hx-trigger="load delay:1s" hx-get="/comercial/paso3/{op_id}" hx-target="#main-content"></div> 
-        """, status_code=200)
+        # 5. Redirección Condicional
+        if extraordinaria == 1:
+            # EXTRAORDINARIAS: Redirección completa al HOME (no HTMX partial)
+            logger.info("Solicitud extraordinaria multisitio completada, redirigiendo a HOME")
+            return HTMLResponse(content=f"""
+            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4 animate-fade-in-down" role="alert">
+                <p class="font-bold">Carga Exitosa</p>
+                <p>Se confirmaron e insertaron {len(records)} sitios.</p>
+                <p class="mt-2 text-sm">Redirigiendo al inicio...</p>
+            </div>
+            
+            <!-- Redirección completa para extraordinarias -->
+            <script>
+                setTimeout(function() {{
+                    window.location.href = '/comercial/ui';
+                }}, 1500);
+            </script>
+            """, status_code=200)
+        else:
+            # NORMALES: Ir a paso 3 (envío de correo) usando HTMX
+            next_url = f"/comercial/paso3/{op_id}"
+            return HTMLResponse(content=f"""
+            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4 animate-fade-in-down" role="alert">
+                <p class="font-bold">Carga Exitosa</p>
+                <p>Se confirmaron e insertaron {len(records)} sitios.</p>
+            </div>
+            
+            <!-- Transición automática a paso 3 -->
+            <div hx-trigger="load delay:1s" hx-get="{next_url}" hx-target="#main-content"></div> 
+            """, status_code=200)
         
     except Exception as e:
         logger.error(f"Error Confirm: {e}")
         return HTMLResponse(f"<div class='text-red-500'>Error confirmando carga: {e}</div>", 500)
 
 @router.get("/paso2/{id_oportunidad}", include_in_schema=False)
-async def get_paso_2_form(request: Request, id_oportunidad: UUID, conn = Depends(get_db_connection)):
+async def get_paso_2_form(request: Request, id_oportunidad: UUID, extraordinaria: int = 0, conn = Depends(get_db_connection)):
     """Re-renderiza el formulario de carga multisitio (Paso 2)."""
     row = await conn.fetchrow(
         "SELECT id_interno_simulacion, titulo_proyecto, cliente_nombre, cantidad_sitios FROM tb_oportunidades WHERE id_oportunidad = $1", 
@@ -952,7 +1120,8 @@ async def get_paso_2_form(request: Request, id_oportunidad: UUID, conn = Depends
             "nombre_cliente": row['cliente_nombre'],
             "id_interno": row['id_interno_simulacion'],
             "titulo_proyecto": row['titulo_proyecto'],
-            "cantidad_declarada": row['cantidad_sitios']
+            "cantidad_declarada": row['cantidad_sitios'],
+            "extraordinaria": extraordinaria
         }
     )
 

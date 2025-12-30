@@ -214,17 +214,9 @@
 
     <script>
         // Configuración del Footer
-        window.EMAIL_FOOTER_HTML = `
-            <br><br>
-            <hr style="border: 0; border-top: 1px solid #eee;">
-            <p style="font-family: monospace; color: #555;">
-                <strong>ID:</strong> {{ op.id_interno_simulacion }}<br>
-                <strong>Proyecto:</strong> {{ op.nombre_proyecto }}<br>
-                <strong>Cliente:</strong> {{ op.cliente_nombre }}<br>
-                <strong>Link SharePoint:</strong> <a href="{{ op.sharepoint_folder_url or '#' }}">{{ op.sharepoint_folder_url or 'N/A' }}</a><br>
-                <strong>Atentamente:</strong> {{ user_name }}
-            </p>
-        `;
+        // Configuración del Footer
+        // Configuración del Footer (Minificado para evitar espacios en blanco extra)
+        window.EMAIL_FOOTER_HTML = `<br><br><hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;"><div style="font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; color: #374151; line-height: 1.6;"><table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;"><tr><td style="width: 140px; color: #6b7280; font-weight: 600; padding: 4px 0;">ID Interno:</td><td style="color: #111827; font-weight: 500;">{{ op.id_interno_simulacion }}</td></tr><tr><td style="color: #6b7280; font-weight: 600; padding: 4px 0;">Proyecto:</td><td style="color: #111827; font-weight: 500;">{{ op.nombre_proyecto }}</td></tr><tr><td style="color: #6b7280; font-weight: 600; padding: 4px 0;">Cliente:</td><td style="color: #111827; font-weight: 500;">{{ op.cliente_nombre }}</td></tr><tr><td style="color: #6b7280; font-weight: 600; padding: 4px 0;">SharePoint:</td><td><a href="{{ op.sharepoint_folder_url or '#' }}" style="color: #2563eb; text-decoration: none;">{{ op.sharepoint_folder_url or 'N/A' }}</a></td></tr></table>{% if op.cargas_criticas_kw %}<div style="background-color: #f3f4f6; border-left: 4px solid #00BABB; padding: 12px; margin-bottom: 20px; border-radius: 0 4px 4px 0;"><div style="font-weight: bold; color: #1f2937; margin-bottom: 8px; text-transform: uppercase; font-size: 12px; letter-spacing: 0.05em;">Especificaciones BESS</div><table style="width: 100%; border-collapse: collapse;"><tr><td style="width: 140px; color: #6b7280; font-size: 13px; padding: 2px 0;">Cargas Críticas:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ op.cargas_criticas_kw }} kW</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Voltaje:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ op.voltaje_operacion }}</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Autonomía:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ op.tiempo_autonomia }}</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Tablero Indep.:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ 'SÍ' if op.cargas_separadas else 'NO' }}</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Motores / Bombas:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ 'SÍ' if op.tiene_motores else 'NO' }} {% if op.tiene_motores %}<span style="color: #6b7280; font-weight: normal;">({{ op.potencia_motor_hp }} HP)</span>{% endif %}</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Planta Emergencia:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ 'SÍ' if op.tiene_planta_emergencia else 'NO' }}</td></tr>{% if bess_objetivos_str %}<tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0; vertical-align: top;">Objetivos:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ bess_objetivos_str }}</td></tr>{% endif %}</table></div>{% endif %}<p style="margin-top: 20px; color: #4b5563;">Atentamente,<br><strong style="color: #111827;">{{ user_name }}</strong></p></div>`;
 
         (function () {
             // Cargar CSS de Quill

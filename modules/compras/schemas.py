@@ -3,7 +3,7 @@
 from typing import Optional
 from datetime import date
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 # --- Modelos de Tracking de Gasto ---
 
@@ -22,8 +22,7 @@ class CompraTrackingRead(CompraTrackingCreate):
     """Schema de lectura."""
     id_tracking: UUID
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- Modelos de Homologación (Catálogos) ---
 

@@ -3,7 +3,7 @@
 from typing import Optional
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 
 # --- Ficha de Traspaso (Gate 1) ---
 
@@ -25,8 +25,7 @@ class ProyectoRead(BaseModel):
     fecha_aprobacion: Optional[datetime]
     sharepoint_carpeta_url: Optional[str] = Field(None, description="URL de la carpeta creada automáticamente.")
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 # --- Actualizaciones de Fase (Gates 2, 3, 4) ---
 

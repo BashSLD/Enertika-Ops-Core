@@ -1,0 +1,22 @@
+<div class="text-center p-8 bg-green-50 rounded-lg border border-green-200 animate-fade-in-down">
+    <div class="mb-4">
+        <svg class="w-16 h-16 text-green-500 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path>
+        </svg>
+    </div>
+    <p class="text-green-800 font-bold text-xl mb-2">
+        {% if title %}{{ title }}{% else %}✓ Enviado Exitosamente{% endif %}
+    </p>
+    <p class="text-green-600 text-sm">
+        {% if message %}{{ message }}{% else %}Regresando al tablero...{% endif %}
+    </p>
+
+    {% if redirect_url %}
+    <script>
+        // Esperar 1.5 segundos y luego MUDARNOS de página
+        setTimeout(function () {
+            window.location.href = "{{ redirect_url }}";
+        }, 1500);
+    </script>
+    {% endif %}
+</div>

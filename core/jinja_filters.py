@@ -43,6 +43,31 @@ def datetime_input_format(value):
     # 3. Formato estricto para HTML5 (YYYY-MM-DDTHH:MM)
     return mx_time.strftime("%Y-%m-%dT%H:%M")
 
+def clean_text(value):
+    """
+    Filtro Jinja2 para limpiar texto de caracteres de control no deseados.
+    
+    Remueve:
+    - Carriage returns (\r)
+    - Newlines (\n)
+    
+    Preserva espacios normales entre palabras.
+    Solo elimina espacios al inicio y final.
+    
+    Uso en HTML: {{ op.titulo_proyecto | clean_text }}
+    """
+    if value is None:
+        return ""
+    
+    # Convertir a string si no lo es
+    text = str(value)
+    
+    # Eliminar SOLO \r y \n, sin afectar espacios normales
+    text = text.replace('\r', '').replace('\n', '')
+    
+    # Eliminar espacios al inicio y final solamente
+    return text.strip()
+
 def register_timezone_filters(jinja_env):
     """
     Registra los filtros de timezone en una instancia de Jinja2.
@@ -54,3 +79,4 @@ def register_timezone_filters(jinja_env):
     """
     jinja_env.filters["time_mx"] = datetime_mx_format
     jinja_env.filters["input_date"] = datetime_input_format
+    jinja_env.filters["clean_text"] = clean_text

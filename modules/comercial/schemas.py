@@ -1,9 +1,9 @@
 # Archivo: modules/comercial/schemas.py
 
-from typing import List, Optional
+from typing import List, Optional, Any
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 # --- Base Schemas (Common Attributes) ---
 
@@ -11,11 +11,62 @@ class BaseSchema(BaseModel):
     """Base para campos comunes en lectura."""
     id: UUID = Field(..., alias='id_oportunidad')
     
-    class Config:
-        # Permite mapear alias (e.g., 'id_oportunidad' en la DB a 'id' en Python)
-        populate_by_name = True
-        # Permite la conversión de objetos de DB a Pydantic
-        from_attributes = True
+    model_config = ConfigDict(
+        populate_by_name=True,  # v2: permite usar alias o nombre del campo
+        from_attributes=True    # v2: reemplaza a orm_mode
+    )
+
+
+# --- BESS Schemas (NUEVO) ---
+
+class DetalleBessCreate(BaseModel):
+    """Datos técnicos específicos para proyectos BESS."""
+    cargas_criticas_kw: Optional[float] = None
+    tiene_motores: bool = False
+    potencia_motor_hp: Optional[float] = None
+    tiempo_autonomia: Optional[str] = None
+    voltaje_operacion: Optional[str] = None
+    cargas_separadas: bool = False
+    objetivos_json: List[str] = []
+    tiene_planta_emergencia: bool = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Oportunidades Create Completo (Transaccional) ---
+
+class OportunidadCreateCompleta(BaseModel):
+    """Schema maestro para la creación transaccional."""
+    # Campos Base
+    cliente_nombre: str = Field(..., min_length=3)
+    nombre_proyecto: str
+    canal_venta: str
+    id_tecnologia: int
+    id_tipo_solicitud: int
+    cantidad_sitios: int
+    prioridad: str
+    direccion_obra: str
+    coordenadas_gps: Optional[str] = None
+    google_maps_link: Optional[str] = None
+    sharepoint_folder_url: Optional[str] = None
+    
+    # Campos Lógicos Fase 2
+    fecha_manual_str: Optional[str] = None  # Input raw del datetime-local
+    detalles_bess: Optional[DetalleBessCreate] = None  # Nested Schema opcional
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+# --- Oportunidad Cierre/Status (NUEVO) ---
+
+class OportunidadCierreUpdate(BaseModel):
+    """Schema para cerrar, perder o cancelar."""
+    id_motivo_cierre: int
+    comentarios_cierre: str
+    monto_cierre_usd: Optional[float] = 0.0
+    potencia_final_fv_kwp: Optional[float] = 0.0
+    potencia_final_bess_kw: Optional[float] = 0.0  # Nuevo campo BESS
+    capacidad_final_bess_kwh: Optional[float] = 0.0  # Nuevo campo BESS
 
 
 # --- 1. Oportunidades (tb_oportunidades) ---
@@ -65,18 +116,15 @@ class SitioImportacion(BaseModel):
     numero_servicio: Optional[str] = Field(None, alias='# DE SERVICIO')
     comentarios: Optional[str] = Field(None, alias='COMENTARIOS')
     
-    class Config:
-        populate_by_name = True  # Permite usar tanto alias como nombres de campo
+    model_config = ConfigDict(populate_by_name=True)
     
-    @staticmethod
-    def convert_to_string(v):
+    @field_validator('numero_servicio', mode='before')
+    @classmethod
+    def convert_to_string(cls, v: Any) -> Optional[str]:
         """Convierte ints/floats del Excel a string."""
         if v is None:
             return None
         return str(v) if not isinstance(v, str) else v
-    
-    # Validators para convertir números a string
-    _numero_servicio_validator = field_validator('numero_servicio', mode='before')(convert_to_string.__func__)
 
 
 # --- 3. Listado de Oportunidades (para get_oportunidades_list) ---
@@ -94,11 +142,7 @@ class OportunidadListOut(BaseModel):
     tipo_solicitud: str
     deadline_calculado: Optional[datetime] = None
     cantidad_sitios: Optional[int] = None
-    
-    # Campos de JOINs
     responsable_simulacion: Optional[str] = None
-    responsable_email: Optional[str] = None
     solicitado_por: Optional[str] = None
     
-    class Config:
-        from_attributes = True  # Permite convertir desde asyncpg.Record
+    model_config = ConfigDict(from_attributes=True)
