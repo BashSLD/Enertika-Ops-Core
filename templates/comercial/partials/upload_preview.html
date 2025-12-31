@@ -35,8 +35,18 @@
     <div class="text-center mb-4">
         <button @click="showAll = !showAll" type="button"
             class="text-blue-600 hover:text-blue-800 text-sm font-semibold underline cursor-pointer">
-            <span x-show="!showAll">▼ Ver los {{ total_rows }} registros completos</span>
-            <span x-show="showAll">▲ Ver menos (primeros 5 registros)</span>
+            <span x-show="!showAll" class="flex items-center gap-1 cursor-pointer hover:underline">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+                Ver los {{ total_rows }} registros completos
+            </span>
+            <span x-show="showAll" class="flex items-center gap-1 cursor-pointer hover:underline">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
+                </svg>
+                Ver menos (primeros 5 registros)
+            </span>
         </button>
     </div>
     {% endif %}

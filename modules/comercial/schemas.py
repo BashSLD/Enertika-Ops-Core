@@ -53,6 +53,7 @@ class OportunidadCreateCompleta(BaseModel):
     # Campos Lógicos Fase 2
     fecha_manual_str: Optional[str] = None  # Input raw del datetime-local
     detalles_bess: Optional[DetalleBessCreate] = None  # Nested Schema opcional
+    id_estatus_global: Optional[int] = 1  # 1=Activa por defecto, útil para migraciones
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -1,0 +1,8 @@
+{# templates/admin/partials/dynamic_trigger_select.html #}
+<select name="trigger_value" required
+    class="w-full rounded-lg border-gray-300 focus:ring-[#00BABB] focus:border-[#00BABB] animate-fade-in-down">
+    <option value="" disabled selected>Seleccione una opción...</option>
+    {% for option in options %}
+    <option value="{{ option.value }}">{{ option.label }}</option>
+    {% endfor %}
+</select>

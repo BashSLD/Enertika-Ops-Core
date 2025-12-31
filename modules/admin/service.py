@@ -6,7 +6,10 @@ Patrón recomendado por GUIA_MAESTRA líneas 703-833.
 """
 from typing import List, Dict, Optional
 from uuid import UUID
+import json
 import logging
+
+from .schemas import ConfiguracionGlobalUpdate, EmailRuleCreate
 
 logger = logging.getLogger("AdminModule")
 
@@ -115,23 +118,94 @@ class AdminService:
     
     async def get_catalogos_reglas(self, conn) -> Dict:
         """
-        Obtiene catálogos necesarios para el formulario de reglas de email.
+        Obtiene catálogos necesarios para formularios y gestión.
         Patrón recomendado por GUIA_MAESTRA líneas 703-727.
         
         Returns:
-            Dict: Catálogos de tecnologías y tipos de solicitud
+            Dict: Catálogos de tecnologías, tipos de solicitud y estatus
         """
         tecnologias = await conn.fetch(
-            "SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre"
+            "SELECT id, nombre, activo FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre"
         )
         tipos_solicitud = await conn.fetch(
-            "SELECT id, nombre FROM tb_cat_tipos_solicitud WHERE activo = true ORDER BY nombre"
+            "SELECT id, nombre, codigo_interno, activo FROM tb_cat_tipos_solicitud WHERE activo = true ORDER BY nombre"
+        )
+        estatus = await conn.fetch(
+            "SELECT id, nombre, descripcion, color_hex, activo FROM tb_cat_estatus_global WHERE activo = true ORDER BY nombre"
         )
         
         return {
             "tecnologias": [dict(t) for t in tecnologias],
-            "tipos_solicitud": [dict(t) for t in tipos_solicitud]
+            "tipos_solicitud": [dict(t) for t in tipos_solicitud],
+            "estatus": [dict(e) for e in estatus]
         }
+    
+    # --- GESTIÓN DE CONFIGURACIÓN GLOBAL ---
+    
+    async def get_global_config(self, conn) -> dict:
+        """
+        Recupera la configuración global y la tipifica correctamente.
+        La tabla almacena todo como strings (key-value), aquí se transforman a tipos Python.
+        
+        Returns:
+            dict: Configuración tipificada con hora_corte_l_v (str), dias_sla_default (int), dias_fin_semana (list)
+        """
+        rows = await conn.fetch("SELECT clave, valor FROM tb_configuracion_global")
+        config_dict = {row['clave']: row['valor'] for row in rows}
+        
+        # Transformación de tipos para el Schema
+        return {
+            "hora_corte_l_v": config_dict.get("HORA_CORTE_L_V", "18:00"),
+            "dias_sla_default": int(config_dict.get("DIAS_SLA_DEFAULT", "7")),
+            "dias_fin_semana": json.loads(config_dict.get("DIAS_FIN_SEMANA", "[5, 6]"))
+        }
+
+    async def update_global_config(self, conn, datos: ConfiguracionGlobalUpdate) -> None:
+        """
+        Actualiza los parámetros globales del sistema.
+        Usa UPSERT para evitar duplicados en tabla key-value.
+        
+        Args:
+            conn: Conexión a la base de datos
+            datos: Schema validado con los nuevos valores
+        """
+        updates = [
+            ("HORA_CORTE_L_V", datos.hora_corte_l_v),
+            ("DIAS_SLA_DEFAULT", str(datos.dias_sla_default)),
+            ("DIAS_FIN_SEMANA", json.dumps(datos.dias_fin_semana))
+        ]
+        
+        for clave, valor in updates:
+            await conn.execute(
+                """INSERT INTO tb_configuracion_global (clave, valor) 
+                   VALUES ($1, $2)
+                   ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor""",
+                clave, valor
+            )
+        logger.info(f"Configuración global actualizada: SLA={datos.dias_sla_default}, Hora corte={datos.hora_corte_l_v}")
+    
+    # --- LÓGICA PARA REGLAS DE CORREO DINÁMICAS ---
+
+    async def get_options_for_trigger(self, conn, trigger_field: str) -> List[Dict]:
+        """
+        Retorna las opciones válidas.
+        CORRECCIÓN: Ahora devolvemos el ID como value para que coincida con el formulario comercial.
+        """
+        if trigger_field == "Tecnología":
+            # Usamos CAST(id AS TEXT) para evitar problemas de tipo
+            query = "SELECT nombre as label, CAST(id AS TEXT) as value FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre"
+        
+        elif trigger_field == "Tipo Solicitud":
+            query = "SELECT nombre as label, CAST(id AS TEXT) as value FROM tb_cat_tipos_solicitud WHERE activo = true ORDER BY nombre"
+        
+        elif trigger_field == "Estatus":
+            query = "SELECT nombre as label, CAST(id AS TEXT) as value FROM tb_cat_estatus_global WHERE activo = true ORDER BY nombre"
+        
+        else:
+            return [] 
+            
+        rows = await conn.fetch(query)
+        return [dict(r) for r in rows]
     
     async def add_email_rule(
         self, 
@@ -352,6 +426,148 @@ class AdminService:
         
         logger.info(f"Usuario reactivado: {user_id}")
         return dict(user) if user else None
+    
+    # --- GESTIÓN AVANZADA DE CATÁLOGOS ---
+    
+    # --- Tecnologías ---
+    
+    async def create_tecnologia(self, conn, nombre: str) -> None:
+        """
+        Crea una nueva tecnología con validación de duplicados.
+        
+        Args:
+            conn: Conexión a la base de datos
+            nombre: Nombre de la nueva tecnología
+            
+        Raises:
+            ValueError: Si la tecnología ya existe
+        """
+        # Validación de duplicados (case-insensitive)
+        exists = await conn.fetchval(
+            "SELECT 1 FROM tb_cat_tecnologias WHERE nombre ILIKE $1", 
+            nombre
+        )
+        if exists:
+            raise ValueError(f"La tecnología '{nombre}' ya existe.")
+        
+        await conn.execute(
+            "INSERT INTO tb_cat_tecnologias (nombre, activo) VALUES ($1, true)", 
+            nombre
+        )
+        logger.info(f"Nueva tecnología creada: {nombre}")
+    
+    async def update_tecnologia(self, conn, id_tech: int, nombre: str, activo: bool) -> None:
+        """
+        Actualiza nombre o estado de una tecnología.
+        
+        Args:
+            conn: Conexión a la base de datos
+            id_tech: ID de la tecnología a actualizar
+            nombre: Nuevo nombre
+            activo: Nuevo estado
+        """
+        await conn.execute(
+            "UPDATE tb_cat_tecnologias SET nombre = $1, activo = $2 WHERE id = $3",
+            nombre, activo, id_tech
+        )
+        logger.info(f"Tecnología ID {id_tech} actualizada: {nombre} (activo={activo})")
+    
+    # --- Tipos de Solicitud ---
+    
+    async def create_tipo_solicitud(self, conn, nombre: str, codigo: str) -> None:
+        """
+        Crea un nuevo tipo de solicitud.
+        El código interno es vital para el backend, se normaliza a mayúsculas.
+        
+        Args:
+            conn: Conexión a la base de datos
+            nombre: Nombre del tipo de solicitud
+            codigo: Código interno (se convertirá a mayúsculas)
+        """
+        # Normalizar código a mayúsculas para consistencia
+        codigo_clean = codigo.strip().upper()
+        
+        await conn.execute(
+            "INSERT INTO tb_cat_tipos_solicitud (nombre, codigo_interno, activo) VALUES ($1, $2, true)",
+            nombre, codigo_clean
+        )
+        logger.info(f"Nuevo tipo de solicitud creado: {nombre} (código: {codigo_clean})")
+    
+    async def update_tipo_solicitud(self, conn, id_tipo: int, nombre: str, codigo: str, activo: bool) -> None:
+        """
+        Actualiza tipo de solicitud con validación del código interno.
+        Registra advertencia si se cambia el código interno.
+        
+        Args:
+            conn: Conexión a la base de datos
+            id_tipo: ID del tipo a actualizar
+            nombre: Nuevo nombre
+            codigo: Nuevo código interno
+            activo: Nuevo estado
+        """
+        # Verificar si se está cambiando el código interno
+        current_code = await conn.fetchval(
+            "SELECT codigo_interno FROM tb_cat_tipos_solicitud WHERE id = $1", 
+            id_tipo
+        )
+        
+        if current_code != codigo:
+            logger.warning(
+                f"ALERTA - Cambiando código interno ID {id_tipo}: '{current_code}' -> '{codigo}' "
+                f"(esto puede afectar lógica de backend)"
+            )
+        
+        await conn.execute(
+            """UPDATE tb_cat_tipos_solicitud 
+               SET nombre = $1, codigo_interno = $2, activo = $3 
+               WHERE id = $4""",
+            nombre, codigo, activo, id_tipo
+        )
+        logger.info(f"Tipo de solicitud ID {id_tipo} actualizado: {nombre}")
+    
+    # --- Estatus Global ---
+    
+    async def create_estatus(self, conn, nombre: str, descripcion: str, color: str) -> None:
+        """
+        Crea un nuevo estatus global.
+        
+        Args:
+            conn: Conexión a la base de datos
+            nombre: Nombre del estatus
+            descripcion: Descripción del estatus
+            color: Color hex (ej: #00BABB)
+        """
+        await conn.execute(
+            "INSERT INTO tb_cat_estatus_global (nombre, descripcion, color_hex, activo) VALUES ($1, $2, $3, true)",
+            nombre, descripcion, color
+        )
+        logger.info(f"Nuevo estatus creado: {nombre} (color: {color})")
+    
+    async def toggle_catalogo_status(self, conn, table: str, item_id: int, current_status: bool) -> None:
+        """
+        Switch genérico para Soft Delete/Activate de catálogos.
+        Incluye whitelist de seguridad para prevenir SQL injection.
+        
+        Args:
+            conn: Conexión a la base de datos
+            table: Nombre de la tabla del catálogo
+            item_id: ID del elemento a modificar
+            current_status: Estado actual del campo activo
+        
+        Raises:
+            ValueError: Si la tabla no está en la whitelist de tablas permitidas
+        """
+        # Validación de seguridad para evitar inyección SQL en nombre de tabla
+        valid_tables = ["tb_cat_tecnologias", "tb_cat_tipos_solicitud", "tb_cat_estatus_global"]
+        if table not in valid_tables:
+            raise ValueError(f"Tabla no permitida: {table}")
+            
+        new_status = not current_status
+        await conn.execute(
+            f"UPDATE {table} SET activo = $1 WHERE id = $2", 
+            new_status, item_id
+        )
+        logger.info(f"Catálogo {table} ID {item_id}: activo cambiado a {new_status}")
 
 
 def get_admin_service():

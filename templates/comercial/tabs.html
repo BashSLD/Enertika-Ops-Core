@@ -64,7 +64,15 @@
 
                             <div class="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
                                 <p class="text-sm text-yellow-800">
-                                    <strong>⚠️ Importante:</strong>
+                                    <li class="flex items-start gap-2">
+                                        <svg class="w-4 h-4 text-yellow-600 mt-0.5" fill="none" stroke="currentColor"
+                                            viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+                                            </path>
+                                        </svg>
+                                        <strong>Importante:</strong>
+                                    </li>
                                 </p>
                                 <ul class="text-sm text-yellow-700 mt-2 space-y-1 list-disc list-inside">
                                     <li>Solo registra la solicitud, <strong>NO envía correo</strong></li>
@@ -102,7 +110,11 @@
                             d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                     </svg>
                     Registro Especial
-                    <span class="ml-1">🔒</span>
+                    <svg class="w-4 h-4 ml-1 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z">
+                        </path>
+                    </svg>
                 </button>
                 <!-- Tooltip -->
                 <div
@@ -124,12 +136,23 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                     </svg>
                     Nuevo Registro
-                    <span class="ml-1">🔒</span>
+                    <svg class="w-4 h-4 ml-1 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z">
+                        </path>
+                    </svg>
                 </button>
                 <!-- Tooltip -->
                 <div
                     class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50">
-                    ⚠️ Solo lectura - Requiere permisos de edición
+                    <div class="flex items-center gap-1">
+                        <svg class="w-4 h-4 text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+                            </path>
+                        </svg>
+                        Solo lectura - Requiere permisos de edición
+                    </div>
                     <div
                         class="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900">
                     </div>
@@ -183,7 +206,7 @@
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/cards?tab=historial" hx-target="#tab-content"
-                    hx-swap="innerHTML" onclick="updateTabContext('historial', this)"
+                    hx-swap="innerHTML" hx-push-url="?tab=historial" onclick="updateTabContext('historial', this)"
                     class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
@@ -197,7 +220,8 @@
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/cards?tab=levantamientos" hx-target="#tab-content"
-                    hx-swap="innerHTML" onclick="updateTabContext('levantamientos', this)"
+                    hx-swap="innerHTML" hx-push-url="?tab=levantamientos"
+                    onclick="updateTabContext('levantamientos', this)"
                     class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
@@ -211,7 +235,7 @@
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/cards?tab=ganadas" hx-target="#tab-content" hx-swap="innerHTML"
-                    onclick="updateTabContext('ganadas', this)"
+                    hx-push-url="?tab=ganadas" onclick="updateTabContext('ganadas', this)"
                     class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"

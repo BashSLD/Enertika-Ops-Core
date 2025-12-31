@@ -1,10 +1,101 @@
 <div class="flex flex-col h-full">
-    <!-- Header -->
+    <!-- Header with Actions -->
     <div class="flex justify-between items-center mb-6">
         <div>
             <h2 class="text-3xl font-light text-gray-700">Módulo Simulación</h2>
-            <p class="text-sm text-gray-500">Monitor en Tiempo Real y Gestión de Simulaciones</p>
+            <div class="flex items-center gap-2 text-sm text-gray-500">
+                <p>Gestión de Simulaciones y Oportunidades</p>
+            </div>
         </div>
+
+        {% set is_admin_or_manager = (role == 'ADMIN') or (role == 'MANAGER') %}
+
+        <div class="flex gap-3">
+            {% if is_admin_or_manager %}
+            <!-- Botón: Registro Extraordinario (Solo ADMIN/MANAGER) con Popup Advertencia -->
+            <div x-data="{ showWarning: false }" class="relative">
+                <button @click="showWarning = true"
+                    class="ripple-effect bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 px-5 rounded-lg shadow-lg shadow-orange-600/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Registro Extraordinario
+                </button>
+
+                <!-- Popup de Advertencia -->
+                <div x-show="showWarning" x-transition @click.outside="showWarning = false"
+                    class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                    <div class="bg-white rounded-lg shadow-2xl max-w-md mx-4 p-6">
+                        <!-- Header -->
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="flex-shrink-0">
+                                <svg class="h-10 w-10 text-orange-500" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                            </div>
+                            <h3 class="text-lg font-bold text-gray-900">
+                                Registro Extraordinario
+                            </h3>
+                        </div>
+
+                        <!-- Contenido -->
+                        <div class="mb-6 space-y-3">
+                            <p class="text-sm text-gray-700">
+                                Esta opción ha sido diseñada para <strong>solicitudes enviadas fuera del proceso de esta
+                                    aplicación</strong>.
+                            </p>
+
+                            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
+                                <p class="text-sm text-yellow-800">
+                                    <li class="flex items-start gap-2">
+                                        <svg class="w-4 h-4 text-yellow-600 mt-0.5" fill="none" stroke="currentColor"
+                                            viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+                                            </path>
+                                        </svg>
+                                        <strong>Importante:</strong>
+                                    </li>
+                                </p>
+                                <ul class="text-sm text-yellow-700 mt-2 space-y-1 list-disc list-inside">
+                                    <li>Solo registra la solicitud, <strong>NO envía correo</strong></li>
+                                    <li>Si se da seguimiento después, se generará un <strong>correo nuevo sin hilo
+                                            histórico</strong></li>
+                                    <li>La fecha que ingreses define el cálculo del SLA</li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <!-- Botones -->
+                        <div class="flex gap-3">
+                            <button @click="showWarning = false"
+                                class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition">
+                                Cancelar
+                            </button>
+                            <button hx-get="/simulacion/form-extraordinario" hx-target="#main-content"
+                                hx-swap="innerHTML" hx-push-url="true" @click="showWarning = false"
+                                class="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-lg transition shadow-lg">
+                                Continuar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Search Bar with HTMX -->
+    <div class="mb-4">
+        <input type="hidden" id="active_tab_input" name="tab" value="activos">
+        <input type="text" id="search-input" name="q" hx-get="/simulacion/partials/cards"
+            hx-trigger="keyup changed delay:500ms, search" hx-target="#sim-tab-content" hx-include="#active_tab_input"
+            class="w-full md:w-1/3 px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:border-emerald-600 transition-all"
+            placeholder="Buscar por cliente, proyecto...">
     </div>
 
     <!-- Tabs Navigation -->
@@ -12,48 +103,83 @@
         class="mb-4 text-sm font-medium text-center text-gray-500 border-b border-gray-200 dark:text-gray-400 dark:border-gray-700">
         <ul class="flex flex-wrap -mb-px">
             <li class="me-2">
-                <a href="#" hx-get="/simulacion/partials/live" hx-target="#sim-tab-content" hx-swap="innerHTML"
-                    onclick="setActiveSimTab(this)"
+                <a href="#" hx-get="/simulacion/partials/graphs" hx-target="#sim-tab-content" hx-swap="innerHTML"
+                    hx-push-url="?tab=graphs" onclick="updateSimTabContext('graphs', this)"
                     class="sim-tab-link inline-block p-4 text-emerald-600 border-b-2 border-emerald-600 rounded-t-lg active group"
                     aria-current="page">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 002 2h2a2 2 0 002-2z" />
+                                d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
                         </svg>
-                        Monitor TR
+                        Gráficas
                     </div>
                 </a>
             </li>
             <li class="me-2">
-                <a href="#" hx-get="/simulacion/partials/table" hx-target="#sim-tab-content" hx-swap="innerHTML"
-                    onclick="setActiveSimTab(this)"
+                <a href="#" hx-get="/simulacion/partials/cards?tab=activos" hx-target="#sim-tab-content"
+                    hx-swap="innerHTML" hx-push-url="?tab=activos" onclick="updateSimTabContext('activos', this)"
                     class="sim-tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                         </svg>
-                        Simulaciones
+                        Solicitudes (Activos)
+                    </div>
+                </a>
+            </li>
+            <li class="me-2">
+                <a href="#" hx-get="/simulacion/partials/cards?tab=historial" hx-target="#sim-tab-content"
+                    hx-swap="innerHTML" onclick="updateSimTabContext('historial', this)"
+                    class="sim-tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
+                    <div class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Historial
+                    </div>
+                </a>
+            </li>
+            <li class="me-2">
+                <a href="#" hx-get="/simulacion/partials/cards?tab=levantamientos" hx-target="#sim-tab-content"
+                    hx-swap="innerHTML" onclick="updateSimTabContext('levantamientos', this)"
+                    class="sim-tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
+                    <div class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
+                        </svg>
+                        Levantamientos
                     </div>
                 </a>
             </li>
         </ul>
     </div>
 
-    <!-- Tab Content Area -->
-    <div id="sim-tab-content" class="flex-1 overflow-y-auto p-2" hx-get="/simulacion/partials/live" hx-trigger="load">
-        <!-- Content will be loaded here via HTMX -->
+    <!-- Tab Content Area con loading mejorado -->
+    <div id="sim-tab-content" class="flex-1 overflow-y-auto p-2" hx-get="/simulacion/partials/graphs" hx-trigger="load">
+        <!-- Loading spinner corporativo -->
         <div class="flex justify-center items-center h-full">
-            <div class="animate-spin rounded-full h-32 w-32 border-b-2 border-emerald-500"></div>
+            <div class="text-center">
+                <div class="spinner-enertika mx-auto mb-4"></div>
+                <p class="text-emerald-600 font-medium animate-pulse-subtle">Cargando datos...</p>
+            </div>
         </div>
     </div>
 </div>
 
 <script>
-    function setActiveSimTab(element) {
+    function updateSimTabContext(tabName, element) {
+        // 1. Actualizar el input oculto
+        document.getElementById('active_tab_input').value = tabName;
+
+        // 2. Lógica visual con colores corporativos (emerald)
         document.querySelectorAll('.sim-tab-link').forEach(el => {
             el.classList.remove('text-emerald-600', 'border-emerald-600', 'active');
             el.classList.add('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');

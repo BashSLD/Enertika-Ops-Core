@@ -23,6 +23,7 @@ from core.security import get_current_user_context, get_valid_graph_token  # NUE
 from core.permissions import require_module_access  # NUEVO: Sistema de permisos
 from .schemas import OportunidadCreate, SitioImportacion, OportunidadListOut, OportunidadCreateCompleta, DetalleBessCreate
 from .service import ComercialService, get_comercial_service  # NUEVO: Service Layer
+from .email_handler import EmailHandler, get_email_handler  # NUEVO: Email Handler
 
 # Configuración básica de logging
 logger = logging.getLogger("ComercialModule")
@@ -121,10 +122,16 @@ async def get_comercial_form(
     }, headers={"HX-Title": "Enertika Ops Core | Nuevo Comercial"})
 
 @router.get("/partials/graphs", include_in_schema=False)
-async def get_graphs_partial(request: Request):
+async def get_graphs_partial(
+    request: Request,
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection),
+    user_context: dict = Depends(get_current_user_context),
+    _ = require_module_access("comercial")
+):
     """Partial: Graphs Tab Content."""
-    # Data for charts could be passed here
-    return templates.TemplateResponse("comercial/partials/graphs.html", {"request": request})
+    stats = await service.get_dashboard_stats(conn, user_context)
+    return templates.TemplateResponse("comercial/partials/graphs.html", {"request": request, "stats": stats})
 
 @router.get("/partials/cards", include_in_schema=False)
 async def get_cards_partial(
@@ -135,7 +142,8 @@ async def get_cards_partial(
     subtab: Optional[str] = None,
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
-    user_context: dict = Depends(get_current_user_context)
+    user_context: dict = Depends(get_current_user_context),
+    _ = require_module_access("comercial")
 ):
     """Partial: List of Opportunities (Cards/Grid)."""
     
@@ -175,6 +183,36 @@ async def get_sitios_partial(
         {"request": request, "sitios": rows}
     )
 
+@router.get("/partials/comentarios/{id_oportunidad}", include_in_schema=False)
+async def get_comentarios_partial(
+    request: Request,
+    id_oportunidad: UUID,
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("comercial")
+):
+    """Retorna los comentarios de simulación para una oportunidad."""
+    comentarios = await service.get_comentarios_simulacion(conn, id_oportunidad)
+    return templates.TemplateResponse(
+        "comercial/partials/detalles/comentarios_list.html",
+        {"request": request, "comentarios": comentarios}
+    )
+
+@router.get("/partials/bess/{id_oportunidad}", include_in_schema=False)
+async def get_bess_partial(
+    request: Request,
+    id_oportunidad: UUID,
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("comercial")
+):
+    """Retorna los detalles BESS para una oportunidad."""
+    bess = await service.get_detalles_bess(conn, id_oportunidad)
+    return templates.TemplateResponse(
+        "comercial/partials/detalles/bess_info.html",
+        {"request": request, "bess": bess}
+    )
+
 @router.post("/notificar/{id_oportunidad}")
 async def notificar_oportunidad(
     request: Request,
@@ -186,206 +224,39 @@ async def notificar_oportunidad(
     subject: str = Form(...),
     body: str = Form(""),           # Mensaje adicional del usuario
     auto_message: str = Form(...),  # Mensaje automático
-    prioridad: str = Form("normal"),  # ACCIÓN 3: Prioridad del email
+    prioridad: str = Form("normal"),  # Prioridad del email
     archivos_extra: List[UploadFile] = File(default=[]),
     service: ComercialService = Depends(get_comercial_service),
     ms_auth = Depends(get_ms_auth),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    email_handler = Depends(get_email_handler)  # NUEVO: Inyectar EmailHandler
 ):
     """Envía el correo de notificación usando el token de la sesión."""
-    # --- CAMBIO CRÍTICO: TOKEN SEGURO ---
-    # Antes: access_token = request.session.get("access_token")
-    # Ahora: Usamos la función inteligente que renueva si hace falta
-    access_token = await get_valid_graph_token(request)
     
-    if not access_token:
-        # Si devuelve None es porque el refresh token también murió o fue revocado
-        from fastapi import Response
-        # Redirigimos al login avisando que expiró
-        return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
-        
-    # --- FIN DEL CAMBIO ---
-
-    # 1. Recuperar info de la oportunidad
-    row = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
-    if not row:
-        # ACCIÓN 1: Toast de error
-        return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {
-            "request": request,
-            "title": "Error",
-            "message": "Oportunidad no encontrada. Por favor intenta nuevamente."
-        }, status_code=404)
+    # Preparar datos del formulario
+    form_data = {
+        "recipients_str": recipients_str,
+        "fixed_to": fixed_to,
+        "fixed_cc": fixed_cc,
+        "extra_cc": extra_cc,
+        "subject": subject,
+        "body": body,
+        "auto_message": auto_message,
+        "prioridad": prioridad,
+        "archivos_extra": archivos_extra
+    }
     
-    # Obtener prioridad desde BD (se usa en línea 357 para importance)
-    prioridad_bd = row.get('prioridad') or "normal"
-        
-    # --- CRITICAL FIX: NO re-agregar defaults aquí ---
-    # Los defaults YA vienen incluidos en fixed_to/fixed_cc desde el formulario (paso3)
-    # Re-agregarlos aquí causaría duplicación
-    # NOTA: Solo recuperamos def_cco porque no se envía desde el frontend (privacidad)
-    defaults = await conn.fetchrow("SELECT * FROM tb_email_defaults WHERE id = 1")
-    def_cco = (defaults['default_cco'] or "").upper().replace(",", ";").split(";") if defaults else []
+    # Delegar toda la lógica al EmailHandler
+    success, result = await email_handler.procesar_y_enviar_notificacion(
+        request=request,
+        conn=conn,
+        service=service,
+        ms_auth=ms_auth,
+        id_oportunidad=id_oportunidad,
+        form_data=form_data
+    )
     
-    # 2. Procesar Destinatarios (TO)
-    final_to = set()
-    
-    # a) From Chips (recipients_str) - Correos agregados manualmente por el usuario
-    if recipients_str:
-        # Aseguramos soporte de ; como separador
-        raw_list = recipients_str.replace(",", ";").split(";")
-        for email in raw_list:
-            if email.strip(): final_to.add(email.strip())
-            
-    # b) From Fixed rules (defaults + reglas configuradas en admin)
-    # Estos YA incluyen los defaults, vienen calculados desde paso3
-    for email in fixed_to:
-        if email.strip(): final_to.add(email.strip())
-
-    # 3. Procesar Copias (CC)
-    final_cc = set()
-    
-    # a) From Fixed rules (defaults + reglas configuradas en admin)
-    # Estos YA incluyen los defaults, vienen calculados desde paso3
-    for email in fixed_cc:
-        if email.strip(): final_cc.add(email.strip())
-        
-    # b) From Manual Input (Chips) - Correos CC agregados manualmente
-    if extra_cc:
-        raw_cc = extra_cc.replace(",", ";").split(";")
-        for email in raw_cc:
-            if email.strip(): final_cc.add(email.strip())
-
-    # 4. Procesar Ocultos (BCC - Solo Defaults por ahora)
-    final_bcc = set()
-    for email in def_cco:
-        if email.strip(): final_bcc.add(email.strip())
-
-    recipients_list = list(final_to)
-    cc_list = list(final_cc)
-    bcc_list = list(final_bcc)
-
-    logger.info(f"Enviando correo OP {row['op_id_estandar']} | TO: {recipients_list} | CC: {cc_list} | BCC: {bcc_list}")
-
-    # 4. Procesar Adjuntos
-    adjuntos_procesados = []
-    
-    # --- LOGICA MULTISITIO: Generar Excel Automáticamente ---
-    if (row['cantidad_sitios'] or 0) > 1:
-        excel_attachment = await service.generate_multisite_excel(conn, id_oportunidad, row['id_interno_simulacion'])
-        if excel_attachment:
-            adjuntos_procesados.append(excel_attachment)
-            
-    # 5. Procesar archivos extra del formulario
-    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB
-    for archivo in archivos_extra:
-        if archivo.filename:
-            # Validación de Seguridad: Tamaño Máximo
-            archivo.file.seek(0, 2)  # Ir al final
-            file_size = archivo.file.tell()  # Obtener tamaño
-            await archivo.seek(0)  # Volver al inicio - CRÍTICO
-            
-            if file_size > MAX_FILE_SIZE:
-                logger.warning(f"Archivo rechazado (excede 10MB): {archivo.filename} ({file_size} bytes)")
-                return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {
-                    "request": request,
-                    "title": "Archivo muy grande",
-                    "message": "El archivo excede el tamaño máximo permitido de 10MB."
-                })
-            
-            contenido = await archivo.read()
-            await archivo.seek(0) 
-            adjuntos_procesados.append({
-                "name": archivo.filename,
-                "content_bytes": contenido, 
-                "contentType": archivo.content_type
-            })
-
-    # 5. Concatenar mensajes (Corrección HTML)
-    final_body = body if body.strip() else ""
-    if final_body:
-        final_body += "<br><br>" # Usar break HTML, no \n
-    final_body += auto_message
-
-    # 6. LOGICA INTELIGENTE DE ENVÍO Y HILOS
-    # A. Obtener Prioridad REAL de la BD (ya se hizo arriba como prioridad_bd)
-    
-    # B. DEFINIR CLAVE DE BÚSQUEDA (Targeting del Hilo)
-    # Regla de Oro: Si tiene Padre, buscamos el título del PADRE (último usado).
-    # Si es nuevo, usamos su propio título (estricto).
-    if row.get('parent_id'):
-        search_key = await conn.fetchval("SELECT titulo_proyecto FROM tb_oportunidades WHERE id_oportunidad = $1", row['parent_id'])
-        if not search_key: 
-            search_key = row.get('titulo_proyecto') # Fallback
-    else:
-        search_key = row.get('titulo_proyecto') 
-        
-    # C. Ejecutar Búsqueda en Graph
-    thread_id = ms_auth.find_thread_id(access_token, search_key)
-    
-    if thread_id:
-        # ESCENARIO 2: RESPUESTA A HILO (Seguimiento)
-        logger.info(f"🔄 Hilo encontrado ({thread_id[:10]}...). Respondiendo a '{search_key}'.")
-        ok, msg = ms_auth.reply_with_new_subject(
-            access_token=access_token,
-            thread_id=thread_id,
-            new_subject=subject, # Título visual nuevo (ej. COTIZACION...)
-            body=final_body,
-            recipients=recipients_list,
-            cc_recipients=cc_list,
-            bcc_recipients=bcc_list,
-            importance=prioridad_bd.lower(),
-            attachments=adjuntos_procesados
-        )
-    else:
-        # ESCENARIO 1 y 3: NUEVO CORREO (Inicio o Fallback)
-        logger.info(f"Hilo no encontrado para '{search_key}'. Enviando correo nuevo.")
-        ok, msg = ms_auth.send_email_with_attachments(
-            access_token=access_token, 
-            subject=subject,
-            body=final_body,
-            recipients=recipients_list,
-            cc_recipients=cc_list, 
-            bcc_recipients=bcc_list,
-            importance=prioridad_bd.lower(),
-            attachments_files=adjuntos_procesados 
-        )
-    
-    # --- LOGICA DE AUTO-RECARGA / REDIRECCIÓN ---
-    if not ok:
-        # Detectamos palabras clave de token vencido en el mensaje de error de Graph
-        if "expired" in str(msg).lower() or "InvalidAuthenticationToken" in str(msg):
-            print(" Sesión expirada. Forzando redirección al login...")
-            
-            # Limpiamos la sesión del lado del servidor (Opcional pero recomendado)
-            request.session.clear()
-            
-            # TRUCO HTMX: Esta cabecera obliga al navegador a cambiar de página,
-            # ignorando que fue una petición AJAX parcial.
-            from fastapi import Response
-            return Response(
-                status_code=200, 
-                headers={"HX-Redirect": "/auth/login?expired=1"}
-            )
-
-        # Si es otro error (ej. archivo muy pesado, email inválido), mostramos el error normal
-        logger.error(f"Fallo envio correo Graph: {msg}")
-        return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {
-             "request": request,
-             "title": "Error enviando correo",
-             "message": msg
-        }, status_code=200)
-
-    # Si todo salió bien
-    await service.update_email_status(conn, id_oportunidad) 
-
-    # CAMBIO: Usamos window.location.href en lugar de htmx.ajax
-    # Esto fuerza al navegador a ir realmente a la URL, corrigiendo la barra lateral y la dirección
-    return templates.TemplateResponse("comercial/partials/messages/success_sent.html", {
-        "request": request,
-        "title": "✓ Enviado Exitosamente",
-        "message": "Regresando al tablero...",
-        "redirect_url": "/comercial/ui"
-    })
+    return result
 
 @router.get("/plantilla", response_class=StreamingResponse)
 async def descargar_plantilla_sitios():
@@ -734,7 +605,7 @@ async def get_paso3_email_form(
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
     
     # Recuperar datos para pre-llenar con JOINs para traer nombres de catálogos
-    # ✅ CORRECCIÓN: Agregar JOINs para tipo_tecnologia y status_global (reglas de email)
+    # CORRECCIÓN: Agregar JOINs para tipo_tecnologia y status_global (reglas de email)
     row = await conn.fetchrow(
         """SELECT o.*, 
                   tec.nombre as tipo_tecnologia,
@@ -789,13 +660,38 @@ async def get_paso3_email_form(
     rules = await conn.fetch("SELECT * FROM tb_config_emails WHERE modulo = 'COMERCIAL'")
     
     # 2. Evaluar reglas
+    # MAPEO: Nombre Visual (Admin) -> Columna DB (Row)
+    FIELD_MAPPING = {
+        "Tecnología": "id_tecnologia",
+        "Tipo Solicitud": "id_tipo_solicitud",
+        "Estatus": "id_estatus_global",
+        "Cliente": "cliente_nombre"
+    }
+
     for rule in rules:
-        field = rule['trigger_field']    # e.g., 'tipo_tecnologia'
-        val_trigger = rule['trigger_value'].upper() # e.g., 'BESS'
-        val_actual = str(row.get(field) or "").upper()
+        field_admin = rule['trigger_field']    # e.g., 'Tecnología'
+        val_trigger = str(rule['trigger_value']).strip().upper() # e.g., '1' (ID)
         
-        # Lógica de coincidencia (Contains)
-        if val_trigger in val_actual:
+        # Mapear al campo real en la BD
+        db_key = FIELD_MAPPING.get(field_admin, field_admin)
+        
+        # Obtener valor real de la oportunidad
+        val_actual = row.get(db_key)
+        
+        # Lógica de comparación
+        match = False
+        
+        if field_admin == "Cliente":
+            # Búsqueda Parcial de Texto (Contains)
+            if val_trigger in str(val_actual or "").upper():
+                match = True
+        else:
+            # Comparación Exacta de ID (String vs String)
+            # val_actual suele ser int (ID), val_trigger es str
+            if str(val_actual or "") == val_trigger:
+                match = True
+        
+        if match:
             email = rule['email_to_add']
             tipo = rule['type'] # TO o CC
             

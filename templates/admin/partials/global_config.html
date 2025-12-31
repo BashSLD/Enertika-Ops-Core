@@ -1,0 +1,64 @@
+{# templates/admin/partials/global_config.html #}
+<div class="bg-white rounded-lg shadow-md border-t-4 border-indigo-500 animate-fade-in-down">
+    <div class="p-4 border-b bg-gray-50">
+        <h3 class="font-bold text-gray-700 flex items-center gap-2">
+            <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z">
+                </path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+            </svg>
+            Reglas de Negocio Globales
+        </h3>
+        <p class="text-xs text-gray-500">Afectan el cálculo de SLAs y fechas límite en toda la plataforma.</p>
+    </div>
+
+    <div class="p-6">
+        <form hx-post="/admin/config/global" hx-swap="innerHTML" hx-target="#config-msg">
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Hora de Corte (Lunes-Viernes)</label>
+                    <input type="time" name="hora_corte_l_v" value="{{ config_global.hora_corte_l_v }}" required
+                        class="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500">
+                    <p class="text-xs text-gray-500 mt-1">Las solicitudes después de esta hora pasan al día siguiente.
+                    </p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Días SLA Default</label>
+                    <input type="number" name="dias_sla_default" value="{{ config_global.dias_sla_default }}" min="1"
+                        max="30" required
+                        class="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500">
+                    <p class="text-xs text-gray-500 mt-1">Tiempo estándar de entrega para simulaciones.</p>
+                </div>
+            </div>
+
+            <div class="mb-6 bg-indigo-50 p-4 rounded-lg">
+                <label class="block text-sm font-bold text-gray-700 mb-2">Días considerados "Fin de Semana" (No
+                    laborales)</label>
+                <div class="flex gap-4 flex-wrap">
+                    {% set dias_semana = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'] %}
+                    {% for i in range(7) %}
+                    <label
+                        class="inline-flex items-center bg-white px-3 py-1 rounded border shadow-sm cursor-pointer hover:bg-gray-50">
+                        <input type="checkbox" name="dias_fin_semana" value="{{ i }}" {% if i in
+                            config_global.dias_fin_semana %}checked{% endif %}
+                            class="text-indigo-600 focus:ring-indigo-500 rounded">
+                        <span class="ml-2 text-sm text-gray-700">{{ dias_semana[i] }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+            </div>
+
+            <div class="flex justify-between items-center">
+                <div id="config-msg"></div>
+                <button type="submit"
+                    class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-6 rounded-lg shadow transition-colors">
+                    Guardar Configuración
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

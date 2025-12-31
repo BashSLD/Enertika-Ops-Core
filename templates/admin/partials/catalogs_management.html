@@ -1,0 +1,192 @@
+{# templates/admin/partials/catalogs_management.html #}
+{# Partial para gestión de catálogos - Tecnologías, Tipos de Solicitud y Estatus #}
+
+<div class="space-y-8 animate-fade-in-down">
+
+    <div class="flex items-center gap-3 border-b-2 border-gray-100 pb-4">
+        <div class="p-2 bg-[#E0F7F7] rounded-lg">
+            <div class="p-2 bg-[#E0F7F7] rounded-lg">
+                <svg class="w-8 h-8 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 12.477 5.754 12 7.5 12s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 12.477 18.247 12 16.5 12c-1.746 0-3.332.477-4.5 1.253">
+                    </path>
+                </svg>
+            </div>
+            <div>
+                <h2 class="text-xl font-bold text-[#123456]">Gestión de Catálogos</h2>
+                <p class="text-sm text-gray-500">Administra las opciones disponibles en los formularios comerciales.</p>
+            </div>
+        </div>
+    </div> <!-- Cierre del Header -->
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        <!-- Tecnologías -->
+        <div class="bg-white rounded-lg shadow-md border-t-4 border-[#00BABB] flex flex-col h-full">
+            <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+                <h3 class="font-bold text-gray-700 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 10V3L4 14h7v7l9-11h-7z"></path>
+                    </svg>
+                    Tecnologías
+                </h3>
+                <span class="text-xs bg-blue-100 text-blue-800 px-2 py-1 rounded-full">{{
+                    catalogos.tecnologias|length
+                    }} activas</span>
+            </div>
+
+            <div class="p-4 flex-1">
+                <form hx-post="/admin/catalogs/tecnologias" hx-target="#tech-msg" hx-swap="innerHTML"
+                    class="mb-4 flex gap-2">
+                    <input type="text" name="nombre" required placeholder="Nueva Tecnología..."
+                        class="flex-1 text-sm rounded-lg border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB]">
+                    <button type="submit"
+                        class="bg-[#00BABB] hover:bg-[#009999] text-white px-3 py-2 rounded-lg transition-colors flex items-center justify-center">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4">
+                            </path>
+                        </svg>
+                    </button>
+                </form>
+                <div id="tech-msg"></div>
+
+                <ul class="space-y-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+                    {% for tech in catalogos.tecnologias %}
+                    <li
+                        class="flex items-center justify-between p-2 bg-gray-50 rounded group hover:bg-[#E0F7F7] transition-colors">
+                        <span class="text-sm font-medium text-gray-700">{{ tech.nombre }}</span>
+                        <span class="text-xs {% if tech.activo %}text-green-600{% else %}text-gray-400{% endif %}">
+                            {% if tech.activo %}✓ Activo{% else %}Inactivo{% endif %}
+                        </span>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        <!-- Tipos de Solicitud -->
+        <div class="bg-white rounded-lg shadow-md border-t-4 border-purple-500 flex flex-col h-full">
+            <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+                <h3 class="font-bold text-gray-700 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01">
+                        </path>
+                    </svg>
+                    Tipos Solicitud
+                </h3>
+                <span class="text-xs bg-purple-100 text-purple-800 px-2 py-1 rounded-full">{{
+                    catalogos.tipos_solicitud|length }} activos</span>
+            </div>
+
+            <div class="p-4 flex-1">
+                <form hx-post="/admin/catalogs/tipos" hx-target="#type-msg" hx-swap="innerHTML" class="mb-4 space-y-2">
+                    <input type="text" name="nombre" required placeholder="Nombre (ej. Licitación)"
+                        class="w-full text-sm rounded-lg border-gray-300 focus:border-purple-500 focus:ring-purple-500">
+                    <div class="flex gap-2">
+                        <input type="text" name="codigo_interno" required placeholder="CÓDIGO (ej. BID)"
+                            class="flex-1 text-sm rounded-lg border-gray-300 uppercase focus:border-purple-500 focus:ring-purple-500">
+                        <button type="submit"
+                            class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg transition-colors flex items-center justify-center">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 4v16m8-8H4"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </form>
+                <div id="type-msg"></div>
+
+                <ul class="space-y-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
+                    {% for tipo in catalogos.tipos_solicitud %}
+                    <li
+                        class="flex items-center justify-between p-2 bg-gray-50 rounded hover:bg-purple-50 transition-colors">
+                        <div>
+                            <span class="block text-sm font-medium text-gray-700">{{ tipo.nombre }}</span>
+                            <span class="text-xs text-gray-400 font-mono">{{ tipo.codigo_interno or 'N/A' }}</span>
+                        </div>
+                        <div
+                            class="px-2 py-0.5 text-xs {% if tipo.activo %}bg-green-100 text-green-800{% else %}bg-gray-200 text-gray-600{% endif %} rounded">
+                            {% if tipo.activo %}Activo{% else %}Inactivo{% endif %}
+                        </div>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        <!-- Estatus Global -->
+        <div class="bg-white rounded-lg shadow-md border-t-4 border-orange-500 flex flex-col h-full">
+            <div class="p-4 border-b bg-gray-50 flex justify-between items-center">
+                <h3 class="font-bold text-gray-700 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z">
+                        </path>
+                    </svg>
+                    Estatus Global
+                </h3>
+                <span class="text-xs bg-orange-100 text-orange-800 px-2 py-1 rounded-full">Visual</span>
+            </div>
+
+            <div class="p-4 flex-1">
+                <form hx-post="/admin/catalogs/estatus" hx-target="#status-msg" hx-swap="innerHTML" class="mb-4">
+                    <div class="flex gap-2 mb-2">
+                        <input type="text" name="nombre" required placeholder="Nuevo Estatus..."
+                            class="flex-1 text-sm rounded-lg border-gray-300 focus:border-orange-500 focus:ring-orange-500">
+                        <div
+                            class="w-10 h-10 rounded-lg overflow-hidden border border-gray-300 relative cursor-pointer">
+                            <input type="color" name="color_hex" value="#00BABB"
+                                class="absolute -top-2 -left-2 w-16 h-16 cursor-pointer p-0 border-0">
+                        </div>
+                    </div>
+                    <input type="text" name="descripcion" placeholder="Descripción corta..."
+                        class="w-full text-sm rounded-lg border-gray-300 focus:border-orange-500 focus:ring-orange-500 mb-2">
+                    <button type="submit"
+                        class="w-full bg-orange-500 hover:bg-orange-600 text-white py-1.5 rounded-lg text-sm font-bold">
+                        Guardar Estatus
+                    </button>
+                </form>
+                <div id="status-msg"></div>
+
+                <div class="flex flex-wrap gap-2 max-h-64 overflow-y-auto">
+                    {% if catalogos.estatus %}
+                    {% for st in catalogos.estatus %}
+                    <span
+                        class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg border shadow-sm items-center gap-1 bg-white"
+                        style="border-color: {{ st.color_hex or '#999' }}; color: {{ st.color_hex or '#999' }};">
+                        <span class="w-2 h-2 rounded-full"
+                            style="background-color: {{ st.color_hex or '#999' }}"></span>
+                        {{ st.nombre }}
+                    </span>
+                    {% endfor %}
+                    {% else %}
+                    <p class="text-xs text-gray-400 italic">No hay estatus configurados aún.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<style>
+    /* Scrollbar fino para las listas */
+    .custom-scrollbar::-webkit-scrollbar {
+        width: 4px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-track {
+        background: #f1f1f1;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 4px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+    }
+</style>
