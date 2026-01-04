@@ -692,43 +692,138 @@ class ComercialService:
         
         # 3. Datos para Gráficas
         
-        # A) Tendencia (Últimos 30 días con conversión a Hora México)
-        # CORRECCI\u00d3N: Usar ISODOW (número 1-7) para evitar problemas de locale del servidor
-        zona_mx = await self.get_zona_horaria_default(conn)
-        q_trend = f"""
+        # A) Semana Actual Completa (7 días, Lun-Dom, con ceros)
+        q_week = f"""
+            WITH semana_actual AS (
+                SELECT 
+                    EXTRACT(ISODOW FROM (fecha_solicitud AT TIME ZONE 'America/Mexico_City'))::int as day_num,
+                    count(*) as count
+                FROM tb_oportunidades o
+                {where_str}
+                AND (fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date 
+                    >= DATE_TRUNC('week', (NOW() AT TIME ZONE 'America/Mexico_City')::date)
+                AND (fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date
+                    < DATE_TRUNC('week', (NOW() AT TIME ZONE 'America/Mexico_City')::date) + INTERVAL '7 days'
+                GROUP BY day_num
+            )
             SELECT 
-                EXTRACT(ISODOW FROM (fecha_solicitud AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City'))::int as day_num,
-                count(*) as count
-            FROM tb_oportunidades o
-            {where_str}
-            AND fecha_solicitud AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City' >= (NOW() AT TIME ZONE 'America/Mexico_City') - INTERVAL '30 days'
-            GROUP BY day_num, (fecha_solicitud AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City')::date
-            ORDER BY (fecha_solicitud AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City')::date DESC
-            LIMIT 5
+                s.day_num,
+                COALESCE(sa.count, 0) as count
+            FROM generate_series(1, 7) AS s(day_num)
+            LEFT JOIN semana_actual sa ON s.day_num = sa.day_num
+            ORDER BY s.day_num
         """
-        rows_trend = await conn.fetch(q_trend, *params)
+        rows_week = await conn.fetch(q_week, *params)
         
         # Mapeo de números de día a nombres en español (1=Lun, 7=Dom)
         day_map = {1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb', 7: 'Dom'}
         
-        # Invertir para mostrar cronológicamente (Older -> Newer) y mapear nombres
-        chart_trend = {
-            "labels": [day_map.get(r['day_num'], 'N/A') for r in reversed(rows_trend)],
-            "data": [r['count'] for r in reversed(rows_trend)]
+        chart_week = {
+            "labels": [day_map[r['day_num']] for r in rows_week],
+            "data": [r['count'] for r in rows_week]
         }
         
-        # B) Mix Tecnológico
+        # B) Evolución Mensual (Últimos 6 meses)
+        # Para gerentes: desglose por vendedor (apilado)
+        # Para usuarios: solo total
+        if role in roles_sin_restriccion:
+            # GERENTES: Desglose por canal_venta (vendedor)
+            q_monthly = f"""
+                SELECT 
+                    TO_CHAR((fecha_solicitud AT TIME ZONE 'America/Mexico_City'), 'Mon YY') as mes,
+                    DATE_TRUNC('month', (fecha_solicitud AT TIME ZONE 'America/Mexico_City')) as mes_date,
+                    canal_venta,
+                    count(*) as count
+                FROM tb_oportunidades o
+                {where_str}
+                AND fecha_solicitud >= NOW() - INTERVAL '6 months'
+                GROUP BY mes_date, mes, canal_venta
+                ORDER BY mes_date, canal_venta
+            """
+            rows_monthly = await conn.fetch(q_monthly, *params)
+            
+            # Agrupar por vendedor para datasets apilados
+            from collections import defaultdict
+            meses_unicos = []
+            vendedores_data = defaultdict(lambda: defaultdict(int))
+            
+            for row in rows_monthly:
+                mes = row['mes']
+                vendedor = row['canal_venta'] or 'Sin asignar'
+                count = row['count']
+                
+                if mes not in meses_unicos:
+                    meses_unicos.append(mes)
+                vendedores_data[vendedor][mes] = count
+            
+            # Construir datasets para Chart.js (stacked)
+            datasets = []
+            colors = ['#00BABB', '#123456', '#22c55e', '#f97316', '#8b5cf6', '#ec4899', '#fbbf24']
+            for idx, (vendedor, meses_counts) in enumerate(vendedores_data.items()):
+                datasets.append({
+                    "label": vendedor,
+                    "data": [meses_counts.get(mes, 0) for mes in meses_unicos],
+                    "backgroundColor": colors[idx % len(colors)]
+                })
+            
+            chart_monthly = {
+                "labels": meses_unicos,
+                "datasets": datasets,
+                "stacked": True  # Flag para indicar que debe ser apilado
+            }
+        else:
+            # USUARIOS: Solo totales mensuales
+            q_monthly = f"""
+                SELECT 
+                    TO_CHAR((fecha_solicitud AT TIME ZONE 'America/Mexico_City'), 'Mon YY') as mes,
+                    count(*) as count
+                FROM tb_oportunidades o
+                {where_str}
+                AND fecha_solicitud >= NOW() - INTERVAL '6 months'
+                GROUP BY 
+                    DATE_TRUNC('month', (fecha_solicitud AT TIME ZONE 'America/Mexico_City')),
+                    TO_CHAR((fecha_solicitud AT TIME ZONE 'America/Mexico_City'), 'Mon YY')
+                ORDER BY DATE_TRUNC('month', (fecha_solicitud AT TIME ZONE 'America/Mexico_City'))
+            """
+            rows_monthly = await conn.fetch(q_monthly, *params)
+            
+            chart_monthly = {
+                "labels": [r['mes'] for r in rows_monthly],
+                "data": [r['count'] for r in rows_monthly],
+                "stacked": False
+            }
+        
+        # C) Mix Tecnológico (sin cambios)
         q_mix = f"""
             SELECT t.nombre as label, count(*) as count
             FROM tb_oportunidades o
             JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
             {where_str}
             GROUP BY t.nombre
+            ORDER BY count DESC
         """
         rows_mix = await conn.fetch(q_mix, *params)
         chart_mix = {
             "labels": [r['label'] for r in rows_mix],
             "data": [r['count'] for r in rows_mix]
+        }
+        
+        # D) Estatus del Pipeline (Top 5)
+        q_status = f"""
+            SELECT 
+                e.nombre as label,
+                count(*) as count
+            FROM tb_oportunidades o
+            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            {where_str}
+            GROUP BY e.nombre
+            ORDER BY count DESC
+            LIMIT 5
+        """
+        rows_status = await conn.fetch(q_status, *params)
+        chart_status = {
+            "labels": [r['label'] for r in rows_status],
+            "data": [r['count'] for r in rows_status]
         }
         
         return {
@@ -739,8 +834,10 @@ class ComercialService:
                 "perdidas": perdidas
             },
             "charts": {
-                "trend": chart_trend,
-                "mix": chart_mix
+                "week": chart_week,           # NUEVO: Semana actual 
+                "monthly": chart_monthly,      # NUEVO: Evolución 6 meses
+                "mix": chart_mix,              # EXISTENTE: Mix tecnológico
+                "status": chart_status         # NUEVO: Estado pipeline
             }
         }
 

@@ -1,5 +1,5 @@
 <div class="animate-fade-in-down space-y-6">
-    <!-- KPIS Row -->
+    <!-- KPIS Row (Sin cambios) -->
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <!-- KPI 1 -->
         <div
@@ -16,6 +16,7 @@
                 <p class="text-2xl font-bold text-gray-800 animate-pulse-subtle">{{ stats.kpis.total or 0 }}</p>
             </div>
         </div>
+
         <!-- KPI 2 -->
         <div class="bg-white p-4 rounded-lg shadow border-l-4 border-orange-400 flex items-center">
             <div class="p-3 rounded-full bg-orange-100 text-orange-600 mr-4">
@@ -33,6 +34,7 @@
                 </p>
             </div>
         </div>
+
         <!-- KPI 3 -->
         <div
             class="bg-white p-4 rounded-lg shadow-md border-l-4 border-green-500 flex items-center hover:shadow-lg transition-shadow duration-200">
@@ -48,6 +50,7 @@
                 <p class="text-2xl font-bold text-gray-800">{{ stats.kpis.ganadas or 0 }}</p>
             </div>
         </div>
+
         <!-- KPI 4 -->
         <div
             class="bg-white p-4 rounded-lg shadow-md border-l-4 border-red-500 flex items-center hover:shadow-lg transition-shadow duration-200">
@@ -65,21 +68,40 @@
         </div>
     </div>
 
-    <!-- Charts Row -->
+    <!-- Charts Row 1: Evolución Mensual + Mix Tecnológico -->
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <!-- Main Chart -->
+        <!-- Gráfica Grande: Evolución 6 Meses -->
         <div class="lg:col-span-2 bg-white p-6 rounded-lg shadow border border-gray-100">
-            <h3 class="text-lg font-bold text-gray-700 mb-4">Tendencia de Solicitudes (Últimos 30 días)</h3>
+            <h3 class="text-lg font-bold text-gray-700 mb-4">Evolución Últimos 6 Meses</h3>
             <div class="relative h-64 w-full">
-                <canvas id="trendChart"></canvas>
+                <canvas id="monthlyChart"></canvas>
             </div>
         </div>
 
-        <!-- Pie Chart -->
+        <!-- Gráfica Mediana: Mix Tecnológico -->
         <div class="bg-white p-6 rounded-lg shadow border border-gray-100">
             <h3 class="text-lg font-bold text-gray-700 mb-4 text-center">Distribución por Tecnología</h3>
             <div class="relative h-64 w-full flex justify-center">
                 <canvas id="techMixChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <!-- Charts Row 2: Semana Actual + Estatus Pipeline -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <!-- Semana Actual -->
+        <div class="bg-white p-6 rounded-lg shadow border border-gray-100">
+            <h3 class="text-lg font-bold text-gray-700 mb-4">Actividad Semanal</h3>
+            <div class="relative h-64 w-full">
+                <canvas id="weekChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Estatus Pipeline -->
+        <div class="bg-white p-6 rounded-lg shadow border border-gray-100">
+            <h3 class="text-lg font-bold text-gray-700 mb-4 text-center">Estado del Pipeline</h3>
+            <div class="relative h-64 w-full flex justify-center">
+                <canvas id="statusChart"></canvas>
             </div>
         </div>
     </div>
@@ -88,32 +110,100 @@
 <script>
     // IIFE para evitar conflictos de scope cuando HTMX recarga el partial
     (function () {
-        // Initialize Trend Chart
-        const ctxTrend = document.getElementById('trendChart').getContext('2d');
-        const trendLabels = {{ stats.charts.trend.labels | tojson
+        // 1. Gráfica de Evolución Mensual
+        const ctxMonthly = document.getElementById('monthlyChart').getContext('2d');
+        const monthlyData = {{ stats.charts.monthly | tojson
     }};
-    const trendData = {{ stats.charts.trend.data | tojson }};
 
-    new Chart(ctxTrend, {
+    // Verificar si es apilado (para gerentes) o simple (para usuarios)
+    if (monthlyData.stacked) {
+        // GERENTES: Gráfica apilada por vendedor
+        new Chart(ctxMonthly, {
+            type: 'bar',
+            data: {
+                labels: monthlyData.labels,
+                datasets: monthlyData.datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    x: { stacked: true, grid: { display: false } },
+                    y: {
+                        stacked: true,
+                        beginAtZero: true,
+                        ticks: { stepSize: 1 },
+                        grid: { color: '#f3f4f6' }
+                    }
+                },
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { usePointStyle: true, boxWidth: 8 }
+                    }
+                }
+            }
+        });
+    } else {
+        // USUARIOS: Gráfica simple
+        new Chart(ctxMonthly, {
+            type: 'line',
+            data: {
+                labels: monthlyData.labels,
+                datasets: [{
+                    label: 'Solicitudes',
+                    data: monthlyData.data,
+                    borderColor: '#00BABB',
+                    backgroundColor: 'rgba(0, 186, 187, 0.1)',
+                    tension: 0.3,
+                    fill: true
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                scales: {
+                    y: {
+                        beginAtZero: true,
+                        ticks: { stepSize: 1 },
+                        grid: { color: '#f3f4f6' }
+                    },
+                    x: { grid: { display: false } }
+                },
+                plugins: { legend: { display: false } }
+            }
+        });
+    }
+
+    // 2. Gráfica de Semana Actual
+    const ctxWeek = document.getElementById('weekChart').getContext('2d');
+    const weekLabels = {{ stats.charts.week.labels | tojson }};
+    const weekData = {{ stats.charts.week.data | tojson }};
+
+    new Chart(ctxWeek, {
         type: 'bar',
         data: {
-            labels: trendLabels,
+            labels: weekLabels,
             datasets: [{
                 label: 'Solicitudes',
-                data: trendData,
+                data: weekData,
                 backgroundColor: [
-                    'rgba(0, 186, 187, 0.8)',  // Turquesa corporativo
-                    'rgba(18, 52, 86, 0.8)',   // Azul corporativo
-                    'rgba(34, 197, 94, 0.8)',  // Verde
-                    'rgba(251, 191, 36, 0.8)', // Amarillo
-                    'rgba(168, 85, 247, 0.8)'  // Púrpura
+                    'rgba(0, 186, 187, 0.8)', // Lun
+                    'rgba(18, 52, 86, 0.8)',  // Mar
+                    'rgba(34, 197, 94, 0.8)', // Mié
+                    'rgba(251, 191, 36, 0.8)',// Jue
+                    'rgba(168, 85, 247, 0.8)',// Vie
+                    'rgba(239, 68, 68, 0.6)', // Sáb
+                    'rgba(239, 68, 68, 0.6)'  // Dom
                 ],
                 borderColor: [
-                    'rgba(0, 186, 187, 1)',    // Turquesa corporativo
-                    'rgba(18, 52, 86, 1)',     // Azul corporativo
+                    'rgba(0, 186, 187, 1)',
+                    'rgba(18, 52, 86, 1)',
                     'rgba(34, 197, 94, 1)',
                     'rgba(251, 191, 36, 1)',
-                    'rgba(168, 85, 247, 1)'
+                    'rgba(168, 85, 247, 1)',
+                    'rgba(239, 68, 68, 1)',
+                    'rgba(239, 68, 68, 1)'
                 ],
                 borderWidth: 1,
                 borderRadius: 4
@@ -125,22 +215,16 @@
             scales: {
                 y: {
                     beginAtZero: true,
-                    ticks: {
-                        stepSize: 1 // Asegura que solo muestre enteros
-                    },
+                    ticks: { stepSize: 1 },
                     grid: { color: '#f3f4f6' }
                 },
-                x: {
-                    grid: { display: false }
-                }
+                x: { grid: { display: false } }
             },
-            plugins: {
-                legend: { display: false }
-            }
+            plugins: { legend: { display: false } }
         }
     });
 
-    // Initialize Mix Chart
+    // 3. Gráfica Mix Tecnológico (sin cambios)
     const ctxMix = document.getElementById('techMixChart').getContext('2d');
     const mixLabels = {{ stats.charts.mix.labels | tojson }};
     const mixData = {{ stats.charts.mix.data | tojson }};
@@ -151,12 +235,7 @@
             labels: mixLabels,
             datasets: [{
                 data: mixData,
-                backgroundColor: [
-                    '#00BABB', // Turquesa corporativo
-                    '#123456', // Azul corporativo
-                    '#22c55e', // Verde
-                    '#f97316'  // Naranja
-                ],
+                backgroundColor: ['#00BABB', '#123456', '#22c55e', '#f97316'],
                 hoverOffset: 4
             }]
         },
@@ -172,5 +251,38 @@
             }
         }
     });
-    }) ();
+
+    // 4. Gráfica de Estatus Pipeline
+    const ctxStatus = document.getElementById('statusChart').getContext('2d');
+    const statusLabels = {{ stats.charts.status.labels | tojson }};
+    const statusData = {{ stats.charts.status.data | tojson }};
+
+    new Chart(ctxStatus, {
+        type: 'pie',
+        data: {
+            labels: statusLabels,
+            datasets: [{
+                data: statusData,
+                backgroundColor: [
+                    '#00BABB', // Turquesa
+                    '#123456', // Azul
+                    '#22c55e', // Verde
+                    '#f97316', // Naranja
+                    '#8b5cf6'  // Púrpura
+                ],
+                hoverOffset: 4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'bottom',
+                    labels: { usePointStyle: true, boxWidth: 8 }
+                }
+            }
+        }
+    });
+}) ();
 </script>

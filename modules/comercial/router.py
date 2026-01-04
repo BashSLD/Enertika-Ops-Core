@@ -235,6 +235,7 @@ async def notificar_oportunidad(
     body: str = Form(""),           # Mensaje adicional del usuario
     auto_message: str = Form(...),  # Mensaje automático
     prioridad: str = Form("normal"),  # Prioridad del email
+    legacy_search_term: Optional[str] = Form(None),  # NUEVO: Capturar término legacy
     archivos_extra: List[UploadFile] = File(default=[]),
     service: ComercialService = Depends(get_comercial_service),
     ms_auth = Depends(get_ms_auth),
@@ -253,6 +254,7 @@ async def notificar_oportunidad(
         "body": body,
         "auto_message": auto_message,
         "prioridad": prioridad,
+        "legacy_search_term": legacy_search_term,  # Pasar al handler
         "archivos_extra": archivos_extra
     }
     
