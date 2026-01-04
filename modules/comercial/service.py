@@ -46,13 +46,32 @@ class ComercialService:
         """
         Genera el canal de venta basado en el nombre del usuario.
         
-        Regla de negocio:
-        - Si nombre tiene 2+ palabras: PRIMERA_SEGUNDA
-        - Si tiene 1 palabra: PALABRA
-        - Si vacío o None: retorna cadena vacía
+        Regla de negocio MEJORADA:
+        - Toma las 2 PRIMERAS palabras significativas (>2 caracteres, sin puntos)
+        - Formato: PRIMER_NOMBRE_PRIMER_APELLIDO
+        - Si solo hay 1 palabra significativa: esa palabra
+        - Si vacío o None: cadena vacía
+        
+        Ejemplos:
+        - "Sharon V. Morales Perez" → "SHARON_MORALES" ✅
+        - "Moises Jimenez" → "MOISES_JIMENEZ" ✅
+        - "Admin" → "ADMIN" ✅
         """
         parts = (user_name or "").strip().split()
-        if len(parts) >= 2:
+        
+        # Filtrar palabras significativas (más de 2 caracteres, sin puntos)
+        meaningful_parts = [
+            p.replace('.', '') for p in parts 
+            if len(p.replace('.', '')) > 2
+        ]
+        
+        if len(meaningful_parts) >= 2:
+            # Tomar las 2 PRIMERAS palabras significativas (no primera y última)
+            return f"{meaningful_parts[0]}_{meaningful_parts[1]}".upper()
+        elif len(meaningful_parts) == 1:
+            return meaningful_parts[0].upper()
+        elif len(parts) >= 2:
+            # Fallback si no hay palabras significativas: usar primera_segunda original
             return f"{parts[0]}_{parts[1]}".upper()
         elif len(parts) == 1:
             return parts[0].upper()
@@ -340,9 +359,9 @@ class ComercialService:
         nombre_tec = await conn.fetchval("SELECT nombre FROM tb_cat_tecnologias WHERE id = $1", datos.id_tecnologia)
         nombre_tipo = await conn.fetchval("SELECT nombre FROM tb_cat_tipos_solicitud WHERE id = $1", datos.id_tipo_solicitud)
         
-        # Generar Títulos Legacy
+        # Generar Títulos Legacy (AMBOS en MAYÚSCULAS)
         titulo = f"{nombre_tipo}_{datos.cliente_nombre}_{datos.nombre_proyecto}_{nombre_tec}_{datos.canal_venta}".upper()
-        id_interno = f"{op_id_estandar}_{datos.nombre_proyecto}_{datos.cliente_nombre}"[:150]
+        id_interno = f"{op_id_estandar}_{datos.nombre_proyecto}_{datos.cliente_nombre}".upper()[:150]
 
         # 3. Insertar Oportunidad
         query_op = """
@@ -545,9 +564,13 @@ class ComercialService:
             raise HTTPException(status_code=400, detail=f"Tipo de solicitud '{nuevo_tipo_solicitud}' no encontrado en catálogo")
 
         new_uuid = uuid4()
-        timestamp_id = (await self.get_current_datetime_mx(conn)).strftime('%y%m%d%H%M')
+        now_mx = await self.get_current_datetime_mx(conn)
+        timestamp_id = now_mx.strftime('%y%m%d%H%M')
         op_id_estandar_new = f"OP - {timestamp_id}"
-        deadline = await self.calcular_deadline_inicial(conn, await self.get_current_datetime_mx(conn))
+        
+        # CORRECCIÓN: Calcular es_fuera_horario para seguimientos (antes faltaba)
+        es_fuera_horario = await self.calcular_fuera_de_horario(conn, now_mx)
+        deadline = await self.calcular_deadline_inicial(conn, now_mx)
         
         # Obtener datos completos para construir título igual que en creación inicial
         nombre_tipo = await conn.fetchval("SELECT nombre FROM tb_cat_tipos_solicitud WHERE id = $1", id_tipo_solicitud)
@@ -556,27 +579,27 @@ class ComercialService:
         # Título completo con el MISMO formato que la creación inicial (línea 344)
         titulo_new = f"{nombre_tipo}_{parent['cliente_nombre']}_{parent['nombre_proyecto']}_{nombre_tec}_{parent['canal_venta']}".upper()
 
-        # CORRECCIÓN: Usar id_tipo_solicitud (INTEGER) en lugar de tipo_solicitud (TEXT)
+        # CORRECCIÓN: Agregar id_tecnologia que faltaba en seguimientos
         query_insert = """
             INSERT INTO tb_oportunidades (
                 id_oportunidad, creado_por_id, parent_id,
                 titulo_proyecto, nombre_proyecto, cliente_nombre, cliente_id,
                 canal_venta, solicitado_por,
-                id_tipo_solicitud, cantidad_sitios, prioridad,
+                id_tecnologia, id_tipo_solicitud, cantidad_sitios, prioridad,
                 direccion_obra, coordenadas_gps, google_maps_link, sharepoint_folder_url,
                 id_interno_simulacion, op_id_estandar,
-                id_estatus_global, deadline_calculado, fecha_solicitud, email_enviado
+                id_estatus_global, deadline_calculado, es_fuera_horario, fecha_solicitud, email_enviado
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, 1, $19, NOW(), FALSE
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 1, $20, $21, NOW(), FALSE
             ) RETURNING id_oportunidad
         """
         await conn.fetchval(query_insert,
             new_uuid, user_id, parent_id,
             titulo_new, parent['nombre_proyecto'], parent['cliente_nombre'], parent['cliente_id'],
             parent['canal_venta'], user_name,
-            id_tipo_solicitud, parent['cantidad_sitios'], prioridad,  # <-- CAMBIO AQUÍ: usa ID en vez de string
+            parent['id_tecnologia'], id_tipo_solicitud, parent['cantidad_sitios'], prioridad,
             parent['direccion_obra'], parent['coordenadas_gps'], parent['google_maps_link'], parent['sharepoint_folder_url'],
-            parent['id_interno_simulacion'], op_id_estandar_new, deadline
+            parent['id_interno_simulacion'], op_id_estandar_new, deadline, es_fuera_horario
         )
 
         # Clonar sitios
@@ -669,21 +692,28 @@ class ComercialService:
         
         # 3. Datos para Gráficas
         
-        # A) Tendencia (Últimos 7 días con actividad)
-        # Usamos to_char con 'Day' para nombre del día, pero solo los primeros 3 chars
+        # A) Tendencia (Últimos 30 días con conversión a Hora México)
+        # CORRECCI\u00d3N: Usar ISODOW (número 1-7) para evitar problemas de locale del servidor
+        zona_mx = await self.get_zona_horaria_default(conn)
         q_trend = f"""
-            SELECT to_char(fecha_solicitud, 'Dy') as label, count(*) as count
+            SELECT 
+                EXTRACT(ISODOW FROM (fecha_solicitud AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City'))::int as day_num,
+                count(*) as count
             FROM tb_oportunidades o
             {where_str}
-            AND fecha_solicitud >= NOW() - INTERVAL '30 days'
-            GROUP BY to_char(fecha_solicitud, 'Dy'), fecha_solicitud::date
-            ORDER BY fecha_solicitud::date DESC
+            AND fecha_solicitud AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City' >= (NOW() AT TIME ZONE 'America/Mexico_City') - INTERVAL '30 days'
+            GROUP BY day_num, (fecha_solicitud AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City')::date
+            ORDER BY (fecha_solicitud AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City')::date DESC
             LIMIT 5
         """
         rows_trend = await conn.fetch(q_trend, *params)
-        # Invertir para mostrar cronológicamente (Older -> Newer)
+        
+        # Mapeo de números de día a nombres en español (1=Lun, 7=Dom)
+        day_map = {1: 'Lun', 2: 'Mar', 3: 'Mié', 4: 'Jue', 5: 'Vie', 6: 'Sáb', 7: 'Dom'}
+        
+        # Invertir para mostrar cronológicamente (Older -> Newer) y mapear nombres
         chart_trend = {
-            "labels": [r['label'] for r in reversed(rows_trend)],
+            "labels": [day_map.get(r['day_num'], 'N/A') for r in reversed(rows_trend)],
             "data": [r['count'] for r in reversed(rows_trend)]
         }
         

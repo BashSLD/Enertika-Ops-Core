@@ -81,6 +81,11 @@
             <input type="hidden" name="body" id="hidden-body-input">
             <input type="hidden" name="auto_message" value="">
 
+            <!-- Campo legacy para homologación (solo viaja si existe) -->
+            {% if legacy_term %}
+            <input type="hidden" name="legacy_search_term" value="{{ legacy_term }}">
+            {% endif %}
+
             <div class="static-footer">
                 <p class="font-bold mb-2 border-b border-gray-300 pb-1">Información Adjunta Automáticamente:</p>
                 <div id="footer-preview">

@@ -134,7 +134,8 @@ class EmailHandler:
             cc_list,
             bcc_list,
             prioridad_envio,
-            adjuntos_procesados
+            adjuntos_procesados,
+            legacy_search_term=form_data.get("legacy_search_term")  # PUENTE: Término legacy para homologación
         )
         
         if not envio_result["success"]:
@@ -284,32 +285,48 @@ class EmailHandler:
         cc: List[str],
         bcc: List[str],
         prioridad: str,
-        attachments: List[dict]
+        attachments: List[dict],
+        legacy_search_term: Optional[str] = None  # NUEVO: Término legacy para homologación
     ) -> Dict:
         """
-        Envía correo nuevo o responde a hilo existente.
+        Endía correo nuevo o responde a hilo existente.
         
-        Lógica:
-        - Si tiene parent_id: Busca hilo usando título del PADRE
-        - Si NO tiene parent_id: No busca hilo (es nuevo)
-        - Siempre envía con el título ACTUAL
+        Lógica HÍBRIDA de búsqueda de hilos (por prioridad):
+        1. Si existe legacy_search_term: HOMOLOGACIÓN (busca hilo viejo con datos nuevos)
+        2. Si tiene parent_id: SEGUIMIENTO NORMAL (busca por título del padre)
+        3. Caso contrario: ENVÍO INICIAL (nuevo, sin hilo previo)
+        
+        Siempre envía con el asunto ACTUAL (nuevo).
         """
         
-        # Determinar si debe buscar hilo existente
+        # --- LÓGICA DE DECISIÓN INTELIGENTE ---
         search_key = None
+        modo = "NUEVO"  # Por defecto
         
-        if row.get('parent_id'):
-            # Es seguimiento: buscar por título del padre
+        if legacy_search_term:
+            # CASO 1: HOMOLOGACIÓN (Prioridad máxima)
+            # El usuario quiere responder a un hilo antiguo pero con un formulario nuevo
+            search_key = legacy_search_term
+            modo = "HOMOLOGACIÓN"
+            logger.info(
+                f"MODO HOMOLOGACIÓN activado para '{row.get('op_id_estandar')}' | "
+                f"Buscando hilo por término legacy: '{search_key}'"
+            )
+        elif row.get('parent_id'):
+            # CASO 2: SEGUIMIENTO NORMAL
+            # Es un seguimiento estándar: buscar por título del padre
             search_key = await conn.fetchval(
                 "SELECT titulo_proyecto FROM tb_oportunidades WHERE id_oportunidad = $1",
                 row['parent_id']
             )
+            modo = "SEGUIMIENTO"
             logger.info(
-                f"SEGUIMIENTO detectado para '{row.get('op_id_estandar')}' | "
+                f"SEGUIMIENTO NORMAL detectado para '{row.get('op_id_estandar')}' | "
                 f"Buscando hilo del padre: '{search_key}'"
             )
         else:
-            # Es envío inicial: no buscar hilo previo
+            # CASO 3: ENVÍO INICIAL
+            # No buscar hilo previo
             logger.info(
                 f"ENVÍO INICIAL para '{row.get('op_id_estandar')}' | "
                 f"No se buscará hilo previo"

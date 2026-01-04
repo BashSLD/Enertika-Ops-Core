@@ -2,6 +2,7 @@ import msal
 import requests
 import base64
 import urllib.parse
+import re
 from .config import settings 
 
 class MicrosoftAuth:
@@ -89,17 +90,25 @@ class MicrosoftAuth:
     def find_thread_id(self, access_token: str, search_text: str) -> str:
         """
         Busca el ID del hilo más reciente.
+        Limpia prefijos (Re:, Fwd:, Rv:, Enc:, Tr:) automáticamente para tolerar inputs sucios.
         CORRECCIONES APLICADAS:
         1. Sin $filter (incompatible con $search).
         2. Sin $orderby (incompatible con $search).
         3. Filtrado de isDraft en Python.
         4. Ordenamiento por fecha en Python.
+        5. Sanitización con Regex para eliminar prefijos de correo.
         """
         if not access_token or not search_text: 
             return None
 
         headers = self.get_headers(access_token)
+        
+        # LIMPIEZA ROBUSTA: Elimina comillas y espacios
         clean_text = search_text.replace('"', '').replace("'", "").strip()
+        
+        # SANITIZACIÓN: Elimina prefijos RE:, FWD:, RV:, ENC:, TR: al inicio (case insensitive)
+        clean_text = re.sub(r'^(re|fw|fwd|rv|enc|tr)[:\s]+', '', clean_text, flags=re.IGNORECASE).strip()
+        
         encoded_search = urllib.parse.quote(clean_text)
         
         # URL FINAL: Sin $filter ni $orderby. Aumentamos top a 50 para asegurar barrido.

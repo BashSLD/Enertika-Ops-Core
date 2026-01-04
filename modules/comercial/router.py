@@ -109,8 +109,18 @@ async def get_comercial_form(
         user_context.get("user_name")
     )
     
-    # NUEVO: Obtener catálogos FILTRADOS para el formulario de creación
-    catalogos = await service.get_catalogos_creacion(conn)
+    # CORRECCI\u00d3N: Cargar catálogo completo si es modo homologación (legacy_term presente)
+    # Esto permite que ACTUALIZACIÓN esté disponible en el template
+    if request.query_params.get('legacy_term'):
+        catalogos = await service.get_catalogos_ui(conn)  # TODOS los tipos
+        
+        # Buscar ACTUALIZACIÓN directamente en BD por codigo_interno (más confiable que regex)
+        tipo_act = await conn.fetchrow(
+            "SELECT id, nombre FROM tb_cat_tipos_solicitud WHERE codigo_interno = 'ACTUALIZACION' AND activo = true"
+        )
+        catalogos['tipo_actualizacion_id'] = tipo_act['id'] if tipo_act else None
+    else:
+        catalogos = await service.get_catalogos_creacion(conn)  # Filtrado (PRE_OFERTA, LICITACION)
 
     return templates.TemplateResponse("comercial/form.html", {
         "request": request, 
@@ -277,6 +287,25 @@ async def descargar_plantilla_sitios():
     headers = {"Content-Disposition": 'attachment; filename="plantilla_sitios_enertika.xlsx"'}
     return StreamingResponse(buffer, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
 
+@router.post("/validate-thread-check")
+async def validate_thread_check(
+    request: Request,
+    search_term: str = Form(...),
+    ms_auth = Depends(get_ms_auth)
+):
+    """Valida si existe un hilo de correo antes de permitir avanzar al usuario (Modo Homologación)."""
+    token = await get_valid_graph_token(request)
+    if not token:
+        return JSONResponse({"found": False, "error": "Sesión expirada"}, status_code=401)
+
+    thread_id = ms_auth.find_thread_id(token, search_term)
+    
+    if thread_id:
+        # Retorna éxito y el término para que el frontend lo pase al formulario
+        return JSONResponse({"found": True, "clean_term": search_term})
+    else:
+        return JSONResponse({"found": False, "message": "No se encontró ningún hilo con ese texto."}, status_code=404)
+
 @router.post("/form")
 async def handle_oportunidad_creation(
     request: Request,
@@ -305,6 +334,9 @@ async def handle_oportunidad_creation(
     bess_planta_emergencia: bool = Form(False),
     bess_cargas_separadas: Optional[bool] = Form(False), # NUEVO CAMPO
     bess_objetivos: List[str] = Form([]),  # Recibe lista de checkboxes
+
+    # --- Campo Legacy (Homologación) ---
+    legacy_search_term: Optional[str] = Form(None),  # Asunto del correo antiguo (solo viaja, no se guarda)
 
     # --- Dependencias ---
     conn = Depends(get_db_connection),
@@ -340,6 +372,18 @@ async def handle_oportunidad_creation(
         fecha_final_str = None
         if role in ['ADMIN', 'MANAGER']:
             fecha_final_str = fecha_manual
+        
+        # 3.5 MODO HOMOLOGACIÓN: Forzar tipo ACTUALIZACIÓN
+        # Si viene legacy_search_term, sobrescribir id_tipo_solicitud
+        if legacy_search_term:
+            id_tipo_actualizacion = await conn.fetchval(
+                "SELECT id FROM tb_cat_tipos_solicitud WHERE UPPER(codigo_interno) = 'ACTUALIZACION'"
+            )
+            if id_tipo_actualizacion:
+                id_tipo_solicitud = id_tipo_actualizacion
+                logger.info(f"MODO HOMOLOGACIÓN: Tipo de solicitud forzado a ACTUALIZACIÓN")
+            else:
+                logger.warning("No se encontró tipo ACTUALIZACIÓN en catálogo, usando el seleccionado por usuario")
 
         # 4. Construir Objeto Principal (Pydantic v2)
         from .schemas import OportunidadCreateCompleta
@@ -378,7 +422,15 @@ async def handle_oportunidad_creation(
         else:
             target_url = f"/comercial/paso2/{new_id}"
         
+        # Construir parámetros de URL
         params = f"?new_op={op_id_estandar}&fh={str(es_fuera_horario).lower()}"
+        
+        # PUENTE: Si existe legacy_search_term, agregarlo a la URL para que viaje hasta el Paso 3
+        if legacy_search_term:
+            import urllib.parse
+            safe_legacy = urllib.parse.quote(legacy_search_term)
+            params += f"&legacy_term={safe_legacy}"
+        
         from fastapi import Response
         return Response(status_code=200, headers={"HX-Redirect": f"{target_url}{params}"})
 
@@ -592,6 +644,7 @@ async def cancelar_oportunidad(
 async def get_paso3_email_form(
     request: Request,
     id_oportunidad: UUID,
+    legacy_term: Optional[str] = None,  # Captura del término legacy desde la URL
     conn = Depends(get_db_connection)
 ):
     """Muestra el formulario final de envío de correo (Paso 3)."""
@@ -735,6 +788,7 @@ async def get_paso3_email_form(
             "sitios": sitios_rows,
             "editable": editable,              # Basado en BD, no hardcoded
             "is_followup": es_seguimiento,     # NUEVO: indica si es seguimiento
+            "legacy_term": legacy_term,        # PUENTE: Término legacy para homologación
             "fixed_to": fixed_to,
             "fixed_cc": fixed_cc,
             # Contexto necesario para base.html en Full Load
