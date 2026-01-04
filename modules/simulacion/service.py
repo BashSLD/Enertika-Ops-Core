@@ -341,7 +341,7 @@ class SimulacionService:
         Recupera lista filtrada de oportunidades con permisos y paginación.
         Limitado a 30 registros por defecto para el módulo de simulación.
         """
-        user_id = user_context.get("user_id")
+        user_id = user_context.get("user_db_id")  # CORREGIDO: era "user_id"
         role = user_context.get("role", "USER")
         
         logger.debug(f"Consultando oportunidades - Tab: {tab}, Filtro: {q}, Usuario: {user_id}")
@@ -440,12 +440,8 @@ class SimulacionService:
             params.append(f"%{q}%")
             param_idx += 1
 
-        # Filtro de seguridad (solo ADMIN, MANAGER, DIRECTOR ven todo)
-        roles_sin_restriccion = ['MANAGER', 'ADMIN', 'DIRECTOR']
-        if role not in roles_sin_restriccion:
-            query += f" AND o.creado_por_id = ${param_idx}"
-            params.append(user_id)
-            param_idx += 1
+        # MÓDULO SIMULACIÓN: Todos pueden ver todas las oportunidades (sin filtro por usuario)
+        # A diferencia del módulo comercial, aquí se requiere visibilidad total para colaboración
 
         query += " ORDER BY o.fecha_solicitud DESC"
         
@@ -460,19 +456,14 @@ class SimulacionService:
     async def get_dashboard_stats(self, conn, user_context: dict) -> dict:
         """
         Calcula KPIs y datos para gráficos del Dashboard Simulación.
+        En simulación: muestra estadísticas GLOBALES (todas las oportunidades).
         """
-        user_id = user_context.get("user_id")
-        role = user_context.get("role", "USER")
+        # MÓDULO SIMULACIÓN: Estadísticas globales (sin filtro por usuario)
+        # A diferencia del módulo comercial, aquí todos ven las mismas métricas
         
-        # Filtros de Seguridad
+        # Filtro base
         params = []
         conditions = ["o.email_enviado = true"]
-        
-        roles_sin_restriccion = ['MANAGER', 'ADMIN', 'DIRECTOR']
-        if role not in roles_sin_restriccion:
-            conditions.append(f"o.creado_por_id = ${len(params)+1}")
-            params.append(user_id)
-            
         where_str = "WHERE " + " AND ".join(conditions)
         
         # Queries de KPIs

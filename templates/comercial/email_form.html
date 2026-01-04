@@ -60,7 +60,20 @@
             <input type="hidden" name="extra_cc" class="recipients-hidden">
         </div>
 
+        <!-- Prioridad del Correo -->
         <div>
+            <label class="block text-sm font-medium text-gray-700 mb-1">Prioridad del Correo</label>
+            <select name="prioridad"
+                class="w-full rounded-lg border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm">
+                <option value="normal" {{ 'selected' if op.prioridad=='normal' else '' }}>Normal</option>
+                <option value="high" {{ 'selected' if op.prioridad=='high' else '' }}>Alta</option>
+                <option value="low" {{ 'selected' if op.prioridad=='low' else '' }}>Baja</option>
+            </select>
+            <p class="text-xs text-gray-500 mt-1">Puedes cambiar la prioridad antes de enviar</p>
+        </div>
+
+        <div>
+
             <label class="block text-sm font-medium text-gray-700 mb-1">Mensaje</label>
 
             <div id="quill-editor"></div>

@@ -201,6 +201,16 @@
                 transform: rotate(360deg);
             }
         }
+
+        /* HTMX Indicator - Oculto por defecto, visible durante peticiones */
+        .htmx-indicator {
+            display: none;
+        }
+
+        .htmx-request .htmx-indicator,
+        .htmx-request.htmx-indicator {
+            display: flex;
+        }
     </style>
 </head>
 
@@ -471,6 +481,21 @@
             }
         });
     </script>
+
+    <!-- Modal de Loading Global -->
+    <div id="loading-modal"
+        class="htmx-indicator fixed inset-0 z-[9999] flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm"
+        style="display: none;">
+        <div class="bg-white rounded-xl shadow-2xl p-10">
+            <div class="flex flex-col items-center gap-5">
+                <!-- Spinner Corporativo Enertika -->
+                <div class="spinner-enertika"></div>
+                <!-- Texto -->
+                <span class="text-lg font-medium text-gray-700">Procesando solicitud...</span>
+                <p class="text-sm text-gray-500">Por favor espera un momento</p>
+            </div>
+        </div>
+    </div>
 
     <!-- Contenedor global para toasts flotantes -->
     <div id="global-toast-container" class="fixed top-5 right-5 z-50"></div>

@@ -406,7 +406,7 @@ class ComercialService:
 
     async def get_oportunidades_list(self, conn, user_context: dict, tab: str = "activos", q: str = None, limit: int = 15, subtab: str = None) -> List[dict]:
         """Recupera lista filtrada de oportunidades con permisos y paginación."""
-        user_id = user_context.get("user_id")
+        user_id = user_context.get("user_db_id")  # CORREGIDO: era "user_id"
         role = user_context.get("role", "USER")
         
         logger.debug(f"Consultando oportunidades - Tab: {tab}, Filtro: {q}, Usuario: {user_id}")
@@ -549,9 +549,12 @@ class ComercialService:
         op_id_estandar_new = f"OP - {timestamp_id}"
         deadline = await self.calcular_deadline_inicial(conn, await self.get_current_datetime_mx(conn))
         
-        # Título heredado: obtener nombre del catálogo para compatibilidad
+        # Obtener datos completos para construir título igual que en creación inicial
         nombre_tipo = await conn.fetchval("SELECT nombre FROM tb_cat_tipos_solicitud WHERE id = $1", id_tipo_solicitud)
-        titulo_new = f"{nombre_tipo}_{parent['cliente_nombre']}_{parent['nombre_proyecto']}".upper()
+        nombre_tec = await conn.fetchval("SELECT nombre FROM tb_cat_tecnologias WHERE id = $1", parent['id_tecnologia'])
+        
+        # Título completo con el MISMO formato que la creación inicial (línea 344)
+        titulo_new = f"{nombre_tipo}_{parent['cliente_nombre']}_{parent['nombre_proyecto']}_{nombre_tec}_{parent['canal_venta']}".upper()
 
         # CORRECCIÓN: Usar id_tipo_solicitud (INTEGER) en lugar de tipo_solicitud (TEXT)
         query_insert = """
@@ -616,7 +619,7 @@ class ComercialService:
         """
         Calcula KPIs y datos para gráficos del Dashboard Comercial.
         """
-        user_id = user_context.get("user_id")
+        user_id = user_context.get("user_db_id")  # CORREGIDO: era "user_id"
         role = user_context.get("role", "USER")
         
         # 1. Filtros de Seguridad

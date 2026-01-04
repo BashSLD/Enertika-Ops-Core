@@ -99,6 +99,12 @@
                                     class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-32">
                                     Detalles
                                 </th>
+                                {% if current_tab == 'historial' %}
+                                <th scope="col"
+                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-20">
+                                    Acciones
+                                </th>
+                                {% endif %}
                             </tr>
                         </thead>
                         <tbody class="bg-white divide-y divide-gray-200">
@@ -107,8 +113,9 @@
                             if op.prioridad == 'high' else 'border-[#00BABB]') %}
                             {% set animation_delay = 'style="animation-delay: ' ~ (loop.index0 * 20 if loop.index0 < 10
                                 else 200) ~ 'ms"' %} <!-- Fila principal con Alpine.js -->
-                                <tr x-data="{ confirmDelete: false }"
+                                <tr x-data="{ menuOpen: false, menuX: 0, menuY: 0 }"
                                     @click="$dispatch('row-selected', '{{ op.id_oportunidad }}')"
+                                    @menu-opened.window="if ($event.detail !== '{{ op.id_oportunidad }}') menuOpen = false"
                                     :class="{ 'bg-blue-50 ring-2 ring-blue-400': isSelected('{{ op.id_oportunidad }}') }"
                                     class="hover:bg-gray-50 transition-all duration-200 border-l-4 {{ prioridad_color }} hover:shadow-md animate-fade-in-up cursor-pointer"
                                     {{ animation_delay|safe }}>
@@ -373,105 +380,217 @@
 
                                         </div>
 
-                                        <!-- Menú Kebab con Confirmación Alpine.js (Solo Historial) -->
-                                        {% if current_tab == 'historial' %}
-                                        <div class="absolute top-2 right-2" @click.stop>
-                                            <div class="relative" x-data="{ menuOpen: false }">
-                                                <button @click="menuOpen = !menuOpen"
-                                                    class="list-none cursor-pointer text-gray-400 hover:text-gray-600 p-1">
-                                                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5"
-                                                        viewBox="0 0 20 20" fill="currentColor">
-                                                        <path
-                                                            d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-                                                    </svg>
-                                                </button>
 
-                                                <!-- Menú Kebab con Confirmación Visual -->
-                                                <div x-show="menuOpen" x-transition @click.outside="menuOpen = false"
-                                                    class="absolute right-0 mt-2 w-64 bg-white rounded-md shadow-xl py-1 z-50 border border-gray-200 text-left">
+                                    </td>
 
-                                                    <!-- Confirmación de Eliminación (Ejemplo) -->
-                                                    <div x-show="!confirmDelete">
-                                                        <form
-                                                            hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
-                                                            hx-target="#main-content" hx-swap="innerHTML" class="block">
-                                                            <input type="hidden" name="tipo_solicitud"
-                                                                value="ACTUALIZACION">
-                                                            <input type="hidden" name="prioridad" value="high">
-                                                            <button type="submit"
-                                                                class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-2 transition-colors">
-                                                                <svg class="w-4 h-4" fill="none" stroke="currentColor"
-                                                                    viewBox="0 0 24 24">
-                                                                    <path stroke-linecap="round" stroke-linejoin="round"
-                                                                        stroke-width="2"
-                                                                        d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                                                </svg>
-                                                                <span>Solicitar Actualización</span>
-                                                            </button>
-                                                        </form>
+                                    <!-- COL 7: Acciones (Solo Historial) -->
+                                    {% if current_tab == 'historial' %}
+                                    <td class="px-4 py-4 text-center" @click.stop>
+                                        <!-- Contenedor con Auto-posicionamiento Inteligente -->
+                                        <div x-data="{ 
+                            menuOpen: false, 
+                            menuX: 0, 
+                            menuY: 0,
+                            
+                            openMenu(buttonEl) {
+                                this.menuOpen = !this.menuOpen;
+                                if (!this.menuOpen) return;
+                                
+                                this.$dispatch('menu-opened', '{{ op.id_oportunidad }}');
+                                
+                                const rect = buttonEl.getBoundingClientRect();
+                                const menuWidth = 264;
+                                const viewportWidth = window.innerWidth;
+                                const viewportHeight = window.innerHeight;
+                                const padding = 16;
+                                
+                                // Auto-posicionamiento horizontal
+                                const spaceLeft = rect.left;
+                                const spaceRight = viewportWidth - rect.right;
+                                
+                                if (spaceLeft >= menuWidth + padding) {
+                                    // Abrir a la izquierda
+                                    this.menuX = rect.left - menuWidth;
+                                } else if (spaceRight >= menuWidth + padding) {
+                                    // Abrir a la derecha
+                                    this.menuX = rect.right;
+                                } else {
+                                    // Centrar debajo del botón
+                                    this.menuX = Math.max(padding, rect.left - (menuWidth / 2));
+                                }
+                                
+                                // Limitar a viewport horizontalmente
+                                this.menuX = Math.max(padding, Math.min(this.menuX, viewportWidth - menuWidth - padding));
+                                
+                                // Posición vertical (debajo del botón)
+                                this.menuY = rect.bottom + 4;
+                                
+                                // Si se sale por abajo, abrirlo arriba
+                                const menuEstimatedHeight = 250;
+                                if (this.menuY + menuEstimatedHeight > viewportHeight) {
+                                    this.menuY = rect.top - menuEstimatedHeight - 4;
+                                }
+                            }
+                        }" @menu-opened.window="if ($event.detail !== '{{ op.id_oportunidad }}') menuOpen = false">
 
-                                                        <form
-                                                            hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
-                                                            hx-target="#main-content" hx-swap="innerHTML" class="block">
-                                                            <input type="hidden" name="tipo_solicitud"
-                                                                value="SOLICITUD DE LEVANTAMIENTO">
-                                                            <input type="hidden" name="prioridad" value="normal">
-                                                            <button type="submit"
-                                                                class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 flex items-center gap-2 transition-colors">
-                                                                <span>👷</span>
-                                                                <span>Solicitar Levantamiento</span>
-                                                            </button>
-                                                        </form>
+                                            <!-- Botón Kebab -->
+                                            <button @click="openMenu($el)"
+                                                class="flex items-center justify-center w-9 h-9 mx-auto rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-all duration-200 hover:shadow-md">
+                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6"
+                                                    viewBox="0 0 20 20" fill="currentColor">
+                                                    <path
+                                                        d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                                                </svg>
+                                            </button>
 
-                                                        <form
-                                                            hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
-                                                            hx-target="#main-content" hx-swap="innerHTML" class="block">
-                                                            <input type="hidden" name="tipo_solicitud"
-                                                                value="COTIZACION">
-                                                            <input type="hidden" name="prioridad" value="high">
-                                                            <button type="submit"
-                                                                class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-2 transition-colors">
-                                                                <span>💰</span>
-                                                                <span>Solicitar Cotización</span>
-                                                            </button>
-                                                        </form>
+                                            <!-- Menú Dropdown con Posicionamiento Inteligente -->
+                                            <div x-show="menuOpen" x-transition:enter="transition ease-out duration-100"
+                                                x-transition:enter-start="opacity-0 scale-95"
+                                                x-transition:enter-end="opacity-100 scale-100"
+                                                x-transition:leave="transition ease-in duration-75"
+                                                x-transition:leave-start="opacity-100 scale-100"
+                                                x-transition:leave-end="opacity-0 scale-95"
+                                                @click.outside="menuOpen = false"
+                                                :style="`position: fixed; top: ${menuY}px; left: ${menuX}px;`"
+                                                class="w-64 bg-white rounded-lg shadow-2xl py-2 z-[9999] text-left border border-gray-100"
+                                                style="box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);">
 
-                                                        <hr class="my-1">
+                                                <!-- Opción 1: Solicitar Actualización -->
+                                                <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
+                                                    hx-target="#main-content" hx-swap="innerHTML"
+                                                    hx-disabled-elt="find button" hx-indicator="#loading-modal"
+                                                    class="block">
+                                                    <input type="hidden" name="tipo_solicitud" value="ACTUALIZACION">
+                                                    <input type="hidden" name="prioridad" value="high">
 
-                                                        <!-- Botón Eliminar (muestra confirmación) -->
-                                                        <button @click="confirmDelete = true"
-                                                            class="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-red-50 flex items-center gap-2 transition-colors">
-                                                            <svg class="w-4 h-4" fill="none" stroke="currentColor"
+                                                    <button type="submit" x-data="{ loading: false }"
+                                                        @htmx:before-request.window="if($event.detail.elt.contains($el)) loading = true"
+                                                        :disabled="loading"
+                                                        class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-3 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+
+                                                        <span x-show="!loading" class="flex items-center gap-3 w-full">
+                                                            <svg class="w-5 h-5" fill="none" stroke="currentColor"
                                                                 viewBox="0 0 24 24">
                                                                 <path stroke-linecap="round" stroke-linejoin="round"
                                                                     stroke-width="2"
-                                                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                                                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                                                             </svg>
-                                                            <span>Eliminar Oportunidad</span>
-                                                        </button>
-                                                    </div>
+                                                            <span>Solicitar Actualización</span>
+                                                        </span>
 
-                                                    <!-- Panel de Confirmación -->
-                                                    <div x-show="confirmDelete" x-transition class="p-4">
-                                                        <p class="text-sm text-gray-700 mb-3 font-semibold">¿Seguro que
-                                                            deseas eliminar esta oportunidad?</p>
-                                                        <div class="flex gap-2">
-                                                            <button hx-delete="/comercial/{{ op.id_oportunidad }}"
-                                                                hx-target="closest tr" hx-swap="outerHTML swap:1s"
-                                                                class="flex-1 bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded text-xs font-medium transition">
-                                                                Sí, eliminar
-                                                            </button>
-                                                            <button @click="confirmDelete = false"
-                                                                class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 px-3 py-1.5 rounded text-xs font-medium transition">
-                                                                Cancelar
-                                                            </button>
-                                                        </div>
-                                                    </div>
-                                                </div>
+                                                        <span x-show="loading" class="flex items-center gap-3 w-full">
+                                                            <svg class="animate-spin h-5 w-5 text-[#00BABB]"
+                                                                xmlns="http://www.w3.org/2000/svg" fill="none"
+                                                                viewBox="0 0 24 24">
+                                                                <circle class="opacity-25" cx="12" cy="12" r="10"
+                                                                    stroke="currentColor" stroke-width="4"></circle>
+                                                                <path class="opacity-75" fill="currentColor"
+                                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                                                </path>
+                                                            </svg>
+                                                            <span
+                                                                class="text-[#00BABB] font-medium">Procesando...</span>
+                                                        </span>
+                                                    </button>
+                                                </form>
+
+                                                <!-- Opción 2: Solicitar Levantamiento -->
+                                                <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
+                                                    hx-target="#main-content" hx-swap="innerHTML"
+                                                    hx-disabled-elt="find button" hx-indicator="#loading-modal"
+                                                    class="block">
+                                                    <input type="hidden" name="tipo_solicitud"
+                                                        value="SOLICITUD DE LEVANTAMIENTO">
+                                                    <input type="hidden" name="prioridad" value="normal">
+
+                                                    <button type="submit" x-data="{ loading: false }"
+                                                        @htmx:before-request.window="if($event.detail.elt.contains($el)) loading = true"
+                                                        :disabled="loading"
+                                                        class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 flex items-center gap-3 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+
+                                                        <span x-show="!loading" class="flex items-center gap-3 w-full">
+                                                            <svg class="w-5 h-5" fill="none" stroke="currentColor"
+                                                                viewBox="0 0 24 24">
+                                                                <path stroke-linecap="round" stroke-linejoin="round"
+                                                                    stroke-width="2"
+                                                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                            </svg>
+                                                            <span>Solicitar Levantamiento</span>
+                                                        </span>
+
+                                                        <span x-show="loading" class="flex items-center gap-3 w-full">
+                                                            <svg class="animate-spin h-5 w-5 text-purple-600"
+                                                                xmlns="http://www.w3.org/2000/svg" fill="none"
+                                                                viewBox="0 0 24 24">
+                                                                <circle class="opacity-25" cx="12" cy="12" r="10"
+                                                                    stroke="currentColor" stroke-width="4"></circle>
+                                                                <path class="opacity-75" fill="currentColor"
+                                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                                                </path>
+                                                            </svg>
+                                                            <span
+                                                                class="text-purple-600 font-medium">Procesando...</span>
+                                                        </span>
+                                                    </button>
+                                                </form>
+
+                                                <!-- Opción 3: Solicitar Cotización -->
+                                                <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
+                                                    hx-target="#main-content" hx-swap="innerHTML"
+                                                    hx-disabled-elt="find button" hx-indicator="#loading-modal"
+                                                    class="block">
+                                                    <input type="hidden" name="tipo_solicitud" value="COTIZACION">
+                                                    <input type="hidden" name="prioridad" value="high">
+
+                                                    <button type="submit" x-data="{ loading: false }"
+                                                        @htmx:before-request.window="if($event.detail.elt.contains($el)) loading = true"
+                                                        :disabled="loading"
+                                                        class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-3 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+
+                                                        <span x-show="!loading" class="flex items-center gap-3 w-full">
+                                                            <svg class="w-5 h-5" fill="none" stroke="currentColor"
+                                                                viewBox="0 0 24 24">
+                                                                <path stroke-linecap="round" stroke-linejoin="round"
+                                                                    stroke-width="2"
+                                                                    d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                                            </svg>
+                                                            <span>Solicitar Cotización</span>
+                                                        </span>
+
+                                                        <span x-show="loading" class="flex items-center gap-3 w-full">
+                                                            <svg class="animate-spin h-5 w-5 text-green-600"
+                                                                xmlns="http://www.w3.org/2000/svg" fill="none"
+                                                                viewBox="0 0 24 24">
+                                                                <circle class="opacity-25" cx="12" cy="12" r="10"
+                                                                    stroke="currentColor" stroke-width="4"></circle>
+                                                                <path class="opacity-75" fill="currentColor"
+                                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                                                </path>
+                                                            </svg>
+                                                            <span
+                                                                class="text-green-600 font-medium">Procesando...</span>
+                                                        </span>
+                                                    </button>
+                                                </form>
+
+                                                <hr class="my-1 border-gray-100">
+
+                                                <!-- Opción Deshabilitada -->
+                                                <button type="button" disabled
+                                                    class="w-full text-left px-4 py-2.5 text-sm text-gray-400 flex items-center gap-3 cursor-not-allowed opacity-50"
+                                                    title="Próximamente disponible">
+                                                    <svg class="w-5 h-5" fill="none" stroke="currentColor"
+                                                        viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round"
+                                                            stroke-width="2"
+                                                            d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                                                    </svg>
+                                                    <span>Confirmar Cierre de Venta</span>
+                                                </button>
                                             </div>
                                         </div>
-                                        {% endif %}
                                     </td>
+                                    {% endif %}
                                 </tr>
 
                                 <!-- Fila Expansible para Sitios (Alpine.js controla visibilidad) -->

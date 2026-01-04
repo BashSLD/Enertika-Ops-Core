@@ -86,7 +86,8 @@
                             </th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Módulos</th>
                             <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Inicio</th>
-                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rol</th>
+                            <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Rol de Sistema
+                            </th>
                             <th class="px-6 py-3 text-right">Acciones</th>
                         </tr>
                     </thead>
@@ -348,7 +349,7 @@
                 tr.className = 'border-b';
                 tr.innerHTML = `
                     <td class="p-2 flex items-center gap-2">
-                        <span class="text-lg">${mod.icono || '📦'}</span> ${mod.nombre}
+                        <i class="${mod.icono || 'bi-box'} text-lg text-[#00BABB]"></i> ${mod.nombre}
                     </td>
                     <td class="p-2">
                         <select name="modulo_${mod.slug}" class="w-full rounded border-gray-300 text-sm">
@@ -435,7 +436,7 @@
                         <thead class="bg-gray-100">
                             <tr>
                                 <th class="p-2 text-left">Módulo</th>
-                                <th class="p-2 text-left">Rol</th>
+                                <th class="p-2 text-left">Rol en Módulo</th>
                             </tr>
                         </thead>
                         <tbody id="modules-list"></tbody>

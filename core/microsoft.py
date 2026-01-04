@@ -87,60 +87,123 @@ class MicrosoftAuth:
 
     # --- LÓGICA DE HILOS ---    
     def find_thread_id(self, access_token: str, search_text: str) -> str:
-        """Busca el ID de un mensaje existente filtrando por asunto (Lógica Power Automate)."""
-        if not access_token or not search_text: return None
+        """
+        Busca el ID del hilo más reciente.
+        CORRECCIONES APLICADAS:
+        1. Sin $filter (incompatible con $search).
+        2. Sin $orderby (incompatible con $search).
+        3. Filtrado de isDraft en Python.
+        4. Ordenamiento por fecha en Python.
+        """
+        if not access_token or not search_text: 
+            return None
 
         headers = self.get_headers(access_token)
-        # Limpieza del texto
         clean_text = search_text.replace('"', '').replace("'", "").strip()
         encoded_search = urllib.parse.quote(clean_text)
         
-        # Query: Busca en 'me/messages', no borradores, ordenado por fecha
-        url = f"https://graph.microsoft.com/v1.0/me/messages?$search=\"subject:{encoded_search}\"&$filter=isDraft eq false&$orderby=receivedDateTime desc&$top=1"
+        # URL FINAL: Sin $filter ni $orderby. Aumentamos top a 50 para asegurar barrido.
+        url = f"https://graph.microsoft.com/v1.0/me/messages?$search=\"{encoded_search}\"&$select=id,subject,conversationId,receivedDateTime,isDraft&$top=50"
         
         try:
             resp = requests.get(url, headers=headers)
             if resp.status_code == 200:
                 data = resp.json()
                 items = data.get("value", [])
-                if items: return items[0]["id"]
-            return None
+                
+                # Lista para guardar candidatos válidos
+                candidatos = []
+
+                # 1. Filtrado en memoria
+                for item in items:
+                    # Ignorar borradores
+                    if item.get("isDraft") is True:
+                        continue
+                    
+                    # Validar texto en asunto
+                    subject = item.get("subject", "") or ""
+                    if clean_text.lower() in subject.lower():
+                        candidatos.append(item)
+                
+                if not candidatos:
+                    print(f"NO se encontró hilo válido con '{clean_text}'")
+                    return None
+
+                # 2. Ordenamiento en memoria (El más reciente primero)
+                # Las fechas ISO 8601 se pueden ordenar como strings directamente
+                candidatos.sort(key=lambda x: x.get("receivedDateTime", ""), reverse=True)
+                
+                # Tomamos el primero (el más reciente)
+                winner = candidatos[0]
+                print(f"HILO ENCONTRADO: {winner['id']} ({winner.get('receivedDateTime')})")
+                return winner["id"]
+
+            else:
+                print(f"Error Graph: {resp.status_code} - {resp.text}")
+                return None
         except Exception as e:
-            print(f"Error buscando hilo: {e}")
+            print(f"Excepción buscando hilo: {e}")
             return None
 
     def reply_with_new_subject(self, access_token, thread_id, new_subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments):
-        """Estrategia 'Reply-Patch-Send': Crea borrador vinculado -> Modifica Asunto -> Envía."""
+        """
+        Crea respuesta, PRESERVA el historial, AGREGA 'Re:' y envía.
+        """
         headers = self.get_headers(access_token)
         
         # 1. Crear Respuesta (Draft vinculado)
+        # Esto genera un borrador que YA contiene el historial del correo anterior (el "thread")
         url_reply = f"https://graph.microsoft.com/v1.0/me/messages/{thread_id}/createReply"
         resp_reply = requests.post(url_reply, headers=headers)
-        if resp_reply.status_code != 201: return False, f"Error creando respuesta: {resp_reply.text}"
+        if resp_reply.status_code != 201: 
+            return False, f"Error creando respuesta: {resp_reply.text}"
             
-        draft_id = resp_reply.json()["id"]
+        draft_data = resp_reply.json()
+        draft_id = draft_data["id"]
         
-        # 2. Modificar Borrador (Inyectar NUEVO Asunto y Destinatarios)
+        # --- CORRECCIÓN 1: RECUPERAR HISTORIAL ---
+        # Obtenemos el HTML que Microsoft generó automáticamente (que tiene el "From:...", "Sent:...", etc.)
+        original_history_html = draft_data.get("body", {}).get("content", "")
+        
+        # Combinamos: Tu mensaje nuevo + Salto de línea + Historial original
+        # Nota: body.replace('\n', '<br>') convierte tus saltos de línea de texto a HTML
+        full_body_html = f"{body.replace(chr(10), '<br>')}<br><br>{original_history_html}"
+
+        # --- CORRECCIÓN 2: AGREGAR "Re:" ---
+        # Si el asunto nuevo no empieza con Re:, se lo agregamos para mantener el estándar visual
+        final_subject = new_subject
+        if not final_subject.upper().startswith("RE:"):
+            final_subject = f"Re: {final_subject}"
+
+        # 2. Modificar Borrador (PATCH)
         patch_payload = {
-            "subject": new_subject,
+            "subject": final_subject,
             "importance": importance,
-            "body": {"contentType": "HTML", "content": body.replace('\n', '<br>')},
+            "body": {
+                "contentType": "HTML", 
+                "content": full_body_html  # <--- Enviamos el cuerpo combinado
+            },
             "toRecipients": [{"emailAddress": {"address": e}} for e in recipients],
             "ccRecipients": [{"emailAddress": {"address": e}} for e in cc_recipients],
             "bccRecipients": [{"emailAddress": {"address": e}} for e in bcc_recipients]
         }
         
         resp_patch = requests.patch(f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}", headers=headers, json=patch_payload)
-        if resp_patch.status_code != 200: return False, f"Error actualizando borrador: {resp_patch.text}"
+        if resp_patch.status_code != 200: 
+            return False, f"Error actualizando borrador: {resp_patch.text}"
 
-        # 2.5 Subir Adjuntos (Reutilizamos lógica existente si hay adjuntos)
+        # 3. Subir Adjuntos (si existen)
         if attachments:
             for f in attachments:
                 self._upload_session(headers, draft_id, f)
 
-        # 3. Enviar
+        # 4. Enviar
         resp_send = requests.post(f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}/send", headers=headers)
-        return (True, "Enviado (Hilo Continuado)") if resp_send.status_code == 202 else (False, resp_send.text)
+        
+        if resp_send.status_code == 202:
+            return True, "Enviado (Historial preservado)"
+        else:
+            return False, resp_send.text
 
 
     # --- Envío de Correos (Híbrido) ---

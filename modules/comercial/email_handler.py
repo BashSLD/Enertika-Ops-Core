@@ -110,8 +110,18 @@ class EmailHandler:
         )
         
         # 6. Enviar correo (con o sin hilo)
-        prioridad_bd = row.get('prioridad') or "normal"
+        # CAMBIO IMPORTANTE: Usamos la prioridad del FORMULARIO, no de la BD
+        # Esto permite al usuario cambiar la prioridad al enviar seguimientos
+        prioridad_envio = form_data.get("prioridad") or "normal"
         subject = form_data.get("subject", "")
+        
+        # Actualizar prioridad en BD si cambió
+        await conn.execute(
+            "UPDATE tb_oportunidades SET prioridad = $1 WHERE id_oportunidad = $2",
+            prioridad_envio,
+            id_oportunidad
+        )
+        logger.info(f"Prioridad actualizada a '{prioridad_envio}' para OP {row.get('op_id_estandar')}")
         
         envio_result = await self._enviar_con_hilos(
             conn,
@@ -123,7 +133,7 @@ class EmailHandler:
             recipients_list,
             cc_list,
             bcc_list,
-            prioridad_bd,
+            prioridad_envio,
             adjuntos_procesados
         )
         
@@ -131,6 +141,7 @@ class EmailHandler:
             return (False, self._manejar_error_envio(request, envio_result["error"]))
         
         # 7. Marcar como enviado y retornar éxito
+
         await service.update_email_status(conn, id_oportunidad)
         
         success_response = templates.TemplateResponse(
@@ -275,25 +286,54 @@ class EmailHandler:
         prioridad: str,
         attachments: List[dict]
     ) -> Dict:
-        """Envía correo nuevo o responde a hilo existente."""
+        """
+        Envía correo nuevo o responde a hilo existente.
         
-        # Determinar clave de búsqueda para hilos
+        Lógica:
+        - Si tiene parent_id: Busca hilo usando título del PADRE
+        - Si NO tiene parent_id: No busca hilo (es nuevo)
+        - Siempre envía con el título ACTUAL
+        """
+        
+        # Determinar si debe buscar hilo existente
+        search_key = None
+        
         if row.get('parent_id'):
+            # Es seguimiento: buscar por título del padre
             search_key = await conn.fetchval(
                 "SELECT titulo_proyecto FROM tb_oportunidades WHERE id_oportunidad = $1",
                 row['parent_id']
             )
-            if not search_key:
-                search_key = row.get('titulo_proyecto')
+            logger.info(
+                f"SEGUIMIENTO detectado para '{row.get('op_id_estandar')}' | "
+                f"Buscando hilo del padre: '{search_key}'"
+            )
         else:
-            search_key = row.get('titulo_proyecto')
+            # Es envío inicial: no buscar hilo previo
+            logger.info(
+                f"ENVÍO INICIAL para '{row.get('op_id_estandar')}' | "
+                f"No se buscará hilo previo"
+            )
         
-        # Buscar hilo existente
-        thread_id = ms_auth.find_thread_id(access_token, search_key)
+        # Buscar hilo existente (solo si es seguimiento)
+        thread_id = None
+        if search_key:
+            thread_id = ms_auth.find_thread_id(access_token, search_key)
+            
+            if thread_id:
+                logger.info(
+                    f"HILO ENCONTRADO | ID: {thread_id[:20]}... | "
+                    f"Se responderá con nuevo título: '{subject}'"
+                )
+            else:
+                logger.warning(
+                    f"HILO NO ENCONTRADO | Búsqueda: '{search_key}' | "
+                    f"Se enviará como correo nuevo"
+                )
         
+        # Enviar correo
         if thread_id:
-            # Responder a hilo
-            logger.info(f"REPLY - Hilo encontrado ({thread_id[:10]}...). Respondiendo a '{search_key}'.")
+            # Responder a hilo existente
             ok, msg = ms_auth.reply_with_new_subject(
                 access_token=access_token,
                 thread_id=thread_id,
@@ -305,9 +345,9 @@ class EmailHandler:
                 importance=prioridad.lower(),
                 attachments=attachments
             )
+            logger.info(f"Correo enviado como RESPUESTA en hilo existente")
         else:
             # Enviar correo nuevo
-            logger.info(f"Hilo no encontrado para '{search_key}'. Enviando correo nuevo.")
             ok, msg = ms_auth.send_email_with_attachments(
                 access_token=access_token,
                 subject=subject,
@@ -318,6 +358,7 @@ class EmailHandler:
                 importance=prioridad.lower(),
                 attachments_files=attachments
             )
+            logger.info(f"Correo enviado como NUEVO (sin hilo previo)")
         
         return {"success": ok, "error": msg if not ok else None}
     
