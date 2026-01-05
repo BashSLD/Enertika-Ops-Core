@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, time as dt_time
 from uuid import UUID, uuid4
-from typing import List, Optional
+from typing import List, Optional, Tuple
 import json
 import logging
 import asyncpg
@@ -8,6 +8,9 @@ from fastapi import HTTPException
 from zoneinfo import ZoneInfo
 import pandas as pd
 import io
+import re
+from openpyxl import load_workbook
+from .schemas import SitioImportacion
 
 logger = logging.getLogger("ComercialModule")
 
@@ -906,6 +909,219 @@ class ComercialService:
                 bess_data['objetivos_json'] = []
         
         return bess_data
+
+    # --- NUEVOS MÉTODOS MIGRADOS DEL ROUTER (Refactorización) ---
+
+    async def get_data_for_email_form(self, conn, id_oportunidad: UUID) -> dict:
+        """
+        Prepara TODOS los datos necesarios para el formulario de correo (Paso 3).
+        Incluye lógica de reglas de negocio (triggers) para TO/CC automáticos.
+        """
+        # 1. Query Principal con Joins
+        row = await conn.fetchrow(
+            """SELECT o.*, 
+                    tec.nombre as tipo_tecnologia,
+                    tipo_sol.nombre as tipo_solicitud,
+                    tipo_sol.es_seguimiento,
+                    eg.nombre as status_global,
+                    db.cargas_criticas_kw,
+                    db.tiene_motores,
+                    db.potencia_motor_hp,
+                    db.tiempo_autonomia,
+                    db.voltaje_operacion,
+                    db.cargas_separadas,
+                    db.objetivos_json,
+                    db.tiene_planta_emergencia
+            FROM tb_oportunidades o
+            LEFT JOIN tb_cat_tecnologias tec ON o.id_tecnologia = tec.id
+            LEFT JOIN tb_cat_tipos_solicitud tipo_sol ON o.id_tipo_solicitud = tipo_sol.id
+            LEFT JOIN tb_cat_estatus_global eg ON o.id_estatus_global = eg.id
+            LEFT JOIN tb_detalles_bess db ON o.id_oportunidad = db.id_oportunidad
+            WHERE o.id_oportunidad = $1""", 
+            id_oportunidad
+        )
+        if not row:
+            return None
+
+        # 2. Sitios
+        sitios_rows = await conn.fetch("SELECT * FROM tb_sitios_oportunidad WHERE id_oportunidad = $1 ORDER BY nombre_sitio", id_oportunidad)
+        
+        # 3. Lógica de Defaults y Reglas
+        defaults_row = await conn.fetchrow("SELECT * FROM tb_email_defaults WHERE id = 1")
+        def_to = (defaults_row['default_to'] or "").replace(";", ",").split(",") if defaults_row else []
+        def_cc = (defaults_row['default_cc'] or "").replace(";", ",").split(",") if defaults_row else []
+        
+        fixed_to = [d.strip() for d in def_to if d.strip()] 
+        fixed_cc = [d.strip() for d in def_cc if d.strip()]
+
+        # Reglas dinámicas (Triggers)
+        rules = await conn.fetch("SELECT * FROM tb_config_emails WHERE modulo = 'COMERCIAL'")
+        
+        FIELD_MAPPING = {
+            "Tecnología": "id_tecnologia",
+            "Tipo Solicitud": "id_tipo_solicitud",
+            "Estatus": "id_estatus_global",
+            "Cliente": "cliente_nombre"
+        }
+
+        for rule in rules:
+            field_admin = rule['trigger_field']
+            val_trigger = str(rule['trigger_value']).strip().upper()
+            db_key = FIELD_MAPPING.get(field_admin, field_admin)
+            val_actual = row.get(db_key)
+            
+            match = False
+            if field_admin == "Cliente":
+                if val_trigger in str(val_actual or "").upper(): match = True
+            else:
+                if str(val_actual or "") == val_trigger: match = True
+            
+            if match:
+                email = rule['email_to_add']
+                if rule['type'] == 'TO':
+                    if email not in fixed_to: fixed_to.append(email)
+                else:
+                    if email not in fixed_cc: fixed_cc.append(email)
+
+        # 4. Formatear Objetivos BESS
+        bess_objetivos_str = ""
+        raw_objs = row.get('objetivos_json')
+        if raw_objs:
+            try:
+                if isinstance(raw_objs, list):
+                    bess_objetivos_str = ", ".join(raw_objs)
+                elif isinstance(raw_objs, str):
+                    loaded = json.loads(raw_objs)
+                    if isinstance(loaded, list):
+                        bess_objetivos_str = ", ".join(loaded)
+            except Exception:
+                pass
+
+        return {
+            "op": row,
+            "sitios": sitios_rows,
+            "fixed_to": fixed_to,
+            "fixed_cc": fixed_cc,
+            "bess_objetivos_str": bess_objetivos_str,
+            "has_multisitio_file": (row['cantidad_sitios'] or 0) > 1,
+            "editable": row.get('es_seguimiento', False) and (row['cantidad_sitios'] or 0) > 1,
+            "is_followup": row.get('es_seguimiento', False)
+        }
+
+    async def preview_site_upload(self, conn, file_contents: bytes, id_oportunidad: UUID) -> dict:
+        """
+        Procesa el Excel en memoria y valida estructura/cantidad.
+        Retorna dict con datos para previsualización o raises HTTPException.
+        """
+        # 1. Validar Cantidad Esperada en BD
+        expected_qty = await conn.fetchval(
+            "SELECT cantidad_sitios FROM tb_oportunidades WHERE id_oportunidad = $1", 
+            id_oportunidad
+        )
+        if expected_qty is None:
+            raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
+
+        # 2. Leer Excel
+        try:
+            wb = load_workbook(filename=io.BytesIO(file_contents), data_only=True)
+            ws = wb.active
+            headers = [str(cell.value).strip().upper() for cell in ws[1] if cell.value]
+            
+            full_data_list = []
+            preview_rows = []
+            
+            for row in ws.iter_rows(min_row=2, values_only=True):
+                row_data = dict(zip(headers, row))
+                if not any(row_data.values()): continue
+                
+                clean_data = {k: (v if v is not None else "") for k, v in row_data.items()}
+                preview_rows.append(list(clean_data.values()))
+                full_data_list.append(clean_data)
+                
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Error leyendo Excel: {str(e)}")
+
+        # 3. Validaciones de Negocio
+        cols_req = ["NOMBRE", "DIRECCION"]
+        if not all(col in headers for col in cols_req):
+            missing = ", ".join([c for c in cols_req if c not in headers])
+            raise HTTPException(status_code=400, detail=f"Faltan columnas: {missing}")
+
+        if len(full_data_list) != expected_qty:
+            raise HTTPException(status_code=400, detail=f"Cantidad incorrecta. Esperados: {expected_qty}, Encontrados: {len(full_data_list)}")
+
+        return {
+            "columns": headers,
+            "preview_rows": preview_rows,
+            "total_rows": len(full_data_list),
+            "json_data": json.dumps(full_data_list, default=str)
+        }
+
+    async def confirm_site_upload(self, conn, id_oportunidad: UUID, json_data: str) -> int:
+        """Deserializa JSON, valida y realiza INSERT masivo."""
+        try:
+            raw_data = json.loads(json_data)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="JSON corrupto")
+
+        # Limpiar anteriores
+        await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
+
+        records = []
+        for item in raw_data:
+            try:
+                # Usar Schema Pydantic para validación
+                sitio = SitioImportacion(**item)
+                records.append((
+                    uuid4(), id_oportunidad, sitio.nombre_sitio, sitio.direccion,
+                    sitio.tipo_tarifa, sitio.google_maps_link, sitio.numero_servicio, sitio.comentarios
+                ))
+            except Exception as e:
+                logger.warning(f"Saltando fila inválida: {e}")
+                continue
+
+        if records:
+            q = """INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios) 
+                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"""
+            await conn.executemany(q, records)
+        
+        return len(records)
+
+    async def delete_sitio(self, conn, id_sitio: UUID):
+        """Elimina un sitio específico."""
+        await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_sitio = $1", id_sitio)
+
+    # --- MÉTODOS DE LIMPIEZA DE DEUDA TÉCNICA ---
+
+    async def get_sitios_simple(self, conn, id_oportunidad: UUID) -> List[dict]:
+        """Obtiene lista simple de sitios para la UI (Partial)."""
+        rows = await conn.fetch(
+            "SELECT * FROM tb_sitios_oportunidad WHERE id_oportunidad = $1 ORDER BY id_sitio",
+            id_oportunidad
+        )
+        return [dict(r) for r in rows]
+
+    async def auto_crear_sitio_unico(self, conn, id_oportunidad: UUID, nombre: str, direccion: str, link: Optional[str]):
+        """Crea automáticamente el registro de sitio para flujos de un solo sitio."""
+        try:
+            await conn.execute("""
+                INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link)
+                VALUES ($1, $2, $3, $4, $5)
+            """, uuid4(), id_oportunidad, nombre, direccion, link)
+        except Exception as e:
+            logger.error(f"Error auto-creando sitio único: {e}")
+
+    async def marcar_extraordinaria_enviada(self, conn, id_oportunidad: UUID):
+        """Marca una solicitud extraordinaria como 'enviada' sin mandar correo real."""
+        await conn.execute("""
+            UPDATE tb_oportunidades SET email_enviado = TRUE WHERE id_oportunidad = $1
+        """, id_oportunidad)
+
+    async def cancelar_oportunidad(self, conn, id_oportunidad: UUID):
+        """Elimina de forma transaccional una oportunidad y sus sitios."""
+        async with conn.transaction():
+            await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
+            await conn.execute("DELETE FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
 
 # Helper para inyección de dependencias
 def get_comercial_service():

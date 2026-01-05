@@ -11,7 +11,7 @@ import asyncpg
 OUTPUT_FILE = "DB_SCHEMA_SNAPSHOT.md"
 
 async def inspect():
-    print(f"🔍 Conectando a Base de Datos...") 
+    print(f"Conectando a Base de Datos...") 
     
     try:
         conn = await asyncpg.connect(settings.DB_URL_ASYNC)
@@ -24,14 +24,14 @@ async def inspect():
             ORDER BY table_name
         """)
         
-        md_content = "# 📸 Radiografía de Base de Datos (Snapshot)\n\n"
+        md_content = "# Radiografía de Base de Datos (Snapshot)\n\n"
         md_content += f"**Generado el:** {asyncio.get_event_loop().time()}\n\n"
         
-        print(f"✅ Se encontraron {len(tables)} tablas.")
+        print(f"Se encontraron {len(tables)} tablas.")
 
         for t in tables:
             t_name = t['table_name']
-            md_content += f"## 📦 Tabla: `{t_name}`\n\n"
+            md_content += f"##Tabla: `{t_name}`\n\n"
             
             # 2. Obtener Columnas
             columns = await conn.fetch("""
@@ -58,11 +58,11 @@ async def inspect():
         with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
             f.write(md_content)
             
-        print(f"🚀 ÉXITO: Esquema guardado en '{OUTPUT_FILE}'")
+        print(f"ÉXITO: Esquema guardado en '{OUTPUT_FILE}'")
         await conn.close()
         
     except Exception as e:
-        print(f"❌ ERROR: {e}")
+        print(f"ERROR: {e}")
 
 if __name__ == "__main__":
     asyncio.run(inspect())

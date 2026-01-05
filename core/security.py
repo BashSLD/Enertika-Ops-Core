@@ -1,5 +1,5 @@
 from fastapi import Request, Depends, HTTPException, status
-from core.database import get_db_connection
+from core.database import get_db_connection, get_db_pool
 from core.config import settings
 from core.microsoft import get_ms_auth  # Para renovación de tokens
 import logging
@@ -15,7 +15,7 @@ async def get_current_user_context(
     Returns a dict with user_name, email, access_token, department, role, etc.
     """
     # 1. Recuperar sesión (cookie)
-    access_token = request.session.get("access_token")
+    # access_token = request.session.get("access_token")  <--- ELIMINADO POR ZOMBIE
     user_email = request.session.get("user_email")
     user_name = request.session.get("user_name", "Usuario")
     
@@ -136,7 +136,7 @@ async def get_current_user_context(
         "email": final_email,
         "is_admin": (role == 'ADMIN'),
         "role": role,
-        "access_token": access_token,
+        # "access_token": access_token,  <--- ELIMINADO DE RESPUESTA
         "department": final_department,
         "modulo_preferido": modulo_preferido,
         "module_roles": module_roles,  # Nueva: Dict {slug: rol}
@@ -153,58 +153,53 @@ async def get_valid_graph_token(request: Request):
         return None
 
     # 2. Conectar a BD para buscar los tokens reales
-    # Nota: Instanciamos la conexión manualmente porque esto no es un endpoint
-    import asyncpg
-    from core.config import settings
-    
+    # 2. Obtener pool global
     try:
-        # Conexión rápida solo para verificar token
-        conn = await asyncpg.connect(settings.DB_URL_ASYNC)
-        
-        row = await conn.fetchrow("""
-            SELECT access_token, refresh_token, token_expires_at 
-            FROM tb_usuarios WHERE email = $1
-        """, user_email)
-        
-        await conn.close()
-        
-        if not row:
-            return None
+        pool = await get_db_pool()
+
+        # 3. Usar conexión del pool con context manager
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT access_token, refresh_token, token_expires_at 
+                FROM tb_usuarios WHERE email = $1
+            """, user_email)
             
-        access_token = row['access_token']
-        refresh_token = row['refresh_token']
-        expires_at = row['token_expires_at'] or 0
-        
-        # 3. Lógica de Renovación (Igual que antes)
-        now = time.time()
-        margin = 300 
-        
-        if now >= (expires_at - margin):
-            if not refresh_token: return None
-            
-            ms_auth = get_ms_auth()
-            new_data = ms_auth.refresh_access_token(refresh_token)
-            
-            if new_data and "access_token" in new_data:
-                # Guardar nuevos tokens en BD
-                new_access = new_data["access_token"]
-                new_refresh = new_data.get("refresh_token", refresh_token) # A veces no cambia
-                new_expires = int(time.time() + new_data.get("expires_in", 3600))
-                
-                conn = await asyncpg.connect(settings.DB_URL_ASYNC)
-                await conn.execute("""
-                    UPDATE tb_usuarios 
-                    SET access_token = $1, refresh_token = $2, token_expires_at = $3
-                    WHERE email = $4
-                """, new_access, new_refresh, new_expires, user_email)
-                await conn.close()
-                
-                return new_access
-            else:
+            if not row:
                 return None
                 
-        return access_token
+            access_token = row['access_token']
+            refresh_token = row['refresh_token']
+            expires_at = row['token_expires_at'] or 0
+            
+            # 4. Lógica de Renovación con MSAL
+            now = time.time()
+            margin = 300 
+            
+            if now >= (expires_at - margin):
+                if not refresh_token: return None
+                
+                ms_auth = get_ms_auth()
+                new_data = ms_auth.refresh_access_token(refresh_token)
+                
+                if new_data and "access_token" in new_data:
+                    # Guardar nuevos tokens en BD (misma conexión)
+                    new_access = new_data["access_token"]
+                    new_refresh = new_data.get("refresh_token", refresh_token) 
+                    new_expires = int(time.time() + new_data.get("expires_in", 3600))
+                    
+                    await conn.execute("""
+                        UPDATE tb_usuarios 
+                        SET access_token = $1, refresh_token = $2, token_expires_at = $3
+                        WHERE email = $4
+                    """, new_access, new_refresh, new_expires, user_email)
+                    
+                    return new_access
+                else:
+                    return None
+                    
+            return access_token
 
     except Exception as e:
-        print(f"Error en seguridad DB: {e}")
+        # ANTES: print(f"Error en seguridad DB: {e}")
+        logging.error(f"Error crítico renovando token en BD: {e}") # AHORA
         return None

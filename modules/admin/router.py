@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Request, Depends, HTTPException, Form
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, Response
 from core.database import get_db_connection
 from fastapi.templating import Jinja2Templates
 from core.security import get_current_user_context
@@ -63,11 +63,19 @@ async def update_user_role(
     """Actualiza el rol de sistema de un usuario (HTMX)."""
     # Validación: Solo ADMIN/MANAGER pueden cambiar roles
     if context.get("role") not in ["ADMIN", "MANAGER"]:
-        return HTMLResponse("<span class='text-red-600 font-bold'>ERROR: Acceso denegado</span>", status_code=403)
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Acceso Denegado",
+            "message": "No tienes permisos para realizar esta acción."
+        }, status_code=403)
     
     # OK - REFACTORIZADO: Usar service
     await service.update_user_role(conn, user_id, role)
-    return HTMLResponse(f"<span class='text-green-600 font-bold'>Rol actualizado a {role}</span>", status_code=200)
+    return templates.TemplateResponse("admin/partials/messages/success.html", {
+        "request": request,
+        "title": "Actualizado", 
+        "message": f"Rol cambiado a {role}"
+    })
 
 @router.post("/rules/add")
 async def add_email_rule(
@@ -84,15 +92,17 @@ async def add_email_rule(
     """Agrega una nueva regla de correo."""
     # Validación: Solo ADMIN/MANAGER
     if context.get("role") not in ["ADMIN", "MANAGER"]:
-        return HTMLResponse("<div class='bg-red-100 p-2 rounded'>ERROR: Acceso denegado</div>", status_code=403)
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Acceso Denegado",
+            "message": "No tienes permisos para realizar esta acción."
+        }, status_code=403)
     
     # OK - REFACTORIZADO: Usar service
     await service.add_email_rule(conn, modulo, trigger_field, trigger_value, email_to_add, type)
     
-    return HTMLResponse(f"""
-        <div class='bg-green-100 p-2 rounded'>Regla agregada</div>
-        <script>window.location.reload()</script>
-    """, status_code=200)
+    # HTMX detecta este header y recarga la página automáticamente
+    return Response(status_code=200, headers={"HX-Refresh": "true"})
 
 @router.delete("/users/{user_id}")
 async def delete_user(
@@ -155,11 +165,11 @@ async def delete_email_rule(
     """Elimina una regla."""
     # Validación: Solo ADMIN/MANAGER
     if context.get("role") not in ["ADMIN", "MANAGER"]:
-        return HTMLResponse("", status_code=403)
+        return Response(status_code=403)
     
     # OK - REFACTORIZADO: Usar service
     await service.delete_email_rule(conn, id)
-    return HTMLResponse("", status_code=200)
+    return Response(status_code=200)
 
 # --- CONFIG DEFAULT EMAILS (GLOBAL) ---
 @router.post("/defaults/update")
@@ -175,19 +185,20 @@ async def update_email_defaults(
     """Actualiza configuración global de correos (TO, CC, CCO)."""
     # Validación: Solo ADMIN/MANAGER
     if context.get("role") not in ["ADMIN", "MANAGER"]:
-        return HTMLResponse("<div class='bg-red-100 p-2 rounded'>ERROR: Acceso denegado</div>", status_code=403)
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Acceso Denegado",
+            "message": "No tienes permisos para realizar esta acción."
+        }, status_code=403)
     
     # OK - REFACTORIZADO: Usar service
     await service.update_email_defaults(conn, default_to, default_cc, default_cco)
     
-    return HTMLResponse(f"""
-        <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-2 mb-4 animate-fade-in-down" id="defaults-msg">
-            <p class="font-bold">✓ Configuración Actualizada</p>
-        </div>
-        <script>
-            setTimeout(() => document.getElementById('defaults-msg').remove(), 3000);
-        </script>
-    """, status_code=200)
+    return templates.TemplateResponse("admin/partials/messages/success.html", {
+        "request": request,
+        "title": "Configuración Actualizada",
+        "message": "Los correos por defecto se han guardado."
+    })
 
 # --- CONFIGURACIÓN GLOBAL Y REGLAS DINÁMICAS ---
 
@@ -218,10 +229,7 @@ async def get_trigger_options(
         })
     else:
         # Renderizar como Input Text libre
-        return HTMLResponse("""
-            <input type="text" name="trigger_value" required placeholder="Valor exacto..."
-                   class="w-full rounded-lg border-gray-300 focus:ring-[#00BABB] focus:border-[#00BABB]" />
-        """)
+        return templates.TemplateResponse("admin/partials/dynamic_trigger_input.html", {"request": request})
 
 @router.post("/config/global")
 async def update_global_config_endpoint(
@@ -297,6 +305,7 @@ from typing import List
 
 @router.post("/users/{user_id}/department")
 async def update_user_department(
+    request: Request,
     user_id: UUID,
     department_slug: str = Form(...),
     context = Depends(get_current_user_context),
@@ -306,15 +315,18 @@ async def update_user_department(
     """Asigna un departamento a un usuario."""
     # Validación: Solo ADMIN/MANAGER
     if context.get("role") not in ["ADMIN", "MANAGER"]:
-        return HTMLResponse("<span class='text-red-600 font-bold'>ERROR: Acceso denegado</span>", status_code=403)
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Acceso Denegado",
+            "message": "No tienes permisos para realizar esta acción."
+        }, status_code=403)
     
     try:
         # OK - REFACTORIZADO: Usar service
         dept_nombre = await service.update_user_department(conn, user_id, department_slug)
-        return HTMLResponse(
-            f"<span class='text-green-600 font-bold'>Departamento actualizado a {dept_nombre}</span>",
-            status_code=200
-        )
+        return templates.TemplateResponse("admin/partials/messages/success.html", {
+            "request": request, "title": "Actualizado", "message": f"Depto: {dept_nombre}"
+        })
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -329,7 +341,11 @@ async def update_user_modules(
     """Actualiza los módulos y roles asignados a un usuario."""
     # Validación: Solo ADMIN/MANAGER
     if context.get("role") not in ["ADMIN", "MANAGER"]:
-        return HTMLResponse("<span class='text-red-600 font-bold'>ERROR: Acceso denegado</span>", status_code=403)
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Acceso Denegado",
+            "message": "No tienes permisos para realizar esta acción."
+        }, status_code=403)
     
     form_data = await request.form()
     
@@ -344,13 +360,13 @@ async def update_user_modules(
     # OK - REFACTORIZADO: Usar service
     await service.update_user_modules(conn, user_id, module_roles)
     
-    return HTMLResponse(
-        "<span class='text-green-600 font-bold'>Módulos actualizados correctamente</span>",
-        status_code=200
-    )
+    return templates.TemplateResponse("admin/partials/messages/success.html", {
+        "request": request, "title": "Guardado", "message": "Permisos actualizados"
+    })
 
 @router.post("/users/{user_id}/preferred-module")
 async def update_preferred_module(
+    request: Request,
     user_id: UUID,
     modulo_slug: str = Form(...),
     context = Depends(get_current_user_context),
@@ -360,15 +376,18 @@ async def update_preferred_module(
     """Establece el módulo preferido del usuario (a dónde va al login)."""
     # Validación: Solo ADMIN/MANAGER
     if context.get("role") not in ["ADMIN", "MANAGER"]:
-        return HTMLResponse("<span class='text-red-600 font-bold'>ERROR: Acceso denegado</span>", status_code=403)
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Acceso Denegado",
+            "message": "No tienes permisos para realizar esta acción."
+        }, status_code=403)
     
     # OK - REFACTORIZADO: Usar service
     await service.update_preferred_module(conn, user_id, modulo_slug if modulo_slug else None)
     
-    return HTMLResponse(
-        "<span class='text-green-600 font-bold'>Módulo preferido actualizado</span>",
-        status_code=200
-    )
+    return templates.TemplateResponse("admin/partials/messages/success.html", {
+        "request": request, "title": "OK", "message": "Módulo preferido guardado"
+    })
 
 @router.get("/users/{user_id}/modules")
 async def get_user_modules(

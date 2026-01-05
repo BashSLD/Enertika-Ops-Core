@@ -45,16 +45,18 @@ async def callback(
             
         user_email = user_email.lower()
         
-        # 3. GUARDAR EN BASE DE DATOS (Lo pesado va aquí)
-        # Actualizamos el usuario existente con sus nuevos tokens
+        # 3. GUARDAR EN BASE DE DATOS (UPSERT: Insertar o Actualizar)
+        # Esto maneja tanto usuarios nuevos como recurrentes en una sola consulta atómica
         await conn.execute("""
-            UPDATE tb_usuarios 
-            SET access_token = $1, 
-                refresh_token = $2, 
-                token_expires_at = $3,
-                ultimo_login = NOW()
-            WHERE email = $4
-        """, access_token, refresh_token, expires_at, user_email)
+            INSERT INTO tb_usuarios (nombre, email, access_token, refresh_token, token_expires_at, rol_sistema, ultimo_login, is_active) 
+            VALUES ($1, $2, $3, $4, $5, 'USER', NOW(), TRUE)
+            ON CONFLICT (email) DO UPDATE 
+            SET access_token = EXCLUDED.access_token,
+                refresh_token = EXCLUDED.refresh_token,
+                token_expires_at = EXCLUDED.token_expires_at,
+                ultimo_login = NOW(),
+                nombre = COALESCE(tb_usuarios.nombre, EXCLUDED.nombre)
+        """, claims.get("name", "Usuario"), user_email, access_token, refresh_token, expires_at)
         
         # 4. GUARDAR EN SESIÓN (Solo lo ligero)
         # Limpiamos la sesión vieja para evitar basura

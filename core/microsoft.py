@@ -3,7 +3,10 @@ import requests
 import base64
 import urllib.parse
 import re
+import logging
 from .config import settings 
+
+logger = logging.getLogger("MicrosoftGraph") 
 
 class MicrosoftAuth:
     _instance = None
@@ -60,12 +63,12 @@ class MicrosoftAuth:
             )
             
             if "error" in result:
-                print(f"Error renovando token global: {result.get('error_description')}")
+                logger.error(f"Error renovando token global: {result.get('error_description')}")
                 return None
                 
             return result # Retorna el nuevo access_token y refresh_token
         except Exception as e:
-            print(f"Excepción crítica en refresh_token: {e}")
+            logger.error(f"Excepción crítica en refresh_token: {e}")
             return None
 
     # --- Utilidades ---
@@ -83,7 +86,7 @@ class MicrosoftAuth:
                 return resp.json()
             return {}
         except Exception as e:
-            print(f"Error obteniendo perfil: {e}")
+            logger.error(f"Error obteniendo perfil: {e}")
             return {}
 
     # --- LÓGICA DE HILOS ---    
@@ -135,7 +138,7 @@ class MicrosoftAuth:
                         candidatos.append(item)
                 
                 if not candidatos:
-                    print(f"NO se encontró hilo válido con '{clean_text}'")
+                    logger.info(f"NO se encontró hilo válido con '{clean_text}'")
                     return None
 
                 # 2. Ordenamiento en memoria (El más reciente primero)
@@ -144,14 +147,14 @@ class MicrosoftAuth:
                 
                 # Tomamos el primero (el más reciente)
                 winner = candidatos[0]
-                print(f"HILO ENCONTRADO: {winner['id']} ({winner.get('receivedDateTime')})")
+                logger.info(f"HILO ENCONTRADO: {winner['id']} ({winner.get('receivedDateTime')})")
                 return winner["id"]
 
             else:
-                print(f"Error Graph: {resp.status_code} - {resp.text}")
+                logger.error(f"Error Graph: {resp.status_code} - {resp.text}")
                 return None
         except Exception as e:
-            print(f"Excepción buscando hilo: {e}")
+            logger.error(f"Excepción buscando hilo: {e}")
             return None
 
     def reply_with_new_subject(self, access_token, thread_id, new_subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments):
@@ -218,7 +221,7 @@ class MicrosoftAuth:
     # --- Envío de Correos (Híbrido) ---
     def send_email_with_attachments(self, access_token, subject, body, recipients, cc_recipients=None, bcc_recipients=None, importance="normal", attachments_files=None):
         if not access_token:
-            print("Error: Token nulo.")
+            logger.error("Error: Token nulo.")
             return False, "No hay sesión activa"
 
         headers = self.get_headers(access_token)
@@ -236,11 +239,11 @@ class MicrosoftAuth:
         total_size = sum([len(f.get("content_bytes", b"")) for f in attachments_files])
         LIMIT_DIRECT_SEND = 3 * 1024 * 1024  # 3 MB
 
-        print(f"Enviando a: {recipients} | CC: {cc_recipients} | BCC: {bcc_recipients} | Peso: {total_size/1024:.2f} KB")
+        logger.info(f"Enviando a: {recipients} | CC: {cc_recipients} | BCC: {bcc_recipients} | Peso: {total_size/1024:.2f} KB")
 
         # A: Envío Directo (< 3MB)
         if total_size < LIMIT_DIRECT_SEND:
-            print("Modo: Envío Directo (/sendMail)")
+            logger.info("Modo: Envío Directo (/sendMail)")
             attachments_payload = []
             for f in attachments_files:
                 b64 = base64.b64encode(f["content_bytes"]).decode("utf-8")
@@ -269,14 +272,14 @@ class MicrosoftAuth:
                 if res.status_code == 202:
                     return True, "Enviado"
                 else:
-                    print(f"ERROR GRAPH: {res.status_code} - {res.text}")
+                    logger.error(f"ERROR GRAPH: {res.status_code} - {res.text}")
                     return False, f"Error Microsoft: {res.status_code}"
             except Exception as e:
                 return False, str(e)
 
         # B: Envío Pesado (Draft + Upload)
         else:
-            print("Modo: Archivos Grandes (Draft + Upload)")
+            logger.info("Modo: Archivos Grandes (Draft + Upload)")
             return self._send_heavy_email(headers, subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments_files)
 
     def _send_heavy_email(self, headers, subject, body, recipients, cc, bcc, importance, attachments):

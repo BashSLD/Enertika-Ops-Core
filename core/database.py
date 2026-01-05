@@ -1,8 +1,11 @@
 # Archivo: core/database.py (Conexión Asíncrona para FastAPI)
 
 import asyncpg
+import logging
 from core.config import settings
 from typing import Optional
+
+logger = logging.getLogger("Database")
 
 # Almacenamos el pool de conexiones globalmente
 _connection_pool: Optional[asyncpg.Pool] = None
@@ -12,7 +15,7 @@ async def connect_to_db():
     global _connection_pool
     if not _connection_pool:
         try:
-            print("Inicializando conexión a Supabase (asyncpg)...")
+            logger.info("Inicializando conexión a Supabase (asyncpg)...")
             
             _connection_pool = await asyncpg.create_pool(
                 settings.DB_URL_ASYNC,
@@ -20,23 +23,23 @@ async def connect_to_db():
                 max_size=3, # Reducido para evitar error de Supabase
                 timeout=30 # segundos
             )
-            print("Pool de conexiones a Supabase creado exitosamente.")
+            logger.info("Pool de conexiones a Supabase creado exitosamente.")
         except Exception as e: # <-- CAPTURAMOS LA EXCEPCIÓN
-            print("----------------------------------------------------------------")
             import sys
-            print(f"Tipo de Error: {sys.exc_info()[0].__name__}")
-            print(f"Mensaje Detallado: {e!r}")
-            print(f"Stack Trace: {sys.exc_info()[2]}")
-            print("----------------------------------------------------------------")
-            print(f"ERROR CRÍTICO al conectar a Supabase: {e}") # <-- LA IMPRIMIMOS
-            print("----------------------------------------------------------------")
+            logger.error("----------------------------------------------------------------")
+            logger.error(f"Tipo de Error: {sys.exc_info()[0].__name__}")
+            logger.error(f"Mensaje Detallado: {e!r}")
+            logger.error(f"Stack Trace: {sys.exc_info()[2]}")
+            logger.error("----------------------------------------------------------------")
+            logger.error(f"ERROR CRÍTICO al conectar a Supabase: {e}") # <-- LA IMPRIMIMOS
+            logger.error("----------------------------------------------------------------")
             # En producción, forzaríamos un os._exit(1) para detener la app si la DB es crítica.
             
 async def close_db_connection():
     """Cierra el pool de conexiones al apagado de la aplicación (shutdown)."""
     global _connection_pool
     if _connection_pool:
-        print("Cerrando pool de conexiones de Supabase.")
+        logger.info("Cerrando pool de conexiones de Supabase.")
         await _connection_pool.close()
         _connection_pool = None
 
@@ -49,3 +52,10 @@ async def get_db_connection():
     # Usamos pool.acquire() como un gestor de contexto (with), que la libera automáticamente.
     async with _connection_pool.acquire() as conn:
         yield conn
+
+async def get_db_pool():
+    """Retorna el pool global para uso interno (seguridad, tareas, etc)."""
+    global _connection_pool
+    if not _connection_pool:
+        raise Exception("DB Pool no inicializado.")
+    return _connection_pool

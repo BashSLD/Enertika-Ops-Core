@@ -1,29 +1,22 @@
 
 
-from fastapi import APIRouter, Request, Depends, HTTPException, Form, UploadFile, File, status
+from fastapi import APIRouter, Request, Depends, HTTPException, Form, UploadFile, File, status, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from uuid import UUID, uuid4
 from typing import Optional, List
-import pandas as pd  # Solo para generación de Excel (escritura)
 import io
-import json
 import logging
-import asyncpg  # Para manejo específico de excepciones de PostgreSQL
-import re  # Para sanitización de nombres en IDs
-from openpyxl import load_workbook  # Para lectura ligera de Excel
-from datetime import datetime, timedelta, time as dt_time # Keep timedelta and dt_time as they are used later
-
+import pandas as pd
 
 # --- Imports de Core ---
 from core.database import get_db_connection
-from core.microsoft import get_ms_auth, MicrosoftAuth # Keep MicrosoftAuth as it's used in get_ms_auth
-from core.config import settings
-from core.security import get_current_user_context, get_valid_graph_token  # NUEVO: Sistema de renovación de tokens
-from core.permissions import require_module_access  # NUEVO: Sistema de permisos
-from .schemas import OportunidadCreate, SitioImportacion, OportunidadListOut, OportunidadCreateCompleta, DetalleBessCreate
-from .service import ComercialService, get_comercial_service  # NUEVO: Service Layer
-from .email_handler import EmailHandler, get_email_handler  # NUEVO: Email Handler
+from core.microsoft import get_ms_auth
+from core.security import get_current_user_context, get_valid_graph_token
+from core.permissions import require_module_access
+from .schemas import OportunidadCreateCompleta, DetalleBessCreate
+from .service import ComercialService, get_comercial_service
+from .email_handler import EmailHandler, get_email_handler
 
 # Configuración básica de logging
 logger = logging.getLogger("ComercialModule")
@@ -181,13 +174,11 @@ async def get_cards_partial(
 async def get_sitios_partial(
     request: Request,
     id_oportunidad: UUID,
+    service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection)
 ):
     """Retorna la sub-tabla de sitios para una oportunidad."""
-    rows = await conn.fetch(
-        "SELECT * FROM tb_sitios_oportunidad WHERE id_oportunidad = $1 ORDER BY id_sitio",
-        id_oportunidad
-    )
+    rows = await service.get_sitios_simple(conn, id_oportunidad)
     return templates.TemplateResponse(
         "comercial/partials/sitios_list.html",
         {"request": request, "sitios": rows}
@@ -413,13 +404,9 @@ async def handle_oportunidad_creation(
         # 6. Redirección (Lógica Multisitos vs Unisitio)
         if cantidad_sitios == 1:
             # Auto-creación de sitio único (Legacy logic mantenida por consistencia)
-            try:
-                await conn.execute("""
-                    INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link)
-                    VALUES ($1, $2, $3, $4, $5)
-                """, uuid4(), new_id, nombre_proyecto, direccion_obra, google_maps_link)
-            except Exception as e:
-                logger.error(f"Error auto-creando sitio único: {e}")
+            await service.auto_crear_sitio_unico(
+                conn, new_id, nombre_proyecto, direccion_obra, google_maps_link
+            )
             target_url = f"/comercial/paso3/{new_id}"
         else:
             target_url = f"/comercial/paso2/{new_id}"
@@ -573,24 +560,16 @@ async def handle_oportunidad_extraordinaria(
         )
         
         # 5. MARCAR COMO EXTRAORDINARIA: email_enviado = TRUE (sin envío real)
-        await conn.execute("""
-            UPDATE tb_oportunidades 
-            SET email_enviado = TRUE
-            WHERE id_oportunidad = $1
-        """, new_id)
+        await service.marcar_extraordinaria_enviada(conn, new_id)
         
         logger.info(f"Solicitud extraordinaria {op_id_estandar} marcada con email_enviado=TRUE (sin envío real)")
 
         # 6. Redirección (Lógica Multisitos vs Unisitio)
         if cantidad_sitios == 1:
             # Auto-creación de sitio único para extraordinarias
-            try:
-                await conn.execute("""
-                    INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link)
-                    VALUES ($1, $2, $3, $4, $5)
-                """, uuid4(), new_id, nombre_proyecto, direccion_obra, google_maps_link)
-            except Exception as e:
-                logger.error(f"Error auto-creando sitio único: {e}")
+            await service.auto_crear_sitio_unico(
+                conn, new_id, nombre_proyecto, direccion_obra, google_maps_link
+            )
             
             # EXTRAORDINARIAS: Unisitio va directamente al HOME (sin paso 3 de correo)
             target_url = "/comercial/ui"
@@ -616,6 +595,7 @@ async def handle_oportunidad_extraordinaria(
 async def cancelar_oportunidad(
     request: Request,
     id_oportunidad: UUID,
+    service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection)
 ):
     """Elimina borrador y fuerza una recarga completa al Dashboard."""
@@ -627,9 +607,8 @@ async def cancelar_oportunidad(
         from fastapi import Response
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
         
-    # 2. Borrar datos en BD
-    await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
-    await conn.execute("DELETE FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
+    # 2. Borrar datos en BD via Service
+    await service.cancelar_oportunidad(conn, id_oportunidad)
     
     # 3. CAMBIO CLAVE: Usamos HX-Redirect en lugar de HX-Location
     # HX-Redirect obliga al navegador a cambiar de URL (como un F5 + ir a nueva página)
@@ -646,158 +625,27 @@ async def cancelar_oportunidad(
 async def get_paso3_email_form(
     request: Request,
     id_oportunidad: UUID,
-    legacy_term: Optional[str] = None,  # Captura del término legacy desde la URL
-    conn = Depends(get_db_connection)
+    legacy_term: Optional[str] = None,
+    conn = Depends(get_db_connection),
+    service: ComercialService = Depends(get_comercial_service)
 ):
-    """Muestra el formulario final de envío de correo (Paso 3)."""
-    
-    # PREVENCIÓN CRÍTICA: Validar token ANTES de mostrar formulario de correo
-    # El usuario puede tardar varios minutos redactando el mensaje
-    # Si el token expira mientras escribe, perderá todo su trabajo
-    token = await get_valid_graph_token(request)
-    if not token:
-        from fastapi import Response
+    """Formulario final de envío de correo."""
+    if not await get_valid_graph_token(request):
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
     
-    # Recuperar datos para pre-llenar con JOINs para traer nombres de catálogos
-    # CORRECCIÓN: Agregar JOINs para tipo_tecnologia y status_global (reglas de email)
-    row = await conn.fetchrow(
-        """SELECT o.*, 
-                  tec.nombre as tipo_tecnologia,
-                  tipo_sol.nombre as tipo_solicitud,
-                  tipo_sol.es_seguimiento,
-                  eg.nombre as status_global,
-                  -- DETALLES BESS
-                  db.cargas_criticas_kw,
-                  db.tiene_motores,
-                  db.potencia_motor_hp,
-                  db.tiempo_autonomia,
-                  db.voltaje_operacion,
-                  db.cargas_separadas,
-                  db.objetivos_json,
-                  db.tiene_planta_emergencia
-           FROM tb_oportunidades o
-           LEFT JOIN tb_cat_tecnologias tec ON o.id_tecnologia = tec.id
-           LEFT JOIN tb_cat_tipos_solicitud tipo_sol ON o.id_tipo_solicitud = tipo_sol.id
-           LEFT JOIN tb_cat_estatus_global eg ON o.id_estatus_global = eg.id
-           LEFT JOIN tb_detalles_bess db ON o.id_oportunidad = db.id_oportunidad
-           WHERE o.id_oportunidad = $1""", 
-        id_oportunidad
-    )
-    if not row:
-        return HTMLResponse("Oportunidad no encontrada", 404)
-        
-    # Verificar si es multisitio para mostrar badge
-    has_multisitio = (row['cantidad_sitios'] or 0) > 1
+    # Delegar TODA la lógica de preparación de datos y reglas al Service
+    data = await service.get_data_for_email_form(conn, id_oportunidad)
+    if not data: return HTMLResponse("Oportunidad no encontrada", 404)
     
-    # Determinar si es seguimiento desde BD (SIN HARDCODING)
-    es_seguimiento = row.get('es_seguimiento', False)
+    template = "comercial/email_form.html" if request.headers.get("hx-request") else "comercial/email_full.html"
     
-    # Editable solo si es seguimiento Y tiene multisitios
-    editable = es_seguimiento and has_multisitio
-    
-    # [MODIFICACIÓN] Traer los sitios para poder editarlos en el frontend
-    sitios_rows = await conn.fetch("SELECT * FROM tb_sitios_oportunidad WHERE id_oportunidad = $1 ORDER BY nombre_sitio", id_oportunidad)
-    
-    # --- LOGICA DE CORREOS DINÁMICA (Desde tb_config_emails + Defaults) ---
-    
-    # 0. Defaults
-    defaults_row = await conn.fetchrow("SELECT * FROM tb_email_defaults WHERE id = 1")
-    # Parseamos a listas para el frontend (evitar nulos)
-    def_to = (defaults_row['default_to'] or "").replace(";", ",").split(",") if defaults_row else []
-    def_cc = (defaults_row['default_cc'] or "").replace(";", ",").split(",") if defaults_row else []
-    # No pasamos CCO al frontend por privacidad/regla de negocio
-    
-    fixed_to = [d.strip() for d in def_to if d.strip()] 
-    fixed_cc = [d.strip() for d in def_cc if d.strip()]
-
-    # 1. Traer todas las reglas del módulo COMERCIAL
-    rules = await conn.fetch("SELECT * FROM tb_config_emails WHERE modulo = 'COMERCIAL'")
-    
-    # 2. Evaluar reglas
-    # MAPEO: Nombre Visual (Admin) -> Columna DB (Row)
-    FIELD_MAPPING = {
-        "Tecnología": "id_tecnologia",
-        "Tipo Solicitud": "id_tipo_solicitud",
-        "Estatus": "id_estatus_global",
-        "Cliente": "cliente_nombre"
-    }
-
-    for rule in rules:
-        field_admin = rule['trigger_field']    # e.g., 'Tecnología'
-        val_trigger = str(rule['trigger_value']).strip().upper() # e.g., '1' (ID)
-        
-        # Mapear al campo real en la BD
-        db_key = FIELD_MAPPING.get(field_admin, field_admin)
-        
-        # Obtener valor real de la oportunidad
-        val_actual = row.get(db_key)
-        
-        # Lógica de comparación
-        match = False
-        
-        if field_admin == "Cliente":
-            # Búsqueda Parcial de Texto (Contains)
-            if val_trigger in str(val_actual or "").upper():
-                match = True
-        else:
-            # Comparación Exacta de ID (String vs String)
-            # val_actual suele ser int (ID), val_trigger es str
-            if str(val_actual or "") == val_trigger:
-                match = True
-        
-        if match:
-            email = rule['email_to_add']
-            tipo = rule['type'] # TO o CC
-            
-            if tipo == 'TO':
-                if email not in fixed_to: fixed_to.append(email)
-            else:
-                if email not in fixed_cc: fixed_cc.append(email)
-    
-    
-    # 3. Determinar Template (HTMX vs Full Load)
-    if request.headers.get("hx-request"):
-        template = "comercial/email_form.html"
-    else:
-        template = "comercial/email_full.html" # Wrapper que extiende base.html
-
-    # --- LOGICA DE FORMATEO DE OBJETIVOS BESS ---
-    bess_objetivos_str = ""
-    raw_objs = row.get('objetivos_json')
-    if raw_objs:
-        try:
-            # Si asyncpg ya lo devolvió como lista
-            if isinstance(raw_objs, list):
-                bess_objetivos_str = ", ".join(raw_objs)
-            # Si es string JSON
-            elif isinstance(raw_objs, str):
-                import json
-                loaded = json.loads(raw_objs)
-                if isinstance(loaded, list):
-                    bess_objetivos_str = ", ".join(loaded)
-        except Exception as e:
-            logger.warning(f"Error parseando objetivos_json: {e}")
-            pass
-
-    return templates.TemplateResponse(
-        template,
-        {
-            "request": request,
-            "op": row,
-            "bess_objetivos_str": bess_objetivos_str,  # <--- VARIABLE NUEVA
-            "has_multisitio_file": has_multisitio,
-            "sitios": sitios_rows,
-            "editable": editable,              # Basado en BD, no hardcoded
-            "is_followup": es_seguimiento,     # NUEVO: indica si es seguimiento
-            "legacy_term": legacy_term,        # PUENTE: Término legacy para homologación
-            "fixed_to": fixed_to,
-            "fixed_cc": fixed_cc,
-            # Contexto necesario para base.html en Full Load
-            "user_name": request.session.get("user_name", "Usuario"),
-            "role": request.session.get("role", "USER")
-        }
-    )
+    return templates.TemplateResponse(template, {
+        "request": request,
+        **data, # Desempaquetar dict del servicio
+        "legacy_term": legacy_term,
+        "user_name": request.session.get("user_name"),
+        "role": request.session.get("role")
+    })
 
 # ----------------------------------------
 # NUEVOS ENDPOINTS PARA EXCEL PREVIEW
@@ -806,253 +654,65 @@ async def get_paso3_email_form(
 @router.post("/upload-preview", response_class=HTMLResponse)
 async def upload_preview_endpoint(
     request: Request,
-    id_oportunidad: str = Form(...), # Llega como string
+    id_oportunidad: str = Form(...),
     file: UploadFile = File(...),
-    extraordinaria: int = Form(0),  # <-- Capturar del form
+    extraordinaria: int = Form(0),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection)
 ):
+    """Procesa previsualización de Excel (Lógica movida al Service)."""
     try:
-        # 1. Resetear puntero del archivo (CRÍTICO para reintentos)
-        await file.seek(0)
-
-        # 2. Validación de Seguridad: Tamaño Máximo (10MB)
-        MAX_FILE_SIZE = 10 * 1024 * 1024
-        file.file.seek(0, 2)  # Ir al final
-        file_size = file.file.tell()  # Ver tamaño
-        await file.seek(0)  # Volver al inicio - CRÍTICO
+        # Validaciones básicas HTTP
+        if file.size > 10 * 1024 * 1024:
+             return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {"request": request, "title": "Error", "message": "Archivo > 10MB"})
         
-        if file_size > MAX_FILE_SIZE:
-            logger.warning(f"Excel rechazado (excede 10MB): {file.filename} ({file_size} bytes)")
-            return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {
-                "request": request,
-                "title": "Archivo muy grande",
-                "message": "El archivo excede el tamaño máximo permitido de 10MB.",
-                "action_btn": "removeFile(event)",
-                "action_text": "Intentar de nuevo"
-            })
-
-        # 3. Validar extensión
-        if not file.filename.endswith((".xlsx", ".xls")):
-            return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {
-                "request": request,
-                "title": "Formato inválido",
-                "message": "Solo se permiten archivos Excel (.xlsx o .xls).",
-                "action_btn": "removeFile(event)",
-                "action_text": "Intentar de nuevo"
-            })
-
-        # 4. Leer contenido en memoria (ahora es seguro)
         contents = await file.read()
+        uuid_op = UUID(id_oportunidad)
         
-        # Nota: io y openpyxl ya están importados al inicio del archivo
+        # Delegar Lógica Compleja al Service
+        result = await service.preview_site_upload(conn, contents, uuid_op)
         
-        # 4. Leer Excel con openpyxl (más ligero que pandas)
-        try:
-            wb = load_workbook(filename=io.BytesIO(contents), data_only=True)
-            ws = wb.active
-            
-            # Obtener cabeceras (primera fila)
-            headers = [str(cell.value).strip().upper() for cell in ws[1] if cell.value]
-            
-            # Obtener datos (resto de filas)
-            preview_rows = []
-            full_data_list = []
-            
-            for row in ws.iter_rows(min_row=2, values_only=True):
-                # Crear diccionario mapeando header -> valor
-                row_data = dict(zip(headers, row))
-                
-                # Filtrar filas completamente vacías
-                if not any(row_data.values()):
-                    continue
-                
-                # Limpieza básica (None -> "")
-                clean_data = {k: (v if v is not None else "") for k, v in row_data.items()}
-                
-                preview_rows.append(list(clean_data.values()))  # Para la vista simple
-                full_data_list.append(clean_data)  # Para el JSON
-            
-            columns = headers
-            total_rows = len(full_data_list)
-            
-        except Exception as e:
-            logger.error(f"Error leyendo Excel: {e}")
-            return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {
-                "request": request,
-                "title": "Error de archivo",
-                "message": f"El archivo no es un Excel válido o está corrupto. ({e})"
-            })
-
-        # 5. VALIDACIÓN ESTRUCTURA (Columnas)
-        cols_req = ["NOMBRE", "DIRECCION"]
-        if not all(col in columns for col in cols_req):
-            missing_cols = ', '.join([c for c in cols_req if c not in columns])
-            return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {
-                "request": request,
-                "title": "Formato Incorrecto",
-                "message": f"Faltan columnas requeridas: {missing_cols}. Usa la plantilla oficial.",
-                "action_btn": "removeFile(event)",
-                "action_text": "Intentar de nuevo"
-            })
-
-        # 6. VALIDACIÓN CANTIDAD
-        # Convertimos el string id_oportunidad a UUID para la DB
-        try:
-            uuid_op = UUID(id_oportunidad)
-        except ValueError:
-            return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {
-                "request": request,
-                "title": "Error interno",
-                "message": "ID de oportunidad inválido. Por favor recarga la página e intenta nuevamente."
-            })
-
-        expected_qty = await conn.fetchval(
-            "SELECT cantidad_sitios FROM tb_oportunidades WHERE id_oportunidad = $1", 
-            uuid_op
-        )
-        
-        # Si por alguna razón no existe la oportunidad
-        if expected_qty is None:
-            return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {
-                "request": request,
-                "title": "Oportunidad no encontrada",
-                "message": "La oportunidad no existe en la base de datos. Por favor verifica e intenta nuevamente."
-            })
-
-        real_qty = total_rows
-        
-        if real_qty != expected_qty:
-            return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {
-                "request": request,
-                "title": "Error de Cantidad",
-                "message": f"Declaraste <strong>{expected_qty}</strong> sitios, pero el archivo tiene <strong>{real_qty}</strong> filas. Corrige el Excel y vuelve a seleccionarlo.",
-                "action_btn": "removeFile(event)",
-                "action_text": "Intentar de nuevo"
-            })
-
-        # 7. Generar Preview y Retornar Respuesta
-        json_payload = json.dumps(full_data_list, default=str)
-        
-        return templates.TemplateResponse(
-            "comercial/partials/upload_preview.html",
-            {
-                "request": request,
-                "columns": columns,
-                "preview_rows": preview_rows,
-                "total_rows": total_rows,
-                "json_data": json_payload,
-                "op_id": id_oportunidad,
-                "extraordinaria": extraordinaria  # <-- Pasar al template
-            }
-        )
-
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        logger.error(f"Error técnico en upload_preview_endpoint: {e}")
-        return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {
+        return templates.TemplateResponse("comercial/partials/upload_preview.html", {
             "request": request,
-            "title": "Error técnico",
-            "message": f"Ocurrió un error inesperado: {str(e)}. Por favor intenta nuevamente.",
-            "action_btn": "removeFile(event)",
-            "action_text": "Intentar de nuevo"
+            "columns": result["columns"],
+            "preview_rows": result["preview_rows"],
+            "total_rows": result["total_rows"],
+            "json_data": result["json_data"],
+            "op_id": id_oportunidad,
+            "extraordinaria": extraordinaria
         })
+    except HTTPException as he:
+        return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {"request": request, "title": "Error", "message": he.detail})
+    except Exception as e:
+        logger.error(f"Error upload: {e}")
+        return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {"request": request, "title": "Error técnico", "message": str(e)})
 
 
 @router.post("/upload-confirm", response_class=HTMLResponse)
 async def upload_confirm_endpoint(
     request: Request,
-    sitios_json: str = Form(...), # <--- Recibimos el JSON
+    sitios_json: str = Form(...),
     op_id: str = Form(...),
-    extraordinaria: int = Form(0),  # <--- Nuevo parámetro
+    extraordinaria: int = Form(0),
+    service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection)
 ):
     try:
         uuid_op = UUID(op_id)
+        count = await service.confirm_site_upload(conn, uuid_op, sitios_json)
         
-        # 1. Deserializar
-        try:
-            raw_data = json.loads(sitios_json)
-        except json.JSONDecodeError:
-             return HTMLResponse("<div class='text-red-500'>Error: Data corrupta (JSON inválido).</div>", 400)
-             
-        # 2. Borrar sitios anteriores (Idempotencia)
-        await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", uuid_op)
-        
-        # 3. Preparar Registros
-        records = []
-        
-        for item in raw_data:
-            # Validación con Pydantic (Opcional pero recomendada para sanear)
-            # Mapeamos los alias del Excel a los campos internos
-            # Como Pydantic usa alias 'NOMBRE' -> 'nombre_sitio', le pasamos el dict tal cual
-            try:
-                # Validamos contra el schema. 
-                # NOTA: SitioImportacion espera alias (NOMBRE, DIRECCION).
-                # El json tiene las claves en mayúsculas (NOMBRE, DIRECCION...)
-                sitio_obj = SitioImportacion(**item)
-                
-                records.append((
-                    uuid4(), # id_sitio
-                    uuid_op,
-                    sitio_obj.nombre_sitio,
-                    sitio_obj.direccion,
-                    sitio_obj.tipo_tarifa,
-                    sitio_obj.google_maps_link,
-                    sitio_obj.numero_servicio,
-                    sitio_obj.comentarios
-                ))
-            except Exception as e:
-                logger.error(f"Error parseando fila: {item} -> {e}")
-                # Podríamos fallar o saltar. Aquí saltamos filas malas.
-                continue
-
-        # 4. Insertar
-        logger.info(f"Preparados {len(records)} registros para insertar en tb_sitios_oportunidad")
-        q = """
-            INSERT INTO tb_sitios_oportunidad (
-                id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-        """
-        if records:
-            await conn.executemany(q, records)
-            logger.info(f"Insertados {len(records)} sitios exitosamente")
-        
-        # 5. Redirección Condicional
         if extraordinaria == 1:
-            # EXTRAORDINARIAS: Redirección completa al HOME (no HTMX partial)
-            logger.info("Solicitud extraordinaria multisitio completada, redirigiendo a HOME")
             return HTMLResponse(content=f"""
-            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4 animate-fade-in-down" role="alert">
-                <p class="font-bold">Carga Exitosa</p>
-                <p>Se confirmaron e insertaron {len(records)} sitios.</p>
-                <p class="mt-2 text-sm">Redirigiendo al inicio...</p>
-            </div>
-            
-            <!-- Redirección completa para extraordinarias -->
-            <script>
-                setTimeout(function() {{
-                    window.location.href = '/comercial/ui';
-                }}, 1500);
-            </script>
+            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4" role="alert"><p>Carga Exitosa ({count} sitios).</p></div>
+            <script>setTimeout(function() {{ window.location.href = '/comercial/ui'; }}, 1500);</script>
             """, status_code=200)
         else:
-            # NORMALES: Ir a paso 3 (envío de correo) usando HTMX
-            next_url = f"/comercial/paso3/{op_id}"
             return HTMLResponse(content=f"""
-            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4 animate-fade-in-down" role="alert">
-                <p class="font-bold">Carga Exitosa</p>
-                <p>Se confirmaron e insertaron {len(records)} sitios.</p>
-            </div>
-            
-            <!-- Transición automática a paso 3 -->
-            <div hx-trigger="load delay:1s" hx-get="{next_url}" hx-target="#main-content"></div> 
+            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4" role="alert"><p>Carga Exitosa ({count} sitios).</p></div>
+            <div hx-trigger="load delay:1s" hx-get="/comercial/paso3/{op_id}" hx-target="#main-content"></div> 
             """, status_code=200)
-        
-    except Exception as e:
-        logger.error(f"Error Confirm: {e}")
-        return HTMLResponse(f"<div class='text-red-500'>Error confirmando carga: {e}</div>", 500)
+    except HTTPException as he:
+        return HTMLResponse(f"<div class='text-red-500'>Error: {he.detail}</div>", 400)
 
 @router.get("/paso2/{id_oportunidad}", include_in_schema=False)
 async def get_paso_2_form(request: Request, id_oportunidad: UUID, extraordinaria: int = 0, conn = Depends(get_db_connection)):
@@ -1100,15 +760,14 @@ async def crear_seguimiento(
     return HTMLResponse(headers={"HX-Location": f"/comercial/paso3/{new_id}"})
 
 @router.delete("/sitios/{id_sitio}", response_class=HTMLResponse)
-async def delete_sitio_endpoint(request: Request, id_sitio: UUID, conn = Depends(get_db_connection)):
-    """Elimina un sitio específico (Usado en el filtrado de seguimiento)."""
-    # Validar sesión con token inteligente
-    access_token = await get_valid_graph_token(request)
-    if not access_token:
-        from fastapi import Response
+async def delete_sitio_endpoint(
+    request: Request, 
+    id_sitio: UUID, 
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection)
+):
+    if not await get_valid_graph_token(request):
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
-    
-    await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_sitio = $1", id_sitio)
-    # Retorna vacío para que HTMX elimine la fila de la tabla
+    await service.delete_sitio(conn, id_sitio)
     return HTMLResponse("", status_code=200)
     
