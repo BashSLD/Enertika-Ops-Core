@@ -35,7 +35,9 @@ app.add_middleware(
     secret_key=settings.SECRET_KEY,
     max_age=86400,  # 24 horas en segundos
     same_site="lax",  # Permite cookies en redirects
-    https_only=False  # True en producción con HTTPS
+    # Si DEBUG_MODE es True (Localhost) -> https_only = False (Funciona con HTTP)
+    # Si DEBUG_MODE es False (Producción) -> https_only = True (Obliga HTTPS)
+    https_only=not settings.DEBUG_MODE
 )
 
 # Configuración de Jinja2 Templates (para HTMX/Tailwind)
@@ -85,7 +87,7 @@ async def root(
     user_name = context.get("user_name") # Será None si no hay login
     
     if user_name and user_name != "Usuario":
-        # 🟢 USUARIO LOGUEADO → Redirección Inteligente por Módulos
+        # USUARIO LOGUEADO → Redirección Inteligente por Módulos
         role = context.get("role")
         module_roles = context.get("module_roles", {})
         modulo_preferido = context.get("modulo_preferido")
@@ -101,7 +103,7 @@ async def root(
                 {
                     "request": request,
                     "app_name": "Enertika Ops Core",
-                    "error_message": "⚠️ No tienes módulos asignados. Contacta al administrador para obtener acceso."
+                    "error_message": "No tienes módulos asignados. Contacta al administrador para obtener acceso."
                 }
             )
         
@@ -142,11 +144,11 @@ async def root(
             {
                 "request": request,
                 "app_name": "Enertika Ops Core",
-                "error_message": "❌ Error de configuración. Contacta al administrador."
+                "error_message": "Error de configuración. Contacta al administrador."
             }
         )
     
-    # 🔴 NO LOGUEADO -> Mostrar Login
+    # NO LOGUEADO -> Mostrar Login
     return templates.TemplateResponse(
         "index.html",
         {

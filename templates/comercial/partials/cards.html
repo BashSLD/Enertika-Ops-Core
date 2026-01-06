@@ -36,358 +36,381 @@
 
             <!-- Subtabs para Levantamientos -->
             {% if current_tab == 'levantamientos' %}
-            <div class="flex gap-3 text-sm mt-1">
+            <div class="flex gap-3 text-sm mt-2">
                 <button hx-get="/comercial/partials/cards?tab=levantamientos&subtab=solicitados&limit={{ limit }}"
                     hx-target="#tab-content"
-                    class="{{ 'font-bold text-blue-600 border-b-2 border-blue-600' if not subtab or subtab == 'solicitados' else 'text-gray-500 hover:text-blue-500' }}">
+                    class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-blue-600 border border-blue-700 shadow-md' if not subtab or subtab == 'solicitados' else 'text-gray-600 bg-white border border-gray-300 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-500' }}">
                     Solicitados
                 </button>
                 <span class="text-gray-300">|</span>
                 <button hx-get="/comercial/partials/cards?tab=levantamientos&subtab=realizados&limit={{ limit }}"
                     hx-target="#tab-content"
-                    class="{{ 'font-bold text-blue-600 border-b-2 border-blue-600' if subtab == 'realizados' else 'text-gray-500 hover:text-blue-500' }}">
+                    class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-blue-600 border border-blue-700 shadow-md' if subtab == 'realizados' else 'text-gray-600 bg-white border border-gray-300 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-500' }}">
                     Realizados
                 </button>
+
             </div>
             {% endif %}
-        </div>
 
-        <!-- Selector de cantidad de registros -->
-        <div class="flex items-center gap-2">
-            <label for="limit-selector" class="text-sm text-gray-600 font-medium">Mostrar:</label>
-            <select id="limit-selector" hx-get="/comercial/partials/cards" hx-target="#tab-content"
-                hx-include="#active_tab_input, #search-input" name="limit"
-                class="border border-gray-300 rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                <option value="15" {{ 'selected' if limit==15 else '' }}>15 registros</option>
-                <option value="50" {{ 'selected' if limit==50 else '' }}>50 registros</option>
-                <option value="100" {{ 'selected' if limit==100 else '' }}>100 registros</option>
-                <option value="0" {{ 'selected' if limit==0 else '' }}>Mostrar Todo</option>
-            </select>
+            <!-- Subtabs para Historial -->
+            {% if current_tab == 'historial' %}
+            <div class="flex gap-3 text-sm mt-2">
+                <button hx-get="/comercial/partials/cards?tab=historial&subtab=entregado&limit={{ limit }}"
+                    hx-target="#tab-content"
+                    class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-green-600 border border-green-700 shadow-md' if not subtab or subtab == 'entregado' else 'text-gray-600 bg-white border border-gray-300 hover:bg-green-50 hover:text-green-700 hover:border-green-500' }}">
+                    Entregado
+                </button>
+                <span class="text-gray-300">|</span>
+                <button hx-get="/comercial/partials/cards?tab=historial&subtab=cancelado_perdido&limit={{ limit }}"
+                    hx-target="#tab-content"
+                    class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-red-600 border border-red-700 shadow-md' if subtab == 'cancelado_perdido' else 'text-gray-600 bg-white border border-gray-300 hover:bg-red-50 hover:text-red-700 hover:border-red-500' }}">
+                    Cancelado - Perdido
+                </button>
+            </div>
         </div>
+        {% endif %}
     </div>
 
-    <!-- Cards/Table -->
-    <div class="flex flex-col">
-        <div class="-my-2 sm:-mx-6 lg:-mx-8">
-            <div class="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
-                <div class="shadow border-b border-gray-200 sm:rounded-lg overflow-x-auto">
-                    <table class="w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
-                            <tr>
-                                <th scope="col"
-                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[300px]">
-                                    ID / Título
-                                </th>
-                                <th scope="col"
-                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                                    Ingeniero Asignado
-                                </th>
-                                <th scope="col"
-                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-48">
-                                    Enviado
-                                </th>
-                                <th scope="col"
-                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-40">
-                                    Entrega SLA
-                                </th>
-                                <th scope="col"
-                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
-                                    {% if current_tab == 'levantamientos' %}Status Levantamiento{% else %}Status
-                                    Simulación{% endif %}
-                                </th>
-                                <th scope="col"
-                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-32">
-                                    Detalles
-                                </th>
-                                {% if current_tab == 'historial' %}
-                                <th scope="col"
-                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-20">
-                                    Acciones
-                                </th>
-                                {% endif %}
-                            </tr>
-                        </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
-                            {% for op in oportunidades %}
-                            {% set prioridad_color = 'border-green-400' if op.prioridad == 'low' else ('border-red-400'
-                            if op.prioridad == 'high' else 'border-[#00BABB]') %}
-                            {% set animation_delay = 'style="animation-delay: ' ~ (loop.index0 * 20 if loop.index0 < 10
-                                else 200) ~ 'ms"' %} <!-- Fila principal con Alpine.js -->
-                                <tr x-data="{ menuOpen: false, menuX: 0, menuY: 0 }"
-                                    @click="$dispatch('row-selected', '{{ op.id_oportunidad }}')"
-                                    @menu-opened.window="if ($event.detail !== '{{ op.id_oportunidad }}') menuOpen = false"
-                                    :class="{ 'bg-blue-50 ring-2 ring-blue-400': isSelected('{{ op.id_oportunidad }}') }"
-                                    class="hover:bg-gray-50 transition-all duration-200 border-l-4 {{ prioridad_color }} hover:shadow-md animate-fade-in-up cursor-pointer"
-                                    {{ animation_delay|safe }}>
+    <!-- Selector de cantidad de registros -->
+    <div class="flex items-center gap-2">
+        <label for="limit-selector" class="text-sm text-gray-600 font-medium">Mostrar:</label>
+        <select id="limit-selector" hx-get="/comercial/partials/cards" hx-target="#tab-content"
+            hx-include="#active_tab_input, #search-input" name="limit"
+            class="border border-gray-300 rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="15" {{ 'selected' if limit==15 else '' }}>15 registros</option>
+            <option value="50" {{ 'selected' if limit==50 else '' }}>50 registros</option>
+            <option value="100" {{ 'selected' if limit==100 else '' }}>100 registros</option>
+            <option value="0" {{ 'selected' if limit==0 else '' }}>Mostrar Todo</option>
+        </select>
+    </div>
+</div>
 
-                                    <!-- COL 1: ID e Info Interna -->
-                                    <td class="px-6 py-4 min-w-[300px]">
-                                        <div class="text-sm font-mono text-gray-700 font-bold whitespace-nowrap">
-                                            {{ op.id_interno_simulacion or 'N/A' }}
-                                        </div>
+<!-- Cards/Table -->
+<div class="flex flex-col">
+    <div class="-my-2 sm:-mx-6 lg:-mx-8">
+        <div class="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
+            <div class="shadow border-b border-gray-200 sm:rounded-lg overflow-x-auto">
+                <table class="w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th scope="col"
+                                class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[300px]">
+                                ID / Título
+                            </th>
+                            <th scope="col"
+                                class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                                Ingeniero Asignado
+                            </th>
+                            <th scope="col"
+                                class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-48">
+                                Enviado
+                            </th>
+                            <th scope="col"
+                                class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-40">
+                                Entrega SLA
+                            </th>
+                            <th scope="col"
+                                class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                                {% if current_tab == 'levantamientos' %}Status Levantamiento{% else %}Status
+                                Simulación{% endif %}
+                            </th>
+                            <th scope="col"
+                                class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-32">
+                                Detalles
+                            </th>
+                            {% if current_tab == 'historial' %}
+                            <th scope="col"
+                                class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-20">
+                                Acciones
+                            </th>
+                            {% endif %}
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-200">
+                        {% for op in oportunidades %}
+                        {% set prioridad_color = 'border-green-400' if op.prioridad == 'low' else
+                        ('border-red-400'
+                        if op.prioridad == 'high' else 'border-[#00BABB]') %}
+                        {% set animation_delay = 'style="animation-delay: ' ~ (loop.index0 * 20 if loop.index0 < 10 else
+                            200) ~ 'ms"' %} <!-- Fila principal con Alpine.js -->
+                            <tr x-data="{ menuOpen: false, menuX: 0, menuY: 0 }"
+                                @click="$dispatch('row-selected', '{{ op.id_oportunidad }}')"
+                                @menu-opened.window="if ($event.detail !== '{{ op.id_oportunidad }}') menuOpen = false"
+                                :class="{ 'bg-blue-50 ring-2 ring-blue-400': isSelected('{{ op.id_oportunidad }}') }"
+                                class="hover:bg-gray-50 transition-all duration-200 border-l-4 {{ prioridad_color }} hover:shadow-md animate-fade-in-up cursor-pointer"
+                                {{ animation_delay|safe }}>
+
+                                <!-- COL 1: ID e Info Interna -->
+                                <td class="px-6 py-4 min-w-[300px]">
+                                    <div class="text-sm font-mono text-gray-700 font-bold whitespace-nowrap">
+                                        {{ op.id_interno_simulacion or 'N/A' }}
+                                    </div>
+                                    <div
+                                        class="text-xs text-gray-500 mt-1 whitespace-nowrap overflow-hidden text-ellipsis">
+                                        {{ op.titulo_proyecto or op.nombre_proyecto }}
+                                    </div>
+                                    <div class="text-xs text-gray-400 mt-1 whitespace-nowrap">
+                                        <span class="font-semibold text-gray-500">Solicitado por:</span> {{
+                                        op.solicitado_por or 'Desconocido' }}
+                                    </div>
+                                </td>
+
+                                <!-- COL 2: Ingeniero Asignado -->
+                                <td class="px-6 py-4 whitespace-nowrap">
+                                    <div class="flex flex-col items-center justify-center">
                                         <div
-                                            class="text-xs text-gray-500 mt-1 whitespace-nowrap overflow-hidden text-ellipsis">
-                                            {{ op.titulo_proyecto or op.nombre_proyecto }}
+                                            class="flex-shrink-0 h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 font-bold border border-gray-300">
+                                            {{ op.responsable_simulacion[:1] if op.responsable_simulacion else
+                                            '?'
+                                            }}
                                         </div>
-                                        <div class="text-xs text-gray-400 mt-1 whitespace-nowrap">
-                                            <span class="font-semibold text-gray-500">Solicitado por:</span> {{
-                                            op.solicitado_por or 'Desconocido' }}
-                                        </div>
-                                    </td>
-
-                                    <!-- COL 2: Ingeniero Asignado -->
-                                    <td class="px-6 py-4 whitespace-nowrap">
-                                        <div class="flex flex-col items-center justify-center">
-                                            <div
-                                                class="flex-shrink-0 h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-500 font-bold border border-gray-300">
-                                                {{ op.responsable_simulacion[:1] if op.responsable_simulacion else '?'
-                                                }}
-                                            </div>
-                                            <div class="mt-2 text-center">
-                                                <div class="text-sm font-medium text-gray-900"
-                                                    title="{{ op.responsable_email }}">
-                                                    {{ op.responsable_simulacion or 'Sin Asignar' }}
-                                                </div>
+                                        <div class="mt-2 text-center">
+                                            <div class="text-sm font-medium text-gray-900"
+                                                title="{{ op.responsable_email }}">
+                                                {{ op.responsable_simulacion or 'Sin Asignar' }}
                                             </div>
                                         </div>
-                                    </td>
+                                    </div>
+                                </td>
 
-                                    <!-- COL 3: Envío (con Tooltip Alpine.js) -->
-                                    <td class="px-4 py-4 w-48">
-                                        <div class="flex flex-col items-center gap-2">
-                                            <div class="text-sm text-gray-700 text-center">
-                                                {{ op.fecha_solicitud | time_mx }}
-                                            </div>
-                                            {% if op.es_fuera_horario %}
-                                            <!-- Tooltip Alpine.js -->
-                                            <div x-data="{ showTooltip: false }" class="relative inline-flex">
-                                                <span @mouseenter="showTooltip = true" @mouseleave="showTooltip = false"
-                                                    class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-full bg-rose-100 text-rose-700 border border-rose-300 whitespace-nowrap cursor-help">
-                                                    Fuera de Horario
-                                                </span>
-                                                <!-- Tooltip flotante -->
-                                                <div x-show="showTooltip" x-transition
-                                                    class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap z-50 pointer-events-none">
-                                                    📅 Solicitud recibida fuera del horario laboral
-                                                    <div
-                                                        class="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900">
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            {% endif %}
+                                <!-- COL 3: Envío (con Tooltip Alpine.js) -->
+                                <td class="px-4 py-4 w-48">
+                                    <div class="flex flex-col items-center gap-2">
+                                        <div class="text-sm text-gray-700 text-center">
+                                            {{ op.fecha_solicitud | time_mx }}
                                         </div>
-                                    </td>
-
-                                    <!-- COL 4: Entrega SLA -->
-                                    <td class="px-4 py-4 w-40">
-                                        <div class="flex flex-col items-center gap-2">
-                                            <div class="text-sm text-blue-600 font-semibold text-center">
-                                                {{ op.deadline_calculado.strftime('%d/%m/%Y') if op.deadline_calculado
-                                                else
-                                                'N/A' }}
-                                            </div>
-                                            {% if op.deadline_negociado %}
-                                            <div class="text-xs text-rose-700 font-semibold mt-1 text-center">
-                                                SLA Negociado: {{ op.deadline_negociado.strftime('%d/%m/%Y') }}
-                                            </div>
-                                            {% endif %}
-                                        </div>
-                                    </td>
-
-                                    <!-- COL 5: Status -->
-                                    <td class="px-6 py-4 whitespace-nowrap text-center">
-                                        {% set status = op.status_global|lower if op.status_global else 'pendiente' %}
-                                        {% if status == 'pendiente' %}
-                                        <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300 shadow-sm"
-                                            title="La oportunidad ha sido enviada a simulación, pero aún no la ha revisado">
-                                            ⏳ Pendiente
-                                        </span>
-                                        {% elif status == 'en revision' or status == 'en revisión' %}
-                                        <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-blue-100 text-blue-800 border border-blue-300 shadow-sm"
-                                            title="La oportunidad está siendo revisada por simulación">
-                                            <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
-                                                viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                            </svg>
-                                            En Revisión
-                                        </span>
-                                        {% elif status == 'en proceso' %}
-                                        <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-[#E0F7F7] text-[#123456] border border-[#00BABB] shadow-sm"
-                                            title="La oportunidad está en proceso de simulación">
-                                            <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
-                                                viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            </svg>
-                                            En Proceso
-                                        </span>
-                                        {% elif status == 'entregado' %}
-                                        <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-green-100 text-green-800 border border-green-300 shadow-sm"
-                                            title="La oportunidad ha sido enviada a comercial">
-                                            <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
-                                                viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                            </svg>
-                                            Entregado
-                                        </span>
-                                        {% elif status == 'cancelado' %}
-                                        <span
-                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800"
-                                            title="La oportunidad ha sido cancelada">
-                                            Cancelado
-                                        </span>
-                                        {% elif status == 'perdida' or status == 'perdido' %}
-                                        <span
-                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800"
-                                            title="La oportunidad ha sido perdida">
-                                            Perdida
-                                        </span>
-                                        {% elif status == 'cerrada' %}
-                                        <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm"
-                                            title="La oportunidad se ha ganado">
-                                            🎉 Cerrada
-                                        </span>
-                                        {% else %}
-                                        <span
-                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-600"
-                                            title="{{ op.status_global }}">
-                                            {{ op.status_global }}
-                                        </span>
-                                        {% endif %}
-
-                                        {% if op.tipo_solicitud == 'SOLICITUD DE LEVANTAMIENTO' %}
-                                        <div class="mt-1">
-                                            <span
-                                                class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
-                                                Levantamiento
+                                        {% if op.es_fuera_horario %}
+                                        <!-- Tooltip Alpine.js -->
+                                        <div x-data="{ showTooltip: false }" class="relative inline-flex">
+                                            <span @mouseenter="showTooltip = true" @mouseleave="showTooltip = false"
+                                                class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-full bg-rose-100 text-rose-700 border border-rose-300 whitespace-nowrap cursor-help">
+                                                Fuera de Horario
                                             </span>
+                                            <!-- Tooltip flotante -->
+                                            <div x-show="showTooltip" x-transition
+                                                class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap z-50 pointer-events-none">
+                                                📅 Solicitud recibida fuera del horario laboral
+                                                <div
+                                                    class="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900">
+                                                </div>
+                                            </div>
                                         </div>
                                         {% endif %}
-                                    </td>
+                                    </div>
+                                </td>
 
-                                    <!-- COL 6: Detalles -->
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium relative">
-                                        <div class="flex flex-col gap-2 items-center">
+                                <!-- COL 4: Entrega SLA -->
+                                <td class="px-4 py-4 w-40">
+                                    <div class="flex flex-col items-center gap-2">
+                                        <div class="text-sm text-blue-600 font-semibold text-center">
+                                            {{ op.deadline_calculado.strftime('%d/%m/%Y') if
+                                            op.deadline_calculado
+                                            else
+                                            'N/A' }}
+                                        </div>
+                                        {% if op.deadline_negociado %}
+                                        <div class="text-xs text-rose-700 font-semibold mt-1 text-center">
+                                            SLA Negociado: {{ op.deadline_negociado.strftime('%d/%m/%Y') }}
+                                        </div>
+                                        {% endif %}
+                                    </div>
+                                </td>
 
-                                            <!-- Botón 1: Comentarios Simulacion con Popup -->
-                                            <div x-data="{ showPopup: false }" class="w-full">
-                                                <button @click="showPopup = true"
-                                                    class="w-full text-blue-600 hover:text-blue-700 border border-blue-300 hover:border-blue-500 px-3 py-1.5 rounded bg-blue-50 hover:bg-blue-100 flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow">
-                                                    <span>💬</span>
-                                                    <span>Comentarios Simulacion</span>
-                                                </button>
+                                <!-- COL 5: Status -->
+                                <td class="px-6 py-4 whitespace-nowrap text-center">
+                                    {% set status = op.status_global|lower if op.status_global else 'pendiente'
+                                    %}
+                                    {% if status == 'pendiente' %}
+                                    <span
+                                        class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300 shadow-sm"
+                                        title="La oportunidad ha sido enviada a simulación, pero aún no la ha revisado">
+                                        ⏳ Pendiente
+                                    </span>
+                                    {% elif status == 'en revision' or status == 'en revisión' %}
+                                    <span
+                                        class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-blue-100 text-blue-800 border border-blue-300 shadow-sm"
+                                        title="La oportunidad está siendo revisada por simulación">
+                                        <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
+                                            viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                                        </svg>
+                                        En Revisión
+                                    </span>
+                                    {% elif status == 'en proceso' %}
+                                    <span
+                                        class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-[#E0F7F7] text-[#123456] border border-[#00BABB] shadow-sm"
+                                        title="La oportunidad está en proceso de simulación">
+                                        <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
+                                            viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        </svg>
+                                        En Proceso
+                                    </span>
+                                    {% elif status == 'entregado' %}
+                                    <span
+                                        class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-green-100 text-green-800 border border-green-300 shadow-sm"
+                                        title="La oportunidad ha sido enviada a comercial">
+                                        <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
+                                            viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        Entregado
+                                    </span>
+                                    {% elif status == 'cancelado' %}
+                                    <span
+                                        class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800"
+                                        title="La oportunidad ha sido cancelada">
+                                        Cancelado
+                                    </span>
+                                    {% elif status == 'perdida' or status == 'perdido' %}
+                                    <span
+                                        class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800"
+                                        title="La oportunidad ha sido perdida">
+                                        Perdida
+                                    </span>
+                                    {% elif status == 'cerrada' %}
+                                    <span
+                                        class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm"
+                                        title="La oportunidad se ha ganado">
+                                        🎉 Cerrada
+                                    </span>
+                                    {% else %}
+                                    <span
+                                        class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-600"
+                                        title="{{ op.status_global }}">
+                                        {{ op.status_global }}
+                                    </span>
+                                    {% endif %}
 
-                                                <!-- Popup Modal Comentarios -->
-                                                <div x-show="showPopup" x-transition @click.outside="showPopup = false"
-                                                    class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-                                                    <div
-                                                        class="bg-white rounded-lg shadow-2xl max-w-2xl mx-4 p-6 max-h-[80vh] overflow-y-auto">
-                                                        <!-- Contenido HTMX (lazy load) -->
-                                                        <div hx-get="/comercial/partials/comentarios/{{ op.id_oportunidad }}"
-                                                            hx-trigger="intersect once" hx-swap="innerHTML">
-                                                            <div class="animate-pulse text-center py-4 text-gray-500">
-                                                                <span class="text-2xl">💬</span>
-                                                                <p class="mt-2">Cargando comentarios...</p>
-                                                            </div>
+                                    {% if op.tipo_solicitud and 'LEVANTAMIENTO' in op.tipo_solicitud.upper() %}
+                                    <div class="mt-1">
+                                        <span
+                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
+                                            Levantamiento
+                                        </span>
+                                    </div>
+                                    {% endif %}
+                                </td>
+
+                                <!-- COL 6: Detalles -->
+                                <td class="px-6 py-4 whitespace-nowrap text-sm font-medium relative">
+                                    <div class="flex flex-col gap-2 items-center">
+
+                                        <!-- Botón 1: Comentarios Simulacion con Popup -->
+                                        <div x-data="{ showPopup: false }" class="w-full">
+                                            <button @click="showPopup = true"
+                                                class="w-full text-blue-600 hover:text-blue-700 border border-blue-300 hover:border-blue-500 px-3 py-1.5 rounded bg-blue-50 hover:bg-blue-100 flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow">
+                                                <span>💬</span>
+                                                <span>Comentarios Simulacion</span>
+                                            </button>
+
+                                            <!-- Popup Modal Comentarios -->
+                                            <div x-show="showPopup" x-transition @click.outside="showPopup = false"
+                                                class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                                                <div
+                                                    class="bg-white rounded-lg shadow-2xl max-w-2xl mx-4 p-6 max-h-[80vh] overflow-y-auto">
+                                                    <!-- Contenido HTMX (lazy load) -->
+                                                    <div hx-get="/comercial/partials/comentarios/{{ op.id_oportunidad }}"
+                                                        hx-trigger="intersect once" hx-swap="innerHTML">
+                                                        <div class="animate-pulse text-center py-4 text-gray-500">
+                                                            <span class="text-2xl">💬</span>
+                                                            <p class="mt-2">Cargando comentarios...</p>
                                                         </div>
-
-                                                        <button @click="showPopup = false"
-                                                            class="mt-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition">
-                                                            Cerrar
-                                                        </button>
                                                     </div>
+
+                                                    <button @click="showPopup = false"
+                                                        class="mt-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition">
+                                                        Cerrar
+                                                    </button>
                                                 </div>
                                             </div>
-
-                                            <!-- Botón 2: Detalles Bess con Popup (Solo si tiene BESS) -->
-                                            {% if op.tiene_detalles_bess %}
-                                            <div x-data="{ showPopup: false }" class="w-full">
-                                                <button @click="showPopup = true"
-                                                    class="w-full text-green-600 hover:text-green-700 border border-green-300 hover:border-green-500 px-3 py-1.5 rounded bg-green-50 hover:bg-green-100 flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow">
-                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor"
-                                                        viewBox="0 0 24 24">
-                                                        <path stroke-linecap="round" stroke-linejoin="round"
-                                                            stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                                    </svg>
-                                                    <span>Detalles Bess</span>
-                                                </button>
-
-                                                <!-- Popup Modal BESS -->
-                                                <div x-show="showPopup" x-transition @click.outside="showPopup = false"
-                                                    class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-                                                    <div
-                                                        class="bg-white rounded-lg shadow-2xl max-w-2xl mx-4 p-6 max-h-[80vh] overflow-y-auto">
-                                                        <!-- Contenido HTMX (lazy load) -->
-                                                        <div hx-get="/comercial/partials/bess/{{ op.id_oportunidad }}"
-                                                            hx-trigger="intersect once" hx-swap="innerHTML">
-                                                            <div class="animate-pulse text-center py-4 text-gray-500">
-                                                                <svg class="w-6 h-6" fill="none" stroke="currentColor"
-                                                                    viewBox="0 0 24 24">
-                                                                    <path stroke-linecap="round" stroke-linejoin="round"
-                                                                        stroke-width="2"
-                                                                        d="M13 10V3L4 14h7v7l9-11h-7z" />
-                                                                </svg>
-                                                                <p class="mt-2">Cargando detalles BESS...</p>
-                                                            </div>
-                                                        </div>
-
-                                                        <button @click="showPopup = false"
-                                                            class="mt-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition">
-                                                            Cerrar
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                            {% endif %}
-
-                                            <!-- Desglose de Sitios con Alpine.js Expandir/Colapsar -->
-                                            {% if op.cantidad_sitios and op.cantidad_sitios > 1 %}
-                                            <div class="flex items-center gap-2 mt-1">
-                                                <span
-                                                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 animate-pulse-subtle">
-                                                    {{ op.cantidad_sitios }} Sitio{{ 's' if op.cantidad_sitios > 1 else
-                                                    ''
-                                                    }}
-                                                </span>
-
-                                                <!-- Botón con Alpine.js para expandir -->
-                                                <button @click.stop="toggleExpanded('{{ op.id_oportunidad }}')"
-                                                    class="text-gray-500 hover:text-blue-600 transition focus:outline-none"
-                                                    hx-get="/comercial/partials/sitios/{{ op.id_oportunidad }}"
-                                                    hx-target="#sites-row-{{ op.id_oportunidad }}" hx-swap="innerHTML"
-                                                    hx-trigger="click once" title="Ver detalle de sitios">
-                                                    <svg xmlns="http://www.w3.org/2000/svg"
-                                                        class="h-5 w-5 transition-transform duration-300"
-                                                        :class="{ 'rotate-180': isExpanded('{{ op.id_oportunidad }}') }"
-                                                        fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                                        <path stroke-linecap="round" stroke-linejoin="round"
-                                                            stroke-width="2" d="M19 9l-7 7-7-7" />
-                                                    </svg>
-                                                </button>
-                                            </div>
-                                            {% endif %}
-
                                         </div>
 
+                                        <!-- Botón 2: Detalles Bess con Popup (Solo si tiene BESS) -->
+                                        {% if op.tiene_detalles_bess %}
+                                        <div x-data="{ showPopup: false }" class="w-full">
+                                            <button @click="showPopup = true"
+                                                class="w-full text-green-600 hover:text-green-700 border border-green-300 hover:border-green-500 px-3 py-1.5 rounded bg-green-50 hover:bg-green-100 flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow">
+                                                <svg class="w-4 h-4" fill="none" stroke="currentColor"
+                                                    viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                                        stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                                </svg>
+                                                <span>Detalles Bess</span>
+                                            </button>
 
-                                    </td>
+                                            <!-- Popup Modal BESS -->
+                                            <div x-show="showPopup" x-transition @click.outside="showPopup = false"
+                                                class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                                                <div
+                                                    class="bg-white rounded-lg shadow-2xl max-w-2xl mx-4 p-6 max-h-[80vh] overflow-y-auto">
+                                                    <!-- Contenido HTMX (lazy load) -->
+                                                    <div hx-get="/comercial/partials/bess/{{ op.id_oportunidad }}"
+                                                        hx-trigger="intersect once" hx-swap="innerHTML">
+                                                        <div class="animate-pulse text-center py-4 text-gray-500">
+                                                            <svg class="w-6 h-6" fill="none" stroke="currentColor"
+                                                                viewBox="0 0 24 24">
+                                                                <path stroke-linecap="round" stroke-linejoin="round"
+                                                                    stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                                            </svg>
+                                                            <p class="mt-2">Cargando detalles BESS...</p>
+                                                        </div>
+                                                    </div>
 
-                                    <!-- COL 7: Acciones (Solo Historial) -->
-                                    {% if current_tab == 'historial' %}
-                                    <td class="px-4 py-4 text-center" @click.stop>
-                                        <!-- Contenedor con Auto-posicionamiento Inteligente -->
-                                        <div x-data="{ 
+                                                    <button @click="showPopup = false"
+                                                        class="mt-4 w-full bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition">
+                                                        Cerrar
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        {% endif %}
+
+                                        <!-- Desglose de Sitios con Alpine.js Expandir/Colapsar -->
+                                        {% if op.cantidad_sitios and op.cantidad_sitios > 1 %}
+                                        <div class="flex items-center gap-2 mt-1">
+                                            <span
+                                                class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 animate-pulse-subtle">
+                                                {{ op.cantidad_sitios }} Sitio{{ 's' if op.cantidad_sitios > 1
+                                                else
+                                                ''
+                                                }}
+                                            </span>
+
+                                            <!-- Botón con Alpine.js para expandir -->
+                                            <button @click.stop="toggleExpanded('{{ op.id_oportunidad }}')"
+                                                class="text-gray-500 hover:text-blue-600 transition focus:outline-none"
+                                                hx-get="/comercial/partials/sitios/{{ op.id_oportunidad }}"
+                                                hx-target="#sites-row-{{ op.id_oportunidad }}" hx-swap="innerHTML"
+                                                hx-trigger="click once" title="Ver detalle de sitios">
+                                                <svg xmlns="http://www.w3.org/2000/svg"
+                                                    class="h-5 w-5 transition-transform duration-300"
+                                                    :class="{ 'rotate-180': isExpanded('{{ op.id_oportunidad }}') }"
+                                                    fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                                        stroke-width="2" d="M19 9l-7 7-7-7" />
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        {% endif %}
+
+                                    </div>
+
+
+                                </td>
+
+                                <!-- COL 7: Acciones (Solo Historial) -->
+                                {% if current_tab == 'historial' %}
+                                <td class="px-4 py-4 text-center" @click.stop>
+                                    <!-- Contenedor con Auto-posicionamiento Inteligente -->
+                                    <div x-data="{ 
                             menuOpen: false, 
                             menuX: 0, 
                             menuY: 0,
@@ -433,191 +456,188 @@
                             }
                         }" @menu-opened.window="if ($event.detail !== '{{ op.id_oportunidad }}') menuOpen = false">
 
-                                            <!-- Botón Kebab -->
-                                            <button @click="openMenu($el)"
-                                                class="flex items-center justify-center w-9 h-9 mx-auto rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-all duration-200 hover:shadow-md">
-                                                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6"
-                                                    viewBox="0 0 20 20" fill="currentColor">
-                                                    <path
-                                                        d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
-                                                </svg>
-                                            </button>
+                                        <!-- Botón Kebab -->
+                                        <button @click="openMenu($el)"
+                                            class="flex items-center justify-center w-9 h-9 mx-auto rounded-full hover:bg-gray-100 text-gray-500 hover:text-gray-700 transition-all duration-200 hover:shadow-md">
+                                            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" viewBox="0 0 20 20"
+                                                fill="currentColor">
+                                                <path
+                                                    d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+                                            </svg>
+                                        </button>
 
-                                            <!-- Menú Dropdown con Posicionamiento Inteligente -->
-                                            <div x-show="menuOpen" x-transition:enter="transition ease-out duration-100"
-                                                x-transition:enter-start="opacity-0 scale-95"
-                                                x-transition:enter-end="opacity-100 scale-100"
-                                                x-transition:leave="transition ease-in duration-75"
-                                                x-transition:leave-start="opacity-100 scale-100"
-                                                x-transition:leave-end="opacity-0 scale-95"
-                                                @click.outside="menuOpen = false"
-                                                :style="`position: fixed; top: ${menuY}px; left: ${menuX}px;`"
-                                                class="w-64 bg-white rounded-lg shadow-2xl py-2 z-[9999] text-left border border-gray-100"
-                                                style="box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);">
+                                        <!-- Menú Dropdown con Posicionamiento Inteligente -->
+                                        <div x-show="menuOpen" x-transition:enter="transition ease-out duration-100"
+                                            x-transition:enter-start="opacity-0 scale-95"
+                                            x-transition:enter-end="opacity-100 scale-100"
+                                            x-transition:leave="transition ease-in duration-75"
+                                            x-transition:leave-start="opacity-100 scale-100"
+                                            x-transition:leave-end="opacity-0 scale-95"
+                                            @click.outside="menuOpen = false"
+                                            :style="`position: fixed; top: ${menuY}px; left: ${menuX}px;`"
+                                            class="w-64 bg-white rounded-lg shadow-2xl py-2 z-[9999] text-left border border-gray-100"
+                                            style="box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);">
 
-                                                <!-- Opción 1: Solicitar Actualización -->
-                                                <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
-                                                    hx-target="#main-content" hx-swap="innerHTML"
-                                                    hx-disabled-elt="find button" hx-indicator="#loading-modal"
-                                                    class="block">
-                                                    <input type="hidden" name="tipo_solicitud" value="ACTUALIZACION">
-                                                    <input type="hidden" name="prioridad" value="high">
+                                            <!-- Opción 1: Solicitar Actualización -->
+                                            <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
+                                                hx-target="#main-content" hx-swap="innerHTML"
+                                                hx-disabled-elt="find button" hx-indicator="#loading-modal"
+                                                class="block">
+                                                <input type="hidden" name="tipo_solicitud" value="ACTUALIZACION">
+                                                <input type="hidden" name="prioridad" value="high">
 
-                                                    <button type="submit" x-data="{ loading: false }"
-                                                        @htmx:before-request.window="if($event.detail.elt.contains($el)) loading = true"
-                                                        :disabled="loading"
-                                                        class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-3 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                                                <button type="submit" x-data="{ loading: false }"
+                                                    @htmx:before-request.window="if($event.detail.elt.contains($el)) loading = true"
+                                                    :disabled="loading"
+                                                    class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-blue-50 hover:text-blue-700 flex items-center gap-3 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
 
-                                                        <span x-show="!loading" class="flex items-center gap-3 w-full">
-                                                            <svg class="w-5 h-5" fill="none" stroke="currentColor"
-                                                                viewBox="0 0 24 24">
-                                                                <path stroke-linecap="round" stroke-linejoin="round"
-                                                                    stroke-width="2"
-                                                                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                                                            </svg>
-                                                            <span>Solicitar Actualización</span>
-                                                        </span>
+                                                    <span x-show="!loading" class="flex items-center gap-3 w-full">
+                                                        <svg class="w-5 h-5" fill="none" stroke="currentColor"
+                                                            viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round"
+                                                                stroke-width="2"
+                                                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                                                        </svg>
+                                                        <span>Solicitar Actualización</span>
+                                                    </span>
 
-                                                        <span x-show="loading" class="flex items-center gap-3 w-full">
-                                                            <svg class="animate-spin h-5 w-5 text-[#00BABB]"
-                                                                xmlns="http://www.w3.org/2000/svg" fill="none"
-                                                                viewBox="0 0 24 24">
-                                                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                                                    stroke="currentColor" stroke-width="4"></circle>
-                                                                <path class="opacity-75" fill="currentColor"
-                                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                                                </path>
-                                                            </svg>
-                                                            <span
-                                                                class="text-[#00BABB] font-medium">Procesando...</span>
-                                                        </span>
-                                                    </button>
-                                                </form>
-
-                                                <!-- Opción 2: Solicitar Levantamiento -->
-                                                <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
-                                                    hx-target="#main-content" hx-swap="innerHTML"
-                                                    hx-disabled-elt="find button" hx-indicator="#loading-modal"
-                                                    class="block">
-                                                    <input type="hidden" name="tipo_solicitud"
-                                                        value="SOLICITUD DE LEVANTAMIENTO">
-                                                    <input type="hidden" name="prioridad" value="normal">
-
-                                                    <button type="submit" x-data="{ loading: false }"
-                                                        @htmx:before-request.window="if($event.detail.elt.contains($el)) loading = true"
-                                                        :disabled="loading"
-                                                        class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 flex items-center gap-3 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-
-                                                        <span x-show="!loading" class="flex items-center gap-3 w-full">
-                                                            <svg class="w-5 h-5" fill="none" stroke="currentColor"
-                                                                viewBox="0 0 24 24">
-                                                                <path stroke-linecap="round" stroke-linejoin="round"
-                                                                    stroke-width="2"
-                                                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                                                            </svg>
-                                                            <span>Solicitar Levantamiento</span>
-                                                        </span>
-
-                                                        <span x-show="loading" class="flex items-center gap-3 w-full">
-                                                            <svg class="animate-spin h-5 w-5 text-purple-600"
-                                                                xmlns="http://www.w3.org/2000/svg" fill="none"
-                                                                viewBox="0 0 24 24">
-                                                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                                                    stroke="currentColor" stroke-width="4"></circle>
-                                                                <path class="opacity-75" fill="currentColor"
-                                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                                                </path>
-                                                            </svg>
-                                                            <span
-                                                                class="text-purple-600 font-medium">Procesando...</span>
-                                                        </span>
-                                                    </button>
-                                                </form>
-
-                                                <!-- Opción 3: Solicitar Cotización -->
-                                                <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
-                                                    hx-target="#main-content" hx-swap="innerHTML"
-                                                    hx-disabled-elt="find button" hx-indicator="#loading-modal"
-                                                    class="block">
-                                                    <input type="hidden" name="tipo_solicitud" value="COTIZACION">
-                                                    <input type="hidden" name="prioridad" value="high">
-
-                                                    <button type="submit" x-data="{ loading: false }"
-                                                        @htmx:before-request.window="if($event.detail.elt.contains($el)) loading = true"
-                                                        :disabled="loading"
-                                                        class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-3 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-
-                                                        <span x-show="!loading" class="flex items-center gap-3 w-full">
-                                                            <svg class="w-5 h-5" fill="none" stroke="currentColor"
-                                                                viewBox="0 0 24 24">
-                                                                <path stroke-linecap="round" stroke-linejoin="round"
-                                                                    stroke-width="2"
-                                                                    d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-                                                            </svg>
-                                                            <span>Solicitar Cotización</span>
-                                                        </span>
-
-                                                        <span x-show="loading" class="flex items-center gap-3 w-full">
-                                                            <svg class="animate-spin h-5 w-5 text-green-600"
-                                                                xmlns="http://www.w3.org/2000/svg" fill="none"
-                                                                viewBox="0 0 24 24">
-                                                                <circle class="opacity-25" cx="12" cy="12" r="10"
-                                                                    stroke="currentColor" stroke-width="4"></circle>
-                                                                <path class="opacity-75" fill="currentColor"
-                                                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                                                                </path>
-                                                            </svg>
-                                                            <span
-                                                                class="text-green-600 font-medium">Procesando...</span>
-                                                        </span>
-                                                    </button>
-                                                </form>
-
-                                                <hr class="my-1 border-gray-100">
-
-                                                <!-- Opción Deshabilitada -->
-                                                <button type="button" disabled
-                                                    class="w-full text-left px-4 py-2.5 text-sm text-gray-400 flex items-center gap-3 cursor-not-allowed opacity-50"
-                                                    title="Próximamente disponible">
-                                                    <svg class="w-5 h-5" fill="none" stroke="currentColor"
-                                                        viewBox="0 0 24 24">
-                                                        <path stroke-linecap="round" stroke-linejoin="round"
-                                                            stroke-width="2"
-                                                            d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
-                                                    </svg>
-                                                    <span>Confirmar Cierre de Venta</span>
+                                                    <span x-show="loading" class="flex items-center gap-3 w-full">
+                                                        <svg class="animate-spin h-5 w-5 text-[#00BABB]"
+                                                            xmlns="http://www.w3.org/2000/svg" fill="none"
+                                                            viewBox="0 0 24 24">
+                                                            <circle class="opacity-25" cx="12" cy="12" r="10"
+                                                                stroke="currentColor" stroke-width="4"></circle>
+                                                            <path class="opacity-75" fill="currentColor"
+                                                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                                            </path>
+                                                        </svg>
+                                                        <span class="text-[#00BABB] font-medium">Procesando...</span>
+                                                    </span>
                                                 </button>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    {% endif %}
-                                </tr>
+                                            </form>
 
-                                <!-- Fila Expansible para Sitios (Alpine.js controla visibilidad) -->
-                                <tr x-show="isExpanded('{{ op.id_oportunidad }}')" x-transition.duration.300ms
-                                    class="bg-gray-50 border-b border-gray-200">
-                                    <td colspan="6" class="p-0">
-                                        <div id="sites-row-{{ op.id_oportunidad }}" class="w-full">
-                                            <!-- Aquí carga HTMX el contenido -->
-                                            <div class="p-4 text-center text-gray-400 text-xs">Cargando sitios...</div>
-                                        </div>
-                                    </td>
-                                </tr>
+                                            <!-- Opción 2: Solicitar Levantamiento -->
+                                            <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
+                                                hx-target="#main-content" hx-swap="innerHTML"
+                                                hx-disabled-elt="find button" hx-indicator="#loading-modal"
+                                                class="block">
+                                                <input type="hidden" name="tipo_solicitud" value="LEVANTAMIENTO">
+                                                <input type="hidden" name="prioridad" value="normal">
 
-                                {% else %}
-                                <tr>
-                                    <td colspan="6" class="px-6 py-4 text-center text-gray-500">
-                                        No hay solicitudes registradas aún.
-                                    </td>
-                                </tr>
-                                {% endfor %}
-                        </tbody>
-                    </table>
-                </div>
+                                                <button type="submit" x-data="{ loading: false }"
+                                                    @htmx:before-request.window="if($event.detail.elt.contains($el)) loading = true"
+                                                    :disabled="loading"
+                                                    class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 flex items-center gap-3 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+
+                                                    <span x-show="!loading" class="flex items-center gap-3 w-full">
+                                                        <svg class="w-5 h-5" fill="none" stroke="currentColor"
+                                                            viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round"
+                                                                stroke-width="2"
+                                                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                                                        </svg>
+                                                        <span>Solicitar Levantamiento</span>
+                                                    </span>
+
+                                                    <span x-show="loading" class="flex items-center gap-3 w-full">
+                                                        <svg class="animate-spin h-5 w-5 text-purple-600"
+                                                            xmlns="http://www.w3.org/2000/svg" fill="none"
+                                                            viewBox="0 0 24 24">
+                                                            <circle class="opacity-25" cx="12" cy="12" r="10"
+                                                                stroke="currentColor" stroke-width="4"></circle>
+                                                            <path class="opacity-75" fill="currentColor"
+                                                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                                            </path>
+                                                        </svg>
+                                                        <span class="text-purple-600 font-medium">Procesando...</span>
+                                                    </span>
+                                                </button>
+                                            </form>
+
+                                            <!-- Opción 3: Solicitar Cotización -->
+                                            <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
+                                                hx-target="#main-content" hx-swap="innerHTML"
+                                                hx-disabled-elt="find button" hx-indicator="#loading-modal"
+                                                class="block">
+                                                <input type="hidden" name="tipo_solicitud" value="COTIZACION">
+                                                <input type="hidden" name="prioridad" value="high">
+
+                                                <button type="submit" x-data="{ loading: false }"
+                                                    @htmx:before-request.window="if($event.detail.elt.contains($el)) loading = true"
+                                                    :disabled="loading"
+                                                    class="w-full text-left px-4 py-2.5 text-sm text-gray-700 hover:bg-green-50 hover:text-green-700 flex items-center gap-3 transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+
+                                                    <span x-show="!loading" class="flex items-center gap-3 w-full">
+                                                        <svg class="w-5 h-5" fill="none" stroke="currentColor"
+                                                            viewBox="0 0 24 24">
+                                                            <path stroke-linecap="round" stroke-linejoin="round"
+                                                                stroke-width="2"
+                                                                d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                                        </svg>
+                                                        <span>Solicitar Cotización</span>
+                                                    </span>
+
+                                                    <span x-show="loading" class="flex items-center gap-3 w-full">
+                                                        <svg class="animate-spin h-5 w-5 text-green-600"
+                                                            xmlns="http://www.w3.org/2000/svg" fill="none"
+                                                            viewBox="0 0 24 24">
+                                                            <circle class="opacity-25" cx="12" cy="12" r="10"
+                                                                stroke="currentColor" stroke-width="4"></circle>
+                                                            <path class="opacity-75" fill="currentColor"
+                                                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                                            </path>
+                                                        </svg>
+                                                        <span class="text-green-600 font-medium">Procesando...</span>
+                                                    </span>
+                                                </button>
+                                            </form>
+
+                                            <hr class="my-1 border-gray-100">
+
+                                            <!-- Opción Deshabilitada -->
+                                            <button type="button" disabled
+                                                class="w-full text-left px-4 py-2.5 text-sm text-gray-400 flex items-center gap-3 cursor-not-allowed opacity-50"
+                                                title="Próximamente disponible">
+                                                <svg class="w-5 h-5" fill="none" stroke="currentColor"
+                                                    viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                                        stroke-width="2"
+                                                        d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                                                </svg>
+                                                <span>Confirmar Cierre de Venta</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </td>
+                                {% endif %}
+                            </tr>
+
+                            <!-- Fila Expansible para Sitios (Alpine.js controla visibilidad) -->
+                            <tr x-show="isExpanded('{{ op.id_oportunidad }}')" x-transition.duration.300ms
+                                class="bg-gray-50 border-b border-gray-200">
+                                <td colspan="6" class="p-0">
+                                    <div id="sites-row-{{ op.id_oportunidad }}" class="w-full">
+                                        <!-- Aquí carga HTMX el contenido -->
+                                        <div class="p-4 text-center text-gray-400 text-xs">Cargando sitios...
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+
+                            {% else %}
+                            <tr>
+                                <td colspan="6" class="px-6 py-4 text-center text-gray-500">
+                                    No hay solicitudes registradas aún.
+                                </td>
+                            </tr>
+                            {% endfor %}
+                    </tbody>
+                </table>
             </div>
         </div>
-
     </div>
+
+</div>
 </div>
 
 <!-- Script simplificado (Alpine.js maneja la mayor parte) -->

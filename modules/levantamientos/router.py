@@ -53,6 +53,8 @@ class LevantamientoService:
                    perm_tec.departamento_rol as tecnico_area,
                    u_jefe.nombre as jefe_nombre
             FROM tb_oportunidades op
+            -- Join para filtrar por tipo de solicitud
+            JOIN tb_cat_tipos_solicitud tipo_cat ON op.id_tipo_solicitud = tipo_cat.id
             -- Joins para llegar al técnico asignado en tb_levantamientos
             LEFT JOIN tb_sitios_oportunidad s ON s.id_oportunidad = op.id_oportunidad
             LEFT JOIN tb_levantamientos l ON l.id_sitio = s.id_sitio
@@ -60,7 +62,7 @@ class LevantamientoService:
             LEFT JOIN tb_permisos_usuarios perm_tec ON perm_tec.usuario_id = u_tec.id_usuario
             LEFT JOIN tb_usuarios u_jefe ON l.jefe_area_id = u_jefe.id_usuario
             
-            WHERE op.tipo_solicitud = 'SOLICITUD DE LEVANTAMIENTO'
+            WHERE tipo_cat.codigo_interno = 'LEVANTAMIENTO'
             AND op.status_global NOT IN ('Cancelado', 'Perdida')
             ORDER BY op.id_oportunidad, op.prioridad DESC, op.fecha_solicitud ASC
         """

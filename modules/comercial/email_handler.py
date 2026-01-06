@@ -198,7 +198,7 @@ class EmailHandler:
         
         # Procesar BCC (solo defaults)
         final_bcc = set()
-        defaults = await conn.fetchrow("SELECT * FROM tb_email_defaults WHERE id = 1")
+        defaults = await conn.fetchrow("SELECT * FROM tb_email_defaults ORDER BY id LIMIT 1")
         if defaults:
             def_cco = (defaults['default_cco'] or "").upper().replace(",", ";").split(";")
             for email in def_cco:

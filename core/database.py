@@ -59,3 +59,14 @@ async def get_db_pool():
     if not _connection_pool:
         raise Exception("DB Pool no inicializado.")
     return _connection_pool
+
+
+
+# Configuración recomendada para PRO (Session Mode - Puerto 5432)
+#_connection_pool = await asyncpg.create_pool(
+#    settings.DB_URL_ASYNC,
+#    min_size=5,    # Mantiene conexiones listas
+#    max_size=20,   # Permite concurrencia real (ajustar según workers de Uvicorn)
+#    timeout=30,
+#    max_inactive_connection_lifetime=300
+#)

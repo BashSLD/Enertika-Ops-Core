@@ -153,7 +153,12 @@ async def get_cards_partial(
     # OPTIMIZACIÓN: Token se obtiene solo cuando el usuario hace click en "Enviar Correo"
     # Esto evita una llamada HTTP a Microsoft Graph en cada cambio de pestaña
     # El token se validará en tiempo real cuando se necesite (lazy loading)
-    user_token = request.session.get("access_token")  # Solo verificar si existe en sesión
+    # Validamos existencia de token en BD sin exponer el string sensible
+    has_valid_token = await conn.fetchval(
+        """SELECT CASE WHEN access_token IS NOT NULL THEN true ELSE false END 
+           FROM tb_usuarios WHERE id_usuario = $1""",
+        user_context['user_db_id']
+    )
     
     items = await service.get_oportunidades_list(conn, user_context=user_context, tab=tab, q=q, limit=limit, subtab=subtab)
     
@@ -162,7 +167,7 @@ async def get_cards_partial(
         {
             "request": request, 
             "oportunidades": items,
-            "user_token": user_token,
+            "user_token": has_valid_token,
             "current_tab": tab,
             "subtab": subtab,
             "q": q,
@@ -702,15 +707,17 @@ async def upload_confirm_endpoint(
         count = await service.confirm_site_upload(conn, uuid_op, sitios_json)
         
         if extraordinaria == 1:
-            return HTMLResponse(content=f"""
-            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4" role="alert"><p>Carga Exitosa ({count} sitios).</p></div>
-            <script>setTimeout(function() {{ window.location.href = '/comercial/ui'; }}, 1500);</script>
-            """, status_code=200)
+            return templates.TemplateResponse("comercial/partials/messages/success_redirect.html", {
+                "request": request,
+                "message": f"Carga Exitosa ({count} sitios). Redirigiendo...",
+                "redirect_url": "/comercial/ui"
+            })
         else:
-            return HTMLResponse(content=f"""
-            <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4" role="alert"><p>Carga Exitosa ({count} sitios).</p></div>
-            <div hx-trigger="load delay:1s" hx-get="/comercial/paso3/{op_id}" hx-target="#main-content"></div> 
-            """, status_code=200)
+            return templates.TemplateResponse("comercial/partials/messages/success_redirect.html", {
+                "request": request,
+                "message": f"Carga Exitosa ({count} sitios). Cargando paso 3...",
+                "hx_url": f"/comercial/paso3/{op_id}"
+            })
     except HTTPException as he:
         return HTMLResponse(f"<div class='text-red-500'>Error: {he.detail}</div>", 400)
 
@@ -745,6 +752,8 @@ async def crear_seguimiento(
     prioridad: str = Form(...),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
+    # CORRECCIÓN DE SEGURIDAD: Validar permisos explícitamente
+    _ = require_module_access("comercial", "editor"),
     user_context = Depends(get_current_user_context)
 ):
     """Acción del Historial: Crea seguimiento y salta directo al correo."""

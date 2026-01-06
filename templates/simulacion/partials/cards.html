@@ -240,7 +240,7 @@
                                         </span>
                                         {% endif %}
 
-                                        {% if op.tipo_solicitud == 'SOLICITUD DE LEVANTAMIENTO' %}
+                                        {% if op.tipo_solicitud and 'LEVANTAMIENTO' in op.tipo_solicitud.upper() %}
                                         <div class="mt-1">
                                             <span
                                                 class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
@@ -381,7 +381,7 @@
                                                             hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
                                                             hx-target="#main-content" hx-swap="innerHTML" class="block">
                                                             <input type="hidden" name="tipo_solicitud"
-                                                                value="SOLICITUD DE LEVANTAMIENTO">
+                                                                value="LEVANTAMIENTO">
                                                             <input type="hidden" name="prioridad" value="normal">
                                                             <button type="submit"
                                                                 class="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-purple-50 hover:text-purple-700 flex items-center gap-2 transition-colors">

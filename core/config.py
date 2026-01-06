@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     
     # --- Configuración de Seguridad y Sesión ---
     SECRET_KEY: str = os.getenv("SECRET_KEY", "tu_super_secret_key_temporal_dev")
-    DEBUG_MODE: bool = True
+    DEBUG_MODE: bool = os.getenv("DEBUG_MODE", "True").lower() == "true"
 
     # --- Configuración de Microsoft Azure AD ---
     GRAPH_CLIENT_ID: str = os.getenv("CLIENT_ID")

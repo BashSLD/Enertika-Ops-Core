@@ -1,0 +1,13 @@
+<div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4 animate-fade-in-down" role="alert">
+    <p class="font-bold">Operación Exitosa</p>
+    <p>{{ message }}</p>
+</div>
+
+{% if redirect_url %}
+<script>
+    setTimeout(function () { window.location.href = '{{ redirect_url|safe }}'; }, 1500);
+</script>
+{% elif hx_url %}
+<div hx-trigger="load delay:1s" hx-get="{{ hx_url|safe }}" hx-target="#main-content">
+</div>
+{% endif %}

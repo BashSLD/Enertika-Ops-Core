@@ -56,9 +56,9 @@ class ComercialService:
         - Si vacío o None: cadena vacía
         
         Ejemplos:
-        - "Sharon V. Morales Perez" → "SHARON_MORALES" ✅
-        - "Moises Jimenez" → "MOISES_JIMENEZ" ✅
-        - "Admin" → "ADMIN" ✅
+        - "Sharon V. Morales Perez" → "SHARON_MORALES" 
+        - "Moises Jimenez" → "MOISES_JIMENEZ" 
+        - "Admin" → "ADMIN" 
         """
         parts = (user_name or "").strip().split()
         
@@ -311,13 +311,15 @@ class ComercialService:
         Helper privado: Inserta detalles BESS.
         Recibe DetalleBessCreate (Pydantic v2).
         """
+        # CORRECCIÓN: Agregar casting ::jsonb al placeholder $8
         query = """
             INSERT INTO tb_detalles_bess (
                 id_oportunidad, cargas_criticas_kw, tiene_motores, potencia_motor_hp,
                 tiempo_autonomia, voltaje_operacion, cargas_separadas, 
                 objetivos_json, tiene_planta_emergencia
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
         """
+        
         # Pydantic v2: model_dump() y json.dumps para el array
         objetivos_str = json.dumps(bess_data.objetivos_json)
         
@@ -329,7 +331,7 @@ class ComercialService:
             bess_data.tiempo_autonomia,
             bess_data.voltaje_operacion,
             bess_data.cargas_separadas,
-            objetivos_str,
+            objetivos_str,  # Ahora Postgres sabe que este string es JSONB
             bess_data.tiene_planta_emergencia
         )
 
@@ -367,6 +369,12 @@ class ComercialService:
         id_interno = f"{op_id_estandar}_{datos.nombre_proyecto}_{datos.cliente_nombre}".upper()[:150]
 
         # 3. Insertar Oportunidad
+        
+        # 1. Obtener ID de estatus inicial (Agregar antes del INSERT)
+        cats = await self.get_catalog_ids(conn)
+        # Usamos 'pendiente' como default, o el que corresponda a ID 1 en tu lógica de negocio
+        id_status_inicial = cats['estatus'].get('pendiente') or 1 
+
         query_op = """
             INSERT INTO tb_oportunidades (
                 id_oportunidad, op_id_estandar, id_interno_simulacion,
@@ -379,7 +387,7 @@ class ComercialService:
                 solicitado_por, es_carga_manual
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7,
-                $8, $9, 1, 
+                $8, $9, $22, 
                 $10, $11, $12, $13, $14, $15, 
                 $16, $17, 
                 $18, $19,
@@ -396,7 +404,8 @@ class ComercialService:
             datos.direccion_obra, datos.coordenadas_gps, datos.google_maps_link, datos.sharepoint_folder_url,
             user_context['user_db_id'], fecha_solicitud,
             es_fuera_horario, deadline,
-            user_context.get('user_name', 'Usuario'), es_manual
+            user_context.get('user_name', 'Usuario'), es_manual,
+            id_status_inicial
         )
 
         # 4. Insertar BESS (Si aplica y hay datos)
@@ -457,18 +466,26 @@ class ComercialService:
 
         # Filtro por tab (OPTIMIZADO: usa IDs en lugar de LOWER(nombre))
         if tab == "historial":
-            # Buscar IDs de los estados del historial
-            ids_historial = [
-                cats['estatus'].get('entregado'),
-                cats['estatus'].get('cancelado'),
-                cats['estatus'].get('perdida')
-            ]
-            ids_historial = [i for i in ids_historial if i is not None]
-            if ids_historial:
-                placeholders = ','.join([f'${i}' for i in range(param_idx, param_idx + len(ids_historial))])
-                query += f" AND o.id_estatus_global IN ({placeholders})"
-                params.extend(ids_historial)
-                param_idx += len(ids_historial)
+            # Subtabs para historial: entregado vs cancelado-perdido
+            if not subtab or subtab == 'entregado':
+                # Por defecto: solo Entregado
+                id_entregado = cats['estatus'].get('entregado')
+                if id_entregado:
+                    query += f" AND o.id_estatus_global = ${param_idx}"
+                    params.append(id_entregado)
+                    param_idx += 1
+            elif subtab == 'cancelado_perdido':
+                # Alternativa: Cancelado + Perdido
+                ids_fallidos = [
+                    cats['estatus'].get('cancelado'),
+                    cats['estatus'].get('perdido')  # Nombre real en BD
+                ]
+                ids_fallidos = [i for i in ids_fallidos if i is not None]
+                if ids_fallidos:
+                    placeholders = ','.join([f'${i}' for i in range(param_idx, param_idx + len(ids_fallidos))])
+                    query += f" AND o.id_estatus_global IN ({placeholders})"
+                    params.extend(ids_fallidos)
+                    param_idx += len(ids_fallidos)
                 
         elif tab == "levantamientos":
             # Buscar ID del tipo "levantamiento"
@@ -500,19 +517,18 @@ class ComercialService:
                 param_idx += 1
                 
         else:  # activos
-            # Estados NO activos
-            ids_no_activos = [
-                cats['estatus'].get('entregado'),
-                cats['estatus'].get('cancelado'),
-                cats['estatus'].get('perdida'),
-                cats['estatus'].get('cerrada')
+            # Estados ACTIVOS - Inclusión explícita
+            ids_activos = [
+                cats['estatus'].get('pendiente'),
+                cats['estatus'].get('en revisión'),  # Con tilde según BD
+                cats['estatus'].get('en proceso')
             ]
-            ids_no_activos = [i for i in ids_no_activos if i is not None]
-            if ids_no_activos:
-                placeholders = ','.join([f'${i}' for i in range(param_idx, param_idx + len(ids_no_activos))])
-                query += f" AND o.id_estatus_global NOT IN ({placeholders})"
-                params.extend(ids_no_activos)
-                param_idx += len(ids_no_activos)
+            ids_activos = [i for i in ids_activos if i is not None]
+            if ids_activos:
+                placeholders = ','.join([f'${i}' for i in range(param_idx, param_idx + len(ids_activos))])
+                query += f" AND o.id_estatus_global IN ({placeholders})"
+                params.extend(ids_activos)
+                param_idx += len(ids_activos)
                 
             # Excluir levantamientos de activos
             id_levantamiento = cats['tipos'].get('levantamiento')
@@ -551,7 +567,12 @@ class ComercialService:
         await conn.execute("UPDATE tb_oportunidades SET email_enviado = TRUE WHERE id_oportunidad = $1", id_oportunidad)
 
     async def create_followup_oportunidad(self, parent_id: UUID, nuevo_tipo_solicitud: str, prioridad: str, conn, user_id: UUID, user_name: str) -> UUID:
-        """Crea seguimiento clonando padre + sitios."""
+        """Crea seguimiento clonando padre + sitios (Versión Corregida)."""
+        
+        # 1. FUENTE DE VERDAD TEMPORAL (Corrección Zona Horaria)
+        # Obtenemos la hora con timezone de México. Asyncpg la convertirá a UTC al guardar.
+        now_mx = await self.get_current_datetime_mx(conn)
+
         parent = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", parent_id)
         if not parent: 
             raise HTTPException(status_code=404, detail="Oportunidad original no encontrada")
@@ -567,7 +588,6 @@ class ComercialService:
             raise HTTPException(status_code=400, detail=f"Tipo de solicitud '{nuevo_tipo_solicitud}' no encontrado en catálogo")
 
         new_uuid = uuid4()
-        now_mx = await self.get_current_datetime_mx(conn)
         timestamp_id = now_mx.strftime('%y%m%d%H%M')
         op_id_estandar_new = f"OP - {timestamp_id}"
         
@@ -582,7 +602,12 @@ class ComercialService:
         # Título completo con el MISMO formato que la creación inicial (línea 344)
         titulo_new = f"{nombre_tipo}_{parent['cliente_nombre']}_{parent['nombre_proyecto']}_{nombre_tec}_{parent['canal_venta']}".upper()
 
+        # CORRECCIÓN "MAGIC NUMBER": Obtener ID dinámico
+        cats = await self.get_catalog_ids(conn)
+        id_status_inicial = cats['estatus'].get('pendiente') or 1
+
         # CORRECCIÓN: Agregar id_tecnologia que faltaba en seguimientos
+        # CORRECCIÓN QUERY: Usar placeholders $22 y $23 para evitar hardcodeo
         query_insert = """
             INSERT INTO tb_oportunidades (
                 id_oportunidad, creado_por_id, parent_id,
@@ -591,9 +616,16 @@ class ComercialService:
                 id_tecnologia, id_tipo_solicitud, cantidad_sitios, prioridad,
                 direccion_obra, coordenadas_gps, google_maps_link, sharepoint_folder_url,
                 id_interno_simulacion, op_id_estandar,
-                id_estatus_global, deadline_calculado, es_fuera_horario, fecha_solicitud, email_enviado
+                id_estatus_global,     -- $22 (Dinámico)
+                deadline_calculado, es_fuera_horario, 
+                fecha_solicitud,       -- $23 (now_mx)
+                email_enviado
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 1, $20, $21, NOW(), FALSE
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 
+                $22,  -- ID Estatus (Ya no es 1 fijo)
+                $20, $21, 
+                $23,  -- Fecha Solicitud (Ya no es NOW())
+                FALSE
             ) RETURNING id_oportunidad
         """
         await conn.fetchval(query_insert,
@@ -602,7 +634,9 @@ class ComercialService:
             parent['canal_venta'], user_name,
             parent['id_tecnologia'], id_tipo_solicitud, parent['cantidad_sitios'], prioridad,
             parent['direccion_obra'], parent['coordenadas_gps'], parent['google_maps_link'], parent['sharepoint_folder_url'],
-            parent['id_interno_simulacion'], op_id_estandar_new, deadline, es_fuera_horario
+            parent['id_interno_simulacion'], op_id_estandar_new, deadline, es_fuera_horario,
+            id_status_inicial,  # Parámetro $22
+            now_mx              # Parámetro $23 (El driver maneja la conversión a UTC)
         )
 
         # Clonar sitios
@@ -659,39 +693,38 @@ class ComercialService:
             
         where_str = "WHERE " + " AND ".join(conditions)
         
-        # 2. Queries de KPIs
+        # Cargar catálogos para búsquedas
+        cats = await self.get_catalog_ids(conn)
         
-        # Total
-        q_total = f"SELECT count(*) FROM tb_oportunidades o {where_str}"
-        total = await conn.fetchval(q_total, *params)
+        # 2. Queries de KPIs (OPTIMIZADO: 1 solo viaje a BD)
         
-        # Levantamientos
-        # Buscamos JOIN con tipos de solicitud que sean 'LEVANTAMIENTO'
-        q_lev = f"""
-            SELECT count(*) 
+        # Preparamos los IDs y parámetros adicionales
+        id_ganada = cats['estatus'].get('ganada')
+        id_perdido = cats['estatus'].get('perdido')
+        
+        # Calculamos índices para los parámetros nuevos
+        idx_ganada = len(params) + 1
+        idx_perdido = len(params) + 2
+        
+        q_kpis = f"""
+            SELECT 
+                count(*) as total,
+                count(*) FILTER (WHERE t.codigo_interno = 'LEVANTAMIENTO') as levantamientos,
+                count(*) FILTER (WHERE o.id_estatus_global = ${idx_ganada}) as ganadas,
+                count(*) FILTER (WHERE o.id_estatus_global = ${idx_perdido}) as perdidas
             FROM tb_oportunidades o
-            JOIN tb_cat_tipos_solicitud t ON o.id_tipo_solicitud = t.id
-            {where_str} AND (t.nombre ILIKE '%LEVANTAMIENTO%' OR t.codigo_interno = 'LEVANTAMIENTO')
+            LEFT JOIN tb_cat_tipos_solicitud t ON o.id_tipo_solicitud = t.id
+            {where_str}
         """
-        levantamientos = await conn.fetchval(q_lev, *params)
         
-        # Ganadas (Cerrada)
-        q_ganadas = f"""
-            SELECT count(*) 
-            FROM tb_oportunidades o
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-            {where_str} AND (e.nombre ILIKE 'CERRADA' OR e.nombre ILIKE 'GANADA')
-        """
-        ganadas = await conn.fetchval(q_ganadas, *params)
+        # Ejecutamos 1 sola vez pasando todos los parámetros
+        row_kpis = await conn.fetchrow(q_kpis, *params, id_ganada, id_perdido)
         
-        # Perdidas
-        q_perdidas = f"""
-            SELECT count(*) 
-            FROM tb_oportunidades o
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-            {where_str} AND e.nombre ILIKE 'PERDIDA'
-        """
-        perdidas = await conn.fetchval(q_perdidas, *params)
+        # Extraemos resultados
+        total = row_kpis['total']
+        levantamientos = row_kpis['levantamientos']
+        ganadas = row_kpis['ganadas']
+        perdidas = row_kpis['perdidas']
         
         # 3. Datos para Gráficas
         
@@ -1058,16 +1091,14 @@ class ComercialService:
         }
 
     async def confirm_site_upload(self, conn, id_oportunidad: UUID, json_data: str) -> int:
-        """Deserializa JSON, valida y realiza INSERT masivo."""
+        """Deserializa JSON, valida y realiza INSERT masivo ATÓMICO."""
         try:
             raw_data = json.loads(json_data)
         except json.JSONDecodeError:
             raise HTTPException(status_code=400, detail="JSON corrupto")
 
-        # Limpiar anteriores
-        await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
-
         records = []
+        # 1. Preparar datos en memoria primero (Fail Fast)
         for item in raw_data:
             try:
                 # Usar Schema Pydantic para validación
@@ -1080,10 +1111,16 @@ class ComercialService:
                 logger.warning(f"Saltando fila inválida: {e}")
                 continue
 
-        if records:
-            q = """INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios) 
-                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"""
-            await conn.executemany(q, records)
+        # 2. Ejecutar Bloque Atómico
+        # Si algo falla aquí, Postgres hace rollback automático del DELETE
+        async with conn.transaction():
+            # Limpiar anteriores
+            await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
+            
+            if records:
+                q = """INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios) 
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"""
+                await conn.executemany(q, records)
         
         return len(records)
 
@@ -1119,9 +1156,18 @@ class ComercialService:
 
     async def cancelar_oportunidad(self, conn, id_oportunidad: UUID):
         """Elimina de forma transaccional una oportunidad y sus sitios."""
-        async with conn.transaction():
-            await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
-            await conn.execute("DELETE FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
+        try:
+            async with conn.transaction():
+                await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
+                await conn.execute("DELETE FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
+                
+        except asyncpg.ForeignKeyViolationError:
+            # Capturamos el error de integridad si ya tiene proyectos/compras ligados
+            logger.warning(f"Intento de eliminar oportunidad {id_oportunidad} con dependencias.")
+            raise HTTPException(
+                status_code=409, # Conflict
+                detail="No se puede eliminar: La oportunidad ya tiene Proyectos o Registros asociados."
+            )
 
 # Helper para inyección de dependencias
 def get_comercial_service():
