@@ -10,9 +10,13 @@ import pandas as pd
 import io
 import re
 from openpyxl import load_workbook
+from fastapi.templating import Jinja2Templates
 from .schemas import SitioImportacion
 
 logger = logging.getLogger("ComercialModule")
+
+# Constante para evitar magic strings
+EVENTO_EXTRAORDINARIA = "EXTRAORDINARIA"
 
 class ComercialService:
     """Encapsula la lógica de negocio del módulo Comercial."""
@@ -257,18 +261,18 @@ class ComercialService:
     async def get_catalogos_creacion(self, conn) -> dict:
         """
         Carga catálogos filtrados específicamente para el Formulario de Creación (Paso 1).
-        Solo muestra 'Pre Oferta' y 'Licitación'.
+        Solo muestra 'Pre Oferta', 'Licitación' y 'Simulación'.
         """
         # 1. Tecnologías (Todas)
         tecnologias = await conn.fetch("SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre")
         
-        # 2. Tipos de Solicitud (FILTRADO: Solo Pre Oferta y Licitación)
+        # 2. Tipos de Solicitud (FILTRADO: Solo Pre Oferta, Licitación y Simulación)
         # Usamos los codigos_internos definidos en el script SQL inicial
         tipos = await conn.fetch("""
             SELECT id, nombre 
             FROM tb_cat_tipos_solicitud 
             WHERE activo = true 
-            AND codigo_interno IN ('PRE_OFERTA', 'LICITACION')
+            AND codigo_interno IN ('PRE_OFERTA', 'LICITACION', 'SIMULACION')
             ORDER BY nombre
         """)
         
@@ -1170,5 +1174,71 @@ class ComercialService:
             )
 
 # Helper para inyección de dependencias
+    # --- NUEVO MÉTODO DE NOTIFICACIÓN ---
+    async def enviar_notificacion_extraordinaria(self, conn, ms_auth, token: str, id_oportunidad: UUID, base_url: str):
+        """
+        Envía notificación automática para solicitudes extraordinarias.
+        Busca reglas configuradas con trigger EVENTO=EXTRAORDINARIA.
+        """
+        try:
+            # 1. Buscar reglas de destinatarios usando la constante
+            reglas = await conn.fetch("""
+                SELECT email_to_add, type 
+                FROM tb_config_emails 
+                WHERE modulo = 'COMERCIAL' 
+                AND trigger_field = 'EVENTO' 
+                AND trigger_value = $1
+            """, EVENTO_EXTRAORDINARIA)
+            
+            if not reglas:
+                logger.info(f"No hay reglas de notificación configuradas para evento {EVENTO_EXTRAORDINARIA}. Omitiendo correo.")
+                return
+
+            # 2. Obtener datos de la oportunidad para el template
+            op_data = await conn.fetchrow("""
+                SELECT 
+                    o.op_id_estandar, o.id_interno_simulacion, o.cliente_nombre, o.nombre_proyecto, o.solicitado_por,
+                    to_char(o.fecha_solicitud AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City', 'DD/MM/YYYY HH24:MI') as fecha_solicitud,
+                    t.nombre as tecnologia_nombre
+                FROM tb_oportunidades o
+                LEFT JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
+                WHERE o.id_oportunidad = $1
+            """, id_oportunidad)
+
+            if not op_data:
+                return
+
+            # 3. Preparar destinatarios
+            recipients = [r['email_to_add'] for r in reglas if r['type'] == 'TO']
+            cc_recipients = [r['email_to_add'] for r in reglas if r['type'] == 'CC']
+            
+            # 4. Renderizar Template
+            templates = Jinja2Templates(directory="templates")
+            template = templates.get_template("comercial/emails/notification_extraordinaria.html")
+            html_body = template.render({
+                "op": op_data,
+                "dashboard_url": f"{base_url}/comercial/ui"
+            })
+
+            # 5. Enviar Correo (Asunto limpio, sin emojis)
+            subject = f"Nueva Solicitud Extraordinaria: {op_data['op_id_estandar']} - {op_data['cliente_nombre']}"
+            
+            success, msg = ms_auth.send_email_with_attachments(
+                access_token=token,
+                subject=subject,
+                body=html_body,
+                recipients=recipients,
+                cc_recipients=cc_recipients,
+                importance="high"
+            )
+
+            if success:
+                logger.info(f"Notificación extraordinaria enviada para {op_data['op_id_estandar']}")
+            else:
+                logger.error(f"Error enviando notificación extraordinaria: {msg}")
+
+        except Exception as e:
+            logger.error(f"Excepción en notificación extraordinaria: {e}")
+
 def get_comercial_service():
     return ComercialService()

@@ -157,14 +157,17 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-4">
                     <div>
                         <label class="block text-xs font-bold text-gray-500 uppercase mb-1">Campo Disparador</label>
-                        <select name="trigger_field" hx-get="/admin/partials/trigger-options"
+                        <select name="trigger_field" required
+                            class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm rounded-md"
+                            hx-get="/admin/partials/trigger-options"
                             hx-target="#trigger-value-container" hx-swap="innerHTML"
-                            class="w-full rounded-lg border-gray-300 focus:ring-[#00BABB] focus:border-[#00BABB]">
-                            <option value="" disabled selected>-- Selecciona --</option>
+                            hx-trigger="change">
+                            <option value="" disabled selected>Selecciona un disparador...</option>
                             <option value="Tecnología">Tecnología</option>
                             <option value="Tipo Solicitud">Tipo Solicitud</option>
-                            <option value="Estatus">Estatus Global</option>
-                            <option value="Cliente">Cliente (Texto Libre)</option>
+                            <option value="Estatus">Estatus</option>
+                            <option value="Cliente">Cliente (Texto libre)</option>
+                            <option value="EVENTO">Evento de Sistema</option>
                         </select>
                     </div>
 

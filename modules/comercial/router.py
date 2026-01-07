@@ -495,7 +495,7 @@ async def handle_oportunidad_extraordinaria(
     sharepoint_folder_url: Optional[str] = Form(None),
     
     # --- Campo Fecha Manual (OBLIGATORIO en extraordinarias) ---
-    fecha_manual: str = Form(...),  # REQUIRED en extraordinarias
+    fecha_manual: str = Form(...),
     
     # --- Campos BESS (Opcionales) ---
     bess_cargas_criticas: Optional[float] = Form(None),
@@ -504,15 +504,16 @@ async def handle_oportunidad_extraordinaria(
     bess_autonomia: Optional[str] = Form(None),
     bess_voltaje: Optional[str] = Form(None),
     bess_planta_emergencia: bool = Form(False),
-    bess_cargas_separadas: Optional[bool] = Form(False), # NUEVO CAMPO
+    bess_cargas_separadas: Optional[bool] = Form(False),
     bess_objetivos: List[str] = Form([]),
 
     # --- Dependencias ---
     conn = Depends(get_db_connection),
     service: ComercialService = Depends(get_comercial_service),
-    context = Depends(get_current_user_context)
+    context = Depends(get_current_user_context),
+    ms_auth = Depends(get_ms_auth)  # INYECCIÓN NUEVA
 ):
-    """Procesa solicitud extraordinaria: SIN envío de correo, email_enviado=TRUE automático."""
+    """Procesa solicitud extraordinaria y envía notificación automática."""
     try:
         # 1. Seguridad: Validar rol ADMIN/MANAGER
         role = context.get("role")
@@ -541,7 +542,7 @@ async def handle_oportunidad_extraordinaria(
                 tiene_planta_emergencia=bess_planta_emergencia
             )
 
-        # 3. Construir Objeto Principal (fecha_manual siempre presente)
+        # 3. Construir Objeto Principal
         from .schemas import OportunidadCreateCompleta
         oportunidad_data = OportunidadCreateCompleta(
             nombre_proyecto=nombre_proyecto,
@@ -555,7 +556,7 @@ async def handle_oportunidad_extraordinaria(
             coordenadas_gps=coordenadas_gps,
             google_maps_link=google_maps_link,
             sharepoint_folder_url=sharepoint_folder_url,
-            fecha_manual_str=fecha_manual,  # SIEMPRE presente en extraordinarias
+            fecha_manual_str=fecha_manual,
             detalles_bess=datos_bess
         )
 
@@ -564,23 +565,33 @@ async def handle_oportunidad_extraordinaria(
             conn, oportunidad_data, context
         )
         
-        # 5. MARCAR COMO EXTRAORDINARIA: email_enviado = TRUE (sin envío real)
+        # 5. MARCAR COMO EXTRAORDINARIA: email_enviado = TRUE
         await service.marcar_extraordinaria_enviada(conn, new_id)
         
-        logger.info(f"Solicitud extraordinaria {op_id_estandar} marcada con email_enviado=TRUE (sin envío real)")
+        # --- NUEVO: ENVÍO DE NOTIFICACIÓN AUTOMÁTICA ---
+        # Recuperamos la URL base para el link del correo
+        base_url = str(request.base_url).rstrip('/')
+        
+        # Enviar notificación (usando el token del usuario en sesión)
+        await service.enviar_notificacion_extraordinaria(
+            conn=conn,
+            ms_auth=ms_auth,
+            token=token,
+            id_oportunidad=new_id,
+            base_url=base_url
+        )
+        # -----------------------------------------------
+        
+        logger.info(f"Solicitud extraordinaria {op_id_estandar} creada y notificada.")
 
         # 6. Redirección (Lógica Multisitos vs Unisitio)
         if cantidad_sitios == 1:
-            # Auto-creación de sitio único para extraordinarias
             await service.auto_crear_sitio_unico(
                 conn, new_id, nombre_proyecto, direccion_obra, google_maps_link
             )
-            
-            # EXTRAORDINARIAS: Unisitio va directamente al HOME (sin paso 3 de correo)
             target_url = "/comercial/ui"
             params = f"?new_op={op_id_estandar}&fh={str(es_fuera_horario).lower()}&extraordinaria=1"
         else:
-            # Multisitio: va a paso 2 (carga Excel), luego volverá al home
             target_url = f"/comercial/paso2/{new_id}"
             params = f"?new_op={op_id_estandar}&fh={str(es_fuera_horario).lower()}&extraordinaria=1"
         

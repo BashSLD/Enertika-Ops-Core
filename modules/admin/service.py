@@ -187,12 +187,8 @@ class AdminService:
     # --- LÓGICA PARA REGLAS DE CORREO DINÁMICAS ---
 
     async def get_options_for_trigger(self, conn, trigger_field: str) -> List[Dict]:
-        """
-        Retorna las opciones válidas.
-        CORRECCIÓN: Ahora devolvemos el ID como value para que coincida con el formulario comercial.
-        """
+        """Retorna las opciones válidas de forma dinámica (BD) para evitar hardcoding."""
         if trigger_field == "Tecnología":
-            # Usamos CAST(id AS TEXT) para evitar problemas de tipo
             query = "SELECT nombre as label, CAST(id AS TEXT) as value FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre"
         
         elif trigger_field == "Tipo Solicitud":
@@ -200,6 +196,19 @@ class AdminService:
         
         elif trigger_field == "Estatus":
             query = "SELECT nombre as label, CAST(id AS TEXT) as value FROM tb_cat_estatus_global WHERE activo = true ORDER BY nombre"
+        
+        elif trigger_field == "EVENTO":
+            # CORRECTO: Leer de BD (tb_configuracion_global) para evitar hardcoding
+            config_json = await conn.fetchval(
+                "SELECT valor FROM tb_configuracion_global WHERE clave = 'EVENTOS_SISTEMA'"
+            )
+            if config_json:
+                try:
+                    return json.loads(config_json)
+                except json.JSONDecodeError:
+                    logger.error("Error decodificando EVENTOS_SISTEMA de tb_configuracion_global")
+                    return []
+            return []
         
         else:
             return [] 
