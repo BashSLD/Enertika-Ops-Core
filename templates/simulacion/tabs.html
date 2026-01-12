@@ -179,7 +179,10 @@
         // 1. Actualizar el input oculto
         document.getElementById('active_tab_input').value = tabName;
 
-        // 2. Lógica visual con colores corporativos (emerald)
+        // 2. Guardar en localStorage para refresh del modal
+        localStorage.setItem('sim_current_tab', tabName);
+
+        // 3. Lógica visual con colores corporativos (emerald)
         document.querySelectorAll('.sim-tab-link').forEach(el => {
             el.classList.remove('text-emerald-600', 'border-emerald-600', 'active');
             el.classList.add('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
@@ -187,4 +190,16 @@
         element.classList.remove('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
         element.classList.add('text-emerald-600', 'border-emerald-600', 'active');
     }
+
+    // Guardar subtab cuando cambie (para historial y levantamientos)
+    document.addEventListener('htmx:configRequest', function (evt) {
+        const url = evt.detail.path;
+        const subtabMatch = url.match(/[?&]subtab=([^&]+)/);
+        if (subtabMatch) {
+            localStorage.setItem('sim_current_subtab', subtabMatch[1]);
+        } else if (url.includes('tab=')) {
+            // Si cambió de tab sin subtab, limpiar subtab
+            localStorage.removeItem('sim_current_subtab');
+        }
+    });
 </script>

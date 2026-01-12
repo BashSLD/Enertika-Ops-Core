@@ -456,11 +456,14 @@ class ComercialService:
                 tipo_sol.nombre as tipo_solicitud, o.deadline_calculado, o.deadline_negociado, o.cantidad_sitios,
                 o.titulo_proyecto, o.prioridad, o.es_fuera_horario,
                 u_creador.nombre as solicitado_por,
+                u_sim.nombre as responsable_simulacion,
+                u_sim.email as responsable_email,
                 CASE WHEN db.id IS NOT NULL THEN true ELSE false END as tiene_detalles_bess
             FROM tb_oportunidades o
             LEFT JOIN tb_cat_estatus_global estatus ON o.id_estatus_global = estatus.id
             LEFT JOIN tb_cat_tipos_solicitud tipo_sol ON o.id_tipo_solicitud = tipo_sol.id
             LEFT JOIN tb_usuarios u_creador ON o.creado_por_id = u_creador.id_usuario
+            LEFT JOIN tb_usuarios u_sim ON o.responsable_simulacion_id = u_sim.id_usuario
             LEFT JOIN tb_detalles_bess db ON o.id_oportunidad = db.id_oportunidad
             WHERE o.email_enviado = true
         """
@@ -501,16 +504,18 @@ class ComercialService:
                 
             # Sub-filtro por subtab
             if subtab == 'realizados':
-                id_realizado = cats['estatus'].get('realizado')
-                if id_realizado:
+                # FIX: 'Realizado' no existe en DB, usamos 'Entregado'
+                id_entregado = cats['estatus'].get('entregado')
+                if id_entregado:
                     query += f" AND o.id_estatus_global = ${param_idx}"
-                    params.append(id_realizado)
+                    params.append(id_entregado)
                     param_idx += 1
             else:
-                id_realizado = cats['estatus'].get('realizado')
-                if id_realizado:
+                # Todo lo que NO sea Entregado (Pendiente, Proceso, etc)
+                id_entregado = cats['estatus'].get('entregado')
+                if id_entregado:
                     query += f" AND o.id_estatus_global != ${param_idx}"
-                    params.append(id_realizado)
+                    params.append(id_entregado)
                     param_idx += 1
                     
         elif tab == "ganadas":

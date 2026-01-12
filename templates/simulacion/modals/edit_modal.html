@@ -1,0 +1,341 @@
+<div id="modal-backdrop"
+    class="fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 animate-fade-in"
+    _="on keyup[key=='Escape'] remove #modal-backdrop">
+
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-4xl transform transition-all" x-data="{ 
+            status: {{ op.id_estatus_global }}, 
+            entregado_id: {{ status_ids.entregado }},
+            cancelado_id: {{ status_ids.cancelado }},
+            perdido_id: {{ status_ids.perdido }},
+            originalIdInterno: '{{ op.id_interno_simulacion or '' }}',
+            currentIdInterno: '{{ op.id_interno_simulacion or '' }}',
+            errors: {},
+            canEditFecha() {
+                return this.status == this.entregado_id || 
+                       this.status == this.cancelado_id || 
+                       this.status == this.perdido_id;
+            },
+            validateForm() {
+                this.errors = {};
+                let valid = true;
+
+                // Validación 1: Estatus Entregado requiere montos
+                if (this.status == this.entregado_id) {
+                    const monto = parseFloat(document.getElementById('monto_cierre').value);
+                    const potencia = parseFloat(document.getElementById('potencia_cierre').value);
+
+                    if (isNaN(monto) || monto <= 0) {
+                        this.errors.monto = 'El monto es requerido para estatus Entregado';
+                        valid = false;
+                    }
+                    if (isNaN(potencia) || potencia <= 0) {
+                        this.errors.potencia = 'La potencia es requerida para estatus Entregado';
+                        valid = false;
+                    }
+                }
+
+                // Validación 2: Cancelado/Perdido requiere motivo
+                if (this.status == this.cancelado_id || this.status == this.perdido_id) {
+                    const motivo = document.getElementById('motivo_cierre').value;
+                    if (!motivo) {
+                        this.errors.motivo = 'Debe seleccionar un motivo de cierre';
+                        valid = false;
+                    }
+                }
+
+                // Validación 3: Fecha solo en estatus permitidos
+                const fechaInput = document.getElementById('fecha_entrega_simulacion');
+                if (fechaInput && fechaInput.value && !this.canEditFecha()) {
+                    this.errors.fecha = 'Fecha Entrega Real solo permitida en: Entregado, Perdido o Cancelado';
+                    valid = false;
+                }
+
+                // Validación 4: ID Interno cambio
+                if (valid && this.originalIdInterno && this.currentIdInterno !== this.originalIdInterno) {
+                    if(!confirm(`ID Interno Simulación se cambiará \nde: ${this.originalIdInterno} \na: ${this.currentIdInterno}\n\n¿Desea continuar?`)) {
+                        valid = false;
+                    }
+                }
+
+                if (!valid) {
+                     // Scroll al primer error si es necesario o mostrar toast global
+                     console.log('Validación fallida', this.errors);
+                }
+                return valid;
+            }
+         }">
+
+        <!-- HEADER -->
+        <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-[#E0F7F7] rounded-t-lg">
+            <div>
+                <h3 class="text-lg font-bold text-[#123456]">
+                    {% if can_manage %}Actualizar Oportunidad{% else %}Detalles de Simulación (Solo Lectura){% endif %}
+                </h3>
+                <div class="flex flex-col text-sm text-gray-600 mt-1">
+                    <span class="font-mono font-bold text-[#00BABB]">{{ op.id_interno_simulacion or 'Sin ID Interno'
+                        }}</span>
+                    <span class="font-medium text-gray-800">{{ op.titulo_proyecto or op.nombre_proyecto }}</span>
+                </div>
+            </div>
+            <button type="button" onclick="document.getElementById('modal-backdrop').remove()"
+                class="text-gray-400 hover:text-gray-600 focus:outline-none">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                    </path>
+                </svg>
+            </button>
+        </div>
+
+        <!-- FORMULARIO -->
+        <form {% if can_manage %}hx-put="/simulacion/update/{{ op.id_oportunidad }}" hx-target="#form-feedback"
+            hx-swap="innerHTML" @submit="if(!validateForm()) { $event.preventDefault(); $event.stopPropagation(); }"
+            novalidate {% endif %}>
+
+            <div class="max-h-[70vh] overflow-y-auto"> <!-- Scroll container para cuerpo y comentarios -->
+                <div class="p-6 space-y-6">
+                    <div id="form-feedback"></div>
+
+                    <!-- Grid Principal -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- ID Interno -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">ID Interno Simulación</label>
+                            <input type="text" name="id_interno_simulacion" x-model="currentIdInterno"
+                                @input="currentIdInterno = $el.value.toUpperCase()" {% if not can_manage %}disabled{%
+                                endif %}
+                                class="w-full border-gray-300 rounded-md shadow-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:bg-gray-100 uppercase transition-all">
+                        </div>
+
+                        <!-- Responsable -->
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Responsable Asignado</label>
+                            <select name="responsable_simulacion_id" {% if not can_manage %}disabled{% endif %}
+                                class="w-full border-gray-300 rounded-md shadow-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:bg-gray-100 transition-all">
+                                <option value="">-- Sin Asignar --</option>
+                                {% for resp in responsables %}
+                                <option value="{{ resp.id_usuario }}" {% if
+                                    resp.id_usuario|string==op.responsable_simulacion_id|string %}selected{% endif %}>
+                                    {{ resp.nombre }} ({{ resp.departamento }})
+                                </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Fechas -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Deadline Negociado</label>
+                            <div class="relative">
+                                <input type="datetime-local" name="deadline_negociado"
+                                    value="{{ op.deadline_negociado|input_date if op.deadline_negociado else '' }}" {%
+                                    if not can_manage %}disabled{% endif %}
+                                    class="w-full border-gray-300 rounded-md shadow-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:bg-gray-100 pl-10">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24"
+                                        stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Fecha Entrega Real</label>
+                            <div class="relative">
+                                <input type="datetime-local" id="fecha_entrega_simulacion"
+                                    name="fecha_entrega_simulacion"
+                                    value="{{ op.fecha_entrega_simulacion|input_date if op.fecha_entrega_simulacion else '' }}"
+                                    {% if not can_manage %}disabled{% endif %}
+                                    :disabled="!canEditFecha() || !{{ 'true' if can_manage else 'false' }}"
+                                    @input="if(!canEditFecha()) { $event.target.value = ''; }"
+                                    class="w-full border-gray-300 rounded-md shadow-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:bg-gray-100 pl-10"
+                                    :class="{'border-red-500 ring-1 ring-red-500': errors.fecha}">
+                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                    <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24"
+                                        stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="border-t border-gray-200 pt-6">
+                        <label class="block text-sm font-bold text-[#123456] mb-2 flex items-center gap-2">
+                            <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                            </svg>
+                            Estatus Simulación
+                        </label>
+                        <select name="id_estatus_global" x-model.number="status" {% if not can_manage %}disabled{% endif
+                            %}
+                            class="w-full border-gray-300 rounded-md shadow-sm focus:ring-[#00BABB] focus:border-[#00BABB] bg-gray-50 disabled:bg-gray-100 font-medium text-gray-700">
+                            {% for st in estatus_global %}
+                            <option value="{{ st.id }}">{{ st.nombre }}</option>
+                            {% endfor %}
+                        </select>
+
+                        <!-- Panel: Cancelado/Perdido -->
+                        <div x-show="status == cancelado_id || status == perdido_id"
+                            x-transition:enter="transition ease-out duration-200"
+                            x-transition:enter-start="opacity-0 transform -translate-y-2"
+                            x-transition:enter-end="opacity-100 transform translate-y-0"
+                            class="mt-4 p-4 bg-red-50 border border-red-200 rounded-lg" style="display: none;">
+
+                            <div class="text-xs text-red-700 flex items-center mb-3 font-semibold">
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                </svg>
+                                Atención: Se actualizarán automáticamente todos los sitios abiertos.
+                            </div>
+
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1 uppercase">Motivo de Cierre /
+                                    Pérdida *</label>
+                                <select name="id_motivo_cierre" id="motivo_cierre"
+                                    class="w-full border-red-300 rounded-md shadow-sm focus:ring-red-500 focus:border-red-500 bg-white text-sm"
+                                    :class="{'border-red-500 ring-1 ring-red-500': errors.motivo}">
+                                    <option value="">-- Seleccione Motivo --</option>
+                                    {% for m in motivos_cierre %}
+                                    <option value="{{ m.id }}" {% if op.id_motivo_cierre==m.id %}selected{% endif %}>{{
+                                        m.motivo }}</option>
+                                    {% endfor %}
+                                </select>
+                                <p x-show="errors.motivo" class="mt-1 text-xs text-red-600 font-bold"
+                                    x-text="errors.motivo"></p>
+                            </div>
+                        </div>
+
+                        <!-- Panel: Entregado -->
+                        <div x-show="status == entregado_id" x-transition:enter="transition ease-out duration-200"
+                            x-transition:enter-start="opacity-0 transform -translate-y-2"
+                            x-transition:enter-end="opacity-100 transform translate-y-0"
+                            class="mt-4 bg-green-50 border border-green-200 rounded-lg p-4" style="display: none;">
+                            <h4 class="text-green-800 font-bold mb-3 flex items-center">
+                                <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                Datos de Cierre
+                            </h4>
+                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Monto Cierre
+                                        (USD) *</label>
+                                    <div class="relative">
+                                        <span
+                                            class="absolute inset-y-0 left-0 pl-2 flex items-center text-gray-500">$</span>
+                                        <input type="number" step="0.01" name="monto_cierre_usd" id="monto_cierre"
+                                            value="{{ op.monto_cierre_usd or '' }}" {% if not can_manage %}disabled{%
+                                            endif %}
+                                            class="w-full pl-6 border-green-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
+                                            :class="{'border-red-500 ring-1 ring-red-500': errors.monto}">
+                                    </div>
+                                    <p x-show="errors.monto" class="mt-1 text-[10px] text-red-600 font-bold"
+                                        x-text="errors.monto"></p>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Potencia FV
+                                        (KWp) *</label>
+                                    <input type="number" step="0.0001" name="potencia_cierre_fv_kwp"
+                                        id="potencia_cierre" value="{{ op.potencia_cierre_fv_kwp or '' }}" {% if not
+                                        can_manage %}disabled{% endif %}
+                                        class="w-full border-green-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
+                                        :class="{'border-red-500 ring-1 ring-red-500': errors.potencia}">
+                                    <p x-show="errors.potencia" class="mt-1 text-[10px] text-red-600 font-bold"
+                                        x-text="errors.potencia"></p>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-600 uppercase mb-1">BESS
+                                        (KWh)</label>
+                                    <input type="number" step="0.0001" name="capacidad_cierre_bess_kwh"
+                                        value="{{ op.capacidad_cierre_bess_kwh or '' }}" {% if not can_manage
+                                        %}disabled{% endif %}
+                                        class="w-full border-green-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Sección de Comentarios (Después de Estatus Simulación) -->
+                    <div class="px-6 pb-6 pt-2 border-t border-gray-100 bg-gray-50/50">
+                        <h4 class="text-[#123456] font-bold mb-3 flex items-center mt-4">
+                            <svg class="w-5 h-5 mr-2 text-[#00BABB]" fill="none" stroke="currentColor"
+                                viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z">
+                                </path>
+                            </svg>
+                            Comentarios Recientes
+                        </h4>
+
+                        <div class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
+                            <!-- 1. Input Primero (Solo si puede gestionar) -->
+                            {% if can_manage %}
+                            <div class="flex gap-2 items-start mb-4" x-data="{ commenting: false }">
+                                <textarea name="nuevo_comentario" rows="3" placeholder="Escribe un comentario..."
+                                    class="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm transition-all resize-y py-3 px-4"
+                                    @focus="commenting = true" hx-post="/simulacion/comentarios/{{ op.id_oportunidad }}"
+                                    hx-target="#comentarios-container-{{ op.id_oportunidad }}" hx-swap="innerHTML"
+                                    hx-trigger="keyup[ctrl+enter]" id="new-comment-{{ op.id_oportunidad }}"></textarea>
+
+                                <button type="button" hx-post="/simulacion/comentarios/{{ op.id_oportunidad }}"
+                                    hx-include="#new-comment-{{ op.id_oportunidad }}"
+                                    hx-target="#comentarios-container-{{ op.id_oportunidad }}" hx-swap="innerHTML"
+                                    hx-on::after-request="document.getElementById('new-comment-{{ op.id_oportunidad }}').value = ''"
+                                    class="ripple-effect inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-bold rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                            <p class="text-[10px] text-gray-400 mb-2 pl-1 italic">Tip: Ctrl+Enter para enviar rápido.
+                            </p>
+                            {% endif %}
+
+                            <!-- 2. Contenedor de Comentarios -->
+                            <div id="comentarios-container-{{ op.id_oportunidad }}">
+                                <div hx-get="/simulacion/partials/comentarios/{{ op.id_oportunidad }}?mode=latest"
+                                    hx-trigger="load" hx-swap="innerHTML">
+                                    <div class="animate-pulse space-y-2">
+                                        <div class="h-4 bg-gray-100 rounded w-3/4"></div>
+                                        <div class="h-3 bg-gray-100 rounded w-1/2"></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- FOOTER -->
+            <div
+                class="px-6 py-4 bg-gray-100 border-t border-gray-200 rounded-b-lg flex justify-end items-center gap-3">
+                <button type="button" onclick="document.getElementById('modal-backdrop').remove()"
+                    class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium shadow-sm transition-all duration-200 hover:text-gray-900">
+                    {% if can_manage %}Cancelar{% else %}Cerrar{% endif %}
+                </button>
+
+                {% if can_manage %}
+                <button type="submit"
+                    class="ripple-effect px-5 py-2 bg-[#00BABB] hover:bg-[#009999] text-white rounded-lg font-bold shadow-md flex items-center gap-2 transform hover:scale-105 transition-all duration-200">
+                    <span
+                        class="htmx-indicator hidden mr-2 spinner-white w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4">
+                        </path>
+                    </svg>
+                    Guardar Cambios
+                </button>
+                {% endif %}
+            </div>
+
+        </form>
+    </div>
+</div>

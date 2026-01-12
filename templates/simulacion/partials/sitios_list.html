@@ -1,150 +1,71 @@
-<div class="p-4 bg-gray-50 rounded-b-lg border-t border-gray-200" id="sitios-container">
-    <div class="flex justify-between items-center mb-2">
-        <h4 class="text-sm font-bold text-gray-700">
-            Sitios Incluidos (<span id="sitios-count">{{ sitios|length }}</span>)
-        </h4>
-        {% if editable %}
-        <span class="text-xs text-orange-600 bg-orange-100 px-2 py-1 rounded animate-pulse-subtle">
-            <div class="flex items-center gap-2 text-sm text-gray-500 mb-2">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
-                    </path>
-                </svg>
-                Puedes eliminar sitios que NO apliquen
-            </div>
-        </span>
-        {% endif %}
-    </div>
+<div x-data="{ selected: [] }">
 
-    {% if sitios %}
-    <div class="overflow-x-auto border rounded-md">
-        <table class="min-w-full divide-y divide-gray-200 text-xs">
-            <thead class="bg-gray-100">
+    {% if context.module_role in ['editor', 'admin'] or context.role == 'ADMIN' %}
+    <div x-show="selected.length > 0"
+        class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between animate-fade-in-down"
+        style="display: none;">
+        <span class="text-sm text-blue-800 font-bold">
+            <span x-text="selected.length"></span> sitios seleccionados
+        </span>
+        <div class="flex space-x-2">
+            <select id="batch-status" class="text-sm border-gray-300 rounded shadow-sm">
+                <option value="4">Entregado</option>
+                <option value="5">Cancelado</option>
+                <option value="1">Pendiente</option>
+            </select>
+            <button class="px-3 py-1 bg-blue-600 text-white text-sm font-bold rounded hover:bg-blue-700 shadow-sm"
+                hx-put="/simulacion/sitios/batch-update" hx-include="#batch-status"
+                :hx-vals="JSON.stringify({ ids_sitios: selected, id_estatus_global: parseInt(document.getElementById('batch-status').value) })"
+                hx-target="#sitios-container" @click="selected = []">
+                Actualizar
+            </button>
+        </div>
+    </div>
+    {% endif %}
+
+    <div class="overflow-x-auto shadow ring-1 ring-black ring-opacity-5 md:rounded-lg">
+        <table class="min-w-full divide-y divide-gray-300">
+            <thead class="bg-gray-50">
                 <tr>
-                    <th class="px-3 py-2 text-left font-medium text-gray-500">Nombre</th>
-                    <th class="px-3 py-2 text-left font-medium text-gray-500">Dirección</th>
-                    <th class="px-3 py-2 text-left font-medium text-gray-500">Tarifa</th>
-                    {% if editable %}
-                    <th class="px-3 py-2 text-center font-medium text-gray-500 w-20">Acción</th>
+                    {% if context.module_role in ['editor', 'admin'] or context.role == 'ADMIN' %}
+                    <th scope="col" class="px-3 py-3.5 w-10">
+                        <input type="checkbox"
+                            @change="selected.length === {{ sitios|length }} ? selected = [] : selected = [{{ sitios | map(attribute='id_sitio') | join(',') }}]"
+                            :checked="selected.length > 0 && selected.length === {{ sitios|length }}"
+                            class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
+                    </th>
                     {% endif %}
+                    <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Sitio</th>
+                    <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Dirección</th>
+                    <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Estatus</th>
+                    <th scope="col" class="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">Cierre</th>
                 </tr>
             </thead>
-            <tbody class="bg-white divide-y divide-gray-200" id="sitios-tbody">
+            <tbody class="divide-y divide-gray-200 bg-white">
                 {% for sitio in sitios %}
-                <tr class="group hover:bg-gray-50 transition-colors sitio-row" id="sitio-row-{{ sitio.id_sitio }}">
-                    <td class="px-3 py-2 text-gray-900">{{ sitio.nombre_sitio }}</td>
-                    <td class="px-3 py-2 text-gray-500 truncate max-w-xs" title="{{ sitio.direccion }}">
-                        {{ sitio.direccion }}
-                    </td>
-                    <td class="px-3 py-2 text-gray-500">{{ sitio.tipo_tarifa or '-' }}</td>
-
-                    {% if editable %}
-                    <td class="px-3 py-2 text-center">
-                        <button hx-delete="/comercial/sitios/{{ sitio.id_sitio }}"
-                            hx-target="#sitio-row-{{ sitio.id_sitio }}" hx-swap="outerHTML swap:300ms"
-                            hx-on:htmx:before-request="return confirmDelete(event, '{{ sitio.nombre_sitio }}')"
-                            class="text-red-500 hover:text-red-700 hover:bg-red-50 rounded p-1 transition-colors"
-                            title="Eliminar sitio">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
-                                </path>
-                            </svg>
-                        </button>
+                <tr class="hover:bg-gray-50 transition-colors">
+                    {% if context.module_role in ['editor', 'admin'] or context.role == 'ADMIN' %}
+                    <td class="px-3 py-4 text-sm text-gray-500">
+                        <input type="checkbox" value="{{ sitio.id_sitio }}" x-model.number="selected"
+                            class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
                     </td>
                     {% endif %}
+                    <td class="px-3 py-4 text-sm font-medium text-gray-900">{{ sitio.nombre_sitio }}</td>
+                    <td class="px-3 py-4 text-sm text-gray-500">{{ sitio.direccion|truncate(40) }}</td>
+                    <td class="px-3 py-4 text-sm">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
+                            {% if sitio.id_estatus_global == 4 %} bg-green-100 text-green-800
+                            {% elif sitio.id_estatus_global == 5 %} bg-red-100 text-red-800
+                            {% else %} bg-yellow-100 text-yellow-800 {% endif %}">
+                            {{ sitio.nombre_estatus }}
+                        </span>
+                    </td>
+                    <td class="px-3 py-4 text-sm text-gray-500">
+                        {{ sitio.fecha_cierre|format_date if sitio.fecha_cierre else '-' }}
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
-
-    {% if editable %}
-    <!-- VALIDACIÓN: Mensaje de advertencia mínimo -->
-    <div id="min-sitios-warning"
-        class="hidden mt-2 p-2 bg-red-100 text-red-700 rounded text-sm border border-red-300 flex items-center gap-2">
-        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
-            </path>
-        </svg>
-        <span class="flex items-center gap-1">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
-                </path>
-            </svg>
-            Debe quedar al menos <strong>1 sitio</strong> en la lista.
-        </span>
-    </div>
-
-    <p class="text-xs text-gray-500 italic mt-2">
-        <span class="flex items-center gap-1 mt-1">
-            <svg class="w-4 h-4 text-yellow-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z">
-                </path>
-            </svg>
-            Los cambios en esta lista afectarán el Excel adjunto que se generará.
-        </span>
-    </p>
-
-    <!-- SCRIPT: Validación de mínimo 1 sitio -->
-    <script>
-        function confirmDelete(event, nombreSitio) {
-            // Contar sitios actuales
-            const sitiosRestantes = document.querySelectorAll('.sitio-row').length;
-
-            // Si es el último sitio, mostrar advertencia especial
-            if (sitiosRestantes === 1) {
-                const confirmacion = confirm(
-                    `⚠️ ADVERTENCIA: Estás eliminando el ÚLTIMO sitio.\n\n` +
-                    `Si continúas, el correo NO tendrá Excel adjunto de sitios.\n\n` +
-                    `¿Estás seguro de eliminar "${nombreSitio}"?`
-                );
-
-                if (!confirmacion) {
-                    event.preventDefault();
-                    return false;
-                }
-
-                // Agregar listener para actualizar UI después de eliminar
-                document.body.addEventListener('htmx:afterSwap', function handler() {
-                    document.getElementById('sitios-count').textContent = '0';
-                    document.getElementById('min-sitios-warning').classList.remove('hidden');
-                    document.body.removeEventListener('htmx:afterSwap', handler);
-                }, { once: true });
-
-                return true;
-            }
-
-            // Confirmación normal
-            const confirmacion = confirm(`¿Eliminar "${nombreSitio}" de la lista?`);
-            if (!confirmacion) {
-                event.preventDefault();
-                return false;
-            }
-
-            // Actualizar contador después de eliminar
-            document.body.addEventListener('htmx:afterSwap', function handler() {
-                const nuevoCount = document.querySelectorAll('.sitio-row').length;
-                document.getElementById('sitios-count').textContent = nuevoCount;
-
-                // Mostrar warning si quedó 1 solo
-                if (nuevoCount === 1) {
-                    document.getElementById('min-sitios-warning').classList.remove('hidden');
-                }
-
-                document.body.removeEventListener('htmx:afterSwap', handler);
-            }, { once: true });
-
-            return true;
-        }
-    </script>
-    {% endif %}
-
-    {% else %}
-    <p class="text-xs text-gray-500 italic">No hay sitios registrados.</p>
-    {% endif %}
 </div>

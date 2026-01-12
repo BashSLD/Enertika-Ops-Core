@@ -1,45 +1,53 @@
-<div class="p-4">
-    <h3 class="text-lg font-bold text-gray-800 mb-4 flex items-center gap-2">
-        <span class="text-blue-500">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M8 10h.01M12 10h.01M16 10h.01M9 16H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-5l-5 5v-5z">
-                </path>
-            </svg>
-        </span>
-        <span>Historial de Comentarios</span>
-    </h3>
-
+{# Template Partial: Lista de Comentarios #}
+<div class="space-y-3 custom-scrollbar {{ 'max-h-96 overflow-y-auto' if not mode == 'latest' else '' }}">
     {% if comentarios %}
-    <div class="space-y-3 max-h-96 overflow-y-auto">
-        {% for comentario in comentarios %}
-        <div class="bg-gray-50 border border-gray-200 rounded-lg p-3 hover:shadow-sm transition">
-            <div class="flex justify-between items-start mb-2">
-                <span class="text-xs font-semibold text-blue-600">{{ comentario.usuario_email }}</span>
-                <span class="text-xs text-gray-500">{{ comentario.fecha_comentario | time_mx }}</span>
-            </div>
-            {% if comentario.etapa %}
-            <div class="mb-1">
-                <span
-                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-800">
-                    {{ comentario.etapa }}
-                </span>
-            </div>
-            {% endif %}
-            <p class="text-sm text-gray-700 whitespace-pre-wrap">{{ comentario.comentario }}</p>
+
+    {% for comentario in comentarios %}
+    <div class="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-sm transition animate-fade-in">
+        <div class="flex justify-between items-start mb-1">
+            <span class="text-xs font-bold text-[#123456]">{{ comentario.usuario_nombre or comentario.usuario_email
+                }}</span>
+            <span class="text-[10px] text-gray-500">{{ comentario.fecha_comentario | time_mx }}</span>
         </div>
-        {% endfor %}
+        {% if comentario.etapa and comentario.etapa != 'Simulacion' %}
+        <div class="mb-1">
+            <span
+                class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 text-gray-600">
+                {{ comentario.etapa }}
+            </span>
+        </div>
+        {% endif %}
+        <p class="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{{ comentario.comentario }}</p>
     </div>
-    {% else %}
-    <div class="text-center py-8 text-gray-500">
-        <p class="text-2xl mb-2 text-gray-400">
-            <svg class="w-10 h-10 inline opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4">
-                </path>
+    {% endfor %}
+
+    {% if mode == 'latest' and has_more %}
+    <div class="text-center pt-2">
+        <button class="text-xs text-blue-600 hover:text-blue-800 underline font-medium focus:outline-none"
+            hx-get="/simulacion/partials/comentarios/{{ id_oportunidad }}"
+            hx-target="#comentarios-container-{{ id_oportunidad }}" hx-swap="innerHTML">
+            Ver historial completo ({{ total_extra }} más)
+        </button>
+    </div>
+    {% elif mode != 'latest' and total_extra > 0 %}
+    <div class="text-center pt-2 border-t border-dashed border-gray-200 mt-2">
+        <button
+            class="text-xs text-gray-400 hover:text-gray-600 underline font-medium focus:outline-none flex items-center justify-center gap-1 w-full"
+            hx-get="/simulacion/partials/comentarios/{{ id_oportunidad }}?mode=latest"
+            hx-target="#comentarios-container-{{ id_oportunidad }}" hx-swap="innerHTML">
+            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 15l7-7 7 7"></path>
             </svg>
-        </p>
-        <p class="text-sm">No hay comentarios registrados</p>
+            Ocultar historial
+        </button>
     </div>
+    {% endif %}
+
+    {% else %}
+    {% if mode != 'latest' %}
+    <div class="text-center py-4 text-gray-400">
+        <p class="text-xs italic">No hay comentarios registrados</p>
+    </div>
+    {% endif %}
     {% endif %}
 </div>

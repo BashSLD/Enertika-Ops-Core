@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
 from uuid import UUID
 from typing import Optional
+from decimal import Decimal
 
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
@@ -15,7 +16,7 @@ from core.database import get_db_connection
 
 # Import del Service Layer
 from .service import SimulacionService, get_simulacion_service
-from .schemas import OportunidadCreateCompleta, DetalleBessCreate
+from .schemas import OportunidadCreateCompleta, DetalleBessCreate, SimulacionUpdate, SitiosBatchUpdate
 
 templates = Jinja2Templates(directory="templates")
 
@@ -224,13 +225,15 @@ async def get_cards_partial(
         "oportunidades": oportunidades,
         "current_tab": tab,
         "subtab": subtab,
-        "limit": limit
+        "limit": limit,
+        "context": context
     })
 
 @router.get("/partials/comentarios/{id_oportunidad}", include_in_schema=False)
 async def get_comentarios_partial(
     id_oportunidad: UUID,
     request: Request,
+    mode: Optional[str] = None,
     service: SimulacionService = Depends(get_simulacion_service),
     conn = Depends(get_db_connection),
     _ = require_module_access("simulacion")
@@ -238,10 +241,48 @@ async def get_comentarios_partial(
     """Partial: Lista de comentarios de simulación."""
     comentarios = await service.get_comentarios_simulacion(conn, id_oportunidad)
     
+    total_comentarios = len(comentarios)
+    has_more = False
+    
+    if mode == 'latest' and comentarios:
+        comentarios = [comentarios[0]]
+        if total_comentarios > 1:
+            has_more = True
+            
     return templates.TemplateResponse("simulacion/partials/detalles/comentarios_list.html", {
         "request": request,
-        "comentarios": comentarios
+        "comentarios": comentarios,
+        "mode": mode,
+        "has_more": has_more,
+        "total_extra": total_comentarios - 1,
+        "id_oportunidad": id_oportunidad
     })
+
+@router.post("/comentarios/{id_oportunidad}")
+async def create_comentario(
+    id_oportunidad: UUID,
+    request: Request,
+    nuevo_comentario: str = Form(...),
+    service: SimulacionService = Depends(get_simulacion_service),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_module_access("simulacion", "editor") 
+):
+    """Crea un nuevo comentario y devuelve la lista actualizada."""
+    if nuevo_comentario.strip():
+        await service.add_comentario_simulacion(conn, id_oportunidad, nuevo_comentario, context)
+    
+    # Retornar la lista actualizada con todas las variables necesarias
+    comentarios = await service.get_comentarios_simulacion(conn, id_oportunidad)
+    return templates.TemplateResponse("simulacion/partials/detalles/comentarios_list.html", {
+        "request": request,
+        "comentarios": comentarios,
+        "mode": None,  # Mostrar todos los comentarios después de crear uno nuevo
+        "has_more": False,
+        "total_extra": 0,
+        "id_oportunidad": id_oportunidad
+    })
+
 
 @router.get("/partials/bess/{id_oportunidad}", include_in_schema=False)
 async def get_bess_partial(
@@ -254,6 +295,14 @@ async def get_bess_partial(
     """Partial: Detalles técnicos BESS."""
     bess = await service.get_detalles_bess(conn, id_oportunidad)
     
+    # Parsear objetivos_json de string a lista Python
+    if bess and bess.get('objetivos_json'):
+        import json
+        try:
+            bess['objetivos_json'] = json.loads(bess['objetivos_json'])
+        except (json.JSONDecodeError, TypeError):
+            bess['objetivos_json'] = []
+    
     return templates.TemplateResponse("simulacion/partials/detalles/bess_info.html", {
         "request": request,
         "bess": bess
@@ -265,6 +314,7 @@ async def get_sitios_partial(
     request: Request,
     service: SimulacionService = Depends(get_simulacion_service),
     conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
     _ = require_module_access("simulacion")
 ):
     """Partial: Lista de sitios de la oportunidad."""
@@ -272,5 +322,150 @@ async def get_sitios_partial(
     
     return templates.TemplateResponse("simulacion/partials/sitios_list.html", {
         "request": request,
-        "sitios": sitios
+        "sitios": sitios,
+        "context": context
     })
+
+# --- ENDPOINTS DE GESTIÓN (MODALES Y UPDATES) ---
+
+@router.get("/modals/edit/{id_oportunidad}", include_in_schema=False)
+async def get_edit_modal(
+    request: Request,
+    id_oportunidad: UUID,
+    service: SimulacionService = Depends(get_simulacion_service),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context), # Necesario para checar rol
+    _ = require_module_access("simulacion") # Acceso base (Viewer puede ver el modal, pero no guardar)
+):
+    """Renderiza el modal de edición principal."""
+    # 1. Obtener datos actuales
+    op = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
+    if not op:
+        return JSONResponse(status_code=404, content={"message": "Oportunidad no encontrada"})
+
+    # 2. Cargar catálogos dinámicos
+    responsables = await service.get_responsables_dropdown(conn)
+    
+    # 3. Obtener mapa de IDs para lógica frontend (AlpineJS)
+    status_ids = await service._get_status_ids(conn)
+    
+    # Excluir "Ganada" del dropdown (solo para selección manual)
+    estatus_global = await conn.fetch(
+        "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND id != $1 ORDER BY id",
+        status_ids["ganada"]
+    )
+    motivos_cierre = await conn.fetch("SELECT id, motivo FROM tb_cat_motivos_cierre WHERE activo = true ORDER BY motivo")
+
+    # 4. Definir Permiso de Edición (Manager/Admin)
+    # Regla: Solo si es ADMIN global o tiene rol de módulo 'editor'/'admin'
+    can_manage = context["role"] == "ADMIN" or context.get("module_role") in ["editor", "admin"]
+
+    return templates.TemplateResponse("simulacion/modals/edit_modal.html", {
+        "request": request,
+        "op": dict(op),
+        "responsables": responsables,
+        "estatus_global": [dict(r) for r in estatus_global],
+        "motivos_cierre": [dict(r) for r in motivos_cierre],
+        "status_ids": status_ids, # <--- Clave para AlpineJS
+        "can_manage": can_manage  # <--- Clave para ocultar/mostrar botones
+    })
+
+@router.put("/update/{id_oportunidad}")
+async def update_simulacion(
+    request: Request,
+    id_oportunidad: UUID,
+    # Form Data explícito para HTMX
+    id_estatus_global: int = Form(...),
+    id_interno_simulacion: Optional[str] = Form(None),
+    responsable_simulacion_id: Optional[UUID] = Form(None),
+    fecha_entrega_simulacion: Optional[str] = Form(None), # Recibe string ISO
+    deadline_negociado: Optional[str] = Form(None),       # Recibe string ISO
+    id_motivo_cierre: Optional[int] = Form(None),
+    monto_cierre_usd: Optional[Decimal] = Form(None),
+    potencia_cierre_fv_kwp: Optional[Decimal] = Form(None),
+    capacidad_cierre_bess_kwh: Optional[Decimal] = Form(None),
+    
+    service: SimulacionService = Depends(get_simulacion_service),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_module_access("simulacion", "editor") 
+):
+    """Procesa el update del padre con datos de formulario HTMX."""
+    try:
+        # Reconstruir modelo Pydantic manually
+        datos = SimulacionUpdate(
+            id_estatus_global=id_estatus_global,
+            id_interno_simulacion=id_interno_simulacion,
+            responsable_simulacion_id=responsable_simulacion_id,
+            fecha_entrega_simulacion=fecha_entrega_simulacion,
+            deadline_negociado=deadline_negociado,
+            id_motivo_cierre=id_motivo_cierre,
+            monto_cierre_usd=monto_cierre_usd,
+            potencia_cierre_fv_kwp=potencia_cierre_fv_kwp,
+            capacidad_cierre_bess_kwh=capacidad_cierre_bess_kwh
+        )
+
+        await service.update_simulacion_padre(conn, id_oportunidad, datos, context)
+        
+        return templates.TemplateResponse("simulacion/partials/messages/success_redirect.html", {
+            "request": request,
+            "title": "Actualización Exitosa",
+            "message": "La oportunidad se ha actualizado correctamente.",
+            "redirect_url": "/simulacion/ui" 
+        })
+    except HTTPException as e:
+        return templates.TemplateResponse("simulacion/partials/messages/error_inline.html", {
+            "request": request, 
+            "message": e.detail
+        }, status_code=e.status_code)
+
+@router.put("/sitios/batch-update")
+async def batch_update_sitios(
+    request: Request,
+    datos: SitiosBatchUpdate,
+    service: SimulacionService = Depends(get_simulacion_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("simulacion", "editor") # <--- SEGURIDAD
+):
+    """Actualización masiva de sitios."""
+    try:
+        await service.update_sitios_batch(conn, datos.ids_sitios, datos.id_estatus_global, datos.fecha_cierre)
+        
+        return templates.TemplateResponse("simulacion/partials/toasts/toast_success.html", {
+            "request": request,
+            "title": "Sitios Actualizados",
+            "message": f"{len(datos.ids_sitios)} sitios procesados correctamente."
+        })
+    except Exception as e:
+        return templates.TemplateResponse("simulacion/partials/toasts/toast_error.html", {
+            "request": request,
+            "title": "Error Batch",
+            "message": str(e)
+        })
+
+@router.patch("/update-responsable/{id_oportunidad}")
+async def update_responsable(
+    request: Request,
+    id_oportunidad: UUID,
+    responsable_simulacion_id: UUID = Form(...),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("simulacion", "editor")
+):
+    """Actualización rápida de responsable (Inline)."""
+    try:
+        # Update directo
+        await conn.execute(
+            "UPDATE tb_oportunidades SET responsable_simulacion_id = $1 WHERE id_oportunidad = $2",
+            responsable_simulacion_id, id_oportunidad
+        )
+        return templates.TemplateResponse("simulacion/partials/toasts/toast_success.html", {
+            "request": request,
+            "title": "Asignación Actualizada",
+            "message": "El responsable ha sido actualizado correctamente."
+        })
+    except Exception as e:
+        return templates.TemplateResponse("simulacion/partials/toasts/toast_error.html", {
+            "request": request,
+            "title": "Error Asignación",
+            "message": str(e)
+        })

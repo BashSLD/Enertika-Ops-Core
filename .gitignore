@@ -29,3 +29,4 @@ project_rules.txt
 estructura_proyecto.md
 MD/
 scripts/
+!scripts/verify_simulacion_surgical.py

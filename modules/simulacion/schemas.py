@@ -1,19 +1,28 @@
-# Archivo: modules/simulacion/schemas.py
-
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, Field, ConfigDict
+from decimal import Decimal
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 # --- Base Schemas ---
 
 class SimulacionBase(BaseModel):
-    """Campos comunes para la creación y actualización."""
-    id_oportunidad: UUID = Field(..., description="FK a la oportunidad comercial.")
-    tecnico_asignado_id: Optional[UUID] = Field(None, description="Técnico de Simulación responsable.")
-    status_simulacion: str = Field(..., description="Status (Pendiente, En Proceso, Entregado, etc.).")
+    """Campos base para lecturas comunes."""
+    id_oportunidad: UUID
+    id_estatus_global: int
+    status_nombre: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
 
-# --- BESS Schemas ---
+class ResponsableOption(BaseModel):
+    """Schema para el dropdown de responsables (Select)."""
+    id_usuario: UUID
+    nombre_completo: str
+    departamento: str
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# --- BESS Schemas (Preservado para Creación) ---
 
 class DetalleBessCreate(BaseModel):
     """Datos técnicos específicos para proyectos BESS."""
@@ -28,12 +37,10 @@ class DetalleBessCreate(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-
-# --- Oportunidades Create Completo (Transaccional) ---
+# --- Oportunidades Create Completo (Preservado para Creación) ---
 
 class OportunidadCreateCompleta(BaseModel):
-    """Schema maestro para la creación transaccional."""
-    # Campos Base
+    """Schema maestro para la creación transaccional (Formulario Extraordinario)."""
     cliente_nombre: str = Field(..., min_length=3)
     nombre_proyecto: str
     canal_venta: str
@@ -47,38 +54,75 @@ class OportunidadCreateCompleta(BaseModel):
     sharepoint_folder_url: Optional[str] = None
     
     # Campos Lógicos Fase 2
-    fecha_manual_str: Optional[str] = None  # Input raw del datetime-local
-    detalles_bess: Optional[DetalleBessCreate] = None  # Nested Schema opcional
-    id_estatus_global: Optional[int] = 1  # 1=Activa por defecto
+    fecha_manual_str: Optional[str] = None
+    detalles_bess: Optional[DetalleBessCreate] = None
+    id_estatus_global: Optional[int] = 1
 
     model_config = ConfigDict(from_attributes=True)
 
-class SimulacionCreate(SimulacionBase):
-    """Schema para crear una nueva entrada de simulación."""
-    # Los tiempos se inician al crear
-    pass
+# --- Update Schemas (Lógica de Negocio V2 - NUEVO) ---
 
 class SimulacionUpdate(BaseModel):
-    """Schema para actualizar el estado, asignación o el dato crítico."""
-    tecnico_asignado_id: Optional[UUID] = None
-    status_simulacion: Optional[str] = None
+    """
+    Schema maestro para actualizar la Oportunidad desde Simulación.
+    Maneja cambio de estatus, re-asignaciones y datos de cierre.
+    """
+    # Gestión
+    id_interno_simulacion: Optional[str] = Field(None, max_length=150)
+    responsable_simulacion_id: Optional[UUID] = None
     
-    # Dato Crítico: KWp
-    potencia_simulada_kwp: Optional[float] = Field(None, ge=0.0, description="Potencia Simulada (KWp). Debe ser capturada al entregar.")
+    # Fechas
+    fecha_entrega_simulacion: Optional[datetime] = None
+    deadline_negociado: Optional[datetime] = None
+    
+    # Estatus y Cierre
+    id_estatus_global: int
+    id_motivo_cierre: Optional[int] = None
+    
+    # Métricas de Cierre (Obligatorios condicionalmente en Service Layer)
+    monto_cierre_usd: Optional[Decimal] = Field(None, ge=0)
+    potencia_cierre_fv_kwp: Optional[Decimal] = Field(None, ge=0)
+    capacidad_cierre_bess_kwh: Optional[Decimal] = Field(None, ge=0)
+
+    # Flag auxiliar para validación (no persiste en BD)
+    tiene_detalles_bess: Optional[bool] = False
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @field_validator(
+        'id_interno_simulacion', 
+        'responsable_simulacion_id', 
+        'fecha_entrega_simulacion', 
+        'deadline_negociado', 
+        'id_motivo_cierre', 
+        'monto_cierre_usd', 
+        'potencia_cierre_fv_kwp', 
+        'capacidad_cierre_bess_kwh',
+        mode='before'
+    )
+    def empty_string_to_none(cls, v, info):
+        if v == "":
+            return None
+        # Enforce Uppercase for ID
+        if info.field_name == 'id_interno_simulacion' and isinstance(v, str):
+            return v.upper()
+        return v
+
+class SitiosBatchUpdate(BaseModel):
+    """
+    Para la actualización masiva de hijos (Multisitio).
+    """
+    ids_sitios: List[int]  # IDs de la tabla tb_sitios_oportunidad
+    id_estatus_global: int
+    fecha_cierre: Optional[datetime] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+# --- Read Schemas (Legacy/UI support) ---
 
 class SimulacionRead(BaseModel):
-    """Schema de lectura para la vista del Dashboard de Simulación."""
-    id_simulacion: UUID
+    """Schema de lectura para el Dashboard."""
     id_oportunidad: UUID
-    tecnico_asignado_id: Optional[UUID]
-    
-    # Tiempos para KPIs
-    fecha_solicitud: datetime
-    deadline_estimado: Optional[datetime]
-    fecha_entrega_real: Optional[datetime]
-
-    # Dato Crítico
-    potencia_simulada_kwp: Optional[float]
     status_simulacion: str
-
+    # Se pueden agregar más campos calculados si se requiere en el futuro
     model_config = ConfigDict(from_attributes=True)

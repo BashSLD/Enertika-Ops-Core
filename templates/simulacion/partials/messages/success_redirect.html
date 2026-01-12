@@ -1,0 +1,30 @@
+<div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-4 mt-4 animate-fade-in-down" role="alert">
+    <p class="font-bold">{{ title }}</p>
+    <p>{{ message }}</p>
+</div>
+
+<script>
+    // Cerrar modal y refrescar cards
+    setTimeout(function () {
+        const modal = document.getElementById('modal-backdrop');
+        if (modal) {
+            modal.remove();
+        }
+
+        // Obtener tab actual desde localStorage (guardado por tabs.html)
+        const currentTab = localStorage.getItem('sim_current_tab') || 'activos';
+        const currentSubtab = localStorage.getItem('sim_current_subtab') || '';
+
+        // Construir URL con tab y subtab actuales
+        let refreshUrl = `/simulacion/partials/cards?tab=${currentTab}`;
+        if (currentSubtab) {
+            refreshUrl += `&subtab=${currentSubtab}`;
+        }
+
+        // Refrescar manteniendo el tab actual
+        htmx.ajax('GET', refreshUrl, {
+            target: '#sim-tab-content',
+            swap: 'innerHTML'
+        });
+    }, 800);
+</script>
