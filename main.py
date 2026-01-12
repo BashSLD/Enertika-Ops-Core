@@ -63,6 +63,10 @@ app.include_router(simulacion_router.router)
 from modules.levantamientos.router import router as levantamientos_router
 app.include_router(levantamientos_router)
 
+# Workflow: Comentarios centralizados
+from core.workflow.router import router as workflow_router
+app.include_router(workflow_router)
+
 # --- Background Tasks ---
 import asyncio
 from core.tasks import cleanup_temp_uploads_periodically

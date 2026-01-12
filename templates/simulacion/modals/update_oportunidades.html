@@ -274,28 +274,32 @@
                         </h4>
 
                         <div class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-                            <!-- 1. Input Primero (Solo si puede gestionar) -->
-                            {% if can_manage %}
-                            <div class="flex gap-2 items-start mb-4" x-data="{ commenting: false }">
-                                <textarea name="nuevo_comentario" rows="3" placeholder="Escribe un comentario..."
-                                    class="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm transition-all resize-y py-3 px-4"
-                                    @focus="commenting = true" hx-post="/simulacion/comentarios/{{ op.id_oportunidad }}"
-                                    hx-target="#comentarios-container-{{ op.id_oportunidad }}" hx-swap="innerHTML"
-                                    hx-trigger="keyup[ctrl+enter]" id="new-comment-{{ op.id_oportunidad }}"></textarea>
+                            <!-- 1. Input Primero (Solo si puede comentar - editor role) -->
+                            {% if context.get('module_roles', {}).get('simulacion') in ['editor', 'admin'] or
+                            context.get('role') == 'ADMIN' %}
 
-                                <button type="button" hx-post="/simulacion/comentarios/{{ op.id_oportunidad }}"
-                                    hx-include="#new-comment-{{ op.id_oportunidad }}"
-                                    hx-target="#comentarios-container-{{ op.id_oportunidad }}" hx-swap="innerHTML"
-                                    hx-on::after-request="document.getElementById('new-comment-{{ op.id_oportunidad }}').value = ''"
-                                    class="ripple-effect inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-bold rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
-                                    </svg>
-                                </button>
+                            <!-- Formulario de comentarios con button HTMX -->
+                            <div class="mb-4">
+                                <div class="flex gap-2 items-start">
+                                    <textarea name="nuevo_comentario" id="nuevo_comentario_{{ op.id_oportunidad }}"
+                                        rows="3" placeholder="Escribe un comentario..."
+                                        class="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm transition-all resize-y py-3 px-4"
+                                        required></textarea>
+
+                                    <button type="button" hx-post="/workflow/comentarios"
+                                        hx-target="#comentarios-container-{{ op.id_oportunidad }}" hx-swap="innerHTML"
+                                        hx-vals='js:{id_oportunidad: "{{ op.id_oportunidad }}", module: "simulacion", nuevo_comentario: document.getElementById("nuevo_comentario_{{ op.id_oportunidad }}").value}'
+                                        hx-on::after-request="document.getElementById('nuevo_comentario_{{ op.id_oportunidad }}').value = ''"
+                                        class="ripple-effect inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-bold rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                                        </svg>
+                                    </button>
+                                </div>
                             </div>
-                            <p class="text-[10px] text-gray-400 mb-2 pl-1 italic">Tip: Ctrl+Enter para enviar rápido.
-                            </p>
+                            <p class="text-[10px] text-gray-400 mb-2 pl-1 italic">Escribe y presiona el botón para
+                                enviar.</p>
                             {% endif %}
 
                             <!-- 2. Contenedor de Comentarios -->

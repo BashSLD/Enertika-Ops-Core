@@ -18,6 +18,9 @@ from .schemas import OportunidadCreateCompleta, DetalleBessCreate
 from .service import ComercialService, get_comercial_service
 from .email_handler import EmailHandler, get_email_handler
 
+# Import Workflow Service (Centralizado)
+from core.workflow.service import get_workflow_service
+
 # Configuración básica de logging
 logger = logging.getLogger("ComercialModule")
 
@@ -193,14 +196,14 @@ async def get_sitios_partial(
 async def get_comentarios_partial(
     request: Request,
     id_oportunidad: UUID,
-    service: ComercialService = Depends(get_comercial_service),
+    workflow_service = Depends(get_workflow_service),
     conn = Depends(get_db_connection),
     _ = require_module_access("comercial")
 ):
     """Retorna los comentarios de simulación para una oportunidad."""
-    comentarios = await service.get_comentarios_simulacion(conn, id_oportunidad)
+    comentarios = await workflow_service.get_historial(conn, id_oportunidad)
     return templates.TemplateResponse(
-        "comercial/partials/detalles/comentarios_list.html",
+        "shared/partials/comentarios_list.html",
         {"request": request, "comentarios": comentarios}
     )
 

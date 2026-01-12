@@ -134,6 +134,7 @@ async def get_current_user_context(
     return {
         "user_name": user_name,
         "email": final_email,
+        "user_email": final_email,  # Alias para compatibilidad con WorkflowService
         "is_admin": (role == 'ADMIN'),
         "role": role,
         # "access_token": access_token,  <--- ELIMINADO DE RESPUESTA

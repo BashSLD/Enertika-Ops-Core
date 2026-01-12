@@ -1,0 +1,97 @@
+<!-- Modal Centralizado de Comentarios - Usado por todos los módulos -->
+<div id="modal-backdrop-comentarios"
+    class="fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-75 flex items-center justify-center p-4 animate-fade-in"
+    _="on keyup[key=='Escape'] remove me">
+
+    <div class="bg-white rounded-lg shadow-2xl w-full max-w-3xl transform transition-all">
+        <!-- HEADER -->
+        <div class="px-6 py-4 border-b border-gray-200 flex justify-between items-center bg-[# E0F7F7] rounded-t-lg">
+            <div>
+                <h3 class="text-lg font-bold text-[#123456] flex items-center gap-2">
+                    <svg class="w-6 h-6 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z">
+                        </path>
+                    </svg>
+                    Comentarios / Bitácora
+                </h3>
+                {% if op_info %}
+                <div class="flex flex-col text-sm text-gray-600 mt-1">
+                    <span class="font-mono font-bold text-[#00BABB]">{{ op_info.op_id_estandar }}</span>
+                    <span class="font-medium text-gray-800">{{ op_info.nombre_proyecto or op_info.cliente_nombre
+                        }}</span>
+                </div>
+                {% endif %}
+            </div>
+            <button type="button" onclick="document.getElementById('modal-backdrop-comentarios').remove()"
+                class="text-gray-400 hover:text-gray-600 focus:outline-none">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                    </path>
+                </svg>
+            </button>
+        </div>
+
+        <!-- BODY -->
+        <div class="p-6 max-h-[70vh] overflow-y-auto">
+            <!-- Formulario de Nuevo Comentario (Solo si tiene permisos) -->
+            {% if can_comment %}
+            <form hx-post="/workflow/comentarios" hx-target="#comentarios-historial" hx-swap="innerHTML"
+                hx-on::after-request="this.reset()" class="mb-6">
+
+                <!-- Hidden fields para context -->
+                <input type="hidden" name="id_oportunidad" value="{{ id_oportunidad }}">
+                <input type="hidden" name="module" value="{{ module_slug }}">
+
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <label class="block text-sm font-bold text-gray-700 mb-2">
+                        ✍️ Nuevo Comentario
+                    </label>
+                    <div class="flex gap-3 items-start">
+                        <textarea name="nuevo_comentario" rows="3" placeholder="Escribe tu comentario aquí..."
+                            class="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm transition-all resize-y py-3 px-4"
+                            required></textarea>
+
+                        <button type="submit"
+                            class="ripple-effect inline-flex items-center px-4 py-2 border border-transparent text-sm font-bold rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all self-end">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-2 italic">
+                        💡 Escribe tu comentario y presiona el botón para enviar.
+                    </p>
+                </div>
+            </form>
+            {% endif %}
+
+            <!-- Historial de Comentarios -->
+            <div>
+                <h4 class="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2 border-b border-gray-200 pb-2">
+                    <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                    </svg>
+                    <span>Historial</span>
+                    <span class="ml-auto text-xs text-gray-500">({{ comentarios|length }} comentario{{ 's' if
+                        comentarios|length != 1 else '' }})</span>
+                </h4>
+
+                <div id="comentarios-historial">
+                    <!-- Contenido cargado vía partial -->
+                    {% include "shared/partials/comentarios_list.html" %}
+                </div>
+            </div>
+        </div>
+
+        <!-- FOOTER -->
+        <div class="px-6 py-4 bg-gray-100 border-t border-gray-200 rounded-b-lg flex justify-end">
+            <button type="button" onclick="document.getElementById('modal-backdrop-comentarios').remove()"
+                class="px-5 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium shadow-sm transition-all duration-200">
+                Cerrar
+            </button>
+        </div>
+    </div>
+</div>

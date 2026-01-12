@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse
 from uuid import UUID
 from typing import Optional
 from decimal import Decimal
+import logging
 
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
@@ -17,6 +18,11 @@ from core.database import get_db_connection
 # Import del Service Layer
 from .service import SimulacionService, get_simulacion_service
 from .schemas import OportunidadCreateCompleta, DetalleBessCreate, SimulacionUpdate, SitiosBatchUpdate
+
+# Import Workflow Service (Centralizado)
+from core.workflow.service import get_workflow_service
+
+logger = logging.getLogger("SimulacionModule")
 
 templates = Jinja2Templates(directory="templates")
 
@@ -234,12 +240,12 @@ async def get_comentarios_partial(
     id_oportunidad: UUID,
     request: Request,
     mode: Optional[str] = None,
-    service: SimulacionService = Depends(get_simulacion_service),
+    workflow_service = Depends(get_workflow_service),
     conn = Depends(get_db_connection),
     _ = require_module_access("simulacion")
 ):
     """Partial: Lista de comentarios de simulación."""
-    comentarios = await service.get_comentarios_simulacion(conn, id_oportunidad)
+    comentarios = await workflow_service.get_historial(conn, id_oportunidad)
     
     total_comentarios = len(comentarios)
     has_more = False
@@ -249,7 +255,7 @@ async def get_comentarios_partial(
         if total_comentarios > 1:
             has_more = True
             
-    return templates.TemplateResponse("simulacion/partials/detalles/comentarios_list.html", {
+    return templates.TemplateResponse("shared/partials/comentarios_list.html", {
         "request": request,
         "comentarios": comentarios,
         "mode": mode,
@@ -263,18 +269,23 @@ async def create_comentario(
     id_oportunidad: UUID,
     request: Request,
     nuevo_comentario: str = Form(...),
-    service: SimulacionService = Depends(get_simulacion_service),
+    workflow_service = Depends(get_workflow_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
     _ = require_module_access("simulacion", "editor") 
 ):
     """Crea un nuevo comentario y devuelve la lista actualizada."""
+    logger.info(f"[ROUTER] Recibido POST comentario para {id_oportunidad}: '{nuevo_comentario[:50]}...'")
     if nuevo_comentario.strip():
-        await service.add_comentario_simulacion(conn, id_oportunidad, nuevo_comentario, context)
+        await workflow_service.add_comentario(
+            conn, context, id_oportunidad, nuevo_comentario,
+            departamento_slug="SIMULACION",
+            modulo_origen="simulacion"
+        )
     
     # Retornar la lista actualizada con todas las variables necesarias
-    comentarios = await service.get_comentarios_simulacion(conn, id_oportunidad)
-    return templates.TemplateResponse("simulacion/partials/detalles/comentarios_list.html", {
+    comentarios = await workflow_service.get_historial(conn, id_oportunidad)
+    return templates.TemplateResponse("shared/partials/comentarios_list.html", {
         "request": request,
         "comentarios": comentarios,
         "mode": None,  # Mostrar todos los comentarios después de crear uno nuevo
@@ -360,14 +371,15 @@ async def get_edit_modal(
     # Regla: Solo si es ADMIN global o tiene rol de módulo 'editor'/'admin'
     can_manage = context["role"] == "ADMIN" or context.get("module_role") in ["editor", "admin"]
 
-    return templates.TemplateResponse("simulacion/modals/edit_modal.html", {
+    return templates.TemplateResponse("simulacion/modals/update_oportunidades.html", {
         "request": request,
         "op": dict(op),
         "responsables": responsables,
         "estatus_global": [dict(r) for r in estatus_global],
         "motivos_cierre": [dict(r) for r in motivos_cierre],
         "status_ids": status_ids, # <--- Clave para AlpineJS
-        "can_manage": can_manage  # <--- Clave para ocultar/mostrar botones
+        "can_manage": can_manage,  # <--- Clave para ocultar/mostrar botones
+        "context": context  # <--- Para checks de permisos en comentarios
     })
 
 @router.put("/update/{id_oportunidad}")

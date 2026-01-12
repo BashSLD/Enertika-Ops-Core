@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f4f4f4;
+            margin: 0;
+            padding: 0;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 20px auto;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+        }
+
+        .header {
+            background: linear-gradient(135deg, #00BABB 0%, #123456 100%);
+            color: white;
+            padding: 30px 20px;
+            border-left: 4px solid #00BABB;
+        }
+
+        .header h2 {
+            margin: 0 0 10px 0;
+            font-size: 24px;
+        }
+
+        .header p {
+            margin: 5px 0;
+            opacity: 0.95;
+        }
+
+        .content {
+            padding: 25px;
+        }
+
+        .comment-box {
+            background: #f8f9fa;
+            border-left: 3px solid #00BABB;
+            padding: 15px;
+            border-radius: 4px;
+            margin: 15px 0;
+        }
+
+        .comment-text {
+            white-space: pre-wrap;
+            line-height: 1.6;
+            color: #333;
+            font-size: 14px;
+        }
+
+        .metadata {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 15px;
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .metadata-item {
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .metadata-label {
+            font-weight: 600;
+            color: #666;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 3px;
+        }
+
+        .metadata-value {
+            color: #333;
+            font-size: 14px;
+        }
+
+        .footer {
+            background: #f8f9fa;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            color: #6c757d;
+            border-top: 1px solid #e0e0e0;
+        }
+
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            background: #00BABB;
+            color: white;
+            border-radius: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="header">
+            <h2>Nuevo Comentario en Workflow</h2>
+            <p><strong>{{ op.op_id_estandar }}</strong></p>
+        </div>
+
+        <div class="content">
+            <div class="metadata">
+                <div class="metadata-item">
+                    <div class="metadata-label">Proyecto</div>
+                    <div class="metadata-value">{{ op.nombre_proyecto }}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="metadata-label">Cliente</div>
+                    <div class="metadata-value">{{ op.cliente_nombre }}</div>
+                </div>
+            </div>
+
+            <div class="metadata">
+                <div class="metadata-item">
+                    <div class="metadata-label">Autor</div>
+                    <div class="metadata-value">{{ autor }}</div>
+                </div>
+                <div class="metadata-item">
+                    <div class="metadata-label">Departamento</div>
+                    <div class="metadata-value">
+                        <span class="badge">{{ departamento }}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="comment-box">
+                <p class="comment-text">{{ comentario }}</p>
+            </div>
+        </div>
+
+        <div class="footer">
+            <p><strong>Enertika Ops Core</strong></p>
+            <p>Este es un mensaje automatico del sistema. Por favor no responda a este correo.</p>
+        </div>
+    </div>
+</body>
+
+</html>
