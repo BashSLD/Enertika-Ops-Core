@@ -330,7 +330,8 @@
             // 2. Iniciar vigilancia (Polling)
             // Preguntamos al servidor cada 1 segundo: "¿Ya revivió la sesión?"
             const timer = setInterval(() => {
-                fetch('/comercial/form', { method: 'GET' })
+                // FIX: Usar la ruta actual en lugar de hardcoded /comercial/form
+                fetch(window.location.pathname, { method: 'HEAD' })
                     .then(res => {
                         // Si recibimos OK (200) y NO es una redirección al login...
                         if (res.ok && !res.redirected) {
@@ -367,7 +368,8 @@
 
         // 1. SISTEMA DE ALERTA TEMPRANA (Heartbeat)
         setInterval(() => {
-            fetch('/comercial/ui', { method: 'HEAD' }).then(res => {
+            // FIX: Usar la ruta actual en lugar de hardcoded /comercial/ui
+            fetch(window.location.pathname, { method: 'HEAD' }).then(res => {
                 if (res.redirected || res.status === 401 || res.status === 403) {
                     document.getElementById('session-modal').classList.remove('hidden');
                 }

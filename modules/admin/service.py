@@ -198,7 +198,7 @@ class AdminService:
             query = "SELECT nombre as label, CAST(id AS TEXT) as value FROM tb_cat_estatus_global WHERE activo = true ORDER BY nombre"
         
         elif trigger_field == "EVENTO":
-            # CORRECTO: Leer de BD (tb_configuracion_global) para evitar hardcoding
+            # Leer de BD (tb_configuracion_global) para evitar hardcoding
             config_json = await conn.fetchval(
                 "SELECT valor FROM tb_configuracion_global WHERE clave = 'EVENTOS_SISTEMA'"
             )
@@ -207,8 +207,18 @@ class AdminService:
                     return json.loads(config_json)
                 except json.JSONDecodeError:
                     logger.error("Error decodificando EVENTOS_SISTEMA de tb_configuracion_global")
-                    return []
-            return []
+                    # Fallback a eventos comunes
+                    return [
+                        {"label": "Nuevo Comentario", "value": "NUEVO_COMENTARIO"},
+                        {"label": "Cambio de Estatus", "value": "CAMBIO_ESTATUS"},
+                        {"label": "Asignación", "value": "ASIGNACION"}
+                    ]
+            # Si no existe en BD, usar fallback
+            return [
+                {"label": "Nuevo Comentario", "value": "NUEVO_COMENTARIO"},
+                {"label": "Cambio de Estatus", "value": "CAMBIO_ESTATUS"},
+                {"label": "Asignación", "value": "ASIGNACION"}
+            ]
         
         else:
             return [] 

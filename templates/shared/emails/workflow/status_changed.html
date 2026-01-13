@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cambio de Estatus</title>
+</head>
+
+<body
+    style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <!-- Container Principal -->
+                <table width="600" cellpadding="0" cellspacing="0"
+                    style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+
+                    <!-- Header con Gradiente Enertika -->
+                    <tr>
+                        <td
+                            style="background: linear-gradient(135deg, #123456 0%, #00BABB 100%); padding: 30px 40px; text-align: center;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">
+                                Cambio de Estatus
+                            </h1>
+                            <p style="margin: 10px 0 0 0; color: #E0F7F7; font-size: 14px;">
+                                El estatus de tu oportunidad ha cambiado
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Contenido Principal -->
+                    <tr>
+                        <td style="padding: 40px;">
+
+                            <!-- Mensaje Intro -->
+                            <p style="margin: 0 0 30px 0; color: #666666; font-size: 15px; line-height: 1.6;">
+                                El estatus de la siguiente oportunidad ha sido actualizado:
+                            </p>
+
+                            <!-- Card de Oportunidad -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #f9f9f9; border-left: 4px solid #00BABB; border-radius: 4px; margin-bottom: 30px;">
+                                <tr>
+                                    <td style="padding: 20px;">
+
+                                        <!-- ID Oportunidad -->
+                                        <div style="margin-bottom: 15px;">
+                                            <span
+                                                style="display: inline-block; background-color: #00BABB; color: #ffffff; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                                                {{ oportunidad.op_id_estandar }}
+                                            </span>
+                                        </div>
+
+                                        <!-- Detalles -->
+                                        <table width="100%" cellpadding="8" cellspacing="0">
+                                            <tr>
+                                                <td width="140"
+                                                    style="color: #123456; font-weight: 600; font-size: 14px; vertical-align: top;">
+                                                    Cliente:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px;">
+                                                    {{ oportunidad.cliente_nombre }}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    style="color: #123456; font-weight: 600; font-size: 14px; vertical-align: top;">
+                                                    Proyecto:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px;">
+                                                    {{ oportunidad.nombre_proyecto or 'Sin nombre de proyecto' }}
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Cambio de Estatus Visual -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #E0F7F7; border-radius: 6px; padding: 20px; margin-bottom: 30px;">
+                                <tr>
+                                    <td align="center">
+                                        <table cellpadding="0" cellspacing="0">
+                                            <tr>
+                                                <td align="center">
+                                                    <!-- Estatus Anterior -->
+                                                    <div
+                                                        style="display: inline-block; background-color: #e0e0e0; color: #666666; padding: 10px 20px; border-radius: 20px; font-size: 14px; font-weight: 600;">
+                                                        {{ old_status }}
+                                                    </div>
+                                                </td>
+                                                <td style="padding: 0 15px;">
+                                                    <!-- Flecha -->
+                                                    <span
+                                                        style="color: #00BABB; font-size: 24px; font-weight: bold;">→</span>
+                                                </td>
+                                                <td align="center">
+                                                    <!-- Estatus Nuevo -->
+                                                    <div
+                                                        style="display: inline-block; background-color: #00BABB; color: #ffffff; padding: 10px 20px; border-radius: 20px; font-size: 14px; font-weight: 600; box-shadow: 0 2px 4px rgba(0,186,187,0.3);">
+                                                        {{ new_status }}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Info Adicional -->
+                            <table width="100%" cellpadding="12" cellspacing="0" style="border-top: 1px solid #e0e0e0;">
+                                <tr>
+                                    <td style="color: #123456; font-weight: 600; font-size: 14px;">
+                                        Cambiado por:
+                                    </td>
+                                    <td style="color: #666666; font-size: 14px;">
+                                        {{ changed_by }}
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Call to Action -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="margin: 30px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="http://localhost:8000/simulacion/ui"
+                                            style="display: inline-block; background-color: #00BABB; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-size: 15px; font-weight: 600; box-shadow: 0 2px 4px rgba(0,186,187,0.3);">
+                                            Ver Oportunidad
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Mensaje de Cierre -->
+                            <p
+                                style="margin: 30px 0 0 0; color: #666666; font-size: 14px; line-height: 1.6; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+                                Te notificamos este cambio porque eres el creador de esta oportunidad.
+                            </p>
+
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td
+                            style="background-color: #f8f9fa; padding: 25px 40px; text-align: center; border-top: 1px solid #e0e0e0;">
+                            <p style="margin: 0 0 5px 0; color: #00BABB; font-weight: 700; font-size: 16px;">
+                                Enertika Ops Core
+                            </p>
+                            <p style="margin: 0; color: #999999; font-size: 12px;">
+                                Sistema de Gestión de Oportunidades
+                            </p>
+                            <p style="margin: 15px 0 0 0; color: #cccccc; font-size: 11px;">
+                                Este es un correo automático. Por favor no responder.
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

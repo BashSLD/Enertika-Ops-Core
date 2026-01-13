@@ -7,6 +7,7 @@ from fastapi.templating import Jinja2Templates
 
 # Imports Core
 from core.microsoft import MicrosoftAuth
+from .notification_service import get_notification_service
 
 logger = logging.getLogger("WorkflowCore")
 templates = Jinja2Templates(directory="templates")
@@ -19,6 +20,7 @@ class WorkflowService:
     
     def __init__(self):
         self.ms_auth = MicrosoftAuth()
+        self.notification_service = get_notification_service()
 
     async def add_comentario(
         self, 
@@ -136,89 +138,23 @@ class WorkflowService:
         depto: str
     ):
         """
-        Calcula destinatarios y envia correo de notificacion.
+        Delega notificación de comentario a NotificationService.
         
-        Logica:
-        - TO: Notifica a la contraparte (si autor = solicitante -> avisa a responsable y viceversa)
-        - CC: Correos configurados en tb_config_emails con trigger NUEVO_COMENTARIO
-        - No se notifica a uno mismo
+        Args:
+            conn: Conexión a base de datos
+            id_oportunidad: UUID de la oportunidad
+            comentario: Texto del comentario
+            sender_ctx: Contexto del usuario que comentó
+            depto: Slug del departamento/módulo origen
         """
-        
-        # A. Obtener datos de la oportunidad
-        op = await conn.fetchrow("""
-            SELECT 
-                op_id_estandar, nombre_proyecto, cliente_nombre,
-                creado_por_id, responsable_simulacion_id
-            FROM tb_oportunidades 
-            WHERE id_oportunidad = $1
-        """, id_oportunidad)
-        
-        if not op:
-            return
+        await self.notification_service.notify_new_comment(
+            conn=conn,
+            id_oportunidad=id_oportunidad,
+            comentario=comentario,
+            sender_ctx=sender_ctx,
+            departamento=depto.upper()
+        )
 
-        # B. Obtener Emails de los Actores
-        users_map = {}
-        target_ids = {op['creado_por_id'], op['responsable_simulacion_id']}
-        target_ids = {uid for uid in target_ids if uid}
-        
-        if target_ids:
-            q_users = "SELECT id_usuario, email FROM tb_usuarios WHERE id_usuario = ANY($1::uuid[])"
-            rows = await conn.fetch(q_users, list(target_ids))
-            for r in rows:
-                users_map[r['id_usuario']] = r['email']
-
-        email_solicitante = users_map.get(op['creado_por_id'])
-        email_responsable = users_map.get(op['responsable_simulacion_id'])
-        
-        # C. Definir TO (Destinatarios) - Notificar a la contraparte
-        recipients = set()
-        sender_id = sender_ctx.get("user_db_id")
-        
-        # Regla: Si yo soy el solicitante, aviso al responsable. Y viceversa.
-        if email_responsable and str(sender_id) != str(op['responsable_simulacion_id']):
-            recipients.add(email_responsable)
-            
-        if email_solicitante and str(sender_id) != str(op['creado_por_id']):
-            recipients.add(email_solicitante)
-            
-        # D. Definir CC (Configuracion Admin - triggers)
-        cc_list = set()
-        triggers = await conn.fetch("""
-            SELECT email_to_add 
-            FROM tb_config_emails 
-            WHERE (modulo = 'GLOBAL' OR modulo = $1) 
-              AND trigger_field = 'NUEVO_COMENTARIO'
-        """, depto.upper())
-        
-        for t in triggers:
-            cc_list.add(t['email_to_add'])
-            
-        if not recipients:
-            logger.info("No hay destinatarios para notificar (el usuario se comenta a si mismo sin contraparte).")
-            return
-
-        # E. Renderizar Template
-        html_content = templates.get_template("shared/emails/workflow/new_comment.html").render({
-            "op": op,
-            "comentario": comentario,
-            "autor": sender_ctx['user_name'],
-            "departamento": depto
-        })
-        
-        # F. Enviar via Graph
-        subject = f"Nuevo Comentario: {op['op_id_estandar']} - {op['cliente_nombre']}"
-        
-        # TODO: Integrar con sistema de tokens actual
-        # Por ahora, solo logging
-        logger.info(f"[NOTIFICACION] Envio simulado a {recipients} CC {cc_list}")
-        # Descomentar cuando se integre con tokens:
-        # self.ms_auth.send_email_with_attachments(
-        #     access_token=token,
-        #     subject=subject,
-        #     body=html_content,
-        #     recipients=list(recipients),
-        #     cc_recipients=list(cc_list)
-        # )
 
 def get_workflow_service():
     """Helper para inyeccion de dependencias."""

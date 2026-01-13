@@ -47,7 +47,7 @@ class LevantamientoService:
             SELECT DISTINCT ON (op.id_oportunidad)
                    op.id_oportunidad, op.titulo_proyecto, op.nombre_proyecto, 
                    op.cliente_nombre, op.direccion_obra, op.fecha_solicitud, 
-                   op.status_global, op.cantidad_sitios, op.prioridad,
+                   op.id_estatus_global, op.cantidad_sitios, op.prioridad,
                    -- Info Técnico y Area (Join anidado)
                    u_tec.nombre as tecnico_nombre,
                    perm_tec.departamento_rol as tecnico_area,
@@ -63,7 +63,7 @@ class LevantamientoService:
             LEFT JOIN tb_usuarios u_jefe ON l.jefe_area_id = u_jefe.id_usuario
             
             WHERE tipo_cat.codigo_interno = 'LEVANTAMIENTO'
-            AND op.status_global NOT IN ('Cancelado', 'Perdida')
+            AND op.id_estatus_global NOT IN (6, 7)
             ORDER BY op.id_oportunidad, op.prioridad DESC, op.fecha_solicitud ASC
         """
         rows = await conn.fetch(query)
@@ -73,30 +73,31 @@ class LevantamientoService:
         
         for row in rows:
             item = dict(row)
-            st = item['status_global']
-            if st == 'Pendiente':
+            st = item['id_estatus_global']
+            if st == 1:  # Pendiente
                 kanban['pendientes'].append(item)
-            elif st == 'Agendado':
+            elif st == 2:  # Agendado
                 kanban['agendados'].append(item)
-            elif st in ['Realizado', 'Entregado']:
+            elif st in [3, 4]:  # Realizado, Entregado
                 kanban['realizados'].append(item)
             else:
                 kanban['pendientes'].append(item)
         
         return kanban
 
-    async def mover_tarjeta(self, conn, id_oportunidad: UUID, nuevo_status: str):
+    async def mover_tarjeta(self, conn, id_oportunidad: UUID, nuevo_status: int):
         """
         Mueve una tarjeta entre columnas del Kanban.
         
         Valida que el nuevo status sea válido y actualiza en BD.
+        nuevo_status debe ser el ID del estatus (1=Pendiente, 2=Agendado, etc)
         """
-        validos = ['Pendiente', 'Agendado', 'Realizado', 'Entregado']
+        validos = [1, 2, 3, 4, 5]  # IDs válidos de estatus
         if nuevo_status not in validos:
             raise ValueError(f"Estado inválido: {nuevo_status}")
         
         await conn.execute(
-            "UPDATE tb_oportunidades SET status_global = $1 WHERE id_oportunidad = $2",
+            "UPDATE tb_oportunidades SET id_estatus_global = $1 WHERE id_oportunidad = $2",
             nuevo_status,
             id_oportunidad
         )
@@ -165,7 +166,7 @@ async def get_kanban_partial(
 async def mover_tarjeta_endpoint(
     request: Request,
     id_oportunidad: UUID,
-    status: str = Form(...),
+    status: int = Form(...),
     conn = Depends(get_db_connection),
     service: LevantamientoService = Depends(get_service)
 ):

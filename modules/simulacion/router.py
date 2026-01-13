@@ -38,7 +38,7 @@ router = APIRouter(
 # ========================================
 # ENDPOINT PRINCIPAL (UI)
 # ========================================
-@router.get("/ui", include_in_schema=False)
+@router.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)
 async def get_simulacion_ui(
     request: Request,
     context = Depends(get_current_user_context),
@@ -403,7 +403,18 @@ async def update_simulacion(
     _ = require_module_access("simulacion", "editor") 
 ):
     """Procesa el update del padre con datos de formulario HTMX."""
+    from core.workflow.notification_service import get_notification_service
+    
     try:
+        # Obtener valores ANTES del UPDATE para detectar cambios
+        current = await conn.fetchrow(
+            "SELECT responsable_simulacion_id, id_estatus_global FROM tb_oportunidades WHERE id_oportunidad = $1",
+            id_oportunidad
+        )
+        
+        old_responsable = current['responsable_simulacion_id'] if current else None
+        old_status = current['id_estatus_global'] if current else None
+        
         # Reconstruir modelo Pydantic manually
         datos = SimulacionUpdate(
             id_estatus_global=id_estatus_global,
@@ -418,6 +429,32 @@ async def update_simulacion(
         )
 
         await service.update_simulacion_padre(conn, id_oportunidad, datos, context)
+        
+        # Notificaciones asíncronas (no bloquean flujo)
+        notification_service = get_notification_service()
+        
+        try:
+            # Notificar asignación si cambió
+            if responsable_simulacion_id and old_responsable != responsable_simulacion_id:
+                await notification_service.notify_assignment(
+                    conn=conn,
+                    id_oportunidad=id_oportunidad,
+                    old_responsable_id=old_responsable,
+                    new_responsable_id=responsable_simulacion_id,
+                    assigned_by_ctx=context
+                )
+            
+            # Notificar cambio de estatus si cambió
+            if id_estatus_global and old_status != id_estatus_global:
+                await notification_service.notify_status_change(
+                    conn=conn,
+                    id_oportunidad=id_oportunidad,
+                    old_status_id=old_status,
+                    new_status_id=id_estatus_global,
+                    changed_by_ctx=context
+                )
+        except Exception as notif_error:
+            logger.error(f"Error en notificaciones (no critico): {notif_error}")
         
         return templates.TemplateResponse("simulacion/partials/messages/success_redirect.html", {
             "request": request,

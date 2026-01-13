@@ -71,6 +71,32 @@ class MicrosoftAuth:
             logger.error(f"Excepción crítica en refresh_token: {e}")
             return None
 
+    def get_application_token(self):
+        """
+        Obtiene un access token usando Client Credentials Flow (application-only).
+        Este token NO requiere usuario logueado y es ideal para tareas en background.
+        Útil para envío de emails de notificaciones automáticas.
+        
+        Returns:
+            str: Access token o None si falla
+        """
+        try:
+            # Client Credentials Flow: app actúa en su propio nombre, no en nombre de usuario
+            scopes = ["https://graph.microsoft.com/.default"]
+            
+            result = self.app.acquire_token_for_client(scopes=scopes)
+            
+            if "error" in result:
+                logger.error(f"Error obteniendo token de aplicación: {result.get('error_description')}")
+                return None
+                
+            logger.info("[APP TOKEN] Token de aplicación obtenido exitosamente")
+            return result.get("access_token")
+            
+        except Exception as e:
+            logger.error(f"Excepción obteniendo token de aplicación: {e}")
+            return None
+
     # --- Utilidades ---
     def get_headers(self, token):
         return {
@@ -219,7 +245,7 @@ class MicrosoftAuth:
 
 
     # --- Envío de Correos (Híbrido) ---
-    def send_email_with_attachments(self, access_token, subject, body, recipients, cc_recipients=None, bcc_recipients=None, importance="normal", attachments_files=None):
+    def send_email_with_attachments(self, access_token, from_email, subject, body, recipients, cc_recipients=None, bcc_recipients=None, importance="normal", attachments_files=None):
         if not access_token:
             logger.error("Error: Token nulo.")
             return False, "No hay sesión activa"
@@ -258,7 +284,7 @@ class MicrosoftAuth:
                 "message": {
                     "subject": subject,
                     "importance": importance,  # ACCIÓN 3: Agregar importance
-                    "body": {"contentType": "HTML", "content": body.replace('\n', '<br>')},
+                    "body": {"contentType": "HTML", "content": body},  # Usar HTML sin modificar
                     "toRecipients": [{"emailAddress": {"address": e}} for e in recipients],
                     "ccRecipients": [{"emailAddress": {"address": e}} for e in cc_recipients],
                     "bccRecipients": [{"emailAddress": {"address": e}} for e in bcc_recipients],
@@ -268,7 +294,15 @@ class MicrosoftAuth:
             }
 
             try:
-                res = requests.post("https://graph.microsoft.com/v1.0/me/sendMail", headers=headers, json=email_msg)
+                # Validar que from_email existe (usuario autenticado)
+                if not from_email:
+                    logger.error("[EMAIL] from_email vacio - usuario sin email en contexto")
+                    return False, "Usuario sin email configurado"
+                
+                # Con Application token usar /users/{email}/sendMail
+                endpoint = f"https://graph.microsoft.com/v1.0/users/{from_email}/sendMail"
+                
+                res = requests.post(endpoint, headers=headers, json=email_msg)
                 if res.status_code == 202:
                     return True, "Enviado"
                 else:
