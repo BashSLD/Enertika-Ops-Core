@@ -42,9 +42,10 @@
                     <input type="text" name="nombre" required placeholder="Nueva Tecnología..."
                         class="flex-1 text-sm rounded-lg border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB]">
                     <button type="submit"
-                        class="bg-[#00BABB] hover:bg-[#009999] text-white px-3 py-2 rounded-lg transition-colors flex items-center justify-center">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4">
+                        class="bg-[#00BABB] hover:bg-[#009999] text-white px-4 py-2 rounded-lg transition-all duration-200 hover:scale-105 flex items-center justify-center shadow-md"
+                        aria-label="Agregar tecnología" title="Agregar nueva tecnología">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4">
                             </path>
                         </svg>
                     </button>
@@ -88,9 +89,10 @@
                         <input type="text" name="codigo_interno" required placeholder="CÓDIGO (ej. BID)"
                             class="flex-1 text-sm rounded-lg border-gray-300 uppercase focus:border-purple-500 focus:ring-purple-500">
                         <button type="submit"
-                            class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg transition-colors flex items-center justify-center">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg transition-all duration-200 hover:scale-105 flex items-center justify-center shadow-md"
+                            aria-label="Agregar tipo de solicitud" title="Agregar nuevo tipo">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
                                     d="M12 4v16m8-8H4"></path>
                             </svg>
                         </button>
@@ -144,7 +146,12 @@
                     <input type="text" name="descripcion" placeholder="Descripción corta..."
                         class="w-full text-sm rounded-lg border-gray-300 focus:border-orange-500 focus:ring-orange-500 mb-2">
                     <button type="submit"
-                        class="w-full bg-orange-500 hover:bg-orange-600 text-white py-1.5 rounded-lg text-sm font-bold">
+                        class="w-full bg-orange-500 hover:bg-orange-600 text-white py-2.5 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition-all duration-200 hover:scale-105 shadow-md"
+                        aria-label="Guardar estatus" title="Guardar nuevo estatus">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4">
+                            </path>
+                        </svg>
                         Guardar Estatus
                     </button>
                 </form>

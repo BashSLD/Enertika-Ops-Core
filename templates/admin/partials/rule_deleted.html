@@ -1,0 +1,26 @@
+{# templates/admin/partials/rule_deleted.html #}
+{# Mensaje de feedback al eliminar una regla de correo #}
+
+<tr id="rule-{{ rule_id }}" class="animate-fade-out">
+    <td colspan="6" class="px-6 py-3 text-center">
+        <div class="bg-green-100 border-l-4 border-green-500 text-green-700 p-3 rounded inline-flex items-center">
+            <svg class="w-5 h-5 mr-2" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                    clip-rule="evenodd"></path>
+            </svg>
+            <span class="font-bold">Regla eliminada correctamente</span>
+        </div>
+    </td>
+</tr>
+
+<script>
+    setTimeout(() => {
+        const row = document.getElementById('rule-{{ rule_id }}');
+        if (row) {
+            row.style.opacity = '0';
+            row.style.transition = 'opacity 0.5s';
+            setTimeout(() => row.remove(), 500);
+        }
+    }, 2000);
+</script>

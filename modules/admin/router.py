@@ -172,7 +172,12 @@ async def delete_email_rule(
     
     # OK - REFACTORIZADO: Usar service
     await service.delete_email_rule(conn, id)
-    return Response(status_code=200)
+    
+    # Retornar template partial con feedback visual
+    return templates.TemplateResponse("admin/partials/rule_deleted.html", {
+        "request": request,
+        "rule_id": id
+    })
 
 # --- CONFIG DEFAULT EMAILS (GLOBAL) ---
 @router.post("/defaults/update")

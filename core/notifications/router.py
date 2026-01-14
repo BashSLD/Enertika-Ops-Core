@@ -45,35 +45,53 @@ async def stream_notifications(
     
     async def event_generator():
         """Generator que mantiene conexión SSE abierta."""
-        # 1. Registrar conexión
+        # 1. Registrar conexión PRIMERO (no bloqueante)
         queue = service.register_connection(usuario_id)
         
         try:
-            # 2. Enviar notificaciones pendientes al conectar
-            pending = await service.get_pending_notifications(conn, usuario_id, limit=10)
-            
-            for notif in pending:
-                yield {
-                    "event": "notification",
-                    "data": json.dumps({
-                        "id": str(notif['id']),
-                        "type": notif['tipo'],
-                        "title": notif['titulo'],
-                        "message": notif['mensaje'],
-                        "oportunidad_id": str(notif['id_oportunidad']) if notif['id_oportunidad'] else None,
-                        "created_at": notif['created_at'].isoformat()
-                    })
-                }
+            # 2. Enviar notificaciones pendientes EN BACKGROUND con timeout
+            #    NO bloquear el stream esperando la query
+            try:
+                pending = await asyncio.wait_for(
+                    service.get_pending_notifications(conn, usuario_id, limit=5),  # Reducido a 5
+                    timeout=1.0  # Timeout de 1 segundo
+                )
+                
+                for notif in pending:
+                    yield {
+                        "event": "notification",
+                        "data": json.dumps({
+                            "id": str(notif['id']),
+                            "type": notif['tipo'],
+                            "title": notif['titulo'],
+                            "message": notif['mensaje'],
+                            "oportunidad_id": str(notif['id_oportunidad']) if notif['id_oportunidad'] else None,
+                            "created_at": notif['created_at'].isoformat()
+                        })
+                    }
+            except asyncio.TimeoutError:
+                logger.warning(f"[SSE] Timeout al cargar notificaciones pendientes para {usuario_id}")
+                # Continuar sin notificaciones pendientes
+            except Exception as e:
+                logger.error(f"[SSE] Error cargando pendientes: {e}")
+                # Continuar sin notificaciones pendientes
             
             # 3. Mantener conexión abierta esperando nuevas notificaciones
             while True:
-                # Esperar nueva notificación en la queue
-                notification_data = await queue.get()
-                
-                yield {
-                    "event": "notification",
-                    "data": json.dumps(notification_data)
-                }
+                # Esperar nueva notificación en la queue con timeout para detectar desconexiones
+                try:
+                    notification_data = await asyncio.wait_for(queue.get(), timeout=30.0)
+                    
+                    yield {
+                        "event": "notification",
+                        "data": json.dumps(notification_data)
+                    }
+                except asyncio.TimeoutError:
+                    # Enviar heartbeat cada 30s para mantener conexión viva
+                    yield {
+                        "event": "heartbeat",
+                        "data": json.dumps({"status": "alive"})
+                    }
                 
         except asyncio.CancelledError:
             # Cliente desconectado

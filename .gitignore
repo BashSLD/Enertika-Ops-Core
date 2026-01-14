@@ -30,3 +30,7 @@ estructura_proyecto.md
 MD/
 scripts/
 !scripts/verify_simulacion_surgical.py
+
+# Documentacion
+/docs
+DB_SCHEMA_SNAPSHOT.md

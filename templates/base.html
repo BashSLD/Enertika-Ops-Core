@@ -514,45 +514,61 @@
             }
         });
 
+
         // === SISTEMA DE NOTIFICACIONES EN TIEMPO REAL (SSE) ===
         let notificationSource = null;
         let unreadCount = 0;
 
         function initNotifications() {
-            // Conectar al stream SSE
-            notificationSource = new EventSource('/notifications/stream');
+            // OPTIMIZACIÓN: Cargar contador con timeout para no bloquear UI
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Timeout')), 2000)
+            );
 
-            notificationSource.addEventListener('notification', function (e) {
-                const notification = JSON.parse(e.data);
-                console.log('[SSE] Nueva notificacion:', notification);
-
-                // Incrementar contador
-                unreadCount++;
-                updateBellIcon();
-
-                // Mostrar toast
-                showNotificationToast(notification);
-
-                // Agregar a dropdown
-                addNotificationToDropdown(notification);
-            });
-
-            notificationSource.onerror = function (e) {
-                console.error('[SSE] Error de conexion:', e);
-                // Reconectar después de 5s
-                if (notificationSource.readyState === EventSource.CLOSED) {
-                    setTimeout(initNotifications, 5000);
-                }
-            };
-
-            // Cargar contador inicial
-            fetch('/notifications/count')
-                .then(r => r.json())
+            Promise.race([
+                fetch('/notifications/count').then(r => r.json()),
+                timeoutPromise
+            ])
                 .then(data => {
                     unreadCount = data.unread_count;
                     updateBellIcon();
                 })
-                .catch(err => console.error('[SSE] Error cargando contador:', err));
+                .catch(err => {
+                    console.warn('[SSE] Contador no disponible (timeout o error):', err.message);
+                    // Continuar sin bloquear - el contador se actualizará cuando lleguen notificaciones
+                });
+
+            // OPTIMIZACIÓN: Conectar SSE de forma async después de cargar contador
+            setTimeout(() => {
+                try {
+                    notificationSource = new EventSource('/notifications/stream');
+
+                    notificationSource.addEventListener('notification', function (e) {
+                        const notification = JSON.parse(e.data);
+                        console.log('[SSE] Nueva notificacion:', notification);
+
+                        // Incrementar contador
+                        unreadCount++;
+                        updateBellIcon();
+
+                        // Mostrar toast
+                        showNotificationToast(notification);
+
+                        // Agregar a dropdown
+                        addNotificationToDropdown(notification);
+                    });
+
+                    notificationSource.onerror = function (e) {
+                        console.error('[SSE] Error de conexion:', e);
+                        // Reconectar después de 5s
+                        if (notificationSource.readyState === EventSource.CLOSED) {
+                            setTimeout(initNotifications, 5000);
+                        }
+                    };
+                } catch (err) {
+                    console.error('[SSE] Error iniciando EventSource:', err);
+                }
+            }, 100); // Delay mínimo para no bloquear renderizado inicial
         }
 
         function updateBellIcon() {
@@ -666,12 +682,19 @@
             });
         }
 
-        // Iniciar notificaciones si usuario está logueado
+        // OPTIMIZACIÓN: Iniciar notificaciones DESPUÉS de que el DOM esté listo
+        // Usar requestIdleCallback para no bloquear renderizado crítico
         if (document.getElementById('notification-badge')) {
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', initNotifications);
+            if (window.requestIdleCallback) {
+                // Navegadores modernos - esperar a que el navegador esté idle
+                window.requestIdleCallback(() => initNotifications(), { timeout: 1000 });
             } else {
-                initNotifications();
+                // Fallback - usar setTimeout con delay mínimo
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', () => setTimeout(initNotifications, 200));
+                } else {
+                    setTimeout(initNotifications, 200);
+                }
             }
         }
     </script>

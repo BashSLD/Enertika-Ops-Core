@@ -250,17 +250,30 @@ async def get_comentarios_partial(
     total_comentarios = len(comentarios)
     has_more = False
     
-    if mode == 'latest' and comentarios:
+    # Modo compacto: muestra últimos 3 con opción de expandir
+    if mode == 'compact':
+        if total_comentarios > 3:
+            comentarios = comentarios[:3]  # Primeros 3 (más recientes)
+            has_more = True
+        # Si hay 3 o menos, mostrar todos sin botón expandir
+    
+    # Modo latest: solo el más reciente
+    elif mode == 'latest' and comentarios:
         comentarios = [comentarios[0]]
         if total_comentarios > 1:
             has_more = True
+    
+    # Modo para mostrar solo el último comentario (Historial)
+    elif mode == 'last_one' and comentarios:
+        comentarios = [comentarios[0]]
+        has_more = False  # No mostrar botón "ver más" en historial
             
     return templates.TemplateResponse("shared/partials/comentarios_list.html", {
         "request": request,
         "comentarios": comentarios,
         "mode": mode,
         "has_more": has_more,
-        "total_extra": total_comentarios - 1,
+        "total_extra": total_comentarios - len(comentarios) if mode == 'compact' else total_comentarios - 1,
         "id_oportunidad": id_oportunidad
     })
 

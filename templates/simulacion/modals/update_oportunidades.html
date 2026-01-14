@@ -15,7 +15,7 @@
                        this.status == this.cancelado_id || 
                        this.status == this.perdido_id;
             },
-            validateForm() {
+            validateForm(event) {
                 this.errors = {};
                 let valid = true;
 
@@ -50,16 +50,26 @@
                     valid = false;
                 }
 
-                // Validación 4: ID Interno cambio
+                // Validación 4: ID Interno cambio - CRÍTICO: detener submit si usuario cancela
                 if (valid && this.originalIdInterno && this.currentIdInterno !== this.originalIdInterno) {
-                    if(!confirm(`ID Interno Simulación se cambiará \nde: ${this.originalIdInterno} \na: ${this.currentIdInterno}\n\n¿Desea continuar?`)) {
+                    const userConfirmed = confirm(`ID Interno Simulación se cambiará \nde: ${this.originalIdInterno} \na: ${this.currentIdInterno}\n\n¿Desea continuar?`);
+                    if (!userConfirmed) {
                         valid = false;
+                        // Prevenir HTMX submit
+                        event.preventDefault();
+                        event.stopPropagation();
+                        event.stopImmediatePropagation();
+                        return false;
                     }
                 }
 
                 if (!valid) {
                      // Scroll al primer error si es necesario o mostrar toast global
                      console.log('Validación fallida', this.errors);
+                     event.preventDefault();
+                     event.stopPropagation();
+                     event.stopImmediatePropagation();
+                     return false;
                 }
                 return valid;
             }
@@ -88,29 +98,60 @@
 
         <!-- FORMULARIO -->
         <form {% if can_manage %}hx-put="/simulacion/update/{{ op.id_oportunidad }}" hx-target="#form-feedback"
-            hx-swap="innerHTML" @submit="if(!validateForm()) { $event.preventDefault(); $event.stopPropagation(); }"
-            novalidate {% endif %}>
+            hx-swap="innerHTML" @submit="validateForm($event)" novalidate {% endif %}>
 
             <div class="max-h-[70vh] overflow-y-auto"> <!-- Scroll container para cuerpo y comentarios -->
                 <div class="p-6 space-y-6">
                     <div id="form-feedback"></div>
 
-                    <!-- Grid Principal -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <!-- ID Interno -->
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">ID Interno Simulación</label>
-                            <input type="text" name="id_interno_simulacion" x-model="currentIdInterno"
-                                @input="currentIdInterno = $el.value.toUpperCase()" {% if not can_manage %}disabled{%
+                    <!-- ID Interno - Full Width -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">ID Interno Simulación</label>
+                        <input type="text" name="id_interno_simulacion" x-model="currentIdInterno"
+                            @input="currentIdInterno = $el.value.toUpperCase()" {% if not can_manage %}disabled{% endif
+                            %}
+                            class="w-full border-gray-300 rounded-md shadow-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:bg-gray-100 uppercase transition-all">
+                    </div>
+
+                    <!-- Grid 2x2 - Todos los campos destacados -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                        <!-- Estatus Simulación -->
+                        <div
+                            class="bg-gradient-to-br from-[#E0F7F7] to-white border-2 border-[#00BABB] rounded-lg p-4 shadow-md hover:shadow-lg transition-all duration-200">
+                            <label class="block text-sm font-bold text-[#123456] mb-2 flex items-center gap-2">
+                                <div class="p-1.5 bg-[#00BABB] rounded-md">
+                                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor"
+                                        viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                                    </svg>
+                                </div>
+                                <span>Estatus Simulación</span>
+                            </label>
+                            <select name="id_estatus_global" x-model.number="status" {% if not can_manage %}disabled{%
                                 endif %}
-                                class="w-full border-gray-300 rounded-md shadow-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:bg-gray-100 uppercase transition-all">
+                                class="w-full border-2 border-[#00BABB] rounded-md shadow-sm focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 font-medium text-sm text-gray-800 transition-all hover:border-[#009999]">
+                                {% for st in estatus_global %}
+                                <option value="{{ st.id }}">{{ st.nombre }}</option>
+                                {% endfor %}
+                            </select>
                         </div>
 
-                        <!-- Responsable -->
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Responsable Asignado</label>
+                        <!-- Responsable Asign ado -->
+                        <div
+                            class="bg-gradient-to-br from-[#E0F7F7] to-white border-2 border-[#00BABB] rounded-lg p-4 shadow-md hover:shadow-lg transition-all duration-200">
+                            <label class="block text-sm font-bold text-[#123456] mb-2 flex items-center gap-2">
+                                <div class="p-1.5 bg-[#00BABB] rounded-md">
+                                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor"
+                                        viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                    </svg>
+                                </div>
+                                <span>Responsable Asignado</span>
+                            </label>
                             <select name="responsable_simulacion_id" {% if not can_manage %}disabled{% endif %}
-                                class="w-full border-gray-300 rounded-md shadow-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:bg-gray-100 transition-all">
+                                class="w-full border-2 border-[#00BABB] rounded-md shadow-sm focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 font-medium text-sm text-gray-800 transition-all hover:border-[#009999]">
                                 <option value="">-- Sin Asignar --</option>
                                 {% for resp in responsables %}
                                 <option value="{{ resp.id_usuario }}" {% if
@@ -120,63 +161,50 @@
                                 {% endfor %}
                             </select>
                         </div>
-                    </div>
 
-                    <!-- Fechas -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Deadline Negociado</label>
-                            <div class="relative">
-                                <input type="datetime-local" name="deadline_negociado"
-                                    value="{{ op.deadline_negociado|input_date if op.deadline_negociado else '' }}" {%
-                                    if not can_manage %}disabled{% endif %}
-                                    class="w-full border-gray-300 rounded-md shadow-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:bg-gray-100 pl-10">
-                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24"
-                                        stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                    </svg>
-                                </div>
-                            </div>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Fecha Entrega Real</label>
-                            <div class="relative">
-                                <input type="datetime-local" id="fecha_entrega_simulacion"
-                                    name="fecha_entrega_simulacion"
-                                    value="{{ op.fecha_entrega_simulacion|input_date if op.fecha_entrega_simulacion else '' }}"
-                                    {% if not can_manage %}disabled{% endif %}
-                                    :disabled="!canEditFecha() || !{{ 'true' if can_manage else 'false' }}"
-                                    @input="if(!canEditFecha()) { $event.target.value = ''; }"
-                                    class="w-full border-gray-300 rounded-md shadow-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:bg-gray-100 pl-10"
-                                    :class="{'border-red-500 ring-1 ring-red-500': errors.fecha}">
-                                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                    <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24"
+                        <!-- Fecha Entrega Real -->
+                        <div
+                            class="bg-gradient-to-br from-[#E0F7F7] to-white border-2 border-[#00BABB] rounded-lg p-4 shadow-md hover:shadow-lg transition-all duration-200">
+                            <label class="block text-sm font-bold text-[#123456] mb-2 flex items-center gap-2">
+                                <div class="p-1.5 bg-[#00BABB] rounded-md">
+                                    <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24"
                                         stroke="currentColor">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                                     </svg>
                                 </div>
-                            </div>
+                                <span>Fecha Entrega Real</span>
+                            </label>
+                            <input type="datetime-local" id="fecha_entrega_simulacion" name="fecha_entrega_simulacion"
+                                value="{{ op.fecha_entrega_simulacion|input_date if op.fecha_entrega_simulacion else '' }}"
+                                {% if not can_manage %}disabled{% endif %}
+                                :disabled="!canEditFecha() || !{{ 'true' if can_manage else 'false' }}"
+                                @input="if(!canEditFecha()) { $event.target.value = ''; }"
+                                class="w-full border-2 border-[#00BABB] rounded-md shadow-sm focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 text-sm transition-all hover:border-[#009999]"
+                                :class="{'border-red-500 ring-1 ring-red-500': errors.fecha}">
+                        </div>
+
+                        <!-- Deadline Negociado -->
+                        <div
+                            class="bg-gradient-to-br from-[#E0F7F7] to-white border-2 border-[#00BABB] rounded-lg p-4 shadow-md hover:shadow-lg transition-all duration-200">
+                            <label class="block text-sm font-bold text-[#123456] mb-2 flex items-center gap-2">
+                                <div class="p-1.5 bg-[#00BABB] rounded-md">
+                                    <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24"
+                                        stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                    </svg>
+                                </div>
+                                <span>Deadline Negociado</span>
+                            </label>
+                            <input type="datetime-local" name="deadline_negociado"
+                                value="{{ op.deadline_negociado|input_date if op.deadline_negociado else '' }}" {% if
+                                not can_manage %}disabled{% endif %}
+                                class="w-full border-2 border-[#00BABB] rounded-md shadow-sm focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 text-sm transition-all hover:border-[#009999]">
                         </div>
                     </div>
 
-                    <div class="border-t border-gray-200 pt-6">
-                        <label class="block text-sm font-bold text-[#123456] mb-2 flex items-center gap-2">
-                            <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                            </svg>
-                            Estatus Simulación
-                        </label>
-                        <select name="id_estatus_global" x-model.number="status" {% if not can_manage %}disabled{% endif
-                            %}
-                            class="w-full border-gray-300 rounded-md shadow-sm focus:ring-[#00BABB] focus:border-[#00BABB] bg-gray-50 disabled:bg-gray-100 font-medium text-gray-700">
-                            {% for st in estatus_global %}
-                            <option value="{{ st.id }}">{{ st.nombre }}</option>
-                            {% endfor %}
-                        </select>
+                    <div class="border-t border-gray-200 pt-6 mt-6">
 
                         <!-- Panel: Cancelado/Perdido -->
                         <div x-show="status == cancelado_id || status == perdido_id"
@@ -261,55 +289,71 @@
                         </div>
                     </div>
 
-                    <!-- Sección de Comentarios (Después de Estatus Simulación) -->
-                    <div class="px-6 pb-6 pt-2 border-t border-gray-100 bg-gray-50/50">
-                        <h4 class="text-[#123456] font-bold mb-3 flex items-center mt-4">
-                            <svg class="w-5 h-5 mr-2 text-[#00BABB]" fill="none" stroke="currentColor"
-                                viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z">
-                                </path>
-                            </svg>
-                            Comentarios Recientes
-                        </h4>
-
-                        <div class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm">
-                            <!-- 1. Input Primero (Solo si puede comentar - editor role) -->
-                            {% if context.get('module_roles', {}).get('simulacion') in ['editor', 'admin'] or
-                            context.get('role') == 'ADMIN' %}
-
-                            <!-- Formulario de comentarios con button HTMX -->
-                            <div class="mb-4">
-                                <div class="flex gap-2 items-start">
-                                    <textarea name="nuevo_comentario" id="nuevo_comentario_{{ op.id_oportunidad }}"
-                                        rows="3" placeholder="Escribe un comentario..."
-                                        class="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm transition-all resize-y py-3 px-4"
-                                        required></textarea>
-
-                                    <button type="button" hx-post="/workflow/comentarios"
-                                        hx-target="#comentarios-container-{{ op.id_oportunidad }}" hx-swap="innerHTML"
-                                        hx-vals='js:{id_oportunidad: "{{ op.id_oportunidad }}", module: "simulacion", nuevo_comentario: document.getElementById("nuevo_comentario_{{ op.id_oportunidad }}").value}'
-                                        hx-on::after-request="document.getElementById('nuevo_comentario_{{ op.id_oportunidad }}').value = ''"
-                                        class="ripple-effect inline-flex items-center px-3 py-2 border border-transparent text-sm leading-4 font-bold rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
-                                        </svg>
-                                    </button>
-                                </div>
+                    <div class="border-t-4 border-[#00BABB] pt-6 mt-8">
+                        <div class="flex items-center gap-3 mb-4">
+                            <div class="p-2 bg-[#00BABB] rounded-lg">
+                                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z">
+                                    </path>
+                                </svg>
                             </div>
-                            <p class="text-[10px] text-gray-400 mb-2 pl-1 italic">Escribe y presiona el botón para
-                                enviar.</p>
-                            {% endif %}
-
-                            <!-- 2. Contenedor de Comentarios -->
-                            <div id="comentarios-container-{{ op.id_oportunidad }}">
-                                <div hx-get="/simulacion/partials/comentarios/{{ op.id_oportunidad }}?mode=latest"
-                                    hx-trigger="load" hx-swap="innerHTML">
-                                    <div class="animate-pulse space-y-2">
-                                        <div class="h-4 bg-gray-100 rounded w-3/4"></div>
-                                        <div class="h-3 bg-gray-100 rounded w-1/2"></div>
-                                    </div>
+                            <h3 class="text-lg font-bold text-[#123456]">Comentarios / Bitácora</h3>
+                        </div>
+                        <!-- Formulario Nuevo Comentario (solo editor/admin) -->
+                        {% if context.get('module_roles', {}).get('simulacion') in ['editor', 'admin'] or
+                        context.get('role') == 'ADMIN' %}
+                        <div class="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-6">
+                            <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
+                                <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor"
+                                    viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                                </svg>
+                                Agregar Comentario
+                            </label>
+                            <div class="flex gap-3 items-start">
+                                <textarea id="nuevo_comentario_{{ op.id_oportunidad }}" rows="3"
+                                    placeholder="Escribe un comentario sobre esta oportunidad..."
+                                    class="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm transition-all resize-y py-3 px-4"
+                                    required></textarea>
+                                <button type="button" hx-post="/workflow/comentarios"
+                                    hx-target="#comentarios-container-{{ op.id_oportunidad }}" hx-swap="innerHTML"
+                                    hx-vals='js:{id_oportunidad: "{{ op.id_oportunidad }}", module: "simulacion", nuevo_comentario: document.getElementById("nuevo_comentario_{{ op.id_oportunidad }}").value}'
+                                    hx-on::after-request="document.getElementById('nuevo_comentario_{{ op.id_oportunidad }}').value = ''"
+                                    class="ripple-effect inline-flex items-center px-4 py-2 border border-transparent text-sm font-bold rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all self-end">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                                    </svg>
+                                </button>
+                            </div>
+                            <p class="text-xs text-gray-500 mt-2 italic">
+                                💡 Escribe tu comentario y presiona el botón para enviar.
+                            </p>
+                        </div>
+                        {% endif %}
+                        <!-- Historial de Comentarios -->
+                        <div>
+                            <div class="flex items-center justify-between mb-3 pb-2 border-b border-gray-200">
+                                <h4 class="text-sm font-bold text-gray-700 flex items-center gap-2">
+                                    <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor"
+                                        viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                    </svg>
+                                    <span>Últimos Comentarios</span>
+                                </h4>
+                            </div>
+                            <!-- Contenedor de comentarios (carga vía HTMX) -->
+                            <div id="comentarios-container-{{ op.id_oportunidad }}"
+                                hx-get="/simulacion/partials/comentarios/{{ op.id_oportunidad }}?mode=compact"
+                                hx-trigger="load delay:100ms" hx-swap="innerHTML" hx-target="this">
+                                <!-- Loading placeholder -->
+                                <div class="animate-pulse space-y-3">
+                                    <div class="bg-gray-100 h-20 rounded-lg"></div>
+                                    <div class="bg-gray-100 h-20 rounded-lg"></div>
+                                    <div class="bg-gray-100 h-20 rounded-lg"></div>
                                 </div>
                             </div>
                         </div>

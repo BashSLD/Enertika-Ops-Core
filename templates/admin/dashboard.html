@@ -86,6 +86,25 @@
         </div>
 
         <section class="bg-white p-6 rounded-lg shadow border-t-4 border-[#00BABB]">
+            <!-- Barra de búsqueda -->
+            <div class="mb-4 flex items-center justify-between">
+                <div class="flex-1 max-w-md">
+                    <div class="relative">
+                        <input type="text" id="user-search" placeholder="Buscar usuario por nombre o email..."
+                            class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-[#00BABB] focus:border-[#00BABB] text-sm"
+                            oninput="filterUsers()">
+                        <svg class="w-5 h-5 text-gray-400 absolute left-3 top-2.5" fill="none" stroke="currentColor"
+                            viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                    </div>
+                </div>
+                <div class="text-sm text-gray-600">
+                    <span id="user-count-display">{{ users|length }}</span> usuarios
+                </div>
+            </div>
+
             <div class="overflow-x-auto">
                 <table class="min-w-full divide-y divide-gray-200">
                     <thead class="bg-gray-50">
@@ -101,12 +120,49 @@
                             <th class="px-6 py-3 text-right">Acciones</th>
                         </tr>
                     </thead>
-                    <tbody class="bg-white divide-y divide-gray-200">
+                    <tbody class="bg-white divide-y divide-gray-200" id="users-tbody">
                         {% for u in users %}
                         {% include "admin/partials/user_row.html" %}
                         {% endfor %}
                     </tbody>
                 </table>
+            </div>
+
+            <!-- Controles de paginación -->
+            <div class="mt-4 flex items-center justify-between border-t pt-4">
+                <div class="text-sm text-gray-600">
+                    Mostrando <span id="page-start">1</span> - <span id="page-end">10</span> de <span
+                        id="total-users">{{ users|length }}</span>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="changePage('first')" id="btn-first"
+                        class="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Primera página">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M11 19l-7-7 7-7m8 14l-7-7 7-7"></path>
+                        </svg>
+                    </button>
+                    <button onclick="changePage('prev')" id="btn-prev"
+                        class="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Anterior
+                    </button>
+                    <span class="px-3 py-1 text-sm text-gray-700">
+                        Página <span id="current-page">1</span> de <span id="total-pages">1</span>
+                    </span>
+                    <button onclick="changePage('next')" id="btn-next"
+                        class="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed">
+                        Siguiente
+                    </button>
+                    <button onclick="changePage('last')" id="btn-last"
+                        class="px-3 py-1 border border-gray-300 rounded text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                        title="Última página">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 5l7 7-7 7M5 5l7 7-7 7"></path>
+                        </svg>
+                    </button>
+                </div>
             </div>
         </section>
     </div>
@@ -260,8 +316,14 @@
                             </td>
                             <td class="px-6 py-4 text-right">
                                 <button hx-delete="/admin/rules/{{ r.id }}" hx-target="#rule-{{ r.id }}"
-                                    hx-swap="outerHTML" class="text-red-500 hover:text-red-700 font-bold p-2">
-                                    🗑
+                                    hx-swap="outerHTML swap:1s" hx-confirm="¿Eliminar esta regla de correo?"
+                                    class="text-red-500 hover:text-red-700 font-bold p-2 transition-colors duration-200"
+                                    title="Eliminar regla">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16">
+                                        </path>
+                                    </svg>
                                 </button>
                             </td>
                         </tr>
@@ -442,6 +504,87 @@
         } catch (e) {
             msgDiv.innerHTML = '<div class="text-red-600 font-bold">❌ Error al guardar</div>';
         }
+    }
+
+    // --- BÚSQUEDA Y PAGINACIÓN DE USUARIOS ---
+    let currentPage = 1;
+    const itemsPerPage = 10;
+    let allUserRows = [];
+    let filteredRows = [];
+
+    document.addEventListener('DOMContentLoaded', () => {
+        const tbody = document.getElementById('users-tbody');
+        if (tbody) {
+            allUserRows = Array.from(tbody.querySelectorAll('tr'));
+            filteredRows = [...allUserRows];
+            updatePagination();
+        }
+    });
+
+    function filterUsers() {
+        const searchTerm = document.getElementById('user-search').value.toLowerCase();
+        const tbody = document.getElementById('users-tbody');
+
+        filteredRows = allUserRows.filter(row => {
+            const text = row.textContent.toLowerCase();
+            return text.includes(searchTerm);
+        });
+
+        // Actualizar contador de usuarios
+        document.getElementById('user-count-display').textContent = filteredRows.length;
+
+        // Resetear a página 1 después de filtrar
+        currentPage = 1;
+        updatePagination();
+    }
+
+    function updatePagination() {
+        const totalPages = Math.ceil(filteredRows.length / itemsPerPage);
+        const start = (currentPage - 1) * itemsPerPage;
+        const end = start + itemsPerPage;
+
+        // Ocultar todas las filas
+        allUserRows.forEach(row => row.style.display = 'none');
+
+        // Mostrar solo las filas de la página actual
+        filteredRows.slice(start, end).forEach(row => row.style.display = '');
+
+        // Actualizar textos
+        document.getElementById('current-page').textContent = totalPages > 0 ? currentPage : 0;
+        document.getElementById('total-pages').textContent = totalPages;
+        document.getElementById('page-start').textContent = filteredRows.length > 0 ? start + 1 : 0;
+        document.getElementById('page-end').textContent = Math.min(end, filteredRows.length);
+        document.getElementById('total-users').textContent = filteredRows.length;
+
+        // Habilitar/deshabilitar botones
+        document.getElementById('btn-first').disabled = currentPage === 1;
+        document.getElementById('btn-prev').disabled = currentPage === 1;
+        document.getElementById('btn-next').disabled = currentPage >= totalPages;
+        document.getElementById('btn-last').disabled = currentPage >= totalPages;
+    }
+
+    function changePage(action) {
+        const totalPages = Math.ceil(filteredRows.length / itemsPerPage);
+
+        switch (action) {
+            case 'first':
+                currentPage = 1;
+                break;
+            case 'prev':
+                if (currentPage > 1) currentPage--;
+                break;
+            case 'next':
+                if (currentPage < totalPages) currentPage++;
+                break;
+            case 'last':
+                currentPage = totalPages;
+                break;
+        }
+
+        updatePagination();
+
+        // Scroll suave a la tabla
+        document.querySelector('#users-tbody').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
 </script>
 
