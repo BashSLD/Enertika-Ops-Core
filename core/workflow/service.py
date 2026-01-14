@@ -4,6 +4,7 @@ from typing import List, Optional
 import logging
 from zoneinfo import ZoneInfo
 from fastapi.templating import Jinja2Templates
+from fastapi import HTTPException, UploadFile
 
 # Imports Core
 from core.microsoft import MicrosoftAuth
@@ -11,6 +12,8 @@ from .notification_service import get_notification_service
 
 logger = logging.getLogger("WorkflowCore")
 templates = Jinja2Templates(directory="templates")
+
+from core.integrations.sharepoint import get_sharepoint_service
 
 class WorkflowService:
     """
@@ -29,7 +32,8 @@ class WorkflowService:
         id_oportunidad: UUID, 
         comentario: str, 
         departamento_slug: str,
-        modulo_origen: str
+        modulo_origen: str,
+        # So I might need to pass the access_token explicitly to add_comentario.
     ) -> dict:
         """
         1. Inserta comentario en BD.
@@ -47,6 +51,8 @@ class WorkflowService:
         Returns:
             dict con datos del comentario creado
         """
+        # ... implementation ...
+
         user_id = user_context.get("user_db_id")
         user_name = user_context.get("user_name", "Usuario Sistema")
         user_email = user_context.get("user_email") or user_context.get("email")
@@ -81,6 +87,52 @@ class WorkflowService:
         )
         logger.info(f"[COMENTARIO] INSERT exitoso para {new_id}")
         
+        # 1.5 Procesar Adjunto (SharePoint)
+        attachment_data = None
+        if file_upload and sharepoint_token:
+            try:
+                # Obtener ID estándar para la carpeta
+                op_estandar = await conn.fetchval(
+                    "SELECT op_id_estandar FROM tb_oportunidades WHERE id_oportunidad = $1",
+                    id_oportunidad
+                )
+                if op_estandar:
+                    sp_service = get_sharepoint_service(sharepoint_token)
+                    folder_path = f"Proyectos/{op_estandar}/Comentarios"
+                    
+                    # Upload
+                    upload_result = await sp_service.upload_file(file_upload, folder_path)
+                    
+                    # Guardar Metadata en tb_documentos
+                    doc_id = uuid4()
+                    await conn.execute("""
+                        INSERT INTO tb_documentos (
+                            id_documento, nombre_archivo, url_sharepoint, drive_item_id,
+                            tipo_contenido, tamano_bytes, id_comentario, id_oportunidad, subido_por_id
+                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    """, 
+                        doc_id, 
+                        upload_result['name'],
+                        upload_result['webUrl'],
+                        upload_result['id'],
+                        file_upload.content_type,
+                        upload_result['size'],
+                        new_id,
+                        id_oportunidad,
+                        user_id
+                    )
+                    
+                    attachment_data = {
+                        "nombre": upload_result['name'],
+                        "url": upload_result['webUrl']
+                    }
+                    logger.info(f"[COMENTARIO] Adjunto subido: {upload_result['name']}")
+                    
+            except Exception as e:
+                logger.error(f"[COMENTARIO] Fallo subida de adjunto: {e}")
+                # No fallamos todo el comentario, pero logueamos error
+                # Podríamos agregar una alerta al usuario, pero por ahora seguimos.
+
         # 2. Notificacion Asincrona (Fire & Forget logic)
         try:
             await self._notificar_comentario(conn, id_oportunidad, comentario, user_context, departamento_slug)
@@ -93,7 +145,8 @@ class WorkflowService:
             "usuario_nombre": user_name,
             "comentario": comentario,
             "fecha": now_mx,
-            "departamento": departamento_slug
+            "departamento": departamento_slug,
+            "adjunto": attachment_data
         }
 
     async def get_historial(
@@ -115,11 +168,14 @@ class WorkflowService:
         """
         query = """
             SELECT 
-                id, usuario_nombre, usuario_email, comentario, 
-                departamento_origen, modulo_origen, fecha_comentario
-            FROM tb_comentarios_workflow
-            WHERE id_oportunidad = $1
-            ORDER BY fecha_comentario DESC
+                c.id, c.usuario_nombre, c.usuario_email, c.comentario, 
+                c.departamento_origen, c.modulo_origen, c.fecha_comentario,
+                d.nombre_archivo as adjunto_nombre,
+                d.url_sharepoint as adjunto_url
+            FROM tb_comentarios_workflow c
+            LEFT JOIN tb_documentos d ON c.id = d.id_comentario
+            WHERE c.id_oportunidad = $1
+            ORDER BY c.fecha_comentario DESC
         """
         if limit:
             query += f" LIMIT {limit}"

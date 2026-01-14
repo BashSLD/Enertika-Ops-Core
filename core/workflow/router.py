@@ -3,13 +3,14 @@ Router Centralizado de Comentarios
 Endpoints compartidos por todos los módulos para gestión de comentarios
 """
 
-from fastapi import APIRouter, Request, Depends, Form, HTTPException
+from fastapi import APIRouter, Request, Depends, Form, HTTPException, File, UploadFile
 from fastapi.templating import Jinja2Templates
 from uuid import UUID
 import logging
+from typing import Optional
 
 # Core imports
-from core.security import get_current_user_context
+from core.security import get_current_user_context, get_valid_graph_token
 from core.permissions import user_has_module_access
 from core.database import get_db_connection
 from core.workflow.service import get_workflow_service
@@ -97,6 +98,7 @@ async def create_comentario_workflow(
     id_oportunidad: UUID = Form(...),
     nuevo_comentario: str = Form(...),
     module: str = Form(...),  # Slug del módulo
+    file_upload: Optional[UploadFile] = File(None), # Nuevo: Archivo opcional
     workflow_service = Depends(get_workflow_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context)
@@ -121,15 +123,26 @@ async def create_comentario_workflow(
             detail=f"No tienes permisos para comentar en el módulo {module}"
         )
     
+    # Obtener token para SharePoint (Si hay archivo)
+    sharepoint_token = None
+    if file_upload:
+        sharepoint_token = await get_valid_graph_token(request)
+        if not sharepoint_token:
+            # Si expira, podríamos fallar o subir sin token (que fallará en service)
+            logger.warning("[CREATE COMENTARIO] Token expirado al intentar subir archivo")
+            # Dejamos que el servicio maneje el error o falle
+    
     # Crear comentario usando WorkflowService
-    if nuevo_comentario.strip():
+    if nuevo_comentario.strip() or file_upload:
         await workflow_service.add_comentario(
             conn, 
             context, 
             id_oportunidad, 
             nuevo_comentario.strip(),
             departamento_slug=MODULE_TO_DEPT.get(module),
-            modulo_origen=module
+            modulo_origen=module,
+            file_upload=file_upload,
+            sharepoint_token=sharepoint_token
         )
         logger.info(f"[CREATE COMENTARIO] Comentario creado exitosamente")
     else:

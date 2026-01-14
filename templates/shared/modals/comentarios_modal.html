@@ -37,7 +37,9 @@
             <!-- Formulario de Nuevo Comentario (Solo si tiene permisos) -->
             {% if can_comment %}
             <form hx-post="/workflow/comentarios" hx-target="#comentarios-historial" hx-swap="innerHTML"
-                hx-on::after-request="this.reset()" class="mb-6">
+                hx-encoding="multipart/form-data"
+                hx-on::after-request="this.reset(); document.getElementById('file-upload-text').textContent = '';"
+                class="mb-6">
 
                 <!-- Hidden fields para context -->
                 <input type="hidden" name="id_oportunidad" value="{{ id_oportunidad }}">
@@ -47,19 +49,41 @@
                     <label class="block text-sm font-bold text-gray-700 mb-2">
                         ✍️ Nuevo Comentario
                     </label>
-                    <div class="flex gap-3 items-start">
+                    <div class="flex gap-3 items-start flex-col sm:flex-row">
                         <textarea name="nuevo_comentario" rows="3" placeholder="Escribe tu comentario aquí..."
                             class="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm transition-all resize-y py-3 px-4"
                             required></textarea>
 
-                        <button type="submit"
-                            class="ripple-effect inline-flex items-center px-4 py-2 border border-transparent text-sm font-bold rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all self-end">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
-                            </svg>
-                        </button>
+                        <!-- Botones de Acción -->
+                        <div class="flex flex-row sm:flex-col gap-2 self-end sm:self-start">
+                            <!-- Input File Oculto + Label Estilizado -->
+                            <div class="relative items-center">
+                                <label for="file_upload"
+                                    class="cursor-pointer inline-flex items-center p-2 border border-gray-300 rounded-md text-gray-500 bg-white hover:bg-gray-50 shadow-sm transition-all"
+                                    title="Adjuntar archivo">
+                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13">
+                                        </path>
+                                    </svg>
+                                </label>
+                                <input id="file_upload" name="file_upload" type="file" class="hidden"
+                                    onchange="document.getElementById('file-upload-text').textContent = this.files[0] ? this.files[0].name : ''">
+                            </div>
+
+                            <button type="submit"
+                                class="ripple-effect inline-flex items-center px-4 py-2 border border-transparent text-sm font-bold rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
+                    <!-- Nombre del archivo seleccionado -->
+                    <div id="file-upload-text" class="text-xs text-blue-600 font-medium mt-1 ml-1 truncate max-w-xs">
+                    </div>
+
                     <p class="text-xs text-gray-500 mt-2 italic">
                         💡 Escribe tu comentario y presiona el botón para enviar.
                     </p>
