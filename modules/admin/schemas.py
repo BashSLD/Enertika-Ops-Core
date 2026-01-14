@@ -15,6 +15,12 @@ class ConfiguracionGlobalUpdate(AdminBaseSchema):
     dias_sla_default: int = Field(..., ge=1, le=30)
     # Recibimos una lista de enteros (ej: [5, 6] para Sábado y Domingo)
     dias_fin_semana: List[int] = Field(default_factory=list)
+    
+    # 2. Configuración SharePoint y Adjuntos (Robustez sin Hardcoding)
+    sharepoint_site_id: Optional[str] = Field(None, description="ID del Sitio SharePoint")
+    sharepoint_drive_id: Optional[str] = Field(None, description="ID del Drive (Librería)")
+    sharepoint_base_folder: Optional[str] = Field(None, description="Carpeta Raíz (Opcional)")
+    max_upload_size_mb: int = Field(500, ge=10, le=5000, description="Límite en MB (10MB - 5GB)")
 
     @field_validator('dias_fin_semana')
     @classmethod
@@ -35,6 +41,12 @@ class TecnologiaCreate(AdminBaseSchema):
 
 class TecnologiaUpdate(TecnologiaCreate):
     id: int
+
+# --- Orígenes de Adjuntos (Nuevo Catalog) ---
+class OrigenAdjuntoCreate(AdminBaseSchema):
+    slug: str = Field(..., min_length=3, max_length=50, pattern=r"^[a-z0-9_]+$", description="Identificador único (slug)")
+    descripcion: str = Field(..., min_length=5, max_length=200)
+    activo: bool = True
 
 # --- Tipos de Solicitud ---
 class TipoSolicitudCreate(AdminBaseSchema):

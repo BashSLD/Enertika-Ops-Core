@@ -235,7 +235,8 @@ async def notificar_oportunidad(
     service: ComercialService = Depends(get_comercial_service),
     ms_auth = Depends(get_ms_auth),
     conn = Depends(get_db_connection),
-    email_handler = Depends(get_email_handler)  # NUEVO: Inyectar EmailHandler
+    email_handler = Depends(get_email_handler),  # NUEVO: Inyectar EmailHandler
+    context = Depends(get_current_user_context)
 ):
     """Envía el correo de notificación usando el token de la sesión."""
     

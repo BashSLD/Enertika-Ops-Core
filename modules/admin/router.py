@@ -239,11 +239,19 @@ async def get_trigger_options(
         # Renderizar como Input Text libre
         return templates.TemplateResponse("admin/partials/dynamic_trigger_input.html", {"request": request})
 
+from . import endpoints_correos_notif
+from .schemas import ConfiguracionGlobalUpdate, TecnologiaCreate, OrigenAdjuntoCreate
+
 @router.post("/config/global")
 async def update_global_config_endpoint(
     request: Request,
     hora_corte_l_v: str = Form(...),
     dias_sla_default: int = Form(...),
+    # SharePoint Params (Optional but processed)
+    sharepoint_site_id: str = Form(""),
+    sharepoint_drive_id: str = Form(""),
+    sharepoint_base_folder: str = Form(""),
+    max_upload_size_mb: int = Form(500),
     service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
@@ -286,7 +294,11 @@ async def update_global_config_endpoint(
         datos = ConfiguracionGlobalUpdate(
             hora_corte_l_v=hora_corte_l_v,
             dias_sla_default=dias_sla_default,
-            dias_fin_semana=dias_fin_semana
+            dias_fin_semana=dias_fin_semana,
+            sharepoint_site_id=sharepoint_site_id,
+            sharepoint_drive_id=sharepoint_drive_id,
+            sharepoint_base_folder=sharepoint_base_folder,
+            max_upload_size_mb=max_upload_size_mb
         )
     except ValueError as e:
         return templates.TemplateResponse("admin/partials/messages/error.html", {
@@ -302,7 +314,7 @@ async def update_global_config_endpoint(
     return templates.TemplateResponse("admin/partials/messages/success.html", {
         "request": request,
         "title": "Configuración Actualizada",
-        "message": f"Las reglas de negocio se han aplicado correctamente. SLA: {dias_sla_default} días, Hora corte: {hora_corte_l_v}"
+        "message": f"Reglas de negocio y parámetros de SharePoint actualizados correctamente."
     })
 
 # --- USER MANAGEMENT ENDPOINTS ---
@@ -498,6 +510,40 @@ async def create_estatus(
             "request": request,
             "title": "Estatus Creado",
             "message": f"El estatus '{nombre}' fue creado exitosamente."
+        })
+    except Exception as e:
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Error",
+            "message": f"No se pudo crear: {str(e)}"
+        }, status_code=400)
+
+
+
+@router.post("/catalogs/origenes")
+async def create_origen_adjunto(
+    request: Request,
+    slug: str = Form(...),
+    descripcion: str = Form(""),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_module_access("admin")
+):
+    """Crea un nuevo origen de adjunto (Catalog)."""
+    if context.get("role") not in ["ADMIN", "MANAGER"]:
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Acceso Denegado",
+            "message": "No tienes permisos para modificar catálogos."
+        }, status_code=403)
+    
+    try:
+        await service.create_origen_adjunto(conn, slug, descripcion)
+        return templates.TemplateResponse("admin/partials/messages/success.html", {
+            "request": request,
+            "title": "Origen Creado",
+            "message": f"El origen '{slug}' fue creado exitosamente."
         })
     except Exception as e:
         return templates.TemplateResponse("admin/partials/messages/error.html", {

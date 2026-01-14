@@ -5,9 +5,10 @@ Endpoints compartidos por todos los módulos para gestión de comentarios
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException, File, UploadFile
 from fastapi.templating import Jinja2Templates
-from uuid import UUID
 import logging
-from typing import Optional
+import json
+from uuid import UUID
+from typing import Optional, List
 
 # Core imports
 from core.security import get_current_user_context, get_valid_graph_token
@@ -98,7 +99,7 @@ async def create_comentario_workflow(
     id_oportunidad: UUID = Form(...),
     nuevo_comentario: str = Form(...),
     module: str = Form(...),  # Slug del módulo
-    file_upload: Optional[UploadFile] = File(None), # Nuevo: Archivo opcional
+    file_uploads: List[UploadFile] = File(None), # Nuevo: Lista de archivos
     workflow_service = Depends(get_workflow_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context)
@@ -123,9 +124,9 @@ async def create_comentario_workflow(
             detail=f"No tienes permisos para comentar en el módulo {module}"
         )
     
-    # Obtener token para SharePoint (Si hay archivo)
+    # Obtener token para SharePoint (Si hay archivos)
     sharepoint_token = None
-    if file_upload:
+    if file_uploads:
         sharepoint_token = await get_valid_graph_token(request)
         if not sharepoint_token:
             # Si expira, podríamos fallar o subir sin token (que fallará en service)
@@ -133,7 +134,7 @@ async def create_comentario_workflow(
             # Dejamos que el servicio maneje el error o falle
     
     # Crear comentario usando WorkflowService
-    if nuevo_comentario.strip() or file_upload:
+    if nuevo_comentario.strip() or file_uploads:
         await workflow_service.add_comentario(
             conn, 
             context, 
@@ -141,7 +142,7 @@ async def create_comentario_workflow(
             nuevo_comentario.strip(),
             departamento_slug=MODULE_TO_DEPT.get(module),
             modulo_origen=module,
-            file_upload=file_upload,
+            file_uploads=file_uploads,
             sharepoint_token=sharepoint_token
         )
         logger.info(f"[CREATE COMENTARIO] Comentario creado exitosamente")
@@ -151,7 +152,10 @@ async def create_comentario_workflow(
     # Retornar lista actualizada de comentarios
     comentarios = await workflow_service.get_historial(conn, id_oportunidad)
     
-    return templates.TemplateResponse("shared/partials/comentarios_list.html", {
+    # Retornar lista actualizada de comentarios
+    comentarios = await workflow_service.get_historial(conn, id_oportunidad)
+    
+    response = templates.TemplateResponse("shared/partials/comentarios_list.html", {
         "request": request,
         "comentarios": comentarios,
         "mode": None,
@@ -159,3 +163,14 @@ async def create_comentario_workflow(
         "total_extra": 0,
         "id_oportunidad": id_oportunidad
     })
+    
+    # Trigger Toast (suponiendo que usas toast.js normalizado en tu frontend)
+    response.headers["HX-Trigger"] = json.dumps({
+        "showMessage": {
+            "type": "success",
+            "message": "Comentario enviado exitosamente"
+        }
+    })
+    
+    return response
+

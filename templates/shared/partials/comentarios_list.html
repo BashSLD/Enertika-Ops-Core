@@ -4,8 +4,8 @@
 {% if comentarios %}
 <div class="space-y-3">
     {% for comentario in comentarios %}
-    <div class="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-sm transition animate-fade-in">
-        <div class="flex justify-between items-start mb-1">
+    <div class="bg-white border border-gray-200 rounded-lg p-2.5 hover:shadow-sm transition animate-fade-in">
+        <div class="flex justify-between items-start mb-0.5">
             <span class="text-xs font-bold text-[#123456]">
                 {{ comentario.usuario_nombre or comentario.usuario_email }}
             </span>
@@ -31,19 +31,21 @@
             {{ comentario.comentario }}
         </p>
 
-        {# Adjunto #}
-        {% if comentario.adjunto_url %}
-        <div class="mt-2 pt-2 border-t border-gray-100">
-            <a href="{{ comentario.adjunto_url }}" target="_blank"
-                class="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium group transition-colors p-1 -ml-1 rounded hover:bg-blue-50">
+        {# Adjuntos #}
+        {% if comentario.adjuntos %}
+        <div class="mt-2 pt-1 border-t border-gray-100 flex flex-wrap gap-2">
+            {% for adjunto in comentario.adjuntos %}
+            <a href="{{ adjunto.url }}" target="_blank"
+                class="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium group transition-colors py-1 px-2 rounded bg-blue-50 hover:bg-blue-100 border border-blue-100">
                 <svg class="w-3.5 h-3.5 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor"
                     viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13">
                     </path>
                 </svg>
-                <span class="truncate max-w-[200px]">{{ comentario.adjunto_nombre or "Ver Documento Adjunto" }}</span>
+                <span class="truncate max-w-[200px]">{{ adjunto.nombre }}</span>
             </a>
+            {% endfor %}
         </div>
         {% endif %}
     </div>
@@ -92,8 +94,8 @@
     {% if comentarios %}
     <div class="space-y-3 max-h-96 overflow-y-auto custom-scrollbar">
         {% for comentario in comentarios %}
-        <div class="bg-white border border-gray-200 rounded-lg p-3 hover:shadow-sm transition animate-fade-in">
-            <div class="flex justify-between items-start mb-1">
+        <div class="bg-white border border-gray-200 rounded-lg p-2.5 hover:shadow-sm transition animate-fade-in">
+            <div class="flex justify-between items-start mb-0.5">
                 <span class="text-xs font-bold text-[#123456]">
                     {{ comentario.usuario_nombre or comentario.usuario_email }}
                 </span>
@@ -115,24 +117,23 @@
             </div>
             {% endif %}
 
-            <p class="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">
-                {{ comentario.comentario }}
-            </p>
+            <p class="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{{ comentario.comentario }}</p>
 
-            {# Adjunto #}
-            {% if comentario.adjunto_url %}
-            <div class="mt-2 pt-2 border-t border-gray-100">
-                <a href="{{ comentario.adjunto_url }}" target="_blank"
-                    class="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium group transition-colors p-1 -ml-1 rounded hover:bg-blue-50">
+            {# Adjuntos (Lista) #}
+            {% if comentario.adjuntos %}
+            <div class="mt-2 pt-1 border-t border-gray-100 flex flex-wrap gap-2">
+                {% for adjunto in comentario.adjuntos %}
+                <a href="{{ adjunto.url }}" target="_blank"
+                    class="inline-flex items-center gap-1.5 text-xs text-blue-600 hover:text-blue-800 font-medium group transition-colors py-1 px-2 rounded bg-blue-50 hover:bg-blue-100 border border-blue-100">
                     <svg class="w-3.5 h-3.5 group-hover:scale-110 transition-transform" fill="none"
                         stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13">
                         </path>
                     </svg>
-                    <span class="truncate max-w-[250px]">{{ comentario.adjunto_nombre or "Ver Documento Adjunto"
-                        }}</span>
+                    <span class="truncate max-w-[200px]">{{ adjunto.nombre }}</span>
                 </a>
+                {% endfor %}
             </div>
             {% endif %}
         </div>

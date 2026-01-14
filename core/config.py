@@ -30,6 +30,9 @@ class Settings(BaseSettings):
     AUTHORITY_URL: str = f"https://login.microsoftonline.com/{GRAPH_TENANT_ID}"
     GRAPH_SCOPES: str = "email User.Read Mail.Send Mail.ReadWrite Files.ReadWrite.All Sites.Read.All"
     
+    SHAREPOINT_SITE_ID: str = os.getenv("SHAREPOINT_SITE_ID", "")
+    SHAREPOINT_DRIVE_ID: str = os.getenv("SHAREPOINT_DRIVE_ID", "")
+
     # --- Configuración de Permisos (RBAC) ---
     # Departamentos que tienen acceso GLOBAL por defecto
     MANAGER_DEPARTMENTS: list = ["Dirección", "Gerencia", "Ventas", "Gerencia General"]

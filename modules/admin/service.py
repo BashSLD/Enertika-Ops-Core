@@ -133,11 +133,15 @@ class AdminService:
         estatus = await conn.fetch(
             "SELECT id, nombre, descripcion, color_hex, activo FROM tb_cat_estatus_global WHERE activo = true ORDER BY nombre"
         )
+        origenes = await conn.fetch(
+            "SELECT id, slug, descripcion, activo FROM tb_cat_origenes_adjuntos WHERE activo = true ORDER BY slug"
+        )
         
         return {
             "tecnologias": [dict(t) for t in tecnologias],
             "tipos_solicitud": [dict(t) for t in tipos_solicitud],
-            "estatus": [dict(e) for e in estatus]
+            "estatus": [dict(e) for e in estatus],
+            "origenes_adjuntos": [dict(o) for o in origenes]
         }
     
     # --- GESTIÓN DE CONFIGURACIÓN GLOBAL ---
@@ -148,7 +152,7 @@ class AdminService:
         La tabla almacena todo como strings (key-value), aquí se transforman a tipos Python.
         
         Returns:
-            dict: Configuración tipificada con hora_corte_l_v (str), dias_sla_default (int), dias_fin_semana (list)
+            dict: Configuración tipificada
         """
         rows = await conn.fetch("SELECT clave, valor FROM tb_configuracion_global")
         config_dict = {row['clave']: row['valor'] for row in rows}
@@ -157,7 +161,12 @@ class AdminService:
         return {
             "hora_corte_l_v": config_dict.get("HORA_CORTE_L_V", "18:00"),
             "dias_sla_default": int(config_dict.get("DIAS_SLA_DEFAULT", "7")),
-            "dias_fin_semana": json.loads(config_dict.get("DIAS_FIN_SEMANA", "[5, 6]"))
+            "dias_fin_semana": json.loads(config_dict.get("DIAS_FIN_SEMANA", "[5, 6]")),
+            # SharePoint Config
+            "sharepoint_site_id": config_dict.get("SHAREPOINT_SITE_ID", ""),
+            "sharepoint_drive_id": config_dict.get("SHAREPOINT_DRIVE_ID", ""),
+            "sharepoint_base_folder": config_dict.get("SHAREPOINT_BASE_FOLDER", ""),
+            "max_upload_size_mb": int(config_dict.get("MAX_UPLOAD_SIZE_MB", "500"))
         }
 
     async def update_global_config(self, conn, datos: ConfiguracionGlobalUpdate) -> None:
@@ -172,7 +181,12 @@ class AdminService:
         updates = [
             ("HORA_CORTE_L_V", datos.hora_corte_l_v),
             ("DIAS_SLA_DEFAULT", str(datos.dias_sla_default)),
-            ("DIAS_FIN_SEMANA", json.dumps(datos.dias_fin_semana))
+            ("DIAS_FIN_SEMANA", json.dumps(datos.dias_fin_semana)),
+            # SharePoint Config
+            ("SHAREPOINT_SITE_ID", datos.sharepoint_site_id or ""),
+            ("SHAREPOINT_DRIVE_ID", datos.sharepoint_drive_id or ""),
+            ("SHAREPOINT_BASE_FOLDER", datos.sharepoint_base_folder or ""),
+            ("MAX_UPLOAD_SIZE_MB", str(datos.max_upload_size_mb))
         ]
         
         for clave, valor in updates:
@@ -182,7 +196,7 @@ class AdminService:
                    ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor""",
                 clave, valor
             )
-        logger.info(f"Configuración global actualizada: SLA={datos.dias_sla_default}, Hora corte={datos.hora_corte_l_v}")
+        logger.info(f"Configuración global actualizada (incluyendo SharePoint): SLA={datos.dias_sla_default}")
     
     # --- LÓGICA PARA REGLAS DE CORREO DINÁMICAS ---
 
@@ -562,6 +576,27 @@ class AdminService:
         )
         logger.info(f"Nuevo estatus creado: {nombre} (color: {color})")
     
+    # --- Orígenes de Adjuntos ---
+
+    async def create_origen_adjunto(self, conn, slug: str, descripcion: str) -> None:
+        """Crea un nuevo origen de adjunto en el catálogo."""
+        slug_clean = slug.strip().lower()
+        
+        # Validar duplicados
+        exists = await conn.fetchval(
+            "SELECT 1 FROM tb_cat_origenes_adjuntos WHERE slug = $1", 
+            slug_clean
+        )
+        if exists:
+            # Si existe pero está inactivo, lo reactivamos? Mejor error por ahora
+            raise ValueError(f"El origen '{slug_clean}' ya existe.")
+            
+        await conn.execute(
+            "INSERT INTO tb_cat_origenes_adjuntos (slug, descripcion, activo) VALUES ($1, $2, true)",
+            slug_clean, descripcion
+        )
+        logger.info(f"Nuevo origen de adjunto creado: {slug_clean}")
+
     async def toggle_catalogo_status(self, conn, table: str, item_id: int, current_status: bool) -> None:
         """
         Switch genérico para Soft Delete/Activate de catálogos.
@@ -577,11 +612,23 @@ class AdminService:
             ValueError: Si la tabla no está en la whitelist de tablas permitidas
         """
         # Validación de seguridad para evitar inyección SQL en nombre de tabla
-        valid_tables = ["tb_cat_tecnologias", "tb_cat_tipos_solicitud", "tb_cat_estatus_global"]
+        valid_tables = [
+            "tb_cat_tecnologias", 
+            "tb_cat_tipos_solicitud", 
+            "tb_cat_estatus_global",
+            "tb_cat_origenes_adjuntos" # New whitelist item
+        ]
         if table not in valid_tables:
             raise ValueError(f"Tabla no permitida: {table}")
             
         new_status = not current_status
+        # Note: tb_cat_origenes_adjuntos uses integer ID too? Schema says yes (SERIAL PRIMARY KEY)
+        # Verify schema 09-sharepoint_schema.sql: 
+        # CREATE TABLE IF NOT EXISTS tb_cat_origenes_adjuntos (
+        #    id SERIAL PRIMARY KEY, ...
+        # )
+        # So item_id: int is correct.
+        
         await conn.execute(
             f"UPDATE {table} SET activo = $1 WHERE id = $2", 
             new_status, item_id

@@ -346,9 +346,9 @@ class SimulacionService:
 
             # 7. Chart: Tendencia (Últimos 30 días) - Simplificado por fecha de creación
             rows_trend = await conn.fetch("""
-                SELECT to_char(creado_en, 'YYYY-MM-DD') as fecha, COUNT(*) as total
+                SELECT to_char(fecha_solicitud, 'YYYY-MM-DD') as fecha, COUNT(*) as total
                 FROM tb_oportunidades
-                WHERE creado_en >= NOW() - INTERVAL '30 days' AND email_enviado = true
+                WHERE fecha_solicitud >= NOW() - INTERVAL '30 days' AND email_enviado = true
                 GROUP BY 1
                 ORDER BY 1 ASC
             """)

@@ -38,32 +38,62 @@ class SharePointService:
             "Content-Type": "application/json"
         }
 
+    async def _resolve_config(self, conn) -> Dict[str, str]:
+        """
+        Resuelve configuración priorizando BD > Settings > Defaults.
+        """
+        config = {
+            "site_id": getattr(settings, 'SHAREPOINT_SITE_ID', None),
+            "drive_id": getattr(settings, 'SHAREPOINT_DRIVE_ID', None)
+        }
+        
+        # Intentar leer de BD si hay conexión
+        if conn:
+            try:
+                db_config = await conn.fetch("""
+                    SELECT clave, valor FROM tb_configuracion_global 
+                    WHERE clave IN ('SHAREPOINT_SITE_ID', 'SHAREPOINT_DRIVE_ID')
+                """)
+                for row in db_config:
+                    if row['valor'] and row['valor'].strip():
+                        if row['clave'] == 'SHAREPOINT_SITE_ID':
+                            config['site_id'] = row['valor'].strip()
+                        elif row['clave'] == 'SHAREPOINT_DRIVE_ID':
+                            config['drive_id'] = row['valor'].strip()
+            except Exception as e:
+                logger.warning(f"No se pudo leer configuración de BD: {e}")
+                
+        return config
+
     async def upload_file(
         self, 
+        conn,
         file: UploadFile, 
         folder_path: str,
         metadata: Optional[dict] = None
     ) -> Dict:
         """
         Sube un archivo a SharePoint en la ruta especificada.
-        Maneja archivos pequeños (<4MB) y grandes (Upload Session) automáticamente.
         
         Args:
+            conn: Conexión a BD para leer configuración
             file: Archivo UploadFile de FastAPI
-            folder_path: Ruta relativa en el Drive (ej: "Proyectos/OP-123/Comentarios")
-            metadata: Metadatos opcionales (no usado en implementación básica Graph)
-            
-        Returns:
-            Dict con información del archivo creado (id, webUrl, name, size)
+            folder_path: Ruta relativa
+            metadata: Metadata extra
         """
         if not self.access_token:
             raise ValueError("Requiere token de acceso")
 
-        # 1. Preparar archivo
+        # Resolving Config
+        config = await self._resolve_config(conn)
+        site_id = config.get("site_id")
+        drive_id = config.get("drive_id")
+
+        # 1. Preparar archivo (Bypass async wrapper issue)
         filename = file.filename
         file.file.seek(0, 2)
         file_size = file.file.tell()
-        await file.seek(0)
+        file.file.seek(0)
         
         # Sanitizar ruta y nombre
         safe_filename = self._sanitize_filename(filename)
@@ -71,24 +101,19 @@ class SharePointService:
         folder_path = folder_path.strip("/")
         encoded_path = urllib.parse.quote(f"{folder_path}/{safe_filename}")
         
-        # Determinar Endpoint (Usamos Drive por defecto)
-        # Opción A: Usar /drives/{drive-id}/root:/{path}:/content
-        # Opción B: Usar /sites/{site-id}/drive/root:/{path}:/content
-        
-        # Usamos /me/drive por defecto si no hay configuración de sitio corporativo
-        # Para uso corporativo, se debe configurar SITE_ID o DRIVE_ID
-        if self.drive_id:
-            base_endpoint = f"/drives/{self.drive_id}/root:/{encoded_path}"
-        elif self.site_id:
-            base_endpoint = f"/sites/{self.site_id}/drive/root:/{encoded_path}"
+        # Determinar Endpoint
+        if drive_id:
+            base_endpoint = f"/drives/{drive_id}/root:/{encoded_path}"
+        elif site_id:
+            base_endpoint = f"/sites/{site_id}/drive/root:/{encoded_path}"
         else:
-            # Fallback a la unidad personal del usuario (OneDrive for Business)
+            # Fallback a la unidad personal del usuario
             base_endpoint = f"/me/drive/root:/{encoded_path}"
             logger.warning("No se configuró SITE_ID ni DRIVE_ID. Subiendo a OneDrive personal del usuario.")
 
         logger.info(f"Subiendo archivo {safe_filename} ({file_size} bytes) a {base_endpoint}")
-
-        # 2. Estrategia de Upload según tamaño
+        
+        # 2. Upload Strategy
         SESSION_THRESHOLD = 4 * 1024 * 1024 # 4 MB
         
         if file_size < SESSION_THRESHOLD:
@@ -100,16 +125,15 @@ class SharePointService:
         """Carga directa para archivos pequeños."""
         url = f"{self.BASE_URL}{endpoint}:/content"
         
-        # Leer contenido
+        # Leer contenido (FastAPI UploadFile read is async safe)
         content = await file.read()
         await file.seek(0) # Reset
         
-        async with httpx.AsyncClient() as client:
+        async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.put(
                 url, 
-                headers=self._get_headers(), # Content-Type es JSON, pero para put content se suele inferir u omitir
-                content=content,
-                timeout=60.0
+                headers=self._get_headers(), 
+                content=content
             )
             
             if resp.status_code not in (200, 201):
@@ -121,14 +145,13 @@ class SharePointService:
                 "id": data.get("id"),
                 "webUrl": data.get("webUrl"),
                 "name": data.get("name"),
-                "size": data.get("size")
+                "size": data.get("size"),
+                "parentReference": data.get("parentReference", {}) 
             }
 
     async def _upload_large_file(self, endpoint: str, file: UploadFile, size: int) -> dict:
         """Carga con sesión para archivos grandes."""
         # 1. Crear sesión de upload
-        # Endpoint: .../createUploadSession
-        # Nota: El endpoint base tiene ":/content", lo quitamos para la acción
         action_url = f"{self.BASE_URL}{endpoint}:/createUploadSession"
         
         session_payload = {
@@ -138,7 +161,8 @@ class SharePointService:
             }
         }
         
-        async with httpx.AsyncClient() as client:
+        # Timeout 60s para creación de sesión
+        async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.post(
                 action_url,
                 headers=self._get_headers(),
@@ -152,54 +176,68 @@ class SharePointService:
             upload_url = resp.json().get("uploadUrl")
             if not upload_url:
                 raise Exception("No se obtuvo uploadUrl de Graph API")
-                
+            
             # 2. Subir por chunks
             # Graph recomienda 320 KiB * N. Usaremos 320 KB * 10 = ~3.2 MB chunks
             CHUNK_SIZE = 327680 * 10 
             await file.seek(0)
             
             bytes_sent = 0
-            while bytes_sent < size:
-                chunk = await file.read(CHUNK_SIZE)
-                chunk_len = len(chunk)
-                if not chunk:
-                    break
-                    
-                # Rango de bytes: bytes start-end/total
-                range_header = f"bytes {bytes_sent}-{bytes_sent + chunk_len - 1}/{size}"
-                
-                # Headers específicos para el chunk (no auth, va en URL)
-                chunk_headers = {
-                    "Content-Length": str(chunk_len),
-                    "Content-Range": range_header
-                }
-                
-                put_resp = await client.put(
-                    upload_url,
-                    headers=chunk_headers,
-                    content=chunk
-                )
-                
-                if put_resp.status_code not in (200, 201, 202):
-                     logger.error(f"Error subiendo chunk {range_header}: {put_resp.text}")
-                     raise Exception(f"Fallo en chunk upload: {put_resp.status_code}")
-                
-                bytes_sent += chunk_len
-                
-                # Si terminó (201/200), retornar resultado
-                if put_resp.status_code in (200, 201):
-                    data = put_resp.json()
-                    await file.seek(0) # Reset porsiacaso
-                    return {
-                        "id": data.get("id"),
-                        "webUrl": data.get("webUrl"),
-                        "name": data.get("name"),
-                        "size": data.get("size")
-                    }
+            logger.info(f"Iniciando subida por chunks. Total: {size} bytes. Chunk size: {CHUNK_SIZE}")
             
+            # Usar cliente con timeout largo para los chunks (30s connect, 300s read/write)
+            timeout = httpx.Timeout(300.0, connect=30.0)
+            
+            async with httpx.AsyncClient(timeout=timeout) as chunk_client:
+                while bytes_sent < size:
+                    chunk = await file.read(CHUNK_SIZE)
+                    chunk_len = len(chunk)
+                    if not chunk:
+                        break
+                        
+                    # Rango de bytes: bytes start-end/total
+                    range_header = f"bytes {bytes_sent}-{bytes_sent + chunk_len - 1}/{size}"
+                    
+                    # Headers específicos para el chunk (no auth, va en URL)
+                    chunk_headers = {
+                        "Content-Length": str(chunk_len),
+                        "Content-Range": range_header
+                    }
+                    
+                    try:
+                        put_resp = await chunk_client.put(
+                            upload_url,
+                            headers=chunk_headers,
+                            content=chunk
+                        )
+                        
+                        if put_resp.status_code not in (200, 201, 202):
+                            logger.error(f"Error subiendo chunk {range_header}: {put_resp.text}")
+                            raise Exception(f"Fallo en chunk upload: {put_resp.status_code}")
+                        
+                        bytes_sent += chunk_len
+                        # logger.info(f"Chunk subido: {range_header}") # Verbose
+                        
+                        # Si terminó (201/200), retornar resultado
+                        if put_resp.status_code in (200, 201):
+                            data = put_resp.json()
+                            await file.seek(0) # Reset porsiacaso
+                            logger.info(f"Subida completada exitosamente: {data.get('name')}")
+                            return {
+                                "id": data.get("id"),
+                                "webUrl": data.get("webUrl"),
+                                "name": data.get("name"),
+                                "size": data.get("size"),
+                                "parentReference": data.get("parentReference", {}) 
+                            }
+                            
+                    except Exception as e:
+                        logger.error(f"Excepción subiendo chunk {range_header}: {e}")
+                        raise
+
             # Si llegamos aquí sin retorno final
             raise Exception("Upload finalizado pero no se recibió confirmación 200/201")
-
+    
     @staticmethod
     def _sanitize_filename(filename: str) -> str:
         """Limpia caracteres inválidos para SharePoint."""

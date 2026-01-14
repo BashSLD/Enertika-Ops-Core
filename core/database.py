@@ -20,7 +20,7 @@ async def connect_to_db():
             _connection_pool = await asyncpg.create_pool(
                 settings.DB_URL_ASYNC,
                 min_size=1,
-                max_size=3, # Reducido para evitar error de Supabase
+                max_size=10, # Aumentado para evitar starvation
                 timeout=30 # segundos
             )
             logger.info("Pool de conexiones a Supabase creado exitosamente.")

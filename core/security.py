@@ -144,9 +144,12 @@ async def get_current_user_context(
         "user_db_id": user_db_id
     }
 
+import asyncio # Added for non-blocking execution
+
 async def get_valid_graph_token(request: Request):
     """
     Versión Híbrida: Lee tokens desde BD para evitar cookies gigantes.
+    Usa asyncio.to_thread para no bloquear el event loop durante llamadas a MSAL.
     """
     # 1. Obtener email de la cookie ligera
     user_email = request.session.get("user_email")
@@ -180,7 +183,8 @@ async def get_valid_graph_token(request: Request):
                 if not refresh_token: return None
                 
                 ms_auth = get_ms_auth()
-                new_data = ms_auth.refresh_access_token(refresh_token)
+                # ZOMBIE FIX: Ejecutar renovación en thread separado para no bloquear Loop
+                new_data = await asyncio.to_thread(ms_auth.refresh_access_token, refresh_token)
                 
                 if new_data and "access_token" in new_data:
                     # Guardar nuevos tokens en BD (misma conexión)

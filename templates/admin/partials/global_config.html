@@ -52,6 +52,61 @@
                 </div>
             </div>
 
+            <!-- Configuración SharePoint (Nuevo) -->
+            <div class="mb-6 bg-blue-50 p-4 rounded-lg border border-blue-200 relative">
+                <div class="flex justify-between items-center mb-3">
+                    <h4 class="font-bold text-blue-800 flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12">
+                            </path>
+                        </svg>
+                        Integración SharePoint (Microsoft Graph)
+                    </h4>
+                    <button type="button" onclick="document.getElementById('sp-help-modal').classList.remove('hidden')"
+                        class="text-blue-600 hover:text-blue-800 text-xs font-bold flex items-center gap-1 bg-white px-2 py-1 rounded shadow-sm hover:shadow">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                        </svg>
+                        ¿Cómo obtener IDs?
+                    </button>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Site ID</label>
+                        <input type="text" name="sharepoint_site_id" value="{{ config_global.sharepoint_site_id }}"
+                            placeholder="hostname.sharepoint.com,UUID,UUID"
+                            class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Drive ID (Document Layout)</label>
+                        <input type="text" name="sharepoint_drive_id" value="{{ config_global.sharepoint_drive_id }}"
+                            placeholder="b!..."
+                            class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Carpeta Base (Opcional)</label>
+                        <input type="text" name="sharepoint_base_folder"
+                            value="{{ config_global.sharepoint_base_folder }}"
+                            placeholder="Ej: Sistema_Enertika/Proyectos (Dejar vacío para raíz)"
+                            class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                        <p class="text-xs text-gray-500 mt-1">Si se define, todos los adjuntos se guardarán dentro de
+                            esta carpeta.</p>
+                    </div>
+                    <div class="md:col-span-2">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Límite de Subida (MB)</label>
+                        <div class="flex items-center gap-2">
+                            <input type="number" name="max_upload_size_mb"
+                                value="{{ config_global.max_upload_size_mb }}" min="10" max="5000"
+                                class="w-32 rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500">
+                            <span class="text-xs text-gray-500">Recomendado: 500 MB (Máx soportado por red: 5 GB)</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="flex justify-between items-center">
                 <div id="config-msg"></div>
                 <button type="submit"
@@ -60,5 +115,53 @@
                 </button>
             </div>
         </form>
+    </div>
+</div>
+
+<!-- SharePoint Help Modal -->
+<div id="sp-help-modal"
+    class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
+    <div class="relative p-5 border w-[600px] shadow-lg rounded-lg bg-white">
+        <div class="flex justify-between items-center mb-4">
+            <h3 class="text-lg font-bold text-gray-900">Guía: Obtener IDs de SharePoint</h3>
+            <button type="button" onclick="document.getElementById('sp-help-modal').classList.add('hidden')"
+                class="text-gray-400 hover:text-gray-500">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                    </path>
+                </svg>
+            </button>
+        </div>
+
+        <div class="mt-2 text-sm text-gray-600 space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+            <p>Sigue estos pasos en <strong>Graph Explorer</strong>:</p>
+
+            <div class="bg-gray-50 p-3 rounded border border-gray-200">
+                <p class="font-bold text-blue-700">1. Obtener Site ID</p>
+                <p class="mb-1">GET <code>https://graph.microsoft.com/v1.0/sites/{hostname}:/sites/{sitename}</code></p>
+                <p class="text-xs text-gray-500 italic">Ej: sites/miempresa.sharepoint.com:/sites/Comercial</p>
+                <p class="mt-1">Copia el valor del campo <strong>"id"</strong>.</p>
+            </div>
+
+            <div class="bg-gray-50 p-3 rounded border border-gray-200">
+                <p class="font-bold text-blue-700">2. Obtener Drive ID (Document Library)</p>
+                <p class="mb-1">GET <code>https://graph.microsoft.com/v1.0/sites/{SITE_ID}/drives</code></p>
+                <p class="mt-1">Busca el objeto con <code>"name": "Documents"</code> (o tu librería).</p>
+                <p class="mt-1">Copia el valor del campo <strong>"id"</strong> (empieza con 'b!').</p>
+            </div>
+
+            <div class="bg-yellow-50 p-3 rounded border border-yellow-200">
+                <p class="font-bold text-yellow-800">Carpeta Base (Opcional)</p>
+                <p>Define una ruta relativa como <code>Sistema/Proyectos</code>.</p>
+                <p>Si la dejas vacía, se crearán las carpetas en la raíz.</p>
+            </div>
+        </div>
+
+        <div class="mt-4 flex justify-end">
+            <button type="button" onclick="document.getElementById('sp-help-modal').classList.add('hidden')"
+                class="bg-blue-600 text-white px-4 py-2 rounded text-base font-medium hover:bg-blue-700">
+                Entendido
+            </button>
+        </div>
     </div>
 </div>

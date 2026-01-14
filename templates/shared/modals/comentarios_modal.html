@@ -37,9 +37,7 @@
             <!-- Formulario de Nuevo Comentario (Solo si tiene permisos) -->
             {% if can_comment %}
             <form hx-post="/workflow/comentarios" hx-target="#comentarios-historial" hx-swap="innerHTML"
-                hx-encoding="multipart/form-data"
-                hx-on::after-request="this.reset(); document.getElementById('file-upload-text').textContent = '';"
-                class="mb-6">
+                hx-encoding="multipart/form-data" hx-on::after-request="this.reset(); resetUploads();" class="mb-6">
 
                 <!-- Hidden fields para context -->
                 <input type="hidden" name="id_oportunidad" value="{{ id_oportunidad }}">
@@ -56,19 +54,20 @@
 
                         <!-- Botones de Acción -->
                         <div class="flex flex-row sm:flex-col gap-2 self-end sm:self-start">
-                            <!-- Input File Oculto + Label Estilizado -->
+                            <!-- Input File Oculto (Multiple) -->
                             <div class="relative items-center">
-                                <label for="file_upload"
-                                    class="cursor-pointer inline-flex items-center p-2 border border-gray-300 rounded-md text-gray-500 bg-white hover:bg-gray-50 shadow-sm transition-all"
-                                    title="Adjuntar archivo">
+                                <label for="file_uploads"
+                                    class="cursor-pointer inline-flex items-center p-2 border border-blue-300 rounded-md text-blue-600 bg-white hover:bg-blue-50 shadow-sm transition-all"
+                                    title="Adjuntar archivos">
                                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                             d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13">
                                         </path>
                                     </svg>
                                 </label>
-                                <input id="file_upload" name="file_upload" type="file" class="hidden"
-                                    onchange="document.getElementById('file-upload-text').textContent = this.files[0] ? this.files[0].name : ''">
+                                <!-- Nombre cambiado a file_uploads (en el form se enviará como lista) -->
+                                <input id="file_uploads" name="file_uploads" type="file" class="hidden" multiple
+                                    onchange="handleFileSelect(this)">
                             </div>
 
                             <button type="submit"
@@ -80,14 +79,100 @@
                             </button>
                         </div>
                     </div>
-                    <!-- Nombre del archivo seleccionado -->
-                    <div id="file-upload-text" class="text-xs text-blue-600 font-medium mt-1 ml-1 truncate max-w-xs">
-                    </div>
+
+                    <!-- Contenedor de lista de archivos seleccionados -->
+                    <div id="file-list-container" class="mt-3 space-y-2"></div>
 
                     <p class="text-xs text-gray-500 mt-2 italic">
                         💡 Escribe tu comentario y presiona el botón para enviar.
                     </p>
                 </div>
+
+                <script>
+                    // Inicializar array global para mantener persistencia entre selecciones
+                    // Usamos una propiedad en el elemento DOM para no contaminar scope global
+
+                    function handleFileSelect(input) {
+                        const container = document.getElementById('file-list-container');
+                        const newFiles = Array.from(input.files);
+
+                        // Inicializar o recuperar acumulador
+                        if (!input.acumulatedFiles) {
+                            input.acumulatedFiles = [];
+                        }
+
+                        // Agregar nuevos archivos al acumulador
+                        // Nota: Permitimos duplicados de nombre si vienen de rutas distintas (navegador no da ruta completa),
+                        // pero es raro. Para UX simple, agregamos todo.
+                        input.acumulatedFiles = [...input.acumulatedFiles, ...newFiles];
+
+                        // Actualizar input.files real usando DataTransfer para el submit
+                        const dataTransfer = new DataTransfer();
+                        input.acumulatedFiles.forEach(file => dataTransfer.items.add(file));
+                        input.files = dataTransfer.files;
+
+                        renderFiles(input);
+                    }
+
+                    function renderFiles(input) {
+                        const container = document.getElementById('file-list-container');
+                        container.innerHTML = ''; // Limpiar visualmente para re-renderizar todo
+
+                        input.acumulatedFiles.forEach((file, index) => {
+                            const fileSize = (file.size / 1024).toFixed(1) + ' KB';
+
+                            const fileItem = document.createElement('div');
+                            fileItem.className = 'flex items-center justify-between bg-white border border-blue-100 rounded px-3 py-1.5 text-xs';
+
+                            fileItem.innerHTML = `
+                                <div class="flex items-center gap-2 overflow-hidden">
+                                    <svg class="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                                    </svg>
+                                    <span class="font-medium text-gray-700 truncate">${file.name}</span>
+                                    <span class="text-gray-400">(${fileSize})</span>
+                                </div>
+                                <button type="button" onclick="removeFile(${index})" class="text-red-400 hover:text-red-600 p-1 rounded-full hover:bg-red-50 transition-colors">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                                    </svg>
+                                </button>
+                            `;
+                            container.appendChild(fileItem);
+                        });
+                    }
+
+                    function removeFile(index) {
+                        const input = document.getElementById('file_uploads');
+                        if (!input.acumulatedFiles) return;
+
+                        // Eliminar del array
+                        input.acumulatedFiles.splice(index, 1);
+
+                        // Actualizar DataTransfer
+                        const dataTransfer = new DataTransfer();
+                        input.acumulatedFiles.forEach(file => dataTransfer.items.add(file));
+                        input.files = dataTransfer.files;
+
+                        renderFiles(input);
+                    }
+
+                    function resetUploads() {
+                        const input = document.getElementById('file_uploads');
+                        const container = document.getElementById('file-list-container');
+
+                        // Limpiar array acumulador y FileList
+                        if (input) {
+                            input.acumulatedFiles = [];
+                            input.value = ''; // Limpia el filelist nativo del input
+                        }
+
+                        // Limpiar UI visual
+                        if (container) {
+                            container.innerHTML = '';
+                        }
+                    }
+                </script>
             </form>
             {% endif %}
 

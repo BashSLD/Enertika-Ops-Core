@@ -291,6 +291,16 @@ class NotificationService:
             if resp_email:
                 recipients.add(resp_email)
         
+        # Si comentó un tercero (ni creador ni responsable) → notificar a ambos (si existen)
+        else:
+             creator_email = users_map.get(str(opp['creado_por_id']))
+             if creator_email:
+                 recipients.add(creator_email)
+                 
+             resp_email = users_map.get(str(opp['responsable_simulacion_id']))
+             if resp_email:
+                 recipients.add(resp_email)
+
         return recipients
     
     async def _get_cc_emails(self, conn, trigger_value: str) -> Set[str]:
