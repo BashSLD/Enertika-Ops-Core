@@ -67,6 +67,10 @@ app.include_router(levantamientos_router)
 from core.workflow.router import router as workflow_router
 app.include_router(workflow_router)
 
+# Notificaciones en Tiempo Real (SSE)
+from core.notifications import router as notifications_router
+app.include_router(notifications_router.router)
+
 # --- Background Tasks ---
 import asyncio
 from core.tasks import cleanup_temp_uploads_periodically

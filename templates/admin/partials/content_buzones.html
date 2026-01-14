@@ -1,0 +1,30 @@
+<!-- Tab Buzones de Notificaciones -->
+<div id="content-buzones" class="tab-content hidden">
+    <div class="bg-white rounded-lg shadow-md p-6">
+        <div class="flex justify-between items-center mb-6">
+            <div>
+                <h2 class="text-xl font-semibold text-gray-800">Buzones de Notificaciones</h2>
+                <p class="text-sm text-gray-600 mt-1">
+                    Configura los buzones compartidos para envío de notificaciones por departamento
+                </p>
+            </div>
+            <button hx-get="/admin/config-correos-notificaciones/form" hx-target="#config-correos-modal"
+                hx-swap="innerHTML"
+                class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg transition flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                    stroke="currentColor" class="w-5 h-5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                </svg>
+                Nuevo Buzón
+            </button>
+        </div>
+
+        <div hx-get="/admin/config-correos-notificaciones/list" hx-trigger="load, configCorreosUpdated from:body"
+            hx-swap="innerHTML" class="mt-4">
+            <div class="text-center py-8 text-gray-500">Cargando...</div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Container para Buzones -->
+<div id="config-correos-modal"></div>

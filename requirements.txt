@@ -6,6 +6,7 @@ pydantic-settings>=2.0,<3.0
 asyncpg                # Para la conexión asíncrona a PostgreSQL (Supabase)
 python-dotenv          # Para cargar el archivo .env
 gunicorn
+sse-starlette          # Para notificaciones en tiempo real (SSE)
 # UI/Templating
 jinja2                 # Para renderizar las vistas HTMX/Tailwind
 python-multipart       # Para manejo de UploadFile (Excel Multisitio)

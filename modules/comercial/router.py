@@ -1,5 +1,3 @@
-
-
 from fastapi import APIRouter, Request, Depends, HTTPException, Form, UploadFile, File, status, Response
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
@@ -104,8 +102,6 @@ async def get_comercial_form(
     canal_default = ComercialService.get_canal_from_user_name(
         user_context.get("user_name")
     )
-    
-    # CORRECCI\u00d3N: Cargar catálogo completo si es modo homologación (legacy_term presente)
     # Esto permite que ACTUALIZACIÓN esté disponible en el template
     if request.query_params.get('legacy_term'):
         catalogos = await service.get_catalogos_ui(conn)  # TODOS los tipos
@@ -264,7 +260,8 @@ async def notificar_oportunidad(
         service=service,
         ms_auth=ms_auth,
         id_oportunidad=id_oportunidad,
-        form_data=form_data
+        form_data=form_data,
+        user_email=context['user_email']
     )
     
     return result

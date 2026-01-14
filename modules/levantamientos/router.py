@@ -109,7 +109,7 @@ def get_service():
 # ========================================
 # ENDPOINT PRINCIPAL (UI)
 # ========================================
-@router.get("/ui", include_in_schema=False)
+@router.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)
 async def get_levantamientos_ui(
     request: Request,
     context = Depends(get_current_user_context),

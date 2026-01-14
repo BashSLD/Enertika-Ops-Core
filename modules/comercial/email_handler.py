@@ -21,32 +21,11 @@ class EmailHandler:
         service,
         ms_auth,
         id_oportunidad: UUID,
-        form_data: Dict
+        form_data: Dict,
+        user_email: str
     ) -> Tuple[bool, Optional[dict]]:
         """
         Procesa formulario de correo y envía notificación.
-        
-        Args:
-            request: FastAPI Request object
-            conn: Database connection
-            service: ComercialService instance
-            ms_auth: MicrosoftAuth instance  
-            id_oportunidad: UUID de la oportunidad
-            form_data: Dict con campos del formulario
-                - recipients_str: str (Chips de TO)
-                - fixed_to: List[str] (Hidden fixed TOs)
-                - fixed_cc: List[str] (Hidden fixed CCs)
-                - extra_cc: str (Input manual CC)
-                - subject: str
-                - body: str (Mensaje adicional)
-                - auto_message: str (Mensaje automático)
-                - prioridad: str
-                - archivos_extra: List[UploadFile]
-                
-        Returns:
-            tuple: (success, result_template_or_error)
-                - success: bool - True si envío exitoso
-                - result_template_or_error: dict con template response o None
         """
         # 1. Validar token de Microsoft Graph
         access_token = await get_valid_graph_token(request)
@@ -110,7 +89,6 @@ class EmailHandler:
         )
         
         # 6. Enviar correo (con o sin hilo)
-        # CAMBIO IMPORTANTE: Usamos la prioridad del FORMULARIO, no de la BD
         # Esto permite al usuario cambiar la prioridad al enviar seguimientos
         prioridad_envio = form_data.get("prioridad") or "normal"
         subject = form_data.get("subject", "")
@@ -127,6 +105,7 @@ class EmailHandler:
             conn,
             ms_auth,
             access_token,
+            user_email, # Use user_email from the context
             row,
             subject,
             final_body,
@@ -135,14 +114,13 @@ class EmailHandler:
             bcc_list,
             prioridad_envio,
             adjuntos_procesados,
-            legacy_search_term=form_data.get("legacy_search_term")  # PUENTE: Término legacy para homologación
+            legacy_search_term=form_data.get("legacy_search_term")
         )
         
         if not envio_result["success"]:
             return (False, self._manejar_error_envio(request, envio_result["error"]))
         
         # 7. Marcar como enviado y retornar éxito
-
         await service.update_email_status(conn, id_oportunidad)
         
         success_response = templates.TemplateResponse(
@@ -278,6 +256,7 @@ class EmailHandler:
         conn,
         ms_auth,
         access_token: str,
+        user_email: str,
         row: dict,
         subject: str,
         body: str,
@@ -286,17 +265,17 @@ class EmailHandler:
         bcc: List[str],
         prioridad: str,
         attachments: List[dict],
-        legacy_search_term: Optional[str] = None  # NUEVO: Término legacy para homologación
+        legacy_search_term: Optional[str] = None
     ) -> Dict:
         """
-        Endía correo nuevo o responde a hilo existente.
+        Envía correo nuevo o responde a hilo existente.
         
-        Lógica HÍBRIDA de búsqueda de hilos (por prioridad):
+        Lógica HÍBRIDA de búsqueda de hilos:
         1. Si existe legacy_search_term: HOMOLOGACIÓN (busca hilo viejo con datos nuevos)
         2. Si tiene parent_id: SEGUIMIENTO NORMAL (busca por título del padre)
         3. Caso contrario: ENVÍO INICIAL (nuevo, sin hilo previo)
         
-        Siempre envía con el asunto ACTUAL (nuevo).
+        Usa email del usuario autenticado como remitente.
         """
         
         # --- LÓGICA DE DECISIÓN INTELIGENTE ---
@@ -367,6 +346,7 @@ class EmailHandler:
             # Enviar correo nuevo
             ok, msg = ms_auth.send_email_with_attachments(
                 access_token=access_token,
+                from_email=user_email,
                 subject=subject,
                 body=body,
                 recipients=recipients,
@@ -375,7 +355,7 @@ class EmailHandler:
                 importance=prioridad.lower(),
                 attachments_files=attachments
             )
-            logger.info(f"Correo enviado como NUEVO (sin hilo previo)")
+            logger.info(f"Correo enviado como NUEVO (sin hilo previo) desde {user_email}")
         
         return {"success": ok, "error": msg if not ok else None}
     

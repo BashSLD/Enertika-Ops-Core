@@ -11,6 +11,7 @@ import logging
 
 from fastapi.templating import Jinja2Templates
 from core.microsoft import MicrosoftAuth
+from core.notifications.service import get_notifications_service
 
 logger = logging.getLogger("NotificationService")
 
@@ -68,8 +69,21 @@ class NotificationService:
         })
         
         subject = f"Nuevo comentario: {opp['op_id_estandar']} - {opp['cliente_nombre']}"
-        sender_email = sender_ctx.get('user_email', sender_ctx.get('email', ''))
-        await self._send_email(to_emails, cc_emails, subject, html, sender_email)
+        
+        # Usar buzón configurado en lugar del email del usuario
+        sender_config = await self._get_notification_sender(conn, 'SIMULACION')
+        await self._send_email(to_emails, cc_emails, subject, html, sender_config['email'])
+        
+        # SSE: Guardar y broadcastear notificación
+        for email in to_emails:
+            await self._save_and_broadcast(
+                conn=conn,
+                recipient_email=email,
+                tipo='NUEVO_COMENTARIO',
+                titulo=f'Nuevo comentario: {opp["op_id_estandar"]}',
+                mensaje=f'{sender_ctx["user_name"]} ha comentado en {opp["cliente_nombre"]}',
+                id_oportunidad=id_oportunidad
+            )
     
     async def notify_assignment(
         self,
@@ -119,8 +133,20 @@ class NotificationService:
         })
         
         subject = f"Asignacion: {opp['op_id_estandar']} - {opp['cliente_nombre']}"
-        sender_email = assigned_by_ctx.get('user_email', assigned_by_ctx.get('email', ''))
-        await self._send_email(to_emails, cc_emails, subject, html, sender_email)
+        
+        # Usar buzón configurado en lugar del email del usuario
+        sender_config = await self._get_notification_sender(conn, 'SIMULACION')
+        await self._send_email(to_emails, cc_emails, subject, html, sender_config['email'])
+        
+        # SSE: Guardar y broadcastear notificación
+        await self._save_and_broadcast(
+            conn=conn,
+            recipient_email=new_resp['email'],
+            tipo='ASIGNACION',
+            titulo=f'Asignacion: {opp["op_id_estandar"]}',
+            mensaje=f'Te han asignado la oportunidad de {opp["cliente_nombre"]}',
+            id_oportunidad=id_oportunidad
+        )
     
     async def notify_status_change(
         self,
@@ -179,8 +205,20 @@ class NotificationService:
         })
         
         subject = f"Cambio de estatus: {opp['op_id_estandar']} - {opp['cliente_nombre']}"
-        sender_email = changed_by_ctx.get('user_email', changed_by_ctx.get('email', ''))
-        await self._send_email(to_emails, cc_emails, subject, html, sender_email)
+        
+        # Usar buzón configurado en lugar del email del usuario
+        sender_config = await self._get_notification_sender(conn, 'SIMULACION')
+        await self._send_email(to_emails, cc_emails, subject, html, sender_config['email'])
+        
+        # SSE: Guardar y broadcastear notificación
+        await self._save_and_broadcast(
+            conn=conn,
+            recipient_email=creator['email'],
+            tipo='CAMBIO_ESTATUS',
+            titulo=f'Cambio de estatus: {opp["op_id_estandar"]}',
+            mensaje=f'{opp["cliente_nombre"]} cambio de {status_map.get(old_status_id)} a {status_map.get(new_status_id)}',
+            id_oportunidad=id_oportunidad
+        )
     
     # ===== MÉTODOS PRIVADOS =====
     
@@ -275,6 +313,93 @@ class NotificationService:
         """
         rows = await conn.fetch(query, trigger_value)
         return {r['email_to_add'] for r in rows if r['email_to_add']}
+    
+    async def _get_notification_sender(self, conn, departamento: str = 'DEFAULT') -> dict:
+        """
+        Obtiene configuración del remitente de notificaciones desde BD.
+        
+        Args:
+            conn: Conexión a base de datos
+            departamento: Departamento específico o DEFAULT
+            
+        Returns:
+            dict con 'email' y 'nombre' del remitente
+        """
+        # Buscar configuración específica del departamento activa
+        config = await conn.fetchrow("""
+            SELECT email_remitente, nombre_remitente
+            FROM tb_correos_notificaciones
+            WHERE departamento = $1 AND activo = true
+            LIMIT 1
+        """, departamento.upper())
+        
+        # Si no existe configuración específica, usar DEFAULT
+        if not config:
+            config = await conn.fetchrow("""
+                SELECT email_remitente, nombre_remitente
+                FROM tb_correos_notificaciones
+                WHERE departamento = 'DEFAULT' AND activo = true
+                LIMIT 1
+            """)
+        
+        # Fallback hardcoded (solo si la BD está vacía)
+        if not config:
+            logger.warning("[NOTIFY] No hay configuración de sender en BD, usando fallback")
+            return {
+                'email': 'app-notifications@enertika.mx',
+                'nombre': 'Enertika App Notifications'
+            }
+        
+        return {
+            'email': config['email_remitente'],
+            'nombre': config['nombre_remitente']
+        }
+    
+    async def _save_and_broadcast(
+        self,
+        conn,
+        recipient_email: str,
+        tipo: str,
+        titulo: str,
+        mensaje: str,
+        id_oportunidad: UUID
+    ):
+        """
+        Guarda notificación en BD y la envía via SSE si usuario conectado.
+        
+        Args:
+            conn: Conexión a base de datos
+            recipient_email: Email del destinatario
+            tipo: Tipo de notificación
+            titulo: Título de la notificación
+            mensaje: Mensaje de la notificación
+            id_oportunidad: ID de la oportunidad relacionada
+        """
+        # Obtener usuario_id desde email
+        user_row = await conn.fetchrow(
+            "SELECT id_usuario FROM tb_usuarios WHERE email = $1",
+            recipient_email
+        )
+        
+        if not user_row:
+            logger.warning(f"[NOTIFY] Email {recipient_email} no encontrado en tb_usuarios")
+            return
+        
+        usuario_id = user_row['id_usuario']
+        
+        # Crear notificación usando NotificationsService
+        notif_service = get_notifications_service()
+        notification_data = await notif_service.create_notification(
+            conn=conn,
+            usuario_id=usuario_id,
+            tipo=tipo,
+            titulo=titulo,
+            mensaje=mensaje,
+            id_oportunidad=id_oportunidad
+        )
+        
+        # Broadcast via SSE si está conectado
+        await notif_service.broadcast_to_user(usuario_id, notification_data)
     
     def _render_template(self, template_path: str, context: dict) -> str:
         """

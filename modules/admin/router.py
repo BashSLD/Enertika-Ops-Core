@@ -5,6 +5,9 @@ from fastapi.templating import Jinja2Templates
 from core.security import get_current_user_context
 from core.permissions import require_module_access
 from .service import AdminService, get_admin_service
+
+# Import endpoints separados
+from . import endpoints_correos_notif
 from .schemas import ConfiguracionGlobalUpdate, TecnologiaCreate
 
 router = APIRouter(
@@ -16,7 +19,7 @@ templates = Jinja2Templates(directory="templates")
 
 # --- CONFIG EMAIL ENDPOINTS ---
 
-@router.get("/ui", include_in_schema=False)
+@router.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)
 async def admin_dashboard(
     request: Request,
     conn = Depends(get_db_connection),
@@ -497,3 +500,7 @@ async def create_estatus(
             "title": "Error",
             "message": f"No se pudo crear: {str(e)}"
         }, status_code=400)
+
+
+# Include sub-routers
+router.include_router(endpoints_correos_notif.router, tags=["Admin - Correos Notificaciones"])

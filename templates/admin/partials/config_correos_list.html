@@ -1,0 +1,92 @@
+<!-- Lista de configuraciones de correos de notificaciones -->
+<div class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-gray-200">
+        <thead class="bg-gray-50">
+            <tr>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Departamento
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Email Remitente
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Nombre
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Estado
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Última Actualización
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Acciones
+                </th>
+            </tr>
+        </thead>
+        <tbody class="bg-white divide-y divide-gray-200">
+            {% if configs %}
+            {% for config in configs %}
+            <tr class="hover:bg-gray-50">
+                <td class="px-6 py-4 whitespace-nowrap">
+                    <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
+                            {% if config.departamento == 'DEFAULT' %}bg-purple-100 text-purple-800
+                            {% else %}bg-blue-100 text-blue-800{% endif %}">
+                        {{ config.departamento }}
+                    </span>
+                </td>
+                <td class="px-6 py-4">
+                    <div class="text-sm text-gray-900">{{ config.email_remitente }}</div>
+                    {% if config.descripcion %}
+                    <div class="text-xs text-gray-500">{{ config.descripcion }}</div>
+                    {% endif %}
+                </td>
+                <td class="px-6 py-4">
+                    <div class="text-sm text-gray-900">{{ config.nombre_remitente }}</div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                    {% if config.activo %}
+                    <span
+                        class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        ✓ Activo
+                    </span>
+                    {% else %}
+                    <span
+                        class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                        Inactivo
+                    </span>
+                    {% endif %}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    {% if config.updated_at %}
+                    {{ config.updated_at.strftime('%d/%m/%Y %H:%M') }}
+                    {% else %}
+                    -
+                    {% endif %}
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-sm space-x-2">
+                    <button hx-get="/admin/config-correos-notificaciones/edit/{{ config.id }}"
+                        hx-target="#config-correos-modal" class="text-blue-600 hover:text-blue-800 font-medium">
+                        Editar
+                    </button>
+
+                    {% if not config.activo %}
+                    <button hx-post="/admin/config-correos-notificaciones/activate/{{ config.id }}" hx-swap="none"
+                        hx-on="htmx:afterRequest: htmx.trigger('body', 'configCorreosUpdated')"
+                        onclick="if(!confirm('¿Activar esta configuración? Se desactivarán las demás del mismo departamento.')) event.stopPropagation()"
+                        class="text-green-600 hover:text-green-800 font-medium">
+                        Activar
+                    </button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            {% else %}
+            <tr>
+                <td colspan="6" class="px-6 py-8 text-center text-gray-500">
+                    No hay configuraciones. Haz clic en "Nuevo Buzón" para crear una.
+                </td>
+            </tr>
+            {% endif %}
+        </tbody>
+    </table>
+</div>

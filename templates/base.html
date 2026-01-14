@@ -271,6 +271,37 @@
                 {% endif %}
             </nav>
 
+            <!-- Notificaciones Bell Icon -->
+            <div class="px-4 pb-4" x-data="{ open: false }">
+                <button @click="open = !open"
+                    class="relative w-full flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-blue-800/50 transition">
+                    <span class="text-lg">🔔</span>
+                    <span class="font-medium">Notificaciones</span>
+                    <span id="notification-badge"
+                        class="hidden ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center">
+                        0
+                    </span>
+                </button>
+
+                <!-- Dropdown -->
+                <div x-show="open" @click.away="open = false" x-transition
+                    class="absolute left-64 bottom-20 w-96 bg-white rounded-lg shadow-2xl border border-gray-200 max-h-96 overflow-hidden z-50"
+                    style="display: none;">
+
+                    <div class="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-cyan-50">
+                        <h3 class="font-semibold text-gray-800">Notificaciones</h3>
+                    </div>
+
+                    <div id="notifications-dropdown" class="max-h-80 overflow-y-auto">
+                        <!-- Notificaciones se agregan aquí dinámicamente -->
+                        <div id="empty-notifications" class="p-8 text-center text-gray-400 text-sm">
+                            <div class="text-4xl mb-2">📭</div>
+                            <p>No hay notificaciones nuevas</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <div class="p-4 bg-[#0E2A47] border-t border-blue-900">
                 <a href="/auth/logout"
                     class="flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg bg-red-900/20 text-red-200 hover:bg-red-900/40 transition duration-150 text-sm">
@@ -482,6 +513,167 @@
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
         });
+
+        // === SISTEMA DE NOTIFICACIONES EN TIEMPO REAL (SSE) ===
+        let notificationSource = null;
+        let unreadCount = 0;
+
+        function initNotifications() {
+            // Conectar al stream SSE
+            notificationSource = new EventSource('/notifications/stream');
+
+            notificationSource.addEventListener('notification', function (e) {
+                const notification = JSON.parse(e.data);
+                console.log('[SSE] Nueva notificacion:', notification);
+
+                // Incrementar contador
+                unreadCount++;
+                updateBellIcon();
+
+                // Mostrar toast
+                showNotificationToast(notification);
+
+                // Agregar a dropdown
+                addNotificationToDropdown(notification);
+            });
+
+            notificationSource.onerror = function (e) {
+                console.error('[SSE] Error de conexion:', e);
+                // Reconectar después de 5s
+                if (notificationSource.readyState === EventSource.CLOSED) {
+                    setTimeout(initNotifications, 5000);
+                }
+            };
+
+            // Cargar contador inicial
+            fetch('/notifications/count')
+                .then(r => r.json())
+                .then(data => {
+                    unreadCount = data.unread_count;
+                    updateBellIcon();
+                })
+                .catch(err => console.error('[SSE] Error cargando contador:', err));
+        }
+
+        function updateBellIcon() {
+            const badge = document.getElementById('notification-badge');
+            if (!badge) return;
+
+            if (unreadCount > 0) {
+                badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+                badge.classList.remove('hidden');
+            } else {
+                badge.classList.add('hidden');
+            }
+        }
+
+        function showNotificationToast(notif) {
+            const toast = document.createElement('div');
+            toast.className = 'fixed top-5 right-5 bg-white border-l-4 border-blue-500 shadow-2xl rounded-lg p-4 max-w-sm z-[9999] animate-fade-in-down';
+            toast.innerHTML = `
+                <div class="flex items-start gap-3">
+                    <div class="flex-shrink-0 text-2xl">🔔</div>
+                    <div class="flex-1">
+                        <p class="font-bold text-gray-800 text-sm">${escapeHtml(notif.title)}</p>
+                        <p class="text-sm text-gray-600 mt-1">${escapeHtml(notif.message)}</p>
+                    </div>
+                    <button onclick="this.parentElement.parentElement.remove()" 
+                            class="text-gray-400 hover:text-gray-600 font-bold text-lg leading-none">
+                        ×
+                    </button>
+                </div>
+            `;
+            document.body.appendChild(toast);
+
+            // Auto-cerrar después de 5s
+            setTimeout(() => toast.remove(), 5000);
+        }
+
+        function addNotificationToDropdown(notif) {
+            const dropdown = document.getElementById('notifications-dropdown');
+            const emptyMsg = document.getElementById('empty-notifications');
+
+            if (!dropdown) return;
+
+            // Ocultar mensaje vacío
+            if (emptyMsg) {
+                emptyMsg.style.display = 'none';
+            }
+
+            const item = document.createElement('div');
+            item.className = 'px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 transition-colors';
+            item.dataset.notifId = notif.id;
+            item.innerHTML = `
+                <p class="text-sm font-semibold text-gray-800">${escapeHtml(notif.title)}</p>
+                <p class="text-xs text-gray-600 mt-1">${escapeHtml(notif.message)}</p>
+                <p class="text-xs text-gray-400 mt-1">${formatDate(notif.created_at)}</p>
+            `;
+            item.onclick = async function () {
+                // Esperar a que markAsRead complete antes de redirigir
+                await markAsRead(notif.id);
+                if (notif.oportunidad_id) {
+                    window.location.href = '/simulacion/ui';
+                }
+            };
+            dropdown.insertBefore(item, dropdown.firstChild);
+        }
+
+        function markAsRead(notifId) {
+            // CRÍTICO: Retornar la Promise para que await funcione
+            return fetch(`/notifications/mark-read/${notifId}`, { method: 'POST' })
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error(`HTTP ${response.status}`);
+                    }
+                    unreadCount = Math.max(0, unreadCount - 1);
+                    updateBellIcon();
+
+                    // Actualizar visualmente el item
+                    const item = document.querySelector(`[data-notif-id="${notifId}"]`);
+                    if (item) {
+                        item.style.opacity = '0.6';
+                    }
+                })
+                .catch(err => {
+                    console.error('[SSE] Error marcando como leida:', err);
+                    throw err; // Re-throw para que el caller sepa que fallo
+                });
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatDate(isoString) {
+            const date = new Date(isoString);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.floor(diffMs / 60000);
+
+            if (diffMins < 1) return 'Justo ahora';
+            if (diffMins < 60) return `Hace ${diffMins} min`;
+
+            const diffHours = Math.floor(diffMins / 60);
+            if (diffHours < 24) return `Hace ${diffHours}h`;
+
+            return date.toLocaleDateString('es-MX', {
+                day: 'numeric',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        // Iniciar notificaciones si usuario está logueado
+        if (document.getElementById('notification-badge')) {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initNotifications);
+            } else {
+                initNotifications();
+            }
+        }
     </script>
 
     <!-- Modal de Loading Global -->

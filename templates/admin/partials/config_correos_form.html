@@ -1,0 +1,110 @@
+<!-- Modal para crear/editar configuración de correos -->
+<div class="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
+    <div class="bg-white rounded-lg shadow-xl max-w-md w-full p-6 max-h-[90vh] overflow-y-auto">
+        <h3 class="text-lg font-semibold mb-4 text-gray-900">
+            {{ 'Editar' if config else 'Nueva' }} Configuración de Buzón
+        </h3>
+
+        <form hx-post="/admin/config-correos-notificaciones/save" hx-swap="none"
+            hx-on="htmx:afterRequest: if(event.detail.successful) { document.getElementById('config-correos-modal').innerHTML = ''; htmx.trigger('body', 'configCorreosUpdated'); }">
+
+            {% if config %}
+            <input type="hidden" name="id" value="{{ config.id }}">
+            {% endif %}
+
+            <!-- Departamento -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Departamento <span class="text-red-500">*</span>
+                </label>
+                <select name="departamento"
+                    class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                    required {% if config and config.departamento=='DEFAULT' %}disabled{% endif %}>
+                    <option value="DEFAULT" {% if config and config.departamento=='DEFAULT' %}selected{% endif %}>
+                        DEFAULT (Global)
+                    </option>
+                    <option value="SIMULACION" {% if config and config.departamento=='SIMULACION' %}selected{% endif %}>
+                        SIMULACION
+                    </option>
+                    <option value="COMERCIAL" {% if config and config.departamento=='COMERCIAL' %}selected{% endif %}>
+                        COMERCIAL
+                    </option>
+                    <option value="LEVANTAMIENTOS" {% if config and config.departamento=='LEVANTAMIENTOS' %}selected{%
+                        endif %}>
+                        LEVANTAMIENTOS
+                    </option>
+                    <option value="PROYECTOS" {% if config and config.departamento=='PROYECTOS' %}selected{% endif %}>
+                        PROYECTOS
+                    </option>
+                </select>
+                {% if config and config.departamento == 'DEFAULT' %}
+                <input type="hidden" name="departamento" value="DEFAULT">
+                <p class="text-xs text-amber-600 mt-1">
+                    DEFAULT no se puede cambiar (es el fallback global)
+                </p>
+                {% endif %}
+            </div>
+
+            <!-- Email del Buzón -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Email del Buzón <span class="text-red-500">*</span>
+                </label>
+                <input type="email" name="email_remitente" value="{{ config.email_remitente if config }}"
+                    class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="notificaciones@enertika.mx" required>
+                <p class="text-xs text-gray-500 mt-1">
+                    Debe ser un buzón compartido configurado en Microsoft 365 con permisos de aplicación
+                </p>
+            </div>
+
+            <!-- Nombre del Remitente -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Nombre del Remitente <span class="text-red-500">*</span>
+                </label>
+                <input type="text" name="nombre_remitente" value="{{ config.nombre_remitente if config }}"
+                    class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                    placeholder="Enertika Notificaciones" required>
+                <p class="text-xs text-gray-500 mt-1">
+                    Nombre que aparecerá en el campo "De:" del email
+                </p>
+            </div>
+
+            <!-- Descripción -->
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">
+                    Descripción
+                </label>
+                <textarea name="descripcion"
+                    class="w-full border border-gray-300 rounded-md px-3 py-2 focus:ring-blue-500 focus:border-blue-500"
+                    rows="3"
+                    placeholder="Buzón compartido para notificaciones del departamento...">{{ config.descripcion if config }}</textarea>
+            </div>
+
+            <!-- Estado Activo -->
+            <div class="mb-6">
+                <label class="flex items-center">
+                    <input type="checkbox" name="activo" value="true" {% if not config or config.activo %}checked{%
+                        endif %} class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                    <span class="ml-2 text-sm text-gray-700 font-medium">Activar configuración</span>
+                </label>
+                <p class="text-xs text-gray-500 mt-1 ml-6">
+                    Solo puede haber una configuración activa por departamento. Al activar esta, se desactivarán las
+                    demás del mismo departamento.
+                </p>
+            </div>
+
+            <!-- Botones -->
+            <div class="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+                <button type="button" onclick="document.getElementById('config-correos-modal').innerHTML = ''"
+                    class="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 transition">
+                    Cancelar
+                </button>
+                <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition">
+                    Guardar
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
