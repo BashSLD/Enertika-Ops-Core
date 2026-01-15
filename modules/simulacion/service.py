@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 # Importar schemas locales
 from .schemas import SimulacionUpdate, DetalleBessCreate, OportunidadCreateCompleta
+from core.workflow.notification_service import get_notification_service
 
 logger = logging.getLogger("SimulacionModule")
 
@@ -19,6 +20,12 @@ class SimulacionService:
     async def get_current_datetime_mx(self, conn=None) -> datetime:
         """Fuente de verdad de tiempo (CDMX)."""
         return datetime.now(ZoneInfo("America/Mexico_City"))
+
+    async def get_configuracion_global(self, conn):
+        """Obtiene la configuración de horarios desde la BD."""
+        rows = await conn.fetch("SELECT clave, valor, tipo_dato FROM tb_configuracion_global")
+        config = {r['clave']: r['valor'] for r in rows}
+        return config
     
     # --- MÉTODOS PRIVADOS DE RESOLUCIÓN (NO HARDCODING) ---
 
@@ -59,10 +66,20 @@ class SimulacionService:
 
     async def update_simulacion_padre(self, conn, id_oportunidad: UUID, datos: SimulacionUpdate, user_context: dict):
         """
-        Actualiza la oportunidad aplicando reglas estrictas de cierre multisitio.
+        Actualiza la oportunidad aplicando reglas estrictas de cierre multisitio y orquestación de notificaciones.
         """
+        notification_service = get_notification_service()
+
         status_map = await self._get_status_ids(conn)
         
+        # 0. Obtener estado ACTUAL para comparación (Antes del update)
+        current = await conn.fetchrow(
+            "SELECT responsable_simulacion_id, id_estatus_global FROM tb_oportunidades WHERE id_oportunidad = $1",
+            id_oportunidad
+        )
+        old_responsable = current['responsable_simulacion_id'] if current else None
+        old_status = current['id_estatus_global'] if current else None
+
         # Validacion: Fecha Entrega Real solo permitida en estatus terminales
         if datos.fecha_entrega_simulacion:
             estatus_permitidos_fecha = [
@@ -145,20 +162,72 @@ class SimulacionService:
             await conn.execute(query_cascada,
                 datos.id_estatus_global, fecha_cierre_cascada, id_oportunidad
             )
+            
+        # 4. Notificaciones (Orquestación aquí)
+        # Comparar `old_responsable` vs `datos.responsable_simulacion_id`
+        # Comparar `old_status` vs `datos.id_estatus_global`
+        try:
+             # Notificar asignación si cambió
+            if datos.responsable_simulacion_id and old_responsable != datos.responsable_simulacion_id:
+                await notification_service.notify_assignment(
+                    conn=conn,
+                    id_oportunidad=id_oportunidad,
+                    old_responsable_id=old_responsable,
+                    new_responsable_id=datos.responsable_simulacion_id,
+                    assigned_by_ctx=user_context
+                )
+            
+            # Notificar cambio de estatus si cambió
+            if datos.id_estatus_global and old_status != datos.id_estatus_global:
+                await notification_service.notify_status_change(
+                    conn=conn,
+                    id_oportunidad=id_oportunidad,
+                    old_status_id=old_status,
+                    new_status_id=datos.id_estatus_global,
+                    changed_by_ctx=user_context
+                )
+        except Exception as notif_error:
+            logger.error(f"Error en notificaciones (no critico): {notif_error}")
 
-    async def update_sitios_batch(self, conn, ids_sitios: List[int], nuevo_estatus: int, fecha_manual: Optional[datetime] = None):
+    async def update_sitios_batch(self, conn, ids_sitios: List[UUID], nuevo_estatus: int, fecha_manual: Optional[datetime] = None):
         """Actualización masiva de sitios."""
         status_map = await self._get_status_ids(conn)
         fecha_actual = await self.get_current_datetime_mx()
         
         es_cierre = nuevo_estatus in [status_map["entregado"], status_map["cancelado"], status_map["perdido"]]
-        fecha_cierre_final = (fecha_manual if fecha_manual else fecha_actual) if es_cierre else None
+        
+        # Manejar fecha_cierre correctamente considerando timezone
+        if es_cierre:
+            if fecha_manual:
+                # Si fecha_manual viene como string, convertir a datetime con timezone
+                if isinstance(fecha_manual, str):
+                    from datetime import datetime
+                    from zoneinfo import ZoneInfo
+                    # Parse ISO string y agregar timezone si no lo tiene
+                    parsed_date = datetime.fromisoformat(fecha_manual.replace('Z', '+00:00'))
+                    if parsed_date.tzinfo is None:
+                        # Si es naive, asumir que es hora de México
+                        fecha_cierre_final = parsed_date.replace(tzinfo=ZoneInfo("America/Mexico_City"))
+                    else:
+                        fecha_cierre_final = parsed_date
+                else:
+                    # Si ya es datetime
+                    if fecha_manual.tzinfo is None:
+                        # Si es naive, agregar timezone de México
+                        from zoneinfo import ZoneInfo
+                        fecha_cierre_final = fecha_manual.replace(tzinfo=ZoneInfo("America/Mexico_City"))
+                    else:
+                        fecha_cierre_final = fecha_manual
+            else:
+                fecha_cierre_final = fecha_actual
+        else:
+            fecha_cierre_final = None
             
         query = """
             UPDATE tb_sitios_oportunidad
             SET id_estatus_global = $1,
-                fecha_cierre = CASE WHEN $2::timestamp IS NOT NULL THEN $2::timestamp ELSE fecha_cierre END
-            WHERE id_sitio = ANY($3::int[])
+                fecha_cierre = CASE WHEN $2::timestamptz IS NOT NULL THEN $2::timestamptz ELSE fecha_cierre END
+            WHERE id_sitio = ANY($3::uuid[])
         """
         await conn.execute(query, nuevo_estatus, fecha_cierre_final, ids_sitios)
 
@@ -373,9 +442,104 @@ class SimulacionService:
                 }
             } 
 
-    async def crear_oportunidad_transaccional(self, conn, datos, user_context):
-        # Implementación mínima para que no rompa importaciones
-        return (uuid4(), "OP-NEW", False)
+    async def crear_oportunidad_transaccional(self, conn, datos: OportunidadCreateCompleta, user_context: dict) -> tuple:
+        """
+        Crea una oportunidad de manera transaccional (Formulario Extraordinario).
+        Genera op_id_estandar dinámico y maneja BESS.
+        """
+        # 1. Preparar Fechas y Horarios
+        if datos.fecha_manual_str:
+            fecha_solicitud = datetime.fromisoformat(datos.fecha_manual_str).replace(tzinfo=ZoneInfo("America/Mexico_City"))
+        else:
+            fecha_solicitud = await self.get_current_datetime_mx()
+            
+        # Calcular si es fuera de horario usando configuración global
+        config = await self.get_configuracion_global(conn)
+        hora_corte_str = config.get("HORA_CORTE_L_V", "18:00")
+        h, m = map(int, hora_corte_str.split(":"))
+        hora_corte = dt_time(h, m)
+        
+        es_fuera_horario = False
+        # Fines de semana (5=Sab, 6=Dom) o después de hora corte
+        if fecha_solicitud.weekday() >= 5 or fecha_solicitud.time() > hora_corte:
+             es_fuera_horario = True
+
+        # 2. Generar Identificadores
+        new_id = uuid4()
+        timestamp_id = fecha_solicitud.strftime("%y%m%d%H%M")
+        op_id_estandar = f"OP-{timestamp_id}"  # Formato OP-YYMMDDHHMM
+        
+        # ID Interno: OP-STANDARD_PROYECTO_CLIENTE (Max 150 chars)
+        base_interno = f"{op_id_estandar}_{datos.nombre_proyecto}_{datos.cliente_nombre}"
+        id_interno = base_interno.upper().replace(" ", "_")[:150]
+
+        # 3. Título del Proyecto (Generación standard)
+        # Necesitamos nombres de catalogos
+        nombre_tec = await conn.fetchval("SELECT nombre FROM tb_cat_tecnologias WHERE id = $1", datos.id_tecnologia)
+        nombre_tipo = await conn.fetchval("SELECT nombre FROM tb_cat_tipos_solicitud WHERE id = $1", datos.id_tipo_solicitud)
+        
+        titulo_proyecto = f"{nombre_tipo}_{datos.cliente_nombre}_{datos.nombre_proyecto}_{nombre_tec}_{datos.canal_venta}".upper()
+
+        # 4. Insertar con Transacción Atómica
+        async with conn.transaction():
+            query_padre = """
+                INSERT INTO tb_oportunidades (
+                    id_oportunidad, op_id_estandar, id_interno_simulacion,
+                    titulo_proyecto, nombre_proyecto, cliente_nombre,
+                    canal_venta, id_tecnologia, id_tipo_solicitud,
+                    id_estatus_global, cantidad_sitios, prioridad,
+                    direccion_obra, google_maps_link, coordenadas_gps, sharepoint_folder_url,
+                    fecha_solicitud, creado_por_id, solicitado_por,
+                    es_fuera_horario, es_carga_manual
+                ) VALUES (
+                    $1, $2, $3,
+                    $4, $5, $6,
+                    $7, $8, $9,
+                    $10, $11, $12,
+                    $13, $14, $15, $16,
+                    $17, $18, $19,
+                    $20, $21
+                )
+            """
+            
+            await conn.execute(query_padre,
+                new_id, op_id_estandar, id_interno,
+                titulo_proyecto, datos.nombre_proyecto, datos.cliente_nombre,
+                datos.canal_venta, datos.id_tecnologia, datos.id_tipo_solicitud,
+                datos.id_estatus_global, datos.cantidad_sitios, datos.prioridad,
+                datos.direccion_obra, datos.google_maps_link, datos.coordenadas_gps, datos.sharepoint_folder_url,
+                fecha_solicitud, user_context['user_db_id'], user_context.get('user_name'),
+                es_fuera_horario, True if datos.fecha_manual_str else False
+            )
+
+            # 5. Insertar BESS si existe
+            if datos.detalles_bess:
+                query_bess = """
+                    INSERT INTO tb_detalles_bess (
+                        id_oportunidad, cargas_criticas_kw, tiene_motores, potencia_motor_hp,
+                        tiempo_autonomia, voltaje_operacion, cargas_separadas, 
+                        objetivos_json, tiene_planta_emergencia
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+                """
+                objetivos_str = json.dumps(datos.detalles_bess.objetivos_json)
+                
+                await conn.execute(query_bess,
+                    new_id,
+                    datos.detalles_bess.cargas_criticas_kw,
+                    datos.detalles_bess.tiene_motores,
+                    datos.detalles_bess.potencia_motor_hp,
+                    datos.detalles_bess.tiempo_autonomia,
+                    datos.detalles_bess.voltaje_operacion,
+                    datos.detalles_bess.cargas_separadas,
+                    objetivos_str,
+                    datos.detalles_bess.tiene_planta_emergencia
+                )
+            
+        # 6. Notificar creación (Opcional, si se requiere en futuro)
+        # Por ahora solo retornamos
+        
+        logger.info(f"Oportunidad Transaccional Creada: {op_id_estandar}")
+        return (new_id, op_id_estandar, es_fuera_horario)
 
     async def get_sitios(self, conn, id_oportunidad: UUID) -> List[dict]:
         rows = await conn.fetch("""

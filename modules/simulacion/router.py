@@ -9,6 +9,7 @@ from uuid import UUID
 from typing import Optional
 from decimal import Decimal
 import logging
+import asyncpg
 
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
@@ -183,11 +184,25 @@ async def create_oportunidad_extraordinaria(
             "message": f"Oportunidad {op_id_estandar} creada correctamente. {'ALERTA: Fuera de horario.' if es_fuera_horario else ''}"
         })
         
-    except Exception as e:
+    except asyncpg.PostgresError as db_err:
+        logger.error(f"DB Error creating simulacion op: {db_err}")
         return templates.TemplateResponse("simulacion/partials/messages/error.html", {
             "request": request,
-            "title": "Error al crear oportunidad",
-            "message": str(e)
+            "title": "Error de Base de Datos",
+            "message": "No se pudo crear la oportunidad. Verifique los datos o contacte a soporte."
+        })
+    except ValueError as val_err:
+        return templates.TemplateResponse("simulacion/partials/messages/error.html", {
+            "request": request,
+            "title": "Datos Inválidos",
+            "message": str(val_err)
+        })
+    except Exception as e:
+        logger.error(f"Unexpected error creating simulacion op: {e}")
+        return templates.TemplateResponse("simulacion/partials/messages/error.html", {
+            "request": request,
+            "title": "Error del Sistema",
+            "message": "Ocurrió un error inesperado."
         })
 
 # ========================================
@@ -344,10 +359,19 @@ async def get_sitios_partial(
     """Partial: Lista de sitios de la oportunidad."""
     sitios = await service.get_sitios(conn, id_oportunidad)
     
+    # Obtener opciones para dropdown (Excluyendo "Ganada")
+    status_ids = await service._get_status_ids(conn)
+    estatus_options = await conn.fetch(
+        "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND id != $1 ORDER BY id",
+        status_ids["ganada"]
+    )
+    
     return templates.TemplateResponse("simulacion/partials/sitios_list.html", {
         "request": request,
         "sitios": sitios,
-        "context": context
+        "context": context,
+        "estatus_options": [dict(r) for r in estatus_options],
+        "id_oportunidad": id_oportunidad
     })
 
 # --- ENDPOINTS DE GESTIÓN (MODALES Y UPDATES) ---
@@ -373,10 +397,9 @@ async def get_edit_modal(
     # 3. Obtener mapa de IDs para lógica frontend (AlpineJS)
     status_ids = await service._get_status_ids(conn)
     
-    # Excluir "Ganada" del dropdown (solo para selección manual)
+    # Excluir "Ganada" del dropdown (solo para selección manual) -> CORRECCIÓN: Se debe mostrar TODO
     estatus_global = await conn.fetch(
-        "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND id != $1 ORDER BY id",
-        status_ids["ganada"]
+        "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true ORDER BY id"
     )
     motivos_cierre = await conn.fetch("SELECT id, motivo FROM tb_cat_motivos_cierre WHERE activo = true ORDER BY motivo")
 
@@ -416,18 +439,9 @@ async def update_simulacion(
     _ = require_module_access("simulacion", "editor") 
 ):
     """Procesa el update del padre con datos de formulario HTMX."""
-    from core.workflow.notification_service import get_notification_service
+    # NOTA: No necesitamos notificación aquí, el service se encarga.
     
     try:
-        # Obtener valores ANTES del UPDATE para detectar cambios
-        current = await conn.fetchrow(
-            "SELECT responsable_simulacion_id, id_estatus_global FROM tb_oportunidades WHERE id_oportunidad = $1",
-            id_oportunidad
-        )
-        
-        old_responsable = current['responsable_simulacion_id'] if current else None
-        old_status = current['id_estatus_global'] if current else None
-        
         # Reconstruir modelo Pydantic manually
         datos = SimulacionUpdate(
             id_estatus_global=id_estatus_global,
@@ -443,31 +457,7 @@ async def update_simulacion(
 
         await service.update_simulacion_padre(conn, id_oportunidad, datos, context)
         
-        # Notificaciones asíncronas (no bloquean flujo)
-        notification_service = get_notification_service()
-        
-        try:
-            # Notificar asignación si cambió
-            if responsable_simulacion_id and old_responsable != responsable_simulacion_id:
-                await notification_service.notify_assignment(
-                    conn=conn,
-                    id_oportunidad=id_oportunidad,
-                    old_responsable_id=old_responsable,
-                    new_responsable_id=responsable_simulacion_id,
-                    assigned_by_ctx=context
-                )
-            
-            # Notificar cambio de estatus si cambió
-            if id_estatus_global and old_status != id_estatus_global:
-                await notification_service.notify_status_change(
-                    conn=conn,
-                    id_oportunidad=id_oportunidad,
-                    old_status_id=old_status,
-                    new_status_id=id_estatus_global,
-                    changed_by_ctx=context
-                )
-        except Exception as notif_error:
-            logger.error(f"Error en notificaciones (no critico): {notif_error}")
+        # Las notificaciones ahora se manejan internamente en el servicio (Service Layer Pattern)
         
         return templates.TemplateResponse("simulacion/partials/messages/success_redirect.html", {
             "request": request,
@@ -476,6 +466,14 @@ async def update_simulacion(
             "redirect_url": "/simulacion/ui" 
         })
     except HTTPException as e:
+        # UX IMPROVEMENT: Mostrar errores de validación dentro del modal como mensajes inline
+        # para que el usuario los vea en contexto y pueda corregirlos fácilmente
+        if e.status_code == 400:
+             return templates.TemplateResponse("simulacion/partials/messages/error_inline.html", {
+                "request": request,
+                "message": e.detail
+            }, status_code=200) # Forzamos 200 para que HTMX renderice el contenido
+            
         return templates.TemplateResponse("simulacion/partials/messages/error_inline.html", {
             "request": request, 
             "message": e.detail
@@ -484,25 +482,107 @@ async def update_simulacion(
 @router.put("/sitios/batch-update")
 async def batch_update_sitios(
     request: Request,
-    datos: SitiosBatchUpdate,
+    # Removed schemas.SitiosBatchUpdate strict dependency to avoid 422 before handler
     service: SimulacionService = Depends(get_simulacion_service),
     conn = Depends(get_db_connection),
     _ = require_module_access("simulacion", "editor") # <--- SEGURIDAD
 ):
-    """Actualización masiva de sitios."""
+    """
+    Actualización masiva de sitios.
+    Refactorizado para ser robusto ante fallos de codificación de HTMX/json-enc.
+    Acepta tanto application/json como application/x-www-form-urlencoded.
+    """
+    import json
+    from urllib.parse import parse_qs
+    
+    # 1. Raw Body Inspection
+    body_bytes = await request.body()
+    body_str = body_bytes.decode('utf-8')
+    content_type = request.headers.get('content-type', '')
+    
+    logger.info(f"[BATCH UPDATE] Header CT: {content_type}")
+    logger.info(f"[BATCH UPDATE] Body len: {len(body_str)}")
+    
+    ids_sitios_raw = []
+    id_estatus_global = None
+    fecha_cierre = None
+    
+    # 2. Parsing Logic
+    parsed_mode = "UNKNOWN"
+    
     try:
-        await service.update_sitios_batch(conn, datos.ids_sitios, datos.id_estatus_global, datos.fecha_cierre)
+        # ATTEMPT A: Try JSON (Preferred)
+        data = json.loads(body_str)
+        ids_sitios_raw = data.get("ids_sitios", [])
+        id_estatus_global = data.get("id_estatus_global")
+        fecha_cierre = data.get("fecha_cierre")
+        parsed_mode = "JSON"
+    except json.JSONDecodeError:
+        # ATTEMPT B: Fallback to Query String (Form Data)
+        # This handles the case where Header is JSON but Body is FormUrlEncoded
+        q_data = parse_qs(body_str)
+        ids_sitios_raw = q_data.get("ids_sitios", []) # Returns list
+        # parse_qs returns lists for everything
+        stat_list = q_data.get("id_estatus_global", [])
+        if stat_list:
+            id_estatus_global = stat_list[0]
+            
+        date_list = q_data.get("fecha_cierre", [])
+        if date_list:
+            fecha_cierre = date_list[0]
+            
+        parsed_mode = "FORM_QS"
+
+    logger.info(f"[BATCH UPDATE] Parsed Mode: {parsed_mode}")
+    logger.info(f"[BATCH UPDATE] IDs count: {len(ids_sitios_raw)}, Status: {id_estatus_global}")
+
+    try:
+        # 3. Validation & Conversion
+        if not ids_sitios_raw:
+             # Retorno vacío seguro si no hubo selección
+            return templates.TemplateResponse("simulacion/partials/sitios_list.html", {
+                "request": request, 
+                "sitios": [], 
+                "context": {"role": "viewer"} 
+            })
+
+        # Convert UUIDs
+        ids_sitios = [UUID(str(id_)) for id_ in ids_sitios_raw]
         
-        return templates.TemplateResponse("simulacion/partials/toasts/toast_success.html", {
+        # Convert Status
+        if id_estatus_global is None:
+            raise ValueError("Falta id_estatus_global")
+        id_estatus_global = int(id_estatus_global)
+
+        # 4. Execute Service
+        await service.update_sitios_batch(conn, ids_sitios, id_estatus_global, fecha_cierre)
+        
+        # 5. Response (Refresh Table)
+        id_op = await conn.fetchval(
+            "SELECT id_oportunidad FROM tb_sitios_oportunidad WHERE id_sitio = $1", 
+            ids_sitios[0]
+        )
+        
+        sitios = await service.get_sitios(conn, id_op)
+        status_ids = await service._get_status_ids(conn)
+        estatus_options = await conn.fetch(
+            "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND id != $1 ORDER BY id",
+            status_ids["ganada"]
+        )
+        
+        return templates.TemplateResponse("simulacion/partials/sitios_list.html", {
             "request": request,
-            "title": "Sitios Actualizados",
-            "message": f"{len(datos.ids_sitios)} sitios procesados correctamente."
+            "sitios": sitios,
+            "context": {"role": "ADMIN", "module_role": "editor"}, 
+            "estatus_options": [dict(r) for r in estatus_options]
         })
+
     except Exception as e:
-        return templates.TemplateResponse("simulacion/partials/toasts/toast_error.html", {
+        logger.error(f"[BATCH UPDATE ERROR] {str(e)}")
+        return templates.TemplateResponse("shared/partials/toasts/toast_error.html", {
             "request": request,
             "title": "Error Batch",
-            "message": str(e)
+            "message": f"Error procesando solicitud: {str(e)}"
         })
 
 @router.patch("/update-responsable/{id_oportunidad}")
@@ -520,13 +600,13 @@ async def update_responsable(
             "UPDATE tb_oportunidades SET responsable_simulacion_id = $1 WHERE id_oportunidad = $2",
             responsable_simulacion_id, id_oportunidad
         )
-        return templates.TemplateResponse("simulacion/partials/toasts/toast_success.html", {
+        return templates.TemplateResponse("shared/partials/toasts/toast_success.html", {
             "request": request,
             "title": "Asignación Actualizada",
             "message": "El responsable ha sido actualizado correctamente."
         })
     except Exception as e:
-        return templates.TemplateResponse("simulacion/partials/toasts/toast_error.html", {
+        return templates.TemplateResponse("shared/partials/toasts/toast_error.html", {
             "request": request,
             "title": "Error Asignación",
             "message": str(e)

@@ -812,8 +812,8 @@ class ComercialService:
 
         # Clonar sitios
         query_clone = """
-            INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios)
-            SELECT gen_random_uuid(), $1, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios
+            INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios, id_estatus_global)
+            SELECT gen_random_uuid(), $1, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios, 1
             FROM tb_sitios_oportunidad WHERE id_oportunidad = $2
         """
         await conn.execute(query_clone, new_uuid, parent_id)
@@ -1358,8 +1358,11 @@ class ComercialService:
             await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
             
             if records:
-                q = """INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios) 
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"""
+                q = """INSERT INTO tb_sitios_oportunidad (
+                            id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, 
+                            google_maps_link, numero_servicio, comentarios, id_estatus_global
+                       ) 
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1)"""
                 await conn.executemany(q, records)
         
         return len(records)
@@ -1382,8 +1385,8 @@ class ComercialService:
         """Crea automáticamente el registro de sitio para flujos de un solo sitio."""
         try:
             await conn.execute("""
-                INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link, id_estatus_global)
+                VALUES ($1, $2, $3, $4, $5, 1)
             """, uuid4(), id_oportunidad, nombre, direccion, link)
         except Exception as e:
             logger.error(f"Error auto-creando sitio único: {e}")

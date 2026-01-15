@@ -112,7 +112,7 @@ class SitiosBatchUpdate(BaseModel):
     """
     Para la actualización masiva de hijos (Multisitio).
     """
-    ids_sitios: List[int]  # IDs de la tabla tb_sitios_oportunidad
+    ids_sitios: List[UUID]  # IDs de la tabla tb_sitios_oportunidad
     id_estatus_global: int
     fecha_cierre: Optional[datetime] = None
     

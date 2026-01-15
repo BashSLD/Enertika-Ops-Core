@@ -1,14 +1,31 @@
 <div class="bg-red-50 border-l-4 border-red-500 p-4 rounded-lg shadow-md animate-fade-in-down" role="alert">
-    <div class="flex items-center">
-        <div class="flex-shrink-0">
+    <div class="flex items-start gap-3">
+        <div class="flex-shrink-0 pt-0.5">
             <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
         </div>
-        <div class="ml-3">
+        <div class="flex-1">
             <h3 class="text-sm font-bold text-red-800">Error al Actualizar</h3>
-            <p class="mt-1 text-sm text-red-700">{{ message }}</p>
+            <p class="mt-1 text-sm text-red-700">{{ message | safe }}</p>
         </div>
+        <!-- Botón de cierre manual -->
+        <button type="button" onclick="this.closest('div[role=alert]').remove()"
+            class="flex-shrink-0 text-red-400 hover:text-red-600 focus:outline-none transition-colors">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
+        </button>
     </div>
 </div>
+
+<script>
+    // Scroll suave al mensaje de error para asegurar visibilidad
+    (function () {
+        const errorMsg = document.currentScript.previousElementSibling;
+        if (errorMsg) {
+            errorMsg.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+    })();
+</script>
