@@ -319,31 +319,31 @@
             </div>
         </div>
 
-</div>
+        <!-- Botones de Acción -->
+        <div class="flex justify-end gap-4 pt-6 border-t">
+            <button type="button" hx-get="/comercial/ui" hx-target="#main-content"
+                class="px-6 py-2.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium transition-colors">
+                Cancelar
+            </button>
 
-<!-- Botones de Acción (FUERA del bloque BESS) -->
-<div class="flex justify-end gap-4 pt-6 border-t">
-    <button type="button" hx-get="/comercial/ui" hx-target="#main-content"
-        class="px-6 py-2.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium transition-colors">
-        Cancelar
-    </button>
+            <!-- Spinner de carga (oculto por defecto) -->
+            <div id="submit-indicator" class="htmx-indicator flex items-center gap-2 text-[#00BABB]">
+                <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                    </circle>
+                    <path class="opacity-75" fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                    </path>
+                </svg>
+                <span class="font-medium">Guardando...</span>
+            </div>
 
-    <!-- Spinner de carga (oculto por defecto) -->
-    <div id="submit-indicator" class="htmx-indicator flex items-center gap-2 text-[#00BABB]">
-        <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-            </circle>
-            <path class="opacity-75" fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-            </path>
-        </svg>
-        <span class="font-medium">Guardando...</span>
-    </div>
+            <button type="submit" :disabled="isSubmitting" hx-indicator="#submit-indicator"
+                class="ripple-effect px-6 py-2.5 rounded-lg bg-[#00BABB] hover:bg-[#009999] text-white font-bold shadow-lg shadow-[#00BABB]/30 transition-all transform hover:scale-105 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed htmx-request:hidden">
+                <span>💾</span> Guardar Oportunidad
+            </button>
+        </div>
 
-    <button type="submit" :disabled="isSubmitting" hx-indicator="#submit-indicator"
-        class="ripple-effect px-6 py-2.5 rounded-lg bg-[#00BABB] hover:bg-[#009999] text-white font-bold shadow-lg shadow-[#00BABB]/30 transition-all transform hover:scale-105 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed htmx-request:hidden">
-        <span>💾</span> Guardar Oportunidad
-    </button>
 </div>
 
 </form>

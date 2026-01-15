@@ -1,23 +1,18 @@
-# Archivo: modules/comercial/schemas.py
-
 from typing import List, Optional, Any
 from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
-# --- Base Schemas (Common Attributes) ---
 
 class BaseSchema(BaseModel):
     """Base para campos comunes en lectura."""
     id: UUID = Field(..., alias='id_oportunidad')
     
     model_config = ConfigDict(
-        populate_by_name=True,  # v2: permite usar alias o nombre del campo
-        from_attributes=True    # v2: reemplaza a orm_mode
+        populate_by_name=True,
+        from_attributes=True
     )
 
-
-# --- BESS Schemas (NUEVO) ---
 
 class DetalleBessCreate(BaseModel):
     """Datos técnicos específicos para proyectos BESS."""
@@ -33,11 +28,8 @@ class DetalleBessCreate(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-# --- Oportunidades Create Completo (Transaccional) ---
-
 class OportunidadCreateCompleta(BaseModel):
     """Schema maestro para la creación transaccional."""
-    # Campos Base
     cliente_nombre: str = Field(..., min_length=3)
     nombre_proyecto: str
     canal_venta: str
@@ -49,16 +41,12 @@ class OportunidadCreateCompleta(BaseModel):
     coordenadas_gps: Optional[str] = None
     google_maps_link: Optional[str] = None
     sharepoint_folder_url: Optional[str] = None
-    
-    # Campos Lógicos Fase 2
-    fecha_manual_str: Optional[str] = None  # Input raw del datetime-local
-    detalles_bess: Optional[DetalleBessCreate] = None  # Nested Schema opcional
-    id_estatus_global: Optional[int] = 1  # 1=Activa por defecto, útil para migraciones
+    fecha_manual_str: Optional[str] = None
+    detalles_bess: Optional[DetalleBessCreate] = None
+    id_estatus_global: Optional[int] = 1
 
     model_config = ConfigDict(from_attributes=True)
 
-
-# --- Oportunidad Cierre/Status (NUEVO) ---
 
 class OportunidadCierreUpdate(BaseModel):
     """Schema para cerrar, perder o cancelar."""
@@ -66,19 +54,15 @@ class OportunidadCierreUpdate(BaseModel):
     comentarios_cierre: str
     monto_cierre_usd: Optional[float] = 0.0
     potencia_final_fv_kwp: Optional[float] = 0.0
-    potencia_final_bess_kw: Optional[float] = 0.0  # Nuevo campo BESS
-    capacidad_final_bess_kwh: Optional[float] = 0.0  # Nuevo campo BESS
+    potencia_final_bess_kw: Optional[float] = 0.0
+    capacidad_final_bess_kwh: Optional[float] = 0.0
 
-
-# --- 1. Oportunidades (tb_oportunidades) ---
 
 class OportunidadCreate(BaseModel):
     """Schema para la creación inicial de una Oportunidad."""
     cliente_nombre: str = Field(..., min_length=3, description="Nombre del cliente.")
-    # Asumimos que el ID del usuario autenticado proviene del contexto de la sesión
     creado_por_id: UUID = Field(..., description="UUID del usuario Comercial.")
-    
-    # Nota: op_id_estandar y status_global se generan en la lógica del router/service.
+
 
 class OportunidadRead(BaseSchema):
     """Schema para la lectura de una Oportunidad."""
@@ -89,8 +73,6 @@ class OportunidadRead(BaseSchema):
     creado_por_id: UUID
 
 
-# --- 2. Sitios (tb_sitios_oportunidad) ---
-
 class SitioOportunidadBase(BaseModel):
     """Campos base para un sitio, usados en la carga Multisitio (Excel)."""
     direccion: str = Field(..., description="Dirección física del sitio.")
@@ -98,15 +80,18 @@ class SitioOportunidadBase(BaseModel):
     numero_servicio: Optional[str] = Field(None, description="Número de servicio.")
     comentarios: Optional[str] = Field(None, description="Comentarios adicionales.")
 
+
 class SitioOportunidadCreate(SitioOportunidadBase):
     """Schema de Creación para un sitio, si se inserta individualmente."""
     id_oportunidad: UUID
+
 
 class SitioOportunidadRead(SitioOportunidadBase):
     """Schema de Lectura para un sitio."""
     id: UUID = Field(..., alias='id_sitio')
     id_oportunidad: UUID
     fecha_carga: datetime
+
 
 class SitioImportacion(BaseModel):
     """Schema para validar la data JSON de la carga masiva en memoria."""
@@ -128,8 +113,6 @@ class SitioImportacion(BaseModel):
         return str(v) if not isinstance(v, str) else v
 
 
-# --- 3. Listado de Oportunidades (para get_oportunidades_list) ---
-
 class OportunidadListOut(BaseModel):
     """Schema para el listado de oportunidades con información resumida y JOINs."""
     id_oportunidad: UUID
@@ -142,8 +125,12 @@ class OportunidadListOut(BaseModel):
     id_interno_simulacion: str
     tipo_solicitud: str
     deadline_calculado: Optional[datetime] = None
+    deadline_negociado: Optional[datetime] = None
     cantidad_sitios: Optional[int] = None
     responsable_simulacion: Optional[str] = None
     solicitado_por: Optional[str] = None
+    es_fuera_horario: bool = False
+    prioridad: str = "Normal"
+    tiene_detalles_bess: bool = False
     
     model_config = ConfigDict(from_attributes=True)

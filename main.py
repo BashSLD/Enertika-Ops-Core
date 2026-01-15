@@ -48,7 +48,7 @@ from core.jinja_filters import register_timezone_filters
 register_timezone_filters(templates.env)
 
 # Montar directorios estáticos
-# app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Registrar Routers Modulares
 # El Backlog Priorizado comienza aquí
@@ -85,6 +85,10 @@ app.router.on_startup.append(start_background_tasks)
 from core.security import get_current_user_context
 from fastapi import Depends
 from fastapi.responses import RedirectResponse
+
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return RedirectResponse(url="/static/favicon.svg")
 
 @app.get("/", tags=["Home"])
 async def root(

@@ -53,7 +53,7 @@ class ComercialService:
         """
         Genera el canal de venta basado en el nombre del usuario.
         
-        Regla de negocio MEJORADA:
+        Regla de negocio:
         - Toma las 2 PRIMERAS palabras significativas (>2 caracteres, sin puntos)
         - Formato: PRIMER_NOMBRE_PRIMER_APELLIDO
         - Si solo hay 1 palabra significativa: esa palabra
@@ -93,8 +93,8 @@ class ComercialService:
 
     async def get_catalog_ids(self, conn) -> dict:
         """
-        Carga IDs de catálogos para filtros rápidos basados en IDs (INTEGER).
-        OPTIMIZACIÓN: Usa caché de 5 minutos para evitar queries redundantes.
+        Carga IDs de catálogos para filtros rápidos.
+        Usa caché de 5 minutos.
         
         Retorna estructura:
         {
@@ -167,25 +167,26 @@ class ComercialService:
         Calcula el deadline inicial (Meta).
         
         Lógica de Negocio:
-        1. Configuración dinámica (SLA desde BD).
-        2. Ajuste de fecha de arranque:
-           - Sábado/Domingo: Pasan al Lunes (Hora irrelevante).
+        Lógica de Negocio:
+        - Configuración dinámica (SLA desde BD).
+        - Ajuste de fecha de arranque:
+           - Sábado/Domingo: Pasan al Lunes.
            - Viernes > 17:30: Pasa al Lunes.
            - Lunes-Jueves > 17:30: Pasa al día siguiente.
            - Lunes-Viernes <= 17:30: Arranca el mismo día.
-        3. Cálculo: Fecha Arranque + Días SLA.
-        4. Vencimiento: Se fija a las 17:30 del día destino.
+        - Cálculo: Fecha Arranque + Días SLA.
+        - Vencimiento: Se fija a las 17:30 del día destino.
         """
         
-        # 1. Obtener toda la configuración de golpe
+        # Obtener configuración
         config = await self.get_configuracion_global(conn)
         
-        # A. Obtener Hora de Corte
+        # Obtener Hora de Corte
         hora_corte_str = config.get("HORA_CORTE_L_V", "17:30")
         h, m = map(int, hora_corte_str.split(":"))
         hora_corte = dt_time(h, m)
 
-        # B. Obtener Días SLA (Dinámico)
+        # Obtener Días SLA (Dinámico)
         # Intentamos leer de BD, si falla o no existe, usamos 7 por defecto.
         try:
             dias_sla_str = config.get("DIAS_SLA_DEFAULT", "7")
@@ -193,26 +194,26 @@ class ComercialService:
         except ValueError:
             DIAS_SLA = 7
 
-        # 2. Datos de la Fecha Actual
+        # Datos de la Fecha Actual
         # 0=Lun, 1=Mar, 2=Mie, 3=Jue, 4=Vie, 5=Sab, 6=Dom
         dia_semana = fecha_creacion.weekday() 
         hora_actual = fecha_creacion.time()
         
-        # Reseteamos a 00:00:00 para sumar días completos limpiamente
+        # Reseteamos a 00:00:00 para sumar días completos
         fecha_base = fecha_creacion.replace(hour=0, minute=0, second=0, microsecond=0)
         
         dias_ajuste_inicio = 0
 
-        # --- LÓGICA DE REGLAS DE NEGOCIO ---
+        # --- REGLAS DE NEGOCIO ---
         
-        # CASO 1: Fin de Semana (Sábado o Domingo)
+        # Fin de Semana (Sábado o Domingo)
         # La hora NO importa, siempre se recorre al Lunes.
         if dia_semana == 5:   # Sábado -> Lunes (+2)
             dias_ajuste_inicio = 2
         elif dia_semana == 6: # Domingo -> Lunes (+1)
             dias_ajuste_inicio = 1
             
-        # CASO 2: Entre Semana (Lunes a Viernes)
+        # Entre Semana (Lunes a Viernes)
         else:
             if hora_actual > hora_corte:
                 # Se envió tarde (Fuera de horario laboral)
@@ -224,15 +225,15 @@ class ComercialService:
                 # Se envió a tiempo -> Cuenta desde hoy (+0)
                 dias_ajuste_inicio = 0
 
-        # 3. Cálculo Final
+        # Cálculo Final
         # Fecha Inicio Real = Fecha Creación + Ajuste
         adjusted_start_date = fecha_base + timedelta(days=dias_ajuste_inicio)
         
         # Deadline = Fecha Inicio Real + SLA
         deadline_final = adjusted_start_date + timedelta(days=DIAS_SLA)
         
-        # 4. Estética: Fijar hora de vencimiento al cierre de jornada
-        deadline_final = deadline_final.replace(hour=17, minute=30)
+        # Fijar hora de vencimiento al cierre de jornada
+        deadline_final = deadline_final.replace(hour=h, minute=m)
         
         return deadline_final
 
@@ -266,10 +267,10 @@ class ComercialService:
             include_simulacion: Si True, incluye 'SIMULACION' en la lista (para extraordinarias).
                               Si False, solo 'PRE_OFERTA' y 'LICITACION' (para normal).
         """
-        # 1. Tecnologías (Todas)
+        # Tecnologías (Todas)
         tecnologias = await conn.fetch("SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre")
         
-        # 2. Tipos de Solicitud (FILTRADO DINÁMICO)
+        # Tipos de Solicitud (Filtrado Dinámico)
         # Base: PRE_OFERTA, LICITACION, LEVANTAMIENTO
         codigos = ['PRE_OFERTA', 'LICITACION', 'LEVANTAMIENTO']
         
@@ -291,6 +292,19 @@ class ComercialService:
             "tecnologias": [dict(t) for t in tecnologias],
             "tipos_solicitud": [dict(t) for t in tipos]
         }
+
+    async def get_id_tipo_actualizacion(self, conn) -> Optional[int]:
+        """
+        Obtiene el ID del tipo de solicitud 'ACTUALIZACION' desde catálogo.
+        Usado en modo homologación para forzar tipo de solicitud.
+        
+        Returns:
+            ID del tipo ACTUALIZACION o None si no existe
+        """
+        tipo_act = await conn.fetchrow(
+            "SELECT id FROM tb_cat_tipos_solicitud WHERE codigo_interno = 'ACTUALIZACION' AND activo = true"
+        )
+        return tipo_act['id'] if tipo_act else None
 
     async def procesar_fecha_manual(self, conn, fecha_input_str: Optional[str]) -> datetime:
         """
@@ -350,7 +364,7 @@ class ComercialService:
             bess_data.tiene_planta_emergencia
         )
 
-    async def crear_oportunidad_transaccional(self, conn, datos, user_context: dict) -> tuple:
+    async def crear_oportunidad_transaccional(self, conn, datos, user_context: dict, legacy_search_term: Optional[str] = None) -> tuple:
         """
         Orquestador Transaccional (Fase 2).
         Maneja: Fechas, Identificadores, Oportunidad Base y BESS.
@@ -359,18 +373,29 @@ class ComercialService:
             conn: Conexión asyncpg
             datos: OportunidadCreateCompleta (Pydantic v2)
             user_context: dict con user_db_id, user_name, role
+            legacy_search_term: Término de búsqueda legacy para modo homologación (opcional)
             
         Returns:
             tuple: (new_id, op_id_estandar, es_fuera_horario)
         """
         logger.info(f"Iniciando creación de oportunidad para cliente {datos.cliente_nombre}")
         
-        # 1. Procesar Fecha
+        # Procesar Fecha
         fecha_solicitud = await self.procesar_fecha_manual(conn, datos.fecha_manual_str)
         es_fuera_horario = await self.calcular_fuera_de_horario(conn, fecha_solicitud)
         deadline = await self.calcular_deadline_inicial(conn, fecha_solicitud)
 
-        # 2. Generar Identificadores
+        # BUSINESS LOGIC: Modo Homologación
+        # Si viene legacy_search_term, forzar tipo de solicitud a ACTUALIZACIÓN
+        if legacy_search_term:
+            id_tipo_actualizacion = await self.get_id_tipo_actualizacion(conn)
+            if id_tipo_actualizacion:
+                datos.id_tipo_solicitud = id_tipo_actualizacion
+                logger.info(f"MODO HOMOLOGACIÓN: Tipo de solicitud forzado a ACTUALIZACIÓN")
+            else:
+                logger.warning("No se encontró tipo ACTUALIZACIÓN en catálogo, usando el seleccionado por usuario")
+
+        # Generar Identificadores
         new_id = uuid4()
         now_mx = await self.get_current_datetime_mx(conn)
         op_id_estandar = now_mx.strftime("OP - %y%m%d%H%M")
@@ -383,11 +408,11 @@ class ComercialService:
         titulo = f"{nombre_tipo}_{datos.cliente_nombre}_{datos.nombre_proyecto}_{nombre_tec}_{datos.canal_venta}".upper()
         id_interno = f"{op_id_estandar}_{datos.nombre_proyecto}_{datos.cliente_nombre}".upper()[:150]
 
-        # 3. Insertar Oportunidad
+        # Insertar Oportunidad
         
-        # 1. Obtener ID de estatus inicial (Agregar antes del INSERT)
+        # Obtener ID de estatus inicial
         cats = await self.get_catalog_ids(conn)
-        # Usamos 'pendiente' como default, o el que corresponda a ID 1 en tu lógica de negocio
+        # Usamos 'pendiente' como default
         id_status_inicial = cats['estatus'].get('pendiente') or 1 
 
         query_op = """
@@ -423,10 +448,9 @@ class ComercialService:
             id_status_inicial
         )
 
-        # 4. Insertar BESS (Si aplica y hay datos)
+        # Insertar BESS (Si aplica y hay datos)
         if datos.detalles_bess:
             # Validación de negocio adicional: ¿Es tecnología BESS?
-            # Se puede relajar si permitimos híbridos, por ahora confiamos en que si mandan datos BESS, se guarden.
             await self._insertar_bess(conn, new_id, datos.detalles_bess)
         
         logger.info(f"Oportunidad {op_id_estandar} creada exitosamente por usuario {user_context.get('user_db_id')}")
@@ -450,6 +474,90 @@ class ComercialService:
         row = await conn.fetchrow("SELECT id FROM tb_clientes WHERE nombre_fiscal = $1", nombre_clean)
         return row['id']
 
+    async def get_oportunidad_for_email(self, conn, id_oportunidad: UUID) -> Optional[dict]:
+        """
+        Obtiene datos de oportunidad necesarios para envío de correo.       
+        Args:
+            conn: Conexión a base de datos
+            id_oportunidad: UUID de la oportunidad
+            
+        Returns:
+            dict con todos los campos de tb_oportunidades o None si no existe
+        """
+        row = await conn.fetchrow(
+            "SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", 
+            id_oportunidad
+        )
+        return dict(row) if row else None
+
+    async def get_parent_titulo(self, conn, parent_id: UUID) -> Optional[str]:
+        """
+        Obtiene el título del proyecto padre para búsqueda de hilos de correo.
+        
+        Usado en modo SEGUIMIENTO para encontrar el hilo original.
+        
+        Args:
+            conn: Conexión a base de datos
+            parent_id: UUID de la oportunidad padre
+            
+        Returns:
+            Título del proyecto padre o None si no existe
+        """
+        return await conn.fetchval(
+            "SELECT titulo_proyecto FROM tb_oportunidades WHERE id_oportunidad = $1",
+            parent_id
+        )
+    
+    async def get_email_threading_context(
+        self,
+        conn,
+        row: dict,
+        legacy_search_term: Optional[str] = None
+    ) -> dict:
+        """
+        Determina el contexto de threading para envío de correo.
+        
+        Lógica HÍBRIDA de búsqueda de hilos:
+        1. Si existe legacy_search_term: HOMOLOGACIÓN (busca hilo viejo con datos nuevos)
+        2. Si tiene parent_id: SEGUIMIENTO NORMAL (busca por título del padre)
+        3. Caso contrario: ENVÍO INICIAL (nuevo, sin hilo previo)
+        
+        Args:
+            conn: Database connection
+            row: Oportunidad row data (debe contener 'parent_id' y 'op_id_estandar')
+            legacy_search_term: Término de búsqueda legacy para homologación
+            
+        Returns:
+            dict con:
+                - search_key: Término para buscar hilo (None si es nuevo)
+                - modo: "HOMOLOGACIÓN", "SEGUIMIENTO", o "NUEVO"
+                - log_message: Mensaje descriptivo para logging
+        """
+        search_key = None
+        modo = "NUEVO"
+        log_message = f"ENVÍO INICIAL para '{row.get('op_id_estandar')}' | No se buscará hilo previo"
+        
+        if legacy_search_term:
+            search_key = legacy_search_term
+            modo = "HOMOLOGACIÓN"
+            log_message = (
+                f"MODO HOMOLOGACIÓN activado para '{row.get('op_id_estandar')}' | "
+                f"Buscando hilo por término legacy: '{search_key}'"
+            )
+        elif row.get('parent_id'):
+            search_key = await self.get_parent_titulo(conn, row['parent_id'])
+            modo = "SEGUIMIENTO"
+            log_message = (
+                f"SEGUIMIENTO NORMAL detectado para '{row.get('op_id_estandar')}' | "
+                f"Buscando hilo del padre: '{search_key}'"
+            )
+        
+        return {
+            "search_key": search_key,
+            "modo": modo,
+            "log_message": log_message
+        }
+
     async def get_oportunidades_list(self, conn, user_context: dict, tab: str = "activos", q: str = None, limit: int = 15, subtab: str = None) -> List[dict]:
         """Recupera lista filtrada de oportunidades con permisos y paginación."""
         user_id = user_context.get("user_db_id")  # CORREGIDO: era "user_id"
@@ -457,7 +565,7 @@ class ComercialService:
         
         logger.debug(f"Consultando oportunidades - Tab: {tab}, Filtro: {q}, Usuario: {user_id}")
 
-        # OPTIMIZACIÓN: Cargar IDs de catálogos una sola vez
+        # Cargar IDs de catálogos
         cats = await self.get_catalog_ids(conn)
 
         query = """
@@ -482,7 +590,7 @@ class ComercialService:
         params = []
         param_idx = 1
 
-        # Filtro por tab (OPTIMIZADO: usa IDs en lugar de LOWER(nombre))
+        # Filtro por tab (Usa IDs)
         if tab == "historial":
             # Subtabs para historial: entregado vs cancelado-perdido
             if not subtab or subtab == 'entregado':
@@ -515,7 +623,7 @@ class ComercialService:
                 
             # Sub-filtro por subtab
             if subtab == 'realizados':
-                # FIX: 'Realizado' no existe en DB, usamos 'Entregado'
+                # 'Realizado' no existe en DB, usamos 'Entregado'
                 id_entregado = cats['estatus'].get('entregado')
                 if id_entregado:
                     query += f" AND o.id_estatus_global = ${param_idx}"
@@ -585,11 +693,54 @@ class ComercialService:
         """Marca una oportunidad como enviada por email."""
         logger.info(f"Marcando oportunidad {id_oportunidad} como enviada por email")
         await conn.execute("UPDATE tb_oportunidades SET email_enviado = TRUE WHERE id_oportunidad = $1", id_oportunidad)
+    
+    async def update_oportunidad_prioridad(
+        self, 
+        conn, 
+        id_oportunidad: UUID, 
+        prioridad: str
+    ) -> None:
+        """
+        Updates the priority of an opportunity.
+        
+        Args:
+            conn: Database connection
+            id_oportunidad: UUID of the opportunity
+            prioridad: Priority value ('normal', 'alta', 'baja')
+        """
+        await conn.execute(
+            "UPDATE tb_oportunidades SET prioridad = $1 WHERE id_oportunidad = $2",
+            prioridad,
+            id_oportunidad
+        )
+        logger.info(f"Prioridad actualizada a '{prioridad}' para oportunidad {id_oportunidad}")
+    
+    async def check_user_has_access_token(
+        self, 
+        conn, 
+        user_db_id: UUID
+    ) -> bool:
+        """
+        Checks if a user has a valid access token stored.
+        
+        Args:
+            conn: Database connection
+            user_db_id: User's database ID
+            
+        Returns:
+            True if user has an access token, False otherwise
+        """
+        has_token = await conn.fetchval(
+            """SELECT CASE WHEN access_token IS NOT NULL THEN true ELSE false END 
+               FROM tb_usuarios WHERE id_usuario = $1""",
+            user_db_id
+        )
+        return has_token or False
 
     async def create_followup_oportunidad(self, parent_id: UUID, nuevo_tipo_solicitud: str, prioridad: str, conn, user_id: UUID, user_name: str) -> UUID:
-        """Crea seguimiento clonando padre + sitios (Versión Corregida)."""
+        """Crea seguimiento clonando padre + sitios."""
         
-        # 1. FUENTE DE VERDAD TEMPORAL (Corrección Zona Horaria)
+        # Fuente de verdad temporal (Corrección Zona Horaria)
         # Obtenemos la hora con timezone de México. Asyncpg la convertirá a UTC al guardar.
         now_mx = await self.get_current_datetime_mx(conn)
 
@@ -597,7 +748,7 @@ class ComercialService:
         if not parent: 
             raise HTTPException(status_code=404, detail="Oportunidad original no encontrada")
 
-        # CORRECCIÓN CRÍTICA: Convertir string de tipo_solicitud a ID
+        # Convertir string de tipo_solicitud a ID
         # El parámetro nuevo_tipo_solicitud viene como "OFERTA_FINAL", "ACTUALIZACION", etc.
         id_tipo_solicitud = await conn.fetchval(
             "SELECT id FROM tb_cat_tipos_solicitud WHERE UPPER(codigo_interno) = UPPER($1)",
@@ -611,7 +762,7 @@ class ComercialService:
         timestamp_id = now_mx.strftime('%y%m%d%H%M')
         op_id_estandar_new = f"OP - {timestamp_id}"
         
-        # CORRECCIÓN: Calcular es_fuera_horario para seguimientos (antes faltaba)
+        # Calcular es_fuera_horario para seguimientos (antes faltaba)
         es_fuera_horario = await self.calcular_fuera_de_horario(conn, now_mx)
         deadline = await self.calcular_deadline_inicial(conn, now_mx)
         
@@ -619,15 +770,15 @@ class ComercialService:
         nombre_tipo = await conn.fetchval("SELECT nombre FROM tb_cat_tipos_solicitud WHERE id = $1", id_tipo_solicitud)
         nombre_tec = await conn.fetchval("SELECT nombre FROM tb_cat_tecnologias WHERE id = $1", parent['id_tecnologia'])
         
-        # Título completo con el MISMO formato que la creación inicial (línea 344)
+        # Título completo con el MISMO formato que la creación inicial
         titulo_new = f"{nombre_tipo}_{parent['cliente_nombre']}_{parent['nombre_proyecto']}_{nombre_tec}_{parent['canal_venta']}".upper()
 
-        # CORRECCIÓN "MAGIC NUMBER": Obtener ID dinámico
+        # Obtener ID dinámico
         cats = await self.get_catalog_ids(conn)
         id_status_inicial = cats['estatus'].get('pendiente') or 1
 
-        # CORRECCIÓN: Agregar id_tecnologia que faltaba en seguimientos
-        # CORRECCIÓN QUERY: Usar placeholders $22 y $23 para evitar hardcodeo
+        # Agregar id_tecnologia que faltaba en seguimientos
+        # Usar placeholders $22 y $23
         query_insert = """
             INSERT INTO tb_oportunidades (
                 id_oportunidad, creado_por_id, parent_id,
@@ -699,10 +850,10 @@ class ComercialService:
         """
         Calcula KPIs y datos para gráficos del Dashboard Comercial.
         """
-        user_id = user_context.get("user_db_id")  # CORREGIDO: era "user_id"
+        user_id = user_context.get("user_db_id")
         role = user_context.get("role", "USER")
         
-        # 1. Filtros de Seguridad
+        # Filtros de Seguridad
         params = []
         conditions = ["o.email_enviado = true"] # Solo activas en sistema
         
@@ -716,7 +867,7 @@ class ComercialService:
         # Cargar catálogos para búsquedas
         cats = await self.get_catalog_ids(conn)
         
-        # 2. Queries de KPIs (OPTIMIZADO: 1 solo viaje a BD)
+        # Queries de KPIs
         
         # Preparamos los IDs y parámetros adicionales
         id_ganada = cats['estatus'].get('ganada')
@@ -746,7 +897,7 @@ class ComercialService:
         ganadas = row_kpis['ganadas']
         perdidas = row_kpis['perdidas']
         
-        # 3. Datos para Gráficas
+        # Datos para Gráficas
         
         # A) Semana Actual Completa (7 días, Lun-Dom, con ceros)
         q_week = f"""
@@ -890,16 +1041,17 @@ class ComercialService:
                 "perdidas": perdidas
             },
             "charts": {
-                "week": chart_week,           # NUEVO: Semana actual 
-                "monthly": chart_monthly,      # NUEVO: Evolución 6 meses
-                "mix": chart_mix,              # EXISTENTE: Mix tecnológico
-                "status": chart_status         # NUEVO: Estado pipeline
+                "week": chart_week,           # Semana actual 
+                "monthly": chart_monthly,      # Evolución 6 meses
+                "mix": chart_mix,              # Mix tecnológico
+                "status": chart_status         # Estado pipeline
             }
         }
 
-    async def get_comentarios_simulacion(self, conn, id_oportunidad: UUID) -> List[dict]:
+    async def get_comentarios_workflow(self, conn, id_oportunidad: UUID) -> List[dict]:
         """
-        Obtiene comentarios de simulación ordenados por fecha (más reciente primero).
+        Obtiene el historial unificado de comentarios.
+        Usa tb_comentarios_workflow (la única fuente de verdad).
         
         Args:
             conn: Conexión a la base de datos
@@ -910,13 +1062,13 @@ class ComercialService:
         """
         rows = await conn.fetch("""
             SELECT 
-                bs.comentario,
-                bs.usuario_email,
-                bs.etapa,
-                bs.fecha_comentario
-            FROM tb_bitacora_simulacion bs
-            WHERE bs.id_oportunidad = $1
-            ORDER BY bs.fecha_comentario DESC
+                comentario,
+                usuario_nombre,
+                modulo_origen,
+                fecha_comentario AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City' as fecha_comentario
+            FROM tb_comentarios_workflow
+            WHERE id_oportunidad = $1
+            ORDER BY fecha_comentario DESC
         """, id_oportunidad)
         return [dict(r) for r in rows]
 
@@ -963,14 +1115,14 @@ class ComercialService:
         
         return bess_data
 
-    # --- NUEVOS MÉTODOS MIGRADOS DEL ROUTER (Refactorización) ---
-
+    # --- MÉTODOS MIGRADOS DEL ROUTER ---
+    
     async def get_data_for_email_form(self, conn, id_oportunidad: UUID) -> dict:
         """
         Prepara TODOS los datos necesarios para el formulario de correo (Paso 3).
         Incluye lógica de reglas de negocio (triggers) para TO/CC automáticos.
         """
-        # 1. Query Principal con Joins
+        # Query Principal con Joins
         row = await conn.fetchrow(
             """SELECT o.*, 
                     tec.nombre as tipo_tecnologia,
@@ -996,10 +1148,10 @@ class ComercialService:
         if not row:
             return None
 
-        # 2. Sitios
+        # Sitios
         sitios_rows = await conn.fetch("SELECT * FROM tb_sitios_oportunidad WHERE id_oportunidad = $1 ORDER BY nombre_sitio", id_oportunidad)
         
-        # 3. Lógica de Defaults y Reglas
+        # Lógica de Defaults y Reglas
         defaults_row = await conn.fetchrow("SELECT * FROM tb_email_defaults WHERE id = 1")
         def_to = (defaults_row['default_to'] or "").replace(";", ",").split(",") if defaults_row else []
         def_cc = (defaults_row['default_cc'] or "").replace(";", ",").split(",") if defaults_row else []
@@ -1036,7 +1188,7 @@ class ComercialService:
                 else:
                     if email not in fixed_cc: fixed_cc.append(email)
 
-        # 4. Formatear Objetivos BESS
+        # Formatear Objetivos BESS
         bess_objetivos_str = ""
         raw_objs = row.get('objetivos_json')
         if raw_objs:
@@ -1061,12 +1213,79 @@ class ComercialService:
             "is_followup": row.get('es_seguimiento', False)
         }
 
+    async def get_email_recipients_context(
+        self,
+        conn,
+        recipients_str: str,
+        fixed_to: List[str],
+        fixed_cc: List[str],
+        extra_cc: str
+    ) -> dict:
+        """
+        Consolida lógica de destinatarios TO, CC, BCC incluyendo reglas de negocio.
+        Encapsula consultas a tb_email_defaults.
+        
+        Args:
+            conn: Conexión a BD
+            recipients_str: String de destinatarios manuales (chips)
+            fixed_to: Lista de destinatarios TO fijos (desde reglas)
+            fixed_cc: Lista de destinatarios CC fijos (desde reglas)
+            extra_cc: String de CC adicionales manuales
+            
+        Returns:
+            Dict con listas TO, CC, BCC limpias y deduplicadas
+        """
+        # Procesar TO
+        final_to = set()
+        
+        # Chips manuales
+        if recipients_str:
+            raw_list = recipients_str.replace(",", ";").split(";")
+            for email in raw_list:
+                if email.strip():
+                    final_to.add(email.strip())
+        
+        # Fixed rules
+        for email in fixed_to:
+            if email.strip():
+                final_to.add(email.strip())
+        
+        # Procesar CC
+        final_cc = set()
+        
+        # Fixed rules
+        for email in fixed_cc:
+            if email.strip():
+                final_cc.add(email.strip())
+        
+        # Manual input
+        if extra_cc:
+            raw_cc = extra_cc.replace(",", ";").split(";")
+            for email in raw_cc:
+                if email.strip():
+                    final_cc.add(email.strip())
+        
+        # Procesar BCC (desde tb_email_defaults)
+        final_bcc = set()
+        defaults = await conn.fetchrow("SELECT * FROM tb_email_defaults ORDER BY id LIMIT 1")
+        if defaults:
+            def_cco = (defaults['default_cco'] or "").upper().replace(",", ";").split(";")
+            for email in def_cco:
+                if email.strip():
+                    final_bcc.add(email.strip())
+        
+        return {
+            "to": list(final_to),
+            "cc": list(final_cc),
+            "bcc": list(final_bcc)
+        }
+
     async def preview_site_upload(self, conn, file_contents: bytes, id_oportunidad: UUID) -> dict:
         """
         Procesa el Excel en memoria y valida estructura/cantidad.
         Retorna dict con datos para previsualización o raises HTTPException.
         """
-        # 1. Validar Cantidad Esperada en BD
+        # Validar Cantidad Esperada en BD
         expected_qty = await conn.fetchval(
             "SELECT cantidad_sitios FROM tb_oportunidades WHERE id_oportunidad = $1", 
             id_oportunidad
@@ -1074,7 +1293,7 @@ class ComercialService:
         if expected_qty is None:
             raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
 
-        # 2. Leer Excel
+        # Leer Excel
         try:
             wb = load_workbook(filename=io.BytesIO(file_contents), data_only=True)
             ws = wb.active
@@ -1094,12 +1313,13 @@ class ComercialService:
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Error leyendo Excel: {str(e)}")
 
-        # 3. Validaciones de Negocio
+        # Validaciones de Negocio
         cols_req = ["NOMBRE", "DIRECCION"]
         if not all(col in headers for col in cols_req):
             missing = ", ".join([c for c in cols_req if c not in headers])
             raise HTTPException(status_code=400, detail=f"Faltan columnas: {missing}")
 
+        # Validar consistencia
         if len(full_data_list) != expected_qty:
             raise HTTPException(status_code=400, detail=f"Cantidad incorrecta. Esperados: {expected_qty}, Encontrados: {len(full_data_list)}")
 
@@ -1118,7 +1338,7 @@ class ComercialService:
             raise HTTPException(status_code=400, detail="JSON corrupto")
 
         records = []
-        # 1. Preparar datos en memoria primero (Fail Fast)
+        # Preparar datos en memoria primero
         for item in raw_data:
             try:
                 # Usar Schema Pydantic para validación
@@ -1131,7 +1351,7 @@ class ComercialService:
                 logger.warning(f"Saltando fila inválida: {e}")
                 continue
 
-        # 2. Ejecutar Bloque Atómico
+        # Ejecutar Bloque Atómico
         # Si algo falla aquí, Postgres hace rollback automático del DELETE
         async with conn.transaction():
             # Limpiar anteriores
@@ -1148,7 +1368,7 @@ class ComercialService:
         """Elimina un sitio específico."""
         await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_sitio = $1", id_sitio)
 
-    # --- MÉTODOS DE LIMPIEZA DE DEUDA TÉCNICA ---
+    # --- MÉTODOS DE LIMPIEZA ---
 
     async def get_sitios_simple(self, conn, id_oportunidad: UUID) -> List[dict]:
         """Obtiene lista simple de sitios para la UI (Partial)."""
@@ -1189,15 +1409,23 @@ class ComercialService:
                 detail="No se puede eliminar: La oportunidad ya tiene Proyectos o Registros asociados."
             )
 
-# Helper para inyección de dependencias
-    # --- NUEVO MÉTODO DE NOTIFICACIÓN ---
-    async def enviar_notificacion_extraordinaria(self, conn, ms_auth, token: str, id_oportunidad: UUID, base_url: str):
+    # Helper para inyección de dependencias
+    # --- MÉTODO DE NOTIFICACIÓN ---
+    async def enviar_notificacion_extraordinaria(self, conn, ms_auth, token: str, id_oportunidad: UUID, base_url: str, user_email: str):
         """
         Envía notificación automática para solicitudes extraordinarias.
         Busca reglas configuradas con trigger EVENTO=EXTRAORDINARIA.
+        
+        Args:
+            conn: Conexión a base de datos
+            ms_auth: Instancia de MicrosoftAuth
+            token: Access token de Graph API
+            id_oportunidad: UUID de la oportunidad
+            base_url: URL base de la aplicación
+            user_email: Email del usuario que crea la solicitud (para from_email)
         """
         try:
-            # 1. Buscar reglas de destinatarios usando la constante
+            # Buscar reglas de destinatarios usando la constante
             reglas = await conn.fetch("""
                 SELECT email_to_add, type 
                 FROM tb_config_emails 
@@ -1210,7 +1438,7 @@ class ComercialService:
                 logger.info(f"No hay reglas de notificación configuradas para evento {EVENTO_EXTRAORDINARIA}. Omitiendo correo.")
                 return
 
-            # 2. Obtener datos de la oportunidad para el template
+            # Obtener datos de la oportunidad para el template
             op_data = await conn.fetchrow("""
                 SELECT 
                     o.op_id_estandar, o.id_interno_simulacion, o.cliente_nombre, o.nombre_proyecto, o.solicitado_por,
@@ -1224,11 +1452,16 @@ class ComercialService:
             if not op_data:
                 return
 
-            # 3. Preparar destinatarios
+            # Preparar destinatarios
             recipients = [r['email_to_add'] for r in reglas if r['type'] == 'TO']
             cc_recipients = [r['email_to_add'] for r in reglas if r['type'] == 'CC']
             
-            # 4. Renderizar Template
+            # LOG DETALLADO para diagnóstico
+            logger.info(f"EXTRAORDINARIA {op_data['op_id_estandar']}: Destinatarios TO: {recipients}")
+            logger.info(f"EXTRAORDINARIA {op_data['op_id_estandar']}: Destinatarios CC: {cc_recipients}")
+            logger.info(f"EXTRAORDINARIA {op_data['op_id_estandar']}: FROM (usuario): {user_email}")
+            
+            # Renderizar Template
             templates = Jinja2Templates(directory="templates")
             template = templates.get_template("comercial/emails/notification_extraordinaria.html")
             html_body = template.render({
@@ -1236,11 +1469,14 @@ class ComercialService:
                 "dashboard_url": f"{base_url}/comercial/ui"
             })
 
-            # 5. Enviar Correo (Asunto limpio, sin emojis)
+            # Enviar Correo
             subject = f"Nueva Solicitud Extraordinaria: {op_data['op_id_estandar']} - {op_data['cliente_nombre']}"
+            
+            logger.info(f"Enviando correo extraordinario con asunto: {subject}")
             
             success, msg = ms_auth.send_email_with_attachments(
                 access_token=token,
+                from_email=user_email,  # CRÍTICO: Agregar from_email
                 subject=subject,
                 body=html_body,
                 recipients=recipients,

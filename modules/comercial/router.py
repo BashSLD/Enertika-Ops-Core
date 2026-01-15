@@ -6,8 +6,8 @@ from typing import Optional, List
 import io
 import logging
 import pandas as pd
+import asyncpg
 
-# --- Imports de Core ---
 from core.database import get_db_connection
 from core.microsoft import get_ms_auth
 from core.security import get_current_user_context, get_valid_graph_token
@@ -15,16 +15,14 @@ from core.permissions import require_module_access
 from .schemas import OportunidadCreateCompleta, DetalleBessCreate
 from .service import ComercialService, get_comercial_service
 from .email_handler import EmailHandler, get_email_handler
+from .file_utils import validate_file_size
 
-# Import Workflow Service (Centralizado)
 from core.workflow.service import get_workflow_service
 
-# Configuración básica de logging
 logger = logging.getLogger("ComercialModule")
 
 templates = Jinja2Templates(directory="templates")
 
-# Registrar filtros de timezone (México)
 from core.jinja_filters import register_timezone_filters
 register_timezone_filters(templates.env)
 
@@ -34,15 +32,12 @@ router = APIRouter(
 )
 
 
-# ----------------------------------------
-# ENDPOINTS
-# ----------------------------------------
 
 @router.head("/ui", include_in_schema=False)
 async def check_comercial_ui(
     request: Request,
     context = Depends(get_current_user_context),
-    _ = require_module_access("comercial")  # VALIDACIÓN DE ACCESO
+    _ = require_module_access("comercial")
 ):
     """Heartbeat endpoint to check session status without rendering."""
     return HTMLResponse("", status_code=200)
@@ -50,16 +45,14 @@ async def check_comercial_ui(
 @router.get("/ui", include_in_schema=False)
 async def get_comercial_ui(
     request: Request,
-    context = Depends(get_current_user_context),  # Usar dependencia completa
-    _ = require_module_access("comercial")  # VALIDACIÓN DE ACCESO
+    context = Depends(get_current_user_context),
+    _ = require_module_access("comercial")
 ):
     """Main Entry: Shows the Tabbed Dashboard (Graphs + Records)."""
     user_name = context.get("user_name", "Usuario")
     role = context.get("role", "USER")
     
-    # Detección inteligente de contexto:
-    # 1. Si es HTMX (Navegación parcial desde Sidebar), devolvemos solo contenido interno (tabs.html)
-    # 2. Si es Carga Completa (F5 o URL directa), devolvemos el wrapper completo (dashboard.html)
+    # Detección inteligente: HTMX devuelve tabs.html, carga completa devuelve dashboard.html
     if request.headers.get("hx-request"):
         template = "comercial/tabs.html"
     else:
@@ -68,9 +61,9 @@ async def get_comercial_ui(
     return templates.TemplateResponse(template, {
         "request": request,
         "user_name": user_name,
-        "role": role,  # Pasar rol de sistema para el sidebar
-        "module_roles": context.get("module_roles", {}),  # IMPORTANTE para el sidebar
-        "current_module_role": context.get("module_roles", {}).get("comercial", "viewer")  # Rol específico en este módulo
+        "role": role,
+        "module_roles": context.get("module_roles", {}),
+        "current_module_role": context.get("module_roles", {}).get("comercial", "viewer")
     }, headers={"HX-Title": "Enertika Ops Core | Comercial"})
 
 @router.head("/form", include_in_schema=False)
@@ -80,18 +73,16 @@ async def get_comercial_form(
     user_context = Depends(get_current_user_context),
     conn = Depends(get_db_connection),
     service: ComercialService = Depends(get_comercial_service),
-    _ = require_module_access("comercial", "editor")  # REQUIERE ROL EDITOR O SUPERIOR
+    _ = require_module_access("comercial", "editor")
 ):
     """Shows the creation form (Partial or Full Page)."""
     
-    # Validación Estricta: Si no hay email, cortamos aquí.
+    # Validar email
     if not user_context.get("email"):
         # Retornamos 401 SIN redirección automática. HTMX lo atrapará.
         return HTMLResponse(status_code=401)
     
-    # PREVENCIÓN CRÍTICA: Validar token ANTES de mostrar formulario
-    # Esto evita que el usuario pierda su trabajo si el token expira mientras lo llena.
-    # Si el token está cerca de expirar, get_valid_graph_token lo renovará automáticamente.
+    # Validar token antes de mostrar formulario para prevenir pérdida de datos
     token = await get_valid_graph_token(request)
     if not token:
         # Token expirado y no se pudo renovar - redirigir al login AHORA
@@ -107,11 +98,8 @@ async def get_comercial_form(
     if request.query_params.get('legacy_term'):
         catalogos = await service.get_catalogos_ui(conn)  # TODOS los tipos
         
-        # Buscar ACTUALIZACIÓN directamente en BD por codigo_interno (más confiable que regex)
-        tipo_act = await conn.fetchrow(
-            "SELECT id, nombre FROM tb_cat_tipos_solicitud WHERE codigo_interno = 'ACTUALIZACION' AND activo = true"
-        )
-        catalogos['tipo_actualizacion_id'] = tipo_act['id'] if tipo_act else None
+        # Delegar búsqueda de ACTUALIZACIÓN al Service Layer
+        catalogos['tipo_actualizacion_id'] = await service.get_id_tipo_actualizacion(conn)
     else:
         catalogos = await service.get_catalogos_creacion(conn, include_simulacion=False)  # Filtrado (PRE_OFERTA, LICITACION)
 
@@ -150,13 +138,10 @@ async def get_cards_partial(
 ):
     """Partial: List of Opportunities (Cards/Grid)."""
     
-    # OPTIMIZACIÓN: Token se obtiene solo cuando el usuario hace click en "Enviar Correo"
-    # Esto evita una llamada HTTP a Microsoft Graph en cada cambio de pestaña
-    # El token se validará en tiempo real cuando se necesite (lazy loading)
-    # Validamos existencia de token en BD sin exponer el string sensible
-    has_valid_token = await conn.fetchval(
-        """SELECT CASE WHEN access_token IS NOT NULL THEN true ELSE false END 
-           FROM tb_usuarios WHERE id_usuario = $1""",
+    # Validar existencia de token sin exponerlo (para botón de envío)
+    # Evita llamadas innecesarias a Graph API en cada carga
+    has_valid_token = await service.check_user_has_access_token(
+        conn, 
         user_context['user_db_id']
     )
     
@@ -231,12 +216,12 @@ async def notificar_oportunidad(
     body: str = Form(""),           # Mensaje adicional del usuario
     auto_message: str = Form(...),  # Mensaje automático
     prioridad: str = Form("normal"),  # Prioridad del email
-    legacy_search_term: Optional[str] = Form(None),  # NUEVO: Capturar término legacy
+    legacy_search_term: Optional[str] = Form(None),  # Capturar término legacy
     archivos_extra: List[UploadFile] = File(default=[]),
     service: ComercialService = Depends(get_comercial_service),
     ms_auth = Depends(get_ms_auth),
     conn = Depends(get_db_connection),
-    email_handler = Depends(get_email_handler),  # NUEVO: Inyectar EmailHandler
+    email_handler = Depends(get_email_handler),  # Inyectar EmailHandler
     context = Depends(get_current_user_context)
 ):
     """Envía el correo de notificación usando el token de la sesión."""
@@ -332,7 +317,7 @@ async def handle_oportunidad_creation(
     bess_autonomia: Optional[str] = Form(None),
     bess_voltaje: Optional[str] = Form(None),
     bess_planta_emergencia: bool = Form(False),
-    bess_cargas_separadas: Optional[bool] = Form(False), # NUEVO CAMPO
+    bess_cargas_separadas: Optional[bool] = Form(False), # Campo opcional
     bess_objetivos: List[str] = Form([]),  # Recibe lista de checkboxes
 
     # --- Campo Legacy (Homologación) ---
@@ -344,13 +329,13 @@ async def handle_oportunidad_creation(
     context = Depends(get_current_user_context)
 ):
     try:
-        # 1. Seguridad Token
+        # Seguridad Token
         token = await get_valid_graph_token(request)
         if not token: 
             from fastapi import Response
             return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
 
-        # 2. Construir Objeto BESS (Pydantic v2)
+        # Construir Objeto BESS
         # Solo si se enviaron datos relevantes o la tecnología implica BESS
         datos_bess = None
         if bess_cargas_criticas or bess_tiene_motores or bess_objetivos:
@@ -367,25 +352,13 @@ async def handle_oportunidad_creation(
                 tiene_planta_emergencia=bess_planta_emergencia
             )
 
-        # 3. Validar Permiso Fecha Manual
+        # Validar Permiso Fecha Manual
         role = context.get("role")
         fecha_final_str = None
         if role in ['ADMIN', 'MANAGER']:
             fecha_final_str = fecha_manual
         
-        # 3.5 MODO HOMOLOGACIÓN: Forzar tipo ACTUALIZACIÓN
-        # Si viene legacy_search_term, sobrescribir id_tipo_solicitud
-        if legacy_search_term:
-            id_tipo_actualizacion = await conn.fetchval(
-                "SELECT id FROM tb_cat_tipos_solicitud WHERE UPPER(codigo_interno) = 'ACTUALIZACION'"
-            )
-            if id_tipo_actualizacion:
-                id_tipo_solicitud = id_tipo_actualizacion
-                logger.info(f"MODO HOMOLOGACIÓN: Tipo de solicitud forzado a ACTUALIZACIÓN")
-            else:
-                logger.warning("No se encontró tipo ACTUALIZACIÓN en catálogo, usando el seleccionado por usuario")
-
-        # 4. Construir Objeto Principal (Pydantic v2)
+        # Construir Objeto Principal
         from .schemas import OportunidadCreateCompleta
         oportunidad_data = OportunidadCreateCompleta(
             nombre_proyecto=nombre_proyecto,
@@ -403,12 +376,13 @@ async def handle_oportunidad_creation(
             detalles_bess=datos_bess
         )
 
-        # 5. Ejecutar Transacción en Servicio
+        # Ejecutar Transacción en Servicio
+        # Router solo delega, Service Layer maneja la lógica de homologación
         new_id, op_id_estandar, es_fuera_horario = await service.crear_oportunidad_transaccional(
-            conn, oportunidad_data, context
+            conn, oportunidad_data, context, legacy_search_term=legacy_search_term
         )
 
-        # 6. Redirección (Lógica Multisitos vs Unisitio)
+        # Redirección (Lógica Multisitos vs Unisitio)
         if cantidad_sitios == 1:
             # Auto-creación de sitio único (Legacy logic mantenida por consistencia)
             await service.auto_crear_sitio_unico(
@@ -430,12 +404,25 @@ async def handle_oportunidad_creation(
         from fastapi import Response
         return Response(status_code=200, headers={"HX-Redirect": f"{target_url}{params}"})
 
-    except Exception as e:
-        logger.error(f"Error en creación de oportunidad: {e}")
-        # En producción, mejorar el manejo de error para no exponer detalles técnicos
+    except asyncpg.PostgresError as pe:
+        logger.error(f"Error de base de datos en creación de oportunidad: {pe}")
         return templates.TemplateResponse(
             "comercial/error_message.html", 
-            {"request": request, "detail": str(e)},
+            {"request": request, "detail": "Error de base de datos. Contacte al administrador."},
+            status_code=500
+        )
+    except ValueError as ve:
+        logger.warning(f"Error de validación en creación de oportunidad: {ve}")
+        return templates.TemplateResponse(
+            "comercial/error_message.html", 
+            {"request": request, "detail": str(ve)},
+            status_code=400
+        )
+    except Exception as e:
+        logger.exception(f"Error inesperado en creación de oportunidad: {e}")
+        return templates.TemplateResponse(
+            "comercial/error_message.html", 
+            {"request": request, "detail": "Error inesperado. Por favor intente nuevamente."},
             status_code=500
         )
 
@@ -513,11 +500,11 @@ async def handle_oportunidad_extraordinaria(
     conn = Depends(get_db_connection),
     service: ComercialService = Depends(get_comercial_service),
     context = Depends(get_current_user_context),
-    ms_auth = Depends(get_ms_auth)  # INYECCIÓN NUEVA
+    ms_auth = Depends(get_ms_auth)  # Inyección de dependencia
 ):
     """Procesa solicitud extraordinaria y envía notificación automática."""
     try:
-        # 1. Seguridad: Validar rol ADMIN/MANAGER
+        # Seguridad: Validar rol ADMIN/MANAGER
         role = context.get("role")
         if role not in ['ADMIN', 'MANAGER']:
             from fastapi import HTTPException
@@ -529,7 +516,7 @@ async def handle_oportunidad_extraordinaria(
             from fastapi import Response
             return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
 
-        # 2. Construir Objeto BESS (si aplica)
+        # Construir Objeto BESS (si aplica)
         datos_bess = None
         if bess_cargas_criticas or bess_tiene_motores or bess_objetivos:
             from .schemas import DetalleBessCreate
@@ -544,7 +531,7 @@ async def handle_oportunidad_extraordinaria(
                 tiene_planta_emergencia=bess_planta_emergencia
             )
 
-        # 3. Construir Objeto Principal
+        # Construir Objeto Principal
         from .schemas import OportunidadCreateCompleta
         oportunidad_data = OportunidadCreateCompleta(
             nombre_proyecto=nombre_proyecto,
@@ -562,15 +549,15 @@ async def handle_oportunidad_extraordinaria(
             detalles_bess=datos_bess
         )
 
-        # 4. Ejecutar Transacción en Servicio
+        # Ejecutar Transacción en Servicio
         new_id, op_id_estandar, es_fuera_horario = await service.crear_oportunidad_transaccional(
             conn, oportunidad_data, context
         )
         
-        # 5. MARCAR COMO EXTRAORDINARIA: email_enviado = TRUE
+        # Marcar como extraordinaria: email_enviado = TRUE
         await service.marcar_extraordinaria_enviada(conn, new_id)
         
-        # --- NUEVO: ENVÍO DE NOTIFICACIÓN AUTOMÁTICA ---
+        # --- ENVÍO DE NOTIFICACIÓN AUTOMÁTICA ---
         # Recuperamos la URL base para el link del correo
         base_url = str(request.base_url).rstrip('/')
         
@@ -580,13 +567,14 @@ async def handle_oportunidad_extraordinaria(
             ms_auth=ms_auth,
             token=token,
             id_oportunidad=new_id,
-            base_url=base_url
+            base_url=base_url,
+            user_email=context['user_email']  # Agregar email del usuario para from_email
         )
         # -----------------------------------------------
         
         logger.info(f"Solicitud extraordinaria {op_id_estandar} creada y notificada.")
 
-        # 6. Redirección (Lógica Multisitos vs Unisitio)
+        # Redirección (Lógica Multisitos vs Unisitio)
         if cantidad_sitios == 1:
             await service.auto_crear_sitio_unico(
                 conn, new_id, nombre_proyecto, direccion_obra, google_maps_link
@@ -608,7 +596,6 @@ async def handle_oportunidad_extraordinaria(
             status_code=500
         )
 
-# (El endpoint de Excel se mantiene igual, asegúrate de que esté incluido en tu archivo)
 @router.delete("/{id_oportunidad}", response_class=HTMLResponse)
 async def cancelar_oportunidad(
     request: Request,
@@ -618,25 +605,23 @@ async def cancelar_oportunidad(
 ):
     """Elimina borrador y fuerza una recarga completa al Dashboard."""
     
-    # 1. Protección de Sesión con Token Inteligente
+    # Protección de Sesión
     access_token = await get_valid_graph_token(request)
     if not access_token:
         # Token expirado y no se pudo renovar
         from fastapi import Response
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
         
-    # 2. Borrar datos en BD via Service
+    # Borrar datos en BD via Service
     await service.cancelar_oportunidad(conn, id_oportunidad)
     
-    # 3. CAMBIO CLAVE: Usamos HX-Redirect en lugar de HX-Location
-    # HX-Redirect obliga al navegador a cambiar de URL (como un F5 + ir a nueva página)
-    # Esto limpia la memoria y carga los estilos/scripts correctamente.
+    # Usar HX-Redirect para recarga completa y limpieza de memoria
     from fastapi import Response
     return Response(status_code=200, headers={"HX-Redirect": "/comercial/ui"}) 
 
 
 # ----------------------------------------
-# NEW ENDPOINTS FOR STEP 3 & DEBUG
+# Endpoints para Paso 3
 # ----------------------------------------
 
 @router.get("/paso3/{id_oportunidad}", include_in_schema=False)
@@ -666,7 +651,7 @@ async def get_paso3_email_form(
     })
 
 # ----------------------------------------
-# NUEVOS ENDPOINTS PARA EXCEL PREVIEW
+# Endpoints para Previsualización de Excel
 # ----------------------------------------
 
 @router.post("/upload-preview", response_class=HTMLResponse)
@@ -680,9 +665,8 @@ async def upload_preview_endpoint(
 ):
     """Procesa previsualización de Excel (Lógica movida al Service)."""
     try:
-        # Validaciones básicas HTTP
-        if file.size > 10 * 1024 * 1024:
-             return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {"request": request, "title": "Error", "message": "Archivo > 10MB"})
+        # Validación de tamaño usando utilidad centralizada
+        validate_file_size(file, max_size_mb=10)
         
         contents = await file.read()
         uuid_op = UUID(id_oportunidad)
@@ -765,7 +749,7 @@ async def crear_seguimiento(
     prioridad: str = Form(...),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
-    # CORRECCIÓN DE SEGURIDAD: Validar permisos explícitamente
+    # Validar permisos explícitamente
     _ = require_module_access("comercial", "editor"),
     user_context = Depends(get_current_user_context)
 ):

@@ -391,24 +391,31 @@ class SimulacionService:
         row = await conn.fetchrow("SELECT * FROM tb_detalles_bess WHERE id_oportunidad = $1", id_oportunidad)
         return dict(row) if row else None
         
-    async def add_comentario_simulacion(self, conn, id_oportunidad: UUID, comentario: str, user_context: dict):
-        """Agrega un comentario a la bitácora."""
-        query = """
-            INSERT INTO tb_bitacora_simulacion 
-            (id_oportunidad, comentario, usuario_email, etapa, fecha_comentario)
-            VALUES ($1, $2, $3, 'Simulacion', NOW())
-        """
-        # Usamos email o nombre del usuario como identificador
-        usuario = user_context.get("email") or user_context.get("user_name") or "Sistema"
-        
-        await conn.execute(query, id_oportunidad, comentario, usuario)
 
-    async def get_comentarios_simulacion(self, conn, id_oportunidad: UUID):
-         rows = await conn.fetch("""
-            SELECT comentario, usuario_email, etapa, fecha_comentario
-            FROM tb_bitacora_simulacion WHERE id_oportunidad = $1 ORDER BY fecha_comentario DESC
+
+    async def get_comentarios_workflow(self, conn, id_oportunidad: UUID) -> List[dict]:
+        """
+        Obtiene el historial unificado de comentarios.
+        Usa tb_comentarios_workflow (la única fuente de verdad).
+        
+        Args:
+            conn: Conexión a la base de datos
+            id_oportunidad: UUID de la oportunidad
+            
+        Returns:
+            Lista de diccionarios con comentarios
+        """
+        rows = await conn.fetch("""
+            SELECT 
+                comentario,
+                usuario_nombre,
+                modulo_origen,
+                fecha_comentario AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City' as fecha_comentario
+            FROM tb_comentarios_workflow
+            WHERE id_oportunidad = $1
+            ORDER BY fecha_comentario DESC
         """, id_oportunidad)
-         return [dict(r) for r in rows]
+        return [dict(r) for r in rows]
     
     async def get_catalogos_ui(self, conn) -> dict:
         tecnologias = await conn.fetch("SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre")
