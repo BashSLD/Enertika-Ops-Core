@@ -73,6 +73,7 @@ async def get_comercial_ui(
         "current_module_role": context.get("module_roles", {}).get("comercial", "viewer")  # Rol específico en este módulo
     }, headers={"HX-Title": "Enertika Ops Core | Comercial"})
 
+@router.head("/form", include_in_schema=False)
 @router.get("/form", include_in_schema=False)
 async def get_comercial_form(
     request: Request,
@@ -112,7 +113,7 @@ async def get_comercial_form(
         )
         catalogos['tipo_actualizacion_id'] = tipo_act['id'] if tipo_act else None
     else:
-        catalogos = await service.get_catalogos_creacion(conn)  # Filtrado (PRE_OFERTA, LICITACION)
+        catalogos = await service.get_catalogos_creacion(conn, include_simulacion=False)  # Filtrado (PRE_OFERTA, LICITACION)
 
     return templates.TemplateResponse("comercial/form.html", {
         "request": request, 
@@ -467,8 +468,8 @@ async def get_comercial_form_extraordinario(
     # Generar canal default
     canal_default = ComercialService.get_canal_from_user_name(user_context.get("user_name"))
     
-    # Obtener catálogos
-    catalogos = await service.get_catalogos_creacion(conn)
+    # Obtener catálogos (Incluyendo SIMULACION)
+    catalogos = await service.get_catalogos_creacion(conn, include_simulacion=True)
 
     return templates.TemplateResponse("comercial/form_extraordinario.html", {
         "request": request, 
@@ -760,7 +761,7 @@ async def get_paso_2_form(request: Request, id_oportunidad: UUID, extraordinaria
 async def crear_seguimiento(
     request: Request,
     parent_id: UUID,
-    tipo_solicitud: str = Form(...), # "COTIZACION", "ACTUALIZACION"
+    tipo_solicitud: str = Form(...), # "OFERTA_FINAL", "ACTUALIZACION"
     prioridad: str = Form(...),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),

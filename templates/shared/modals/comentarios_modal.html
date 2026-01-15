@@ -37,7 +37,26 @@
             <!-- Formulario de Nuevo Comentario (Solo si tiene permisos) -->
             {% if can_comment %}
             <form hx-post="/workflow/comentarios" hx-target="#comentarios-historial" hx-swap="innerHTML"
-                hx-encoding="multipart/form-data" hx-on::after-request="this.reset(); resetUploads();" class="mb-6">
+                hx-encoding="multipart/form-data" hx-indicator="#loading-overlay"
+                hx-on::after-request="this.reset(); resetUploads();" class="mb-6 relative">
+                <!-- relative para el overlay -->
+
+                <!-- Overlay de carga -->
+                <div id="loading-overlay"
+                    class="htmx-indicator hidden absolute inset-0 bg-white/50 backdrop-blur-[1px] flex items-center justify-center z-10 rounded-lg">
+                    <div
+                        class="flex items-center gap-2 px-4 py-2 bg-white shadow-lg rounded-full border border-blue-100">
+                        <svg class="animate-spin h-5 w-5 text-[#00BABB]" xmlns="http://www.w3.org/2000/svg" fill="none"
+                            viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                            </circle>
+                            <path class="opacity-75" fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                            </path>
+                        </svg>
+                        <span class="text-sm font-medium text-gray-600">Enviando...</span>
+                    </div>
+                </div>
 
                 <!-- Hidden fields para context -->
                 <input type="hidden" name="id_oportunidad" value="{{ id_oportunidad }}">

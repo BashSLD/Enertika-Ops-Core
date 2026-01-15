@@ -185,7 +185,8 @@
                                 </p>
                                 <ol class="text-sm text-blue-700 space-y-1 list-decimal list-inside">
                                     <li>Busca el correo antiguo en tu bandeja</li>
-                                    <li>Copia el <strong>asunto completo</strong> (e.g., "RE: Cotización...")</li>
+                                    <li>Copia el <strong>asunto completo</strong> (e.g., "RE: Solicitud Empresa X...")
+                                    </li>
                                     <li>Pégalo abajo y valida</li>
                                 </ol>
                             </div>
@@ -196,7 +197,7 @@
                                     Asunto del correo antiguo:
                                 </label>
                                 <input type="text" x-model="searchTerm" @keydown.enter="validateThread()"
-                                    placeholder='e.g., "RV: Cotización Cliente X"'
+                                    placeholder='e.g., "RV: Solicitud Empresa X"'
                                     class="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-purple-500 focus:border-purple-500">
                             </div>
 
@@ -271,7 +272,7 @@
         <input type="text" id="search-input" name="q" hx-get="/comercial/partials/cards"
             hx-trigger="keyup changed delay:500ms, search" hx-target="#tab-content" hx-include="#active_tab_input"
             class="w-full md:w-1/3 px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] transition-all"
-            placeholder="Buscar por cliente, proyecto...">
+            placeholder="Buscar por empresa, proyecto...">
     </div>
 
     <!-- Tabs Navigation -->

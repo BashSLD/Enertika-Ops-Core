@@ -30,7 +30,7 @@
                     {% if context.module_role in ['editor', 'admin'] or context.role == 'ADMIN' %}
                     <th scope="col" class="px-3 py-3.5 w-10">
                         <input type="checkbox"
-                            @change="selected.length === {{ sitios|length }} ? selected = [] : selected = [{{ sitios | map(attribute='id_sitio') | join(',') }}]"
+                            @change="selected.length === {{ sitios|length }} ? selected = [] : selected = [{% for s in sitios %}'{{ s.id_sitio }}'{% if not loop.last %},{% endif %}{% endfor %}]"
                             :checked="selected.length > 0 && selected.length === {{ sitios|length }}"
                             class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
                     </th>
@@ -46,7 +46,7 @@
                 <tr class="hover:bg-gray-50 transition-colors">
                     {% if context.module_role in ['editor', 'admin'] or context.role == 'ADMIN' %}
                     <td class="px-3 py-4 text-sm text-gray-500">
-                        <input type="checkbox" value="{{ sitio.id_sitio }}" x-model.number="selected"
+                        <input type="checkbox" value="{{ sitio.id_sitio }}" x-model="selected"
                             class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
                     </td>
                     {% endif %}

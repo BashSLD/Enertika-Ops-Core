@@ -671,6 +671,9 @@
             ])
                 .then(data => {
                     unreadCount = data.unread_count;
+                    if (window.Alpine && window.Alpine.store('notifications')) {
+                        window.Alpine.store('notifications').count = unreadCount;
+                    }
                     updateBellIcon();
                 })
                 .catch(err => {
@@ -688,7 +691,9 @@
                         console.log('[SSE] Nueva notificacion:', notification);
 
                         // Incrementar contador
-                        unreadCount++;
+                        if (unreadCount < 99) { // Avoid overflow
+                            unreadCount++;
+                        }
                         updateBellIcon();
 
                         // Mostrar toast
@@ -712,28 +717,48 @@
         }
 
         function updateBellIcon() {
-            const badge = document.getElementById('notification-badge');
-            if (!badge) return;
-
-            if (unreadCount > 0) {
-                badge.textContent = unreadCount > 99 ? '99+' : unreadCount;
-                badge.classList.remove('hidden');
-            } else {
-                badge.classList.add('hidden');
+            // Sincronizar con Alpine Store
+            if (window.Alpine && window.Alpine.store('notifications')) {
+                window.Alpine.store('notifications').count = unreadCount;
             }
+
+            // Actualizar solo texto en el DOM
+            const badgeMini = document.getElementById('notification-badge-mini');
+            const badgeNormal = document.getElementById('notification-badge');
+            const countText = unreadCount > 99 ? '99+' : unreadCount.toString();
+
+            if (badgeMini) badgeMini.textContent = countText;
+            if (badgeNormal) badgeNormal.textContent = countText;
+
+            // Eliminamos la lógica manual de style.display para no interferir con x-show de Alpine
+            // y evitar duplicidad de badges.
         }
 
         function showNotificationToast(notif) {
             const toast = document.createElement('div');
-            toast.className = 'fixed top-5 right-5 bg-white border-l-4 border-blue-500 shadow-2xl rounded-lg p-4 max-w-sm z-[9999] animate-fade-in-down';
+            // Determine border color and icon based on notification type (if available)
+            let borderColor = 'border-blue-500';
+            let icon = '🔔';
+            if (notif.tipo === 'success') {
+                borderColor = 'border-green-500';
+                icon = '✅';
+            } else if (notif.tipo === 'error') {
+                borderColor = 'border-red-500';
+                icon = '❌';
+            } else if (notif.tipo === 'warning') {
+                borderColor = 'border-yellow-500';
+                icon = '⚠️';
+            }
+
+            toast.className = `fixed top-5 right-5 bg-white border-l-4 ${borderColor} shadow-2xl rounded-lg p-4 max-w-sm z-[9999] animate-fade-in-down`;
             toast.innerHTML = `
                 <div class="flex items-start gap-3">
-                    <div class="flex-shrink-0 text-2xl">🔔</div>
+                    <div class="flex-shrink-0 text-2xl">${icon}</div>
                     <div class="flex-1">
-                        <p class="font-bold text-gray-800 text-sm">${escapeHtml(notif.title)}</p>
-                        <p class="text-sm text-gray-600 mt-1">${escapeHtml(notif.message)}</p>
+                        <p class="font-bold text-gray-800 text-sm">${escapeHtml(notif.title || notif.titulo)}</p>
+                        <p class="text-sm text-gray-600 mt-1">${escapeHtml(notif.message || notif.mensaje)}</p>
                     </div>
-                    <button onclick="this.parentElement.parentElement.remove()" 
+                    <button onclick="this.parentElement.parentElement.remove()"
                             class="text-gray-400 hover:text-gray-600 font-bold text-lg leading-none">
                         ×
                     </button>
@@ -782,6 +807,9 @@
                         throw new Error(`HTTP ${response.status}`);
                     }
                     unreadCount = Math.max(0, unreadCount - 1);
+                    if (window.Alpine && window.Alpine.store('notifications')) {
+                        window.Alpine.store('notifications').count = unreadCount;
+                    }
                     updateBellIcon();
 
                     // Actualizar visualmente el item

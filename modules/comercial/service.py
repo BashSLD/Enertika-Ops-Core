@@ -99,7 +99,7 @@ class ComercialService:
         Retorna estructura:
         {
             'estatus': {'entregado': 1, 'cancelado': 2, ...},
-            'tipos': {'pre_oferta': 1, 'licitacion': 2, 'cotizacion': 3, ...}
+            'tipos': {'pre_oferta': 1, 'licitacion': 2, 'oferta_final': 3, ...}
         }
         """
         import time
@@ -258,23 +258,34 @@ class ComercialService:
             "tipos_solicitud": [dict(t) for t in tipos]
         }
 
-    async def get_catalogos_creacion(self, conn) -> dict:
+    async def get_catalogos_creacion(self, conn, include_simulacion: bool = False) -> dict:
         """
         Carga catálogos filtrados específicamente para el Formulario de Creación (Paso 1).
-        Solo muestra 'Pre Oferta', 'Licitación' y 'Simulación'.
+        
+        Args:
+            include_simulacion: Si True, incluye 'SIMULACION' en la lista (para extraordinarias).
+                              Si False, solo 'PRE_OFERTA' y 'LICITACION' (para normal).
         """
         # 1. Tecnologías (Todas)
         tecnologias = await conn.fetch("SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre")
         
-        # 2. Tipos de Solicitud (FILTRADO: Solo Pre Oferta, Licitación y Simulación)
-        # Usamos los codigos_internos definidos en el script SQL inicial
-        tipos = await conn.fetch("""
+        # 2. Tipos de Solicitud (FILTRADO DINÁMICO)
+        # Base: PRE_OFERTA, LICITACION, LEVANTAMIENTO
+        codigos = ['PRE_OFERTA', 'LICITACION', 'LEVANTAMIENTO']
+        
+        if include_simulacion:
+            codigos.append('SIMULACION')
+            
+        # Generar placeholders para la query IN ($1, $2, ...)
+        placeholders = ",".join([f"${i+1}" for i in range(len(codigos))])
+        
+        tipos = await conn.fetch(f"""
             SELECT id, nombre 
             FROM tb_cat_tipos_solicitud 
             WHERE activo = true 
-            AND codigo_interno IN ('PRE_OFERTA', 'LICITACION', 'SIMULACION')
+            AND codigo_interno IN ({placeholders})
             ORDER BY nombre
-        """)
+        """, *codigos)
         
         return {
             "tecnologias": [dict(t) for t in tecnologias],
@@ -587,7 +598,7 @@ class ComercialService:
             raise HTTPException(status_code=404, detail="Oportunidad original no encontrada")
 
         # CORRECCIÓN CRÍTICA: Convertir string de tipo_solicitud a ID
-        # El parámetro nuevo_tipo_solicitud viene como "COTIZACION", "ACTUALIZACION", etc.
+        # El parámetro nuevo_tipo_solicitud viene como "OFERTA_FINAL", "ACTUALIZACION", etc.
         id_tipo_solicitud = await conn.fetchval(
             "SELECT id FROM tb_cat_tipos_solicitud WHERE UPPER(codigo_interno) = UPPER($1)",
             nuevo_tipo_solicitud

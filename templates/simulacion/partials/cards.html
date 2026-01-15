@@ -126,7 +126,7 @@
                                 else 200) ~ 'ms"' %} <!-- Fila principal con Alpine.js -->
                                 <tr x-data="{ confirmDelete: false }"
                                     @click="$dispatch('row-selected', '{{ op.id_oportunidad }}')"
-                                    :class="{ 'bg-blue-50 ring-2 ring-blue-400': isSelected('{{ op.id_oportunidad }}') }"
+                                    :class="{ 'bg-blue-50 ring-2 ring-blue-400': isSelected('{{ op.id_oportunidad }}'), '!bg-gray-50 !border-l-8 !border-l-[#00BABB] shadow-md': isExpanded('{{ op.id_oportunidad }}') && !isSelected('{{ op.id_oportunidad }}') }"
                                     class="hover:bg-gray-50 transition-all duration-200 border-l-4 {{ prioridad_color }} hover:shadow-md animate-fade-in-up cursor-pointer"
                                     {{ animation_delay|safe }}>
 
@@ -354,11 +354,40 @@
 
                                 <!-- Fila Expansible para Sitios (Alpine.js controla visibilidad) -->
                                 <tr x-show="isExpanded('{{ op.id_oportunidad }}')" x-transition.duration.300ms
-                                    class="bg-gray-50 border-b border-gray-200">
-                                    <td colspan="6" class="p-0">
-                                        <div id="sites-row-{{ op.id_oportunidad }}" class="w-full">
-                                            <!-- Aquí carga HTMX el contenido -->
-                                            <div class="p-4 text-center text-gray-400 text-xs">Cargando sitios...</div>
+                                    class="bg-gray-50 border-b border-gray-200 shadow-inner">
+                                    <td colspan="6" class="p-4">
+                                        <div class="ml-12 pl-6 border-l-4 border-[#00BABB] py-2">
+                                            <div class="flex items-center gap-2 mb-3">
+                                                <div class="p-1 bg-[#00BABB] rounded text-white">
+                                                    <svg class="w-4 h-4" fill="none" stroke="currentColor"
+                                                        viewBox="0 0 24 24">
+                                                        <path stroke-linecap="round" stroke-linejoin="round"
+                                                            stroke-width="2"
+                                                            d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10">
+                                                        </path>
+                                                    </svg>
+                                                </div>
+                                                <h4 class="text-sm font-bold text-gray-700">Sitios Relacionados</h4>
+                                            </div>
+
+                                            <div id="sites-row-{{ op.id_oportunidad }}"
+                                                class="w-full bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                                                <!-- Aquí carga HTMX el contenido -->
+                                                <div
+                                                    class="p-8 text-center flex flex-col items-center justify-center text-gray-400">
+                                                    <svg class="animate-spin h-8 w-8 text-[#00BABB] mb-3"
+                                                        xmlns="http://www.w3.org/2000/svg" fill="none"
+                                                        viewBox="0 0 24 24">
+                                                        <circle class="opacity-25" cx="12" cy="12" r="10"
+                                                            stroke="currentColor" stroke-width="4"></circle>
+                                                        <path class="opacity-75" fill="currentColor"
+                                                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                                        </path>
+                                                    </svg>
+                                                    <span class="text-sm font-medium">Cargando desglose de
+                                                        sitios...</span>
+                                                </div>
+                                            </div>
                                         </div>
                                     </td>
                                 </tr>

@@ -43,7 +43,7 @@
 
             <!-- 1. Nombre del Cliente (PRIMERO) -->
             <div>
-                <label class="block text-sm font-bold text-gray-700 mb-1">Nombre del Cliente *</label>
+                <label class="block text-sm font-bold text-gray-700 mb-1">Nombre de la Empresa *</label>
                 <input type="text" name="nombre_cliente" required placeholder="Ej: AMAZON MÉXICO"
                     class="w-full rounded-lg border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm">
             </div>
@@ -81,8 +81,7 @@
                     {% endfor %}
                 </select>
                 <!-- Campo oculto para enviar el valor correcto (busca ACTUALIZACIÓN en BD) -->
-                <input type="hidden" name="id_tipo_solicitud"
-                    value="{{ catalogos.tipo_actualizacion_id or '' }}">
+                <input type="hidden" name="id_tipo_solicitud" value="{{ catalogos.tipo_actualizacion_id or '' }}">
                 <p class="text-xs text-purple-600 mt-1">Tipo bloqueado por Modo Captura Especial</p>
                 {% else %}
                 <!-- MODO NORMAL: Usuario puede seleccionar -->
@@ -177,28 +176,13 @@
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-                <div>
+                <div class="md:col-span-2">
                     <label class="block text-sm font-bold text-gray-700 mb-1">
                         Cargas Críticas Totales (kW) <span class="text-red-500">*</span>
                     </label>
-                    <input type="number" step="0.01" min="0" name="bess_cargas_criticas" :required="isBess"
-                        placeholder="Suma de potencia de equipos esenciales"
-                        class="w-full rounded-lg border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm bg-white">
-                </div>
-
-                <div>
-                    <label class="block text-sm font-bold text-gray-700 mb-1">
-                        Voltaje de Operación <span class="text-red-500">*</span>
-                    </label>
-                    <select name="bess_voltaje" :required="isBess"
-                        class="w-full rounded-lg border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm bg-white">
-                        <option value="">Seleccione...</option>
-                        <option value="220V">220V Trifásico</option>
-                        <option value="440V">440V Trifásico</option>
-                        <option value="480V">480V Trifásico</option>
-                        <option value="Media Tensión">Media Tensión (>13.2kV)</option>
-                        <option value="Otro">Otro (Especificar en notas)</option>
-                    </select>
+                    <input type="number" step="0.1" min="0" name="bess_cargas_criticas" :required="isBess"
+                        placeholder="Ej: 150 kW"
+                        class="w-full rounded-lg border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm">
                 </div>
 
                 <div class="md:col-span-2">
@@ -235,25 +219,28 @@
                     </div>
                 </div>
 
-                <div class="flex flex-col justify-center">
-                    <label class="inline-flex items-center cursor-pointer">
-                        <input type="checkbox" name="bess_tiene_motores" value="true" x-model="hasMotores"
-                            class="sr-only peer">
-                        <div
-                            class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[#00BABB]/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#00BABB]">
-                        </div>
-                        <span class="ms-3 text-sm font-medium text-gray-700">¿Tiene Motores Grandes/Bombas?</span>
-                    </label>
-                </div>
+                <div class="md:col-span-2">
+                    <div class="flex flex-col justify-center">
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="checkbox" name="bess_tiene_motores" value="true" x-model="hasMotores"
+                                class="sr-only peer">
+                            <div
+                                class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[#00BABB]/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#00BABB]">
+                            </div>
+                            <span class="ms-3 text-sm font-medium text-gray-700">¿Tiene Motores Grandes/Bombas?</span>
+                        </label>
+                    </div>
 
-                <div x-show="hasMotores" x-transition class="bg-white p-4 rounded border border-gray-200 shadow-sm">
-                    <label class="block text-sm font-bold text-gray-700 mb-1">
-                        Potencia del Motor más grande (HP) <span class="text-red-500">*</span>
-                    </label>
-                    <input type="number" step="0.1" min="0" name="bess_potencia_motor" :required="hasMotores"
-                        placeholder="Ej: 50 HP"
-                        class="w-full rounded-lg border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm">
-                    <p class="text-xs text-gray-500 mt-1">Vital para calcular pico de arranque.</p>
+                    <div x-show="hasMotores" x-transition
+                        class="bg-white p-4 rounded border border-gray-200 shadow-sm mt-3">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">
+                            Potencia del Motor más grande (HP) <span class="text-red-500">*</span>
+                        </label>
+                        <input type="number" step="0.1" min="0" name="bess_potencia_motor" :required="hasMotores"
+                            placeholder="Ej: 50 HP"
+                            class="w-full rounded-lg border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm">
+                        <p class="text-xs text-gray-500 mt-1">Vital para calcular pico de arranque.</p>
+                    </div>
                 </div>
 
                 <div class="md:col-span-2 bg-yellow-50 p-4 rounded-lg border border-yellow-200">
@@ -322,38 +309,43 @@
 
                 <div class="md:col-span-2 mt-2 flex items-start gap-2 text-sm text-gray-600 bg-gray-100 p-3 rounded">
                     <span>ℹ️</span>
-                    <p><strong>Nota de Tarifa:</strong> Recuerda que la solución financiera es mucho más atractiva en
+                    <p><strong>Nota de Tarifa:</strong> Recuerda que la solución financiera es mucho más atractiva
+                        en
                         tarifas <strong>GDMTH</strong>.</p>
                 </div>
 
 
+
             </div>
         </div>
 
-        <!-- Botones de Acción -->
-        <div class="flex justify-end gap-4 pt-6 border-t">
-            <button type="button" hx-get="/comercial/ui" hx-target="#main-content"
-                class="px-6 py-2.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium transition-colors">
-                Cancelar
-            </button>
+</div>
 
-            <!-- Spinner de carga (oculto por defecto) -->
-            <div id="submit-indicator" class="htmx-indicator flex items-center gap-2 text-[#00BABB]">
-                <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                    <path class="opacity-75" fill="currentColor"
-                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                    </path>
-                </svg>
-                <span class="font-medium">Guardando...</span>
-            </div>
+<!-- Botones de Acción (FUERA del bloque BESS) -->
+<div class="flex justify-end gap-4 pt-6 border-t">
+    <button type="button" hx-get="/comercial/ui" hx-target="#main-content"
+        class="px-6 py-2.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium transition-colors">
+        Cancelar
+    </button>
 
-            <button type="submit" :disabled="isSubmitting" hx-indicator="#submit-indicator"
-                class="ripple-effect px-6 py-2.5 rounded-lg bg-[#00BABB] hover:bg-[#009999] text-white font-bold shadow-lg shadow-[#00BABB]/30 transition-all transform hover:scale-105 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed htmx-request:hidden">
-                <span>💾</span> Guardar Oportunidad
-            </button>
-        </div>
+    <!-- Spinner de carga (oculto por defecto) -->
+    <div id="submit-indicator" class="htmx-indicator flex items-center gap-2 text-[#00BABB]">
+        <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+            </circle>
+            <path class="opacity-75" fill="currentColor"
+                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+            </path>
+        </svg>
+        <span class="font-medium">Guardando...</span>
+    </div>
 
-    </form>
+    <button type="submit" :disabled="isSubmitting" hx-indicator="#submit-indicator"
+        class="ripple-effect px-6 py-2.5 rounded-lg bg-[#00BABB] hover:bg-[#009999] text-white font-bold shadow-lg shadow-[#00BABB]/30 transition-all transform hover:scale-105 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed htmx-request:hidden">
+        <span>💾</span> Guardar Oportunidad
+    </button>
+</div>
+
+</form>
 </div>
 {% endblock %}

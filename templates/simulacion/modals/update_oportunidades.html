@@ -97,11 +97,31 @@
         </div>
 
         <!-- FORMULARIO -->
-        <form {% if can_manage %}hx-put="/simulacion/update/{{ op.id_oportunidad }}" hx-target="#form-feedback"
-            hx-swap="innerHTML" @submit="validateForm($event)" novalidate {% endif %}>
 
-            <div class="max-h-[70vh] overflow-y-auto"> <!-- Scroll container para cuerpo y comentarios -->
-                <div class="p-6 space-y-6">
+
+        <div class="max-h-[70vh] overflow-y-auto relative">
+            <!-- Scroll container para cuerpo y comentarios, Added relative for overlay -->
+
+            <!-- Overlay de carga Principal -->
+            <div id="loading-overlay-main"
+                class="htmx-indicator hidden absolute inset-0 bg-white/50 backdrop-blur-[1px] flex items-center justify-center z-20">
+                <div class="flex items-center gap-2 px-4 py-2 bg-white shadow-lg rounded-full border border-blue-100">
+                    <svg class="animate-spin h-5 w-5 text-[#00BABB]" xmlns="http://www.w3.org/2000/svg" fill="none"
+                        viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                        </circle>
+                        <path class="opacity-75" fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                        </path>
+                    </svg>
+                    <span class="text-sm font-medium text-gray-600">Guardando Cambios...</span>
+                </div>
+            </div>
+
+            <div class="p-6 space-y-6">
+                <form id="form-update-op" {% if can_manage %}hx-put="/simulacion/update/{{ op.id_oportunidad }}"
+                    hx-target="#form-feedback" hx-swap="innerHTML" hx-indicator="#loading-overlay-main"
+                    @submit="validateForm($event)" novalidate {% endif %}>
                     <div id="form-feedback"></div>
 
                     <!-- ID Interno - Full Width -->
@@ -289,101 +309,60 @@
                         </div>
                     </div>
 
-                    <div class="border-t-4 border-[#00BABB] pt-6 mt-8">
-                        <div class="flex items-center gap-3 mb-4">
-                            <div class="p-2 bg-[#00BABB] rounded-lg">
-                                <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z">
-                                    </path>
-                                </svg>
-                            </div>
-                            <h3 class="text-lg font-bold text-[#123456]">Comentarios / Bitácora</h3>
+                </form>
+
+                <div
+                    class="border-t-4 border-[#00BABB] pt-6 mt-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                    <div class="flex items-center gap-3">
+                        <div class="p-2 bg-[#00BABB] rounded-lg">
+                            <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z">
+                                </path>
+                            </svg>
                         </div>
-                        <!-- Formulario Nuevo Comentario (solo editor/admin) -->
-                        {% if context.get('module_roles', {}).get('simulacion') in ['editor', 'admin'] or
-                        context.get('role') == 'ADMIN' %}
-                        <div class="bg-blue-50 border-2 border-blue-200 rounded-lg p-4 mb-6">
-                            <label class="block text-sm font-bold text-gray-700 mb-2 flex items-center gap-2">
-                                <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor"
-                                    viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-                                </svg>
-                                Agregar Comentario
-                            </label>
-                            <div class="flex gap-3 items-start">
-                                <textarea id="nuevo_comentario_{{ op.id_oportunidad }}" rows="3"
-                                    placeholder="Escribe un comentario sobre esta oportunidad..."
-                                    class="flex-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm transition-all resize-y py-3 px-4"
-                                    required></textarea>
-                                <button type="button" hx-post="/workflow/comentarios"
-                                    hx-target="#comentarios-container-{{ op.id_oportunidad }}" hx-swap="innerHTML"
-                                    hx-vals='js:{id_oportunidad: "{{ op.id_oportunidad }}", module: "simulacion", nuevo_comentario: document.getElementById("nuevo_comentario_{{ op.id_oportunidad }}").value}'
-                                    hx-on::after-request="document.getElementById('nuevo_comentario_{{ op.id_oportunidad }}').value = ''"
-                                    class="ripple-effect inline-flex items-center px-4 py-2 border border-transparent text-sm font-bold rounded-md text-white bg-blue-600 hover:bg-blue-700 shadow-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-all self-end">
-                                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path>
-                                    </svg>
-                                </button>
-                            </div>
-                            <p class="text-xs text-gray-500 mt-2 italic">
-                                💡 Escribe tu comentario y presiona el botón para enviar.
-                            </p>
-                        </div>
-                        {% endif %}
-                        <!-- Historial de Comentarios -->
                         <div>
-                            <div class="flex items-center justify-between mb-3 pb-2 border-b border-gray-200">
-                                <h4 class="text-sm font-bold text-gray-700 flex items-center gap-2">
-                                    <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor"
-                                        viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                                    </svg>
-                                    <span>Últimos Comentarios</span>
-                                </h4>
-                            </div>
-                            <!-- Contenedor de comentarios (carga vía HTMX) -->
-                            <div id="comentarios-container-{{ op.id_oportunidad }}"
-                                hx-get="/simulacion/partials/comentarios/{{ op.id_oportunidad }}?mode=compact"
-                                hx-trigger="load delay:100ms" hx-swap="innerHTML" hx-target="this">
-                                <!-- Loading placeholder -->
-                                <div class="animate-pulse space-y-3">
-                                    <div class="bg-gray-100 h-20 rounded-lg"></div>
-                                    <div class="bg-gray-100 h-20 rounded-lg"></div>
-                                    <div class="bg-gray-100 h-20 rounded-lg"></div>
-                                </div>
-                            </div>
+                            <h3 class="text-lg font-bold text-[#123456]">Bitácora de Comentarios</h3>
+                            <p class="text-sm text-gray-500">Revisa y agrega comentarios y adjuntos.</p>
                         </div>
                     </div>
+
+                    <button type="button"
+                        hx-get="/workflow/modals/comentarios?id_oportunidad={{ op.id_oportunidad }}&module=simulacion"
+                        hx-target="body" hx-swap="beforeend"
+                        class="ripple-effect px-4 py-2 bg-blue-50 text-blue-700 border border-blue-200 rounded-lg hover:bg-blue-100 hover:text-blue-800 font-medium text-sm transition-all flex items-center gap-2 shadow-sm">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                        </svg>
+                        Ver / Agregar
+                    </button>
                 </div>
             </div>
+        </div>
 
-            <!-- FOOTER -->
-            <div
-                class="px-6 py-4 bg-gray-100 border-t border-gray-200 rounded-b-lg flex justify-end items-center gap-3">
-                <button type="button" onclick="document.getElementById('modal-backdrop').remove()"
-                    class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium shadow-sm transition-all duration-200 hover:text-gray-900">
-                    {% if can_manage %}Cancelar{% else %}Cerrar{% endif %}
-                </button>
 
-                {% if can_manage %}
-                <button type="submit"
-                    class="ripple-effect px-5 py-2 bg-[#00BABB] hover:bg-[#009999] text-white rounded-lg font-bold shadow-md flex items-center gap-2 transform hover:scale-105 transition-all duration-200">
-                    <span
-                        class="htmx-indicator hidden mr-2 spinner-white w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4">
-                        </path>
-                    </svg>
-                    Guardar Cambios
-                </button>
-                {% endif %}
-            </div>
+        <!-- FOOTER -->
+        <div class="px-6 py-4 bg-gray-100 border-t border-gray-200 rounded-b-lg flex justify-end items-center gap-3">
+            <button type="button" onclick="document.getElementById('modal-backdrop').remove()"
+                class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium shadow-sm transition-all duration-200 hover:text-gray-900">
+                {% if can_manage %}Cancelar{% else %}Cerrar{% endif %}
+            </button>
 
-        </form>
+            {% if can_manage %}
+            <button type="submit" form="form-update-op"
+                class="ripple-effect px-5 py-2 bg-[#00BABB] hover:bg-[#009999] text-white rounded-lg font-bold shadow-md flex items-center gap-2 transform hover:scale-105 transition-all duration-200">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4">
+                    </path>
+                </svg>
+                Guardar Cambios
+            </button>
+            {% endif %}
+        </div>
+
     </div>
 </div>
