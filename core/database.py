@@ -24,16 +24,10 @@ async def connect_to_db():
                 timeout=30 # segundos
             )
             logger.info("Pool de conexiones a Supabase creado exitosamente.")
-        except Exception as e: # <-- CAPTURAMOS LA EXCEPCIÓN
+        except Exception as e:
             import sys
-            logger.error("----------------------------------------------------------------")
-            logger.error(f"Tipo de Error: {sys.exc_info()[0].__name__}")
-            logger.error(f"Mensaje Detallado: {e!r}")
-            logger.error(f"Stack Trace: {sys.exc_info()[2]}")
-            logger.error("----------------------------------------------------------------")
-            logger.error(f"ERROR CRÍTICO al conectar a Supabase: {e}") # <-- LA IMPRIMIMOS
-            logger.error("----------------------------------------------------------------")
-            # En producción, forzaríamos un os._exit(1) para detener la app si la DB es crítica.
+            logger.critical(f"FALLO FATAL: No se pudo conectar a la DB: {e}")
+            sys.exit(1)  # Forzar salida del proceso
             
 async def close_db_connection():
     """Cierra el pool de conexiones al apagado de la aplicación (shutdown)."""

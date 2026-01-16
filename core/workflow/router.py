@@ -152,9 +152,6 @@ async def create_comentario_workflow(
     # Retornar lista actualizada de comentarios
     comentarios = await workflow_service.get_historial(conn, id_oportunidad)
     
-    # Retornar lista actualizada de comentarios
-    comentarios = await workflow_service.get_historial(conn, id_oportunidad)
-    
     response = templates.TemplateResponse("shared/partials/comentarios_list.html", {
         "request": request,
         "comentarios": comentarios,

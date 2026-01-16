@@ -77,7 +77,7 @@ async def get_simulacion_ui(
 # ========================================
 # FORMULARIO EXTRAORDINARIO (Solo ADMIN/MANAGER)
 # ========================================
-@router.get("/form-extraordinario", include_in_schema=False)
+@router.api_route("/form-extraordinario", methods=["GET", "HEAD"], include_in_schema=False)
 async def get_form_extraordinario(
     request: Request,
     context = Depends(get_current_user_context),
@@ -89,22 +89,29 @@ async def get_form_extraordinario(
     Formulario para registro extraordinario de oportunidades.
     Solo accesible para ADMIN y MANAGER.
     """
+    # Validación de permiso: Admin Global, Admin de Módulo, o Manager Editor
     role = context.get("role")
+    module_role = context.get("module_roles", {}).get("simulacion", "")
     
-    # Validación de permiso
-    if role not in ['ADMIN', 'MANAGER']:
-        raise HTTPException(status_code=403, detail="Acceso denegado. Solo ADMIN/MANAGER pueden usar registro extraordinario.")
+    is_module_editor_or_higher = module_role in ["editor", "assignor", "admin"]
+    has_access = (role == "ADMIN") or (module_role == "admin") or (role == "MANAGER" and is_module_editor_or_higher)
+    
+    if not has_access:
+        raise HTTPException(status_code=403, detail="Acceso denegado. Se requiere nivel Administrador o Manager (Editor) en el módulo.")
     
     # Cargar catálogos para el formulario
     catalogos = await service.get_catalogos_ui(conn)
     canal_default = service.get_canal_from_user_name(context.get("user_name", ""))
     
-    return templates.TemplateResponse("simulacion/form_extraordinario.html", {
+    return templates.TemplateResponse("shared/forms/extraordinario_generic.html", {
         "request": request,
         "catalogos": catalogos,
         "canal_default": canal_default,
         "user_name": context.get("user_name"),
-        "role": role
+        "role": role,
+        "module_roles": context.get("module_roles", {}),
+        "post_url": "/simulacion/form-extraordinario",
+        "cancel_url": "/simulacion/ui"
     })
 
 @router.post("/form-extraordinario", include_in_schema=False)
@@ -141,11 +148,15 @@ async def create_oportunidad_extraordinaria(
     Procesa el formulario extraordinario y crea la oportunidad.
     Solo accesible para ADMIN y MANAGER.
     """
+    # Validación de permiso: Admin Global, Admin de Módulo, o Manager Editor
     role = context.get("role")
+    module_role = context.get("module_roles", {}).get("simulacion", "")
     
-    # Validación de permiso
-    if role not in ['ADMIN', 'MANAGER']:
-        raise HTTPException(status_code=403, detail="Acceso denegado")
+    is_module_editor_or_higher = module_role in ["editor", "assignor", "admin"]
+    has_access = (role == "ADMIN") or (module_role == "admin") or (role == "MANAGER" and is_module_editor_or_higher)
+    
+    if not has_access:
+        raise HTTPException(status_code=403, detail="Acceso denegado. Se requiere nivel Administrador o Manager (Editor) en el módulo")
     
     try:
         # Preparar datos BESS si aplica

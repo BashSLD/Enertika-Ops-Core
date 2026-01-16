@@ -283,7 +283,7 @@ async def validate_thread_check(
     if not token:
         return JSONResponse({"found": False, "error": "Sesión expirada"}, status_code=401)
 
-    thread_id = ms_auth.find_thread_id(token, search_term)
+    thread_id = await ms_auth.find_thread_id(token, search_term)
     
     if thread_id:
         # Retorna éxito y el término para que el frontend lo pase al formulario
@@ -352,10 +352,19 @@ async def handle_oportunidad_creation(
                 tiene_planta_emergencia=bess_planta_emergencia
             )
 
-        # Validar Permiso Fecha Manual
+        # Validar Permiso Fecha Manual 
+        # REGLA: Admin Global, Admin Modulo, o Manager con permisos de Edición
         role = context.get("role")
-        fecha_final_str = None
-        if role in ['ADMIN', 'MANAGER']:
+        module_role = context.get("module_roles", {}).get("comercial", "")
+        
+        # Jerarquía de roles de módulo: viewer < editor < assignor < admin
+        is_module_editor_or_higher = module_role in ["editor", "assignor", "admin"]
+        
+        can_set_manual_date = (role == "ADMIN") or \
+                              (module_role == "admin") or \
+                              (role == "MANAGER" and is_module_editor_or_higher)
+        
+        if can_set_manual_date:
             fecha_final_str = fecha_manual
         
         # Construir Objeto Principal
@@ -436,11 +445,16 @@ async def get_comercial_form_extraordinario(
 ):
     """Shows the extraordinary creation form (ADMIN/MANAGER ONLY)."""
     
-    # Validación de Rol: SOLO ADMIN o MANAGER
+    # Validación de Rol: ADMIN GLOBAL o ADMIN DE MODULO o MANAGER CON PERMISO DE EDICIÓN
     role = user_context.get("role")
-    if role not in ['ADMIN', 'MANAGER']:
+    module_role = user_context.get("module_roles", {}).get("comercial", "")
+    
+    is_module_editor_or_higher = module_role in ["editor", "assignor", "admin"]
+    has_access = (role == "ADMIN") or (module_role == "admin") or (role == "MANAGER" and is_module_editor_or_higher)
+    
+    if not has_access:
         from fastapi import Response
-        return Response(status_code=403, content="Acceso denegado. Solo ADMIN y MANAGER pueden acceder.")
+        return Response(status_code=403, content="Acceso denegado. Se requiere nivel Administrador o Manager Editor en el módulo.")
     
     # Validación de sesión
     if not user_context.get("email"):
@@ -458,13 +472,15 @@ async def get_comercial_form_extraordinario(
     # Obtener catálogos (Incluyendo SIMULACION)
     catalogos = await service.get_catalogos_creacion(conn, include_simulacion=True)
 
-    return templates.TemplateResponse("comercial/form_extraordinario.html", {
-        "request": request, 
-        "canal_default": canal_default,
+    return templates.TemplateResponse("shared/forms/extraordinario_generic.html", {
+        "request": request,
         "catalogos": catalogos,
+        "canal_default": canal_default,
         "user_name": user_context.get("user_name"),
-        "role": user_context.get("role"),
-        "module_roles": user_context.get("module_roles", {})
+        "role": role,
+        "module_roles": user_context.get("module_roles", {}),
+        "post_url": "/comercial/form-extraordinario",
+        "cancel_url": "/comercial/ui"
     }, headers={"HX-Title": "Enertika Ops Core | Solicitud Extraordinaria"})
 
 @router.post("/form-extraordinario")
@@ -504,11 +520,16 @@ async def handle_oportunidad_extraordinaria(
 ):
     """Procesa solicitud extraordinaria y envía notificación automática."""
     try:
-        # Seguridad: Validar rol ADMIN/MANAGER
+        # Seguridad: Validar rol ADMIN GLOBAL o ADMIN DE MODULO o MANAGER EDITOR
         role = context.get("role")
-        if role not in ['ADMIN', 'MANAGER']:
+        module_role = context.get("module_roles", {}).get("comercial", "")
+        
+        is_module_editor_or_higher = module_role in ["editor", "assignor", "admin"]
+        has_access = (role == "ADMIN") or (module_role == "admin") or (role == "MANAGER" and is_module_editor_or_higher)
+        
+        if not has_access:
             from fastapi import HTTPException
-            raise HTTPException(status_code=403, detail="Solo ADMIN y MANAGER pueden crear solicitudes extraordinarias")
+            raise HTTPException(status_code=403, detail="Se requiere nivel Administrador o Manager (Editor) para esta acción")
         
         # Validar token
         token = await get_valid_graph_token(request)

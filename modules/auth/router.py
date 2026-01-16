@@ -26,7 +26,7 @@ async def callback(
     """Callback tras el login en Microsoft. Guarda tokens en BD y sesión ligera."""
     try:
         # 1. Canjear código por token
-        token_result = ms_auth.get_token_from_code(code)
+        token_result = await ms_auth.get_token_from_code(code)
         
         if "error" in token_result:
             return f"Error en login: {token_result.get('error_description')}"

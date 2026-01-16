@@ -151,7 +151,7 @@ class LevantamientoService:
                    u_tec.nombre as tecnico_nombre,
                    u_tec.id_usuario as tecnico_id,
                    u_tec.email as tecnico_email,
-                   dept_tec.departamento_rol as tecnico_area,
+                   NULL as tecnico_area,
                    u_jefe.nombre as jefe_nombre,
                    u_jefe.id_usuario as jefe_id,
                    u_sol.nombre as solicitado_por_nombre,
@@ -172,7 +172,7 @@ class LevantamientoService:
             INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
             LEFT JOIN tb_sitios_oportunidad s ON l.id_sitio = s.id_sitio
             LEFT JOIN tb_usuarios u_tec ON l.tecnico_asignado_id = u_tec.id_usuario
-            LEFT JOIN tb_permisos_usuarios dept_tec ON dept_tec.usuario_id = u_tec.id_usuario
+
             LEFT JOIN tb_usuarios u_jefe ON l.jefe_area_id = u_jefe.id_usuario
             LEFT JOIN tb_usuarios u_sol ON l.solicitado_por_id = u_sol.id_usuario
             WHERE l.id_estatus_global IN (8, 9, 10, 11, 12, 13)
@@ -506,10 +506,10 @@ class LevantamientoService:
         """
         # Técnicos: Usuarios con permiso al módulo levantamientos
         tecnicos = await conn.fetch("""
-            SELECT DISTINCT u.id_usuario, u.nombre, u.email, dept.departamento_rol
+            SELECT DISTINCT u.id_usuario, u.nombre, u.email
             FROM tb_usuarios u
             INNER JOIN tb_permisos_modulos pm ON u.id_usuario = pm.usuario_id
-            LEFT JOIN tb_permisos_usuarios dept ON u.id_usuario = dept.usuario_id
+
             WHERE pm.modulo_slug = 'levantamientos'
               AND u.is_active = true
             ORDER BY u.nombre

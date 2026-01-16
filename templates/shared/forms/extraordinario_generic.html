@@ -26,7 +26,7 @@
         </p>
     </div>
 
-    <form hx-post="/comercial/form-extraordinario" hx-target="#main-content" hx-swap="innerHTML" class="space-y-6"
+    <form hx-post="{{ post_url }}" hx-target="#main-content" hx-swap="innerHTML" class="space-y-6"
         @submit="isSubmitting = true">
 
         <!-- Fecha Real de Solicitud (OBLIGATORIA) -->
@@ -46,7 +46,7 @@
 
         <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
-            <!-- 1. Nombre del Cliente (PRIMERO) -->
+            <!-- 1. Nombre de Empresa (PRIMERO) -->
             <div>
                 <label class="block text-sm font-bold text-gray-700 mb-1">Nombre de la Empresa *</label>
                 <input type="text" name="nombre_cliente" required placeholder="Ej: AMAZON MÉXICO"
@@ -319,7 +319,7 @@
 
         <!-- Botones de Acción -->
         <div class="flex justify-end gap-4 pt-6 border-t">
-            <button type="button" hx-get="/comercial/ui" hx-target="#main-content"
+            <button type="button" hx-get="{{ cancel_url }}" hx-target="#main-content"
                 class="px-6 py-2.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium transition-colors">
                 Cancelar
             </button>

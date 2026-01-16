@@ -184,7 +184,7 @@ async def get_valid_graph_token(request: Request):
                 
                 ms_auth = get_ms_auth()
                 # ZOMBIE FIX: Ejecutar renovación en thread separado para no bloquear Loop
-                new_data = await asyncio.to_thread(ms_auth.refresh_access_token, refresh_token)
+                new_data = await ms_auth.refresh_access_token(refresh_token)
                 
                 if new_data and "access_token" in new_data:
                     # Guardar nuevos tokens en BD (misma conexión)

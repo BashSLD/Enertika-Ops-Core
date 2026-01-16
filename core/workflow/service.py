@@ -2,6 +2,7 @@ from uuid import UUID, uuid4
 from datetime import datetime
 from typing import List, Optional
 import logging
+import asyncio
 from zoneinfo import ZoneInfo
 from fastapi.templating import Jinja2Templates
 from fastapi import HTTPException, UploadFile
@@ -95,14 +96,14 @@ class WorkflowService:
             
             try:
                 # 1.5.1 Cargar configuración una sola vez
-                max_size_mb = 500 # Default
+                max_size_mb = 10  # Default conservador (10MB)
                 config_rows = await conn.fetch("""
                     SELECT clave, valor FROM tb_configuracion_global 
                     WHERE clave IN ('MAX_UPLOAD_SIZE_MB', 'SHAREPOINT_BASE_FOLDER')
                 """)
                 config_map = {row['clave']: row['valor'] for row in config_rows}
                 
-                max_size_mb = int(config_map.get('MAX_UPLOAD_SIZE_MB', '500'))
+                max_size_mb = int(config_map.get('MAX_UPLOAD_SIZE_MB', '10'))
                 base_folder = config_map.get('SHAREPOINT_BASE_FOLDER', '').strip().strip("/")
                 
                 # Obtener ID estándar para la carpeta
@@ -120,7 +121,7 @@ class WorkflowService:
                     
                     # Usamos TOKEN DE APLICACIÓN para garantizar acceso a la carpeta del sistema
                     # independientemente de los permisos individuales del usuario en SharePoint
-                    app_token = self.ms_auth.get_application_token()
+                    app_token = await self.ms_auth.get_application_token()
                     sharepoint = SharePointService(access_token=app_token)
 
                     # Iterar sobre cada archivo
@@ -187,11 +188,16 @@ class WorkflowService:
             except Exception as e:
                 logger.error(f"[COMENTARIO] Fallo general en proceso de adjuntos: {e}")
                 
-        # 2. Notificacion Asincrona
-        try:
-            await self._notificar_comentario(conn, id_oportunidad, comentario, user_context, departamento_slug)
-        except Exception as e:
-            logger.error(f"Fallo al enviar notificacion de comentario: {e}")
+        # 2. Notificacion Asincrona (Fire & Forget)
+        # Delegar a tarea en segundo plano para no bloquear respuesta HTTP
+        asyncio.create_task(
+            self._notificar_comentario(
+                id_oportunidad, 
+                comentario, 
+                user_context, 
+                departamento_slug
+            )
+        )
             
         return {
             "id": new_id,
@@ -259,7 +265,6 @@ class WorkflowService:
     
     async def _notificar_comentario(
         self, 
-        conn, 
         id_oportunidad: UUID, 
         comentario: str, 
         sender_ctx: dict, 
@@ -267,21 +272,29 @@ class WorkflowService:
     ):
         """
         Delega notificación de comentario a NotificationService.
+        Ejecuta en segundo plano (Fire & Forget).
         
         Args:
-            conn: Conexión a base de datos
             id_oportunidad: UUID de la oportunidad
             comentario: Texto del comentario
             sender_ctx: Contexto del usuario que comentó
             depto: Slug del departamento/módulo origen
         """
-        await self.notification_service.notify_new_comment(
-            conn=conn,
-            id_oportunidad=id_oportunidad,
-            comentario=comentario,
-            sender_ctx=sender_ctx,
-            departamento=depto.upper()
-        )
+        try:
+            # Obtener pool y adquirir conexión propia (background task)
+            from core.database import get_db_pool
+            pool = await get_db_pool()
+            async with pool.acquire() as conn:
+                await self.notification_service.notify_new_comment(
+                    conn=conn,
+                    id_oportunidad=id_oportunidad,
+                    comentario=comentario,
+                    sender_ctx=sender_ctx,
+                    departamento=depto.upper()
+                )
+        except Exception as e:
+            # Log pero no propagar (Fire & Forget)
+            logger.error(f"[NOTIFY] Fallo en notificacion de comentario {id_oportunidad}: {e}", exc_info=True)
 
 
 def get_workflow_service():

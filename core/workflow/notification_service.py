@@ -8,6 +8,8 @@ Patrón recomendado por GUIA_MAESTRA: Service Layer con separación de responsab
 from typing import Set, Optional
 from uuid import UUID
 import logging
+import asyncpg
+import httpx
 
 from fastapi.templating import Jinja2Templates
 from core.microsoft import MicrosoftAuth
@@ -53,37 +55,47 @@ class NotificationService:
         TO: Contraparte (si comentó creador → notifica responsable, viceversa)
         CC: Correos configurados en tb_config_emails con trigger_value='NUEVO_COMENTARIO'
         """
-        to_emails = await self._get_comment_recipients(conn, id_oportunidad, sender_ctx)
-        cc_emails = await self._get_cc_emails(conn, 'NUEVO_COMENTARIO')
+        try:
+            to_emails = await self._get_comment_recipients(conn, id_oportunidad, sender_ctx)
+            cc_emails = await self._get_cc_emails(conn, 'NUEVO_COMENTARIO')
+            
+            if not to_emails:
+                logger.info(f"[NOTIFY] Comentario sin destinatarios - Opp: {id_oportunidad}")
+                return
+            
+            opp = await self._get_opportunity(conn, id_oportunidad)
+            html = self._render_template('shared/emails/workflow/new_comment.html', {
+                'op': opp,
+                'comentario': comentario,
+                'autor': sender_ctx['user_name'],
+                'departamento': departamento
+            })
+            
+            subject = f"Nuevo comentario: {opp['op_id_estandar']} - {opp['cliente_nombre']}"
+            
+            # Usar buzón configurado en lugar del email del usuario
+            sender_config = await self._get_notification_sender(conn, 'SIMULACION')
+            await self._send_email(to_emails, cc_emails, subject, html, sender_config['email'])
+            
+            # SSE: Guardar y broadcastear notificación
+            for email in to_emails:
+                await self._save_and_broadcast(
+                    conn=conn,
+                    recipient_email=email,
+                    tipo='NUEVO_COMENTARIO',
+                    titulo=f'Nuevo comentario: {opp["op_id_estandar"]}',
+                    mensaje=f'{sender_ctx["user_name"]} ha comentado en {opp["cliente_nombre"]}',
+                    id_oportunidad=id_oportunidad
+                )
         
-        if not to_emails:
-            logger.info(f"[NOTIFY] Comentario sin destinatarios - Opp: {id_oportunidad}")
-            return
-        
-        opp = await self._get_opportunity(conn, id_oportunidad)
-        html = self._render_template('shared/emails/workflow/new_comment.html', {
-            'op': opp,
-            'comentario': comentario,
-            'autor': sender_ctx['user_name'],
-            'departamento': departamento
-        })
-        
-        subject = f"Nuevo comentario: {opp['op_id_estandar']} - {opp['cliente_nombre']}"
-        
-        # Usar buzón configurado en lugar del email del usuario
-        sender_config = await self._get_notification_sender(conn, 'SIMULACION')
-        await self._send_email(to_emails, cc_emails, subject, html, sender_config['email'])
-        
-        # SSE: Guardar y broadcastear notificación
-        for email in to_emails:
-            await self._save_and_broadcast(
-                conn=conn,
-                recipient_email=email,
-                tipo='NUEVO_COMENTARIO',
-                titulo=f'Nuevo comentario: {opp["op_id_estandar"]}',
-                mensaje=f'{sender_ctx["user_name"]} ha comentado en {opp["cliente_nombre"]}',
-                id_oportunidad=id_oportunidad
-            )
+        except asyncpg.PostgresError as e:
+            logger.error(f"[NOTIFY] Error de BD en notificacion de comentario {id_oportunidad}: {e}", exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error(f"[NOTIFY] Error de red/Graph API en notificacion de comentario {id_oportunidad}: {e}", exc_info=True)
+        except KeyError as e:
+            logger.error(f"[NOTIFY] Error de contexto/datos faltantes en notificacion {id_oportunidad}: campo {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"[NOTIFY] Error inesperado en notificacion de comentario {id_oportunidad}: {e}", exc_info=True)
     
     async def notify_assignment(
         self,
@@ -385,6 +397,13 @@ class NotificationService:
             mensaje: Mensaje de la notificación
             id_oportunidad: ID de la oportunidad relacionada
         """
+        # Enmascarar PII para logs
+        email_parts = recipient_email.split('@')
+        if len(email_parts) == 2:
+            masked_email = f"{email_parts[0][:3]}***@{email_parts[1]}"
+        else:
+            masked_email = "***@***"
+        
         # Obtener usuario_id desde email
         user_row = await conn.fetchrow(
             "SELECT id_usuario FROM tb_usuarios WHERE email = $1",
@@ -392,7 +411,8 @@ class NotificationService:
         )
         
         if not user_row:
-            logger.warning(f"[NOTIFY] Email {recipient_email} no encontrado en tb_usuarios")
+            # No loguear email completo - usar identificador anónimo
+            logger.warning(f"[NOTIFY] Usuario no encontrado para notificacion en Opp: {id_oportunidad} (email: {masked_email})")
             return
         
         usuario_id = user_row['id_usuario']
@@ -452,14 +472,14 @@ class NotificationService:
         
         try:
             # Obtener token de aplicación (no requiere usuario logueado)
-            app_token = self.ms_auth.get_application_token()
+            app_token = await self.ms_auth.get_application_token()
             
             if not app_token:
                 logger.error("[NOTIFY] No se pudo obtener token de aplicacion")
                 return
             
             # Enviar email via Microsoft Graph API
-            success, msg = self.ms_auth.send_email_with_attachments(
+            success, msg = await self.ms_auth.send_email_with_attachments(
                 access_token=app_token,
                 from_email=sender_email,  # Primero from_email
                 subject=subject,
@@ -473,9 +493,16 @@ class NotificationService:
                 logger.info(f"[NOTIFY] Email enviado - TO: {len(to_emails)}, CC: {len(cc_emails)}")
             else:
                 logger.error(f"[NOTIFY] Error enviando email: {msg}")
-                
+        
+        except httpx.HTTPError as e:
+            # Error de red o API de Microsoft Graph
+            logger.error(f"[NOTIFY] Error de red/Graph API al enviar email: {e}", exc_info=True)
+        except asyncpg.PostgresError as e:
+            # Error de base de datos (si aplica)
+            logger.error(f"[NOTIFY] Error de BD al enviar email: {e}", exc_info=True)
         except Exception as e:
-            logger.error(f"[NOTIFY] Excepcion enviando email: {e}")
+            # Catch-all para errores inesperados
+            logger.error(f"[NOTIFY] Error inesperado al enviar email: {e}", exc_info=True)
 
 
 def get_notification_service():

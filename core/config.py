@@ -16,8 +16,12 @@ class Settings(BaseSettings):
     DB_URL_ASYNC: str = f"postgresql://{DB_USER}:{DB_PASSWORD}@{SUPABASE_URL.replace('https://', '').replace('http://', '')}:5432/postgres"
     
     # --- Configuración de Seguridad y Sesión ---
-    SECRET_KEY: str = os.getenv("SECRET_KEY", "tu_super_secret_key_temporal_dev")
+    SECRET_KEY: str = os.getenv("SECRET_KEY")
     DEBUG_MODE: bool = os.getenv("DEBUG_MODE", "True").lower() == "true"
+    
+    # Validación crítica: SECRET_KEY debe estar definida
+    if not SECRET_KEY:
+        raise ValueError("CRÍTICO: SECRET_KEY no definida en el entorno.")
 
     # --- Configuración de Microsoft Azure AD ---
     GRAPH_CLIENT_ID: str = os.getenv("CLIENT_ID")

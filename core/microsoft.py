@@ -1,5 +1,5 @@
 import msal
-import requests
+import httpx
 import base64
 import urllib.parse
 import re
@@ -10,6 +10,7 @@ logger = logging.getLogger("MicrosoftGraph")
 
 class MicrosoftAuth:
     _instance = None
+    _http_client = None
 
     def __new__(cls):
         if cls._instance is None:
@@ -21,6 +22,12 @@ class MicrosoftAuth:
                 settings.GRAPH_CLIENT_ID,
                 authority=settings.AUTHORITY_URL,
                 client_credential=settings.GRAPH_CLIENT_SECRET,
+            )
+            
+            # Cliente HTTP persistente con connection pooling
+            cls._instance._http_client = httpx.AsyncClient(
+                timeout=30.0,
+                limits=httpx.Limits(max_keepalive_connections=10, max_connections=20)
             )
         return cls._instance
 
@@ -35,10 +42,12 @@ class MicrosoftAuth:
             redirect_uri=settings.REDIRECT_URI
         )
 
-    def get_token_from_code(self, code):
+    async def get_token_from_code(self, code):
         # MSAL automáticamente incluye refresh_token para ConfidentialClientApplication
         # No necesitamos agregar 'offline_access' explícitamente
-        result = self.app.acquire_token_by_authorization_code(
+        import asyncio
+        result = await asyncio.to_thread(
+            self.app.acquire_token_by_authorization_code,
             code,
             scopes=settings.GRAPH_SCOPES.split(" "),
             redirect_uri=settings.REDIRECT_URI
@@ -48,7 +57,7 @@ class MicrosoftAuth:
         return result
 
     # --- GESTIÓN GLOBAL DE TOKEN (REFRESH) ---
-    def refresh_access_token(self, refresh_token):
+    async def refresh_access_token(self, refresh_token):
         """
         Renueva el access_token usando el refresh_token de larga duración.
         Útil para cualquier módulo que requiera Graph API.
@@ -57,7 +66,9 @@ class MicrosoftAuth:
             # MSAL maneja automáticamente refresh_token sin necesidad de offline_access
             scopes = settings.GRAPH_SCOPES.split(" ")
             
-            result = self.app.acquire_token_by_refresh_token(
+            import asyncio
+            result = await asyncio.to_thread(
+                self.app.acquire_token_by_refresh_token,
                 refresh_token,
                 scopes=scopes
             )
@@ -71,7 +82,7 @@ class MicrosoftAuth:
             logger.error(f"Excepción crítica en refresh_token: {e}")
             return None
 
-    def get_application_token(self):
+    async def get_application_token(self):
         """
         Obtiene un access token usando Client Credentials Flow (application-only).
         Este token NO requiere usuario logueado y es ideal para tareas en background.
@@ -84,7 +95,9 @@ class MicrosoftAuth:
             # Client Credentials Flow: app actúa en su propio nombre, no en nombre de usuario
             scopes = ["https://graph.microsoft.com/.default"]
             
-            result = self.app.acquire_token_for_client(scopes=scopes)
+            # Wrap MSAL call to prevent event loop blocking
+            import asyncio
+            result = await asyncio.to_thread(self.app.acquire_token_for_client, scopes=scopes)
             
             if "error" in result:
                 logger.error(f"Error obteniendo token de aplicación: {result.get('error_description')}")
@@ -104,10 +117,10 @@ class MicrosoftAuth:
             "Content-Type": "application/json"
         }
 
-    def get_user_profile(self, token):
+    async def get_user_profile(self, token):
         try:
             headers = self.get_headers(token)
-            resp = requests.get("https://graph.microsoft.com/v1.0/me", headers=headers)
+            resp = await self._http_client.get("https://graph.microsoft.com/v1.0/me", headers=headers)
             if resp.status_code == 200:
                 return resp.json()
             return {}
@@ -116,7 +129,7 @@ class MicrosoftAuth:
             return {}
 
     # --- LÓGICA DE HILOS ---    
-    def find_thread_id(self, access_token: str, search_text: str) -> str:
+    async def find_thread_id(self, access_token: str, search_text: str) -> str:
         """
         Busca el ID del hilo más reciente.
         Limpia prefijos (Re:, Fwd:, Rv:, Enc:, Tr:) automáticamente para tolerar inputs sucios.
@@ -144,7 +157,7 @@ class MicrosoftAuth:
         url = f"https://graph.microsoft.com/v1.0/me/messages?$search=\"{encoded_search}\"&$select=id,subject,conversationId,receivedDateTime,isDraft&$top=50"
         
         try:
-            resp = requests.get(url, headers=headers)
+            resp = await self._http_client.get(url, headers=headers)
             if resp.status_code == 200:
                 data = resp.json()
                 items = data.get("value", [])
@@ -183,7 +196,7 @@ class MicrosoftAuth:
             logger.error(f"Excepción buscando hilo: {e}")
             return None
 
-    def reply_with_new_subject(self, access_token, thread_id, new_subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments):
+    async def reply_with_new_subject(self, access_token, thread_id, new_subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments):
         """
         Crea respuesta, PRESERVA el historial, AGREGA 'Re:' y envía.
         """
@@ -192,7 +205,7 @@ class MicrosoftAuth:
         # 1. Crear Respuesta (Draft vinculado)
         # Esto genera un borrador que YA contiene el historial del correo anterior (el "thread")
         url_reply = f"https://graph.microsoft.com/v1.0/me/messages/{thread_id}/createReply"
-        resp_reply = requests.post(url_reply, headers=headers)
+        resp_reply = await self._http_client.post(url_reply, headers=headers)
         if resp_reply.status_code != 201: 
             return False, f"Error creando respuesta: {resp_reply.text}"
             
@@ -226,17 +239,17 @@ class MicrosoftAuth:
             "bccRecipients": [{"emailAddress": {"address": e}} for e in bcc_recipients]
         }
         
-        resp_patch = requests.patch(f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}", headers=headers, json=patch_payload)
+        resp_patch = await self._http_client.patch(f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}", headers=headers, json=patch_payload)
         if resp_patch.status_code != 200: 
             return False, f"Error actualizando borrador: {resp_patch.text}"
 
         # 3. Subir Adjuntos (si existen)
         if attachments:
             for f in attachments:
-                self._upload_session(headers, draft_id, f)
+                await self._upload_session(headers, draft_id, f)
 
         # 4. Enviar
-        resp_send = requests.post(f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}/send", headers=headers)
+        resp_send = await self._http_client.post(f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}/send", headers=headers)
         
         if resp_send.status_code == 202:
             return True, "Enviado (Historial preservado)"
@@ -245,7 +258,7 @@ class MicrosoftAuth:
 
 
     # --- Envío de Correos (Híbrido) ---
-    def send_email_with_attachments(self, access_token, from_email, subject, body, recipients, cc_recipients=None, bcc_recipients=None, importance="normal", attachments_files=None):
+    async def send_email_with_attachments(self, access_token, from_email, subject, body, recipients, cc_recipients=None, bcc_recipients=None, importance="normal", attachments_files=None):
         if not access_token:
             logger.error("Error: Token nulo.")
             return False, "No hay sesión activa"
@@ -302,7 +315,7 @@ class MicrosoftAuth:
                 # Con Application token usar /users/{email}/sendMail
                 endpoint = f"https://graph.microsoft.com/v1.0/users/{from_email}/sendMail"
                 
-                res = requests.post(endpoint, headers=headers, json=email_msg)
+                res = await self._http_client.post(endpoint, headers=headers, json=email_msg)
                 if res.status_code == 202:
                     return True, "Enviado"
                 else:
@@ -314,55 +327,61 @@ class MicrosoftAuth:
         # B: Envío Pesado (Draft + Upload)
         else:
             logger.info("Modo: Archivos Grandes (Draft + Upload)")
-            return self._send_heavy_email(headers, subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments_files)
+            return await self._send_heavy_email(headers, subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments_files)
 
-    def _send_heavy_email(self, headers, subject, body, recipients, cc, bcc, importance, attachments):
+    async def _send_heavy_email(self, headers, subject, body, recipients, cc, bcc, importance, attachments):
         try:
             draft_payload = {
                 "subject": subject,
-                "importance": importance,  # ACCIÓN 3: Agregar importance
-                "body": {"contentType": "HTML", "content": body.replace('\n', '<br>')},
+                "importance": importance,
+                "body": {"contentType": "HTML", "content": body},
                 "toRecipients": [{"emailAddress": {"address": e}} for e in recipients],
                 "ccRecipients": [{"emailAddress": {"address": e}} for e in cc],
                 "bccRecipients": [{"emailAddress": {"address": e}} for e in bcc]
             }
             # 1. Draft
-            res = requests.post("https://graph.microsoft.com/v1.0/me/messages", headers=headers, json=draft_payload)
+            res = await self._http_client.post("https://graph.microsoft.com/v1.0/me/messages", headers=headers, json=draft_payload)
             if res.status_code != 201: return False, f"Error draft: {res.text}"
             msg_id = res.json()["id"]
 
             # 2. Upload
             for f in attachments:
-                self._upload_session(headers, msg_id, f)
+                await self._upload_session(headers, msg_id, f)
 
             # 3. Send
-            res_send = requests.post(f"https://graph.microsoft.com/v1.0/me/messages/{msg_id}/send", headers=headers)
+            res_send = await self._http_client.post(f"https://graph.microsoft.com/v1.0/me/messages/{msg_id}/send", headers=headers)
             return (True, "Enviado") if res_send.status_code == 202 else (False, res_send.text)
         except Exception as e:
             return False, str(e)
 
-    def _upload_session(self, headers, msg_id, file_data):
+    async def _upload_session(self, headers, msg_id, file_data):
         name = file_data["name"]
         content = file_data["content_bytes"]
         size = len(content)
         
-        sess = requests.post(
+        sess = await self._http_client.post(
             f"https://graph.microsoft.com/v1.0/me/messages/{msg_id}/attachments/createUploadSession",
             headers=headers,
             json={"AttachmentItem": {"attachmentType": "file", "name": name, "size": size}}
         )
-        if sess.status_code != 201: return
+        if sess.status_code != 201: 
+            logger.error(f"Error creando sesión de upload: {sess.status_code} - {sess.text}")
+            return
         
         upload_url = sess.json()["uploadUrl"]
         chunk_size = 327680 * 10 
         
-        with requests.Session() as s:
-            for i in range(0, size, chunk_size):
-                chunk = content[i:i+chunk_size]
-                s.put(upload_url, headers={
-                    "Content-Length": str(len(chunk)),
-                    "Content-Range": f"bytes {i}-{i+len(chunk)-1}/{size}"
-                }, data=chunk)
+        for i in range(0, size, chunk_size):
+            chunk = content[i:i+chunk_size]
+            res = await self._http_client.put(upload_url, headers={
+                "Content-Length": str(len(chunk)),
+                "Content-Range": f"bytes {i}-{i+len(chunk)-1}/{size}"
+            }, content=chunk)
+            
+            # CRÍTICO: Validar cada fragmento
+            if not res.is_success:
+                logger.error(f"Fallo en fragmento {i}-{i+len(chunk)-1}: {res.status_code}")
+                raise Exception(f"Fallo en fragmento de subida: {res.text}")
 
 def get_ms_auth():
     return MicrosoftAuth()
