@@ -1,13 +1,8 @@
-"""
-Router del Módulo Levantamientos
-"""
-
 from fastapi import APIRouter, Depends, Request, Form, HTTPException, status
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
-from typing import List, Optional
+from typing import Optional
 from uuid import UUID
-from datetime import datetime
 
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
@@ -16,95 +11,15 @@ from core.permissions import require_module_access
 # Database connection
 from core.database import get_db_connection
 
+# Service Layer
+from .service import get_service, LevantamientoService
+
 templates = Jinja2Templates(directory="templates")
 
 router = APIRouter(
     prefix="/levantamientos",
     tags=["Módulo Levantamientos"]
 )
-
-# ========================================
-# CAPA DE SERVICIO (Service Layer)
-# ========================================
-class LevantamientoService:
-    """
-    Lógica de negocio del módulo levantamientos.
-    
-    Maneja:
-    - Sistema Kanban de oportunidades
-    - Queries complejas con JOINs a múltiples tablas
-    - Lógica de cambio de estado de tarjetas
-    """
-    
-    async def get_kanban_data(self, conn) -> dict:
-        """
-        Obtiene datos del tablero Kanban desde la BD.
-        
-        Query compleja con JOINs para obtener info de técnico y jefe.
-        Usa DISTINCT ON para evitar duplicados si hay múltiples sitios/levantamientos.
-        """
-        query = """
-            SELECT DISTINCT ON (op.id_oportunidad)
-                   op.id_oportunidad, op.titulo_proyecto, op.nombre_proyecto, 
-                   op.cliente_nombre, op.direccion_obra, op.fecha_solicitud, 
-                   op.id_estatus_global, op.cantidad_sitios, op.prioridad,
-                   -- Info Técnico y Area (Join anidado)
-                   u_tec.nombre as tecnico_nombre,
-                   perm_tec.departamento_rol as tecnico_area,
-                   u_jefe.nombre as jefe_nombre
-            FROM tb_oportunidades op
-            -- Join para filtrar por tipo de solicitud
-            JOIN tb_cat_tipos_solicitud tipo_cat ON op.id_tipo_solicitud = tipo_cat.id
-            -- Joins para llegar al técnico asignado en tb_levantamientos
-            LEFT JOIN tb_sitios_oportunidad s ON s.id_oportunidad = op.id_oportunidad
-            LEFT JOIN tb_levantamientos l ON l.id_sitio = s.id_sitio
-            LEFT JOIN tb_usuarios u_tec ON l.tecnico_asignado_id = u_tec.id_usuario
-            LEFT JOIN tb_permisos_usuarios perm_tec ON perm_tec.usuario_id = u_tec.id_usuario
-            LEFT JOIN tb_usuarios u_jefe ON l.jefe_area_id = u_jefe.id_usuario
-            
-            WHERE tipo_cat.codigo_interno = 'LEVANTAMIENTO'
-            AND op.id_estatus_global NOT IN (6, 7)
-            ORDER BY op.id_oportunidad, op.prioridad DESC, op.fecha_solicitud ASC
-        """
-        rows = await conn.fetch(query)
-        
-        # Organizar en columnas del Kanban
-        kanban = {"pendientes": [], "agendados": [], "realizados": []}
-        
-        for row in rows:
-            item = dict(row)
-            st = item['id_estatus_global']
-            if st == 1:  # Pendiente
-                kanban['pendientes'].append(item)
-            elif st == 2:  # Agendado
-                kanban['agendados'].append(item)
-            elif st in [3, 4]:  # Realizado, Entregado
-                kanban['realizados'].append(item)
-            else:
-                kanban['pendientes'].append(item)
-        
-        return kanban
-
-    async def mover_tarjeta(self, conn, id_oportunidad: UUID, nuevo_status: int):
-        """
-        Mueve una tarjeta entre columnas del Kanban.
-        
-        Valida que el nuevo status sea válido y actualiza en BD.
-        nuevo_status debe ser el ID del estatus (1=Pendiente, 2=Agendado, etc)
-        """
-        validos = [1, 2, 3, 4, 5]  # IDs válidos de estatus
-        if nuevo_status not in validos:
-            raise ValueError(f"Estado inválido: {nuevo_status}")
-        
-        await conn.execute(
-            "UPDATE tb_oportunidades SET id_estatus_global = $1 WHERE id_oportunidad = $2",
-            nuevo_status,
-            id_oportunidad
-        )
-
-def get_service():
-    """Dependencia para inyectar la capa de servicio."""
-    return LevantamientoService()
 
 # ========================================
 # ENDPOINT PRINCIPAL (UI)
@@ -124,13 +39,27 @@ async def get_levantamientos_ui(
     """
     # HTMX Detection
     if request.headers.get("hx-request"):
-        # Carga parcial desde sidebar
-        return templates.TemplateResponse("levantamientos/partials/kanban.html", {
-            "request": request,
-            "pendientes": [],
-            "agendados": [],
-            "realizados": []
-        })
+        # Carga parcial desde sidebar - CARGAR DATOS REALES
+        from .service import get_service
+        from core.database import get_db_connection
+        
+        service = get_service()
+        # Obtener conexión
+        async for conn in get_db_connection():
+            data = await service.get_kanban_data(conn)
+            
+            
+            return templates.TemplateResponse("levantamientos/partials/kanban.html", {
+                "request": request,
+                "pendientes": data['pendientes'],
+                "agendados": data['agendados'],
+                "en_proceso": data['en_proceso'],
+                "completados": data['completados'],
+                "entregados": data['entregados'],
+                "pospuestos": data['pospuestos'],
+                "can_edit": True,
+                "user_context": context
+            })
     else:
         # Carga completa de página
         return templates.TemplateResponse("levantamientos/dashboard.html", {
@@ -148,38 +77,211 @@ async def get_levantamientos_ui(
 async def get_kanban_partial(
     request: Request,
     conn = Depends(get_db_connection),
-    service: LevantamientoService = Depends(get_service)
+    service: LevantamientoService = Depends(get_service),
+    context = Depends(get_current_user_context)
 ):
     """Partial: Tablero Kanban con datos reales de BD."""
     data = await service.get_kanban_data(conn)
+    
+    # Determinar permisos
+    can_edit = (
+        context.get("role") == "ADMIN" or 
+        context.get("module_roles", {}).get("levantamientos") in ["editor", "assignor", "admin"]
+    )
+    
+    
     return templates.TemplateResponse("levantamientos/partials/kanban.html", {
         "request": request,
         "pendientes": data['pendientes'],
         "agendados": data['agendados'],
-        "realizados": data['realizados']
+        "en_proceso": data['en_proceso'],
+        "completados": data['completados'],
+        "entregados": data['entregados'],
+        "pospuestos": data['pospuestos'],
+        "can_edit": can_edit,
+        "user_context": context
+    })
+
+# ========================================
+# MODALES
+# ========================================
+@router.get("/modal/assign/{id_levantamiento}", include_in_schema=False)
+async def get_assign_modal(
+    request: Request,
+    id_levantamiento: UUID,
+    conn = Depends(get_db_connection),
+    service: LevantamientoService = Depends(get_service),
+    context = Depends(get_current_user_context)
+):
+    """Modal para asignar responsables."""
+    # Obtener datos del levantamiento
+    lev_data = await conn.fetchrow("""
+        SELECT l.*, o.op_id_estandar, o.nombre_proyecto, o.cliente_nombre
+        FROM tb_levantamientos l
+        INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+        WHERE l.id_levantamiento = $1
+    """, id_levantamiento)
+    
+    if not lev_data:
+        raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+    
+    # Obtener listas de usuarios
+    usuarios = await service.get_usuarios_para_asignacion(conn)
+    
+    return templates.TemplateResponse("levantamientos/modals/assign_modal.html", {
+        "request": request,
+        "id_levantamiento": id_levantamiento,
+        "lev_data": dict(lev_data),
+        "tecnicos": usuarios['tecnicos'],
+        "jefes": usuarios['jefes'],
+        "current_tecnico_id": lev_data['tecnico_asignado_id'],
+        "current_jefe_id": lev_data['jefe_area_id']
+    })
+
+@router.get("/modal/historial/{id_levantamiento}", include_in_schema=False)
+async def get_historial_modal(
+    request: Request,
+    id_levantamiento: UUID,
+    conn = Depends(get_db_connection),
+    service: LevantamientoService = Depends(get_service)
+):
+    """Modal con timeline de cambios de estado."""
+    # Obtener datos del levantamiento
+    lev_data = await conn.fetchrow("""
+        SELECT l.*, o.op_id_estandar, o.nombre_proyecto
+        FROM tb_levantamientos l
+        INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+        WHERE l.id_levantamiento = $1
+    """, id_levantamiento)
+    
+    if not lev_data:
+        raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+    
+    # Obtener historial
+    historial = await service.get_historial_estados(conn, id_levantamiento)
+    
+    return templates.TemplateResponse("levantamientos/modals/historial_modal.html", {
+        "request": request,
+        "lev_data": dict(lev_data),
+        "historial": historial
     })
 
 # ========================================
 # ENDPOINTS DE API (Acciones del Kanban)
 # ========================================
-@router.post("/move/{id_oportunidad}")
-async def mover_tarjeta_endpoint(
-    request: Request,
-    id_oportunidad: UUID,
-    status: int = Form(...),
+@router.post("/assign/{id_levantamiento}")
+async def assign_responsables_endpoint(
+    id_levantamiento: UUID,
+    tecnico_asignado_id: Optional[UUID] = Form(None),
+    jefe_area_id: Optional[UUID] = Form(None),
+    observaciones: Optional[str] = Form(None),
     conn = Depends(get_db_connection),
-    service: LevantamientoService = Depends(get_service)
+    service: LevantamientoService = Depends(get_service),
+    context = Depends(get_current_user_context)
 ):
-    """API: Mueve una tarjeta entre columnas del Kanban."""
+    """
+    API: Asigna responsables a un levantamiento.
+    Envía notificaciones automáticas.
+    """
     try:
-        await service.mover_tarjeta(conn, id_oportunidad, status)
-        # Retorna success y dispara recarga del Kanban
+        await service.assign_responsables(
+            conn=conn,
+            id_levantamiento=id_levantamiento,
+            tecnico_id=tecnico_asignado_id,
+            jefe_id=jefe_area_id,
+            user_context=context,
+            observaciones=observaciones
+        )
+        
         return HTMLResponse(
             status_code=200,
             headers={"HX-Trigger": "reloadKanban"}
         )
+    except HTTPException as e:
+        raise e
     except Exception as e:
         return HTMLResponse(
-            f"<div class='text-red-500'>Error: {e}</div>",
+            f"<div class='text-red-500'>Error: {str(e)}</div>",
             status_code=500
         )
+
+@router.post("/change-status/{id_levantamiento}")
+async def change_status_endpoint(
+    request: Request,
+    id_levantamiento: UUID,
+    nuevo_estado: int = Form(...),
+    observaciones: Optional[str] = Form(None),
+    conn = Depends(get_db_connection),
+    service: LevantamientoService = Depends(get_service),
+    context = Depends(get_current_user_context)
+):
+    """
+    API: Cambia el estado de un levantamiento.
+    Registra en historial y notifica automáticamente.
+    """
+    try:
+        await service.cambiar_estado(
+            conn=conn,
+            id_levantamiento=id_levantamiento,
+            nuevo_estado=nuevo_estado,
+            user_context=context,
+            observaciones=observaciones
+        )
+        
+        # Recargar datos del kanban y retornar HTML actualizado
+        data = await service.get_kanban_data(conn)
+        
+        can_edit = (
+            context.get("role") == "ADMIN" or 
+            context.get("module_roles", {}).get("levantamientos") in ["editor", "assignor", "admin"]
+        )
+        
+        return templates.TemplateResponse("levantamientos/partials/kanban.html", {
+            "request": request,
+            "pendientes": data['pendientes'],
+            "agendados": data['agendados'],
+            "en_proceso": data['en_proceso'],
+            "completados": data['completados'],
+            "entregados": data['entregados'],
+            "pospuestos": data['pospuestos'],
+            "can_edit": can_edit,
+            "user_context": context
+        })
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        return HTMLResponse(
+            f"<div class='text-red-500'>Error: {str(e)}</div>",
+            status_code=500
+        )
+
+# DEPRECATED: Mantener por compatibilidad pero marcar como obsoleto
+@router.post("/move/{id_oportunidad}")
+async def mover_tarjeta_endpoint_legacy(
+    id_oportunidad: UUID,
+    status: int = Form(...),
+    conn = Depends(get_db_connection),
+    service: LevantamientoService = Depends(get_service),
+    context = Depends(get_current_user_context)
+):
+    """
+    API LEGACY: Mantener por compatibilidad.
+    Usar /change-status en su lugar.
+    """
+    # Obtener id_levantamiento desde id_oportunidad
+    lev_id = await conn.fetchval(
+        "SELECT id_levantamiento FROM tb_levantamientos WHERE id_oportunidad = $1 LIMIT 1",
+        id_oportunidad
+    )
+    
+    if not lev_id:
+        raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+    
+    return await change_status_endpoint(
+        id_levantamiento=lev_id,
+        nuevo_estado=status,
+        observaciones=None,
+        conn=conn,
+        service=service,
+        context=context
+    )

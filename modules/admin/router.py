@@ -36,7 +36,7 @@ async def admin_dashboard(
     departments_dict = await service.get_departments_catalog(conn)
     modules_dict = await service.get_modules_catalog(conn)
     catalogos = await service.get_catalogos_reglas(conn)
-    global_config = await service.get_global_config(conn)  # OK - NUEVO: Configuración Global
+    global_config = await service.get_global_config(conn)
     import logging
     logging.getLogger("AdminRouter").info(f"Dashboard Config Loaded: {global_config}")
     
@@ -48,7 +48,7 @@ async def admin_dashboard(
         "departments": departments_dict,
         "modules": modules_dict,
         "catalogos": catalogos,
-        "config_global": global_config,  # OK - NUEVO: Pasar config al template
+        "config_global": global_config,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {})
@@ -72,7 +72,6 @@ async def update_user_role(
             "message": "No tienes permisos para realizar esta acción."
         }, status_code=403)
     
-    # OK - REFACTORIZADO: Usar service
     await service.update_user_role(conn, user_id, role)
     return templates.TemplateResponse("admin/partials/messages/success.html", {
         "request": request,

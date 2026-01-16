@@ -408,9 +408,11 @@
     let allModules = {{ modules | tojson | safe }};
     let allDepartments = {{ departments | tojson | safe }};
     let currentUserId = null;
+    let currentUserPref = "";
 
-    function openPermissionsModal(userId, userName) {
+    function openPermissionsModal(userId, userName, userPref) {
         currentUserId = userId;
+        currentUserPref = userPref || "";
         document.getElementById('modal-user-name').textContent = userName;
         document.getElementById('perms-response').innerHTML = '';
         loadUserPermissions(userId);
@@ -470,6 +472,11 @@
                     prefSelect.appendChild(opt);
                 }
             });
+
+            // Restore saved preference
+            if (currentUserPref) {
+                prefSelect.value = currentUserPref;
+            }
 
         } catch (e) {
             console.error(e);

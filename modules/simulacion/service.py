@@ -93,27 +93,39 @@ class SimulacionService:
                     detail="Fecha Entrega Real solo puede asignarse en estatus: Entregado, Perdido o Cancelado"
                 )
         
+        # 0.5. Obtener conteo total de sitios para validación inteligente
+        total_sitios = await conn.fetchval(
+            "SELECT count(*) FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", 
+            id_oportunidad
+        )
+
         # 1. Validación de Regla: Cierre (Entregado)
         if datos.id_estatus_global == status_map["entregado"]:
-            # Verificar sitios pendientes
-            query_check = """
-                SELECT count(*) FROM tb_sitios_oportunidad 
-                WHERE id_oportunidad = $1 
-                AND id_estatus_global NOT IN ($2, $3, $4)
-            """
-            sitios_pendientes = await conn.fetchval(
-                query_check, 
-                id_oportunidad, 
-                status_map["entregado"], 
-                status_map["cancelado"], 
-                status_map["perdido"]
-            )
+            # VALIDACIÓN INTELIGENTE:
+            # - Si es Multisitio (>1): Exigimos cierre manual uno por uno (Strict Mode)
+            # - Si es Sitio Único (1): Permitimos el paso para hacer Auto-Cierre (Cascada)
             
-            if sitios_pendientes > 0:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Bloqueo de Calidad: Existen {sitios_pendientes} sitios activos. Debe finalizar todos los sitios antes de entregar."
+            if total_sitios > 1:
+                # Verificar sitios pendientes
+                query_check = """
+                    SELECT count(*) FROM tb_sitios_oportunidad 
+                    WHERE id_oportunidad = $1 
+                    AND id_estatus_global NOT IN ($2, $3, $4)
+                """
+                sitios_pendientes = await conn.fetchval(
+                    query_check, 
+                    id_oportunidad, 
+                    status_map["entregado"], 
+                    status_map["cancelado"], 
+                    status_map["perdido"]
                 )
+                
+                if sitios_pendientes > 0:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Bloqueo de Calidad: Existen {sitios_pendientes} sitios activos. Debe finalizar todos los sitios antes de entregar."
+                    )
+            # ELSE: Si es == 1, pasamos directo a la cascada
             
             # Validación estricta de campos de cierre
             if datos.monto_cierre_usd is None or datos.potencia_cierre_fv_kwp is None:
@@ -149,8 +161,14 @@ class SimulacionService:
             id_oportunidad
         )
 
-        # 3. Regla de Cascada: Cancelación/Pérdida
+        # 3. Regla de Cascada: Cancelación/Pérdida (Siempre) OR Entregado (Solo si es sitio único)
+        should_cascade = False
         if datos.id_estatus_global in [status_map["cancelado"], status_map["perdido"]]:
+            should_cascade = True
+        elif datos.id_estatus_global == status_map["entregado"] and total_sitios == 1:
+            should_cascade = True
+
+        if should_cascade:
             fecha_cierre_cascada = datos.fecha_entrega_simulacion or await self.get_current_datetime_mx()
             # Actualiza todos los sitios abiertos (cascada)
             query_cascada = """

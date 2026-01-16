@@ -59,7 +59,8 @@
         <div class="flex justify-end gap-2">
             {% if u.is_active is not false %}
             <!-- Editar Permisos -->
-            <button onclick="openPermissionsModal('{{ u.id_usuario }}', '{{ u.nombre }}')"
+            <button
+                onclick="openPermissionsModal('{{ u.id_usuario }}', '{{ u.nombre }}', '{{ u.modulo_preferido or "" }}')"
                 class="text-[#00BABB] hover:text-[#009999] font-bold transition-colors duration-200"
                 title="Editar Permisos">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -453,6 +453,24 @@ class ComercialService:
             # Validación de negocio adicional: ¿Es tecnología BESS?
             await self._insertar_bess(conn, new_id, datos.detalles_bess)
         
+        # ========================================
+        # HOOK: Crear levantamiento automáticamente si es tipo LEVANTAMIENTO
+        # ========================================
+        tipo_datos = await conn.fetchrow(
+            "SELECT codigo_interno FROM tb_cat_tipos_solicitud WHERE id = $1",
+            datos.id_tipo_solicitud
+        )
+        if tipo_datos and tipo_datos['codigo_interno'] == 'LEVANTAMIENTO':
+            try:
+                from modules.levantamientos.service import LevantamientoService
+                lev_service = LevantamientoService()
+                lev_id = await lev_service.crear_desde_oportunidad(conn, new_id, user_context)
+                logger.info(f"Levantamiento {lev_id} creado automáticamente para oportunidad {op_id_estandar}")
+            except Exception as e:
+                logger.error(f"Error creando levantamiento automático: {e}")
+                # No fallar la creación de oportunidad por esto
+        # ========================================
+        
         logger.info(f"Oportunidad {op_id_estandar} creada exitosamente por usuario {user_context.get('user_db_id')}")
         return new_id, op_id_estandar, es_fuera_horario
 

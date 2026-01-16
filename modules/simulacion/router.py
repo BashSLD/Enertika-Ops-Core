@@ -58,12 +58,20 @@ async def get_simulacion_ui(
     else:
         template = "simulacion/dashboard.html"  # Wrapper completo
     
+
+    # Logic to determine effective role for UI
+    effective_role = "viewer"
+    if context.get("role") == "ADMIN":
+         effective_role = "admin"
+    else:
+        effective_role = context.get("module_roles", {}).get("simulacion", "viewer")
+
     return templates.TemplateResponse(template, {
         "request": request,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
-        "current_module_role": context.get("module_roles", {}).get("simulacion", "viewer")
+        "current_module_role": effective_role
     })
 
 # ========================================
@@ -404,8 +412,11 @@ async def get_edit_modal(
     motivos_cierre = await conn.fetch("SELECT id, motivo FROM tb_cat_motivos_cierre WHERE activo = true ORDER BY motivo")
 
     # 4. Definir Permiso de Edición (Manager/Admin)
+    # 4. Definir Permiso de Edición (Manager/Admin)
     # Regla: Solo si es ADMIN global o tiene rol de módulo 'editor'/'admin'
-    can_manage = context["role"] == "ADMIN" or context.get("module_role") in ["editor", "admin"]
+    # FIX: Check module_roles correctly
+    sim_role = context.get("module_roles", {}).get("simulacion", "")
+    can_manage = context["role"] == "ADMIN" or sim_role in ["editor", "admin"]
 
     return templates.TemplateResponse("simulacion/modals/update_oportunidades.html", {
         "request": request,
