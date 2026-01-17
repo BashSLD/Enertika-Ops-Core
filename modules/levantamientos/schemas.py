@@ -13,8 +13,10 @@ class LevantamientoCreate(BaseModel):
 
 class LevantamientoUpdate(BaseModel):
     """Schema para que Ingeniería/Construcción gestionen la tarea."""
-    tecnico_asignado_id: Optional[UUID] = Field(None, description="Ingeniero/Técnico que se asigna la tarea.")
-    status_tarea: Optional[str] = Field(None, description="Status (Asignado, Ejecutado).")
+    tecnico_asignado_id: Optional[UUID] = Field(None, description="Técnico asignado al levantamiento.")
+    jefe_area_id: Optional[UUID] = Field(None, description="Jefe de área responsable.")
+    id_estatus_global: Optional[int] = Field(None, description="Estado del levantamiento (8-13).", ge=8, le=13)
+    fecha_visita_programada: Optional[datetime] = Field(None, description="Fecha programada para la visita.")
     evidencia_docs_url: Optional[str] = Field(None, description="URL de la carpeta de SharePoint con fotos/docs.")
 
 class LevantamientoRead(BaseModel):

@@ -27,6 +27,8 @@ router = APIRouter(
 @router.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)
 async def get_levantamientos_ui(
     request: Request,
+    conn = Depends(get_db_connection),
+    service: LevantamientoService = Depends(get_service),
     context = Depends(get_current_user_context),
     _ = require_module_access("levantamientos")
 ):
@@ -40,26 +42,19 @@ async def get_levantamientos_ui(
     # HTMX Detection
     if request.headers.get("hx-request"):
         # Carga parcial desde sidebar - CARGAR DATOS REALES
-        from .service import get_service
-        from core.database import get_db_connection
+        data = await service.get_kanban_data(conn)
         
-        service = get_service()
-        # Obtener conexión
-        async for conn in get_db_connection():
-            data = await service.get_kanban_data(conn)
-            
-            
-            return templates.TemplateResponse("levantamientos/partials/kanban.html", {
-                "request": request,
-                "pendientes": data['pendientes'],
-                "agendados": data['agendados'],
-                "en_proceso": data['en_proceso'],
-                "completados": data['completados'],
-                "entregados": data['entregados'],
-                "pospuestos": data['pospuestos'],
-                "can_edit": True,
-                "user_context": context
-            })
+        return templates.TemplateResponse("levantamientos/partials/kanban.html", {
+            "request": request,
+            "pendientes": data['pendientes'],
+            "agendados": data['agendados'],
+            "en_proceso": data['en_proceso'],
+            "completados": data['completados'],
+            "entregados": data['entregados'],
+            "pospuestos": data['pospuestos'],
+            "can_edit": True,
+            "user_context": context
+        })
     else:
         # Carga completa de página
         return templates.TemplateResponse("levantamientos/dashboard.html", {

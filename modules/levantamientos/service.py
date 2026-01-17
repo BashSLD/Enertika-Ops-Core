@@ -1,18 +1,13 @@
 """
 Service Layer del Módulo Levantamientos
 Implementa toda la lógica de negocio del sistema Kanban.
-
-Cumple con GUIA_MAESTRA:
-- Separación de responsabilidades
-- Timestamps con timezone
-- Integración con WorkflowService
-- Notificaciones automáticas
 """
 
 from datetime import datetime
 from uuid import UUID, uuid4
 from typing import List, Optional, Dict
 import logging
+import asyncio
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException
 import json
@@ -128,10 +123,29 @@ class LevantamientoService:
         """
         Obtiene datos del tablero Kanban agrupados por estado.
         
+        Optimizado con CTEs para evitar subconsultas correlacionadas.
+        
         Returns:
             dict con 6 listas: pendientes, agendados, en_proceso, completados, entregados, pospuestos
         """
+        # Query optimizada con Common Table Expressions (CTEs)
         query = """
+            WITH comentarios_count AS (
+                -- Contar comentarios por oportunidad (una sola pasada)
+                SELECT id_oportunidad, COUNT(*) as total_comentarios
+                FROM tb_comentarios_workflow
+                GROUP BY id_oportunidad
+            ),
+            tiempo_en_estado AS (
+                -- Calcular tiempo en estado actual (una sola pasada)
+                SELECT 
+                    lh.id_levantamiento,
+                    MAX(lh.fecha_transicion) as ultima_transicion
+                FROM tb_levantamientos_historial lh
+                INNER JOIN tb_levantamientos l ON lh.id_levantamiento = l.id_levantamiento
+                WHERE lh.id_estatus_nuevo = l.id_estatus_global
+                GROUP BY lh.id_levantamiento
+            )
             SELECT DISTINCT ON (l.id_levantamiento)
                    l.id_levantamiento,
                    l.id_oportunidad,
@@ -155,26 +169,21 @@ class LevantamientoService:
                    u_jefe.nombre as jefe_nombre,
                    u_jefe.id_usuario as jefe_id,
                    u_sol.nombre as solicitado_por_nombre,
-                   -- Contar comentarios
-                   (SELECT COUNT(*) FROM tb_comentarios_workflow 
-                    WHERE id_oportunidad = l.id_oportunidad) as comentarios_count,
-                   -- Calcular tiempo en estado actual
-                   EXTRACT(EPOCH FROM (NOW() - 
-                       COALESCE(
-                           (SELECT MAX(fecha_transicion) 
-                            FROM tb_levantamientos_historial 
-                            WHERE id_levantamiento = l.id_levantamiento
-                              AND id_estatus_nuevo = l.id_estatus_global),
-                           l.created_at
-                       )
+                   -- Comentarios count desde CTE
+                   COALESCE(cc.total_comentarios, 0) as comentarios_count,
+                   -- Tiempo en estado desde CTE
+                   EXTRACT(EPOCH FROM (
+                       NOW() - COALESCE(te.ultima_transicion, l.created_at)
                    )) as segundos_en_estado
             FROM tb_levantamientos l
             INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
             LEFT JOIN tb_sitios_oportunidad s ON l.id_sitio = s.id_sitio
             LEFT JOIN tb_usuarios u_tec ON l.tecnico_asignado_id = u_tec.id_usuario
-
             LEFT JOIN tb_usuarios u_jefe ON l.jefe_area_id = u_jefe.id_usuario
             LEFT JOIN tb_usuarios u_sol ON l.solicitado_por_id = u_sol.id_usuario
+            -- JOIN con CTEs para optimización
+            LEFT JOIN comentarios_count cc ON l.id_oportunidad = cc.id_oportunidad
+            LEFT JOIN tiempo_en_estado te ON l.id_levantamiento = te.id_levantamiento
             WHERE l.id_estatus_global IN (8, 9, 10, 11, 12, 13)
             ORDER BY l.id_levantamiento, o.prioridad DESC, l.fecha_solicitud ASC
         """
@@ -288,14 +297,16 @@ class LevantamientoService:
             }
         )
         
-        # Notificar al técnico asignado (si cambió)
+        # Notificar al técnico asignado (si cambió) - Fire & Forget
         if tecnico_id and tecnico_id != current['tecnico_asignado_id']:
-            await self._notificar_asignacion(
-                conn=conn,
-                id_oportunidad=current['id_oportunidad'],
-                old_responsable_id=current['tecnico_asignado_id'],
-                new_responsable_id=tecnico_id,
-                user_context=user_context
+            asyncio.create_task(
+                self._execute_notification_background(
+                    self._notificar_asignacion_impl,
+                    id_oportunidad=current['id_oportunidad'],
+                    old_responsable_id=current['tecnico_asignado_id'],
+                    new_responsable_id=tecnico_id,
+                    user_context=user_context
+                )
             )
         
         logger.info(f"[ASIGNACIÓN] Levantamiento {id_levantamiento} - Técnico: {tecnico_id}, Jefe: {jefe_id}")
@@ -368,13 +379,15 @@ class LevantamientoService:
                 LIMIT 1
             """, observaciones, id_levantamiento, nuevo_estado)
         
-        # Notificar cambio de estado
-        await self._notificar_cambio_estado(
-            conn=conn,
-            id_oportunidad=current['id_oportunidad'],
-            old_status_id=estado_anterior,
-            new_status_id=nuevo_estado,
-            user_context=user_context
+        # Notificar cambio de estado - Fire & Forget para respuesta instantánea
+        asyncio.create_task(
+            self._execute_notification_background(
+                self._notificar_cambio_estado_impl,
+                id_oportunidad=current['id_oportunidad'],
+                old_status_id=estado_anterior,
+                new_status_id=nuevo_estado,
+                user_context=user_context
+            )
         )
         
         logger.info(f"[ESTADO] Levantamiento {id_levantamiento}: {estado_anterior} -> {nuevo_estado}")
@@ -438,10 +451,39 @@ class LevantamientoService:
         return [dict(r) for r in rows]
     
     # ========================================
-    # NOTIFICACIONES (Integración)
+    # NOTIFICACIONES (Fire & Forget Pattern)
     # ========================================
     
-    async def _notificar_asignacion(
+    async def _execute_notification_background(
+        self,
+        notification_func,
+        **kwargs
+    ):
+        """
+        Ejecuta notificaciones en segundo plano con manejo apropiado de conexiones.
+        
+        Este método obtiene su propia conexión a BD para el background task,
+        evitando problemas con el ciclo de vida de conexiones de FastAPI.
+        
+        Args:
+            notification_func: Función de notificación a ejecutar
+            **kwargs: Argumentos para la función de notificación
+        """
+        try:
+            from core.database import get_db_connection
+            
+            # Obtener nueva conexión para el background task
+            async for conn in get_db_connection():
+                await notification_func(conn=conn, **kwargs)
+                break  # Solo necesitamos una iteración
+        except Exception as e:
+            logger.error(
+                f"[BACKGROUND NOTIFICATION] Error en tarea de fondo: {e}",
+                exc_info=True,
+                extra={"notification_func": notification_func.__name__, "kwargs": kwargs}
+            )
+    
+    async def _notificar_asignacion_impl(
         self,
         conn,
         id_oportunidad: UUID,
@@ -449,7 +491,10 @@ class LevantamientoService:
         new_responsable_id: Optional[UUID],
         user_context: dict
     ):
-        """Envía notificación de asignación usando el servicio existente."""
+        """
+        Implementación de notificación de asignación.
+        Llamada por Fire & Forget desde assign_responsables.
+        """
         if old_responsable_id == new_responsable_id:
             return
         
@@ -464,10 +509,15 @@ class LevantamientoService:
                 new_responsable_id=new_responsable_id,
                 assigned_by_ctx=user_context
             )
+            logger.info(f"[NOTIFICACIÓN] Asignación notificada exitosamente para oportunidad {id_oportunidad}")
         except Exception as e:
-            logger.error(f"[NOTIFICACIÓN] Error al notificar asignación: {e}")
+            logger.error(
+                f"[NOTIFICACIÓN] Error al notificar asignación: {e}",
+                exc_info=True,
+                extra={"id_oportunidad": str(id_oportunidad)}
+            )
     
-    async def _notificar_cambio_estado(
+    async def _notificar_cambio_estado_impl(
         self,
         conn,
         id_oportunidad: UUID,
@@ -475,7 +525,10 @@ class LevantamientoService:
         new_status_id: int,
         user_context: dict
     ):
-        """Envía notificación de cambio de estado."""
+        """
+        Implementación de notificación de cambio de estado.
+        Llamada por Fire & Forget desde cambiar_estado.
+        """
         try:
             from core.workflow.notification_service import get_notification_service
             
@@ -487,8 +540,20 @@ class LevantamientoService:
                 new_status_id=new_status_id,
                 changed_by_ctx=user_context
             )
+            logger.info(
+                f"[NOTIFICACIÓN] Cambio de estado notificado exitosamente: "
+                f"{old_status_id} -> {new_status_id} (oportunidad {id_oportunidad})"
+            )
         except Exception as e:
-            logger.error(f"[NOTIFICACIÓN] Error al notificar cambio de estado: {e}")
+            logger.error(
+                f"[NOTIFICACIÓN] Error al notificar cambio de estado: {e}",
+                exc_info=True,
+                extra={
+                    "id_oportunidad": str(id_oportunidad),
+                    "old_status": old_status_id,
+                    "new_status": new_status_id
+                }
+            )
     
     # ========================================
     # CATÁLOGOS

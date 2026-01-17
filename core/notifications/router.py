@@ -47,18 +47,19 @@ async def stream_notifications(
         """
         Generator que mantiene conexión SSE abierta con PostgreSQL LISTEN/NOTIFY.
         Implementa estrategia híbrida: LISTEN para multi-worker + fallback local.
+        
+        CAMBIO: Usa conexión dedicada FUERA del pool para evitar bloqueo en shutdown.
         """
         queue = asyncio.Queue()
         channel = f"user_notif_{str(usuario_id).replace('-', '_')}"
         
-        # Conexión dedicada para LISTEN (fuera del pool)
-        from core.database import get_db_pool
-        pool = await get_db_pool()
+        # Conexión dedicada para LISTEN (NO usa el pool)
+        from core.database import get_sse_connection, close_sse_connection
         listen_conn = None
         
         try:
-            # 1. Adquirir conexión dedicada para LISTEN
-            listen_conn = await pool.acquire()
+            # 1. Adquirir conexión DEDICADA (fuera del pool)
+            listen_conn = await get_sse_connection(usuario_id)
             
             # 2. Callback cuando llega NOTIFY de PostgreSQL
             def pg_listener(connection, pid, channel_name, payload):
@@ -136,11 +137,17 @@ async def stream_notifications(
             # 7. Cleanup completo
             if listen_conn:
                 try:
+                    # Remover listener antes de cerrar conexión
                     await listen_conn.remove_listener(channel, pg_listener)
-                    await pool.release(listen_conn)
                     logger.info(f"[SSE-PG] Listener removido: {channel}")
                 except Exception as e:
-                    logger.warning(f"[SSE-PG] Error en cleanup: {e}")
+                    logger.warning(f"[SSE-PG] Error removiendo listener: {e}")
+                
+                # Cerrar conexión SSE dedicada
+                try:
+                    await close_sse_connection(usuario_id)
+                except Exception as e:
+                    logger.warning(f"[SSE-CONN] Error en cleanup de conexión: {e}")
             
             # Remover de dict local
             from .service import active_connections
