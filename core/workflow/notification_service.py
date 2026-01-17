@@ -74,7 +74,7 @@ class NotificationService:
             subject = f"Nuevo comentario: {opp['op_id_estandar']} - {opp['cliente_nombre']}"
             
             # Usar buzón configurado en lugar del email del usuario
-            sender_config = await self._get_notification_sender(conn, 'SIMULACION')
+            sender_config = await self._get_notification_sender(conn, departamento)
             await self._send_email(to_emails, cc_emails, subject, html, sender_config['email'])
             
             # SSE: Guardar y broadcastear notificación
@@ -147,7 +147,8 @@ class NotificationService:
         subject = f"Asignacion: {opp['op_id_estandar']} - {opp['cliente_nombre']}"
         
         # Usar buzón configurado en lugar del email del usuario
-        sender_config = await self._get_notification_sender(conn, 'SIMULACION')
+        # NOTA: Para notify_assignment no recibimos departamento, usar DEFAULT
+        sender_config = await self._get_notification_sender(conn, 'DEFAULT')
         await self._send_email(to_emails, cc_emails, subject, html, sender_config['email'])
         
         # SSE: Guardar y broadcastear notificación
@@ -219,7 +220,8 @@ class NotificationService:
         subject = f"Cambio de estatus: {opp['op_id_estandar']} - {opp['cliente_nombre']}"
         
         # Usar buzón configurado en lugar del email del usuario
-        sender_config = await self._get_notification_sender(conn, 'SIMULACION')
+        # NOTA: Para notify_status_change no recibimos departamento, usar DEFAULT
+        sender_config = await self._get_notification_sender(conn, 'DEFAULT')
         await self._send_email(to_emails, cc_emails, subject, html, sender_config['email'])
         
         # SSE: Guardar y broadcastear notificación
@@ -429,7 +431,7 @@ class NotificationService:
         )
         
         # Broadcast via SSE si está conectado
-        await notif_service.broadcast_to_user(usuario_id, notification_data)
+        await notif_service.broadcast_to_user(conn, usuario_id, notification_data)
     
     def _render_template(self, template_path: str, context: dict) -> str:
         """
@@ -492,7 +494,15 @@ class NotificationService:
             if success:
                 logger.info(f"[NOTIFY] Email enviado - TO: {len(to_emails)}, CC: {len(cc_emails)}")
             else:
-                logger.error(f"[NOTIFY] Error enviando email: {msg}")
+                # Enmascarar PII en logs de error
+                masked_recipients = []
+                for email in to_emails:
+                    parts = email.split('@')
+                    if len(parts) == 2:
+                        masked_recipients.append(f"{parts[0][:3]}***@{parts[1]}")
+                    else:
+                        masked_recipients.append("***@***")
+                logger.error(f"[NOTIFY] Error enviando email a {len(to_emails)} destinatarios (sample: {masked_recipients[0] if masked_recipients else 'N/A'}): {msg}")
         
         except httpx.HTTPError as e:
             # Error de red o API de Microsoft Graph

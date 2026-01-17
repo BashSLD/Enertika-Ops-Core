@@ -1,8 +1,6 @@
 # modules/admin/service.py
 """
 Service Layer para el módulo Admin.
-Maneja toda la lógica de negocio y queries a la base de datos.
-Patrón recomendado por GUIA_MAESTRA líneas 703-833.
 """
 from typing import List, Dict, Optional
 from uuid import UUID
@@ -21,36 +19,52 @@ class AdminService:
         """
         Obtiene usuarios con sus módulos asignados y módulo preferido.
         
+        OPTIMIZACIÓN: Resuelve N+1 query problem mediante:
+        - 1 query para todos los usuarios
+        - 1 query para todos los permisos (con JOIN a módulos)
+        - 1 query para nombres de módulos preferidos
+        - Agrupación en memoria O(n)
+        
         Returns:
             List[Dict]: Lista de usuarios enriquecidos con permisos
         """
+        # 1. Obtener todos los usuarios
         users = await conn.fetch("SELECT * FROM tb_usuarios ORDER BY nombre")
+        if not users:
+            return []
         
+        # 2. Obtener todos los permisos de una sola vez con JOIN
+        all_permissions = await conn.fetch("""
+            SELECT pm.usuario_id, pm.modulo_slug, pm.rol_modulo, mc.nombre as modulo_nombre
+            FROM tb_permisos_modulos pm
+            JOIN tb_modulos_catalogo mc ON pm.modulo_slug = mc.slug
+            ORDER BY mc.orden
+        """)
+        
+        # 3. Obtener nombres de módulos preferidos de una sola vez
+        modulos_preferidos_slugs = {u['modulo_preferido'] for u in users if u['modulo_preferido']}
+        modulo_nombres_map = {}
+        if modulos_preferidos_slugs:
+            modulos_rows = await conn.fetch(
+                "SELECT slug, nombre FROM tb_modulos_catalogo WHERE slug = ANY($1)",
+                list(modulos_preferidos_slugs)
+            )
+            modulo_nombres_map = {row['slug']: row['nombre'] for row in modulos_rows}
+        
+        # 4. Mapear permisos a usuarios en memoria (O(n))
+        perm_map = {}
+        for p in all_permissions:
+            uid = p['usuario_id']
+            if uid not in perm_map:
+                perm_map[uid] = []
+            perm_map[uid].append(dict(p))
+        
+        # 5. Construir usuarios enriquecidos
         users_enriched = []
         for user in users:
             user_dict = dict(user)
-            
-            # Obtener módulos del usuario
-            permisos = await conn.fetch(
-                """SELECT pm.modulo_slug, pm.rol_modulo, mc.nombre as modulo_nombre
-                   FROM tb_permisos_modulos pm
-                   JOIN tb_modulos_catalogo mc ON pm.modulo_slug = mc.slug
-                   WHERE pm.usuario_id = $1
-                   ORDER BY mc.orden""",
-                user['id_usuario']
-            )
-            user_dict['user_modules'] = [dict(p) for p in permisos]
-            
-            # Obtener nombre del módulo preferido
-            if user['modulo_preferido']:
-                mod_pref = await conn.fetchval(
-                    "SELECT nombre FROM tb_modulos_catalogo WHERE slug = $1",
-                    user['modulo_preferido']
-                )
-                user_dict['modulo_preferido_nombre'] = mod_pref
-            else:
-                user_dict['modulo_preferido_nombre'] = None
-                
+            user_dict['user_modules'] = perm_map.get(user['id_usuario'], [])
+            user_dict['modulo_preferido_nombre'] = modulo_nombres_map.get(user['modulo_preferido'])
             users_enriched.append(user_dict)
         
         return users_enriched

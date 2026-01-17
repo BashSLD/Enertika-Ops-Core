@@ -5,6 +5,7 @@ from fastapi.templating import Jinja2Templates
 from core.security import get_current_user_context
 from core.permissions import require_module_access
 from .service import AdminService, get_admin_service
+import asyncpg
 
 # Import endpoints separados
 from . import endpoints_correos_notif
@@ -462,12 +463,18 @@ async def create_tipo_solicitud(
             "title": "Tipo Creado",
             "message": f"El tipo '{nombre}' fue creado exitosamente."
         })
-    except Exception as e:
+    except ValueError as e:
         return templates.TemplateResponse("admin/partials/messages/error.html", {
             "request": request,
-            "title": "Error",
-            "message": f"No se pudo crear: {str(e)}"
+            "title": "Error de Validación",
+            "message": str(e)
         }, status_code=400)
+    except asyncpg.PostgresError as e:
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Error de Base de Datos",
+            "message": "No se pudo guardar en la base de datos. Intente nuevamente."
+        }, status_code=500)
 
 @router.post("/catalogs/estatus")
 async def create_estatus(
@@ -495,12 +502,18 @@ async def create_estatus(
             "title": "Estatus Creado",
             "message": f"El estatus '{nombre}' fue creado exitosamente."
         })
-    except Exception as e:
+    except ValueError as e:
         return templates.TemplateResponse("admin/partials/messages/error.html", {
             "request": request,
-            "title": "Error",
-            "message": f"No se pudo crear: {str(e)}"
+            "title": "Error de Validación",
+            "message": str(e)
         }, status_code=400)
+    except asyncpg.PostgresError as e:
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Error de Base de Datos",
+            "message": "No se pudo guardar en la base de datos. Intente nuevamente."
+        }, status_code=500)
 
 
 @router.post("/catalogs/origenes")
@@ -528,12 +541,18 @@ async def create_origen_adjunto(
             "title": "Origen Creado",
             "message": f"El origen '{slug}' fue creado exitosamente."
         })
-    except Exception as e:
+    except ValueError as e:
         return templates.TemplateResponse("admin/partials/messages/error.html", {
             "request": request,
-            "title": "Error",
-            "message": f"No se pudo crear: {str(e)}"
+            "title": "Error de Validación",
+            "message": str(e)
         }, status_code=400)
+    except asyncpg.PostgresError as e:
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Error de Base de Datos",
+            "message": "No se pudo guardar en la base de datos. Intente nuevamente."
+        }, status_code=500)
 
 
 # Include sub-routers

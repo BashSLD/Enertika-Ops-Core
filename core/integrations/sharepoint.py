@@ -180,7 +180,6 @@ class SharePointService:
             # 2. Subir por chunks
             # Graph recomienda 320 KiB * N. Usaremos 320 KB * 10 = ~3.2 MB chunks
             CHUNK_SIZE = 327680 * 10 
-            await file.seek(0)
             
             bytes_sent = 0
             logger.info(f"Iniciando subida por chunks. Total: {size} bytes. Chunk size: {CHUNK_SIZE}")

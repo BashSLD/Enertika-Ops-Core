@@ -150,20 +150,39 @@ class NotificationsService:
             del active_connections[usuario_id]
             logger.info(f"[SSE] Usuario desconectado: {usuario_id}")
     
-    async def broadcast_to_user(self, usuario_id: UUID, notification_data: dict):
+    async def broadcast_to_user(self, conn, usuario_id: UUID, notification_data: dict):
         """
-        Envía notificación a un usuario específico si está conectado via SSE.
+        Envía notificación via LISTEN/NOTIFY (multi-worker) + fallback local.
+        
+        Estrategia híbrida para máxima resiliencia:
+        1. PostgreSQL NOTIFY: Alcanza todos los workers en Railway/Gunicorn
+        2. Fallback local: Si NOTIFY falla o es single-worker
         
         Args:
+            conn: Conexión a base de datos (para NOTIFY)
             usuario_id: ID del usuario destinatario
             notification_data: Datos de la notificación
         """
+        # 1. PostgreSQL NOTIFY (para multi-worker)
+        try:
+            # Nombre del canal: user_notif_<uuid_sin_guiones>
+            import json
+            channel = f"user_notif_{str(usuario_id).replace('-', '_')}"
+            payload = json.dumps(notification_data)
+            
+            # Ejecutar NOTIFY con placeholder seguro
+            await conn.execute(f"NOTIFY {channel}, $1", payload)
+            logger.info(f"[SSE-PG] NOTIFY enviado a canal {channel[:30]}...")
+        except Exception as e:
+            logger.warning(f"[SSE-PG] NOTIFY falló (usando fallback local): {e}")
+        
+        # 2. Fallback local (para single-worker o si NOTIFY falla)
         if usuario_id in active_connections:
             queue = active_connections[usuario_id]
             await queue.put(notification_data)
-            logger.info(f"[SSE] Notificación enviada a usuario {usuario_id}")
+            logger.info(f"[SSE-LOCAL] Entrega local a usuario {usuario_id}")
         else:
-            logger.debug(f"[SSE] Usuario {usuario_id} no conectado, solo guardado en BD")
+            logger.debug(f"[SSE] Usuario {usuario_id} no conectado localmente")
     
     def get_active_connections_count(self) -> int:
         """Retorna cantidad de usuarios actualmente conectados via SSE."""

@@ -44,68 +44,109 @@ async def stream_notifications(
     usuario_id = context['user_db_id']
     
     async def event_generator():
-        """Generator que mantiene conexión SSE abierta."""
-        # 1. Registrar conexión PRIMERO (no bloqueante)
-        queue = service.register_connection(usuario_id)
+        """
+        Generator que mantiene conexión SSE abierta con PostgreSQL LISTEN/NOTIFY.
+        Implementa estrategia híbrida: LISTEN para multi-worker + fallback local.
+        """
+        queue = asyncio.Queue()
+        channel = f"user_notif_{str(usuario_id).replace('-', '_')}"
+        
+        # Conexión dedicada para LISTEN (fuera del pool)
+        from core.database import get_db_pool
+        pool = await get_db_pool()
+        listen_conn = None
         
         try:
-            # 2. Enviar notificaciones pendientes EN BACKGROUND con timeout
-            #    Obtenemos conexión SOLO para esta operación y la liberamos
-            try:
-                from core.database import get_db_pool
-                pool = await get_db_pool()
-                
-                async with pool.acquire() as conn:
-                    pending = await asyncio.wait_for(
-                        service.get_pending_notifications(conn, usuario_id, limit=5),
-                        timeout=2.0 
-                    )
-                    
-                    for notif in pending:
-                        yield {
-                            "event": "notification",
-                            "data": json.dumps({
-                                "id": str(notif['id']),
-                                "type": notif['tipo'],
-                                "title": notif['titulo'],
-                                "message": notif['mensaje'],
-                                "oportunidad_id": str(notif['id_oportunidad']) if notif['id_oportunidad'] else None,
-                                "created_at": notif['created_at'].isoformat()
-                            })
-                        }
-            except asyncio.TimeoutError:
-                logger.warning(f"[SSE] Timeout al cargar notificaciones pendientes para {usuario_id}")
-            except Exception as e:
-                logger.error(f"[SSE] Error cargando pendientes (DB o Lógica): {e}")
+            # 1. Adquirir conexión dedicada para LISTEN
+            listen_conn = await pool.acquire()
             
-            # 3. Mantener conexión abierta esperando nuevas notificaciones
-            #    YA NO USAMOS DB AQUÍ, solo Queue en memoria
-            while True:
+            # 2. Callback cuando llega NOTIFY de PostgreSQL
+            def pg_listener(connection, pid, channel_name, payload):
+                """
+                Callback invocado por asyncpg cuando llega NOTIFY.
+                Thread-safe via create_task.
+                """
                 try:
-                    # Esperar nueva notificación en la queue
-                    # Si el cliente se desconecta, el generador eventualmente cierra
-                    if await request.is_disconnected():
-                        break
-                        
-                    notification_data = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    data = json.loads(payload)
+                    asyncio.create_task(queue.put(data))
+                    logger.debug(f"[SSE-PG] Notificación recibida en {channel_name}")
+                except json.JSONDecodeError as e:
+                    logger.error(f"[SSE-PG] Payload inválido: {e}")
+            
+            # 3. Registrar listener en PostgreSQL
+            await listen_conn.add_listener(channel, pg_listener)
+            logger.info(f"[SSE-PG] Listener registrado: {channel}")
+            
+            # 4. FALLBACK: También registrar en dict local (resiliencia)
+            from .service import active_connections
+            active_connections[usuario_id] = queue
+            logger.info(f"[SSE-LOCAL] Usuario {usuario_id} registrado localmente")
+            
+            # 5. Enviar notificaciones pendientes (al conectar)
+            try:
+                pending = await asyncio.wait_for(
+                    service.get_pending_notifications(listen_conn, usuario_id, limit=5),
+                    timeout=2.0
+                )
+                
+                for notif in pending:
+                    yield {
+                        "event": "notification",
+                        "data": json.dumps({
+                            "id": str(notif['id']),
+                            "type": notif['tipo'],
+                            "title": notif['titulo'],
+                            "message": notif['mensaje'],
+                            "oportunidad_id": str(notif['id_oportunidad']) if notif['id_oportunidad'] else None,
+                            "created_at": notif['created_at'].isoformat()
+                        })
+                    }
+            except asyncio.TimeoutError:
+                logger.warning(f"[SSE] Timeout cargando pendientes para {usuario_id}")
+            except Exception as e:
+                logger.error(f"[SSE] Error cargando pendientes: {e}")
+            
+            # 6. Mantener stream abierto (escuchar queue que recibe de NOTIFY o fallback)
+            while True:
+                if await request.is_disconnected():
+                    logger.info(f"[SSE] Cliente {usuario_id} desconectado")
+                    break
+                
+                try:
+                    # Esperar notificación (puede venir de NOTIFY o fallback local)
+                    # Timeout de 45s: evita que Gunicorn (timeout=120s) mate el worker
+                    notification_data = await asyncio.wait_for(queue.get(), timeout=45.0)
                     
                     yield {
                         "event": "notification",
                         "data": json.dumps(notification_data)
                     }
                 except asyncio.TimeoutError:
-                    # Heartbeat más frecuente para detectar desconexiones
+                    # Heartbeat para mantener vivo el worker de Gunicorn
                     yield {
                         "event": "heartbeat",
                         "data": json.dumps({"status": "alive"})
                     }
-                
+        
         except asyncio.CancelledError:
-            logger.info(f"[SSE] Cliente desconectado (Cancelled): {usuario_id}")
+            logger.info(f"[SSE] Stream cancelado para {usuario_id}")
         except Exception as e:
-            logger.info(f"[SSE] Cliente desconectado (Error): {e}")
+            logger.error(f"[SSE] Error en stream: {e}", exc_info=True)
         finally:
-            service.unregister_connection(usuario_id)
+            # 7. Cleanup completo
+            if listen_conn:
+                try:
+                    await listen_conn.remove_listener(channel, pg_listener)
+                    await pool.release(listen_conn)
+                    logger.info(f"[SSE-PG] Listener removido: {channel}")
+                except Exception as e:
+                    logger.warning(f"[SSE-PG] Error en cleanup: {e}")
+            
+            # Remover de dict local
+            from .service import active_connections
+            if usuario_id in active_connections:
+                del active_connections[usuario_id]
+                logger.info(f"[SSE-LOCAL] Usuario {usuario_id} removido localmente")
     
     return EventSourceResponse(
         event_generator(),
