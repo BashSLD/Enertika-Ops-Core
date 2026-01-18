@@ -252,7 +252,7 @@ class ComercialService:
     async def get_catalogos_ui(self, conn) -> dict:
         """Recupera los catálogos para llenar los <select> del formulario."""
         tecnologias = await conn.fetch("SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre")
-        tipos = await conn.fetch("SELECT id, nombre FROM tb_cat_tipos_solicitud WHERE activo = true ORDER BY nombre")
+        tipos = await conn.fetch("SELECT id, nombre, codigo_interno FROM tb_cat_tipos_solicitud WHERE activo = true ORDER BY nombre")
         
         return {
             "tecnologias": [dict(t) for t in tecnologias],
@@ -271,8 +271,8 @@ class ComercialService:
         tecnologias = await conn.fetch("SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre")
         
         # Tipos de Solicitud (Filtrado Dinámico)
-        # Base: PRE_OFERTA, LICITACION, LEVANTAMIENTO
-        codigos = ['PRE_OFERTA', 'LICITACION', 'LEVANTAMIENTO']
+        # Base: PRE_OFERTA, LEVANTAMIENTO ('LICITACION' removido, ahora es flag transversal)
+        codigos = ['PRE_OFERTA', 'LEVANTAMIENTO']
         
         if include_simulacion:
             codigos.append('SIMULACION')
@@ -281,16 +281,52 @@ class ComercialService:
         placeholders = ",".join([f"${i+1}" for i in range(len(codigos))])
         
         tipos = await conn.fetch(f"""
-            SELECT id, nombre 
+            SELECT id, nombre, codigo_interno 
             FROM tb_cat_tipos_solicitud 
             WHERE activo = true 
             AND codigo_interno IN ({placeholders})
             ORDER BY nombre
         """, *codigos)
         
+        # Usuarios (Para delegación)
+        usuarios = await conn.fetch("SELECT id_usuario, nombre FROM tb_usuarios WHERE is_active = true ORDER BY nombre")
+
         return {
             "tecnologias": [dict(t) for t in tecnologias],
-            "tipos_solicitud": [dict(t) for t in tipos]
+            "tipos_solicitud": [dict(t) for t in tipos],
+            "usuarios": [dict(u) for u in usuarios]
+        }
+
+    async def get_catalogos_extraordinario(self, conn) -> dict:
+        """
+        Carga catálogos filtrados específicamente para el Formulario Extraordinario.
+        Solo incluye PRE_OFERTA y SIMULACION (NO incluye LEVANTAMIENTO).
+        
+        Returns:
+            dict con tecnologias, tipos_solicitud (solo PRE_OFERTA y SIMULACION), y usuarios
+        """
+        # Tecnologías (Todas)
+        tecnologias = await conn.fetch("SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre")
+        
+        # Tipos de Solicitud (PRE_OFERTA, SIMULACION, CAPTURA_RECIBOS)
+        codigos = ['PRE_OFERTA', 'SIMULACION', 'CAPTURA_RECIBOS']
+        placeholders = ",".join([f"${i+1}" for i in range(len(codigos))])
+        
+        tipos = await conn.fetch(f"""
+            SELECT id, nombre, codigo_interno 
+            FROM tb_cat_tipos_solicitud 
+            WHERE activo = true 
+            AND codigo_interno IN ({placeholders})
+            ORDER BY nombre
+        """, *codigos)
+        
+        # Usuarios (Para delegación)
+        usuarios = await conn.fetch("SELECT id_usuario, nombre FROM tb_usuarios WHERE is_active = true ORDER BY nombre")
+
+        return {
+            "tecnologias": [dict(t) for t in tecnologias],
+            "tipos_solicitud": [dict(t) for t in tipos],
+            "usuarios": [dict(u) for u in usuarios]
         }
 
     async def get_id_tipo_actualizacion(self, conn) -> Optional[int]:
@@ -340,27 +376,26 @@ class ComercialService:
         Helper privado: Inserta detalles BESS.
         Recibe DetalleBessCreate (Pydantic v2).
         """
-        # CORRECCIÓN: Agregar casting ::jsonb al placeholder $8
         query = """
             INSERT INTO tb_detalles_bess (
-                id_oportunidad, cargas_criticas_kw, tiene_motores, potencia_motor_hp,
+                id_oportunidad, uso_sistema_json, cargas_criticas_kw, tiene_motores, potencia_motor_hp,
                 tiempo_autonomia, voltaje_operacion, cargas_separadas, 
-                objetivos_json, tiene_planta_emergencia
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+                tiene_planta_emergencia
+            ) VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7, $8, $9)
         """
         
         # Pydantic v2: model_dump() y json.dumps para el array
-        objetivos_str = json.dumps(bess_data.objetivos_json)
+        uso_sistema_str = json.dumps(bess_data.uso_sistema_json)
         
         await conn.execute(query,
             id_oportunidad,
+            uso_sistema_str,
             bess_data.cargas_criticas_kw,
             bess_data.tiene_motores,
             bess_data.potencia_motor_hp,
             bess_data.tiempo_autonomia,
             bess_data.voltaje_operacion,
             bess_data.cargas_separadas,
-            objetivos_str,  # Ahora Postgres sabe que este string es JSONB
             bess_data.tiene_planta_emergencia
         )
 
@@ -380,33 +415,67 @@ class ComercialService:
         """
         logger.info(f"Iniciando creación de oportunidad para cliente {datos.cliente_nombre}")
         
-        # Procesar Fecha
         fecha_solicitud = await self.procesar_fecha_manual(conn, datos.fecha_manual_str)
         es_fuera_horario = await self.calcular_fuera_de_horario(conn, fecha_solicitud)
         deadline = await self.calcular_deadline_inicial(conn, fecha_solicitud)
 
         # BUSINESS LOGIC: Modo Homologación
-        # Si viene legacy_search_term, forzar tipo de solicitud a ACTUALIZACIÓN
+        # El usuario ya seleccionó ACTUALIZACIÓN o LEVANTAMIENTO en el formulario
+        # No forzamos el tipo, respetamos la selección del usuario
         if legacy_search_term:
-            id_tipo_actualizacion = await self.get_id_tipo_actualizacion(conn)
-            if id_tipo_actualizacion:
-                datos.id_tipo_solicitud = id_tipo_actualizacion
-                logger.info(f"MODO HOMOLOGACIÓN: Tipo de solicitud forzado a ACTUALIZACIÓN")
-            else:
-                logger.warning("No se encontró tipo ACTUALIZACIÓN en catálogo, usando el seleccionado por usuario")
+            logger.info(f"MODO HOMOLOGACIÓN: Búsqueda de hilo con término '{legacy_search_term}'")
 
         # Generar Identificadores
         new_id = uuid4()
         now_mx = await self.get_current_datetime_mx(conn)
         op_id_estandar = now_mx.strftime("OP - %y%m%d%H%M")
         
+        # ---------------------------------------------------------
+        # GESTIÓN INTELIGENTE DE CLIENTES (Buscar o Crear)
+        # 1. Si viene cliente_id: Usarlo y homologar nombre.
+        # 2. Si no viene cliente_id: Buscar por nombre exacto.
+        #    a. Si existe: Usar ID encontrado.
+        #    b. Si no existe: Crear nuevo cliente.
+        # ---------------------------------------------------------
+        final_cliente_id = datos.cliente_id
+        final_cliente_nombre = datos.cliente_nombre.strip().upper()
+
+        if final_cliente_id:
+            # Caso 1: ID explícito (seleccionado de autocompletado)
+            # Opcional: Podríamos validar que exista, pero asumimos frontend correcto.
+            # Homologamos el nombre con el oficial de la base de datos si se desea, 
+            # o mantenemos el input manual. Por ahora mantenemos input manual pero vinculamos ID.
+            pass
+        else:
+            # Caso 2: Nombre manual (Nuevo o No seleccionado)
+            # Buscar coincidencia EXACTA (Case Insensitive)
+            existing_client = await conn.fetchrow(
+                "SELECT id, nombre_fiscal FROM tb_clientes WHERE nombre_fiscal ILIKE $1", 
+                final_cliente_nombre
+            )
+            
+            if existing_client:
+                # Caso 2a: Ya existía, lo vinculamos
+                final_cliente_id = existing_client['id']
+                # Opcional: Usar el nombre oficial
+                # final_cliente_nombre = existing_client['nombre_fiscal'] 
+            else:
+                # Caso 2b: Es totalmente nuevo -> Crear en tb_clientes
+                final_cliente_id = uuid4()
+                await conn.execute(
+                    "INSERT INTO tb_clientes (id, nombre_fiscal) VALUES ($1, $2)",
+                    final_cliente_id, final_cliente_nombre
+                )
+                logger.info(f"Nuevo cliente registrado automáticamente: {final_cliente_nombre} ({final_cliente_id})")
+
+        
         # Obtener nombres de catálogos (Queries directos optimizados)
         nombre_tec = await conn.fetchval("SELECT nombre FROM tb_cat_tecnologias WHERE id = $1", datos.id_tecnologia)
         nombre_tipo = await conn.fetchval("SELECT nombre FROM tb_cat_tipos_solicitud WHERE id = $1", datos.id_tipo_solicitud)
         
         # Generar Títulos Legacy (AMBOS en MAYÚSCULAS)
-        titulo = f"{nombre_tipo}_{datos.cliente_nombre}_{datos.nombre_proyecto}_{nombre_tec}_{datos.canal_venta}".upper()
-        id_interno = f"{op_id_estandar}_{datos.nombre_proyecto}_{datos.cliente_nombre}".upper()[:150]
+        titulo = f"{nombre_tipo}_{final_cliente_nombre}_{datos.nombre_proyecto}_{nombre_tec}_{datos.canal_venta}".upper()
+        id_interno = f"{op_id_estandar}_{datos.nombre_proyecto}_{final_cliente_nombre}".upper()[:150]
 
         # Insertar Oportunidad
         
@@ -415,38 +484,52 @@ class ComercialService:
         # Usamos 'pendiente' como default
         id_status_inicial = cats['estatus'].get('pendiente') or 1 
 
+        # Lógica de Solicitado Por
+        solicitado_por_nombre = user_context.get('user_name', 'Usuario')
+        if datos.solicitado_por_id:
+            # Si se delegó (Extraordinaria), obtenemos el nombre real
+            solicitado_por_nombre = await conn.fetchval(
+                "SELECT nombre FROM tb_usuarios WHERE id_usuario = $1", 
+                datos.solicitado_por_id
+            ) or solicitado_por_nombre
+
         query_op = """
             INSERT INTO tb_oportunidades (
                 id_oportunidad, op_id_estandar, id_interno_simulacion,
-                titulo_proyecto, nombre_proyecto, cliente_nombre, canal_venta,
+                titulo_proyecto, nombre_proyecto, cliente_nombre, cliente_id, canal_venta,
                 id_tecnologia, id_tipo_solicitud, id_estatus_global,
                 cantidad_sitios, prioridad, 
                 direccion_obra, coordenadas_gps, google_maps_link, sharepoint_folder_url,
                 creado_por_id, fecha_solicitud,
                 es_fuera_horario, deadline_calculado,
-                solicitado_por, es_carga_manual
+                solicitado_por, es_carga_manual,
+                clasificacion_solicitud, solicitado_por_id, es_licitacion
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7,
+                $1, $2, $3, $4, $5, $6, $26, $7,
                 $8, $9, $22, 
                 $10, $11, $12, $13, $14, $15, 
                 $16, $17, 
                 $18, $19,
-                $20, $21
+                $20, $21,
+                $23, $24, $25
             )
         """
         es_manual = bool(datos.fecha_manual_str)  # Flag de auditoría
 
         await conn.execute(query_op, 
             new_id, op_id_estandar, id_interno,
-            titulo, datos.nombre_proyecto, datos.cliente_nombre, datos.canal_venta,
+            titulo, datos.nombre_proyecto, final_cliente_nombre, datos.canal_venta,
             datos.id_tecnologia, datos.id_tipo_solicitud,
             datos.cantidad_sitios, datos.prioridad,
             datos.direccion_obra, datos.coordenadas_gps, datos.google_maps_link, datos.sharepoint_folder_url,
             user_context['user_db_id'], fecha_solicitud,
             es_fuera_horario, deadline,
-            user_context.get('user_name', 'Usuario'), es_manual,
-            id_status_inicial
+            solicitado_por_nombre, es_manual,
+            id_status_inicial,
+            datos.clasificacion_solicitud, datos.solicitado_por_id, datos.es_licitacion,
+            final_cliente_id # $26
         )
+
 
         # Insertar BESS (Si aplica y hay datos)
         if datos.detalles_bess:
@@ -469,7 +552,16 @@ class ComercialService:
             except Exception as e:
                 logger.error(f"Error creando levantamiento automático: {e}")
                 # No fallar la creación de oportunidad por esto
-        # ========================================
+        
+        # Site Unico (Si aplica, pasar id_tipo_solicitud)
+        if datos.cantidad_sitios == 1:
+            await self.auto_crear_sitio_unico(
+                conn, new_id, 
+                datos.nombre_proyecto, 
+                datos.direccion_obra, 
+                datos.google_maps_link,
+                datos.id_tipo_solicitud
+            )
         
         logger.info(f"Oportunidad {op_id_estandar} creada exitosamente por usuario {user_context.get('user_db_id')}")
         return new_id, op_id_estandar, es_fuera_horario
@@ -622,7 +714,7 @@ class ComercialService:
                 # Alternativa: Cancelado + Perdido
                 ids_fallidos = [
                     cats['estatus'].get('cancelado'),
-                    cats['estatus'].get('perdido')  # Nombre real en BD
+                    cats['estatus'].get('perdido')
                 ]
                 ids_fallidos = [i for i in ids_fallidos if i is not None]
                 if ids_fallidos:
@@ -808,13 +900,15 @@ class ComercialService:
                 id_estatus_global,     -- $22 (Dinámico)
                 deadline_calculado, es_fuera_horario, 
                 fecha_solicitud,       -- $23 (now_mx)
-                email_enviado
+                email_enviado,
+                es_licitacion         -- HEREDADO
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 
                 $22,  -- ID Estatus (Ya no es 1 fijo)
                 $20, $21, 
                 $23,  -- Fecha Solicitud (Ya no es NOW())
-                FALSE
+                FALSE,
+                $24   -- es_licitacion
             ) RETURNING id_oportunidad
         """
         await conn.fetchval(query_insert,
@@ -825,16 +919,17 @@ class ComercialService:
             parent['direccion_obra'], parent['coordenadas_gps'], parent['google_maps_link'], parent['sharepoint_folder_url'],
             parent['id_interno_simulacion'], op_id_estandar_new, deadline, es_fuera_horario,
             id_status_inicial,  # Parámetro $22
-            now_mx              # Parámetro $23 (El driver maneja la conversión a UTC)
+            now_mx,             # Parámetro $23
+            parent['es_licitacion'] # Parámetro $24 (Herencia)
         )
 
-        # Clonar sitios
+        # Clonar sitios (Heredan id_tipo_solicitud del NUEVO tipo, no del viejo)
         query_clone = """
-            INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios, id_estatus_global)
-            SELECT gen_random_uuid(), $1, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios, 1
+            INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios, id_estatus_global, id_tipo_solicitud)
+            SELECT gen_random_uuid(), $1, nombre_sitio, direccion, tipo_tarifa, google_maps_link, numero_servicio, comentarios, 1, $3
             FROM tb_sitios_oportunidad WHERE id_oportunidad = $2
         """
-        await conn.execute(query_clone, new_uuid, parent_id)
+        await conn.execute(query_clone, new_uuid, parent_id, id_tipo_solicitud)
         
         return new_uuid
 
@@ -1103,13 +1198,13 @@ class ComercialService:
         """
         row = await conn.fetchrow("""
             SELECT 
+                db.uso_sistema_json,
                 db.cargas_criticas_kw,
                 db.tiene_motores,
                 db.potencia_motor_hp,
                 db.tiempo_autonomia,
                 db.voltaje_operacion,
                 db.cargas_separadas,
-                db.objetivos_json,
                 db.tiene_planta_emergencia
             FROM tb_detalles_bess db
             WHERE db.id_oportunidad = $1
@@ -1121,19 +1216,15 @@ class ComercialService:
         # Convertir a dict y parsear JSON
         bess_data = dict(row)
         
-        # Parsear objetivos_json de string a lista
-        if bess_data.get('objetivos_json'):
+        # Parsear uso_sistema_json de string a lista
+        if bess_data.get('uso_sistema_json'):
             try:
-                # Si es string JSON, parsearlo
-                if isinstance(bess_data['objetivos_json'], str):
-                    bess_data['objetivos_json'] = json.loads(bess_data['objetivos_json'])
+                if isinstance(bess_data['uso_sistema_json'], str):
+                    bess_data['uso_sistema_json'] = json.loads(bess_data['uso_sistema_json'])
             except (json.JSONDecodeError, TypeError):
-                # Si falla el parsing, dejar como lista vacía
-                bess_data['objetivos_json'] = []
+                bess_data['uso_sistema_json'] = []
         
         return bess_data
-
-    # --- MÉTODOS MIGRADOS DEL ROUTER ---
     
     async def get_data_for_email_form(self, conn, id_oportunidad: UUID) -> dict:
         """
@@ -1153,7 +1244,6 @@ class ComercialService:
                     db.tiempo_autonomia,
                     db.voltaje_operacion,
                     db.cargas_separadas,
-                    db.objetivos_json,
                     db.tiene_planta_emergencia
             FROM tb_oportunidades o
             LEFT JOIN tb_cat_tecnologias tec ON o.id_tecnologia = tec.id
@@ -1207,18 +1297,22 @@ class ComercialService:
                     if email not in fixed_cc: fixed_cc.append(email)
 
         # Formatear Objetivos BESS
+        # Parsear BESS objetivos para email si existen
         bess_objetivos_str = ""
-        raw_objs = row.get('objetivos_json')
-        if raw_objs:
-            try:
-                if isinstance(raw_objs, list):
-                    bess_objetivos_str = ", ".join(raw_objs)
-                elif isinstance(raw_objs, str):
-                    loaded = json.loads(raw_objs)
+        if row.get('id_tecnologia'):
+            # Buscar si hay BESS asociado
+            bess_row = await conn.fetchrow(
+                "SELECT uso_sistema_json FROM tb_detalles_bess WHERE id_oportunidad = $1", 
+                row['id_oportunidad']
+            )
+            if bess_row and bess_row['uso_sistema_json']:
+                try:
+                    raw_usos = bess_row['uso_sistema_json']
+                    loaded = json.loads(raw_usos) if isinstance(raw_usos, str) else raw_usos
                     if isinstance(loaded, list):
                         bess_objetivos_str = ", ".join(loaded)
-            except Exception:
-                pass
+                except Exception:
+                    pass
 
         return {
             "op": row,
@@ -1369,6 +1463,9 @@ class ComercialService:
                 logger.warning(f"Saltando fila inválida: {e}")
                 continue
 
+        # Obtener id_tipo_solicitud de la oportunidad padre
+        id_tipo_solicitud = await conn.fetchval("SELECT id_tipo_solicitud FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
+        
         # Ejecutar Bloque Atómico
         # Si algo falla aquí, Postgres hace rollback automático del DELETE
         async with conn.transaction():
@@ -1378,10 +1475,13 @@ class ComercialService:
             if records:
                 q = """INSERT INTO tb_sitios_oportunidad (
                             id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, 
-                            google_maps_link, numero_servicio, comentarios, id_estatus_global
+                            google_maps_link, numero_servicio, comentarios, id_estatus_global, id_tipo_solicitud
                        ) 
-                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1)"""
-                await conn.executemany(q, records)
+                       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9)"""
+                
+                # Adjuntar id_tipo_solicitud a cada tupla
+                records_with_type = [r + (id_tipo_solicitud,) for r in records]
+                await conn.executemany(q, records_with_type)
         
         return len(records)
 
@@ -1399,13 +1499,13 @@ class ComercialService:
         )
         return [dict(r) for r in rows]
 
-    async def auto_crear_sitio_unico(self, conn, id_oportunidad: UUID, nombre: str, direccion: str, link: Optional[str]):
+    async def auto_crear_sitio_unico(self, conn, id_oportunidad: UUID, nombre: str, direccion: str, link: Optional[str], id_tipo_solicitud: int):
         """Crea automáticamente el registro de sitio para flujos de un solo sitio."""
         try:
             await conn.execute("""
-                INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link, id_estatus_global)
-                VALUES ($1, $2, $3, $4, $5, 1)
-            """, uuid4(), id_oportunidad, nombre, direccion, link)
+                INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link, id_estatus_global, id_tipo_solicitud)
+                VALUES ($1, $2, $3, $4, $5, 1, $6)
+            """, uuid4(), id_oportunidad, nombre, direccion, link, id_tipo_solicitud)
         except Exception as e:
             logger.error(f"Error auto-creando sitio único: {e}")
 
@@ -1416,18 +1516,29 @@ class ComercialService:
         """, id_oportunidad)
 
     async def cancelar_oportunidad(self, conn, id_oportunidad: UUID):
-        """Elimina de forma transaccional una oportunidad y sus sitios."""
+        """
+        Elimina de forma transaccional una oportunidad y TODAS sus dependencias.
+        Orden crítico: eliminar hijos antes que padre para evitar FK violations.
+        """
         try:
             async with conn.transaction():
+                # Eliminar TODAS las tablas hijas (en orden de dependencias)
+                await conn.execute("DELETE FROM tb_comentarios_workflow WHERE id_oportunidad = $1", id_oportunidad)
+                await conn.execute("DELETE FROM tb_notificaciones WHERE id_oportunidad = $1", id_oportunidad)
+                await conn.execute("DELETE FROM tb_documentos_attachments WHERE id_oportunidad = $1", id_oportunidad)
+                await conn.execute("DELETE FROM tb_levantamientos WHERE id_oportunidad = $1", id_oportunidad)
+                await conn.execute("DELETE FROM tb_detalles_bess WHERE id_oportunidad = $1", id_oportunidad)
                 await conn.execute("DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
+                
+                # Finalmente eliminar la oportunidad padre
                 await conn.execute("DELETE FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
                 
         except asyncpg.ForeignKeyViolationError:
-            # Capturamos el error de integridad si ya tiene proyectos/compras ligados
-            logger.warning(f"Intento de eliminar oportunidad {id_oportunidad} con dependencias.")
+            # Solo debería fallar si hay proyectos/compras (dependencias externas críticas)
+            logger.warning(f"Intento de eliminar oportunidad {id_oportunidad} con dependencias críticas.")
             raise HTTPException(
-                status_code=409, # Conflict
-                detail="No se puede eliminar: La oportunidad ya tiene Proyectos o Registros asociados."
+                status_code=409,
+                detail="No se puede eliminar: La oportunidad ya tiene Proyectos o Registros de Compra asociados."
             )
 
     # Helper para inyección de dependencias
@@ -1512,6 +1623,31 @@ class ComercialService:
 
         except Exception as e:
             logger.error(f"Excepción en notificación extraordinaria: {e}")
+
+    async def buscar_clientes(self, conn, query: str) -> List[dict]:
+        """
+        Búsqueda inteligente de clientes por nombre fiscal.
+        Args:
+            conn: Conexión BD
+            query: Texto a buscar (case insensitive)
+        Returns:
+            List[dict]: [{id, nombre_fiscal}, ...] lim 10
+        """
+        if not query or len(query.strip()) < 2:
+            return []
+            
+        # Normalizar query para búsqueda ILIKE segura
+        search_term = f"%{query.strip()}%"
+        
+        rows = await conn.fetch("""
+            SELECT id, nombre_fiscal 
+            FROM tb_clientes 
+            WHERE nombre_fiscal ILIKE $1 
+            ORDER BY nombre_fiscal 
+            LIMIT 10
+        """, search_term)
+        
+        return [{"id": str(r["id"]), "nombre_fiscal": r["nombre_fiscal"]} for r in rows]
 
 def get_comercial_service():
     return ComercialService()

@@ -418,6 +418,31 @@
                 </div>
             </div>
 
+            <!-- AYUDA / DOCUMENTACIÓN -->
+            <div class="pb-2 border-t border-blue-900/30 mt-2">
+                <div class="relative group">
+                    <button @click="$dispatch('open-docs-modal')"
+                        class="flex items-center gap-3 py-3 rounded-lg hover:bg-blue-800/50 transition duration-150 overflow-hidden w-full"
+                        :class="sidebarOpen ? 'px-4 justify-start' : 'px-0 justify-center'"
+                        title="Ayuda y Documentación">
+
+                        <span class="text-lg">❓</span>
+                        <span class="font-medium whitespace-nowrap" x-show="sidebarOpen">
+                            Ayuda
+                        </span>
+                    </button>
+
+                    <!-- Tooltip for collapsed mode -->
+                    <div x-show="!sidebarOpen"
+                        class="absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 bg-gray-900 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl border border-gray-700">
+                        Ayuda y Documentación
+                        <div
+                            class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-gray-900">
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- TOGGLE BUTTON -->
             <div class="flex justify-center py-2 border-t border-blue-900 bg-[#0E2A47] cursor-pointer hover:bg-blue-800/50 transition-colors"
                 @click="sidebarOpen = !sidebarOpen">
@@ -626,7 +651,7 @@
                 // SOLO mostrar toast si es FUERA de horario
                 if (esFuera) {
                     const toastHtml = `
-                        <div class="bg-white border-l-4 border-orange-500 shadow-lg rounded p-4 mb-4 flex items-center gap-3 animate-fade-in-down w-80">
+                        <div class="bg-white border-l-4 border-orange-500 shadow-lg rounded p-4 mb-4 flex items-center gap-3 animate-fade-in-down w-80 pointer-events-auto">
                             <div class="p-2 rounded-full bg-orange-100 text-orange-600">
                                 🌙
                             </div>
@@ -635,7 +660,7 @@
                                 <p class="text-sm text-gray-600">Ref: ${opId}</p>
                                 <p class="text-xs text-orange-600 font-bold mt-1">⚠️ Registrado Fuera de Horario</p>
                             </div>
-                            <button onclick="this.parentElement.remove()" class="ml-auto text-gray-400 hover:text-gray-600">✕</button>
+                            <button onclick="this.parentElement.remove()" class="ml-auto text-gray-400 hover:text-gray-600 cursor-pointer">✕</button>
                         </div>
                     `;
 
@@ -885,6 +910,9 @@
 
     <!-- Contenedor global para toasts flotantes -->
     <div id="global-toast-container" class="fixed top-5 right-5 z-[10000] pointer-events-none space-y-3"></div>
+
+    <!-- Modal de Documentación (Compartido) -->
+    {% include "shared/modals/docs_modal.html" %}
 
 </body>
 

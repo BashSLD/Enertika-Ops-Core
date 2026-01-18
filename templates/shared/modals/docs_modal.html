@@ -1,0 +1,382 @@
+<!-- Modal de Documentación Compartido -->
+<div x-data="{ 
+        showModal: false, 
+        activeTab: 'acerca-de',
+        openModal(tab = 'acerca-de') {
+            this.activeTab = tab;
+            this.showModal = true;
+            document.body.style.overflow = 'hidden';
+        },
+        closeModal() {
+            this.showModal = false;
+            document.body.style.overflow = 'auto';
+        }
+    }" @open-docs-modal.window="openModal()" @keydown.escape.window="showModal && closeModal()" x-show="showModal"
+    x-cloak
+    class="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-60 backdrop-blur-sm transition-opacity duration-300"
+    x-transition:enter="transition ease-out duration-300" x-transition:enter-start="opacity-0"
+    x-transition:enter-end="opacity-100" x-transition:leave="transition ease-in duration-200"
+    x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0" style="display: none;">
+
+    <!-- Modal Container -->
+    <div @click.away="closeModal()"
+        class="relative max-w-5xl w-full mx-4 bg-white rounded-xl shadow-2xl overflow-hidden transform transition-all duration-300"
+        x-transition:enter="transition ease-out duration-300 delay-100"
+        x-transition:enter-start="opacity-0 scale-95 translate-y-4"
+        x-transition:enter-end="opacity-100 scale-100 translate-y-0"
+        x-transition:leave="transition ease-in duration-200" x-transition:leave-start="opacity-100 scale-100"
+        x-transition:leave-end="opacity-0 scale-95">
+
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-[#123456] to-[#0E2A47] text-white px-6 py-4 border-b border-[#00BABB]">
+            <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                    <div class="bg-[#00BABB] p-2 rounded-lg">
+                        <svg class="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+                        </svg>
+                    </div>
+                    <div>
+                        <h2 class="text-2xl font-bold">Guía de Usuario</h2>
+                        <p class="text-sm text-[#00BABB]">Módulo Comercial - Enertika Ops Core</p>
+                    </div>
+                </div>
+                <button @click="closeModal()"
+                    class="text-white hover:text-[#00BABB] transition-colors duration-200 p-2 hover:bg-white/10 rounded-lg">
+                    <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Tabs Navigation -->
+        <div class="border-b border-gray-200 bg-gray-50">
+            <nav class="flex overflow-x-auto px-6" aria-label="Tabs">
+                <button @click="activeTab = 'acerca-de'"
+                    :class="activeTab === 'acerca-de' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                    class="whitespace-nowrap py-4 px-4 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                    <span>ℹ️</span>
+                    Acerca de
+                </button>
+                <button @click="activeTab = 'tipos-registro'"
+                    :class="activeTab === 'tipos-registro' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                    class="whitespace-nowrap py-4 px-4 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                    <span>🚀</span>
+                    Tipos de Registro
+                </button>
+                <button @click="activeTab = 'tipos-solicitud'"
+                    :class="activeTab === 'tipos-solicitud' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                    class="whitespace-nowrap py-4 px-4 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                    <span>📝</span>
+                    Tipos de Solicitud
+                </button>
+                <button @click="activeTab = 'estados'"
+                    :class="activeTab === 'estados' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                    class="whitespace-nowrap py-4 px-4 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                    <span>⚙️</span>
+                    Estados
+                </button>
+            </nav>
+        </div>
+
+        <!-- Content Area -->
+        <div class="p-6 max-h-[70vh] overflow-y-auto custom-scrollbar">
+
+            <!-- Tab: Acerca de -->
+            <div x-show="activeTab === 'acerca-de'" x-transition>
+                <div class="prose max-w-none">
+                    <h3 class="text-2xl font-bold text-[#123456] mb-4">Sistema de Gestión Comercial</h3>
+                    <div class="bg-blue-50 border-l-4 border-blue-500 p-4 mb-4 rounded">
+                        <p class="text-sm text-blue-800"><strong>Versión:</strong> 2.2</p>
+                        <p class="text-sm text-blue-800"><strong>Última actualización:</strong> Enero 2026</p>
+                    </div>
+
+                    <h4 class="text-lg font-semibold text-gray-800 mt-6 mb-3">Propósito del Sistema</h4>
+                    <p class="text-gray-700 mb-4">
+                        El módulo comercial permite gestionar el ciclo completo de oportunidades de negocio, desde la
+                        solicitud inicial
+                        hasta la entrega de cotizaciones al equipo de simulación.
+                    </p>
+
+                    <h4 class="text-lg font-semibold text-gray-800 mt-6 mb-3">Flujo General</h4>
+                    <ol class="list-decimal list-inside space-y-2 text-gray-700 mb-4">
+                        <li>Comercial crea una <strong>nueva oportunidad</strong></li>
+                        <li>Sistema asigna ID único y calcula deadline (SLA)</li>
+                        <li>Notificación automática al equipo de Simulación</li>
+                        <li>Simulación trabaja y actualiza estados</li>
+                        <li>Se entrega cotización final a Comercial</li>
+                    </ol>
+
+                    <div class="bg-yellow-50 border-l-4 border-yellow-500 p-4 rounded mt-6">
+                        <p class="text-sm text-yellow-800">
+                            <strong>💡 Tip:</strong> Usa esta guía para resolver dudas sobre cuándo usar cada tipo de
+                            registro o solicitud.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Tipos de Registro -->
+            <div x-show="activeTab === 'tipos-registro'" x-transition>
+                <h3 class="text-2xl font-bold text-[#123456] mb-6">Tipos de Registro</h3>
+
+                <!-- Nuevo Registro -->
+                <div class="mb-6 border border-gray-200 rounded-lg overflow-hidden">
+                    <div class="bg-[#00BABB] bg-opacity-10 px-4 py-3 border-b border-[#00BABB]">
+                        <h4 class="font-bold text-[#123456] flex items-center gap-2">
+                            <span class="text-xl">🚀</span>
+                            Nuevo Registro
+                        </h4>
+                    </div>
+                    <div class="p-4">
+                        <p class="text-sm text-gray-700 mb-3">
+                            <strong>Uso:</strong> Formulario estándar para crear oportunidades nuevas.
+                        </p>
+                        <p class="text-sm text-gray-600 mb-2"><strong>Cuándo usar:</strong></p>
+                        <ul class="list-disc list-inside text-sm text-gray-600 mb-3 ml-4">
+                            <li>Solicitud nueva del cliente</li>
+                            <li>Proceso normal del día a día</li>
+                            <li>Envío automático de correo a Simulación</li>
+                        </ul>
+                        <div class="bg-gray-50 p-3 rounded">
+                            <p class="text-xs text-gray-600"><strong>Acceso:</strong> Todos los usuarios con rol <span
+                                    class="bg-blue-100 text-blue-800 px-2 py-0.5 rounded">editor</span> o superior</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Registro Extraordinario -->
+                <div class="mb-6 border border-gray-200 rounded-lg overflow-hidden">
+                    <div class="bg-orange-100 px-4 py-3 border-b border-orange-300">
+                        <h4 class="font-bold text-[#123456] flex items-center gap-2">
+                            <span class="text-xl">🔐</span>
+                            Registro Extraordinario
+                        </h4>
+                    </div>
+                    <div class="p-4">
+                        <p class="text-sm text-gray-700 mb-3">
+                            <strong>Uso exclusivo:</strong> Managers y Dirección
+                        </p>
+                        <p class="text-sm text-gray-600 mb-2"><strong>Casos de uso:</strong></p>
+                        <ul class="list-disc list-inside text-sm text-gray-600 mb-3 ml-4">
+                            <li>Solicitud informal previa por correo</li>
+                            <li>Registros retroactivos (especificar fecha manual)</li>
+                            <li>Delegar "Solicitado por" a otro usuario</li>
+                            <li>Simulación y Captura de Recibos (casos especiales)</li>
+                        </ul>
+                        <div class="bg-orange-50 p-3 rounded border border-orange-200">
+                            <p class="text-xs text-orange-800">
+                                <strong>⚠️ Importante:</strong> Se envía notificación automática pero NO genera correo
+                                normal.
+                                Seguimientos posteriores crearán hilo nuevo sin contexto histórico.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Solicitud Especial -->
+                <div class="mb-6 border border-gray-200 rounded-lg overflow-hidden">
+                    <div class="bg-purple-100 px-4 py-3 border-b border-purple-300">
+                        <h4 class="font-bold text-[#123456] flex items-center gap-2">
+                            <span class="text-xl">🔗</span>
+                            Solicitud Especial (Homologación)
+                        </h4>
+                    </div>
+                    <div class="p-4">
+                        <p class="text-sm text-gray-700 mb-3">
+                            <strong>Uso:</strong> Crear nueva solicitud respondiendo en hilo de correo existente
+                        </p>
+                        <p class="text-sm text-gray-600 mb-2"><strong>Proceso:</strong></p>
+                        <ol class="list-decimal list-inside text-sm text-gray-600 mb-3 ml-4">
+                            <li>Usuario introduce término de búsqueda (asunto del correo antiguo)</li>
+                            <li>Sistema valida existencia del hilo</li>
+                            <li>Si existe, permite crear oportunidad en ese hilo</li>
+                            <li>Usuario puede elegir tipo: <strong>ACTUALIZACIÓN</strong> o
+                                <strong>LEVANTAMIENTO</strong></li>
+                        </ol>
+                        <div class="bg-purple-50 p-3 rounded border border-purple-200">
+                            <p class="text-xs text-purple-800">
+                                <strong>💡 Tip:</strong> Copia el asunto completo del correo antiguo (ej: "RE: Solicitud
+                                Empresa X")
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Tipos de Solicitud -->
+            <div x-show="activeTab === 'tipos-solicitud'" x-transition>
+                <h3 class="text-2xl font-bold text-[#123456] mb-6">Tipos de Solicitud</h3>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Pre-oferta -->
+                    <div class="border border-gray-200 rounded-lg p-4 hover:shadow-lg transition-shadow">
+                        <h4 class="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <span>📝</span> Pre-oferta
+                        </h4>
+                        <p class="text-sm text-gray-600 mb-2">
+                            Solicitud inicial para cotización preliminar
+                        </p>
+                        <div class="bg-blue-50 p-2 rounded text-xs text-blue-800">
+                            <strong>Cuándo:</strong> Primera interacción con cliente, info básica
+                        </div>
+                    </div>
+
+                    <!-- Levantamiento -->
+                    <div class="border border-gray-200 rounded-lg p-4 hover:shadow-lg transition-shadow">
+                        <h4 class="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <span>📐</span> Levantamiento
+                        </h4>
+                        <p class="text-sm text-gray-600 mb-2">
+                            Visita técnica para inspección en sitio
+                        </p>
+                        <div class="bg-blue-50 p-2 rounded text-xs text-blue-800">
+                            <strong>Especial:</strong> Crea registro automático en módulo Levantamientos
+                        </div>
+                    </div>
+
+                    <!-- Licitación -->
+                    <div class="border border-gray-200 rounded-lg p-4 hover:shadow-lg transition-shadow bg-yellow-50">
+                        <h4 class="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <span>⚖️</span> Licitación (Flag Transversal)
+                        </h4>
+                        <p class="text-sm text-gray-600 mb-2">
+                            NO es un tipo independiente, es un indicador
+                        </p>
+                        <div class="bg-yellow-100 p-2 rounded text-xs text-yellow-800">
+                            <strong>Nota:</strong> Cualquier tipo puede ser de Licitación (checkbox)
+                        </div>
+                    </div>
+
+                    <!-- Actualización -->
+                    <div class="border border-gray-200 rounded-lg p-4 hover:shadow-lg transition-shadow">
+                        <h4 class="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <span>🔄</span> Actualización
+                        </h4>
+                        <p class="text-sm text-gray-600 mb-2">
+                            Modificar pre-oferta ya entregada
+                        </p>
+                        <div class="bg-blue-50 p-2 rounded text-xs text-blue-800">
+                            <strong>Auto-forzado:</strong> En modo Homologación (Solicitud Especial)
+                        </div>
+                    </div>
+
+                    <!-- Oferta Final -->
+                    <div class="border border-gray-200 rounded-lg p-4 hover:shadow-lg transition-shadow">
+                        <h4 class="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <span>🎯</span> Oferta Final
+                        </h4>
+                        <p class="text-sm text-gray-600 mb-2">
+                            Propuesta definitiva post-levantamiento
+                        </p>
+                        <div class="bg-green-50 p-2 rounded text-xs text-green-800">
+                            <strong>Flujo:</strong> Levantamiento → Oferta Final
+                        </div>
+                    </div>
+
+                    <!-- Simulación -->
+                    <div class="border border-gray-200 rounded-lg p-4 hover:shadow-lg transition-shadow bg-orange-50">
+                        <h4 class="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <span>⚡</span> Simulación y Captura
+                        </h4>
+                        <p class="text-sm text-gray-600 mb-2">
+                            Casos extraordinarios especiales
+                        </p>
+                        <div class="bg-orange-100 p-2 rounded text-xs text-orange-800">
+                            <strong>Acceso:</strong> Solo en Registro Extraordinario
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab: Estados -->
+            <div x-show="activeTab === 'estados'" x-transition>
+                <h3 class="text-2xl font-bold text-[#123456] mb-6">Estados del Sistema</h3>
+
+                <div class="space-y-4">
+                    <!-- Pendiente -->
+                    <div class="border-l-4 border-yellow-500 bg-yellow-50 p-4 rounded">
+                        <h4 class="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <span class="bg-yellow-100 text-yellow-800 px-3 py-1 rounded-full text-sm">⏳
+                                Pendiente</span>
+                        </h4>
+                        <p class="text-sm text-gray-700 mb-1"><strong>Significado:</strong> Simulación aún no ha
+                            revisado el correo</p>
+                        <p class="text-sm text-gray-600"><strong>Estado inicial</strong> al crear oportunidad</p>
+                    </div>
+
+                    <!-- En Proceso -->
+                    <div class="border-l-4 border-blue-500 bg-blue-50 p-4 rounded">
+                        <h4 class="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <span class="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm">⚙️ En Proceso</span>
+                        </h4>
+                        <p class="text-sm text-gray-700 mb-1"><strong>Significado:</strong> Simulación está trabajando
+                            la oportunidad</p>
+                        <p class="text-sm text-gray-600">Acciones: Añadir comentarios, solicitar revisión</p>
+                    </div>
+
+                    <!-- En Revisión -->
+                    <div class="border-l-4 border-purple-500 bg-purple-50 p-4 rounded">
+                        <h4 class="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <span class="bg-purple-100 text-purple-800 px-3 py-1 rounded-full text-sm">👁️ En
+                                Revisión</span>
+                        </h4>
+                        <p class="text-sm text-gray-700 mb-1"><strong>Significado:</strong> La oportunidad está en
+                            revisión por Dirección</p>
+                        <p class="text-sm text-gray-600">Acciones: Aprobar (Entregado) o Rechazar (En Proceso)</p>
+                    </div>
+
+                    <!-- Entregado -->
+                    <div class="border-l-4 border-green-500 bg-green-50 p-4 rounded">
+                        <h4 class="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <span class="bg-green-100 text-green-800 px-3 py-1 rounded-full text-sm">✅ Entregado</span>
+                        </h4>
+                        <p class="text-sm text-gray-700 mb-1"><strong>Significado:</strong> Cotización enviada a
+                            comercial</p>
+                        <p class="text-sm text-gray-600">Se calcula KPI: "A tiempo" o "Tarde"</p>
+                    </div>
+
+                    <!-- Cancelado -->
+                    <div class="border-l-4 border-gray-500 bg-gray-50 p-4 rounded">
+                        <h4 class="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <span class="bg-gray-100 text-gray-800 px-3 py-1 rounded-full text-sm">❌ Cancelado</span>
+                        </h4>
+                        <p class="text-sm text-gray-700 mb-1"><strong>Significado:</strong> Oportunidad no se trabajó
+                        </p>
+                        <p class="text-sm text-gray-600">Ejemplos: Cliente canceló, duplicada, error de registro</p>
+                    </div>
+
+                    <!-- Perdido -->
+                    <div class="border-l-4 border-red-500 bg-red-50 p-4 rounded">
+                        <h4 class="font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <span class="bg-red-100 text-red-800 px-3 py-1 rounded-full text-sm">💔 Perdido</span>
+                        </h4>
+                        <p class="text-sm text-gray-700 mb-1"><strong>Significado:</strong> Cliente rechazó la propuesta
+                        </p>
+                        <p class="text-sm text-gray-600">Útil para análisis de tasas de conversión</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Footer -->
+        <div class="bg-gray-50 px-6 py-4 border-t border-gray-200 flex justify-between items-center">
+            <p class="text-sm text-gray-600">¿Necesitas más ayuda? Contacta a soporte técnico</p>
+            <button @click="closeModal()"
+                class="px-4 py-2 bg-[#00BABB] hover:bg-[#009999] text-white rounded-lg font-medium transition-colors duration-200">
+                Cerrar
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- x-cloak styling -->
+<style>
+    [x-cloak] {
+        display: none !important;
+    }
+</style>

@@ -16,13 +16,15 @@ class BaseSchema(BaseModel):
 
 class DetalleBessCreate(BaseModel):
     """Datos técnicos específicos para proyectos BESS."""
+    # Pregunta raíz: ¿Cómo usarás tu Sistema de almacenamiento?
+    uso_sistema_json: List[str] = []
+    
     cargas_criticas_kw: Optional[float] = None
     tiene_motores: bool = False
     potencia_motor_hp: Optional[float] = None
     tiempo_autonomia: Optional[str] = None
     voltaje_operacion: Optional[str] = None
     cargas_separadas: bool = False
-    objetivos_json: List[str] = []
     tiene_planta_emergencia: bool = False
 
     model_config = ConfigDict(from_attributes=True)
@@ -44,6 +46,14 @@ class OportunidadCreateCompleta(BaseModel):
     fecha_manual_str: Optional[str] = None
     detalles_bess: Optional[DetalleBessCreate] = None
     id_estatus_global: Optional[int] = 1
+    
+    # Campo para búsqueda inteligente de clientes
+    cliente_id: Optional[UUID] = None
+    
+    # Nuevos Campos v2 (Clasificación)
+    solicitado_por_id: Optional[UUID] = None
+    clasificacion_solicitud: str = "NORMAL"
+    es_licitacion: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 

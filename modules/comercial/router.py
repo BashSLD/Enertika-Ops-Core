@@ -103,7 +103,7 @@ async def get_comercial_form(
     else:
         catalogos = await service.get_catalogos_creacion(conn, include_simulacion=False)  # Filtrado (PRE_OFERTA, LICITACION)
 
-    return templates.TemplateResponse("comercial/form.html", {
+    return templates.TemplateResponse("shared/forms/oportunidad_form.html", {
         "request": request, 
         "canal_default": canal_default,
         "catalogos": catalogos,  # Catálogos filtrados
@@ -200,7 +200,7 @@ async def get_bess_partial(
     """Retorna los detalles BESS para una oportunidad."""
     bess = await service.get_detalles_bess(conn, id_oportunidad)
     return templates.TemplateResponse(
-        "comercial/partials/detalles/bess_info.html",
+        "shared/partials/bess_info.html",  # Shared component
         {"request": request, "bess": bess}
     )
 
@@ -291,12 +291,30 @@ async def validate_thread_check(
     else:
         return JSONResponse({"found": False, "message": "No se encontró ningún hilo con ese texto."}, status_code=404)
 
+@router.get("/api/clientes/search", include_in_schema=False)
+async def search_clientes(
+    request: Request,
+    q: str,
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection),
+    # Validar acceso básico, aunque sea read-only
+    user_context: dict = Depends(get_current_user_context),
+):
+    """API para búsqueda inteligente de clientes."""
+    if not q:
+        return []
+    
+    results = await service.buscar_clientes(conn, q)
+    return JSONResponse(results)
+
+
 @router.post("/form")
 async def handle_oportunidad_creation(
     request: Request,
-    # --- Campos Estándar ---
+    # --- Datos del Cliente ---
+    cliente_nombre: str = Form(..., min_length=3),
+    cliente_id: Optional[UUID] = Form(None), # Nuevo campo
     nombre_proyecto: str = Form(...),
-    nombre_cliente: str = Form(...),
     canal_venta: str = Form(...),
     id_tecnologia: int = Form(...),
     id_tipo_solicitud: int = Form(...),
@@ -305,135 +323,100 @@ async def handle_oportunidad_creation(
     direccion_obra: str = Form(...),
     coordenadas_gps: Optional[str] = Form(None),
     google_maps_link: Optional[str] = Form(None),
+
     sharepoint_folder_url: Optional[str] = Form(None),
     
+    # --- Campo Licitación (Flag Transversal) ---
+    es_licitacion: bool = Form(False),
+
     # --- Campo Fecha Manual (Gerentes) ---
     fecha_manual: Optional[str] = Form(None),
-    
     # --- Campos BESS (HTMX Conditional) ---
+    bess_uso_sistema: List[str] = Form([]),
     bess_cargas_criticas: Optional[float] = Form(None),
     bess_tiene_motores: bool = Form(False),
     bess_potencia_motor: Optional[float] = Form(None),
-    bess_autonomia: Optional[str] = Form(None),
-    bess_voltaje: Optional[str] = Form(None),
-    bess_planta_emergencia: bool = Form(False),
-    bess_cargas_separadas: Optional[bool] = Form(False), # Campo opcional
-    bess_objetivos: List[str] = Form([]),  # Recibe lista de checkboxes
-
-    # --- Campo Legacy (Homologación) ---
-    legacy_search_term: Optional[str] = Form(None),  # Asunto del correo antiguo (solo viaja, no se guarda)
-
-    # --- Dependencias ---
-    conn = Depends(get_db_connection),
+    bess_tiempo_autonomia: Optional[str] = Form(None),
+    bess_voltaje_operacion: Optional[str] = Form(None),
+    bess_cargas_separadas: bool = Form(False),
+    bess_tiene_planta_emergencia: bool = Form(False),
+    # --- Dependencies ---
     service: ComercialService = Depends(get_comercial_service),
-    context = Depends(get_current_user_context)
+    conn = Depends(get_db_connection),
+    user_context: dict = Depends(get_current_user_context),
+    _ = require_module_access("comercial")
 ):
+    # Validar permisos de escritura (EDITOR)
+    role = user_context.get("module_roles", {}).get("comercial", "viewer")
+    if role not in ["editor", "admin"]:
+         raise HTTPException(status_code=403, detail="No tiene permisos para crear oportunidades.")
+
+    # Construir objeto BESS (solo si es BESS)
+    detalles_bess = None
+    if bess_uso_sistema: 
+         detalles_bess = DetalleBessCreate(
+            uso_sistema_json=bess_uso_sistema,
+            cargas_criticas_kw=bess_cargas_criticas,
+            tiene_motores=bess_tiene_motores,
+            potencia_motor_hp=bess_potencia_motor,
+            tiempo_autonomia=bess_tiempo_autonomia,
+            voltaje_operacion=bess_voltaje_operacion,
+            cargas_separadas=bess_cargas_separadas,
+            tiene_planta_emergencia=bess_tiene_planta_emergencia
+         )
+
+    oportunidad_data = OportunidadCreateCompleta(
+        cliente_nombre=cliente_nombre,
+        cliente_id=cliente_id,
+        nombre_proyecto=nombre_proyecto,
+        canal_venta=canal_venta,
+        id_tecnologia=id_tecnologia,
+        id_tipo_solicitud=id_tipo_solicitud,
+        cantidad_sitios=cantidad_sitios,
+        prioridad=prioridad,
+        direccion_obra=direccion_obra,
+        coordenadas_gps=coordenadas_gps,
+        google_maps_link=google_maps_link,
+        sharepoint_folder_url=sharepoint_folder_url,
+        fecha_manual_str=fecha_manual,
+        detalles_bess=detalles_bess,
+        es_licitacion=es_licitacion,
+        clasificacion_solicitud="ESPECIAL" if request.query_params.get('legacy_term') else "NORMAL"
+    )
+
     try:
-        # Seguridad Token
-        token = await get_valid_graph_token(request)
-        if not token: 
-            from fastapi import Response
-            return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
-
-        # Construir Objeto BESS
-        # Solo si se enviaron datos relevantes o la tecnología implica BESS
-        datos_bess = None
-        if bess_cargas_criticas or bess_tiene_motores or bess_objetivos:
-            # Importar schema BESS
-            from .schemas import DetalleBessCreate
-            datos_bess = DetalleBessCreate(
-                cargas_criticas_kw=bess_cargas_criticas,
-                tiene_motores=bess_tiene_motores,
-                potencia_motor_hp=bess_potencia_motor,
-                tiempo_autonomia=bess_autonomia,
-                voltaje_operacion=bess_voltaje,
-                cargas_separadas=bess_cargas_separadas,
-                objetivos_json=bess_objetivos,
-                tiene_planta_emergencia=bess_planta_emergencia
-            )
-
-        # Validar Permiso Fecha Manual 
-        # REGLA: Admin Global, Admin Modulo, o Manager con permisos de Edición
-        role = context.get("role")
-        module_role = context.get("module_roles", {}).get("comercial", "")
+        # Check for legacy search term (Modo Homologación)
+        legacy_term = request.query_params.get("legacy_term")
         
-        # Jerarquía de roles de módulo: viewer < editor < assignor < admin
-        is_module_editor_or_higher = module_role in ["editor", "assignor", "admin"]
+        new_id, op_std_id, fuera_horario = await service.crear_oportunidad_transaccional(conn, oportunidad_data, user_context, legacy_search_term=legacy_term)
         
-        can_set_manual_date = (role == "ADMIN") or \
-                              (module_role == "admin") or \
-                              (role == "MANAGER" and is_module_editor_or_higher)
+        # Respuesta HTMX: Redirección
+        target_url = f"/comercial/detalle/{new_id}"
         
-        if can_set_manual_date:
-            fecha_final_str = fecha_manual
-        
-        # Construir Objeto Principal
-        from .schemas import OportunidadCreateCompleta
-        oportunidad_data = OportunidadCreateCompleta(
-            nombre_proyecto=nombre_proyecto,
-            cliente_nombre=nombre_cliente,
-            canal_venta=canal_venta,
-            id_tecnologia=id_tecnologia,
-            id_tipo_solicitud=id_tipo_solicitud,
-            cantidad_sitios=cantidad_sitios,
-            prioridad=prioridad,
-            direccion_obra=direccion_obra,
-            coordenadas_gps=coordenadas_gps,
-            google_maps_link=google_maps_link,
-            sharepoint_folder_url=sharepoint_folder_url,
-            fecha_manual_str=fecha_final_str,
-            detalles_bess=datos_bess
-        )
-
-        # Ejecutar Transacción en Servicio
-        # Router solo delega, Service Layer maneja la lógica de homologación
-        new_id, op_id_estandar, es_fuera_horario = await service.crear_oportunidad_transaccional(
-            conn, oportunidad_data, context, legacy_search_term=legacy_search_term
-        )
-
         # Redirección (Lógica Multisitos vs Unisitio)
         if cantidad_sitios == 1:
-            # Auto-creación de sitio único (Legacy logic mantenida por consistencia)
+             # Auto-creación de sitio único
             await service.auto_crear_sitio_unico(
-                conn, new_id, nombre_proyecto, direccion_obra, google_maps_link
+                conn, new_id, nombre_proyecto, direccion_obra, google_maps_link, id_tipo_solicitud
             )
             target_url = f"/comercial/paso3/{new_id}"
         else:
             target_url = f"/comercial/paso2/{new_id}"
-        
-        # Construir parámetros de URL
-        params = f"?new_op={op_id_estandar}&fh={str(es_fuera_horario).lower()}"
-        
-        # PUENTE: Si existe legacy_search_term, agregarlo a la URL para que viaje hasta el Paso 3
-        if legacy_search_term:
-            import urllib.parse
-            safe_legacy = urllib.parse.quote(legacy_search_term)
-            params += f"&legacy_term={safe_legacy}"
-        
-        from fastapi import Response
-        return Response(status_code=200, headers={"HX-Redirect": f"{target_url}{params}"})
 
-    except asyncpg.PostgresError as pe:
-        logger.error(f"Error de base de datos en creación de oportunidad: {pe}")
-        return templates.TemplateResponse(
-            "comercial/error_message.html", 
-            {"request": request, "detail": "Error de base de datos. Contacte al administrador."},
-            status_code=500
-        )
-    except ValueError as ve:
-        logger.warning(f"Error de validación en creación de oportunidad: {ve}")
-        return templates.TemplateResponse(
-            "comercial/error_message.html", 
-            {"request": request, "detail": str(ve)},
-            status_code=400
-        )
+        params = f"?new_op={op_std_id}&fh={str(fuera_horario).lower()}"
+        if legacy_term:
+            import urllib.parse
+            safe_legacy = urllib.parse.quote(legacy_term)
+            params += f"&legacy_term={safe_legacy}"
+
+        return Response(status_code=200, headers={"HX-Redirect": f"{target_url}{params}"})
+    
+    except ValueError as e:
+        # Errores de validación de negocio
+        return HTMLResponse(f"<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4' role='alert'><p class='font-bold'>Error</p><p>{str(e)}</p></div>", status_code=200)
     except Exception as e:
-        logger.exception(f"Error inesperado en creación de oportunidad: {e}")
-        return templates.TemplateResponse(
-            "comercial/error_message.html", 
-            {"request": request, "detail": "Error inesperado. Por favor intente nuevamente."},
-            status_code=500
-        )
+        logger.error(f"Error creando oportunidad: {e}", exc_info=True)
+        return HTMLResponse(f"<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4' role='alert'><p class='font-bold'>Error del Sistema</p><p>Ocurrió un error inesperado.</p></div>", status_code=500)
 
 # ===== FORMULARIO EXTRAORDINARIO (ADMIN/MANAGER ONLY) =====
 @router.get("/form-extraordinario", include_in_schema=False)
@@ -469,10 +452,10 @@ async def get_comercial_form_extraordinario(
     # Generar canal default
     canal_default = ComercialService.get_canal_from_user_name(user_context.get("user_name"))
     
-    # Obtener catálogos (Incluyendo SIMULACION)
-    catalogos = await service.get_catalogos_creacion(conn, include_simulacion=True)
+    # Obtener catálogos (Solo PRE_OFERTA y SIMULACION para extraordinarias)
+    catalogos = await service.get_catalogos_extraordinario(conn)
 
-    return templates.TemplateResponse("shared/forms/extraordinario_generic.html", {
+    return templates.TemplateResponse("shared/forms/oportunidad_form.html", {
         "request": request,
         "catalogos": catalogos,
         "canal_default": canal_default,
@@ -480,15 +463,17 @@ async def get_comercial_form_extraordinario(
         "role": role,
         "module_roles": user_context.get("module_roles", {}),
         "post_url": "/comercial/form-extraordinario",
-        "cancel_url": "/comercial/ui"
+        "cancel_url": "/comercial/ui",
+        "is_extraordinario": True
     }, headers={"HX-Title": "Enertika Ops Core | Solicitud Extraordinaria"})
 
 @router.post("/form-extraordinario")
 async def handle_oportunidad_extraordinaria(
     request: Request,
-    # --- Campos Estándar ---
+    # --- Datos del Cliente ---
+    cliente_nombre: str = Form(..., min_length=3),
+    cliente_id: Optional[UUID] = Form(None), # Nuevo campo
     nombre_proyecto: str = Form(...),
-    nombre_cliente: str = Form(...),
     canal_venta: str = Form(...),
     id_tecnologia: int = Form(...),
     id_tipo_solicitud: int = Form(...),
@@ -499,64 +484,54 @@ async def handle_oportunidad_extraordinaria(
     google_maps_link: Optional[str] = Form(None),
     sharepoint_folder_url: Optional[str] = Form(None),
     
+    # --- Nuevos Campos v2 ---
+    es_licitacion: bool = Form(False),
+    solicitado_por_id: Optional[UUID] = Form(None),
+
     # --- Campo Fecha Manual (OBLIGATORIO en extraordinarias) ---
     fecha_manual: str = Form(...),
     
     # --- Campos BESS (Opcionales) ---
+    bess_uso_sistema: List[str] = Form([]),
     bess_cargas_criticas: Optional[float] = Form(None),
     bess_tiene_motores: bool = Form(False),
     bess_potencia_motor: Optional[float] = Form(None),
-    bess_autonomia: Optional[str] = Form(None),
-    bess_voltaje: Optional[str] = Form(None),
-    bess_planta_emergencia: bool = Form(False),
-    bess_cargas_separadas: Optional[bool] = Form(False),
-    bess_objetivos: List[str] = Form([]),
+    bess_tiempo_autonomia: Optional[str] = Form(None),
+    bess_voltaje_operacion: Optional[str] = Form(None),
+    bess_cargas_separadas: bool = Form(False),
+    bess_tiene_planta_emergencia: bool = Form(False),
 
     # --- Dependencias ---
     conn = Depends(get_db_connection),
     service: ComercialService = Depends(get_comercial_service),
     context = Depends(get_current_user_context),
-    ms_auth = Depends(get_ms_auth)  # Inyección de dependencia
+    ms_auth = Depends(get_ms_auth)
 ):
-    """Procesa solicitud extraordinaria y envía notificación automática."""
     try:
-        # Seguridad: Validar rol ADMIN GLOBAL o ADMIN DE MODULO o MANAGER EDITOR
-        role = context.get("role")
-        module_role = context.get("module_roles", {}).get("comercial", "")
-        
-        is_module_editor_or_higher = module_role in ["editor", "assignor", "admin"]
-        has_access = (role == "ADMIN") or (module_role == "admin") or (role == "MANAGER" and is_module_editor_or_higher)
-        
-        if not has_access:
-            from fastapi import HTTPException
-            raise HTTPException(status_code=403, detail="Se requiere nivel Administrador o Manager (Editor) para esta acción")
-        
-        # Validar token
+        # Validación de sesión y token
         token = await get_valid_graph_token(request)
-        if not token: 
-            from fastapi import Response
-            return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
+        if not token:
+             from fastapi import Response
+             return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
 
-        # Construir Objeto BESS (si aplica)
-        datos_bess = None
-        if bess_cargas_criticas or bess_tiene_motores or bess_objetivos:
-            from .schemas import DetalleBessCreate
-            datos_bess = DetalleBessCreate(
+         # Construir objeto BESS
+        detalles_bess = None
+        if bess_uso_sistema: 
+             detalles_bess = DetalleBessCreate(
+                uso_sistema_json=bess_uso_sistema,
                 cargas_criticas_kw=bess_cargas_criticas,
                 tiene_motores=bess_tiene_motores,
                 potencia_motor_hp=bess_potencia_motor,
-                tiempo_autonomia=bess_autonomia,
-                voltaje_operacion=bess_voltaje,
+                tiempo_autonomia=bess_tiempo_autonomia,
+                voltaje_operacion=bess_voltaje_operacion,
                 cargas_separadas=bess_cargas_separadas,
-                objetivos_json=bess_objetivos,
-                tiene_planta_emergencia=bess_planta_emergencia
-            )
+                tiene_planta_emergencia=bess_tiene_planta_emergencia
+             )
 
-        # Construir Objeto Principal
-        from .schemas import OportunidadCreateCompleta
         oportunidad_data = OportunidadCreateCompleta(
+            cliente_nombre=cliente_nombre,
+            cliente_id=cliente_id,
             nombre_proyecto=nombre_proyecto,
-            cliente_nombre=nombre_cliente,
             canal_venta=canal_venta,
             id_tecnologia=id_tecnologia,
             id_tipo_solicitud=id_tipo_solicitud,
@@ -567,7 +542,10 @@ async def handle_oportunidad_extraordinaria(
             google_maps_link=google_maps_link,
             sharepoint_folder_url=sharepoint_folder_url,
             fecha_manual_str=fecha_manual,
-            detalles_bess=datos_bess
+            detalles_bess=detalles_bess,
+            es_licitacion=es_licitacion,
+            solicitado_por_id=solicitado_por_id,
+            clasificacion_solicitud="EXTRAORDINARIO"
         )
 
         # Ejecutar Transacción en Servicio
@@ -579,17 +557,14 @@ async def handle_oportunidad_extraordinaria(
         await service.marcar_extraordinaria_enviada(conn, new_id)
         
         # --- ENVÍO DE NOTIFICACIÓN AUTOMÁTICA ---
-        # Recuperamos la URL base para el link del correo
         base_url = str(request.base_url).rstrip('/')
-        
-        # Enviar notificación (usando el token del usuario en sesión)
         await service.enviar_notificacion_extraordinaria(
             conn=conn,
             ms_auth=ms_auth,
             token=token,
             id_oportunidad=new_id,
             base_url=base_url,
-            user_email=context['user_email']  # Agregar email del usuario para from_email
+            user_email=context['user_email']
         )
         # -----------------------------------------------
         
@@ -598,7 +573,7 @@ async def handle_oportunidad_extraordinaria(
         # Redirección (Lógica Multisitos vs Unisitio)
         if cantidad_sitios == 1:
             await service.auto_crear_sitio_unico(
-                conn, new_id, nombre_proyecto, direccion_obra, google_maps_link
+                conn, new_id, nombre_proyecto, direccion_obra, google_maps_link, id_tipo_solicitud
             )
             target_url = "/comercial/ui"
             params = f"?new_op={op_id_estandar}&fh={str(es_fuera_horario).lower()}&extraordinaria=1"
@@ -651,7 +626,8 @@ async def get_paso3_email_form(
     id_oportunidad: UUID,
     legacy_term: Optional[str] = None,
     conn = Depends(get_db_connection),
-    service: ComercialService = Depends(get_comercial_service)
+    service: ComercialService = Depends(get_comercial_service),
+    context = Depends(get_current_user_context) # Inyectamos el contexto completo
 ):
     """Formulario final de envío de correo."""
     if not await get_valid_graph_token(request):
@@ -667,8 +643,9 @@ async def get_paso3_email_form(
         "request": request,
         **data, # Desempaquetar dict del servicio
         "legacy_term": legacy_term,
-        "user_name": request.session.get("user_name"),
-        "role": request.session.get("role")
+        "user_name": context.get("user_name"),
+        "role": context.get("role"),
+        "module_roles": context.get("module_roles", {})
     })
 
 # ----------------------------------------

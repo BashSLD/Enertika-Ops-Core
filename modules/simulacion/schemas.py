@@ -25,14 +25,14 @@ class ResponsableOption(BaseModel):
 # --- BESS Schemas (Preservado para Creación) ---
 
 class DetalleBessCreate(BaseModel):
-    """Datos técnicos específicos para proyectos BESS."""
+    """Datos específicos para BESS (almacenamiento)."""
+    uso_sistema_json: List[str] = []
     cargas_criticas_kw: Optional[float] = None
     tiene_motores: bool = False
     potencia_motor_hp: Optional[float] = None
     tiempo_autonomia: Optional[str] = None
     voltaje_operacion: Optional[str] = None
     cargas_separadas: bool = False
-    objetivos_json: List[str] = []
     tiene_planta_emergencia: bool = False
 
     model_config = ConfigDict(from_attributes=True)
@@ -42,6 +42,7 @@ class DetalleBessCreate(BaseModel):
 class OportunidadCreateCompleta(BaseModel):
     """Schema maestro para la creación transaccional (Formulario Extraordinario)."""
     cliente_nombre: str = Field(..., min_length=3)
+    cliente_id: Optional[UUID] = None  # Added for shared form compatibility
     nombre_proyecto: str
     canal_venta: str
     id_tecnologia: int
@@ -57,6 +58,9 @@ class OportunidadCreateCompleta(BaseModel):
     fecha_manual_str: Optional[str] = None
     detalles_bess: Optional[DetalleBessCreate] = None
     id_estatus_global: Optional[int] = 1
+    clasificacion_solicitud: str = "NORMAL"
+    solicitado_por_id: Optional[UUID] = None # Added for delegation
+    es_licitacion: bool = False # Added for shared form
 
     model_config = ConfigDict(from_attributes=True)
 

@@ -234,111 +234,109 @@
         // Configuración del Footer
         // Configuración del Footer
         // Configuración del Footer (Minificado para evitar espacios en blanco extra)
-        window.EMAIL_FOOTER_HTML = `<br><br><hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;"><div style="font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; color: #374151; line-height: 1.6;"><table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;"><tr><td style="width: 140px; color: #6b7280; font-weight: 600; padding: 4px 0;">ID Interno:</td><td style="color: #111827; font-weight: 500;">{{ op.id_interno_simulacion }}</td></tr><tr><td style="color: #6b7280; font-weight: 600; padding: 4px 0;">Proyecto:</td><td style="color: #111827; font-weight: 500;">{{ op.nombre_proyecto }}</td></tr><tr><td style="color: #6b7280; font-weight: 600; padding: 4px 0;">Empresa:</td><td style="color: #111827; font-weight: 500;">{{ op.cliente_nombre }}</td></tr><tr><td style="color: #6b7280; font-weight: 600; padding: 4px 0;">SharePoint:</td><td><a href="{{ op.sharepoint_folder_url or '#' }}" style="color: #2563eb; text-decoration: none;">{{ op.sharepoint_folder_url or 'N/A' }}</a></td></tr></table>{% if op.cargas_criticas_kw %}<div style="background-color: #f3f4f6; border-left: 4px solid #00BABB; padding: 12px; margin-bottom: 20px; border-radius: 0 4px 4px 0;"><div style="font-weight: bold; color: #1f2937; margin-bottom: 8px; text-transform: uppercase; font-size: 12px; letter-spacing: 0.05em;">Especificaciones BESS</div><table style="width: 100%; border-collapse: collapse;"><tr><td style="width: 140px; color: #6b7280; font-size: 13px; padding: 2px 0;">Cargas Críticas:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ op.cargas_criticas_kw }} kW</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Voltaje:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ op.voltaje_operacion }}</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Autonomía:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ op.tiempo_autonomia }}</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Tablero Indep.:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ 'SÍ' if op.cargas_separadas else 'NO' }}</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Motores / Bombas:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ 'SÍ' if op.tiene_motores else 'NO' }} {% if op.tiene_motores %}<span style="color: #6b7280; font-weight: normal;">({{ op.potencia_motor_hp }} HP)</span>{% endif %}</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Planta Emergencia:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ 'SÍ' if op.tiene_planta_emergencia else 'NO' }}</td></tr>{% if bess_objetivos_str %}<tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0; vertical-align: top;">Objetivos:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ bess_objetivos_str }}</td></tr>{% endif %}</table></div>{% endif %}<p style="margin-top: 20px; color: #4b5563;">Atentamente,<br><strong style="color: #111827;">{{ user_name }}</strong></p></div>`;
+        window.EMAIL_FOOTER_HTML = `<br><br><hr style="border: 0; border-top: 1px solid #e5e7eb; margin: 20px 0;"><div style="font-family: 'Segoe UI', Arial, sans-serif; font-size: 14px; color: #374151; line-height: 1.6;"><table style="width: 100%; border-collapse: collapse; margin-bottom: 20px;"><tr><td style="width: 140px; color: #6b7280; font-weight: 600; padding: 4px 0;">ID Interno:</td><td style="color: #111827; font-weight: 500;">{{ op.id_interno_simulacion }}</td></tr><tr><td style="color: #6b7280; font-weight: 600; padding: 4px 0;">Proyecto:</td><td style="color: #111827; font-weight: 500;">{{ op.nombre_proyecto }}</td></tr><tr><td style="color: #6b7280; font-weight: 600; padding: 4px 0;">Empresa:</td><td style="color: #111827; font-weight: 500;">{{ op.cliente_nombre }}</td></tr><tr><td style="color: #6b7280; font-weight: 600; padding: 4px 0;">SharePoint:</td><td><a href="{{ op.sharepoint_folder_url or '#' }}" style="color: #2563eb; text-decoration: none;">{{ op.sharepoint_folder_url or 'N/A' }}</a></td></tr></table>{% if op.cargas_criticas_kw or bess_objetivos_str %}<div style="background-color: #f3f4f6; border-left: 4px solid #00BABB; padding: 12px; margin-bottom: 20px; border-radius: 0 4px 4px 0;"><div style="font-weight: bold; color: #1f2937; margin-bottom: 8px; text-transform: uppercase; font-size: 12px; letter-spacing: 0.05em;">Especificaciones BESS</div><table style="width: 100%; border-collapse: collapse;">{% if bess_objetivos_str %}<tr><td style="width: 140px; color: #6b7280; font-size: 13px; padding: 2px 0; vertical-align: top;">Uso del Sistema:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ bess_objetivos_str }}</td></tr>{% endif %}<tr><td style="width: 140px; color: #6b7280; font-size: 13px; padding: 2px 0;">Cargas Críticas:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ op.cargas_criticas_kw }} kW</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Voltaje:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ op.voltaje_operacion or 'N/A' }}</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Autonomía:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ op.tiempo_autonomia or 'N/A' }}</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Tablero Indep.:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ 'SÍ' if op.cargas_separadas else 'NO' }}</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Planta Emergencia:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ 'SÍ' if op.tiene_planta_emergencia else 'NO' }}</td></tr><tr><td style="color: #6b7280; font-size: 13px; padding: 2px 0;">Motores / Bombas:</td><td style="color: #111827; font-weight: 500; font-size: 13px;">{{ 'SÍ' if op.tiene_motores else 'NO' }} {% if op.tiene_motores %}<span style="color: #6b7280; font-weight: normal;">({{ op.potencia_motor_hp }} HP)</span>{% endif %}</td></tr></table></div>{% endif %}<p style="margin-top: 20px; color: #4b5563;">Atentamente,<br><strong style="color: #111827;">{{ user_name }}</strong></p></div>`;
 
         (function () {
-            // Cargar CSS de Quill
-            if (!document.querySelector('link[href*="quill.snow.css"]')) {
-                var css = document.createElement('link');
-                css.rel = 'stylesheet';
-                css.href = 'https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css';
-                document.head.appendChild(css);
-            }
+            // Safety Wrapper para evitar que el sidebar se rompa si Quill falla
+            try {
+                // Cargar CSS de Quill
+                if (!document.querySelector('link[href*="quill.snow.css"]')) {
+                    var css = document.createElement('link');
+                    css.rel = 'stylesheet';
+                    css.href = 'https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css';
+                    document.head.appendChild(css);
+                }
 
-            // Inicializador seguro con control de botón
-            window.initQuillSafe = function () {
-                const submitBtn = document.getElementById('submit-btn');
-                const btnText = document.getElementById('btn-text');
-                const form = document.querySelector('form');
+                // Inicializador seguro con control de botón
+                window.initQuillSafe = function () {
+                    const submitBtn = document.getElementById('submit-btn');
+                    const btnText = document.getElementById('btn-text');
+                    const form = document.querySelector('form');
 
-                // ⚡ PASO 1: Registrar TODOS los listeners INMEDIATAMENTE (fuera del setTimeout)
-                // Esto asegura que estén disponibles ANTES de que el usuario pueda hacer clic
+                    if (!form) return; // Validación extra
 
-                // Listener para llenar campos antes de enviar
-                form.addEventListener('htmx:configRequest', function (evt) {
-                    var hiddenBodyInput = document.getElementById('hidden-body-input');
-                    var autoMessageInput = document.querySelector('input[name="auto_message"]');
+                    // ⚡ PASO 1: Registrar TODOS los listeners INMEDIATAMENTE
+                    form.addEventListener('htmx:configRequest', function (evt) {
+                        var hiddenBodyInput = document.getElementById('hidden-body-input');
+                        var autoMessageInput = document.querySelector('input[name="auto_message"]');
 
-                    // Verificar que Quill esté listo
-                    if (window.quillInstance && hiddenBodyInput && autoMessageInput) {
-                        const bodyContent = window.quillInstance.root.innerHTML;
-                        const footerContent = window.EMAIL_FOOTER_HTML;
+                        if (window.quillInstance && hiddenBodyInput && autoMessageInput) {
+                            const bodyContent = window.quillInstance.root.innerHTML;
+                            const footerContent = window.EMAIL_FOOTER_HTML;
 
-                        // 1. Actualizar el DOM (para consistencia visual)
-                        hiddenBodyInput.value = bodyContent;
-                        autoMessageInput.value = footerContent;
-
-                        // 2. ⚡ CRÍTICO: Actualizar los parámetros HTTP que HTMX envía
-                        // HTMX ya serializó el form ANTES de este evento, así que debemos
-                        // modificar directamente evt.detail.parameters
-                        evt.detail.parameters['body'] = bodyContent;
-                        evt.detail.parameters['auto_message'] = footerContent;
-
-                        console.log('✅ Campos llenados correctamente');
-                        console.log('  - body length:', bodyContent.length);
-                        console.log('  - auto_message length:', footerContent.length);
-                    } else {
-                        console.error("❌ ERROR: Componentes no listos");
-                        if (!window.quillInstance) console.error("  - Quill no inicializado");
-                        if (!hiddenBodyInput) console.error("  - Falta: hidden-body-input");
-                        if (!autoMessageInput) console.error("  - Falta: input[name='auto_message']");
-                    }
-                });
-
-                // Listener para bloquear botón durante envío
-                form.addEventListener('htmx:beforeRequest', function (evt) {
-                    // Solo bloquear si el request viene del form mismo, no de elementos hijos
-                    if (evt.detail.elt === form) {
-                        submitBtn.disabled = true;
-                        submitBtn.classList.add('sending');
-                        btnText.innerHTML = '📤 Enviando...';
-                        console.log('🔒 Botón bloqueado durante envío');
-                    }
-                });
-
-                // Listener para re-habilitar botón si hay error
-                form.addEventListener('htmx:afterRequest', function (evt) {
-                    // Solo procesar si el request vino del form
-                    if (evt.detail.elt === form && evt.detail.xhr.status >= 400) {
-                        submitBtn.disabled = false;
-                        submitBtn.classList.remove('sending');
-                        btnText.innerHTML = 'Enviar Correo';
-                        console.log('🔓 Botón re-habilitado (error ' + evt.detail.xhr.status + ')');
-                    }
-                });
-
-                // ⚡ PASO 2: Inicializar Quill con delay (para DOM ready)
-                setTimeout(function () {
-                    const container = document.getElementById('quill-editor');
-                    if (!container || container.classList.contains('ql-container')) return;
-
-                    // Crear Quill y guardarlo globalmente
-                    window.quillInstance = new Quill('#quill-editor', {
-                        theme: 'snow',
-                        placeholder: 'Escribe tu mensaje aquí...',
-                        modules: { toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered' }, { 'list': 'bullet' }], [{ 'header': [1, 2, 3, false] }], ['clean']] }
+                            hiddenBodyInput.value = bodyContent;
+                            autoMessageInput.value = footerContent;
+                            evt.detail.parameters['body'] = bodyContent;
+                            evt.detail.parameters['auto_message'] = footerContent;
+                        }
                     });
 
-                    // ✅ PASO 3: Habilitar botón SOLO después de que Quill esté listo
-                    if (submitBtn && btnText) {
-                        submitBtn.disabled = false;
-                        btnText.innerHTML = 'Enviar Correo';
-                        console.log('✅ Editor Quill listo - Botón habilitado');
-                    }
-                }, 200);
-            };
+                    form.addEventListener('htmx:beforeRequest', function (evt) {
+                        if (evt.detail.elt === form) {
+                            submitBtn.disabled = true;
+                            submitBtn.classList.add('sending');
+                            btnText.innerHTML = '📤 Enviando...';
+                        }
+                    });
 
-            // Carga de Librería JS
-            if (typeof Quill !== 'undefined') { window.initQuillSafe(); }
-            else if (!document.querySelector('script[src*="quill.js"]')) {
-                var script = document.createElement('script');
-                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js';
-                script.onload = function () { window.initQuillSafe(); };
-                document.head.appendChild(script);
-            } else {
-                var check = setInterval(function () {
-                    if (typeof Quill !== 'undefined') { clearInterval(check); window.initQuillSafe(); }
-                }, 100);
+                    form.addEventListener('htmx:afterRequest', function (evt) {
+                        if (evt.detail.elt === form && evt.detail.xhr.status >= 400) {
+                            submitBtn.disabled = false;
+                            submitBtn.classList.remove('sending');
+                            btnText.innerHTML = 'Enviar Correo';
+                        }
+                    });
+
+                    // ⚡ PASO 2: Inicializar Quill con delay
+                    setTimeout(function () {
+                        const container = document.getElementById('quill-editor');
+                        if (!container || container.classList.contains('ql-container')) return;
+
+                        try {
+                            window.quillInstance = new Quill('#quill-editor', {
+                                theme: 'snow',
+                                placeholder: 'Escribe tu mensaje aquí...',
+                                modules: { toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered' }, { 'list': 'bullet' }], [{ 'header': [1, 2, 3, false] }], ['clean']] }
+                            });
+
+                            if (submitBtn && btnText) {
+                                submitBtn.disabled = false;
+                                btnText.innerHTML = 'Enviar Correo';
+                            }
+                        } catch (err) {
+                            console.error("Critical: Quill init failed", err);
+                            // Fallback: Habilitar botón para permitir envío aunque sea sin formato
+                            if (submitBtn) {
+                                submitBtn.disabled = false;
+                                btnText.innerHTML = 'Enviar (Texto Simple)';
+                            }
+                        }
+                    }, 200);
+                };
+
+                // Carga de Librería JS
+                if (typeof Quill !== 'undefined') { window.initQuillSafe(); }
+                else if (!document.querySelector('script[src*="quill.js"]')) {
+                    var script = document.createElement('script');
+                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js';
+                    script.onload = function () { window.initQuillSafe(); };
+                    script.onerror = function () {
+                        console.error("Failed to load Quill CDN");
+                        document.getElementById('quill-editor').innerHTML = '<p class="text-red-500 text-sm">Error cargando editor. Puedes enviar el correo sin formato.</p>';
+                        const btn = document.getElementById('submit-btn');
+                        if (btn) { btn.disabled = false; btn.innerText = "Enviar (Sin Formato)"; }
+                    };
+                    document.head.appendChild(script);
+                } else {
+                    var check = setInterval(function () {
+                        if (typeof Quill !== 'undefined') { clearInterval(check); window.initQuillSafe(); }
+                    }, 100);
+                }
+
+            } catch (e) {
+                console.error("Global Error in Quill Wrapper:", e);
+                // Ensure Sidebar is safe is minimal here since this is inside a partial,
+                // but preventing the throw keeps parent JS alive.
             }
         })();
 

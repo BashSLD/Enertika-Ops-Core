@@ -6,7 +6,7 @@ from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
 from uuid import UUID
-from typing import Optional
+from typing import Optional, List
 from decimal import Decimal
 import logging
 import asyncpg
@@ -103,7 +103,7 @@ async def get_form_extraordinario(
     catalogos = await service.get_catalogos_ui(conn)
     canal_default = service.get_canal_from_user_name(context.get("user_name", ""))
     
-    return templates.TemplateResponse("shared/forms/extraordinario_generic.html", {
+    return templates.TemplateResponse("shared/forms/oportunidad_form.html", {
         "request": request,
         "catalogos": catalogos,
         "canal_default": canal_default,
@@ -111,14 +111,16 @@ async def get_form_extraordinario(
         "role": role,
         "module_roles": context.get("module_roles", {}),
         "post_url": "/simulacion/form-extraordinario",
-        "cancel_url": "/simulacion/ui"
+        "cancel_url": "/simulacion/ui",
+        "is_extraordinario": True
     })
 
 @router.post("/form-extraordinario", include_in_schema=False)
 async def create_oportunidad_extraordinaria(
     request: Request,
-    fecha_manual: Optional[str] = Form(None),
-    nombre_cliente: str = Form(...),
+    fecha_manual: str = Form(...),
+    cliente_nombre: str = Form(..., min_length=3),
+    cliente_id: Optional[UUID] = Form(None),
     nombre_proyecto: str = Form(...),
     id_tecnologia: int = Form(...),
     id_tipo_solicitud: int = Form(...),
@@ -129,15 +131,19 @@ async def create_oportunidad_extraordinaria(
     google_maps_link: str = Form(...),
     coordenadas_gps: Optional[str] = Form(None),
     sharepoint_folder_url: Optional[str] = Form(None),
-    # Campos BESS (opcionales)
+    solicitado_por_id: Optional[UUID] = Form(None),
+    es_licitacion: bool = Form(False),
+    
+    # Campos BESS
+    bess_uso_sistema: List[str] = Form([]),
     bess_cargas_criticas: Optional[float] = Form(None),
     bess_voltaje: Optional[str] = Form(None),
     bess_autonomia: Optional[str] = Form(None),
-    bess_tiene_motores: Optional[str] = Form(None),
+    bess_tiene_motores: bool = Form(False),
     bess_potencia_motor: Optional[float] = Form(None),
-    bess_cargas_separadas: Optional[str] = Form(None),
-    bess_planta_emergencia: Optional[str] = Form(None),
-    bess_objetivos: Optional[list] = Form(None),
+    bess_cargas_separadas: bool = Form(False),
+    bess_planta_emergencia: bool = Form(False),
+    
     # Dependencies
     context = Depends(get_current_user_context),
     service: SimulacionService = Depends(get_simulacion_service),
@@ -159,28 +165,29 @@ async def create_oportunidad_extraordinaria(
         raise HTTPException(status_code=403, detail="Acceso denegado. Se requiere nivel Administrador o Manager (Editor) en el módulo")
     
     try:
-        # Preparar datos BESS si aplica
+        # Construir objeto BESS
         detalles_bess = None
-        if bess_cargas_criticas and bess_voltaje and bess_autonomia:
+        if bess_uso_sistema or bess_cargas_criticas:
             detalles_bess = DetalleBessCreate(
+                uso_sistema_json=bess_uso_sistema,
                 cargas_criticas_kw=bess_cargas_criticas,
-                voltaje_operacion=bess_voltaje,
-                tiempo_autonomia=bess_autonomia,
-                tiene_motores=(bess_tiene_motores == "true"),
+                tiene_motores=bess_tiene_motores,
                 potencia_motor_hp=bess_potencia_motor,
-                cargas_separadas=(bess_cargas_separadas == "true"),
-                tiene_planta_emergencia=(bess_planta_emergencia == "true"),
-                objetivos_json=bess_objetivos or []
+                tiempo_autonomia=bess_autonomia,
+                voltaje_operacion=bess_voltaje,
+                cargas_separadas=bess_cargas_separadas,
+                tiene_planta_emergencia=bess_planta_emergencia
             )
         
         # Crear objeto de datos completo
         datos = OportunidadCreateCompleta(
             fecha_manual_str=fecha_manual,
-            cliente_nombre=nombre_cliente,
+            cliente_nombre=cliente_nombre,
+            cliente_id=cliente_id,
             nombre_proyecto=nombre_proyecto,
             id_tecnologia=id_tecnologia,
             id_tipo_solicitud=id_tipo_solicitud,
-            id_estatus_global=1,  # Pendiente por defecto
+            id_estatus_global=1,
             canal_venta=canal_venta,
             prioridad=prioridad,
             cantidad_sitios=cantidad_sitios,
@@ -188,7 +195,10 @@ async def create_oportunidad_extraordinaria(
             google_maps_link=google_maps_link,
             coordenadas_gps=coordenadas_gps or "",
             sharepoint_folder_url=sharepoint_folder_url or "",
-            detalles_bess=detalles_bess
+            detalles_bess=detalles_bess,
+            clasificacion_solicitud="EXTRAORDINARIO",
+            solicitado_por_id=solicitado_por_id,
+            es_licitacion=es_licitacion
         )
         
         # Crear oportunidad
@@ -196,12 +206,18 @@ async def create_oportunidad_extraordinaria(
             conn, datos, context
         )
         
-        # Retornar mensaje de éxito
-        return templates.TemplateResponse("simulacion/partials/messages/success.html", {
-            "request": request,
-            "title": "¡Registro Extraordinario Exitoso!",
-            "message": f"Oportunidad {op_id_estandar} creada correctamente. {'ALERTA: Fuera de horario.' if es_fuera_horario else ''}"
-        })
+        # Auto-crear sitio si es unisitio (Para evitar proyectos huérfanos de sitio)
+        if cantidad_sitios == 1:
+            await service.auto_crear_sitio_unico(
+                conn, new_id, nombre_proyecto, direccion_obra, google_maps_link, id_tipo_solicitud
+            )
+        
+        target_url = "/simulacion/ui"
+        # Params para mostrar alerta en dashboard
+        params = f"?new_op={op_id_estandar}&fh={str(es_fuera_horario).lower()}&extraordinaria=1"
+        
+        from fastapi import Response
+        return Response(status_code=200, headers={"HX-Redirect": f"{target_url}{params}"})
         
     except asyncpg.PostgresError as db_err:
         logger.error(f"DB Error creating simulacion op: {db_err}")
@@ -344,22 +360,14 @@ async def create_comentario(
 
 @router.get("/partials/bess/{id_oportunidad}", include_in_schema=False)
 async def get_bess_partial(
+    request: Request, 
     id_oportunidad: UUID,
-    request: Request,
-    service: SimulacionService = Depends(get_simulacion_service),
-    conn = Depends(get_db_connection),
-    _ = require_module_access("simulacion")
+    conn = Depends(get_db_connection), 
+    service: SimulacionService = Depends(get_simulacion_service)
 ):
     """Partial: Detalles técnicos BESS."""
-    bess = await service.get_detalles_bess(conn, id_oportunidad)
+    bess = await service.get_bess_info(conn, id_oportunidad)
     
-    # Parsear objetivos_json de string a lista Python
-    if bess and bess.get('objetivos_json'):
-        import json
-        try:
-            bess['objetivos_json'] = json.loads(bess['objetivos_json'])
-        except (json.JSONDecodeError, TypeError):
-            bess['objetivos_json'] = []
     
     return templates.TemplateResponse("simulacion/partials/detalles/bess_info.html", {
         "request": request,

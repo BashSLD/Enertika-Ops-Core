@@ -250,7 +250,7 @@ class EmailHandler:
                 )
         
         if thread_id:
-            ok, msg = ms_auth.reply_with_new_subject(
+            ok, msg = await ms_auth.reply_with_new_subject(
                 access_token=access_token,
                 thread_id=thread_id,
                 new_subject=subject,
@@ -263,7 +263,7 @@ class EmailHandler:
             )
             logger.info(f"Correo enviado como RESPUESTA en hilo existente")
         else:
-            ok, msg = ms_auth.send_email_with_attachments(
+            ok, msg = await ms_auth.send_email_with_attachments(
                 access_token=access_token,
                 from_email=user_email,
                 subject=subject,

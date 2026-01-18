@@ -482,13 +482,39 @@ class SimulacionService:
         if fecha_solicitud.weekday() >= 5 or fecha_solicitud.time() > hora_corte:
              es_fuera_horario = True
 
-        # 2. Generar Identificadores
+        # ---------------------------------------------------------
+        # 2. GESTIÓN INTELIGENTE DE CLIENTES (Homologado)
+        # ---------------------------------------------------------
+        final_cliente_id = datos.cliente_id
+        final_cliente_nombre = datos.cliente_nombre.strip().upper()
+
+        if final_cliente_id:
+            # Caso 1: ID explícito. Asumimos válido.
+            pass
+        else:
+            # Caso 2: Nombre manual -> Buscar o Crear
+            existing_client = await conn.fetchrow(
+                "SELECT id FROM tb_clientes WHERE nombre_fiscal = $1", 
+                final_cliente_nombre
+            )
+            
+            if existing_client:
+                final_cliente_id = existing_client['id']
+            else:
+                final_cliente_id = uuid4()
+                await conn.execute(
+                    "INSERT INTO tb_clientes (id, nombre_fiscal) VALUES ($1, $2)",
+                    final_cliente_id, final_cliente_nombre
+                )
+                logger.info(f"Nuevo cliente (Simulación) registrado: {final_cliente_nombre}")
+
+        # 3. Generar Identificadores
         new_id = uuid4()
         timestamp_id = fecha_solicitud.strftime("%y%m%d%H%M")
         op_id_estandar = f"OP-{timestamp_id}"  # Formato OP-YYMMDDHHMM
         
-        # ID Interno: OP-STANDARD_PROYECTO_CLIENTE (Max 150 chars)
-        base_interno = f"{op_id_estandar}_{datos.nombre_proyecto}_{datos.cliente_nombre}"
+        # ID Interno: USAR final_cliente_nombre
+        base_interno = f"{op_id_estandar}_{datos.nombre_proyecto}_{final_cliente_nombre}"
         id_interno = base_interno.upper().replace(" ", "_")[:150]
 
         # 3. Título del Proyecto (Generación standard)
@@ -496,7 +522,7 @@ class SimulacionService:
         nombre_tec = await conn.fetchval("SELECT nombre FROM tb_cat_tecnologias WHERE id = $1", datos.id_tecnologia)
         nombre_tipo = await conn.fetchval("SELECT nombre FROM tb_cat_tipos_solicitud WHERE id = $1", datos.id_tipo_solicitud)
         
-        titulo_proyecto = f"{nombre_tipo}_{datos.cliente_nombre}_{datos.nombre_proyecto}_{nombre_tec}_{datos.canal_venta}".upper()
+        titulo_proyecto = f"{nombre_tipo}_{final_cliente_nombre}_{datos.nombre_proyecto}_{nombre_tec}_{datos.canal_venta}".upper()
 
         # 4. Insertar con Transacción Atómica
         async with conn.transaction():
@@ -508,7 +534,8 @@ class SimulacionService:
                     id_estatus_global, cantidad_sitios, prioridad,
                     direccion_obra, google_maps_link, coordenadas_gps, sharepoint_folder_url,
                     fecha_solicitud, creado_por_id, solicitado_por,
-                    es_fuera_horario, es_carga_manual
+                    es_fuera_horario, es_carga_manual,
+                    clasificacion_solicitud
                 ) VALUES (
                     $1, $2, $3,
                     $4, $5, $6,
@@ -516,40 +543,43 @@ class SimulacionService:
                     $10, $11, $12,
                     $13, $14, $15, $16,
                     $17, $18, $19,
-                    $20, $21
+                    $20, $21,
+                    $22
                 )
             """
             
             await conn.execute(query_padre,
                 new_id, op_id_estandar, id_interno,
-                titulo_proyecto, datos.nombre_proyecto, datos.cliente_nombre,
+                titulo_proyecto, datos.nombre_proyecto, final_cliente_nombre,
                 datos.canal_venta, datos.id_tecnologia, datos.id_tipo_solicitud,
                 datos.id_estatus_global, datos.cantidad_sitios, datos.prioridad,
                 datos.direccion_obra, datos.google_maps_link, datos.coordenadas_gps, datos.sharepoint_folder_url,
                 fecha_solicitud, user_context['user_db_id'], user_context.get('user_name'),
-                es_fuera_horario, True if datos.fecha_manual_str else False
+                es_fuera_horario, True if datos.fecha_manual_str else False,
+                datos.clasificacion_solicitud
             )
 
             # 5. Insertar BESS si existe
             if datos.detalles_bess:
                 query_bess = """
                     INSERT INTO tb_detalles_bess (
-                        id_oportunidad, cargas_criticas_kw, tiene_motores, potencia_motor_hp,
+                        id_oportunidad, uso_sistema_json, cargas_criticas_kw, tiene_motores, potencia_motor_hp,
                         tiempo_autonomia, voltaje_operacion, cargas_separadas, 
-                        objetivos_json, tiene_planta_emergencia
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+                        tiene_planta_emergencia
+                    ) VALUES ($1, $2::jsonb, $3, $4, $5, $6, $7, $8, $9)
                 """
-                objetivos_str = json.dumps(datos.detalles_bess.objetivos_json)
+                
+                uso_sistema_str = json.dumps(datos.detalles_bess.uso_sistema_json)
                 
                 await conn.execute(query_bess,
                     new_id,
+                    uso_sistema_str,
                     datos.detalles_bess.cargas_criticas_kw,
                     datos.detalles_bess.tiene_motores,
                     datos.detalles_bess.potencia_motor_hp,
                     datos.detalles_bess.tiempo_autonomia,
                     datos.detalles_bess.voltaje_operacion,
                     datos.detalles_bess.cargas_separadas,
-                    objetivos_str,
                     datos.detalles_bess.tiene_planta_emergencia
                 )
             
@@ -601,12 +631,43 @@ class SimulacionService:
     
     async def get_catalogos_ui(self, conn) -> dict:
         tecnologias = await conn.fetch("SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre")
-        tipos = await conn.fetch("SELECT id, nombre FROM tb_cat_tipos_solicitud WHERE activo = true ORDER BY nombre")
+        
+        # Filtrar tipos igual que en Comercial (Pre-Oferta, Simulacion, etc.)
+        codigos = ['PRE_OFERTA', 'SIMULACION', 'CAPTURA_RECIBOS']
+        placeholders = ",".join([f"${i+1}" for i in range(len(codigos))])
+        
+        tipos = await conn.fetch(f"""
+            SELECT id, nombre 
+            FROM tb_cat_tipos_solicitud 
+            WHERE activo = true 
+            AND codigo_interno IN ({placeholders})
+            ORDER BY nombre
+        """, *codigos)
+        
+        # Usuarios para delegación (Fix para dropdown vacío)
+        usuarios = await conn.fetch("SELECT id_usuario, nombre FROM tb_usuarios WHERE is_active = true ORDER BY nombre")
+        
         return {
             "tecnologias": [dict(t) for t in tecnologias],
-            "tipos_solicitud": [dict(t) for t in tipos]
+            "tipos_solicitud": [dict(t) for t in tipos],
+            "usuarios": [dict(u) for u in usuarios]
         }
     
+    async def auto_crear_sitio_unico(self, conn, id_oportunidad, nombre_proyecto, direccion, google_maps, id_tipo):
+        """
+        Crea automáticamente el Sitio 01 para opportunidades de 1 solo sitio.
+        Espejo de la lógica comercial para mantener consistencia.
+        """
+        await conn.execute("""
+            INSERT INTO tb_sitios_oportunidad (
+                id_sitio, id_oportunidad, nombre_sitio, 
+                direccion_completa, enlace_google_maps, 
+                id_tipo_solicitud, id_estatus_sitio
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, 1
+            )
+        """, uuid4(), id_oportunidad, nombre_proyecto, direccion, google_maps, id_tipo)
+
     @staticmethod
     def get_canal_from_user_name(user_name: str) -> str:
         parts = (user_name or "").strip().split()

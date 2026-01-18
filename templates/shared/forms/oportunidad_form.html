@@ -1,0 +1,722 @@
+{% if not request.headers.get('hx-request') %}
+{% extends "base.html" %}
+{% endif %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto bg-white p-8 rounded-lg shadow-lg border-t-4 border-[#00BABB] animate-fade-in-down"
+    x-data="{ 
+        hasMotores: false, 
+        isBess: false, 
+        usoSeleccionado: [],
+        
+        get requiereAutonomia() {
+            // Reactivo: Si 'Respaldo de energía' está en el array, true.
+            return this.usoSeleccionado.includes('Respaldo de energía');
+        },
+
+        hasAnyUsoSelected() {
+            return this.usoSeleccionado.length > 0;
+        },
+        
+        checkTecnologia(event) {
+            const text = event.target.options[event.target.selectedIndex].text.toUpperCase();
+            this.isBess = text.includes('BESS') || text.includes('ALMACENAMIENTO');
+            
+            if (!this.isBess) {
+                this.usoSeleccionado = [];
+                // this.requiereAutonomia se actualiza solo vía el getter
+                this.hasMotores = false;
+            }
+        },
+        isSubmitting: false,
+        esLicitacion: false,  // Nueva bandera para Licitación
+        cantidadSitios: 1,
+        nombreProyecto: '',
+        isMultisitio() {
+            return this.cantidadSitios > 1;
+        },
+        updateNombreProyecto() {
+            if (this.isMultisitio()) {
+                this.nombreProyecto = `Multisitio ${this.cantidadSitios}`;
+            }
+        }
+    }" @htmx:before-request="isSubmitting = true" @htmx:after-request="isSubmitting = false">
+
+    {# --- LÓGICA DE TEMAS (UNIFICADA) --- #}
+    {% if is_extraordinario %}
+    {# TEMA NARANJA (EXTRAORDINARIO) #}
+    {% set theme_color = 'orange' %}
+    {% set header_bg = 'bg-orange-50' %}
+    {% set header_border = 'border-orange-200' %}
+    {% set header_text = 'text-orange-800' %}
+    {% set input_bg = 'bg-orange-50' %}
+    {% set input_border = 'border-orange-200' %}
+    {% set input_focus_border = 'focus:border-orange-500' %}
+    {% set input_focus_ring = 'focus:ring-orange-500' %}
+    {% set btn_submit_bg = 'bg-orange-600 hover:bg-orange-700' %}
+    {% set btn_submit_shadow = 'shadow-orange-600/30' %}
+    {% set checkbox_classes = 'text-orange-600 focus:ring-orange-500' %}
+
+    {% elif request.query_params.get('legacy_term') %}
+    {# TEMA PÚRPURA (ESPECIAL) #}
+    {% set theme_color = 'purple' %}
+    {% set header_bg = 'bg-purple-50' %}
+    {% set header_border = 'border-purple-200' %}
+    {% set header_text = 'text-purple-800' %}
+    {% set input_bg = 'bg-purple-50' %}
+    {% set input_border = 'border-purple-200' %}
+    {% set input_focus_border = 'focus:border-purple-500' %}
+    {% set input_focus_ring = 'focus:ring-purple-500' %}
+    {% set btn_submit_bg = 'bg-purple-600 hover:bg-purple-700' %}
+    {% set btn_submit_shadow = 'shadow-purple-600/30' %}
+    {% set checkbox_classes = 'text-purple-600 focus:ring-purple-500' %}
+
+    {% else %}
+    {# TEMA TURQUESA (NORMAL) #}
+    {% set theme_color = 'teal' %}
+    {% set header_bg = 'bg-white' %}
+    {% set header_border = 'border-transparent' %}
+    {% set header_text = 'text-[#123456]' %}
+    {% set input_bg = 'bg-white' %}
+    {% set input_border = 'border-gray-300' %}
+    {% set input_focus_border = 'focus:border-[#00BABB]' %}
+    {% set input_focus_ring = 'focus:ring-[#00BABB]' %}
+    {% set btn_submit_bg = 'bg-[#00BABB] hover:bg-[#009999]' %}
+    {% set btn_submit_shadow = 'shadow-[#00BABB]/30' %}
+    {% set checkbox_classes = 'text-[#00BABB] focus:ring-[#00BABB]' %}
+    {% endif %}
+
+    <!-- Mensaje de error global -->
+    <div id="error-message" class="hidden mb-6 p-4 bg-red-50 border-l-4 border-red-500 text-red-700 rounded">
+        <div class="flex items-start gap-3">
+            <svg class="w-6 h-6 text-red-500 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd"
+                    d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
+                    clip-rule="evenodd" />
+            </svg>
+            <div>
+                <h3 class="font-bold text-sm mb-1">Error al procesar el formulario</h3>
+                <p id="error-message-text" class="text-sm"></p>
+            </div>
+        </div>
+    </div>
+
+    {% if is_extraordinario %}
+    <!-- Header Distintivo Extraordinario -->
+    <div class="{{ header_bg }} -mx-8 -mt-8 px-8 py-6 mb-6 border-b-2 {{ header_border }}">
+        <h2 class="text-2xl font-bold {{ header_text }} flex items-center gap-2">
+            <span class="bg-orange-100 p-2 rounded-lg text-orange-600">⚠️</span>
+            Solicitud Extraordinaria
+        </h2>
+        <p class="text-sm text-orange-700 mt-2">
+            Para solicitudes recibidas anteriormente que se están registrando ahora. El SLA se calculará desde la fecha
+            que indiques.
+        </p>
+    </div>
+    {% elif request.query_params.get('legacy_term') %}
+    <!-- Banner Especial -->
+    <div
+        class="bg-purple-100 border-l-4 border-purple-500 text-purple-700 p-4 mb-6 rounded shadow-sm flex items-start gap-3">
+        <span class="text-2xl">🦄</span>
+        <div>
+            <p class="font-bold">Modo de Captura Especial</p>
+            <p class="text-sm">Estás registrando una oportunidad bajo términos de homologación o legacy.</p>
+        </div>
+    </div>
+    <h2 class="text-2xl font-bold {{ header_text }} mb-2">🚀 Nueva Oportunidad (Especial)</h2>
+    <p class="text-gray-500 mb-6">Completa todos los campos obligatorios para iniciar el proceso especial.</p>
+
+    {% else %}
+    <h2 class="text-2xl font-bold text-[#123456] mb-6 flex items-center gap-2">
+        <span class="bg-[#E0F7F7] p-2 rounded-lg text-[#00BABB]">🚀</span>
+        Nueva Oportunidad Comercial
+    </h2>
+    {% endif %}
+
+    <form hx-post="{{ post_url | default('/comercial/form') }}" hx-target="#main-content" hx-swap="innerHTML"
+        class="space-y-6" @submit="isSubmitting = true">
+
+        {% if is_extraordinario %}
+        <!-- CAMPOS EXTRA DE EXTRAORDINARIO -->
+        <!-- Fecha Real de Solicitud (OBLIGATORIA) -->
+        <div class="bg-orange-50 -mx-8 px-8 py-6 border-l-4 border-orange-500"
+            x-data="{ get maxDate() { const now = new Date(); const year = now.getFullYear(); const month = String(now.getMonth() + 1).padStart(2, '0'); const day = String(now.getDate()).padStart(2, '0'); const hours = String(now.getHours()).padStart(2, '0'); const minutes = String(now.getMinutes()).padStart(2, '0'); return `${year}-${month}-${day}T${hours}:${minutes}`; } }">
+            <label class="block text-sm font-bold text-orange-900 mb-2">
+                📅 Fecha de envío de la solicitud *
+            </label>
+            <input type="datetime-local" name="fecha_manual" required :max="maxDate"
+                class="w-full rounded-lg border-orange-300 focus:border-orange-500 focus:ring-orange-500 shadow-sm bg-white">
+            <p class="text-xs text-orange-700 mt-2">
+                <strong>Importante:</strong> La fecha y hora debe ser la fecha y hora en la que fue enviada la solicitud
+                original.
+                El sistema calculará el SLA a partir de esta fecha.
+            </p>
+        </div>
+
+        <!-- Solicitado Por (Delegación) -->
+        <div class="bg-blue-50 -mx-8 px-8 py-4 border-l-4 border-blue-500">
+            <label class="block text-sm font-bold text-blue-900 mb-2">
+                👤 Solicitante Original (Delegar)
+            </label>
+            <div class="flex flex-col md:flex-row gap-4 items-center">
+                <select name="solicitado_por_id"
+                    class="w-full md:w-1/2 rounded-lg border-blue-300 focus:border-blue-500 focus:ring-blue-500 shadow-sm bg-white">
+                    <option value="">-- Soy yo (No delegar) --</option>
+                    {% for usuario in catalogos.usuarios %}
+                    <option value="{{ usuario.id_usuario }}">{{ usuario.nombre }}</option>
+                    {% endfor %}
+                </select>
+                <div class="md:w-1/2 text-xs text-blue-700">
+                    <p class="font-bold">¿Quién pidió esto realmente?</p>
+                    <p>Si estás registrando esta solicitud en nombre de otro compañero, selecciónalo aquí. Si es tuya,
+                        déjalo en blanco.</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Campo legacy para homologación (solo existe si viene del botón especial) -->
+        {% if request.query_params.get('legacy_term') %}
+        <input type="hidden" name="legacy_search_term" value="{{ request.query_params.get('legacy_term') }}">
+        <div class="bg-purple-50 border-l-4 border-purple-500 p-4 rounded-lg mb-4">
+            <div class="flex items-center gap-2">
+                <svg class="h-5 w-5 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <p class="text-sm text-purple-700 font-semibold">Modo Captura Especial</p>
+            </div>
+            <p class="text-xs text-purple-600 mt-1 ml-7">Esta solicitud responderá al hilo: <strong>"{{
+                    request.query_params.get('legacy_term') }}"</strong></p>
+        </div>
+        {% endif %}
+
+        {# Conditional styling variables for themed inputs #}
+        {% set is_legacy = request.query_params.get('legacy_term') %}
+        {% set input_bg = 'bg-purple-50' if is_legacy else 'bg-teal-50' %}
+        {% set input_border = 'border-purple-200' if is_legacy else 'border-teal-200' %}
+        {% set input_focus_border = 'focus:border-purple-500' if is_legacy else 'focus:border-[#00BABB]' %}
+        {% set input_focus_ring = 'focus:ring-purple-500' if is_legacy else 'focus:ring-[#00BABB]' %}
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            <!-- 2. Nombre del Cliente (Smart Search) -->
+            <div x-data="{
+                query: '',
+                results: [],
+                isOpen: false,
+                selectedId: null,
+                selectedName: '',
+                isFetching: false,
+                search() {
+                    if (!this.query || this.query.length < 2) {
+                        this.results = [];
+                        this.isOpen = false;
+                        return;
+                    }
+                    this.isFetching = true;
+                    fetch(`/comercial/api/clientes/search?q=${encodeURIComponent(this.query)}`)
+                        .then(r => r.json())
+                        .then(data => {
+                            this.results = data;
+                            this.isOpen = this.results.length > 0;
+                            this.isFetching = false;
+                        });
+                },
+                select(item) {
+                    this.query = item.nombre_fiscal;
+                    this.selectedId = item.id;
+                    this.selectedName = item.nombre_fiscal;
+                    this.isOpen = false;
+                },
+                onInput() {
+                   // Debounce simple o llamada directa
+                   if (this.selectedId && this.query !== this.selectedName) {
+                       this.selectedId = null; // Si edita, reseteamos ID (es nuevo o modificado)
+                   }
+                   this.search(); 
+                }
+            }" class="relative">
+                <label class="block text-sm font-bold text-gray-700 mb-1">Nombre de la Empresa *</label>
+
+                <input type="hidden" name="cliente_id" :value="selectedId">
+
+                <input type="text" name="cliente_nombre" x-model="query" @input.debounce.300ms="onInput()" required
+                    autocomplete="off"
+                    class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm"
+                    placeholder="Escriba para buscar o ingrese uno nuevo...">
+
+                <!-- Resultados Dropdown -->
+                <ul x-show="isOpen" @click.away="isOpen = false"
+                    class="absolute z-50 w-full bg-white border border-gray-300 rounded-md shadow-lg max-h-60 overflow-y-auto mt-1">
+                    <template x-for="item in results" :key="item.id">
+                        <li @click="select(item)"
+                            class="px-4 py-2 hover:bg-gray-100 cursor-pointer text-sm flex justify-between items-center group">
+                            <span x-text="item.nombre_fiscal"
+                                class="font-medium text-gray-700 group-hover:text-[#00BABB]"></span>
+                            <span class="text-xs text-gray-400">Existente</span>
+                        </li>
+                    </template>
+                </ul>
+                <p class="text-xs text-gray-500 mt-1">Seleccione de la lista para vincular historial, o escriba un
+                    nombre nuevo.</p>
+            </div>
+
+            <!-- 2. Nombre del Proyecto (SEGUNDO) -->
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-1">
+                    Nombre del Proyecto *
+                    <span class="text-xs text-gray-500 font-normal">(dejar vacío si es multisitio)</span>
+                </label>
+                <input type="text" name="nombre_proyecto" required placeholder="Ej: CEDIS TEPOTZOTLAN"
+                    x-model="nombreProyecto" :readonly="isMultisitio()"
+                    :class="isMultisitio() ? 'bg-gray-100 cursor-not-allowed' : '{{ input_bg }}'"
+                    class="w-full rounded-lg {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
+            </div>
+
+            <!-- 3. Tecnología -->
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-1">Tecnología *</label>
+                <select name="id_tecnologia" required @change="checkTecnologia($event)"
+                    class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
+                    <option value="" disabled selected>Seleccione una tecnología...</option>
+                    {% for tec in catalogos.tecnologias %}
+                    <option value="{{ tec.id }}">{{ tec.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- 4. Tipo de Solicitud -->
+            <!-- 4. Tipo de Solicitud -->
+            <div class="space-y-4 md:col-span-2 bg-blue-50 p-4 rounded-lg border border-blue-200">
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Tipo de Solicitud *</label>
+                    {% if request.query_params.get('legacy_term') %}
+                    <!-- MODO HOMOLOGACIÓN: Filtrado (ACTUALIZACIÓN o LEVANTAMIENTO) -->
+                    <select name="id_tipo_solicitud" required
+                        class="w-full rounded-lg border-purple-300 focus:border-purple-500 focus:ring-purple-500 bg-purple-50 shadow-sm">
+                        <option value="" disabled selected>Seleccione el tipo...</option>
+                        {% for tipo in catalogos.tipos_solicitud %}
+                        {# Mostrar solo ACTUALIZACION y LEVANTAMIENTO #}
+                        {% if tipo.codigo_interno == 'ACTUALIZACION' or tipo.codigo_interno == 'LEVANTAMIENTO' %}
+                        <option value="{{ tipo.id }}" {% if tipo.codigo_interno=='ACTUALIZACION' %}selected{% endif %}>
+                            {{ tipo.nombre }}
+                        </option>
+                        {% endif %}
+                        {% endfor %}
+                    </select>
+                    <p class="text-xs text-purple-600 mt-1">Modo Especial: Solo Actualizaciones o Levantamientos.</p>
+                    {% else %}
+                    <!-- MODO NORMAL: Usuario puede seleccionar (Pre-Oferta / Levantamiento) -->
+                    <select name="id_tipo_solicitud" required
+                        class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
+                        <option value="" disabled selected>Seleccione el tipo...</option>
+                        {% for tipo in catalogos.tipos_solicitud %}
+                        <option value="{{ tipo.id }}">{{ tipo.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                    {% endif %}
+                </div>
+
+                <!-- 4a. Checkbox Licitación (Transversal) -->
+                <!-- Se muestra siempre como opción voluntaria, pero destacada -->
+                <div class="flex items-center p-3 bg-yellow-50 border border-yellow-200 rounded-lg shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+                    @click="esLicitacion = !esLicitacion">
+                    <div class="flex items-center h-5">
+                        <input type="checkbox" id="es_licitacion" name="es_licitacion" x-model="esLicitacion"
+                            value="true"
+                            class="w-5 h-5 text-yellow-600 focus:ring-yellow-500 border-gray-300 rounded cursor-pointer">
+                    </div>
+                    <div class="ml-3 select-none">
+                        <label for="es_licitacion" class="font-bold text-gray-800 cursor-pointer block">
+                            ¿Es una Licitación?
+                        </label>
+                        <p class="text-xs text-gray-600">Marca si este proyecto participa en una Licitación.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5. Canal de Venta (EDITABLE + OBLIGATORIO) -->
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-1">Canal de Venta *</label>
+                <input type="text" name="canal_venta" value="{{ canal_default }}" required
+                    class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
+            </div>
+
+            <!-- 6. Prioridad (INGLÉS SIN EMOJIS) -->
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-1">Prioridad</label>
+                <select name="prioridad"
+                    class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
+                    <option value="normal" selected>Normal</option>
+                    <option value="high">Alta</option>
+                    <option value="low">Baja</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="border-t pt-4 bg-gray-50 -mx-8 px-8 pb-6 mt-4">
+            <h3 class="text-lg font-semibold text-[#123456] mb-4">📍 Ubicación y Alcance</h3>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Cantidad de Sitios *</label>
+                    <input type="number" name="cantidad_sitios" min="1" value="1" required
+                        x-model.number="cantidadSitios" @input="updateNombreProyecto()"
+                        onkeydown="return !['e', 'E', '+', '-'].includes(event.key)"
+                        class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
+                    <p class="text-xs text-gray-500 mt-1">Si es mayor a 1, pasarás a carga masiva (Excel).</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Dirección (Principal) *</label>
+                    <input type="text" name="direccion_obra" required
+                        class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
+                </div>
+
+                <!-- Google Maps (OBLIGATORIO) -->
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Link Google Maps *</label>
+                    <input type="text" name="google_maps_link" required placeholder="https://maps.app.goo.gl/..."
+                        class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Coordenadas GPS (Opcional)</label>
+                    <input type="text" name="coordenadas_gps" placeholder="25.6866, -100.3161"
+                        class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
+                </div>
+
+                <!-- SharePoint Link (Opcional) -->
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Link Carpeta SharePoint (Opcional)</label>
+                    <div class="flex rounded-md shadow-sm">
+                        <span
+                            class="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">
+                            📂
+                        </span>
+                        <input type="url" name="sharepoint_folder_url"
+                            class="flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} sm:text-sm border"
+                            placeholder="https://enertika.sharepoint.com/...">
+                    </div>
+                    <p class="text-xs text-gray-600 mt-1">
+                        💡 Puede compartir cualquier enlace para documentos (SharePoint, Google Drive, Dropbox, etc.)
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sección BESS (Reactiva con Alpine.js) -->
+        <div x-show="isBess" x-transition.duration.500ms class="border-t pt-4 bg-blue-50 -mx-8 px-8 pb-6 mt-4">
+
+            <div class="flex items-center gap-2 mb-4 mt-2">
+                <span class="text-2xl">🔋</span>
+                <h3 class="text-lg font-bold text-[#123456]">Especificaciones BESS (Requerido)</h3>
+            </div>
+
+            <div class="bg-blue-100 border-l-4 border-blue-500 text-blue-700 p-4 mb-6 rounded shadow-sm">
+                <p class="font-bold">💡 Regla de Oro</p>
+                <p class="text-sm">Para cotizar, necesitamos saber <strong>qué equipos NO se pueden apagar</strong>
+                    (Cargas Críticas).</p>
+            </div>
+
+            <!-- 🆕 NUEVA PREGUNTA RAÍZ: ¿Cómo usarás tu Sistema de almacenamiento? -->
+            <div class="md:col-span-2 {{ input_bg }} border-2 {{ input_border }} rounded-lg p-4 mb-6">
+                <label class="block text-sm font-bold text-gray-900 mb-2">
+                    ¿Cómo usarás tu Sistema de almacenamiento? <span class="text-red-500">*</span>
+                </label>
+                <p class="text-xs text-gray-700 mb-3 font-semibold">
+                    ⚠️ Selecciona al menos una opción para continuar
+                </p>
+                <!-- Validación de mínimo 1 selección -->
+                <input type="text" class="sr-only" :required="isBess" :value="usoSeleccionado.length > 0 ? 'ok' : ''"
+                    title="Selecciona al menos una opción de uso del sistema">
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <label
+                        class="flex items-start p-3 bg-white border-2 {{ input_border }} rounded-lg cursor-pointer hover:{{ input_border }} hover:{{ input_bg }} transition-all">
+                        <input type="checkbox" name="bess_uso_sistema" value="Fuera de la red" x-model="usoSeleccionado"
+                            class="mt-1 {{ checkbox_classes }} rounded">
+                        <div class="ml-3">
+                            <span class="block text-sm font-medium text-gray-900">Fuera de la red</span>
+                            <span class="block text-xs text-gray-500">Off-grid / Aislado</span>
+                        </div>
+                    </label>
+
+                    <label
+                        class="flex items-start p-3 bg-white border-2 {{ input_border }} rounded-lg cursor-pointer hover:{{ input_border }} hover:{{ input_bg }} transition-all">
+                        <input type="checkbox" name="bess_uso_sistema" value="Respaldo de energía"
+                            x-model="usoSeleccionado" class="mt-1 {{ checkbox_classes }} rounded">
+                        <div class="ml-3">
+                            <span class="block text-sm font-medium text-gray-900">Respaldo de energía</span>
+                            <span class="block text-xs text-gray-500">Backup / UPS</span>
+                        </div>
+                    </label>
+
+                    <label
+                        class="flex items-start p-3 bg-white border-2 {{ input_border }} rounded-lg cursor-pointer hover:{{ input_border }} hover:{{ input_bg }} transition-all">
+                        <input type="checkbox" name="bess_uso_sistema" value="Desplazamiento horario"
+                            x-model="usoSeleccionado" class="mt-1 {{ checkbox_classes }} rounded">
+                        <div class="ml-3">
+                            <span class="block text-sm font-medium text-gray-900">Desplazamiento horario</span>
+                            <span class="block text-xs text-gray-500">Load shifting</span>
+                        </div>
+                    </label>
+
+                    <label
+                        class="flex items-start p-3 bg-white border-2 {{ input_border }} rounded-lg cursor-pointer hover:{{ input_border }} hover:{{ input_bg }} transition-all">
+                        <input type="checkbox" name="bess_uso_sistema" value="Reducción de pico"
+                            x-model="usoSeleccionado" class="mt-1 {{ checkbox_classes }} rounded">
+                        <div class="ml-3">
+                            <span class="block text-sm font-medium text-gray-900">Reducción de pico</span>
+                            <span class="block text-xs text-gray-500">Peak shaving</span>
+                        </div>
+                    </label>
+
+                    <label
+                        class="flex items-start p-3 bg-white border-2 {{ input_border }} rounded-lg cursor-pointer hover:{{ input_border }} hover:{{ input_bg }} transition-all">
+                        <input type="checkbox" name="bess_uso_sistema" value="Respuesta a la demanda"
+                            x-model="usoSeleccionado" class="mt-1 {{ checkbox_classes }} rounded">
+                        <div class="ml-3">
+                            <span class="block text-sm font-medium text-gray-900">Respuesta a la demanda</span>
+                            <span class="block text-xs text-gray-500">Demand response</span>
+                        </div>
+                    </label>
+
+                    <label
+                        class="flex items-start p-3 bg-white border-2 {{ input_border }} rounded-lg cursor-pointer hover:{{ input_border }} hover:{{ input_bg }} transition-all">
+                        <input type="checkbox" name="bess_uso_sistema" value="Autoconsumo" x-model="usoSeleccionado"
+                            class="mt-1 {{ checkbox_classes }} rounded">
+                        <div class="ml-3">
+                            <span class="block text-sm font-medium text-gray-900">Autoconsumo</span>
+                            <span class="block text-xs text-gray-500">Self-consumption</span>
+                        </div>
+                    </label>
+
+                    <label
+                        class="flex items-start p-3 bg-white border-2 {{ input_border }} rounded-lg cursor-pointer hover:{{ input_border }} hover:{{ input_bg }} transition-all">
+                        <input type="checkbox" name="bess_uso_sistema" value="Calidad de Energía"
+                            x-model="usoSeleccionado" class="mt-1 {{ checkbox_classes }} rounded">
+                        <div class="ml-3">
+                            <span class="block text-sm font-medium text-gray-900">Calidad de Energía</span>
+                            <span class="block text-xs text-gray-500">Power quality</span>
+                        </div>
+                    </label>
+
+                    <label
+                        class="flex items-start p-3 bg-white border-2 border-gray-200 rounded-lg cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-all">
+                        <input type="checkbox" name="bess_uso_sistema" value="Ahorro Económico"
+                            @change="updateUsoSelection()" class="mt-1 text-indigo-600 focus:ring-indigo-500 rounded">
+                        <div class="ml-3">
+                            <span class="block text-sm font-medium text-gray-900">Ahorro Económico</span>
+                            <span class="block text-xs text-gray-500">Economic savings</span>
+                        </div>
+                    </label>
+
+                    <label
+                        class="flex items-start p-3 bg-white border-2 border-gray-200 rounded-lg cursor-pointer hover:border-indigo-400 hover:bg-indigo-50 transition-all">
+                        <input type="checkbox" name="bess_uso_sistema" value="Aplicación del sistema"
+                            @change="updateUsoSelection()" class="mt-1 text-indigo-600 focus:ring-indigo-500 rounded">
+                        <div class="ml-3">
+                            <span class="block text-sm font-medium text-gray-900">Aplicación del sistema</span>
+                            <span class="block text-xs text-gray-500">System application</span>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Mensaje de validación visual -->
+                <p class="text-xs text-gray-600 mt-3 flex items-center gap-1" x-show="!hasAnyUsoSelected()">
+                    <svg class="w-4 h-4 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
+                        <path fill-rule="evenodd"
+                            d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                            clip-rule="evenodd" />
+                    </svg>
+                    Debe seleccionar al menos una opción antes de enviar el formulario
+                </p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                <div class="md:col-span-2 grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">
+                            Cargas Críticas Totales (kW) <span class="text-red-500">*</span>
+                        </label>
+                        <input type="number" step="0.1" min="0" name="bess_cargas_criticas" :required="isBess"
+                            placeholder="Ej: 150 kW" onkeydown="return !['e', 'E', '+', '-'].includes(event.key)"
+                            class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">
+                            Voltaje de Operación
+                        </label>
+                        <select name="bess_voltaje" :required="isBess"
+                            class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
+                            <option value="">Seleccione...</option>
+                            <option value="220V">220V Trifásico</option>
+                            <option value="440V">440V Trifásico</option>
+                            <option value="480V">480V Trifásico</option>
+                            <option value="Media Tensión">Media Tensión (>13.2kV)</option>
+                            <option value="Otro">Otro (Especificar en notas)</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="md:col-span-2" x-show="requiereAutonomia" x-transition.duration.300ms>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">
+                        Tiempo de Autonomía (Nivel de Respaldo) <span class="text-red-500"
+                            x-show="requiereAutonomia">*</span>
+                    </label>
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+                        <label class="flex items-start p-3 bg-white border rounded-lg cursor-pointer hover:bg-gray-50">
+                            <input type="radio" name="bess_autonomia" value="Cierre Seguro (15-30 min)"
+                                :required="requiereAutonomia" class="mt-1 text-[#00BABB] focus:ring-[#00BABB]">
+                            <div class="ml-3">
+                                <span class="block text-sm font-medium text-gray-900">Cierre Seguro</span>
+                                <span class="block text-xs text-gray-500">15 - 30 min (Evitar mermas)</span>
+                            </div>
+                        </label>
+
+                        <label class="flex items-start p-3 bg-white border rounded-lg cursor-pointer hover:bg-gray-50">
+                            <input type="radio" name="bess_autonomia" value="Continuidad Media (2-4 hrs)"
+                                :required="requiereAutonomia" class="mt-1 text-[#00BABB] focus:ring-[#00BABB]">
+                            <div class="ml-3">
+                                <span class="block text-sm font-medium text-gray-900">Continuidad Media</span>
+                                <span class="block text-xs text-gray-500">2 - 4 Horas (Terminar turno)</span>
+                            </div>
+                        </label>
+
+                        <label class="flex items-start p-3 bg-white border rounded-lg cursor-pointer hover:bg-gray-50">
+                            <input type="radio" name="bess_autonomia" value="Larga Duracion (+4 hrs)"
+                                :required="requiereAutonomia" class="mt-1 text-[#00BABB] focus:ring-[#00BABB]">
+                            <div class="ml-3">
+                                <span class="block text-sm font-medium text-gray-900">Larga Duración</span>
+                                <span class="block text-xs text-gray-500">+4 Horas (Operación continua)</span>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="md:col-span-2">
+                    <div class="flex flex-col justify-center">
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="checkbox" name="bess_tiene_motores" value="true" x-model="hasMotores"
+                                class="sr-only peer">
+                            <div
+                                class="relative w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-[#00BABB]/30 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#00BABB]">
+                            </div>
+                            <span class="ms-3 text-sm font-medium text-gray-700">¿Tiene Motores Grandes/Bombas?</span>
+                        </label>
+                    </div>
+
+                    <div x-show="hasMotores" x-transition
+                        class="bg-white p-4 rounded border border-gray-200 shadow-sm mt-3">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">
+                            Potencia del Motor más grande (HP) <span class="text-red-500">*</span>
+                        </label>
+                        <input type="number" step="0.1" min="0" name="bess_potencia_motor" :required="hasMotores"
+                            placeholder="Ej: 50 HP" onkeydown="return !['e', 'E', '+', '-'].includes(event.key)"
+                            class="w-full rounded-lg {{ input_bg }} {{ input_border }} {{ input_focus_border }} {{ input_focus_ring }} shadow-sm">
+                        <p class="text-xs text-gray-500 mt-1">Vital para calcular pico de arranque.</p>
+                    </div>
+                </div>
+
+                <div class="md:col-span-2 bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                    <label class="block text-sm font-bold text-gray-800 mb-2">
+                        ¿Las cargas críticas ya están en un tablero independiente? <span class="text-red-500">*</span>
+                    </label>
+                    <div class="flex gap-6">
+                        <label class="inline-flex items-center">
+                            <input type="radio" name="bess_cargas_separadas" value="true" :required="isBess"
+                                class="text-[#00BABB] focus:ring-[#00BABB]">
+                            <span class="ml-2 text-sm">Sí, están separadas</span>
+                        </label>
+                        <label class="inline-flex items-center">
+                            <input type="radio" name="bess_cargas_separadas" value="false" :required="isBess"
+                                class="text-[#00BABB] focus:ring-[#00BABB]">
+                            <span class="ml-2 text-sm">No / No sé (Requiere adecuación)</span>
+                        </label>
+                    </div>
+                    <p class="text-xs text-gray-600 mt-2">Si NO están separadas, se deberá cotizar mano de obra
+                        eléctrica adicional.</p>
+                </div>
+
+                <div class="md:col-span-2 bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <label class="block text-sm font-bold text-gray-800 mb-2">
+                        ¿El sitio cuenta con Planta de Emergencia existente?
+                    </label>
+                    <div class="flex gap-6">
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="radio" name="bess_planta_emergencia" value="true"
+                                class="text-[#00BABB] focus:ring-[#00BABB]">
+                            <span class="ml-2 text-sm">Sí, cuenta con planta</span>
+                        </label>
+                        <label class="inline-flex items-center cursor-pointer">
+                            <input type="radio" name="bess_planta_emergencia" value="false"
+                                class="text-[#00BABB] focus:ring-[#00BABB]" checked>
+                            <span class="ml-2 text-sm">No tiene</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="md:col-span-2 mt-2 flex items-start gap-2 text-sm text-gray-600 bg-gray-100 p-3 rounded">
+                    <span>ℹ️</span>
+                    <p><strong>Nota de Tarifa:</strong> Recuerda que la solución financiera es mucho más atractiva
+                        en
+                        tarifas <strong>GDMTH</strong>.</p>
+                </div>
+
+
+
+            </div>
+        </div>
+
+        <!-- Botones de Acción -->
+        <div class="flex justify-end gap-4 pt-6 border-t">
+            <button type="button" hx-get="/comercial/ui" hx-target="#main-content"
+                class="px-6 py-2.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium transition-colors">
+                Cancelar
+            </button>
+
+            <!-- Spinner de carga (oculto por defecto) -->
+            <div id="submit-indicator" class="htmx-indicator flex items-center gap-2 text-[#00BABB]">
+                <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                    </circle>
+                    <path class="opacity-75" fill="currentColor"
+                        d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                    </path>
+                </svg>
+                <span class="font-medium">Guardando...</span>
+            </div>
+
+            <button type="submit" :disabled="isSubmitting" hx-indicator="#submit-indicator"
+                class="ripple-effect px-6 py-2.5 rounded-lg {{ btn_submit_bg }} text-white font-bold {{ btn_submit_shadow }} transition-all transform hover:scale-105 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed htmx-request:hidden">
+                <span>💾</span> Guardar Oportunidad
+            </button>
+
+            <script>
+                // Manejo de errores de HTMX
+                document.body.addEventListener('htmx:responseError', function (evt) {
+                    const errorDiv = document.getElementById('error-message');
+                    const errorText = document.getElementById('error-message-text');
+
+                    if (evt.detail.xhr.status === 500) {
+                        errorText.textContent = 'Ocurrió un error interno del servidor. Por favor verifica los datos e intenta nuevamente. Si el problema persiste, contacta a soporte técnico.';
+                    } else if (evt.detail.xhr.status === 400) {
+                        errorText.textContent = evt.detail.xhr.responseText || 'Los datos enviados no son válidos. Verifica todos los campos obligatorios.';
+                    } else {
+                        errorText.textContent = `Error ${evt.detail.xhr.status}: ${evt.detail.xhr.statusText}`;
+                    }
+
+                    errorDiv.classList.remove('hidden');
+                    errorDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                });
+            </script>
+        </div>
+
+</div>
+
+</form>
+</div>
+{% endblock %}
