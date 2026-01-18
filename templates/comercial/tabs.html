@@ -266,13 +266,117 @@
         </div>
     </div>
 
-    <!-- Search Bar with HTMX -->
-    <div class="mb-4">
-        <input type="hidden" id="active_tab_input" name="tab" value="activos">
-        <input type="text" id="search-input" name="q" hx-get="/comercial/partials/cards"
-            hx-trigger="keyup changed delay:500ms, search" hx-target="#tab-content" hx-include="#active_tab_input"
-            class="w-full md:w-1/3 px-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] transition-all"
-            placeholder="Buscar por empresa, proyecto...">
+    <!-- Global Filter Bar -->
+    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 mb-6">
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
+            <!-- 1. Search (Existing but moved into grid) -->
+            <div class="lg:col-span-1">
+                <div class="flex justify-between items-center mb-1">
+                    <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider">Búsqueda</label>
+                    <button type="button"
+                        class="text-xs text-[#00BABB] hover:text-teal-700 underline cursor-pointer transition-colors"
+                        onclick="document.querySelectorAll('.global-filter:not(#active_tab_input)').forEach(el => el.value = ''); htmx.trigger('#search-input', 'search');">
+                        Limpiar Filtros
+                    </button>
+                </div>
+                <input type="hidden" id="active_tab_input" name="tab" value="activos" class="global-filter">
+                <div class="relative">
+                    <span class="absolute inset-y-0 left-0 flex items-center pl-3">
+                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                        </svg>
+                    </span>
+                    <input type="text" id="search-input" name="q"
+                        class="global-filter w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] transition-all"
+                        placeholder="Empresa, Proyecto..." hx-get="/comercial/partials/graphs"
+                        hx-trigger="keyup changed delay:500ms, search" hx-target="#tab-content"
+                        hx-include=".global-filter">
+                </div>
+            </div>
+
+            <!-- 2. User Filter (Admin/Manager only) -->
+            {% if role in ['ADMIN', 'MANAGER', 'DIRECTOR'] %}
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Solicitado
+                    Por</label>
+                <select name="filtro_usuario_id"
+                    class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                    hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                    hx-include=".global-filter">
+                    <option value="">Todos</option>
+                    {% for u in catalogos.usuarios %}
+                    <option value="{{ u.id }}">{{ u.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            {% else %}
+            <!-- Spacer if user hidden to keep grid aligned or just omit -->
+            <div class="hidden lg:block"></div>
+            {% endif %}
+
+            <!-- 3. Type Filter -->
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Tipo</label>
+                <select name="filtro_tipo_id"
+                    class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                    hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                    hx-include=".global-filter">
+                    <option value="">Todos</option>
+                    {% for t in catalogos.tipos_solicitud %}
+                    <option value="{{ t.id }}">{{ t.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- 4. Technology Filter -->
+            <div>
+                <label
+                    class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Tecnología</label>
+                <select name="filtro_tecnologia_id"
+                    class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                    hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                    hx-include=".global-filter">
+                    <option value="">Todos</option>
+                    {% for t in catalogos.tecnologias %}
+                    <option value="{{ t.id }}">{{ t.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- 4. Status Filter -->
+            <div>
+                <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Estatus</label>
+                <select name="filtro_estatus_id"
+                    class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                    hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                    hx-include=".global-filter">
+                    <option value="">Todos</option>
+                    {% for s in catalogos.estatus_global %}
+                    <option value="{{ s.id }}">{{ s.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <!-- 5. Date Range -->
+            <div class="flex gap-2 col-span-1 lg:col-span-1">
+                <div class="w-1/2">
+                    <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Desde</label>
+                    <input type="date" name="filtro_fecha_inicio"
+                        class="global-filter w-full px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                        hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                        hx-include=".global-filter">
+                </div>
+                <div class="w-1/2">
+                    <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Hasta</label>
+                    <input type="date" name="filtro_fecha_fin"
+                        class="global-filter w-full px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                        hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                        hx-include=".global-filter">
+                </div>
+
+            </div>
+        </div>
     </div>
 
     <!-- Tabs Navigation -->
@@ -281,7 +385,7 @@
         <ul class="flex flex-wrap -mb-px">
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/graphs" hx-target="#tab-content" hx-swap="innerHTML"
-                    hx-push-url="?tab=activos" onclick="updateTabContext('activos', this)"
+                    hx-push-url="/comercial/ui" hx-include=".global-filter" onclick="updateTabContext('activos', this)"
                     class="tab-link inline-block p-4 text-[#00BABB] border-b-2 border-[#00BABB] rounded-t-lg active group"
                     aria-current="page">
                     <div class="flex items-center gap-2">
@@ -296,7 +400,7 @@
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/cards?tab=activos" hx-target="#tab-content" hx-swap="innerHTML"
-                    hx-push-url="?tab=activos" onclick="updateTabContext('activos', this)"
+                    hx-push-url="?tab=activos" hx-include=".global-filter" onclick="updateTabContext('activos', this)"
                     class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
@@ -310,7 +414,8 @@
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/cards?tab=historial" hx-target="#tab-content"
-                    hx-swap="innerHTML" hx-push-url="?tab=historial" onclick="updateTabContext('historial', this)"
+                    hx-swap="innerHTML" hx-push-url="?tab=historial" hx-include=".global-filter"
+                    onclick="updateTabContext('historial', this)"
                     class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
@@ -318,13 +423,13 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                        Historial
+                        Solicitudes (Entregadas)
                     </div>
                 </a>
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/cards?tab=levantamientos" hx-target="#tab-content"
-                    hx-swap="innerHTML" hx-push-url="?tab=levantamientos"
+                    hx-swap="innerHTML" hx-push-url="?tab=levantamientos" hx-include=".global-filter"
                     onclick="updateTabContext('levantamientos', this)"
                     class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
                     <div class="flex items-center gap-2">
@@ -339,7 +444,7 @@
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/cards?tab=ganadas" hx-target="#tab-content" hx-swap="innerHTML"
-                    hx-push-url="?tab=ganadas" onclick="updateTabContext('ganadas', this)"
+                    hx-push-url="?tab=ganadas" hx-include=".global-filter" onclick="updateTabContext('ganadas', this)"
                     class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
@@ -379,7 +484,23 @@
         element.classList.remove('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
         element.classList.add('text-[#00BABB]', 'border-[#00BABB]', 'active');
 
-        // 3. Disparar búsqueda nueva automáticamente (opcional)
+        // 3. Actualizar hx-get de los filtros globales
+        const newEndpoint = tabName === 'activos' && element.innerText.includes('Gráficas')
+            ? '/comercial/partials/graphs'
+            : '/comercial/partials/cards';
+
+        // Si el tabName es 'activos' pero estamos en el link de gráficas (hack simple por ahora)
+        // Mejor: usar un data attribute en el link
+
+        const targetUrl = element.getAttribute('hx-get').split('?')[0];
+
+        document.querySelectorAll('.global-filter').forEach(el => {
+            el.setAttribute('hx-get', targetUrl);
+            // Reinicializar HTMX para este elemento si es necesario
+            htmx.process(el);
+        });
+
+        // 4. Disparar búsqueda nueva automáticamente (opcional)
         // htmx.trigger('#search-input', 'keyup');
     }
 

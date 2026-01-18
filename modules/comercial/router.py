@@ -46,6 +46,8 @@ async def check_comercial_ui(
 async def get_comercial_ui(
     request: Request,
     context = Depends(get_current_user_context),
+    conn = Depends(get_db_connection),
+    service: ComercialService = Depends(get_comercial_service),
     _ = require_module_access("comercial")
 ):
     """Main Entry: Shows the Tabbed Dashboard (Graphs + Records)."""
@@ -58,12 +60,16 @@ async def get_comercial_ui(
     else:
         template = "comercial/dashboard.html"
         
+    # Cargar catálogos para filtros globales
+    catalogos = await service.get_catalogos_ui(conn)
+        
     return templates.TemplateResponse(template, {
         "request": request,
         "user_name": user_name,
         "role": role,
         "module_roles": context.get("module_roles", {}),
-        "current_module_role": context.get("module_roles", {}).get("comercial", "viewer")
+        "current_module_role": context.get("module_roles", {}).get("comercial", "viewer"),
+        "catalogos": catalogos
     }, headers={"HX-Title": "Enertika Ops Core | Comercial"})
 
 @router.head("/form", include_in_schema=False)
@@ -115,13 +121,37 @@ async def get_comercial_form(
 @router.get("/partials/graphs", include_in_schema=False)
 async def get_graphs_partial(
     request: Request,
+    filtro_usuario_id: Optional[str] = None,
+    filtro_tipo_id: Optional[str] = None,
+    filtro_estatus_id: Optional[str] = None,
+    filtro_tecnologia_id: Optional[str] = None,
+    filtro_fecha_inicio: Optional[str] = None,
+    filtro_fecha_fin: Optional[str] = None,
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
     user_context: dict = Depends(get_current_user_context),
     _ = require_module_access("comercial")
 ):
     """Partial: Graphs Tab Content."""
-    stats = await service.get_dashboard_stats(conn, user_context)
+    
+    # Process inputs to handle empty strings
+    f_user = UUID(filtro_usuario_id) if filtro_usuario_id and filtro_usuario_id.strip() else None
+    f_tipo = int(filtro_tipo_id) if filtro_tipo_id and filtro_tipo_id.strip() else None
+    f_estatus = int(filtro_estatus_id) if filtro_estatus_id and filtro_estatus_id.strip() else None
+    f_tecnologia = int(filtro_tecnologia_id) if filtro_tecnologia_id and filtro_tecnologia_id.strip() else None
+    f_inicio = filtro_fecha_inicio if filtro_fecha_inicio and filtro_fecha_inicio.strip() else None
+    f_fin = filtro_fecha_fin if filtro_fecha_fin and filtro_fecha_fin.strip() else None
+
+    stats = await service.get_dashboard_stats(
+        conn, 
+        user_context,
+        filtro_usuario_id=f_user,
+        filtro_tipo_id=f_tipo,
+        filtro_estatus_id=f_estatus,
+        filtro_tecnologia_id=f_tecnologia,
+        filtro_fecha_inicio=f_inicio,
+        filtro_fecha_fin=f_fin
+    )
     return templates.TemplateResponse("comercial/partials/graphs.html", {"request": request, "stats": stats})
 
 @router.get("/partials/cards", include_in_schema=False)
@@ -131,12 +161,26 @@ async def get_cards_partial(
     q: Optional[str] = None,
     limit: int = 15,
     subtab: Optional[str] = None,
+    filtro_usuario_id: Optional[str] = None,
+    filtro_tipo_id: Optional[str] = None,
+    filtro_estatus_id: Optional[str] = None,
+    filtro_tecnologia_id: Optional[str] = None,
+    filtro_fecha_inicio: Optional[str] = None,
+    filtro_fecha_fin: Optional[str] = None,
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
     user_context: dict = Depends(get_current_user_context),
     _ = require_module_access("comercial")
 ):
     """Partial: List of Opportunities (Cards/Grid)."""
+    
+    # Process inputs
+    f_user = UUID(filtro_usuario_id) if filtro_usuario_id and filtro_usuario_id.strip() else None
+    f_tipo = int(filtro_tipo_id) if filtro_tipo_id and filtro_tipo_id.strip() else None
+    f_estatus = int(filtro_estatus_id) if filtro_estatus_id and filtro_estatus_id.strip() else None
+    f_tecnologia = int(filtro_tecnologia_id) if filtro_tecnologia_id and filtro_tecnologia_id.strip() else None
+    f_inicio = filtro_fecha_inicio if filtro_fecha_inicio and filtro_fecha_inicio.strip() else None
+    f_fin = filtro_fecha_fin if filtro_fecha_fin and filtro_fecha_fin.strip() else None
     
     # Validar existencia de token sin exponerlo (para botón de envío)
     # Evita llamadas innecesarias a Graph API en cada carga
@@ -145,7 +189,20 @@ async def get_cards_partial(
         user_context['user_db_id']
     )
     
-    items = await service.get_oportunidades_list(conn, user_context=user_context, tab=tab, q=q, limit=limit, subtab=subtab)
+    items = await service.get_oportunidades_list(
+        conn, 
+        user_context=user_context, 
+        tab=tab, 
+        q=q, 
+        limit=limit, 
+        subtab=subtab,
+        filtro_usuario_id=f_user,
+        filtro_tipo_id=f_tipo,
+        filtro_estatus_id=f_estatus,
+        filtro_tecnologia_id=f_tecnologia,
+        filtro_fecha_inicio=f_inicio,
+        filtro_fecha_fin=f_fin
+    )
     
     return templates.TemplateResponse(
         "comercial/partials/cards.html", 

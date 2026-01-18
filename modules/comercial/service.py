@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, time as dt_time
+from datetime import datetime, timedelta, date, time as dt_time
 from uuid import UUID, uuid4
 from typing import List, Optional, Tuple
 import json
@@ -250,13 +250,22 @@ class ComercialService:
             return "Entrega tarde"
 
     async def get_catalogos_ui(self, conn) -> dict:
-        """Recupera los catálogos para llenar los <select> del formulario."""
+        """Recupera los catálogos para llenar los <select> del formulario y filtros."""
         tecnologias = await conn.fetch("SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre")
         tipos = await conn.fetch("SELECT id, nombre, codigo_interno FROM tb_cat_tipos_solicitud WHERE activo = true ORDER BY nombre")
+        estatus = await conn.fetch("SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND modulo_aplicable IN ('SIMULACION', 'COMERCIAL') ORDER BY nombre")
+        usuarios = await conn.fetch("""
+            SELECT id_usuario as id, nombre 
+            FROM tb_usuarios 
+            WHERE is_active = true AND department IN ('Comercial')
+            ORDER BY nombre
+        """)
         
         return {
             "tecnologias": [dict(t) for t in tecnologias],
-            "tipos_solicitud": [dict(t) for t in tipos]
+            "tipos_solicitud": [dict(t) for t in tipos],
+            "estatus_global": [dict(t) for t in estatus],
+            "usuarios": [dict(t) for t in usuarios]
         }
 
     async def get_catalogos_creacion(self, conn, include_simulacion: bool = False) -> dict:
@@ -668,12 +677,40 @@ class ComercialService:
             "log_message": log_message
         }
 
-    async def get_oportunidades_list(self, conn, user_context: dict, tab: str = "activos", q: str = None, limit: int = 15, subtab: str = None) -> List[dict]:
+    async def get_oportunidades_list(
+        self, 
+        conn, 
+        user_context: dict, 
+        tab: str = "activos", 
+        q: str = None, 
+        limit: int = 15, 
+        subtab: str = None,
+        # Nuevos filtros globales
+        filtro_usuario_id: Optional[UUID] = None,
+        filtro_tipo_id: Optional[int] = None,
+        filtro_estatus_id: Optional[int] = None,
+        filtro_tecnologia_id: Optional[int] = None,
+        filtro_fecha_inicio: Optional[str] = None, # YYYY-MM-DD
+        filtro_fecha_fin: Optional[str] = None     # YYYY-MM-DD
+    ) -> List[dict]:
         """Recupera lista filtrada de oportunidades con permisos y paginación."""
         user_id = user_context.get("user_db_id")  # CORREGIDO: era "user_id"
         role = user_context.get("role", "USER")
         
         logger.debug(f"Consultando oportunidades - Tab: {tab}, Filtro: {q}, Usuario: {user_id}")
+        
+        # Parse Dates if strings
+        if filtro_fecha_inicio and isinstance(filtro_fecha_inicio, str):
+            try:
+                filtro_fecha_inicio = datetime.strptime(filtro_fecha_inicio, '%Y-%m-%d').date()
+            except ValueError:
+                pass
+        
+        if filtro_fecha_fin and isinstance(filtro_fecha_fin, str):
+            try:
+                filtro_fecha_fin = datetime.strptime(filtro_fecha_fin, '%Y-%m-%d').date()
+            except ValueError:
+                pass
 
         # Cargar IDs de catálogos
         cats = await self.get_catalog_ids(conn)
@@ -700,8 +737,40 @@ class ComercialService:
         params = []
         param_idx = 1
 
+        # --- Lógica de Filtros Globales ---
+        if filtro_usuario_id:
+            query += f" AND o.creado_por_id = ${param_idx}"
+            params.append(filtro_usuario_id)
+            param_idx += 1
+            
+        if filtro_tipo_id:
+            query += f" AND o.id_tipo_solicitud = ${param_idx}"
+            params.append(filtro_tipo_id)
+            param_idx += 1
+            
+        if filtro_estatus_id:
+            query += f" AND o.id_estatus_global = ${param_idx}"
+            params.append(filtro_estatus_id)
+            param_idx += 1
+            
+        if filtro_tecnologia_id:
+            query += f" AND o.id_tecnologia = ${param_idx}"
+            params.append(filtro_tecnologia_id)
+            param_idx += 1
+            
+        if filtro_fecha_inicio:
+            query += f" AND (o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date >= ${param_idx}::date"
+            params.append(filtro_fecha_inicio)
+            param_idx += 1
+            
+        if filtro_fecha_fin:
+            # +1 day para incluir todo el día final si es timestamp, o cast a date
+            query += f" AND (o.fecha_solicitud AT TIME ZONE 'America/Mexico_City') < (${param_idx}::date + INTERVAL '1 day')"
+            params.append(filtro_fecha_fin)
+            param_idx += 1
+
         # Filtro por tab (Usa IDs)
-        if tab == "historial":
+        if tab == "historial": # Renombrado en UI a "Solicitudes (Entregadas)"
             # Subtabs para historial: entregado vs cancelado-perdido
             if not subtab or subtab == 'entregado':
                 # Por defecto: solo Entregado
@@ -762,6 +831,16 @@ class ComercialService:
                 cats['estatus'].get('en proceso')
             ]
             ids_activos = [i for i in ids_activos if i is not None]
+            
+            # Si el usuario seleccionó un estatus específico en el filtro global, 
+            # ese ya se aplicó arriba. PERO para la pestaña 'activos', 
+            # debemos asegurarnos que SOLO se muestren los activos.
+            # Si el filtro global es 'Entregado', esta pestaña mostrará vacío, lo cual es correcto.
+            # Pero para evitar conflictos lógicos:
+            # 1. Si NO hay filtro de estatus global, aplicamos el filtro por defecto de la pestaña.
+            # 2. Si HAY filtro de estatus global, verificamos si es compatible con la pestaña (opcional, o dejamos que SQL filtre).
+            #    Dejaremos que SQL filtre: (Global=X) AND (TabLimit IN (X,Y,Z)). Si X no está en TabLimit, retorna 0. Correcto.
+            
             if ids_activos:
                 placeholders = ','.join([f'${i}' for i in range(param_idx, param_idx + len(ids_activos))])
                 query += f" AND o.id_estatus_global IN ({placeholders})"
@@ -959,12 +1038,37 @@ class ComercialService:
             logger.error(f"Error generando excel adjunto: {e}")
             return None
 
-    async def get_dashboard_stats(self, conn, user_context: dict) -> dict:
+    async def get_dashboard_stats(
+        self, 
+        conn, 
+        user_context: dict,
+        # Filtros opcionales
+        filtro_usuario_id: Optional[UUID] = None,
+        filtro_tipo_id: Optional[int] = None,
+        filtro_estatus_id: Optional[int] = None,
+        filtro_tecnologia_id: Optional[int] = None,
+        filtro_fecha_inicio: Optional[str] = None,
+        filtro_fecha_fin: Optional[str] = None
+    ) -> dict:
         """
         Calcula KPIs y datos para gráficos del Dashboard Comercial.
+        Soporta filtrado dinámico.
         """
         user_id = user_context.get("user_db_id")
         role = user_context.get("role", "USER")
+
+        # Parse Dates if strings
+        if filtro_fecha_inicio and isinstance(filtro_fecha_inicio, str):
+            try:
+                filtro_fecha_inicio = datetime.strptime(filtro_fecha_inicio, '%Y-%m-%d').date()
+            except ValueError:
+                pass
+        
+        if filtro_fecha_fin and isinstance(filtro_fecha_fin, str):
+            try:
+                filtro_fecha_fin = datetime.strptime(filtro_fecha_fin, '%Y-%m-%d').date()
+            except ValueError:
+                pass
         
         # Filtros de Seguridad
         params = []
@@ -974,6 +1078,31 @@ class ComercialService:
         if role not in roles_sin_restriccion:
             conditions.append(f"o.creado_por_id = ${len(params)+1}")
             params.append(user_id)
+        
+        # --- Aplicar Filtros Globales ---
+        if filtro_usuario_id:
+            conditions.append(f"o.creado_por_id = ${len(params)+1}")
+            params.append(filtro_usuario_id)
+            
+        if filtro_tipo_id:
+            conditions.append(f"o.id_tipo_solicitud = ${len(params)+1}")
+            params.append(filtro_tipo_id)
+            
+        if filtro_estatus_id:
+            conditions.append(f"o.id_estatus_global = ${len(params)+1}")
+            params.append(filtro_estatus_id)
+            
+        if filtro_tecnologia_id:
+            conditions.append(f"o.id_tecnologia = ${len(params)+1}")
+            params.append(filtro_tecnologia_id)
+            
+        if filtro_fecha_inicio:
+            conditions.append(f"(o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date >= ${len(params)+1}::date")
+            params.append(filtro_fecha_inicio)
+            
+        if filtro_fecha_fin:
+            conditions.append(f"(o.fecha_solicitud AT TIME ZONE 'America/Mexico_City') < (${len(params)+1}::date + INTERVAL '1 day')")
+            params.append(filtro_fecha_fin)
             
         where_str = "WHERE " + " AND ".join(conditions)
         
@@ -1012,7 +1141,12 @@ class ComercialService:
         
         # Datos para Gráficas
         
-        # A) Semana Actual Completa (7 días, Lun-Dom, con ceros)
+        # A) Semana Actual Completa (o Rango si se especifica fecha)
+        # Si hay filtros de fecha, la gráfica de "Semana Actual" quizás deba respetar el rango del filtro
+        # o limitarse a mostrar datos dentro de ese rango.
+        # Por simplicidad, mantenemos "Semana Actual" como KPI fijo de actividad reciente,
+        # SALVO que el usuario filtre fechas específicas.
+        
         q_week = f"""
             WITH semana_actual AS (
                 SELECT 
@@ -1043,9 +1177,13 @@ class ComercialService:
             "data": [r['count'] for r in rows_week]
         }
         
-        # B) Evolución Mensual (Últimos 6 meses)
-        # Para gerentes: desglose por vendedor (apilado)
-        # Para usuarios: solo total
+        # B) Evolución Mensual (Últimos 6 meses o Rango)
+        # Respetamos el WHERE global, así que si filtran por fecha, esto mostrará solo esos meses.
+        # Si NO hay filtro de fecha, necesitamos limitar a 6 meses por defecto.
+        condition_monthly = ""
+        if not filtro_fecha_inicio and not filtro_fecha_fin:
+             condition_monthly = "AND fecha_solicitud >= NOW() - INTERVAL '6 months'"
+        
         if role in roles_sin_restriccion:
             # GERENTES: Desglose por canal_venta (vendedor)
             q_monthly = f"""
@@ -1056,7 +1194,7 @@ class ComercialService:
                     count(*) as count
                 FROM tb_oportunidades o
                 {where_str}
-                AND fecha_solicitud >= NOW() - INTERVAL '6 months'
+                {condition_monthly}
                 GROUP BY mes_date, mes, canal_venta
                 ORDER BY mes_date, canal_venta
             """
@@ -1099,7 +1237,7 @@ class ComercialService:
                     count(*) as count
                 FROM tb_oportunidades o
                 {where_str}
-                AND fecha_solicitud >= NOW() - INTERVAL '6 months'
+                {condition_monthly}
                 GROUP BY 
                     DATE_TRUNC('month', (fecha_solicitud AT TIME ZONE 'America/Mexico_City')),
                     TO_CHAR((fecha_solicitud AT TIME ZONE 'America/Mexico_City'), 'Mon YY')
@@ -1113,7 +1251,7 @@ class ComercialService:
                 "stacked": False
             }
         
-        # C) Mix Tecnológico (sin cambios)
+        # C) Mix Tecnológico (sin cambios, respeta filtros)
         q_mix = f"""
             SELECT t.nombre as label, count(*) as count
             FROM tb_oportunidades o
@@ -1146,6 +1284,23 @@ class ComercialService:
             "data": [r['count'] for r in rows_status]
         }
         
+        # E) [NUEVO] Tipos de Solicitud
+        q_request_types = f"""
+            SELECT 
+                t.nombre as label,
+                count(*) as count
+            FROM tb_oportunidades o
+            JOIN tb_cat_tipos_solicitud t ON o.id_tipo_solicitud = t.id
+            {where_str}
+            GROUP BY t.nombre
+            ORDER BY count DESC
+        """
+        rows_types = await conn.fetch(q_request_types, *params)
+        chart_request_types = {
+            "labels": [r['label'] for r in rows_types],
+            "data": [r['count'] for r in rows_types]
+        }
+        
         return {
             "kpis": {
                 "total": total,
@@ -1155,9 +1310,10 @@ class ComercialService:
             },
             "charts": {
                 "week": chart_week,           # Semana actual 
-                "monthly": chart_monthly,      # Evolución 6 meses
-                "mix": chart_mix,              # Mix tecnológico
-                "status": chart_status         # Estado pipeline
+                "monthly": chart_monthly,     # Evolución 
+                "mix": chart_mix,             # Mix tecnológico
+                "status": chart_status,       # Estado pipeline
+                "request_types": chart_request_types # [NUEVO] Tipos de solicitud
             }
         }
 
