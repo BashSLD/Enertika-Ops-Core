@@ -4,7 +4,10 @@ Router del Módulo Simulación
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import JSONResponse
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import JSONResponse, StreamingResponse
+import io
+from datetime import date
 from uuid import UUID
 from typing import Optional, List
 from decimal import Decimal
@@ -17,7 +20,9 @@ from core.permissions import require_module_access
 from core.database import get_db_connection
 
 # Import del Service Layer
+# Import del Service Layer
 from .service import SimulacionService, get_simulacion_service
+from .report_service import SimulacionReportService, get_report_service
 from .schemas import OportunidadCreateCompleta, DetalleBessCreate, SimulacionUpdate, SitiosBatchUpdate
 
 # Import Workflow Service (Centralizado)
@@ -366,10 +371,10 @@ async def get_bess_partial(
     service: SimulacionService = Depends(get_simulacion_service)
 ):
     """Partial: Detalles técnicos BESS."""
-    bess = await service.get_bess_info(conn, id_oportunidad)
+    bess = await service.get_detalles_bess(conn, id_oportunidad)
     
     
-    return templates.TemplateResponse("simulacion/partials/detalles/bess_info.html", {
+    return templates.TemplateResponse("shared/partials/bess_info.html", {
         "request": request,
         "bess": bess
     })
@@ -426,16 +431,27 @@ async def get_edit_modal(
     
     # Excluir "Ganada" del dropdown (solo para selección manual) -> CORRECCIÓN: Se debe mostrar TODO
     estatus_global = await conn.fetch(
-        "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true ORDER BY id"
+        "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY id"
     )
     motivos_cierre = await conn.fetch("SELECT id, motivo FROM tb_cat_motivos_cierre WHERE activo = true ORDER BY motivo")
 
     # 4. Definir Permiso de Edición (Manager/Admin)
     # 4. Definir Permiso de Edición (Manager/Admin)
     # Regla: Solo si es ADMIN global o tiene rol de módulo 'editor'/'admin'
-    # FIX: Check module_roles correctly
     sim_role = context.get("module_roles", {}).get("simulacion", "")
+    
+    # Permission 1: Can Manage (Basic Save - Estatus)
     can_manage = context["role"] == "ADMIN" or sim_role in ["editor", "admin"]
+    
+    # Permission 2: Can Edit Sensitive (ID, Responsable, Deadline)
+    # Rules: 
+    # - ADMIN (System/Module) -> YES
+    # - MANAGER (System) + Editor (Module) -> YES
+    # - Regular Editor -> NO
+    is_manager_editor = (context["role"] == 'MANAGER' and sim_role in ['editor', 'admin'])
+    is_admin_system = (context["role"] == 'ADMIN' or sim_role == 'admin')
+    
+    can_edit_sensitive = is_manager_editor or is_admin_system
 
     return templates.TemplateResponse("simulacion/modals/update_oportunidades.html", {
         "request": request,
@@ -445,6 +461,7 @@ async def get_edit_modal(
         "motivos_cierre": [dict(r) for r in motivos_cierre],
         "status_ids": status_ids, # <--- Clave para AlpineJS
         "can_manage": can_manage,  # <--- Clave para ocultar/mostrar botones
+        "can_edit_sensitive": can_edit_sensitive, # <--- Clave para bloquear campos sensibles
         "context": context  # <--- Para checks de permisos en comentarios
     })
 
@@ -641,3 +658,86 @@ async def update_responsable(
             "title": "Error Asignación",
             "message": str(e)
         })
+
+# ========================================
+# REPORTES PDF (FPDF2)
+# ========================================
+
+@router.get("/report/config", include_in_schema=False)
+async def get_report_config_modal(
+    request: Request,
+    service: SimulacionService = Depends(get_simulacion_service),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_module_access("simulacion")
+):
+    """Renderiza el modal de configuración de reporte PDF."""
+    # Necesitamos listas para los filtros: Tecnologías y Responsables
+    catalogos = await service.get_catalogos_ui(conn)
+    responsables = await service.get_responsables_dropdown(conn)
+    
+    # Obtener estatus también (Reutilizamos query simple)
+    estatus = await conn.fetch("SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true ORDER BY id")
+
+    return templates.TemplateResponse("simulacion/modals/report_config_modal.html", {
+        "request": request,
+        "tecnologias": catalogos["tecnologias"],
+        "tipos_solicitud": catalogos["tipos_solicitud"],
+        "estatus": [dict(r) for r in estatus],
+        "usuarios": responsables,
+        "role": context.get("role")
+    })
+
+@router.get("/reporte/descargar")
+async def descargar_reporte(
+    start_date: Optional[str] = None, 
+    end_date: Optional[str] = None,
+    # Filtros adicionales (Opcionales, para futura implementación en get_report_data)
+    tech_id: Optional[str] = None,
+    request_type_id: Optional[str] = None,
+    status_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    
+    conn = Depends(get_db_connection),
+    service: SimulacionReportService = Depends(get_report_service)
+):
+    """
+    Genera y descarga el PDF (Nueva Lógica FPDF).
+    Maneja conversión de tipos segura para query params vacíos.
+    """
+    # 1. Parsing Seguro de Fechas
+    dt_today = date.today()
+    
+    if not start_date:
+        # Default: Primer día del mes actual
+        dt_start = dt_today.replace(day=1)
+    else:
+        dt_start = date.fromisoformat(start_date)
+        
+    if not end_date:
+        # Default: Hoy
+        dt_end = dt_today
+    else:
+        dt_end = date.fromisoformat(end_date)
+        
+    # 2. Obtener PDF en bytes
+    pdf_bytes = await service.get_report_bytes(conn, dt_start, dt_end)
+    
+    if not pdf_bytes:
+        # Si no hay datos, devolver PDF vacío o error
+        # Optamos por un error para alertar al usuario
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="No hay datos para generar el reporte en este periodo.")
+    
+    filename = f"Reporte_Ejecutivo_{dt_start}_{dt_end}.pdf"
+    
+    # 3. Retornar Bytes
+    # Se usa bytearray(pdf_bytes) si viene de fpdf.output() que retorna str/buffer o bytes dependiendo version
+    # FPDF2 output() by default returns bytearray or bytes.
+    from fastapi import Response
+    return Response(
+        content=bytes(pdf_bytes),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+

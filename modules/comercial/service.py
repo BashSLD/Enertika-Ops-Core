@@ -237,18 +237,6 @@ class ComercialService:
         
         return deadline_final
 
-    def calcular_kpis_entrega(self, fecha_entrega: datetime, deadline_original: datetime, deadline_negociado: datetime = None):
-        """Calcula si la entrega fue 'A tiempo' o 'Tarde'."""
-        if not fecha_entrega or not deadline_original:
-            return "Pendiente"
-
-        fecha_compromiso = deadline_negociado if deadline_negociado else deadline_original
-
-        if fecha_entrega <= fecha_compromiso:
-            return "Entrega a tiempo"
-        else:
-            return "Entrega tarde"
-
     async def get_catalogos_ui(self, conn) -> dict:
         """Recupera los catálogos para llenar los <select> del formulario y filtros."""
         tecnologias = await conn.fetch("SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre")

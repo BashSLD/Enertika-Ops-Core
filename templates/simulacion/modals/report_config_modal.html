@@ -1,0 +1,120 @@
+<div x-data="{ 
+    showModal: true,
+    closeModal() {
+        this.showModal = false;
+        setTimeout(() => $el.remove(), 300);
+    }
+}" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" x-show="showModal"
+    x-transition.opacity>
+
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden" @click.away="closeModal()">
+
+        <!-- Header -->
+        <div class="bg-[#123456] px-6 py-4 flex justify-between items-center">
+            <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                <span>📄</span> Generar Reporte PDF
+            </h3>
+            <button @click="closeModal()" class="text-white hover:text-gray-300">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                    </path>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Body -->
+        <form action="/simulacion/reporte/descargar" method="GET" target="_blank" class="p-6 space-y-4">
+
+            <!-- Rango de Fechas -->
+            <div>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Rango de Fechas (Solicitud)</label>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <input type="date" name="start_date" x-ref="start_date"
+                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm">
+                        <span class="text-xs text-gray-500">Desde</span>
+                    </div>
+                    <div>
+                        <input type="date" name="end_date" x-ref="end_date"
+                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm">
+                        <span class="text-xs text-gray-500">Hasta</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <!-- Filtro: Tecnología -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tecnología</label>
+                    <select name="tech_id" x-ref="tech_id"
+                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm">
+                        <option value="">Todas</option>
+                        {% for tech in tecnologias %}
+                        <option value="{{ tech.id }}">{{ tech.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Filtro: Tipo Solicitud -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Tipo Solicitud</label>
+                    <select name="request_type_id" x-ref="request_type_id"
+                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm">
+                        <option value="">Todos</option>
+                        {% for tipo in tipos_solicitud %}
+                        <option value="{{ tipo.id }}">{{ tipo.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-4">
+                <!-- Filtro: Estatus -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Estatus</label>
+                    <select name="status_id" x-ref="status_id"
+                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm">
+                        <option value="">Todos</option>
+                        {% for est in estatus %}
+                        <option value="{{ est.id }}">{{ est.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- Filtro: Responsable (Solo si es Admin/Manager) -->
+                {% if role in ['ADMIN', 'MANAGER'] %}
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-1">Responsable</label>
+                    <select name="user_id" x-ref="user_id"
+                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm">
+                        <option value="">Todos</option>
+                        {% for user in usuarios %}
+                        <option value="{{ user.id_usuario }}">{{ user.nombre_completo }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% endif %}
+            </div>
+
+            <!-- Actions -->
+            <div class="flex justify-between items-center pt-4 border-t border-gray-100">
+                <button type="button"
+                    @click="$refs.start_date.value=''; $refs.end_date.value=''; $refs.tech_id.value=''; $refs.request_type_id.value=''; $refs.status_id.value=''; if($refs.user_id) $refs.user_id.value='';"
+                    class="text-xs text-gray-500 hover:text-red-500 underline decoration-dotted transition-colors">
+                    Limpiar Filtros
+                </button>
+
+                <div class="flex gap-3">
+                    <button type="button" @click="closeModal()"
+                        class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium">
+                        Cancelar
+                    </button>
+                    <button type="submit" @click="setTimeout(() => closeModal(), 1000)"
+                        class="px-4 py-2 bg-[#00BABB] text-white rounded-lg hover:bg-[#009999] text-sm font-medium flex items-center gap-2">
+                        <span>⬇️</span> Descargar PDF
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+</div>

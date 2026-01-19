@@ -135,12 +135,14 @@
                                         <div class="flex flex-col gap-2 items-center">
 
                                             <!-- Botón 0: Actualizar -->
+                                            {% if current_tab == 'activos' %}
                                             <button hx-get="/simulacion/modals/edit/{{ op.id_oportunidad }}"
                                                 hx-target="body" hx-swap="beforeend"
                                                 class="w-full text-[#00BABB] hover:text-[#009999] border border-[#00BABB] hover:border-[#009999] px-3 py-1.5 rounded bg-[#E0F7F7] hover:bg-[#b3e6e6] flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow font-bold">
                                                 <span>✏️</span>
                                                 <span>Actualizar</span>
                                             </button>
+                                            {% endif %}
 
                                             <!-- Botón 1: Comentarios Simulacion -->
                                             <div x-data="{ showPopup: false }" class="w-full">

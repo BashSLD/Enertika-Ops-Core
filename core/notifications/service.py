@@ -170,8 +170,8 @@ class NotificationsService:
             channel = f"user_notif_{str(usuario_id).replace('-', '_')}"
             payload = json.dumps(notification_data)
             
-            # Ejecutar NOTIFY con placeholder seguro
-            await conn.execute(f"NOTIFY {channel}, $1", payload)
+            # Ejecutar NOTIFY usando pg_notify para soportar parametros seguros
+            await conn.execute("SELECT pg_notify($1, $2)", channel, payload)
             logger.info(f"[SSE-PG] NOTIFY enviado a canal {channel[:30]}...")
         except Exception as e:
             logger.warning(f"[SSE-PG] NOTIFY falló (usando fallback local): {e}")

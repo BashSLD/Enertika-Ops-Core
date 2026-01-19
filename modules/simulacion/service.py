@@ -4,6 +4,7 @@ from typing import List, Optional
 import json
 import logging
 from decimal import Decimal
+from datetime import date
 import asyncpg
 from fastapi import HTTPException
 from zoneinfo import ZoneInfo
@@ -48,6 +49,29 @@ class SimulacionService:
             "ganada":    await self._get_catalog_id_by_name(conn, "tb_cat_estatus_global", "Ganada")
         }
 
+    def calcular_kpis_entrega(self, fecha_entrega: datetime, deadline_original: datetime, deadline_negociado: datetime = None) -> tuple:
+        """
+        Calcula DOS indicadores de cumplimiento:
+        1. KPI SLA Interno: Fecha Real vs Deadline Original (Sistema)
+        2. KPI Compromiso: Fecha Real vs Deadline Negociado (Cliente/Acuerdo)
+        
+        Returns:
+            (kpi_sla_interno, kpi_compromiso)
+        """
+        if not fecha_entrega or not deadline_original:
+            return None, None
+
+        # --- 1. KPI SLA Interno ---
+        # Regla: Comparar contra lo que el sistema calculó originalmente
+        kpi_sla = "Entrega a tiempo" if fecha_entrega <= deadline_original else "Entrega tarde"
+
+        # --- 2. KPI Compromiso ---
+        # Regla: Si hay negociado, es la verdad absoluta. Si no, fallback al original.
+        fecha_compromiso = deadline_negociado if deadline_negociado else deadline_original
+        kpi_compromiso = "Entrega a tiempo" if fecha_entrega <= fecha_compromiso else "Entrega tarde"
+
+        return kpi_sla, kpi_compromiso
+
     # --- LÓGICA DE NEGOCIO ---
 
     async def get_responsables_dropdown(self, conn) -> List[dict]:
@@ -74,30 +98,64 @@ class SimulacionService:
         
         # 0. Obtener estado ACTUAL para comparación (Antes del update)
         current = await conn.fetchrow(
-            "SELECT responsable_simulacion_id, id_estatus_global FROM tb_oportunidades WHERE id_oportunidad = $1",
+            """
+            SELECT responsable_simulacion_id, id_estatus_global, id_interno_simulacion, deadline_negociado 
+            FROM tb_oportunidades 
+            WHERE id_oportunidad = $1
+            """,
             id_oportunidad
         )
         old_responsable = current['responsable_simulacion_id'] if current else None
         old_status = current['id_estatus_global'] if current else None
 
-        # Validacion: Fecha Entrega Real solo permitida en estatus terminales
-        if datos.fecha_entrega_simulacion:
-            estatus_permitidos_fecha = [
-                status_map["entregado"],
-                status_map["cancelado"],
-                status_map["perdido"]
-            ]
-            if datos.id_estatus_global not in estatus_permitidos_fecha:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Fecha Entrega Real solo puede asignarse en estatus: Entregado, Perdido o Cancelado"
-                )
-        
         # 0.5. Obtener conteo total de sitios para validación inteligente
         total_sitios = await conn.fetchval(
             "SELECT count(*) FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", 
             id_oportunidad
         )
+
+        # CRITICAL FIX: Protección de Datos Sensibles (Evitar borrado por campos disabled)
+        # Re-validamos permisos aquí para asegurar integridad
+        sim_role = user_context.get("module_roles", {}).get("simulacion", "")
+        is_manager_editor = (user_context.get("role") == 'MANAGER' and sim_role in ['editor', 'admin'])
+        is_admin_system = (user_context.get("role") == 'ADMIN' or sim_role == 'admin')
+        can_edit_sensitive = is_manager_editor or is_admin_system
+
+        if not can_edit_sensitive:
+            # Si el usuario NO tiene permisos elevados, IGNORAMOS cualquier input (o falta de)
+            # y mantenemos los valores actuales de la base de datos.
+            datos.id_interno_simulacion = current['id_interno_simulacion']
+            datos.responsable_simulacion_id = current['responsable_simulacion_id']
+            datos.deadline_negociado = current['deadline_negociado']
+        else:
+            # Si tiene permisos y envió una fecha de deadline, forzamos la hora a las 18:00:00
+            if datos.deadline_negociado:
+                datos.deadline_negociado = datos.deadline_negociado.replace(hour=18, minute=0, second=0, microsecond=0)
+
+
+        # Regla: Fecha Automática (Mexico Time) para estatus terminales
+        # Se ignora cualquier input manual de fecha
+        estatus_terminales = [
+            status_map["entregado"],
+            status_map["cancelado"],
+            status_map["perdido"]
+        ]
+        
+        if datos.id_estatus_global in estatus_terminales:
+            # Si cambiamos A un estatus terminal (o ya estamos en uno y actualizamos algo),
+            # forzamos la fecha/hora actual de México.
+            # OJO: Solo si NO tenía fecha ya? O siempre actualizamos el timestamp del "último toque"?
+            # Requerimiento: "cuando un registro se marca... hay que guardar el timestamp de ese momento"
+            # Asumiremos que si cambia el estatus se actualiza.
+             datos.fecha_entrega_simulacion = await self.get_current_datetime_mx()
+        else:
+            # Si no es terminal, limpiamos la fecha (o la dejamos como estaba? Generalmente NULL si está abierto)
+            # Para evitar sobreescribir historial si se reabre, podríamos dejarla, pero 
+            # generalmente una simulacion "En Proceso" no tiene fecha de entrega.
+            # Por seguridad, si el estatus NO es terminal, no deberíamos setear fecha de entrega (NULL).
+            if old_status in estatus_terminales and datos.id_estatus_global not in estatus_terminales:
+                 # Caso: Reactivación (De Entregado -> Pendiente)
+                 datos.fecha_entrega_simulacion = None
 
         # 1. Validación de Regla: Cierre (Entregado)
         if datos.id_estatus_global == status_map["entregado"]:
@@ -134,6 +192,43 @@ class SimulacionService:
                     detail="Para marcar como Entregado, capture Monto Cierre (USD) y Potencia FV (KWp)."
                 )
 
+        
+        # 1.5 Calculo de KPIs de Entrega (Dual)
+        # Solo calcular si es un estado terminal relevante (Entregado o Perdido). 
+        # Cancelado no suele medir tiempos de entrega del equipo.
+        kpi_sla_val = None
+        kpi_compromiso_val = None
+        tiempo_elaboracion_horas = None
+        
+        # Obtenemos deadlines y fecha solicitud para calculo de tiempos
+        current_data = await conn.fetchrow(
+            "SELECT deadline_calculado, deadline_negociado, fecha_solicitud FROM tb_oportunidades WHERE id_oportunidad = $1",
+            id_oportunidad
+        )
+        
+        if datos.id_estatus_global in [status_map["entregado"], status_map["perdido"]]:
+            # Usar fecha de entrega entrante o NOW
+            fecha_fin_real = datos.fecha_entrega_simulacion or await self.get_current_datetime_mx()
+            datos.fecha_entrega_simulacion = fecha_fin_real # Asegurar que se guarde la fecha real
+
+            ts_deadline_calc = current_data['deadline_calculado']
+            # OJO: Si el update trae un nuevo deadline negociado, usalo. Si no, usa el de base de datos.
+            ts_deadline_nego = datos.deadline_negociado if datos.deadline_negociado else current_data['deadline_negociado']
+            
+            kpi_sla_val, kpi_compromiso_val = self.calcular_kpis_entrega(
+                fecha_fin_real, 
+                ts_deadline_calc, 
+                ts_deadline_nego
+            )
+
+            # --- NUEVO: Cálculo de Tiempo Real (Surgical Change) ---
+            if current_data['fecha_solicitud']:
+                # Asegurar timezone awarenss (ambos deben tener tz o ser convertidos)
+                # fecha_fin_real viene de get_current_datetime_mx (tiene TZ)
+                # fecha_solicitud viene de BD (tiene TZ si es timestamptz)
+                delta = fecha_fin_real - current_data['fecha_solicitud']
+                tiempo_elaboracion_horas = round(delta.total_seconds() / 3600, 2)
+
         # 2. Ejecutar Update del Padre
         query_padre = """
             UPDATE tb_oportunidades SET
@@ -145,7 +240,10 @@ class SimulacionService:
                 id_motivo_cierre = $6,
                 monto_cierre_usd = $7,
                 potencia_cierre_fv_kwp = $8,
-                capacidad_cierre_bess_kwh = $9
+                capacidad_cierre_bess_kwh = $9,
+                kpi_status_sla_interno = $11,
+                kpi_status_compromiso = $12,
+                tiempo_elaboracion_horas = $13
             WHERE id_oportunidad = $10
         """
         await conn.execute(query_padre,
@@ -158,8 +256,12 @@ class SimulacionService:
             datos.monto_cierre_usd,
             datos.potencia_cierre_fv_kwp,
             datos.capacidad_cierre_bess_kwh,
-            id_oportunidad
+            id_oportunidad,
+            kpi_sla_val,
+            kpi_compromiso_val,
+            tiempo_elaboracion_horas
         )
+
 
         # 3. Regla de Cascada: Cancelación/Pérdida (Siempre) OR Entregado (Solo si es sitio único)
         should_cascade = False
@@ -601,7 +703,19 @@ class SimulacionService:
     
     async def get_detalles_bess(self, conn, id_oportunidad: UUID):
         row = await conn.fetchrow("SELECT * FROM tb_detalles_bess WHERE id_oportunidad = $1", id_oportunidad)
-        return dict(row) if row else None
+        if not row:
+            return None
+            
+        data = dict(row)
+        # Fix: Ensure JSON is parsed if returned as text
+        if data.get("uso_sistema_json") and isinstance(data["uso_sistema_json"], str):
+            try:
+                data["uso_sistema_json"] = json.loads(data["uso_sistema_json"])
+            except json.JSONDecodeError:
+                logger.error(f"Error decoding JSON for BESS {id_oportunidad}")
+                data["uso_sistema_json"] = []
+                
+        return data
         
 
 
