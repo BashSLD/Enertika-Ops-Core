@@ -1,0 +1,14 @@
+{# templates/simulacion/reportes/dashboard.html #}
+{#
+Dashboard Principal de Reportes de Simulación
+Extiende base.html para carga directa (F5 o URL directa)
+#}
+{% extends "base.html" %}
+
+{% block title %}Reportes - Simulación{% endblock %}
+
+{# Chart.js ya se carga en base.html con versión 4.4.1 #}
+
+{% block content %}
+{% include "simulacion/reportes/tabs.html" %}
+{% endblock %}

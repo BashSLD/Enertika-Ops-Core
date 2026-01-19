@@ -11,7 +11,7 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org/ext/json-enc.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
         /* Variables de Colores Corporativos Enertika */
         :root {
@@ -891,6 +891,263 @@
                 }
             }
         }
+
+        // ========================================
+        // REPORTES DASHBOARD (Alpine.js Component)
+        // Definido aquí para que esté disponible cuando HTMX carga partials
+        // ========================================
+        window.reportesDashboard = function () {
+            return {
+                activeTab: 'tecnologia',
+                filtros: { fecha_inicio: '', fecha_fin: '', tecnologia: '', usuario: '' },
+                charts: {},
+
+                init() {
+                    // Leer fechas del DOM si existen (inyectadas por Jinja)
+                    const container = this.$el;
+                    const startInput = container.querySelector('input[type="date"]');
+                    if (startInput && startInput.value) {
+                        this.filtros.fecha_inicio = startInput.value;
+                    }
+
+                    this.$nextTick(() => {
+                        if (typeof Chart !== 'undefined') {
+                            this.initCharts();
+                            this.loadChartData();
+                            this.loadTabContent('tecnologia');
+                        }
+                    });
+                },
+
+                formatDateRange() {
+                    if (!this.filtros.fecha_inicio || !this.filtros.fecha_fin) return 'Cargando...';
+                    try {
+                        const inicio = new Date(this.filtros.fecha_inicio + 'T00:00:00');
+                        const fin = new Date(this.filtros.fecha_fin + 'T00:00:00');
+                        const opts = { day: '2-digit', month: 'short', year: 'numeric' };
+                        return inicio.toLocaleDateString('es-MX', opts) + ' - ' + fin.toLocaleDateString('es-MX', opts);
+                    } catch { return 'Error'; }
+                },
+
+                aplicarFiltros() {
+                    this.loadChartData();
+                    this.loadTabContent(this.activeTab);
+                    this.loadKpis();
+                },
+
+                limpiarFiltros() {
+                    const today = new Date();
+                    this.filtros = {
+                        fecha_inicio: new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0],
+                        fecha_fin: today.toISOString().split('T')[0],
+                        tecnologia: '', usuario: ''
+                    };
+                    this.aplicarFiltros();
+                },
+
+                getQueryParams() {
+                    return new URLSearchParams({
+                        start_date: this.filtros.fecha_inicio,
+                        end_date: this.filtros.fecha_fin,
+                        tech_id: this.filtros.tecnologia || '',
+                        user_id: this.filtros.usuario || ''
+                    }).toString();
+                },
+
+                async loadKpis() {
+                    const c = document.getElementById('kpis-container');
+                    if (c) {
+                        try {
+                            const r = await fetch('/simulacion/reportes/metricas?' + this.getQueryParams());
+                            c.innerHTML = await r.text();
+                        } catch (e) { console.error('Error KPIs:', e); }
+                    }
+                },
+
+                async loadTabContent(tab) {
+                    const endpoints = {
+                        tecnologia: '/simulacion/reportes/por-tecnologia',
+                        contabilizacion: '/simulacion/reportes/contabilizacion',
+                        usuarios: '/simulacion/reportes/por-usuario',
+                        mensual: '/simulacion/reportes/mensual'
+                    };
+                    const containers = { tecnologia: 'tech-container', contabilizacion: 'contab-container', usuarios: 'users-container', mensual: 'monthly-container' };
+                    if (endpoints[tab]) {
+                        const c = document.getElementById(containers[tab]);
+                        if (c) {
+                            c.innerHTML = '<div class="flex justify-center py-8"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-[#00BABB]"></div></div>';
+                            try {
+                                const r = await fetch(endpoints[tab] + '?' + this.getQueryParams());
+                                c.innerHTML = await r.text();
+                            } catch { c.innerHTML = '<p class="text-red-500">Error</p>'; }
+                        }
+                    }
+                },
+
+                initCharts() {
+                    // Los charts se crearán de forma lazy en updateCharts
+                    // Esto evita problemas cuando los canvas no tienen dimensiones aún
+                    console.log('[Charts] Preparando sistema de gráficas...');
+                    this.chartsReady = true;
+                },
+
+                async loadChartData() {
+                    try {
+                        const r = await fetch('/simulacion/reportes/api/dashboard-data?' + this.getQueryParams());
+                        const result = await r.json();
+                        if (result.success) this.updateCharts(result.data);
+                    } catch (e) { console.error('Error gráficas:', e); }
+                },
+
+                // Renderiza charts que estaban pendientes porque su contenedor estaba oculto
+                renderPendingCharts() {
+                    if (!this._pendingCharts) return;
+
+                    Object.entries(this._pendingCharts).forEach(([chartName, config]) => {
+                        const canvas = document.getElementById(config.canvasId);
+                        if (canvas && canvas.offsetParent !== null) {
+                            // El canvas ahora es visible, renderizar
+                            this.safeUpdateChart(chartName, config.canvasId, config.chartType, config.newData, config.chartOptions);
+                            delete this._pendingCharts[chartName];
+                        }
+                    });
+                },
+
+                // Helper para crear o actualizar un chart de forma segura
+                safeUpdateChart(chartName, canvasId, chartType, newData, chartOptions = {}, retryCount = 0) {
+                    const MAX_RETRIES = 5;
+
+                    try {
+                        const canvas = document.getElementById(canvasId);
+                        if (!canvas) {
+                            // No reintentar si el canvas no existe en el DOM
+                            return;
+                        }
+
+                        // Verificar que Chart.js esté disponible
+                        if (typeof Chart === 'undefined') {
+                            console.warn('[Charts] Chart.js no disponible');
+                            return;
+                        }
+
+                        // Verificar si el elemento está oculto (display:none o dentro de elemento oculto)
+                        const isHidden = canvas.offsetParent === null;
+
+                        // Verificar que el canvas tenga dimensiones
+                        const rect = canvas.getBoundingClientRect();
+                        if (rect.width === 0 || rect.height === 0) {
+                            // Si está oculto, no reintentar (se creará cuando se muestre la pestaña)
+                            if (isHidden) {
+                                // Guardar los datos pendientes para cuando se muestre
+                                this._pendingCharts = this._pendingCharts || {};
+                                this._pendingCharts[chartName] = { canvasId, chartType, newData, chartOptions };
+                                return;
+                            }
+
+                            // Si no está oculto pero no tiene dimensiones, reintentar con límite
+                            if (retryCount < MAX_RETRIES) {
+                                setTimeout(() => this.safeUpdateChart(chartName, canvasId, chartType, newData, chartOptions, retryCount + 1), 200);
+                            }
+                            return;
+                        }
+
+                        // Si el chart existe, actualizarlo
+                        if (this.charts[chartName]) {
+                            try {
+                                this.charts[chartName].data = newData;
+                                this.charts[chartName].update('none');
+                            } catch (updateErr) {
+                                console.warn(`[Charts] Error actualizando ${chartName}, recreando...`, updateErr);
+                                // Destruir el chart corrupto y recrear
+                                try { this.charts[chartName].destroy(); } catch (e) { }
+                                this.charts[chartName] = null;
+                            }
+                        }
+
+                        // Crear nuevo chart si no existe
+                        if (!this.charts[chartName]) {
+                            // Destruir cualquier chart existente en el canvas
+                            const existingChart = Chart.getChart(canvas);
+                            if (existingChart) {
+                                existingChart.destroy();
+                            }
+
+                            this.charts[chartName] = new Chart(canvas, {
+                                type: chartType,
+                                data: newData,
+                                options: {
+                                    responsive: true,
+                                    maintainAspectRatio: false,
+                                    ...chartOptions
+                                }
+                            });
+                        }
+                    } catch (err) {
+                        console.error(`[Charts] Error en ${chartName}:`, err);
+                    }
+                },
+
+                updateCharts(data) {
+                    // Estatus (doughnut)
+                    if (data.estatus_pie?.datasets?.[0]) {
+                        this.safeUpdateChart('estatus', 'chart-estatus', 'doughnut', {
+                            labels: data.estatus_pie.labels || [],
+                            datasets: [{
+                                data: data.estatus_pie.datasets[0].data || [],
+                                backgroundColor: data.estatus_pie.datasets[0].backgroundColor || []
+                            }]
+                        }, { plugins: { legend: { position: 'right' } } });
+                    }
+
+                    // Mensual (bar)
+                    if (data.mensual_bar?.datasets?.[0]) {
+                        this.safeUpdateChart('mensual', 'chart-mensual', 'bar', {
+                            labels: data.mensual_bar.labels || [],
+                            datasets: [{
+                                label: data.mensual_bar.datasets[0].label || 'Solicitudes',
+                                data: data.mensual_bar.datasets[0].data || [],
+                                backgroundColor: data.mensual_bar.datasets[0].backgroundColor || '#00BABB'
+                            }]
+                        }, { scales: { y: { beginAtZero: true } } });
+                    }
+
+                    // Tecnología (pie)
+                    if (data.tecnologia_pie?.datasets?.[0]) {
+                        this.safeUpdateChart('tecnologia', 'chart-tecnologia', 'pie', {
+                            labels: data.tecnologia_pie.labels || [],
+                            datasets: [{
+                                data: data.tecnologia_pie.datasets[0].data || [],
+                                backgroundColor: data.tecnologia_pie.datasets[0].backgroundColor || []
+                            }]
+                        });
+                    }
+
+                    // KPI (bar horizontal)
+                    if (data.kpi_bar?.datasets?.length) {
+                        this.safeUpdateChart('kpi', 'chart-kpi', 'bar', {
+                            labels: data.kpi_bar.labels || [],
+                            datasets: data.kpi_bar.datasets.map(ds => ({
+                                label: ds.label || '',
+                                data: ds.data || [],
+                                backgroundColor: ds.backgroundColor || '#10B981'
+                            }))
+                        }, { indexAxis: 'y', scales: { x: { beginAtZero: true } } });
+                    }
+
+                    // Motivos (bar horizontal)
+                    if (data.motivos_bar?.datasets?.[0]) {
+                        this.safeUpdateChart('motivos', 'chart-motivos', 'bar', {
+                            labels: data.motivos_bar.labels || [],
+                            datasets: [{
+                                label: data.motivos_bar.datasets[0].label || 'Motivo',
+                                data: data.motivos_bar.datasets[0].data || [],
+                                backgroundColor: data.motivos_bar.datasets[0].backgroundColor || '#8B5CF6'
+                            }]
+                        }, { indexAxis: 'y', scales: { x: { beginAtZero: true } } });
+                    }
+                }
+            };
+        };
     </script>
 
     <!-- Modal de Loading Global -->

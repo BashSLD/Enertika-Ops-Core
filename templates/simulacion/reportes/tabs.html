@@ -1,0 +1,158 @@
+{# templates/simulacion/reportes/tabs.html #}
+{# Dashboard de Reportes - La función reportesDashboard() está en base.html #}
+
+<div id="reportes-container" class="space-y-6" x-data="{
+    ...reportesDashboard(),
+    isGeneratingPdf: false,
+    async generarPDF() {
+        this.isGeneratingPdf = true;
+        try {
+            const chartImages = {};
+            // Captura segura de charts existentes
+            if (this.charts.estatus) chartImages.estatus = this.charts.estatus.toBase64Image();
+            if (this.charts.mensual) chartImages.mensual = this.charts.mensual.toBase64Image();
+            if (this.charts.tecnologia) chartImages.tecnologia = this.charts.tecnologia.toBase64Image();
+            if (this.charts.kpi) chartImages.kpi = this.charts.kpi.toBase64Image();
+            if (this.charts.motivos) chartImages.motivos = this.charts.motivos.toBase64Image();
+
+            const response = await fetch('/simulacion/reportes/pdf/generar', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    filtros: this.filtros,
+                    charts: chartImages
+                })
+            });
+
+            if (!response.ok) throw new Error('Error generando PDF');
+
+            const blob = await response.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `Reporte_Simulacion_${this.filtros.fecha_inicio}_${this.filtros.fecha_fin}.pdf`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        } catch (e) {
+            console.error(e);
+            alert('Error al generar el PDF: ' + e.message);
+        } finally {
+            this.isGeneratingPdf = false;
+        }
+    }
+}"
+    x-init="filtros.fecha_inicio='{{ filtros_aplicados.fecha_inicio }}'; filtros.fecha_fin='{{ filtros_aplicados.fecha_fin }}'">
+    <!-- HEADER -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+            <div>
+                <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                    <svg class="w-7 h-7 text-[#00BABB]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    Reportes de Simulación
+                </h1>
+                <p class="text-sm text-gray-500 mt-1">Periodo: <span class="font-medium"
+                        x-text="formatDateRange()"></span></p>
+            </div>
+            <div class="flex flex-wrap items-center gap-3">
+                <div class="flex items-center gap-2 bg-gray-50 rounded-lg p-2">
+                    <input type="date" x-model="filtros.fecha_inicio" @change="aplicarFiltros()"
+                        class="text-sm border-gray-300 rounded-md focus:ring-[#00BABB]">
+                    <span class="text-gray-400">-</span>
+                    <input type="date" x-model="filtros.fecha_fin" @change="aplicarFiltros()"
+                        class="text-sm border-gray-300 rounded-md focus:ring-[#00BABB]">
+                </div>
+                <select x-model="filtros.tecnologia" @change="aplicarFiltros()"
+                    class="text-sm border-gray-300 rounded-lg focus:ring-[#00BABB]">
+                    <option value="">Todas las Tecnologías</option>
+                    {% for tech in catalogos.tecnologias %}<option value="{{ tech.id }}">{{ tech.nombre }}</option>{%
+                    endfor %}
+                </select>
+                <select x-model="filtros.usuario" @change="aplicarFiltros()"
+                    class="text-sm border-gray-300 rounded-lg focus:ring-[#00BABB]">
+                    <option value="">Todos los Usuarios</option>
+                    {% for user in catalogos.usuarios %}<option value="{{ user.id_usuario }}">{{ user.nombre }}</option>
+                    {% endfor %}
+                </select>
+                <button @click="limpiarFiltros()"
+                    class="text-sm text-gray-500 hover:text-red-500 underline">Limpiar</button>
+                <button @click="generarPDF()" :disabled="false"
+                    class="flex items-center gap-2 px-4 py-2 bg-[#123456] text-white rounded-lg hover:bg-[#0d2440] text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed">
+                    <svg x-show="!false" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <svg x-show="false" class="animate-spin -ml-1 mr-3 h-4 w-4 text-white"
+                        xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                        </circle>
+                        <path class="opacity-75" fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                        </path>
+                    </svg>
+                    <span x-text="false ? 'Generando...' : 'Descargar PDF'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- KPIs -->
+    <div id="kpis-container">{% include "simulacion/reportes/partials/kpis_cards.html" %}</div>
+
+    <!-- GRÁFICAS -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Distribución por Estatus</h3>
+            <div class="h-64"><canvas id="chart-estatus"></canvas></div>
+        </div>
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Solicitudes por Mes</h3>
+            <div class="h-64"><canvas id="chart-mensual"></canvas></div>
+        </div>
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Por Tecnología</h3>
+            <div class="h-64"><canvas id="chart-tecnologia"></canvas></div>
+        </div>
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <h3 class="text-lg font-semibold text-gray-900 mb-4">Entregas: A Tiempo vs Fuera de Plazo</h3>
+            <div class="h-64"><canvas id="chart-kpi"></canvas></div>
+        </div>
+    </div>
+
+    <!-- TABS -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200">
+        <div class="border-b border-gray-200">
+            <nav class="flex -mb-px overflow-x-auto">
+                <button @click="activeTab = 'tecnologia'; loadTabContent('tecnologia')"
+                    :class="activeTab === 'tecnologia' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500'"
+                    class="whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm">Por Tecnología</button>
+                <button @click="activeTab = 'contabilizacion'; loadTabContent('contabilizacion')"
+                    :class="activeTab === 'contabilizacion' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500'"
+                    class="whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm">Contabilización</button>
+                <button @click="activeTab = 'usuarios'; loadTabContent('usuarios')"
+                    :class="activeTab === 'usuarios' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500'"
+                    class="whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm">Por Usuario</button>
+                <button @click="activeTab = 'mensual'; loadTabContent('mensual')"
+                    :class="activeTab === 'mensual' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500'"
+                    class="whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm">Resumen Mensual</button>
+                <button
+                    @click="activeTab = 'motivos'; $nextTick(() => { if(renderPendingCharts) renderPendingCharts(); })"
+                    :class="activeTab === 'motivos' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500'"
+                    class="whitespace-nowrap py-4 px-6 border-b-2 font-medium text-sm">Motivos de Cierre</button>
+            </nav>
+        </div>
+        <div class="p-6">
+            <div x-show="activeTab === 'tecnologia'" x-transition id="tech-container"></div>
+            <div x-show="activeTab === 'contabilizacion'" x-transition id="contab-container"></div>
+            <div x-show="activeTab === 'usuarios'" x-transition id="users-container"></div>
+            <div x-show="activeTab === 'mensual'" x-transition id="monthly-container"></div>
+            <div x-show="activeTab === 'motivos'" x-transition>
+                <div class="h-80"><canvas id="chart-motivos"></canvas></div>
+            </div>
+        </div>
+    </div>
+    <div id="modal-container"></div>
+</div>

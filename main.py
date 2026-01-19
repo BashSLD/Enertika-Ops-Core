@@ -60,6 +60,8 @@ app.include_router(proyectos_router.router)
 app.include_router(compras_router.router)
 from modules.simulacion import router as simulacion_router
 app.include_router(simulacion_router.router)
+from modules.simulacion.report_router import router as report_router
+app.include_router(report_router)
 from modules.levantamientos.router import router as levantamientos_router
 app.include_router(levantamientos_router)
 

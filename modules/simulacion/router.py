@@ -22,7 +22,7 @@ from core.database import get_db_connection
 # Import del Service Layer
 # Import del Service Layer
 from .service import SimulacionService, get_simulacion_service
-from .report_service import SimulacionReportService, get_report_service
+
 from .schemas import OportunidadCreateCompleta, DetalleBessCreate, SimulacionUpdate, SitiosBatchUpdate
 
 # Import Workflow Service (Centralizado)
@@ -252,16 +252,41 @@ async def create_oportunidad_extraordinaria(
 async def get_graphs_partial(
     request: Request,
     context = Depends(get_current_user_context),
-    service: SimulacionService = Depends(get_simulacion_service),
     conn = Depends(get_db_connection),
     _ = require_module_access("simulacion")
 ):
-    """Partial: Tab de gráficas y estadísticas."""
-    stats = await service.get_dashboard_stats(conn, context)
+    """Partial: Tab de gráficas y reportes interactivos."""
+    from .report_service import ReportesSimulacionService, FiltrosReporte, get_reportes_service
+    from datetime import date
     
-    return templates.TemplateResponse("simulacion/partials/graphs.html", {
+    # Instanciar servicio de reportes
+    report_service = ReportesSimulacionService()
+    
+    # Filtros por defecto: mes actual
+    today = date.today()
+    filtros = FiltrosReporte(
+        fecha_inicio=today.replace(day=1),
+        fecha_fin=today
+    )
+    
+    # Obtener datos para el dashboard
+    catalogos = await report_service.get_catalogos_filtros(conn)
+    metricas = await report_service.get_metricas_generales(conn, filtros)
+    graficas = await report_service.get_datos_graficas(conn, filtros)
+    
+    return templates.TemplateResponse("simulacion/reportes/tabs.html", {
         "request": request,
-        "stats": stats
+        "user_name": context.get("user_name"),
+        "role": context.get("role"),
+        "module_roles": context.get("module_roles", {}),
+        "current_module_role": context.get("module_roles", {}).get("simulacion", "viewer"),
+        "catalogos": catalogos,
+        "metricas": metricas,
+        "graficas": graficas,
+        "filtros_aplicados": {
+            "fecha_inicio": filtros.fecha_inicio.isoformat(),
+            "fecha_fin": filtros.fecha_fin.isoformat()
+        }
     })
 
 @router.get("/partials/cards", include_in_schema=False)
@@ -658,86 +683,4 @@ async def update_responsable(
             "title": "Error Asignación",
             "message": str(e)
         })
-
-# ========================================
-# REPORTES PDF (FPDF2)
-# ========================================
-
-@router.get("/report/config", include_in_schema=False)
-async def get_report_config_modal(
-    request: Request,
-    service: SimulacionService = Depends(get_simulacion_service),
-    conn = Depends(get_db_connection),
-    context = Depends(get_current_user_context),
-    _ = require_module_access("simulacion")
-):
-    """Renderiza el modal de configuración de reporte PDF."""
-    # Necesitamos listas para los filtros: Tecnologías y Responsables
-    catalogos = await service.get_catalogos_ui(conn)
-    responsables = await service.get_responsables_dropdown(conn)
-    
-    # Obtener estatus también (Reutilizamos query simple)
-    estatus = await conn.fetch("SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true ORDER BY id")
-
-    return templates.TemplateResponse("simulacion/modals/report_config_modal.html", {
-        "request": request,
-        "tecnologias": catalogos["tecnologias"],
-        "tipos_solicitud": catalogos["tipos_solicitud"],
-        "estatus": [dict(r) for r in estatus],
-        "usuarios": responsables,
-        "role": context.get("role")
-    })
-
-@router.get("/reporte/descargar")
-async def descargar_reporte(
-    start_date: Optional[str] = None, 
-    end_date: Optional[str] = None,
-    # Filtros adicionales (Opcionales, para futura implementación en get_report_data)
-    tech_id: Optional[str] = None,
-    request_type_id: Optional[str] = None,
-    status_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    
-    conn = Depends(get_db_connection),
-    service: SimulacionReportService = Depends(get_report_service)
-):
-    """
-    Genera y descarga el PDF (Nueva Lógica FPDF).
-    Maneja conversión de tipos segura para query params vacíos.
-    """
-    # 1. Parsing Seguro de Fechas
-    dt_today = date.today()
-    
-    if not start_date:
-        # Default: Primer día del mes actual
-        dt_start = dt_today.replace(day=1)
-    else:
-        dt_start = date.fromisoformat(start_date)
-        
-    if not end_date:
-        # Default: Hoy
-        dt_end = dt_today
-    else:
-        dt_end = date.fromisoformat(end_date)
-        
-    # 2. Obtener PDF en bytes
-    pdf_bytes = await service.get_report_bytes(conn, dt_start, dt_end)
-    
-    if not pdf_bytes:
-        # Si no hay datos, devolver PDF vacío o error
-        # Optamos por un error para alertar al usuario
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="No hay datos para generar el reporte en este periodo.")
-    
-    filename = f"Reporte_Ejecutivo_{dt_start}_{dt_end}.pdf"
-    
-    # 3. Retornar Bytes
-    # Se usa bytearray(pdf_bytes) si viene de fpdf.output() que retorna str/buffer o bytes dependiendo version
-    # FPDF2 output() by default returns bytearray or bytes.
-    from fastapi import Response
-    return Response(
-        content=bytes(pdf_bytes),
-        media_type="application/pdf",
-        headers={"Content-Disposition": f"attachment; filename={filename}"}
-    )
 

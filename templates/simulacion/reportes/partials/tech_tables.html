@@ -1,0 +1,106 @@
+{# templates/simulacion/reportes/partials/tech_tables.html #}
+{# Tablas de métricas por tecnología #}
+
+<div class="space-y-6">
+    {% if tecnologias %}
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
+        {% for tech in tecnologias %}
+        {% if tech.total_solicitudes > 0 %}
+        <div class="bg-gray-50 rounded-lg p-5 border border-gray-200">
+            {# Header con nombre de tecnología #}
+            <div class="flex items-center justify-between mb-4">
+                <h4 class="text-lg font-bold text-gray-900 flex items-center gap-2">
+                    {% if tech.nombre == 'FV' %}
+                    <span class="w-3 h-3 bg-[#00BABB] rounded-full"></span>
+                    {% elif tech.nombre == 'BESS' %}
+                    <span class="w-3 h-3 bg-blue-500 rounded-full"></span>
+                    {% elif tech.nombre == 'FV + BESS' %}
+                    <span class="w-3 h-3 bg-green-500 rounded-full"></span>
+                    {% elif tech.nombre == 'FV AISLADO' %}
+                    <span class="w-3 h-3 bg-amber-500 rounded-full"></span>
+                    {% else %}
+                    <span class="w-3 h-3 bg-purple-500 rounded-full"></span>
+                    {% endif %}
+                    {{ tech.nombre }}
+                </h4>
+                <span class="text-sm text-gray-500">{{ tech.total_solicitudes }} solicitudes</span>
+            </div>
+
+            {# Métricas en tabla #}
+            <table class="w-full text-sm">
+                <tbody class="divide-y divide-gray-200">
+                    <tr>
+                        <td class="py-2 text-gray-600">Total Ofertas</td>
+                        <td class="py-2 text-right font-semibold text-gray-900">{{ tech.total_ofertas }}</td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 text-gray-600">Tiempo Promedio</td>
+                        <td class="py-2 text-right font-semibold text-gray-900">
+                            {% if tech.tiempo_promedio_horas %}
+                            {{ (tech.tiempo_promedio_horas / 24)|round(1) }}d
+                            {% else %}
+                            -
+                            {% endif %}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 text-gray-600">% Entregas en Plazo</td>
+                        <td
+                            class="py-2 text-right font-semibold {% if tech.porcentaje_a_tiempo >= 90 %}text-green-600{% elif tech.porcentaje_a_tiempo >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
+                            {{ tech.porcentaje_a_tiempo }}%
+                        </td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 text-gray-600">% Fuera de Plazo</td>
+                        <td class="py-2 text-right font-semibold text-red-600">{{ tech.porcentaje_tarde }}%</td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 text-gray-600">Extraordinarias</td>
+                        <td class="py-2 text-right font-semibold text-indigo-600">{{ tech.extraordinarias }}</td>
+                    </tr>
+                    <tr>
+                        <td class="py-2 text-gray-600">Retrabajadas</td>
+                        <td class="py-2 text-right font-semibold text-cyan-600">{{ tech.retrabajadas }}</td>
+                    </tr>
+                    {% if tech.potencia_total_kwp > 0 %}
+                    <tr>
+                        <td class="py-2 text-gray-600">Potencia Total</td>
+                        <td class="py-2 text-right font-semibold text-gray-900">{{ tech.potencia_total_kwp|round(1) }}
+                            kWp</td>
+                    </tr>
+                    {% endif %}
+                    {% if tech.capacidad_total_kwh > 0 %}
+                    <tr>
+                        <td class="py-2 text-gray-600">Capacidad BESS</td>
+                        <td class="py-2 text-right font-semibold text-gray-900">{{ tech.capacidad_total_kwh|round(1) }}
+                            kWh</td>
+                    </tr>
+                    {% endif %}
+                </tbody>
+            </table>
+
+            {# Barra de progreso visual #}
+            <div class="mt-4">
+                <div class="flex items-center justify-between text-xs text-gray-500 mb-1">
+                    <span>A tiempo</span>
+                    <span>Fuera de Plazo</span>
+                </div>
+                <div class="h-2 bg-gray-200 rounded-full overflow-hidden flex">
+                    <div class="bg-green-500 h-full" style="width: {{ tech.porcentaje_a_tiempo }}%"></div>
+                    <div class="bg-red-500 h-full" style="width: {{ tech.porcentaje_tarde }}%"></div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-12 text-gray-500">
+        <svg class="w-12 h-12 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+        </svg>
+        <p>No hay datos para mostrar en este período</p>
+    </div>
+    {% endif %}
+</div>

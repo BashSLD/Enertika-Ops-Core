@@ -1,3 +1,9 @@
+{# templates/simulacion/reportes/modals/filter_modal.html #}
+{#
+Modal para configurar filtros y descargar reporte PDF.
+Se carga via HTMX desde el botón "Reporte PDF".
+#}
+
 <div x-data="{ 
     showModal: true,
     closeModal() {
@@ -7,12 +13,16 @@
 }" class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50" x-show="showModal"
     x-transition.opacity>
 
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden" @click.away="closeModal()">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 overflow-hidden" @click.away="closeModal()">
 
         <!-- Header -->
         <div class="bg-[#123456] px-6 py-4 flex justify-between items-center">
             <h3 class="text-lg font-bold text-white flex items-center gap-2">
-                <span>📄</span> Generar Reporte PDF
+                <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                Configurar Reporte PDF
             </h3>
             <button @click="closeModal()" class="text-white hover:text-gray-300">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -23,20 +33,28 @@
         </div>
 
         <!-- Body -->
-        <form action="/simulacion/reporte/descargar" method="GET" target="_blank" class="p-6 space-y-4">
+        <form action="/simulacion/reportes/pdf" method="GET" target="_blank" class="p-6 space-y-4">
+
+            <!-- Info -->
+            <div class="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg">
+                <p class="text-sm text-blue-700">
+                    <strong>Nota:</strong> El reporte incluirá KPIs, gráficas de distribución,
+                    tablas de contabilización y resumen mensual según los filtros seleccionados.
+                </p>
+            </div>
 
             <!-- Rango de Fechas -->
             <div>
-                <label class="block text-sm font-medium text-gray-700 mb-1">Rango de Fechas (Solicitud)</label>
+                <label class="block text-sm font-medium text-gray-700 mb-1">Rango de Fechas</label>
                 <div class="grid grid-cols-2 gap-4">
                     <div>
                         <input type="date" name="start_date" x-ref="start_date"
-                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm">
+                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] text-sm">
                         <span class="text-xs text-gray-500">Desde</span>
                     </div>
                     <div>
                         <input type="date" name="end_date" x-ref="end_date"
-                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm">
+                            class="w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] text-sm">
                         <span class="text-xs text-gray-500">Hasta</span>
                     </div>
                 </div>
@@ -47,7 +65,7 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Tecnología</label>
                     <select name="tech_id" x-ref="tech_id"
-                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm">
+                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] text-sm">
                         <option value="">Todas</option>
                         {% for tech in tecnologias %}
                         <option value="{{ tech.id }}">{{ tech.nombre }}</option>
@@ -58,8 +76,8 @@
                 <!-- Filtro: Tipo Solicitud -->
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Tipo Solicitud</label>
-                    <select name="request_type_id" x-ref="request_type_id"
-                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm">
+                    <select name="type_id" x-ref="type_id"
+                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] text-sm">
                         <option value="">Todos</option>
                         {% for tipo in tipos_solicitud %}
                         <option value="{{ tipo.id }}">{{ tipo.nombre }}</option>
@@ -73,7 +91,7 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Estatus</label>
                     <select name="status_id" x-ref="status_id"
-                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm">
+                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] text-sm">
                         <option value="">Todos</option>
                         {% for est in estatus %}
                         <option value="{{ est.id }}">{{ est.nombre }}</option>
@@ -86,10 +104,10 @@
                 <div>
                     <label class="block text-sm font-medium text-gray-700 mb-1">Responsable</label>
                     <select name="user_id" x-ref="user_id"
-                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 text-sm">
+                        class="w-full rounded-md border-gray-300 shadow-sm focus:border-[#00BABB] focus:ring-[#00BABB] text-sm">
                         <option value="">Todos</option>
                         {% for user in usuarios %}
-                        <option value="{{ user.id_usuario }}">{{ user.nombre_completo }}</option>
+                        <option value="{{ user.id_usuario }}">{{ user.nombre }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -99,7 +117,7 @@
             <!-- Actions -->
             <div class="flex justify-between items-center pt-4 border-t border-gray-100">
                 <button type="button"
-                    @click="$refs.start_date.value=''; $refs.end_date.value=''; $refs.tech_id.value=''; $refs.request_type_id.value=''; $refs.status_id.value=''; if($refs.user_id) $refs.user_id.value='';"
+                    @click="$refs.start_date.value=''; $refs.end_date.value=''; $refs.tech_id.value=''; $refs.type_id.value=''; $refs.status_id.value=''; if($refs.user_id) $refs.user_id.value='';"
                     class="text-xs text-gray-500 hover:text-red-500 underline decoration-dotted transition-colors">
                     Limpiar Filtros
                 </button>
@@ -109,10 +127,26 @@
                         class="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 text-sm font-medium">
                         Cancelar
                     </button>
-                    <button type="submit" @click="setTimeout(() => closeModal(), 1000)"
+
+                    <!-- Ver Dashboard Interactivo -->
+                    <a href="/simulacion/reportes/ui"
+                        class="px-4 py-2 bg-[#123456] text-white rounded-lg hover:bg-[#0d2440] text-sm font-medium flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                        </svg>
+                        Dashboard
+                    </a>
+
+                    <!-- TODO: Descarga PDF cuando se implemente el endpoint -->
+                    <!-- <button type="submit" @click="setTimeout(() => closeModal(), 1000)"
                         class="px-4 py-2 bg-[#00BABB] text-white rounded-lg hover:bg-[#009999] text-sm font-medium flex items-center gap-2">
-                        <span>⬇️</span> Descargar PDF
-                    </button>
+                        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        Descargar PDF
+                    </button> -->
                 </div>
             </div>
         </form>
