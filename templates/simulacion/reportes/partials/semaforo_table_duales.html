@@ -1,0 +1,318 @@
+{# templates/simulacion/reportes/partials/semaforo_table_duales.html #}
+{# Tabla de contabilización con AMBOS KPIs (Interno + Compromiso) #}
+
+<div class="overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="bg-gray-100">
+                <th class="px-4 py-3 text-left font-semibold text-gray-700 sticky left-0 bg-gray-100 z-10">
+                    Tipo de Solicitud
+                </th>
+                <th class="px-4 py-3 text-center font-semibold text-gray-700">Total</th>
+
+                {# Licitaciones #}
+                <th class="px-4 py-3 text-center font-semibold text-amber-700 bg-amber-50">
+                    Licitaciones
+                </th>
+
+                <!-- KPI INTERNO -->
+                <th colspan="3" class="px-4 py-2 text-center font-semibold text-white bg-emerald-600">
+                    KPI SLA Interno
+                </th>
+                <th class="px-4 py-3 text-center font-semibold text-white bg-emerald-600">%</th>
+                <th class="px-4 py-3 text-center font-semibold text-white bg-emerald-600">Estado</th>
+
+                <!-- KPI COMPROMISO -->
+                <th colspan="3" class="px-4 py-2 text-center font-semibold text-white bg-blue-600">
+                    KPI Compromiso Cliente
+                </th>
+                <th class="px-4 py-3 text-center font-semibold text-white bg-blue-600">%</th>
+                <th class="px-4 py-3 text-center font-semibold text-white bg-blue-600">Estado</th>
+            </tr>
+            <tr class="bg-gray-50 text-xs">
+                <th class="px-4 py-2 text-left sticky left-0 bg-gray-50 z-10"></th>
+                <th class="px-4 py-2"></th>
+                <th class="px-4 py-2 bg-amber-50"></th>
+
+                <!-- Subheaders KPI Interno -->
+                <th class="px-4 py-2 text-center text-emerald-800">En Plazo</th>
+                <th class="px-4 py-2 text-center text-emerald-800">Fuera</th>
+                <th class="px-4 py-2 text-center text-emerald-800">Sin Fecha</th>
+                <th class="px-4 py-2 text-center text-emerald-800">Cumpl.</th>
+                <th class="px-4 py-2 text-center text-emerald-800"></th>
+
+                <!-- Subheaders KPI Compromiso -->
+                <th class="px-4 py-2 text-center text-blue-800">En Plazo</th>
+                <th class="px-4 py-2 text-center text-blue-800">Fuera</th>
+                <th class="px-4 py-2 text-center text-blue-800">Sin Fecha</th>
+                <th class="px-4 py-2 text-center text-blue-800">Cumpl.</th>
+                <th class="px-4 py-2 text-center text-blue-800"></th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+            {% for fila in filas %}
+            {% if fila.total > 0 %}
+            <tr class="hover:bg-gray-50 transition-colors {% if fila.es_levantamiento %}bg-blue-50/30{% endif %}">
+
+                {# Nombre del tipo #}
+                <td class="px-4 py-3 sticky left-0 bg-white hover:bg-gray-50">
+                    <div class="flex items-center gap-2">
+                        {% if fila.es_levantamiento %}
+                        <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-medium">LEV</span>
+                        {% endif %}
+                        <span class="font-medium text-gray-900">{{ fila.nombre }}</span>
+                    </div>
+                    {% if fila.es_levantamiento %}
+                    <p class="text-xs text-gray-500 mt-1">No cuenta para KPI de entregas</p>
+                    {% endif %}
+                </td>
+
+                {# Total #}
+                <td class="px-4 py-3 text-center">
+                    <span class="font-bold text-gray-900">{{ fila.total }}</span>
+                </td>
+
+                {# Licitaciones #}
+                <td class="px-4 py-3 text-center bg-amber-50">
+                    <span class="text-amber-700 font-semibold">
+                        {{ fila.licitaciones }}
+                    </span>
+                    <span class="text-xs text-gray-500 block">
+                        ({{ fila.porcentaje_licitaciones }}%)
+                    </span>
+                </td>
+
+                {# ============================================ #}
+                {# KPI INTERNO #}
+                {# ============================================ #}
+
+                {% if not fila.es_levantamiento %}
+                {# En Plazo Interno #}
+                <td class="px-4 py-3 text-center bg-emerald-50/50">
+                    <span class="font-semibold text-green-600">{{ fila.en_plazo_interno }}</span>
+                </td>
+
+                {# Fuera de Plazo Interno #}
+                <td class="px-4 py-3 text-center bg-emerald-50/50">
+                    <span class="font-semibold text-red-600">{{ fila.fuera_plazo_interno }}</span>
+                </td>
+
+                {# Sin Fecha Interno #}
+                <td class="px-4 py-3 text-center bg-emerald-50/50">
+                    <span class="font-semibold text-gray-500">{{ fila.sin_fecha }}</span>
+                </td>
+
+                {# % Cumplimiento Interno #}
+                <td class="px-4 py-3 text-center bg-emerald-50/50">
+                    <span class="font-bold text-lg
+                            {% if fila.porcentaje_en_plazo_interno >= 90 %}text-green-600
+                            {% elif fila.porcentaje_en_plazo_interno >= 85 %}text-amber-600
+                            {% else %}text-red-600{% endif %}">
+                        {{ fila.porcentaje_en_plazo_interno }}%
+                    </span>
+                </td>
+
+                {# Semáforo Interno #}
+                <td class="px-4 py-3 text-center bg-emerald-50/50">
+                    {% if fila.semaforo_interno == 'green' %}
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green-100"
+                        title=">= 90%">
+                        <span class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
+                    </span>
+                    {% elif fila.semaforo_interno == 'amber' %}
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-amber-100"
+                        title=">= 85% y < 90%">
+                        <span class="w-3 h-3 rounded-full bg-amber-500 animate-pulse"></span>
+                    </span>
+                    {% else %}
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-100" title="< 85%">
+                        <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
+                    </span>
+                    {% endif %}
+                </td>
+                {% else %}
+                {# Levantamientos - No aplica KPI Interno #}
+                <td colspan="5" class="px-4 py-3 text-center bg-gray-100">
+                    <span class="text-gray-400 text-sm italic">No aplica KPI</span>
+                </td>
+                {% endif %}
+
+                {# ============================================ #}
+                {# KPI COMPROMISO #}
+                {# ============================================ #}
+
+                {% if not fila.es_levantamiento %}
+                {# En Plazo Compromiso #}
+                <td class="px-4 py-3 text-center bg-blue-50/50">
+                    <span class="font-semibold text-green-600">{{ fila.en_plazo_compromiso }}</span>
+                </td>
+
+                {# Fuera de Plazo Compromiso #}
+                <td class="px-4 py-3 text-center bg-blue-50/50">
+                    <span class="font-semibold text-orange-600">{{ fila.fuera_plazo_compromiso }}</span>
+                </td>
+
+                {# Sin Fecha Compromiso #}
+                <td class="px-4 py-3 text-center bg-blue-50/50">
+                    <span class="font-semibold text-gray-500">{{ fila.sin_fecha }}</span>
+                </td>
+
+                {# % Cumplimiento Compromiso #}
+                <td class="px-4 py-3 text-center bg-blue-50/50">
+                    <span class="font-bold text-lg
+                            {% if fila.porcentaje_en_plazo_compromiso >= 90 %}text-green-600
+                            {% elif fila.porcentaje_en_plazo_compromiso >= 85 %}text-amber-600
+                            {% else %}text-red-600{% endif %}">
+                        {{ fila.porcentaje_en_plazo_compromiso }}%
+                    </span>
+                </td>
+
+                {# Semáforo Compromiso #}
+                <td class="px-4 py-3 text-center bg-blue-50/50">
+                    {% if fila.semaforo_compromiso == 'green' %}
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green-100"
+                        title=">= 90%">
+                        <span class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
+                    </span>
+                    {% elif fila.semaforo_compromiso == 'amber' %}
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-amber-100"
+                        title=">= 85% y < 90%">
+                        <span class="w-3 h-3 rounded-full bg-amber-500 animate-pulse"></span>
+                    </span>
+                    {% else %}
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-100" title="< 85%">
+                        <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
+                    </span>
+                    {% endif %}
+                </td>
+                {% else %}
+                {# Levantamientos - No aplica KPI Compromiso #}
+                <td colspan="5" class="px-4 py-3 text-center bg-gray-100">
+                    <span class="text-gray-400 text-sm italic">No aplica KPI</span>
+                </td>
+                {% endif %}
+
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+
+        <tfoot>
+            <tr class="bg-gray-100 font-bold">
+                <td class="px-4 py-3 text-gray-700 sticky left-0 bg-gray-100 z-10">TOTAL</td>
+                <td class="px-4 py-3 text-center text-gray-900">
+                    {{ filas|map(attribute='total')|sum }}
+                </td>
+
+                {# Total Licitaciones #}
+                <td class="px-4 py-3 text-center text-amber-700 bg-amber-100">
+                    {{ filas|map(attribute='licitaciones')|sum }}
+                </td>
+
+                {# Totales KPI Interno #}
+                <td class="px-4 py-3 text-center text-green-600 bg-emerald-50">
+                    {{ filas|selectattr('es_levantamiento', 'false')|map(attribute='en_plazo_interno')|sum }}
+                </td>
+                <td class="px-4 py-3 text-center text-red-600 bg-emerald-50">
+                    {{ filas|selectattr('es_levantamiento', 'false')|map(attribute='fuera_plazo_interno')|sum }}
+                </td>
+                <td class="px-4 py-3 text-center text-gray-500 bg-emerald-50">
+                    {{ filas|selectattr('es_levantamiento', 'false')|map(attribute='sin_fecha')|sum }}
+                </td>
+                <td colspan="2" class="px-4 py-3 text-center bg-emerald-50">-</td>
+
+                {# Totales KPI Compromiso #}
+                <td class="px-4 py-3 text-center text-green-600 bg-blue-50">
+                    {{ filas|selectattr('es_levantamiento', 'false')|map(attribute='en_plazo_compromiso')|sum }}
+                </td>
+                <td class="px-4 py-3 text-center text-orange-600 bg-blue-50">
+                    {{ filas|selectattr('es_levantamiento', 'false')|map(attribute='fuera_plazo_compromiso')|sum }}
+                </td>
+                <td class="px-4 py-3 text-center text-gray-500 bg-blue-50">
+                    {{ filas|selectattr('es_levantamiento', 'false')|map(attribute='sin_fecha')|sum }}
+                </td>
+                <td colspan="2" class="px-4 py-3 text-center bg-blue-50">-</td>
+            </tr>
+        </tfoot>
+    </table>
+</div>
+
+{# Leyenda de semáforos #}
+<div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+
+    {# Leyenda KPI Interno #}
+    <div class="bg-emerald-50 border border-emerald-200 rounded-lg p-4">
+        <h4 class="text-sm font-bold text-emerald-900 mb-3 flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Semáforo KPI SLA Interno
+        </h4>
+        <div class="flex flex-wrap items-center gap-4 text-xs text-gray-700">
+            <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-green-500"></span>
+                <span>Verde: ≥ 90%</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-amber-500"></span>
+                <span>Ámbar: ≥ 85% y < 90%</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-red-500"></span>
+                <span>Rojo: < 85%</span>
+            </div>
+        </div>
+        <p class="text-xs text-emerald-800 mt-3 italic">
+            Mide eficiencia interna vs deadline calculado por el sistema
+        </p>
+    </div>
+
+    {# Leyenda KPI Compromiso #}
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <h4 class="text-sm font-bold text-blue-900 mb-3 flex items-center gap-2">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Semáforo KPI Compromiso Cliente
+        </h4>
+        <div class="flex flex-wrap items-center gap-4 text-xs text-gray-700">
+            <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-green-500"></span>
+                <span>Verde: ≥ 90%</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-amber-500"></span>
+                <span>Ámbar: ≥ 85% y < 90%</span>
+            </div>
+            <div class="flex items-center gap-2">
+                <span class="w-3 h-3 rounded-full bg-red-500"></span>
+                <span>Rojo: < 85%</span>
+            </div>
+        </div>
+        <p class="text-xs text-blue-800 mt-3 italic">
+            Mide cumplimiento del compromiso con el cliente (incluye negociaciones)
+        </p>
+    </div>
+
+</div>
+
+{# Nota informativa #}
+<div class="mt-4 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+    <div class="flex items-start gap-3">
+        <svg class="w-5 h-5 text-yellow-600 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <div class="text-sm text-yellow-800">
+            <p class="font-medium">¿Cuándo difieren los KPIs?</p>
+            <p class="mt-1 text-yellow-700">
+                Los KPIs Interno y Compromiso pueden ser diferentes cuando se negocia una extensión o adelanto de fecha
+                con el cliente.
+                Por ejemplo: si el sistema calculó entrega el 15-Ene pero se negoció con el cliente el 20-Ene,
+                una entrega el 17-Ene aparecerá como "tarde" en KPI Interno pero "a tiempo" en KPI Compromiso.
+            </p>
+        </div>
+    </div>
+</div>

@@ -28,7 +28,7 @@
         <div class="flex flex-col">
             <h3 class="text-lg font-bold text-gray-700">
                 {% if current_tab == 'activos' %}Solicitudes Activas
-                {% elif current_tab == 'historial' %}Historial y Finalizados
+                {% elif current_tab == 'historial' %}Ofertas Generadas
                 {% elif current_tab == 'levantamientos' %}Seguimiento de Levantamientos
                 {% elif current_tab == 'ganadas' %}Oportunidades Ganadas
                 {% else %}Listado{% endif %}
@@ -105,7 +105,7 @@
                                 </th>
                                 <th scope="col"
                                     class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-48">
-                                    Enviado
+                                    Fecha de Solicitud
                                 </th>
                                 <th scope="col"
                                     class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-40">
@@ -151,7 +151,7 @@
                                                     hx-target="body" hx-swap="beforeend"
                                                     class="w-full text-blue-600 hover:text-blue-700 border border-blue-300 hover:border-blue-500 px-3 py-1.5 rounded bg-blue-50 hover:bg-blue-100 flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow">
                                                     <span>💬</span>
-                                                    <span>Actualizar Comentarios</span>
+                                                    <span>Ver/Enviar Comentarios</span>
                                                 </button>
                                             </div>
 
@@ -222,14 +222,27 @@
                                         <div class="text-sm font-mono text-gray-700 font-bold whitespace-nowrap">
                                             {{ op.id_interno_simulacion or 'N/A' }}
                                         </div>
-                                        <div
-                                            class="text-xs text-gray-500 mt-1 whitespace-nowrap overflow-hidden text-ellipsis">
-                                            {{ op.titulo_proyecto or op.nombre_proyecto }}
+                                        <div class="text-xs text-gray-500 mt-1 max-w-[280px]"
+                                            style="overflow-wrap: break-word; word-wrap: break-word;">
+                                            {% set titulo = op.titulo_proyecto or op.nombre_proyecto %}
+                                            {% if titulo and titulo|length > 50 %}
+                                            {{ titulo[:50] }}...
+                                            {% else %}
+                                            {{ titulo }}
+                                            {% endif %}
                                         </div>
                                         <div class="text-xs text-gray-400 mt-1 whitespace-nowrap">
                                             <span class="font-semibold text-gray-500">Solicitado por:</span> {{
                                             op.solicitado_por or 'Desconocido' }}
                                         </div>
+                                        {% if op.es_licitacion %}
+                                        <div class="mt-1">
+                                            <span
+                                                class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-800">
+                                                🏛️ Licitación
+                                            </span>
+                                        </div>
+                                        {% endif %}
                                     </td>
 
                                     <!-- COL 3: Ingeniero Asignado (ReadOnly) -->
@@ -343,12 +356,19 @@
                                         </span>
                                         {% endif %}
 
-                                        {% if op.tipo_solicitud and 'LEVANTAMIENTO' in op.tipo_solicitud.upper() %}
+                                        {% if op.tipo_solicitud and 'LEVANTAMIENTO' in op.tipo_solicitud.upper() and
+                                        current_tab != 'levantamientos' %}
                                         <div class="mt-1">
                                             <span
                                                 class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-purple-100 text-purple-800">
                                                 Levantamiento
                                             </span>
+                                        </div>
+                                        {% endif %}
+
+                                        {% if op.fecha_entrega_simulacion %}
+                                        <div class="mt-2 text-xs text-gray-500">
+                                            📅 {{ op.fecha_entrega_simulacion | time_mx }}
                                         </div>
                                         {% endif %}
                                     </td>

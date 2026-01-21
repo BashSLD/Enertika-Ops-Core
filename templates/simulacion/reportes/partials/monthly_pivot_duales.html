@@ -1,0 +1,362 @@
+{# templates/simulacion/reportes/partials/monthly_pivot_duales.html #}
+{# Tabla pivot de resumen mensual con KPIs Duales #}
+
+<div class="overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="bg-[#123456] text-white">
+                <th class="px-4 py-3 text-left font-semibold sticky left-0 bg-[#123456] z-10">Métrica</th>
+                {% for mes in meses %}
+                <th class="px-4 py-3 text-center font-semibold min-w-[80px]">{{ meses_nombres[mes] }}</th>
+                {% endfor %}
+                <th class="px-4 py-3 text-center font-semibold bg-[#0d2440] min-w-[100px]">Total</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-200">
+
+            {# ========================================= #}
+            {# MÉTRICAS GENERALES #}
+            {# ========================================= #}
+
+            {# Solicitudes Recibidas #}
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">Solicitudes Recibidas</td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center">{{ resumen.solicitudes_recibidas.valores.get(mes, 0) }}</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50">{{ resumen.solicitudes_recibidas.total }}</td>
+            </tr>
+
+            {# Ofertas Generadas #}
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">Ofertas Generadas</td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center">{{ resumen.ofertas_generadas.valores.get(mes, 0) }}</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50">{{ resumen.ofertas_generadas.total }}</td>
+            </tr>
+
+            {# SEPARADOR #}
+            <tr class="bg-gray-100">
+                <td colspan="100"
+                    class="px-4 py-2 text-xs font-bold text-gray-600 uppercase tracking-wide sticky left-0">
+                    KPI SLA Interno (vs Deadline Sistema)
+                </td>
+            </tr>
+
+            {# ========================================= #}
+            {# KPI INTERNO #}
+            {# ========================================= #}
+
+            {# % Entregas en Plazo - Interno #}
+            <tr class="hover:bg-gray-50 bg-emerald-50/50">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-emerald-50/50">
+                    % Entregas en Plazo
+                    <span class="block text-xs text-gray-500 font-normal mt-0.5">KPI SLA Interno</span>
+                </td>
+                {% for mes in meses %}
+                {% set valor = resumen.porcentaje_en_plazo_interno.valores.get(mes, 0) %}
+                <td class="px-4 py-3 text-center 
+                    {% if valor >= 90 %}text-green-600
+                    {% elif valor >= 85 %}text-amber-600
+                    {% else %}text-red-600{% endif %} font-semibold">
+                    {{ valor }}%
+                </td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 
+                    {% if resumen.porcentaje_en_plazo_interno.total >= 90 %}text-green-600
+                    {% elif resumen.porcentaje_en_plazo_interno.total >= 85 %}text-amber-600
+                    {% else %}text-red-600{% endif %}">
+                    {{ resumen.porcentaje_en_plazo_interno.total }}%
+                </td>
+            </tr>
+
+            {# % Entregas Fuera de Plazo - Interno #}
+            <tr class="hover:bg-gray-50 bg-red-50/30">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-red-50/30">
+                    % Entregas Fuera de Plazo
+                    <span class="block text-xs text-gray-500 font-normal mt-0.5">KPI SLA Interno</span>
+                </td>
+                {% for mes in meses %}
+                {% set valor = resumen.porcentaje_fuera_plazo_interno.valores.get(mes, 0) %}
+                <td class="px-4 py-3 text-center text-red-600 font-semibold">{{ valor }}%</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-red-600">
+                    {{ resumen.porcentaje_fuera_plazo_interno.total }}%
+                </td>
+            </tr>
+
+            {# Entregas a Tiempo - Interno (Conteo) #}
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 text-sm text-gray-600 sticky left-0 bg-white pl-8">
+                    → En Plazo (conteo)
+                </td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center text-green-600 text-xs">
+                    {{ resumen.entregas_a_tiempo_interno.valores.get(mes, 0) }}
+                </td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center bg-gray-50 text-green-600 text-sm font-semibold">
+                    {{ resumen.entregas_a_tiempo_interno.total }}
+                </td>
+            </tr>
+
+            {# Entregas Tarde - Interno (Conteo) #}
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 text-sm text-gray-600 sticky left-0 bg-white pl-8">
+                    → Fuera de Plazo (conteo)
+                </td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center text-red-600 text-xs">
+                    {{ resumen.entregas_tarde_interno.valores.get(mes, 0) }}
+                </td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center bg-gray-50 text-red-600 text-sm font-semibold">
+                    {{ resumen.entregas_tarde_interno.total }}
+                </td>
+            </tr>
+
+            {# SEPARADOR #}
+            <tr class="bg-gray-100">
+                <td colspan="100"
+                    class="px-4 py-2 text-xs font-bold text-gray-600 uppercase tracking-wide sticky left-0">
+                    KPI Compromiso Cliente (vs Deadline Negociado)
+                </td>
+            </tr>
+
+            {# ========================================= #}
+            {# KPI COMPROMISO #}
+            {# ========================================= #}
+
+            {# % Entregas en Plazo - Compromiso #}
+            <tr class="hover:bg-gray-50 bg-blue-50/50">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-blue-50/50">
+                    % Entregas en Plazo
+                    <span class="block text-xs text-gray-500 font-normal mt-0.5">KPI Compromiso Cliente</span>
+                </td>
+                {% for mes in meses %}
+                {% set valor = resumen.porcentaje_en_plazo_compromiso.valores.get(mes, 0) %}
+                <td class="px-4 py-3 text-center 
+                    {% if valor >= 90 %}text-green-600
+                    {% elif valor >= 85 %}text-amber-600
+                    {% else %}text-red-600{% endif %} font-semibold">
+                    {{ valor }}%
+                </td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 
+                    {% if resumen.porcentaje_en_plazo_compromiso.total >= 90 %}text-green-600
+                    {% elif resumen.porcentaje_en_plazo_compromiso.total >= 85 %}text-amber-600
+                    {% else %}text-red-600{% endif %}">
+                    {{ resumen.porcentaje_en_plazo_compromiso.total }}%
+                </td>
+            </tr>
+
+            {# % Entregas Fuera de Plazo - Compromiso #}
+            <tr class="hover:bg-gray-50 bg-orange-50/30">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-orange-50/30">
+                    % Entregas Fuera de Plazo
+                    <span class="block text-xs text-gray-500 font-normal mt-0.5">KPI Compromiso Cliente</span>
+                </td>
+                {% for mes in meses %}
+                {% set valor = resumen.porcentaje_fuera_plazo_compromiso.valores.get(mes, 0) %}
+                <td class="px-4 py-3 text-center text-orange-600 font-semibold">{{ valor }}%</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-orange-600">
+                    {{ resumen.porcentaje_fuera_plazo_compromiso.total }}%
+                </td>
+            </tr>
+
+            {# Entregas a Tiempo - Compromiso (Conteo) #}
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 text-sm text-gray-600 sticky left-0 bg-white pl-8">
+                    → En Plazo (conteo)
+                </td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center text-green-600 text-xs">
+                    {{ resumen.entregas_a_tiempo_compromiso.valores.get(mes, 0) }}
+                </td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center bg-gray-50 text-green-600 text-sm font-semibold">
+                    {{ resumen.entregas_a_tiempo_compromiso.total }}
+                </td>
+            </tr>
+
+            {# Entregas Tarde - Compromiso (Conteo) #}
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 text-sm text-gray-600 sticky left-0 bg-white pl-8">
+                    → Fuera de Plazo (conteo)
+                </td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center text-orange-600 text-xs">
+                    {{ resumen.entregas_tarde_compromiso.valores.get(mes, 0) }}
+                </td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center bg-gray-50 text-orange-600 text-sm font-semibold">
+                    {{ resumen.entregas_tarde_compromiso.total }}
+                </td>
+            </tr>
+
+            {# SEPARADOR #}
+            <tr class="bg-gray-100">
+                <td colspan="100"
+                    class="px-4 py-2 text-xs font-bold text-gray-600 uppercase tracking-wide sticky left-0">
+                    Otras Métricas
+                </td>
+            </tr>
+
+            {# ========================================= #}
+            {# OTRAS MÉTRICAS #}
+            {# ========================================= #}
+
+            {# Tiempo Promedio #}
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">Tiempo Prom. (días)</td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center">{{ resumen.tiempo_promedio.valores.get(mes, '-') }}</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50">{{ resumen.tiempo_promedio.total }}</td>
+            </tr>
+
+            {# En Espera #}
+            <tr class="hover:bg-gray-50 bg-amber-50/50">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-amber-50/50">En Espera</td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center text-amber-600">{{ resumen.en_espera.valores.get(mes, 0) }}</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-amber-600">{{ resumen.en_espera.total }}</td>
+            </tr>
+
+            {# Canceladas #}
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">Canceladas</td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center">{{ resumen.canceladas.valores.get(mes, 0) }}</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50">{{ resumen.canceladas.total }}</td>
+            </tr>
+
+            {# No Viables #}
+            <tr class="hover:bg-gray-50">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">No Viables</td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center">{{ resumen.no_viables.valores.get(mes, 0) }}</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50">{{ resumen.no_viables.total }}</td>
+            </tr>
+
+            {# Perdidas #}
+            <tr class="hover:bg-gray-50 bg-red-50/30">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-red-50/30">Perdidas</td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center text-red-600">{{ resumen.perdidas.valores.get(mes, 0) }}</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-red-600">{{ resumen.perdidas.total }}</td>
+            </tr>
+
+            {# Extraordinarias #}
+            <tr class="hover:bg-gray-50 bg-indigo-50/50">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-indigo-50/50">Extraordinarias</td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center text-indigo-600">{{ resumen.extraordinarias.valores.get(mes, 0) }}</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-indigo-600">{{ resumen.extraordinarias.total
+                    }}</td>
+            </tr>
+
+            {# Actualizaciones #}
+            <tr class="hover:bg-gray-50 bg-purple-50/50">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-purple-50/50">
+                    Actualizaciones
+                    <span class="block text-xs text-gray-500 font-normal mt-0.5">Cambios de alcance (parent_id)</span>
+                </td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center text-purple-600">{{ resumen.versiones.valores.get(mes, 0) }}</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-purple-600">{{ resumen.versiones.total }}
+                </td>
+            </tr>
+
+            {# Retrabajos #}
+            <tr class="hover:bg-gray-50 bg-cyan-50/50">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-cyan-50/50">
+                    Retrabajos
+                    <span class="block text-xs text-gray-500 font-normal mt-0.5">Correcciones (es_retrabajo)</span>
+                </td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center text-cyan-600">{{ resumen.retrabajos.valores.get(mes, 0) }}</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-cyan-600">{{ resumen.retrabajos.total }}</td>
+            </tr>
+
+        </tbody>
+    </table>
+</div>
+
+{# Notas informativas #}
+<div class="mt-6 space-y-4">
+
+    {# Nota 1: Diferencia entre KPIs #}
+    <div class="p-4 bg-gradient-to-r from-emerald-50 to-blue-50 border-l-4 border-emerald-500 rounded-r-lg">
+        <div class="flex items-start gap-3">
+            <svg class="w-5 h-5 text-emerald-600 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div class="text-sm">
+                <p class="font-medium text-gray-900">Diferencia entre KPI Interno y KPI Compromiso</p>
+                <p class="mt-1 text-gray-700">
+                    <span class="font-semibold text-emerald-700">KPI SLA Interno:</span> Mide eficiencia del equipo
+                    contra deadlines automáticos del sistema (no cambia con negociaciones).
+                </p>
+                <p class="mt-1 text-gray-700">
+                    <span class="font-semibold text-blue-700">KPI Compromiso Cliente:</span> Mide cumplimiento del
+                    acuerdo con el cliente (incluye extensiones negociadas).
+                </p>
+            </div>
+        </div>
+    </div>
+
+    {# Nota 2: Cálculo de porcentajes #}
+    <div class="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+        <div class="flex items-start gap-3">
+            <svg class="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+            <div class="text-sm text-blue-800">
+                <p class="font-medium">Nota sobre los porcentajes</p>
+                <p class="mt-1 text-blue-700">
+                    Los porcentajes se calculan sobre las ofertas que tienen KPI asignado (Entregadas + Perdidas).
+                    Los levantamientos no se incluyen en el cálculo de % de entregas.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    {# Nota 3: Versiones vs Retrabajos #}
+    <div class="p-4 bg-purple-50 border border-purple-200 rounded-lg">
+        <div class="flex items-start gap-3">
+            <svg class="w-5 h-5 text-purple-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div class="text-sm text-purple-800">
+                <p class="font-medium">Diferencia: Actualizaciones vs Retrabajos</p>
+                <div class="mt-2 space-y-1">
+                    <p class="text-purple-700">
+                        <span class="font-semibold">Actualizaciones:</span> Oportunidades con cambios de
+                        alcance, solicitudes de cliente.
+                    </p>
+                    <p class="text-purple-700">
+                        <span class="font-semibold">Retrabajos:</span> Sitios marcados con correcciones por error
+                        interno
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>

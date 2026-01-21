@@ -1,5 +1,5 @@
 {# templates/simulacion/reportes/partials/monthly_pivot.html #}
-{# Tabla pivot de resumen mensual #}
+{# Tabla pivot de resumen mensual con KPIs Duales #}
 
 <div class="overflow-x-auto">
     <table class="w-full text-sm">
@@ -21,7 +21,7 @@
                 {% endfor %}
                 <td class="px-4 py-3 text-center font-bold bg-gray-50">{{ resumen.solicitudes_recibidas.total }}</td>
             </tr>
-            
+
             {# Ofertas Generadas #}
             <tr class="hover:bg-gray-50">
                 <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">Ofertas Generadas</td>
@@ -30,31 +30,57 @@
                 {% endfor %}
                 <td class="px-4 py-3 text-center font-bold bg-gray-50">{{ resumen.ofertas_generadas.total }}</td>
             </tr>
-            
-            {# % Entregas en Plazo #}
-            <tr class="hover:bg-gray-50 bg-green-50/50">
-                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-green-50/50">% Entregas en Plazo</td>
+
+            {# % Entregas en Plazo - KPI INTERNO #}
+            <tr class="hover:bg-gray-50 bg-emerald-50/30">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-emerald-50/30">
+                    % Entregas en Plazo (SLA Interno)
+                    <span class="text-xs text-gray-500 block">vs Deadline Sistema</span>
+                </td>
                 {% for mes in meses %}
-                {% set valor = resumen.porcentaje_en_plazo.valores.get(mes, 0) %}
-                <td class="px-4 py-3 text-center {% if valor >= 90 %}text-green-600{% elif valor >= 85 %}text-amber-600{% else %}text-red-600{% endif %} font-semibold">
+                {% set valor = resumen.porcentaje_en_plazo_interno.valores.get(mes, 0) %}
+                <td
+                    class="px-4 py-3 text-center {% if valor >= 90 %}text-green-600{% elif valor >= 85 %}text-amber-600{% else %}text-red-600{% endif %} font-semibold">
                     {{ valor }}%
                 </td>
                 {% endfor %}
-                <td class="px-4 py-3 text-center font-bold bg-gray-50 {% if resumen.porcentaje_en_plazo.total >= 90 %}text-green-600{% elif resumen.porcentaje_en_plazo.total >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
-                    {{ resumen.porcentaje_en_plazo.total }}%
+                <td
+                    class="px-4 py-3 text-center font-bold bg-gray-50 {% if resumen.porcentaje_en_plazo_interno.total >= 90 %}text-green-600{% elif resumen.porcentaje_en_plazo_interno.total >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
+                    {{ resumen.porcentaje_en_plazo_interno.total }}%
                 </td>
             </tr>
-            
-            {# % Entregas Fuera de Plazo #}
+
+            {# % Entregas en Plazo - KPI COMPROMISO #}
+            <tr class="hover:bg-gray-50 bg-blue-50/30">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-blue-50/30">
+                    % Entregas en Plazo (Compromiso)
+                    <span class="text-xs text-gray-500 block">vs Deadline Negociado</span>
+                </td>
+                {% for mes in meses %}
+                {% set valor = resumen.porcentaje_en_plazo_compromiso.valores.get(mes, 0) %}
+                <td
+                    class="px-4 py-3 text-center {% if valor >= 90 %}text-green-600{% elif valor >= 85 %}text-amber-600{% else %}text-red-600{% endif %} font-semibold">
+                    {{ valor }}%
+                </td>
+                {% endfor %}
+                <td
+                    class="px-4 py-3 text-center font-bold bg-gray-50 {% if resumen.porcentaje_en_plazo_compromiso.total >= 90 %}text-green-600{% elif resumen.porcentaje_en_plazo_compromiso.total >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
+                    {{ resumen.porcentaje_en_plazo_compromiso.total }}%
+                </td>
+            </tr>
+
+            {# % Entregas Fuera de Plazo (Compromiso) #}
             <tr class="hover:bg-gray-50 bg-red-50/50">
-                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-red-50/50">% Entregas Fuera de Plazo</td>
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-red-50/50">% Entregas Fuera de Plazo
+                </td>
                 {% for mes in meses %}
                 {% set valor = resumen.porcentaje_fuera_plazo.valores.get(mes, 0) %}
                 <td class="px-4 py-3 text-center text-red-600 font-semibold">{{ valor }}%</td>
                 {% endfor %}
-                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-red-600">{{ resumen.porcentaje_fuera_plazo.total }}%</td>
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-red-600">{{
+                    resumen.porcentaje_fuera_plazo.total }}%</td>
             </tr>
-            
+
             {# Tiempo Promedio #}
             <tr class="hover:bg-gray-50">
                 <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">Tiempo Prom. (días)</td>
@@ -63,7 +89,7 @@
                 {% endfor %}
                 <td class="px-4 py-3 text-center font-bold bg-gray-50">{{ resumen.tiempo_promedio.total }}</td>
             </tr>
-            
+
             {# En Espera #}
             <tr class="hover:bg-gray-50 bg-amber-50/50">
                 <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-amber-50/50">En Espera</td>
@@ -72,7 +98,7 @@
                 {% endfor %}
                 <td class="px-4 py-3 text-center font-bold bg-gray-50 text-amber-600">{{ resumen.en_espera.total }}</td>
             </tr>
-            
+
             {# Canceladas #}
             <tr class="hover:bg-gray-50">
                 <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">Canceladas</td>
@@ -81,7 +107,7 @@
                 {% endfor %}
                 <td class="px-4 py-3 text-center font-bold bg-gray-50">{{ resumen.canceladas.total }}</td>
             </tr>
-            
+
             {# No Viables #}
             <tr class="hover:bg-gray-50">
                 <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">No Viables</td>
@@ -90,7 +116,7 @@
                 {% endfor %}
                 <td class="px-4 py-3 text-center font-bold bg-gray-50">{{ resumen.no_viables.total }}</td>
             </tr>
-            
+
             {# Perdidas #}
             <tr class="hover:bg-gray-50 bg-red-50/30">
                 <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-red-50/30">Perdidas</td>
@@ -99,23 +125,40 @@
                 {% endfor %}
                 <td class="px-4 py-3 text-center font-bold bg-gray-50 text-red-600">{{ resumen.perdidas.total }}</td>
             </tr>
-            
+
             {# Extraordinarias #}
             <tr class="hover:bg-gray-50 bg-indigo-50/50">
                 <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-indigo-50/50">Extraordinarias</td>
                 {% for mes in meses %}
                 <td class="px-4 py-3 text-center text-indigo-600">{{ resumen.extraordinarias.valores.get(mes, 0) }}</td>
                 {% endfor %}
-                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-indigo-600">{{ resumen.extraordinarias.total }}</td>
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-indigo-600">{{ resumen.extraordinarias.total
+                    }}</td>
             </tr>
-            
-            {# Retrabajadas #}
-            <tr class="hover:bg-gray-50 bg-cyan-50/50">
-                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-cyan-50/50">Retrabajadas</td>
+
+            {# Actualizaciones (parent_id) #}
+            <tr class="hover:bg-gray-50 bg-violet-50/30">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-violet-50/30">
+                    Actualizaciones
+                    <span class="text-xs text-gray-500 block">Cambios de alcance</span>
+                </td>
                 {% for mes in meses %}
-                <td class="px-4 py-3 text-center text-cyan-600">{{ resumen.retrabajadas.valores.get(mes, 0) }}</td>
+                <td class="px-4 py-3 text-center text-violet-600">{{ resumen.versiones.valores.get(mes, 0) }}</td>
                 {% endfor %}
-                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-cyan-600">{{ resumen.retrabajadas.total }}</td>
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-violet-600">{{ resumen.versiones.total }}
+                </td>
+            </tr>
+
+            {# Retrabajos REALES #}
+            <tr class="hover:bg-gray-50 bg-cyan-50/50">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-cyan-50/50">
+                    Retrabajos
+                    <span class="text-xs text-gray-500 block">Sitios con errores corregidos</span>
+                </td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center text-cyan-600">{{ resumen.retrabajos.valores.get(mes, 0) }}</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-cyan-600">{{ resumen.retrabajos.total }}</td>
             </tr>
         </tbody>
     </table>
@@ -125,12 +168,14 @@
 <div class="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg">
     <div class="flex items-start gap-3">
         <svg class="w-5 h-5 text-blue-500 mt-0.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
         </svg>
         <div class="text-sm text-blue-800">
-            <p class="font-medium">Nota sobre los porcentajes</p>
+            <p class="font-medium">Nota sobre los KPIs</p>
             <p class="mt-1 text-blue-700">
-                Los porcentajes se calculan sobre las ofertas que tienen KPI asignado (Entregadas + Perdidas).
+                <strong>SLA Interno:</strong> Mide entregas vs deadline calculado por el sistema.<br>
+                <strong>Compromiso:</strong> Mide entregas vs deadline negociado con cliente.<br>
                 Los levantamientos no se incluyen en el cálculo de % de entregas.
             </p>
         </div>

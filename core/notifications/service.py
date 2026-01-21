@@ -82,6 +82,28 @@ class NotificationsService:
         )
         logger.info(f"[NOTIF] Marcada como leída: {notification_id}")
     
+    async def delete_notification(self, conn, notification_id: UUID, usuario_id: UUID) -> bool:
+        """
+        Elimina una notificación de un usuario.
+        
+        Args:
+            conn: Conexión a base de datos
+            notification_id: ID de la notificación
+            usuario_id: ID del usuario (para seguridad)
+            
+        Returns:
+            True si se eliminó, False si no existía
+        """
+        result = await conn.execute(
+            "DELETE FROM tb_notificaciones WHERE id = $1 AND usuario_id = $2",
+            notification_id,
+            usuario_id
+        )
+        # asyncpg retorna "DELETE X" donde X es el número de filas eliminadas
+        deleted_count = int(result.split()[-1])
+        logger.info(f"[NOTIF] Eliminada: {notification_id} (rows: {deleted_count})")
+        return deleted_count > 0
+    
     async def create_notification(
         self,
         conn,

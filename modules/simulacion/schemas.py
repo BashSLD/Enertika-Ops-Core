@@ -90,6 +90,15 @@ class SimulacionUpdate(BaseModel):
 
     # Flag auxiliar para validación (no persiste en BD)
     tiene_detalles_bess: Optional[bool] = False
+    
+    # Campos para historial de cambios de deadline
+    id_motivo_cambio_deadline: Optional[int] = None
+    comentario_cambio_deadline: Optional[str] = None
+    
+    # NUEVOS: Campos para retrabajo al cerrar como ENTREGADO
+    es_retrabajo: Optional[bool] = False
+    id_motivo_retrabajo: Optional[int] = None
+    sitios_retrabajo_ids: Optional[List[UUID]] = None  # Sitios específicos a marcar (multi-sitio)
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -115,12 +124,24 @@ class SimulacionUpdate(BaseModel):
 class SitiosBatchUpdate(BaseModel):
     """
     Para la actualización masiva de hijos (Multisitio).
+    Soporta marcado de retrabajo por sitio.
     """
     ids_sitios: List[UUID]  # IDs de la tabla tb_sitios_oportunidad
     id_estatus_global: int
     fecha_cierre: Optional[datetime] = None
     
+    # Campos para Retrabajos
+    es_retrabajo: Optional[bool] = False
+    id_motivo_retrabajo: Optional[int] = None
+    
     model_config = ConfigDict(from_attributes=True)
+    
+    @field_validator('id_motivo_retrabajo', mode='before')
+    def empty_string_to_none(cls, v):
+        """Convierte strings vacíos a None"""
+        if v == "":
+            return None
+        return v
 
 # --- Read Schemas (Legacy/UI support) ---
 

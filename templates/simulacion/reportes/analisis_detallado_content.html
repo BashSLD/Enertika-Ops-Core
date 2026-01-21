@@ -1,0 +1,257 @@
+{# templates/simulacion/reportes/analisis_detallado_content.html #}
+
+<div class="max-w-[1600px] mx-auto px-6 pb-12 space-y-8" x-data="{
+        filtros: {
+            fecha_inicio: '{{ filtros_aplicados.fecha_inicio }}',
+            fecha_fin: '{{ filtros_aplicados.fecha_fin }}',
+            tecnologia: '{{ filtros_aplicados.tecnologia or '' }}',
+            tipo: '{{ filtros_aplicados.tipo_solicitud or '' }}',
+            estatus: '{{ filtros_aplicados.estatus or '' }}',
+            usuario: '{{ filtros_aplicados.usuario or '' }}'
+        },
+        formatDateRange() {
+            if(!this.filtros.fecha_inicio || !this.filtros.fecha_fin) return '';
+            const f1 = new Date(this.filtros.fecha_inicio + 'T00:00:00');
+            const f2 = new Date(this.filtros.fecha_fin + 'T00:00:00');
+            const opts = { day: 'numeric', month: 'short' };
+            return `${f1.toLocaleDateString('es-MX', opts)} - ${f2.toLocaleDateString('es-MX', opts)}`;
+        },
+        aplicarFiltros() {
+            let url = `/simulacion/reportes/analisis-detallado?`;
+            url += `start_date=${this.filtros.fecha_inicio}`;
+            url += `&end_date=${this.filtros.fecha_fin}`;
+            if(this.filtros.tecnologia) url += `&tech_id=${this.filtros.tecnologia}`;
+            if(this.filtros.tipo) url += `&type_id=${this.filtros.tipo}`;
+            if(this.filtros.estatus) url += `&status_id=${this.filtros.estatus}`;
+            if(this.filtros.usuario) url += `&user_id=${this.filtros.usuario}`;
+            
+            htmx.ajax('GET', url, {
+                target: '#report-content', 
+                indicator: '#loading-overlay-analisis'
+            });
+        },
+        limpiarFiltros() {
+            const now = new Date();
+            const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
+            this.filtros.fecha_inicio = firstDay.toISOString().split('T')[0];
+            this.filtros.fecha_fin = now.toISOString().split('T')[0];
+            this.filtros.tecnologia = '';
+            this.filtros.tipo = '';
+            this.filtros.estatus = '';
+            this.filtros.usuario = '';
+            this.aplicarFiltros();
+        }
+     }">
+
+
+    <!-- Overlay de Carga -->
+    <div id="loading-overlay-analisis"
+        class="htmx-indicator opacity-0 pointer-events-none absolute inset-0 bg-white/60 backdrop-blur-[2px] z-50 flex items-center justify-center rounded-xl transition-all duration-300"
+        style="transition: opacity 0.3s ease;">
+        <div
+            class="bg-white px-6 py-4 rounded-full shadow-xl border border-blue-100 flex items-center gap-3 transform scale-100">
+            <svg class="animate-spin h-5 w-5 text-[#00BABB]" xmlns="http://www.w3.org/2000/svg" fill="none"
+                viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                </path>
+            </svg>
+            <span class="font-medium text-gray-700 tracking-wide">Cargando datos...</span>
+        </div>
+    </div>
+
+    <style>
+        .htmx-request #loading-overlay-analisis,
+        .htmx-request.htmx-indicator,
+        #loading-overlay-analisis.htmx-request {
+            opacity: 1 !important;
+            pointer-events: auto !important;
+        }
+    </style>
+
+    <!-- Header & Filtros -->
+    <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Análisis Detallado - KPIs Duales</h1>
+            <p class="text-sm text-gray-600 mt-1">
+                Comparación de SLA Interno vs Compromiso Cliente - <span class="font-semibold text-gray-900"
+                    x-text="formatDateRange()"></span>
+            </p>
+        </div>
+
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-wrap gap-4 items-center">
+
+            <!-- Botón Ayuda -->
+
+
+            <div class="flex flex-col gap-1">
+                <div class="flex items-center gap-2 bg-gray-50 rounded-lg p-2 border border-gray-200">
+                    <span class="text-xs text-gray-500 uppercase font-semibold">Rango:</span>
+                    <input type="date" x-model="filtros.fecha_inicio" @change="aplicarFiltros()"
+                        class="text-sm border-0 bg-transparent p-0 focus:ring-0 text-gray-700 w-28">
+                    <span class="text-gray-400">-</span>
+                    <input type="date" x-model="filtros.fecha_fin" @change="aplicarFiltros()"
+                        class="text-sm border-0 bg-transparent p-0 focus:ring-0 text-gray-700 w-28">
+                </div>
+                <!-- Leyenda de ayuda para fechas -->
+                <p class="text-xs text-red-600 font-medium">Para ver detalles selecciona un rango de fechas</p>
+            </div>
+
+            <div class="h-8 w-px bg-gray-200"></div>
+
+            <select x-model="filtros.tecnologia" @change="aplicarFiltros()"
+                class="text-sm border-gray-300 rounded-lg focus:ring-[#00BABB] focus:border-[#00BABB]">
+                <option value="">Todas las Tecnologías</option>
+                {% for tech in catalogos.tecnologias %}
+                <option value="{{ tech.id }}">{{ tech.nombre }}</option>
+                {% endfor %}
+            </select>
+
+            <button @click="limpiarFiltros()"
+                class="text-sm text-gray-500 hover:text-red-600 transition-colors flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Limpiar
+            </button>
+        </div>
+    </div>
+
+    <!-- SECTION 1: Chips Duales -->
+    <section>
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <span class="w-1.5 h-6 bg-[#00BABB] rounded-r-full"></span>
+                Métricas Generales
+            </h2>
+        </div>
+        {% include "simulacion/reportes/partials/kpis_cards_duales.html" %}
+    </section>
+
+    <!-- SECTION 2: Comparativa Visual de KPIs (Opcional, si se desea) -->
+    <!-- Aquí podríamos poner gráficas comparativas pequeñas si fuera necesario -->
+
+    <!-- SECTION 3: Tablas por Tecnología -->
+    <section>
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <span class="w-1.5 h-6 bg-purple-500 rounded-r-full"></span>
+                Desglose por Tecnología
+            </h2>
+        </div>
+        {% include "simulacion/reportes/partials/tech_tables_duales.html" %}
+    </section>
+
+    <!-- SECTION 4: Tabla de Contabilización (Pivot Tipos) -->
+    <section>
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <span class="w-1.5 h-6 bg-indigo-500 rounded-r-full"></span>
+                Contabilización por Tipo de Solicitud
+            </h2>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+            {% include "simulacion/reportes/partials/semaforo_table_duales.html" %}
+        </div>
+    </section>
+
+    <!-- SECTION 5: Resumen Mensual -->
+    <section>
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <span class="w-1.5 h-6 bg-amber-500 rounded-r-full"></span>
+                Tendencia Mensual
+            </h2>
+        </div>
+        <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden overflow-x-auto">
+            {% include "simulacion/reportes/partials/monthly_pivot_duales.html" %}
+        </div>
+    </section>
+
+    <!-- SECTION 6: Detalle por Usuario -->
+    <section>
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <span class="w-1.5 h-6 bg-slate-500 rounded-r-full"></span>
+                Performance por Usuario
+            </h2>
+        </div>
+        {% include "simulacion/reportes/partials/user_detail_duales.html" %}
+    </section>
+
+    {# ============================================================ #}
+    {# NUEVA SECCIÓN: RESUMEN EJECUTIVO GLOBAL #}
+    {# ============================================================ #}
+    <section class="mt-12">
+        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200 shadow-lg p-8">
+            <div class="flex items-center gap-3 mb-6">
+                <div class="p-3 bg-blue-500 rounded-lg">
+                    <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                </div>
+                <div>
+                    <h2 class="text-2xl font-bold text-gray-900">📊 Resumen Ejecutivo</h2>
+                    <p class="text-sm text-gray-600 mt-1">Síntesis del período analizado</p>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-lg p-6 shadow-sm">
+                {% with resumen=resumen_ejecutivo %}
+                {% include "simulacion/reportes/partials/resumen_ejecutivo.html" %}
+                {% endwith %}
+            </div>
+
+            {# Botón para copiar al portapapeles #}
+            <div class="mt-4 flex justify-end">
+                <button onclick="copiarResumen()"
+                    class="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white text-sm rounded-lg transition-colors flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    </svg>
+                    Copiar Resumen
+                </button>
+            </div>
+        </div>
+    </section>
+
+    <script>
+        function copiarResumen() {
+            const resumen = document.querySelector('.prose').innerText;
+            navigator.clipboard.writeText(resumen).then(() => {
+                // Opcional: Usar toast notification en lugar de alert
+                alert('✅ Resumen copiado al portapapeles');
+            });
+        }
+
+        // Modal Helpers
+        function openModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.remove('hidden');
+                setTimeout(() => {
+                    modal.classList.remove('opacity-0');
+                    modal.querySelector('div').classList.remove('scale-95');
+                }, 10);
+            }
+        }
+
+        function closeModal(modalId) {
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.add('opacity-0');
+                modal.querySelector('div').classList.add('scale-95');
+                setTimeout(() => {
+                    modal.classList.add('hidden');
+                }, 300);
+            }
+        }
+    </script>
+
+    {# MODALS #}
+    {% include "simulacion/reportes/modals/explicacion_metricas.html" %}
+
+</div>

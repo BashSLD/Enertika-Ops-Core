@@ -10,6 +10,14 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org/ext/json-enc.js"></script>
+
+    <!-- Inicializar Alpine store ANTES de cargar Alpine.js -->
+    <script>
+        document.addEventListener('alpine:init', () => {
+            Alpine.store('notifications', { count: 0 });
+        });
+    </script>
+
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
     <style>
@@ -712,12 +720,23 @@
                 try {
                     notificationSource = new EventSource('/notifications/stream');
 
+                    // Evento 'pending': Notificaciones existentes al conectar
+                    // NO incrementar contador (ya fueron contadas por /notifications/count)
+                    notificationSource.addEventListener('pending', function (e) {
+                        const notification = JSON.parse(e.data);
+                        console.log('[SSE] Notificacion pendiente (existente):', notification);
+                        // Solo agregar a dropdown, SIN incrementar contador ni mostrar toast
+                        addNotificationToDropdown(notification);
+                    });
+
+                    // Evento 'notification': Notificaciones NUEVAS en tiempo real
+                    // SÍ incrementar contador y mostrar toast
                     notificationSource.addEventListener('notification', function (e) {
                         const notification = JSON.parse(e.data);
-                        console.log('[SSE] Nueva notificacion:', notification);
+                        console.log('[SSE] Nueva notificacion (tiempo real):', notification);
 
-                        // Incrementar contador
-                        if (unreadCount < 99) { // Avoid overflow
+                        // Incrementar contador (solo para nuevas)
+                        if (unreadCount < 99) {
                             unreadCount++;
                         }
                         updateBellIcon();
@@ -811,15 +830,24 @@
             item.className = 'px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 transition-colors';
             item.dataset.notifId = notif.id;
             item.innerHTML = `
-                <p class="text-sm font-semibold text-gray-800">${escapeHtml(notif.title)}</p>
-                <p class="text-xs text-gray-600 mt-1">${escapeHtml(notif.message)}</p>
-                <p class="text-xs text-gray-400 mt-1">${formatDate(notif.created_at)}</p>
+                <div class="flex justify-between items-start">
+                    <div class="flex-1 min-w-0">
+                        <p class="text-sm font-semibold text-gray-800 truncate">${escapeHtml(notif.title)}</p>
+                        <p class="text-xs text-gray-600 mt-1">${escapeHtml(notif.message)}</p>
+                        <p class="text-xs text-gray-400 mt-1">${formatDate(notif.created_at)}</p>
+                    </div>
+                    <button onclick="event.stopPropagation(); deleteNotification('${notif.id}')" 
+                            class="ml-2 text-gray-400 hover:text-red-500 text-lg font-bold" title="Eliminar">
+                        ×
+                    </button>
+                </div>
             `;
             item.onclick = async function () {
                 // Esperar a que markAsRead complete antes de redirigir
                 await markAsRead(notif.id);
                 if (notif.oportunidad_id) {
-                    window.location.href = '/simulacion/ui';
+                    // Redirigir al home, el sistema determinará el módulo correcto según permisos
+                    window.location.href = '/';
                 }
             };
             dropdown.insertBefore(item, dropdown.firstChild);
@@ -874,6 +902,43 @@
                 hour: '2-digit',
                 minute: '2-digit'
             });
+        }
+
+        async function deleteNotification(notifId) {
+            try {
+                const response = await fetch(`/notifications/${notifId}`, { method: 'DELETE' });
+                if (response.ok) {
+                    // Remover visualmente
+                    const item = document.querySelector(`[data-notif-id="${notifId}"]`);
+                    if (item) {
+                        item.style.transition = 'opacity 0.2s, transform 0.2s';
+                        item.style.opacity = '0';
+                        item.style.transform = 'translateX(10px)';
+                        setTimeout(() => item.remove(), 200);
+                    }
+
+                    // Actualizar contador
+                    unreadCount = Math.max(0, unreadCount - 1);
+                    updateBellIcon();
+                    if (window.Alpine && window.Alpine.store('notifications')) {
+                        window.Alpine.store('notifications').count = unreadCount;
+                    }
+
+                    // Mostrar mensaje vacío si no hay más notificaciones
+                    setTimeout(() => {
+                        const dropdown = document.getElementById('notifications-dropdown');
+                        const emptyMsg = document.getElementById('empty-notifications');
+                        if (dropdown && emptyMsg) {
+                            const remainingItems = dropdown.querySelectorAll('[data-notif-id]');
+                            if (remainingItems.length === 0) {
+                                emptyMsg.style.display = 'block';
+                            }
+                        }
+                    }, 250);
+                }
+            } catch (err) {
+                console.error('[NOTIF] Error eliminando:', err);
+            }
         }
 
         // OPTIMIZACIÓN: Iniciar notificaciones DESPUÉS de que el DOM esté listo

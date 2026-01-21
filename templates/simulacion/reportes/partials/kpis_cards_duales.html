@@ -1,0 +1,112 @@
+{# templates/simulacion/reportes/partials/kpis_cards_duales.html #}
+{# Chips principales con KPI Interno vs Compromiso #}
+
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+
+    {# 1. Solicitudes #}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+        <div class="p-2 bg-blue-50 rounded-lg w-fit mb-3">
+            <svg class="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+        </div>
+        <p class="text-2xl font-bold text-gray-900">{{ metricas.total_solicitudes }}</p>
+        <p class="text-xs text-gray-500">Solicitudes Recibidas</p>
+    </div>
+
+    {# 2. Ofertas #}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+        <div class="p-2 bg-green-50 rounded-lg w-fit mb-3">
+            <svg class="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        </div>
+        <p class="text-2xl font-bold text-gray-900">{{ metricas.total_ofertas }}</p>
+        <p class="text-xs text-gray-500">Ofertas Generadas</p>
+    </div>
+
+    {# 3. KPI INTERNO #}
+    <div
+        class="bg-emerald-50 rounded-lg shadow-sm border border-emerald-200 p-4 relative overflow-hidden group hover:shadow-md transition-all">
+        <div class="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+            <svg class="w-16 h-16 text-emerald-600" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
+                <path fill-rule="evenodd"
+                    d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z"
+                    clip-rule="evenodd" />
+            </svg>
+        </div>
+        <div class="relative z-10">
+            <h4 class="text-emerald-800 font-bold mb-1 text-sm uppercase tracking-wide">KPI Interno</h4>
+            <div class="flex items-baseline gap-2 mb-1">
+                <span class="text-3xl font-bold text-emerald-700">{{ metricas.porcentaje_a_tiempo_interno }}%</span>
+                <span class="text-xs text-emerald-600 font-medium">A tiempo</span>
+            </div>
+
+            <div class="w-full bg-emerald-200 rounded-full h-1.5 mb-2 overflow-hidden">
+                <div class="bg-emerald-600 h-1.5 rounded-full"
+                    style="width: {{ metricas.porcentaje_a_tiempo_interno }}%"></div>
+            </div>
+
+            <div class="text-[10px] text-emerald-700 flex justify-between">
+                <span>{{ metricas.entregas_a_tiempo_interno }} A tiempo</span>
+                <span>{{ metricas.entregas_tarde_interno }} Tarde</span>
+            </div>
+        </div>
+    </div>
+
+    {# 4. KPI COMPROMISO #}
+    <div
+        class="bg-blue-50 rounded-lg shadow-sm border border-blue-200 p-4 relative overflow-hidden group hover:shadow-md transition-all">
+        <div class="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
+            <svg class="w-16 h-16 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                    d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" />
+            </svg>
+        </div>
+        <div class="relative z-10">
+            <h4 class="text-blue-800 font-bold mb-1 text-sm uppercase tracking-wide">KPI Compromiso</h4>
+            <div class="flex items-baseline gap-2 mb-1">
+                <span class="text-3xl font-bold text-blue-700">{{ metricas.porcentaje_a_tiempo_compromiso }}%</span>
+                <span class="text-xs text-blue-600 font-medium">A tiempo</span>
+            </div>
+
+            <div class="w-full bg-blue-200 rounded-full h-1.5 mb-2 overflow-hidden">
+                <div class="bg-blue-600 h-1.5 rounded-full"
+                    style="width: {{ metricas.porcentaje_a_tiempo_compromiso }}%"></div>
+            </div>
+
+            <div class="text-[10px] text-blue-700 flex justify-between">
+                <span>{{ metricas.entregas_a_tiempo_compromiso }} A tiempo</span>
+                <span>{{ metricas.entregas_tarde_compromiso }} Tarde</span>
+            </div>
+        </div>
+    </div>
+
+    {# 5. Retrabajos #}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+        <div class="p-2 bg-cyan-50 rounded-lg w-fit mb-3">
+            <svg class="w-5 h-5 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+            </svg>
+        </div>
+        <p class="text-2xl font-bold text-cyan-600">{{ metricas.retrabajos }}</p>
+        <p class="text-xs text-gray-500">Retrabajos (Sitios)</p>
+    </div>
+
+    {# 6. Sin Fecha #}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+        <div class="p-2 bg-slate-100 rounded-lg w-fit mb-3">
+            <svg class="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+        </div>
+        <p class="text-2xl font-bold text-slate-600">{{ metricas.sin_fecha_entrega }}</p>
+        <p class="text-xs text-gray-500">Sin Fecha Entrega</p>
+    </div>
+
+</div>

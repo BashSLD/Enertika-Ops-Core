@@ -1,0 +1,380 @@
+{# templates/simulacion/reportes/partials/user_detail_duales.html #}
+{# Detalle de métricas por usuario responsable con KPIs Duales #}
+
+<div class="space-y-8">
+    {% if usuarios %}
+    {% for usuario in usuarios %}
+    <div class="border border-gray-200 rounded-lg overflow-hidden shadow-sm" x-data="{ expanded: false }">
+
+        {# ============================================ #}
+        {# HEADER DEL USUARIO #}
+        {# ============================================ #}
+        <div class="bg-gradient-to-r from-[#123456] to-[#0d2440] px-6 py-4 flex items-center justify-between cursor-pointer hover:from-[#0d2440] hover:to-[#123456] transition-all"
+            @click="expanded = !expanded">
+            <div class="flex items-center gap-4">
+                <div
+                    class="w-12 h-12 rounded-full bg-white/20 flex items-center justify-center text-white font-bold text-lg shadow-lg">
+                    {{ usuario.nombre[0]|upper }}
+                </div>
+                <div>
+                    <h3 class="text-lg font-bold text-white">{{ usuario.nombre }}</h3>
+                    <p class="text-sm text-white/70">{{ usuario.metricas_generales.total_solicitudes }} solicitudes en
+                        el período</p>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-4">
+                {# Badge de rendimiento Compromiso (KPI principal para evaluación) #}
+                {% if usuario.metricas_generales.porcentaje_a_tiempo_compromiso >= 90 %}
+                <span class="px-4 py-2 bg-green-500 text-white text-sm font-semibold rounded-full shadow-lg">
+                    🏆 Excelente {{ usuario.metricas_generales.porcentaje_a_tiempo_compromiso }}%
+                </span>
+                {% elif usuario.metricas_generales.porcentaje_a_tiempo_compromiso >= 85 %}
+                <span class="px-4 py-2 bg-amber-500 text-white text-sm font-semibold rounded-full shadow-lg">
+                    ⚡ Bueno {{ usuario.metricas_generales.porcentaje_a_tiempo_compromiso }}%
+                </span>
+                {% else %}
+                <span class="px-4 py-2 bg-red-500 text-white text-sm font-semibold rounded-full shadow-lg">
+                    📊 A mejorar {{ usuario.metricas_generales.porcentaje_a_tiempo_compromiso }}%
+                </span>
+                {% endif %}
+
+                <svg class="w-5 h-5 text-white transition-transform duration-200" :class="expanded ? 'rotate-180' : ''"
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+            </div>
+        </div>
+
+        {# ============================================ #}
+        {# CONTENIDO EXPANDIBLE #}
+        {# ============================================ #}
+        <div x-show="expanded" x-transition class="bg-gray-50">
+
+            {# Resumen Ejecutivo #}
+            <div class="p-6 bg-white border-b">
+                <h4 class="text-sm font-bold text-gray-700 mb-4 uppercase tracking-wide">Resumen Ejecutivo</h4>
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
+
+                    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <p class="text-2xl font-bold text-gray-900">{{ usuario.metricas_generales.total_solicitudes }}
+                        </p>
+                        <p class="text-xs text-gray-500 mt-1">Solicitudes</p>
+                    </div>
+
+                    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <p class="text-2xl font-bold text-gray-900">{{ usuario.metricas_generales.total_ofertas }}</p>
+                        <p class="text-xs text-gray-500 mt-1">Ofertas</p>
+                    </div>
+
+                    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <p class="text-2xl font-bold text-amber-600">{{ usuario.metricas_generales.licitaciones }}</p>
+                        <p class="text-xs text-gray-500 mt-1">Licitaciones</p>
+                        <p class="text-[10px] text-gray-400">
+                            {{ usuario.metricas_generales.porcentaje_licitaciones }}% del total
+                        </p>
+                    </div>
+
+                    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <p class="text-2xl font-bold text-indigo-600">{{ usuario.metricas_generales.extraordinarias }}
+                        </p>
+                        <p class="text-xs text-gray-500 mt-1">Extraordinarias</p>
+                    </div>
+
+                    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <p class="text-2xl font-bold text-purple-600">{{ usuario.metricas_generales.versiones }}</p>
+                        <p class="text-xs text-gray-500 mt-1">Actualizaciones</p>
+                    </div>
+
+                    <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                        <p class="text-2xl font-bold text-cyan-600">{{ usuario.metricas_generales.retrabajos }}</p>
+                        <p class="text-xs text-gray-500 mt-1">Retrabajos</p>
+                    </div>
+
+                </div>
+            </div>
+
+
+
+            {# Resumen en Texto Desplegable #}
+            <div class="px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b border-blue-100"
+                x-data="{ expanded: false }">
+                <button @click="expanded = !expanded"
+                    class="w-full flex items-center justify-between text-left hover:bg-white/50 p-3 rounded-lg transition-colors border border-blue-200 bg-white/30 shadow-sm">
+                    <div class="flex items-center gap-2">
+                        <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span class="text-sm font-bold text-blue-800">
+                            📊 Resumen en Texto
+                        </span>
+                    </div>
+                    <svg class="w-5 h-5 text-blue-600 transition-transform duration-200"
+                        :class="expanded ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+
+                <div x-show="expanded" x-transition:enter="transition ease-out duration-200"
+                    x-transition:enter-start="opacity-0 transform -translate-y-2"
+                    x-transition:enter-end="opacity-100 transform translate-y-0"
+                    class="mt-4 p-4 bg-white rounded-lg border border-gray-200">
+                    {% with resumen=usuario.resumen_datos %}
+                    {% include "simulacion/reportes/partials/resumen_usuario.html" %}
+                    {% endwith %}
+                </div>
+            </div>
+
+            {# ============================================ #}
+            {# COMPARATIVA DE KPIs #}
+            {# ============================================ #}
+            <div class="p-6 border-b">
+                <h4 class="text-sm font-bold text-gray-700 mb-4 uppercase tracking-wide">Comparativa de KPIs</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+                    {# KPI Interno #}
+                    <div
+                        class="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-lg p-5 border-2 border-emerald-300">
+                        <div class="flex items-center gap-2 mb-4">
+                            <div class="p-2 bg-emerald-500 rounded-lg">
+                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h5 class="font-bold text-emerald-900">KPI SLA Interno</h5>
+                                <p class="text-xs text-emerald-700">vs Deadline Sistema</p>
+                            </div>
+                        </div>
+
+                        <div class="space-y-3">
+                            <div class="flex justify-between items-end">
+                                <span class="text-sm text-emerald-800">En Plazo</span>
+                                <span class="text-3xl font-bold
+                                    {% if usuario.metricas_generales.porcentaje_a_tiempo_interno >= 90 %}text-green-600
+                                    {% elif usuario.metricas_generales.porcentaje_a_tiempo_interno >= 85 %}text-amber-600
+                                    {% else %}text-red-600{% endif %}">
+                                    {{ usuario.metricas_generales.porcentaje_a_tiempo_interno }}%
+                                </span>
+                            </div>
+
+                            <div class="flex justify-between items-end">
+                                <span class="text-sm text-emerald-800">Fuera de Plazo</span>
+                                <span class="text-2xl font-bold text-red-600">
+                                    {{ usuario.metricas_generales.porcentaje_tarde_interno }}%
+                                </span>
+                            </div>
+
+                            <div class="mt-3 h-3 bg-emerald-200 rounded-full overflow-hidden flex">
+                                <div class="bg-green-500 transition-all duration-500"
+                                    style="width: {{ usuario.metricas_generales.porcentaje_a_tiempo_interno }}%"></div>
+                                <div class="bg-red-500 transition-all duration-500"
+                                    style="width: {{ usuario.metricas_generales.porcentaje_tarde_interno }}%"></div>
+                            </div>
+
+                            <div class="text-xs text-emerald-700 bg-white/50 p-2 rounded mt-3">
+                                {{ usuario.metricas_generales.entregas_a_tiempo_interno }} a tiempo /
+                                {{ usuario.metricas_generales.entregas_tarde_interno }} tarde
+                            </div>
+                        </div>
+                    </div>
+
+                    {# KPI Compromiso #}
+                    <div class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-5 border-2 border-blue-300">
+                        <div class="flex items-center gap-2 mb-4">
+                            <div class="p-2 bg-blue-500 rounded-lg">
+                                <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                                </svg>
+                            </div>
+                            <div>
+                                <h5 class="font-bold text-blue-900">KPI Compromiso Cliente</h5>
+                                <p class="text-xs text-blue-700">vs Deadline Negociado</p>
+                            </div>
+                        </div>
+
+                        <div class="space-y-3">
+                            <div class="flex justify-between items-end">
+                                <span class="text-sm text-blue-800">En Plazo</span>
+                                <span class="text-3xl font-bold
+                                    {% if usuario.metricas_generales.porcentaje_a_tiempo_compromiso >= 90 %}text-green-600
+                                    {% elif usuario.metricas_generales.porcentaje_a_tiempo_compromiso >= 85 %}text-amber-600
+                                    {% else %}text-red-600{% endif %}">
+                                    {{ usuario.metricas_generales.porcentaje_a_tiempo_compromiso }}%
+                                </span>
+                            </div>
+
+                            <div class="flex justify-between items-end">
+                                <span class="text-sm text-blue-800">Fuera de Plazo</span>
+                                <span class="text-2xl font-bold text-orange-600">
+                                    {{ usuario.metricas_generales.porcentaje_tarde_compromiso }}%
+                                </span>
+                            </div>
+
+                            <div class="mt-3 h-3 bg-blue-200 rounded-full overflow-hidden flex">
+                                <div class="bg-green-500 transition-all duration-500"
+                                    style="width: {{ usuario.metricas_generales.porcentaje_a_tiempo_compromiso }}%">
+                                </div>
+                                <div class="bg-orange-500 transition-all duration-500"
+                                    style="width: {{ usuario.metricas_generales.porcentaje_tarde_compromiso }}%"></div>
+                            </div>
+
+                            <div class="text-xs text-blue-700 bg-white/50 p-2 rounded mt-3">
+                                {{ usuario.metricas_generales.entregas_a_tiempo_compromiso }} a tiempo /
+                                {{ usuario.metricas_generales.entregas_tarde_compromiso }} tarde
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+
+            {# ============================================ #}
+            {# MÉTRICAS POR TECNOLOGÍA #}
+            {# ============================================ #}
+            {% if usuario.metricas_por_tecnologia %}
+            <div class="p-6 border-b">
+                <h4 class="text-sm font-bold text-gray-700 mb-4 uppercase tracking-wide">Desglose por Tecnología</h4>
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {% for tech in usuario.metricas_por_tecnologia %}
+                    {% if tech.total_solicitudes > 0 %}
+                    <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
+
+                        <div class="bg-gray-100 px-4 py-2 border-b">
+                            <div class="flex items-center justify-between">
+                                <span class="font-semibold text-gray-900">{{ tech.nombre }}</span>
+                                <span class="text-sm text-gray-600">{{ tech.total_solicitudes }}</span>
+                            </div>
+                        </div>
+
+                        <div class="p-4 space-y-3">
+                            <div class="text-sm space-y-1">
+                                <div class="flex justify-between">
+                                    <span class="text-gray-600">Ofertas Generadas</span>
+                                    <span class="font-medium">{{ tech.total_ofertas }}</span>
+                                </div>
+                                <div class="flex justify-between">
+                                    <span class="text-gray-600">Tiempo Prom.</span>
+                                    <span class="font-medium">
+                                        {% if tech.tiempo_promedio_horas %}
+                                        {{ (tech.tiempo_promedio_horas / 24)|round(1) }}d
+                                        {% else %}-{% endif %}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="border-t pt-2">
+                                <p class="text-xs font-semibold text-emerald-700 mb-1">KPI Interno</p>
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-600">% A tiempo</span>
+                                    <span class="font-semibold
+                                        {% if tech.porcentaje_a_tiempo_interno >= 90 %}text-green-600
+                                        {% elif tech.porcentaje_a_tiempo_interno >= 85 %}text-amber-600
+                                        {% else %}text-red-600{% endif %}">
+                                        {{ tech.porcentaje_a_tiempo_interno }}%
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div class="border-t pt-2">
+                                <p class="text-xs font-semibold text-blue-700 mb-1">KPI Compromiso</p>
+                                <div class="flex justify-between text-sm">
+                                    <span class="text-gray-600">% A tiempo</span>
+                                    <span class="font-semibold
+                                        {% if tech.porcentaje_a_tiempo_compromiso >= 90 %}text-green-600
+                                        {% elif tech.porcentaje_a_tiempo_compromiso >= 85 %}text-amber-600
+                                        {% else %}text-red-600{% endif %}">
+                                        {{ tech.porcentaje_a_tiempo_compromiso }}%
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+
+            {# ============================================ #}
+            {# TABLA DE CONTABILIZACIÓN #}
+            {# ============================================ #}
+            {% if usuario.tabla_contabilizacion %}
+            <div class="p-6">
+                <h4 class="text-sm font-bold text-gray-700 mb-4 uppercase tracking-wide">Contabilización por Tipo</h4>
+                <div class="bg-white rounded-lg border border-gray-200 overflow-hidden">
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm">
+                            <thead>
+                                <tr class="bg-gray-100">
+                                    <th class="px-4 py-2 text-left text-gray-700">Tipo</th>
+                                    <th class="px-4 py-2 text-center text-gray-700">Total</th>
+                                    <th class="px-4 py-2 text-center bg-amber-50 text-amber-900">Licitaciones</th>
+                                    <th colspan="2" class="px-4 py-2 text-center bg-emerald-100 text-emerald-900">KPI
+                                        Interno</th>
+                                    <th colspan="2" class="px-4 py-2 text-center bg-blue-100 text-blue-900">KPI
+                                        Compromiso</th>
+                                </tr>
+                                <tr class="bg-gray-50 text-xs">
+                                    <th></th>
+                                    <th></th>
+                                    <th class="px-2 py-1 text-center text-emerald-800">Plazo</th>
+                                    <th class="px-2 py-1 text-center text-emerald-800">Tarde</th>
+                                    <th class="px-2 py-1 text-center text-blue-800">Plazo</th>
+                                    <th class="px-2 py-1 text-center text-blue-800">Tarde</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-gray-100">
+                                {% for fila in usuario.tabla_contabilizacion %}
+                                {% if fila.total > 0 %}
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-4 py-2 font-medium text-gray-900">{{ fila.nombre }}</td>
+                                    <td class="px-4 py-2 text-center">{{ fila.total }}</td>
+                                    <td class="px-4 py-2 text-center bg-amber-50">
+                                        <span class="text-amber-700 font-semibold">{{ fila.licitaciones }}</span>
+                                    </td>
+
+                                    {% if not fila.es_levantamiento %}
+                                    <td class="px-4 py-2 text-center text-green-600 bg-emerald-50/50">
+                                        {{ fila.en_plazo_interno }}
+                                    </td>
+                                    <td class="px-4 py-2 text-center text-red-600 bg-emerald-50/50">
+                                        {{ fila.fuera_plazo_interno }}
+                                    </td>
+                                    <td class="px-4 py-2 text-center text-green-600 bg-blue-50/50">
+                                        {{ fila.en_plazo_compromiso }}
+                                    </td>
+                                    <td class="px-4 py-2 text-center text-orange-600 bg-blue-50/50">
+                                        {{ fila.fuera_plazo_compromiso }}
+                                    </td>
+                                    {% else %}
+                                    <td colspan="4" class="px-4 py-2 text-center text-gray-400 text-xs italic">
+                                        N/A (Levantamiento)
+                                    </td>
+                                    {% endif %}
+                                </tr>
+                                {% endif %}
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="text-center py-16 text-gray-500">
+        <svg class="w-16 h-16 mx-auto text-gray-400 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z" />
+        </svg>
+        <p class="text-lg font-medium">No hay usuarios con actividad en este período</p>
+        <p class="text-sm text-gray-400 mt-2">Ajusta los filtros para ver datos</p>
+    </div>
+    {% endif %}
+</div>

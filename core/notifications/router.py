@@ -84,6 +84,8 @@ async def stream_notifications(
             logger.info(f"[SSE-LOCAL] Usuario {usuario_id} registrado localmente")
             
             # 5. Enviar notificaciones pendientes (al conectar)
+            # NOTA: Usamos evento 'pending' para distinguirlas de nuevas notificaciones
+            # El frontend NO debe incrementar el contador para estas (ya fueron contadas)
             try:
                 pending = await asyncio.wait_for(
                     service.get_pending_notifications(listen_conn, usuario_id, limit=5),
@@ -92,7 +94,7 @@ async def stream_notifications(
                 
                 for notif in pending:
                     yield {
-                        "event": "notification",
+                        "event": "pending",  # Diferente de 'notification' para no duplicar contador
                         "data": json.dumps({
                             "id": str(notif['id']),
                             "type": notif['tipo'],
@@ -183,6 +185,32 @@ async def mark_notification_as_read(
     """
     usuario_id = context['user_db_id']
     await service.mark_as_read(conn, notification_id, usuario_id)
+    
+    return {"status": "ok"}
+
+
+@router.delete("/{notification_id}")
+async def delete_notification(
+    notification_id: UUID,
+    context = Depends(get_current_user_context),
+    conn = Depends(get_db_connection),
+    service: NotificationsService = Depends(get_notifications_service)
+):
+    """
+    Elimina una notificación del usuario.
+    
+    Args:
+        notification_id: UUID de la notificación
+        
+    Returns:
+        Status de la operación
+    """
+    usuario_id = context['user_db_id']
+    deleted = await service.delete_notification(conn, notification_id, usuario_id)
+    
+    if not deleted:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="Notificación no encontrada")
     
     return {"status": "ok"}
 

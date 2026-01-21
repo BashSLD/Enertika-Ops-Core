@@ -709,6 +709,7 @@ class ComercialService:
                 o.fecha_solicitud, estatus.nombre as status_global, o.email_enviado, o.id_interno_simulacion,
                 tipo_sol.nombre as tipo_solicitud, o.deadline_calculado, o.deadline_negociado, o.cantidad_sitios,
                 o.titulo_proyecto, o.prioridad, o.es_fuera_horario,
+                o.es_licitacion, o.fecha_entrega_simulacion,
                 u_creador.nombre as solicitado_por,
                 u_sim.nombre as responsable_simulacion,
                 u_sim.email as responsable_email,

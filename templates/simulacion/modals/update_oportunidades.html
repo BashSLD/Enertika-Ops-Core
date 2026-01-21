@@ -10,6 +10,9 @@
             originalIdInterno: '{{ op.id_interno_simulacion or '' }}',
             currentIdInterno: '{{ op.id_interno_simulacion or '' }}',
             errors: {},
+            esRetrabajo: false,
+            motivoRetrabajo: '',
+            sitiosRetrabajo: [],
             canEditFecha() {
                 return this.status == this.entregado_id || 
                        this.status == this.cancelado_id || 
@@ -19,15 +22,10 @@
                 this.errors = {};
                 let valid = true;
 
-                // Validación 1: Estatus Entregado requiere montos
+                // Validación 1: Estatus Entregado requiere potencia
                 if (this.status == this.entregado_id) {
-                    const monto = parseFloat(document.getElementById('monto_cierre').value);
                     const potencia = parseFloat(document.getElementById('potencia_cierre').value);
 
-                    if (isNaN(monto) || monto <= 0) {
-                        this.errors.monto = 'El monto es requerido para estatus Entregado';
-                        valid = false;
-                    }
                     if (isNaN(potencia) || potencia <= 0) {
                         this.errors.potencia = 'La potencia es requerida para estatus Entregado';
                         valid = false;
@@ -244,22 +242,7 @@
                                 </svg>
                                 Datos de Cierre
                             </h4>
-                            <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                <div>
-                                    <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Monto Cierre
-                                        (USD) *</label>
-                                    <div class="relative">
-                                        <span
-                                            class="absolute inset-y-0 left-0 pl-2 flex items-center text-gray-500">$</span>
-                                        <input type="number" step="0.01" name="monto_cierre_usd" id="monto_cierre"
-                                            value="{{ op.monto_cierre_usd or '' }}" {% if not can_manage %}disabled{%
-                                            endif %}
-                                            class="w-full pl-6 border-green-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
-                                            :class="{'border-red-500 ring-1 ring-red-500': errors.monto}">
-                                    </div>
-                                    <p x-show="errors.monto" class="mt-1 text-[10px] text-red-600 font-bold"
-                                        x-text="errors.monto"></p>
-                                </div>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                                 <div>
                                     <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Potencia FV
                                         (KWp) *</label>
@@ -279,6 +262,65 @@
                                         %}disabled{% endif %}
                                         class="w-full border-green-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100">
                                 </div>
+                            </div>
+
+                            {# NUEVA SECCIÓN: Retrabajo #}
+                            <div class="mt-4 pt-4 border-t border-green-200">
+                                <div class="flex items-center gap-2 mb-3">
+                                    <input type="checkbox" id="es_retrabajo_check" x-model="esRetrabajo"
+                                        name="es_retrabajo"
+                                        class="w-4 h-4 rounded text-cyan-600 border-gray-300 focus:ring-cyan-500">
+                                    <label for="es_retrabajo_check"
+                                        class="text-sm font-medium text-gray-700 cursor-pointer">
+                                        ¿Este trabajo requirió correcciones (retrabajo)?
+                                    </label>
+                                </div>
+
+                                {# Sección condicional de retrabajo #}
+                                <div x-show="esRetrabajo" x-transition
+                                    class="bg-cyan-50 p-4 rounded-lg border border-cyan-200">
+
+                                    {% if es_multisitio %}
+                                    {# Multi-sitio: Mostrar lista de sitios con checkboxes #}
+                                    <p class="text-xs text-cyan-800 mb-2 font-medium">
+                                        Seleccione los sitios que fueron retrabajados:
+                                    </p>
+                                    <div class="max-h-32 overflow-y-auto space-y-2 mb-3">
+                                        {% for sitio in sitios_oportunidad %}
+                                        <div class="flex items-center gap-2">
+                                            <input type="checkbox" value="{{ sitio.id_sitio }}"
+                                                x-model="sitiosRetrabajo" {% if sitio.es_retrabajo %}checked{% endif %}
+                                                class="rounded text-cyan-600 border-gray-300">
+                                            <span class="text-sm text-gray-700">{{ sitio.nombre_sitio }}</span>
+                                        </div>
+                                        {% endfor %}
+                                    </div>
+                                    {% else %}
+                                    {# Mono-sitio: Solo el motivo #}
+                                    <p class="text-xs text-cyan-800 mb-2">
+                                        El sitio será marcado como retrabajado
+                                    </p>
+                                    {% endif %}
+
+                                    {# Motivo común para todos #}
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-600 uppercase mb-1">
+                                            Motivo del Retrabajo <span x-show="esRetrabajo"
+                                                class="text-red-500">*</span>
+                                        </label>
+                                        <select x-model="motivoRetrabajo" name="id_motivo_retrabajo"
+                                            :required="esRetrabajo"
+                                            class="w-full text-sm border-cyan-300 rounded-md focus:ring-cyan-500 focus:border-cyan-500">
+                                            <option value="">Seleccione motivo...</option>
+                                            {% for m in motivos_retrabajo %}
+                                            <option value="{{ m.id }}">{{ m.nombre }}</option>
+                                            {% endfor %}
+                                        </select>
+                                    </div>
+                                </div>
+
+                                {# Hidden para enviar sitios seleccionados como JSON #}
+                                <input type="hidden" name="sitios_retrabajo" :value="JSON.stringify(sitiosRetrabajo)">
                             </div>
                         </div>
                     </div>

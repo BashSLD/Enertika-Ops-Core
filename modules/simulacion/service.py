@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from zoneinfo import ZoneInfo
 
 # Importar schemas locales
-from .schemas import SimulacionUpdate, DetalleBessCreate, OportunidadCreateCompleta
+from .schemas import SimulacionUpdate, DetalleBessCreate, OportunidadCreateCompleta, SitiosBatchUpdate
 from core.workflow.notification_service import get_notification_service
 
 logger = logging.getLogger("SimulacionModule")
@@ -72,6 +72,46 @@ class SimulacionService:
 
         return kpi_sla, kpi_compromiso
 
+    def calcular_kpis_sitio(
+        self,
+        fecha_cierre_sitio: datetime,
+        deadline_calculado_padre: datetime,
+        deadline_negociado_padre: Optional[datetime]
+    ) -> tuple:
+        """
+        Calcula KPIs duales para un SITIO individual.
+        
+        Args:
+            fecha_cierre_sitio: Fecha real de cierre del sitio
+            deadline_calculado_padre: Deadline original del sistema (padre)
+            deadline_negociado_padre: Deadline negociado con cliente (padre, opcional)
+        
+        Returns:
+            (kpi_status_interno, kpi_status_compromiso)
+            
+        Ejemplo:
+            ("Entrega a tiempo", "Entrega tarde")
+        """
+        if not fecha_cierre_sitio or not deadline_calculado_padre:
+            return None, None
+        
+        # KPI Interno: vs deadline calculado (SLA del sistema)
+        kpi_interno = (
+            "Entrega a tiempo" 
+            if fecha_cierre_sitio <= deadline_calculado_padre 
+            else "Entrega tarde"
+        )
+        
+        # KPI Compromiso: vs deadline negociado o calculado
+        deadline_compromiso = deadline_negociado_padre or deadline_calculado_padre
+        kpi_compromiso = (
+            "Entrega a tiempo" 
+            if fecha_cierre_sitio <= deadline_compromiso 
+            else "Entrega tarde"
+        )
+        
+        return kpi_interno, kpi_compromiso
+
     # --- LÓGICA DE NEGOCIO ---
 
     async def get_responsables_dropdown(self, conn) -> List[dict]:
@@ -87,6 +127,55 @@ class SimulacionService:
         """
         rows = await conn.fetch(query)
         return [dict(r) for r in rows]
+
+    async def registrar_cambio_deadline(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        deadline_anterior: Optional[datetime],
+        deadline_nuevo: datetime,
+        id_motivo_cambio: int,
+        comentario: Optional[str],
+        user_context: dict
+    ):
+        """
+        Registra un cambio de deadline_negociado en el historial.
+        
+        REGLA DE NEGOCIO:
+        - Si se cambia deadline_negociado, DEBE haber motivo
+        - Se registra en tb_historial_cambios_deadline
+        """
+        user_id = user_context.get("user_db_id")
+        user_name = user_context.get("user_name")
+        
+        query = """
+            INSERT INTO tb_historial_cambios_deadline (
+                id_oportunidad,
+                deadline_anterior,
+                deadline_nuevo,
+                id_motivo_cambio,
+                comentario,
+                usuario_id,
+                usuario_nombre
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        """
+        
+        await conn.execute(
+            query,
+            id_oportunidad,
+            deadline_anterior,
+            deadline_nuevo,
+            id_motivo_cambio,
+            comentario,
+            user_id,
+            user_name
+        )
+        
+        logger.info(
+            f"Cambio de deadline registrado - Oportunidad: {id_oportunidad}, "
+            f"Anterior: {deadline_anterior}, Nuevo: {deadline_nuevo}, "
+            f"Motivo: {id_motivo_cambio}, Usuario: {user_name}"
+        )
 
     async def update_simulacion_padre(self, conn, id_oportunidad: UUID, datos: SimulacionUpdate, user_context: dict):
         """
@@ -132,6 +221,21 @@ class SimulacionService:
             if datos.deadline_negociado:
                 datos.deadline_negociado = datos.deadline_negociado.replace(hour=18, minute=0, second=0, microsecond=0)
 
+        # NUEVO: Detectar cambio de deadline_negociado y registrar en historial
+        current_deadline_nego = current['deadline_negociado'] if current else None
+        
+        if datos.deadline_negociado and datos.deadline_negociado != current_deadline_nego:
+            # Cambio de deadline detectado - registrar si hay motivo
+            if datos.id_motivo_cambio_deadline:
+                await self.registrar_cambio_deadline(
+                    conn,
+                    id_oportunidad,
+                    deadline_anterior=current_deadline_nego,
+                    deadline_nuevo=datos.deadline_negociado,
+                    id_motivo_cambio=datos.id_motivo_cambio_deadline,
+                    comentario=datos.comentario_cambio_deadline,
+                    user_context=user_context
+                )
 
         # Regla: Fecha Automática (Mexico Time) para estatus terminales
         # Se ignora cualquier input manual de fecha
@@ -186,10 +290,10 @@ class SimulacionService:
             # ELSE: Si es == 1, pasamos directo a la cascada
             
             # Validación estricta de campos de cierre
-            if datos.monto_cierre_usd is None or datos.potencia_cierre_fv_kwp is None:
+            if datos.potencia_cierre_fv_kwp is None:
                 raise HTTPException(
                     status_code=400,
-                    detail="Para marcar como Entregado, capture Monto Cierre (USD) y Potencia FV (KWp)."
+                    detail="Para marcar como Entregado, capture Potencia FV (KWp)."
                 )
 
         
@@ -272,16 +376,50 @@ class SimulacionService:
 
         if should_cascade:
             fecha_cierre_cascada = datos.fecha_entrega_simulacion or await self.get_current_datetime_mx()
-            # Actualiza todos los sitios abiertos (cascada)
+            
+            # Calcular KPIs duales para sitios (nuevo)
+            kpi_sitio_interno, kpi_sitio_compromiso = self.calcular_kpis_sitio(
+                fecha_cierre_cascada,
+                current_data['deadline_calculado'],
+                datos.deadline_negociado or current_data['deadline_negociado']
+            )
+            
+            # Actualiza todos los sitios abiertos (cascada) con KPIs duales
             query_cascada = """
                 UPDATE tb_sitios_oportunidad
                 SET id_estatus_global = $1,
-                fecha_cierre = $2
-                WHERE id_oportunidad = $3
+                    fecha_cierre = $2,
+                    kpi_status_interno = $3,
+                    kpi_status_compromiso = $4
+                WHERE id_oportunidad = $5
             """
             await conn.execute(query_cascada,
-                datos.id_estatus_global, fecha_cierre_cascada, id_oportunidad
+                datos.id_estatus_global, fecha_cierre_cascada, 
+                kpi_sitio_interno, kpi_sitio_compromiso, id_oportunidad
             )
+        
+        # 3.5 NUEVO: Procesar Retrabajos si estatus = ENTREGADO y es_retrabajo = True
+        if datos.id_estatus_global == status_map["entregado"] and datos.es_retrabajo:
+            if total_sitios == 1:
+                # Mono-sitio: Marcar el único sitio como retrabajo
+                await conn.execute("""
+                    UPDATE tb_sitios_oportunidad
+                    SET es_retrabajo = TRUE,
+                        id_motivo_retrabajo = $1
+                    WHERE id_oportunidad = $2
+                """, datos.id_motivo_retrabajo, id_oportunidad)
+            elif datos.sitios_retrabajo_ids:
+                # Multi-sitio: Marcar solo los sitios seleccionados
+                await conn.execute("""
+                    UPDATE tb_sitios_oportunidad
+                    SET es_retrabajo = TRUE,
+                        id_motivo_retrabajo = $1
+                    WHERE id_sitio = ANY($2)
+                    AND id_oportunidad = $3
+                """, datos.id_motivo_retrabajo, datos.sitios_retrabajo_ids, id_oportunidad)
+            
+            logger.info(f"Retrabajos marcados para oportunidad {id_oportunidad}. Motivo: {datos.id_motivo_retrabajo}")
+            # NOTA: El trigger trg_recalcular_retrabajo_padre actualizará tb_oportunidades.es_retrabajo automáticamente
             
         # 4. Notificaciones (Orquestación aquí)
         # Comparar `old_responsable` vs `datos.responsable_simulacion_id`
@@ -309,47 +447,110 @@ class SimulacionService:
         except Exception as notif_error:
             logger.error(f"Error en notificaciones (no critico): {notif_error}")
 
-    async def update_sitios_batch(self, conn, ids_sitios: List[UUID], nuevo_estatus: int, fecha_manual: Optional[datetime] = None):
-        """Actualización masiva de sitios."""
+    async def update_sitios_batch(
+        self, 
+        conn, 
+        id_oportunidad: UUID, 
+        datos: SitiosBatchUpdate
+    ):
+        """
+        Actualiza múltiples sitios en batch con KPIs individuales.
+        
+        RESPONSABILIDADES:
+        - Calcular kpi_status_interno y kpi_status_compromiso por sitio
+        - Manejar marcado de retrabajo (es_retrabajo, id_motivo_retrabajo)
+        - El trigger trg_recalcular_retrabajo_padre se ejecuta automáticamente
+        """
+        
+        # 1. Obtener deadlines del PADRE (necesarios para KPIs de sitios)
+        padre_data = await conn.fetchrow(
+            """
+            SELECT deadline_calculado, deadline_negociado 
+            FROM tb_oportunidades 
+            WHERE id_oportunidad = $1
+            """,
+            id_oportunidad
+        )
+        
+        if not padre_data:
+            raise HTTPException(status_code=404, detail="Oportunidad padre no encontrada")
+        
+        deadline_calc_padre = padre_data['deadline_calculado']
+        deadline_nego_padre = padre_data['deadline_negociado']
+        
+        # 2. Preparar datos de actualización
         status_map = await self._get_status_ids(conn)
         fecha_actual = await self.get_current_datetime_mx()
         
-        es_cierre = nuevo_estatus in [status_map["entregado"], status_map["cancelado"], status_map["perdido"]]
+        es_cierre = datos.id_estatus_global in [
+            status_map["entregado"], 
+            status_map["cancelado"], 
+            status_map["perdido"]
+        ]
         
         # Manejar fecha_cierre correctamente considerando timezone
         if es_cierre:
-            if fecha_manual:
-                # Si fecha_manual viene como string, convertir a datetime con timezone
-                if isinstance(fecha_manual, str):
-                    from datetime import datetime
-                    from zoneinfo import ZoneInfo
-                    # Parse ISO string y agregar timezone si no lo tiene
-                    parsed_date = datetime.fromisoformat(fecha_manual.replace('Z', '+00:00'))
+            if datos.fecha_cierre:
+                # Si fecha viene como string, convertir a datetime con timezone
+                if isinstance(datos.fecha_cierre, str):
+                    parsed_date = datetime.fromisoformat(datos.fecha_cierre.replace('Z', '+00:00'))
                     if parsed_date.tzinfo is None:
-                        # Si es naive, asumir que es hora de México
                         fecha_cierre_final = parsed_date.replace(tzinfo=ZoneInfo("America/Mexico_City"))
                     else:
                         fecha_cierre_final = parsed_date
                 else:
                     # Si ya es datetime
-                    if fecha_manual.tzinfo is None:
-                        # Si es naive, agregar timezone de México
-                        from zoneinfo import ZoneInfo
-                        fecha_cierre_final = fecha_manual.replace(tzinfo=ZoneInfo("America/Mexico_City"))
+                    if datos.fecha_cierre.tzinfo is None:
+                        fecha_cierre_final = datos.fecha_cierre.replace(tzinfo=ZoneInfo("America/Mexico_City"))
                     else:
-                        fecha_cierre_final = fecha_manual
+                        fecha_cierre_final = datos.fecha_cierre
             else:
                 fecha_cierre_final = fecha_actual
         else:
             fecha_cierre_final = None
-            
+        
+        # 3. Calcular KPIs (solo para estados terminales relevantes)
+        kpi_interno = None
+        kpi_compromiso = None
+        
+        calcular_kpis = datos.id_estatus_global in [
+            status_map.get("entregado"),
+            status_map.get("perdido")
+        ]
+        
+        if calcular_kpis and fecha_cierre_final and deadline_calc_padre:
+            kpi_interno, kpi_compromiso = self.calcular_kpis_sitio(
+                fecha_cierre_sitio=fecha_cierre_final,
+                deadline_calculado_padre=deadline_calc_padre,
+                deadline_negociado_padre=deadline_nego_padre
+            )
+        
+        # 4. Update batch de sitios con nuevos campos
         query = """
             UPDATE tb_sitios_oportunidad
-            SET id_estatus_global = $1,
-                fecha_cierre = CASE WHEN $2::timestamptz IS NOT NULL THEN $2::timestamptz ELSE fecha_cierre END
-            WHERE id_sitio = ANY($3::uuid[])
+            SET 
+                id_estatus_global = $1,
+                fecha_cierre = CASE WHEN $2::timestamptz IS NOT NULL THEN $2::timestamptz ELSE fecha_cierre END,
+                kpi_status_interno = $3,
+                kpi_status_compromiso = $4,
+                es_retrabajo = $5,
+                id_motivo_retrabajo = $6
+            WHERE id_sitio = ANY($7::uuid[])
+            AND id_oportunidad = $8
         """
-        await conn.execute(query, nuevo_estatus, fecha_cierre_final, ids_sitios)
+        await conn.execute(
+            query, 
+            datos.id_estatus_global, 
+            fecha_cierre_final, 
+            kpi_interno,
+            kpi_compromiso,
+            datos.es_retrabajo,
+            datos.id_motivo_retrabajo,
+            datos.ids_sitios,
+            id_oportunidad
+        )
+        
+        logger.info(f"Sitios batch actualizados. KPIs: interno={kpi_interno}, compromiso={kpi_compromiso}, retrabajo={datos.es_retrabajo}")
 
     # --- CONSULTAS (CORREGIDO: LISTA COMPLETA) ---
 
@@ -367,6 +568,7 @@ class SimulacionService:
                 o.fecha_solicitud, estatus.nombre as status_global, o.id_estatus_global,
                 o.id_interno_simulacion, o.deadline_calculado, o.deadline_negociado,
                 o.fecha_entrega_simulacion, o.cantidad_sitios, o.prioridad, o.es_fuera_horario,
+                o.es_licitacion,
                 tipo_sol.nombre as tipo_solicitud,
                 u_creador.nombre as solicitado_por,
                 u_sim.nombre as responsable_simulacion,
@@ -399,6 +601,15 @@ class SimulacionService:
             query += f" AND o.id_estatus_global IN ({placeholders})"
             params.extend(ids_historial)
             param_idx += len(ids_historial)
+            
+            # Excluir Levantamientos de Historial (solo muestra ofertas)
+            try:
+                id_levantamiento = await self._get_catalog_id_by_name(conn, "tb_cat_tipos_solicitud", "Levantamiento")
+                query += f" AND o.id_tipo_solicitud != ${param_idx}"
+                params.append(id_levantamiento)
+                param_idx += 1
+            except:
+                pass # Si falla catalogo, no filtramos
 
         elif tab == "levantamientos":
              # 1. Filtro Tipo = Levantamiento

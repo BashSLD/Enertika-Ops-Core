@@ -1,0 +1,57 @@
+{# templates/simulacion/reportes/partials/resumen_usuario.html #}
+{# Parcial para renderizar el Resumen de Usuario con datos estructurados #}
+
+<div class="text-sm text-gray-700 space-y-2">
+    <p>
+        <strong>{{ resumen.nombre }}</strong> trabajó con <strong>{{ resumen.total_ofertas }} ofertas</strong>
+        en este período
+        {% if resumen.tecnologia_principal %}
+        , principalmente en {{ resumen.tecnologia_principal.nombre }} ({{
+        resumen.tecnologia_principal.solicitudes }} solicitudes)
+        {% endif %}.
+        Obtuvo un <strong>{{ resumen.porcentaje_interno }}%</strong>
+        de cumplimiento interno y <strong>{{ resumen.porcentaje_compromiso }}%</strong> de
+        cumplimiento con cliente.
+    </p>
+
+    {# Tiempo promedio de elaboración #}
+    {% if resumen.tiempo_promedio_global_dias %}
+    <p class="text-xs text-gray-600">
+        Tiempo promedio de elaboración:
+        <strong class="text-blue-700">{{ resumen.tiempo_promedio_global_dias }} días</strong>.
+        {% if resumen.tiempo_promedio_por_tipo %}
+        Desglose por tipo:
+        {% for item in resumen.tiempo_promedio_por_tipo %}
+        <strong>{{ item.tipo }}</strong> ({{ item.dias }}d){% if not loop.last %}, {% endif %}
+        {% endfor %}.
+        {% endif %}
+    </p>
+    {% else %}
+    <p class="text-xs text-gray-500 italic">
+        No hay suficientes datos de tiempo promedio disponibles.
+    </p>
+    {% endif %}
+
+    <p>
+        De sus ofertas, <strong>{{ resumen.licitaciones }} fueron licitaciones</strong>
+        ({{ resumen.porcentaje_licitaciones }}%),
+        <strong>{{ resumen.extraordinarias }} extraordinarias</strong> ({{ 0 if resumen.total_ofertas == 0 else
+        (resumen.extraordinarias / resumen.total_ofertas * 100)|round(1) }}%),
+        y <strong>{{ resumen.versiones }} actualizaciones</strong> ({{ 0 if resumen.total_ofertas == 0 else
+        (resumen.versiones / resumen.total_ofertas * 100)|round(1) }}%).
+    </p>
+
+    {# Bloque de Retrabajos #}
+    {% if resumen.total_retrabajos > 0 %}
+    <p class="text-xs text-orange-700">
+        <strong>{{ resumen.total_retrabajos }} ofertas ({{ resumen.porcentaje_retrabajos }}%)
+            requirieron retrabajo</strong>
+        {% if resumen.motivo_retrabajo_principal %}
+        , principalmente por
+        <strong>"{{ resumen.motivo_retrabajo_principal }}"</strong>.
+        {% else %}
+        .
+        {% endif %}
+    </p>
+    {% endif %}
+</div>

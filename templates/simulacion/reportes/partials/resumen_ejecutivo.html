@@ -1,0 +1,56 @@
+{# templates/simulacion/reportes/partials/resumen_ejecutivo.html #}
+{# Parcial para renderizar el Resumen Ejecutivo Global con datos estructurados #}
+
+<div class="prose max-w-none text-gray-700 leading-relaxed text-sm">
+    <p>
+        En el período del <strong>{{ resumen.fecha_inicio_formatted }}</strong> al <strong>{{
+            resumen.fecha_fin_formatted }}</strong>
+        se recibieron <strong>{{ resumen.total_solicitudes }} solicitudes</strong>
+        {% if resumen.top_tipos %}
+        , de las cuales
+        {% for tipo in resumen.top_tipos %}
+        {{ tipo.nombre }} ({{ tipo.total }} - {{ tipo.porcentaje }}%){% if not loop.last %}, {% endif %}
+        {% endfor %}
+        {% endif %}.
+    </p>
+
+    <p class="mt-4">
+        Se obtuvo un <strong>cumplimiento interno del {{ resumen.porcentaje_cumplimiento_interno }}%</strong>
+        ({{ resumen.entregas_a_tiempo_interno }} entregas a tiempo de {{ resumen.total_entregas_interno }} totales)
+        y un <strong>cumplimiento con cliente del {{ resumen.porcentaje_cumplimiento_compromiso }}%</strong>
+        ({{ resumen.entregas_a_tiempo_compromiso }} entregas a tiempo de {{ resumen.total_entregas_compromiso }}
+        totales).
+    </p>
+
+    {% if resumen.mejor_usuario %}
+    <p class="mt-4">
+        El usuario con mejor desempeño fue <strong>{{ resumen.mejor_usuario.nombre }}</strong> con
+        {{ resumen.mejor_usuario.ofertas }} ofertas,
+        {{ resumen.mejor_usuario.porcentaje_interno }}% de cumplimiento interno y
+        {{ resumen.mejor_usuario.porcentaje_compromiso }}% de cumplimiento con cliente.
+    </p>
+    {% endif %}
+
+    <p class="mt-4">
+        De las {{ resumen.total_solicitudes }} solicitudes,
+        <strong>{{ resumen.licitaciones }} fueron licitaciones</strong> ({{ resumen.porcentaje_licitaciones }}%),
+        <strong>{{ resumen.extraordinarias }} extraordinarias</strong> ({{ resumen.porcentaje_extraordinarias }}%),
+        y <strong>{{ resumen.versiones }} actualizaciones</strong> de proyectos existentes ({{
+        resumen.porcentaje_versiones }}%).
+    </p>
+
+    {# Bloque de Retrabajos #}
+    {% if resumen.total_retrabajos > 0 %}
+    <p class="text-gray-700 leading-relaxed mt-4">
+        <strong class="text-orange-700">{{ resumen.total_retrabajos }} solicitudes
+            ({{ resumen.porcentaje_retrabajos }}%) tuvieron que retrabajarse</strong>
+        {% if resumen.motivo_retrabajo_principal %}
+        , siendo la causa principal
+        <strong class="text-red-700">"{{ resumen.motivo_retrabajo_principal }}"</strong>
+        ({{ resumen.conteo_motivo_principal }} casos).
+        {% else %}
+        .
+        {% endif %}
+    </p>
+    {% endif %}
+</div>

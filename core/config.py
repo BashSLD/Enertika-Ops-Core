@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     
     SHAREPOINT_SITE_ID: str = os.getenv("SHAREPOINT_SITE_ID", "")
     SHAREPOINT_DRIVE_ID: str = os.getenv("SHAREPOINT_DRIVE_ID", "")
+    
+    # --- URL Base de la Aplicación (para emails y links externos) ---
+    APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:8000")
 
     # --- Configuración de Permisos (RBAC) ---
     # Departamentos que tienen acceso GLOBAL por defecto

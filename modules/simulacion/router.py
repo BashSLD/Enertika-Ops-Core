@@ -459,6 +459,25 @@ async def get_edit_modal(
         "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY id"
     )
     motivos_cierre = await conn.fetch("SELECT id, motivo FROM tb_cat_motivos_cierre WHERE activo = true ORDER BY motivo")
+    
+    # NUEVO: Cargar sitios de esta oportunidad para checkbox de retrabajo
+    sitios_oportunidad = await conn.fetch(
+        """
+        SELECT id_sitio, nombre_sitio, direccion, es_retrabajo
+        FROM tb_sitios_oportunidad 
+        WHERE id_oportunidad = $1 
+        ORDER BY nombre_sitio
+        """,
+        id_oportunidad
+    )
+    
+    # NUEVO: Cargar catálogo de motivos de retrabajo
+    motivos_retrabajo = await conn.fetch(
+        "SELECT id, nombre FROM tb_cat_motivos_retrabajo WHERE activo = true ORDER BY nombre"
+    )
+    
+    # Determinar si es multisitio
+    es_multisitio = len(sitios_oportunidad) > 1
 
     # 4. Definir Permiso de Edición (Manager/Admin)
     # 4. Definir Permiso de Edición (Manager/Admin)
@@ -487,7 +506,11 @@ async def get_edit_modal(
         "status_ids": status_ids, # <--- Clave para AlpineJS
         "can_manage": can_manage,  # <--- Clave para ocultar/mostrar botones
         "can_edit_sensitive": can_edit_sensitive, # <--- Clave para bloquear campos sensibles
-        "context": context  # <--- Para checks de permisos en comentarios
+        "context": context,  # <--- Para checks de permisos en comentarios
+        # NUEVOS para retrabajo
+        "sitios_oportunidad": [dict(r) for r in sitios_oportunidad],
+        "motivos_retrabajo": [dict(r) for r in motivos_retrabajo],
+        "es_multisitio": es_multisitio
     })
 
 @router.put("/update/{id_oportunidad}")
@@ -504,6 +527,10 @@ async def update_simulacion(
     monto_cierre_usd: Optional[Decimal] = Form(None),
     potencia_cierre_fv_kwp: Optional[Decimal] = Form(None),
     capacidad_cierre_bess_kwh: Optional[Decimal] = Form(None),
+    # NUEVOS: Campos de retrabajo
+    es_retrabajo: Optional[bool] = Form(False),
+    id_motivo_retrabajo: Optional[int] = Form(None),
+    sitios_retrabajo: Optional[str] = Form(None),  # JSON string de UUIDs
     
     service: SimulacionService = Depends(get_simulacion_service),
     conn = Depends(get_db_connection),
@@ -512,8 +539,17 @@ async def update_simulacion(
 ):
     """Procesa el update del padre con datos de formulario HTMX."""
     # NOTA: No necesitamos notificación aquí, el service se encarga.
+    import json
     
     try:
+        # Parsear sitios_retrabajo si viene como JSON
+        sitios_retrabajo_ids = None
+        if sitios_retrabajo:
+            try:
+                sitios_retrabajo_ids = [UUID(s) for s in json.loads(sitios_retrabajo)]
+            except (json.JSONDecodeError, ValueError):
+                pass
+        
         # Reconstruir modelo Pydantic manually
         datos = SimulacionUpdate(
             id_estatus_global=id_estatus_global,
@@ -524,7 +560,11 @@ async def update_simulacion(
             id_motivo_cierre=id_motivo_cierre,
             monto_cierre_usd=monto_cierre_usd,
             potencia_cierre_fv_kwp=potencia_cierre_fv_kwp,
-            capacidad_cierre_bess_kwh=capacidad_cierre_bess_kwh
+            capacidad_cierre_bess_kwh=capacidad_cierre_bess_kwh,
+            # NUEVOS
+            es_retrabajo=es_retrabajo,
+            id_motivo_retrabajo=id_motivo_retrabajo,
+            sitios_retrabajo_ids=sitios_retrabajo_ids
         )
 
         await service.update_simulacion_padre(conn, id_oportunidad, datos, context)
@@ -578,6 +618,8 @@ async def batch_update_sitios(
     ids_sitios_raw = []
     id_estatus_global = None
     fecha_cierre = None
+    es_retrabajo = False
+    id_motivo_retrabajo = None
     
     # 2. Parsing Logic
     parsed_mode = "UNKNOWN"
@@ -588,6 +630,8 @@ async def batch_update_sitios(
         ids_sitios_raw = data.get("ids_sitios", [])
         id_estatus_global = data.get("id_estatus_global")
         fecha_cierre = data.get("fecha_cierre")
+        es_retrabajo = data.get("es_retrabajo", False)
+        id_motivo_retrabajo = data.get("id_motivo_retrabajo")
         parsed_mode = "JSON"
     except json.JSONDecodeError:
         # ATTEMPT B: Fallback to Query String (Form Data)
@@ -602,11 +646,20 @@ async def batch_update_sitios(
         date_list = q_data.get("fecha_cierre", [])
         if date_list:
             fecha_cierre = date_list[0]
+        
+        # Parsing campos de retrabajo
+        retrabajo_list = q_data.get("es_retrabajo", [])
+        if retrabajo_list:
+            es_retrabajo = retrabajo_list[0].lower() in ['true', '1', 'on']
+        
+        motivo_list = q_data.get("id_motivo_retrabajo", [])
+        if motivo_list and motivo_list[0]:
+            id_motivo_retrabajo = int(motivo_list[0]) if motivo_list[0].isdigit() else None
             
         parsed_mode = "FORM_QS"
 
     logger.info(f"[BATCH UPDATE] Parsed Mode: {parsed_mode}")
-    logger.info(f"[BATCH UPDATE] IDs count: {len(ids_sitios_raw)}, Status: {id_estatus_global}")
+    logger.info(f"[BATCH UPDATE] IDs count: {len(ids_sitios_raw)}, Status: {id_estatus_global}, Retrabajo: {es_retrabajo}")
 
     try:
         # 3. Validation & Conversion
@@ -625,16 +678,29 @@ async def batch_update_sitios(
         if id_estatus_global is None:
             raise ValueError("Falta id_estatus_global")
         id_estatus_global = int(id_estatus_global)
-
-        # 4. Execute Service
-        await service.update_sitios_batch(conn, ids_sitios, id_estatus_global, fecha_cierre)
         
-        # 5. Response (Refresh Table)
+        # Obtener id_oportunidad del primer sitio
         id_op = await conn.fetchval(
             "SELECT id_oportunidad FROM tb_sitios_oportunidad WHERE id_sitio = $1", 
             ids_sitios[0]
         )
         
+        if not id_op:
+            raise ValueError("Sitio no encontrado")
+        
+        # 4. Construir objeto SitiosBatchUpdate
+        datos_batch = SitiosBatchUpdate(
+            ids_sitios=ids_sitios,
+            id_estatus_global=id_estatus_global,
+            fecha_cierre=fecha_cierre,
+            es_retrabajo=es_retrabajo,
+            id_motivo_retrabajo=id_motivo_retrabajo
+        )
+
+        # 5. Execute Service con nueva firma
+        await service.update_sitios_batch(conn, id_op, datos_batch)
+        
+        # 6. Response (Refresh Table)
         sitios = await service.get_sitios(conn, id_op)
         status_ids = await service._get_status_ids(conn)
         estatus_options = await conn.fetch(
@@ -646,7 +712,8 @@ async def batch_update_sitios(
             "request": request,
             "sitios": sitios,
             "context": {"role": "ADMIN", "module_role": "editor"}, 
-            "estatus_options": [dict(r) for r in estatus_options]
+            "estatus_options": [dict(r) for r in estatus_options],
+            "id_oportunidad": id_op
         })
 
     except Exception as e:

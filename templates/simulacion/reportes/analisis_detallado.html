@@ -1,0 +1,15 @@
+{# templates/simulacion/reportes/analisis_detallado.html #}
+{% extends "base.html" %}
+
+{% block title %}Análisis Detallado - Simulación{% endblock %}
+
+{% block content %}
+
+{# Incluir scripts de gráficas si es necesario, aunque base.html ya tiene Chart.js #}
+
+<!-- Wrapper principal con ID para swaps HTMX si se quiere recargar toda la vista -->
+<div id="main-content" class="min-h-screen bg-gray-50">
+    {% include "simulacion/reportes/analisis_detallado_inner.html" %}
+</div>
+
+{% endblock %}

@@ -41,35 +41,82 @@ UMBRAL_AMBAR = 85.0    # >= 85% y < 90%
 
 @dataclass
 class MetricasGenerales:
-    """Métricas principales del dashboard."""
+    """Métricas principales del dashboard con KPIs duales."""
     total_solicitudes: int = 0
     total_ofertas: int = 0
     en_espera: int = 0
     canceladas: int = 0
     no_viables: int = 0
     extraordinarias: int = 0
-    retrabajadas: int = 0
+    
+    # SEPARACIÓN: Versiones vs Retrabajos
+    versiones: int = 0          # parent_id IS NOT NULL
+    retrabajos: int = 0         # es_retrabajo=true en sitios
+    
     licitaciones: int = 0
-    entregas_a_tiempo: int = 0
-    entregas_tarde: int = 0
+    
+    # KPI INTERNO (SLA del Sistema)
+    entregas_a_tiempo_interno: int = 0
+    entregas_tarde_interno: int = 0
+    
+    # KPI COMPROMISO (SLA del Cliente)
+    entregas_a_tiempo_compromiso: int = 0
+    entregas_tarde_compromiso: int = 0
+    
+    # Compatibilidad legacy (mapea a compromiso)
+    @property
+    def entregas_a_tiempo(self) -> int:
+        return self.entregas_a_tiempo_compromiso
+    
+    @property
+    def entregas_tarde(self) -> int:
+        return self.entregas_tarde_compromiso
+    
     sin_fecha_entrega: int = 0
     tiempo_promedio_horas: Optional[float] = None
     
+    # Properties para porcentajes KPI Interno
     @property
-    def porcentaje_a_tiempo(self) -> float:
-        """Calcula % entregas a tiempo sobre total de ofertas con KPI."""
-        total_con_kpi = self.entregas_a_tiempo + self.entregas_tarde
+    def porcentaje_a_tiempo_interno(self) -> float:
+        """% entregas a tiempo según KPI Interno."""
+        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
         if total_con_kpi == 0:
             return 0.0
-        return round((self.entregas_a_tiempo / total_con_kpi) * 100, 1)
+        return round((self.entregas_a_tiempo_interno / total_con_kpi) * 100, 1)
+    
+    @property
+    def porcentaje_tarde_interno(self) -> float:
+        """% entregas tarde según KPI Interno."""
+        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.entregas_tarde_interno / total_con_kpi) * 100, 1)
+    
+    # Properties para porcentajes KPI Compromiso
+    @property
+    def porcentaje_a_tiempo_compromiso(self) -> float:
+        """% entregas a tiempo según KPI Compromiso."""
+        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.entregas_a_tiempo_compromiso / total_con_kpi) * 100, 1)
+    
+    @property
+    def porcentaje_tarde_compromiso(self) -> float:
+        """% entregas tarde según KPI Compromiso."""
+        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.entregas_tarde_compromiso / total_con_kpi) * 100, 1)
+    
+    # Compatibilidad Legacy
+    @property
+    def porcentaje_a_tiempo(self) -> float:
+        return self.porcentaje_a_tiempo_compromiso
     
     @property
     def porcentaje_tarde(self) -> float:
-        """Calcula % entregas tarde sobre total de ofertas con KPI."""
-        total_con_kpi = self.entregas_a_tiempo + self.entregas_tarde
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_tarde / total_con_kpi) * 100, 1)
+        return self.porcentaje_tarde_compromiso
     
     @property
     def tiempo_promedio_dias(self) -> Optional[float]:
@@ -77,73 +124,201 @@ class MetricasGenerales:
         if self.tiempo_promedio_horas is None:
             return None
         return round(self.tiempo_promedio_horas / 24, 1)
+    
+    @property
+    def porcentaje_licitaciones(self) -> float:
+        """% de solicitudes que son licitaciones."""
+        if self.total_solicitudes == 0:
+            return 0.0
+        return round((self.licitaciones / self.total_solicitudes) * 100, 1)
 
 
 @dataclass
 class MetricaTecnologia:
-    """Métricas para una tecnología específica."""
+    """Métricas para una tecnología específica con KPIs duales."""
     id_tecnologia: int
     nombre: str
     total_solicitudes: int = 0
     total_ofertas: int = 0
-    entregas_a_tiempo: int = 0
-    entregas_tarde: int = 0
+    
+    # KPI Interno
+    entregas_a_tiempo_interno: int = 0
+    entregas_tarde_interno: int = 0
+    
+    # KPI Compromiso
+    entregas_a_tiempo_compromiso: int = 0
+    entregas_tarde_compromiso: int = 0
+    
     extraordinarias: int = 0
-    retrabajadas: int = 0
+    versiones: int = 0
+    retrabajados: int = 0
+    licitaciones: int = 0  # ← Solicitudes que son licitaciones
     tiempo_promedio_horas: Optional[float] = None
     potencia_total_kwp: float = 0.0
     capacidad_total_kwh: float = 0.0
     
+    # Compatibilidad legacy
     @property
-    def porcentaje_a_tiempo(self) -> float:
-        total_con_kpi = self.entregas_a_tiempo + self.entregas_tarde
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_a_tiempo / total_con_kpi) * 100, 1)
+    def entregas_a_tiempo(self) -> int:
+        return self.entregas_a_tiempo_compromiso
     
     @property
+    def entregas_tarde(self) -> int:
+        return self.entregas_tarde_compromiso
+    
+    @property
+    def porcentaje_a_tiempo(self) -> float:
+        return self.porcentaje_a_tiempo_compromiso
+        
+    @property
     def porcentaje_tarde(self) -> float:
-        total_con_kpi = self.entregas_a_tiempo + self.entregas_tarde
+        return self.porcentaje_tarde_compromiso
+    
+    # Properties KPI Interno
+    @property
+    def porcentaje_a_tiempo_interno(self) -> float:
+        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
         if total_con_kpi == 0:
             return 0.0
-        return round((self.entregas_tarde / total_con_kpi) * 100, 1)
+        return round((self.entregas_a_tiempo_interno / total_con_kpi) * 100, 1)
+    
+    @property
+    def porcentaje_tarde_interno(self) -> float:
+        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.entregas_tarde_interno / total_con_kpi) * 100, 1)
+    
+    # Properties KPI Compromiso
+    @property
+    def porcentaje_a_tiempo_compromiso(self) -> float:
+        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.entregas_a_tiempo_compromiso / total_con_kpi) * 100, 1)
+    
+    @property
+    def porcentaje_tarde_compromiso(self) -> float:
+        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.entregas_tarde_compromiso / total_con_kpi) * 100, 1)
+    
+    @property
+    def porcentaje_licitaciones(self) -> float:
+        """% de solicitudes que son licitaciones."""
+        if self.total_solicitudes == 0:
+            return 0.0
+        return round((self.licitaciones / self.total_solicitudes) * 100, 1)
 
 
 @dataclass
 class FilaContabilizacion:
-    """Fila de la tabla de contabilización por tipo de solicitud."""
+    """Fila de la tabla de contabilización con KPIs duales."""
     id_tipo_solicitud: int
     nombre: str
     codigo_interno: str
     total: int = 0
-    en_plazo: int = 0
-    fuera_plazo: int = 0
+    
+    # KPI Interno
+    en_plazo_interno: int = 0
+    fuera_plazo_interno: int = 0
+    
+    # KPI Compromiso
+    en_plazo_compromiso: int = 0
+    fuera_plazo_compromiso: int = 0
+    
+    # Compatibilidad Legacy (apunta a compromiso)
+    @property
+    def en_plazo(self) -> int:
+        return self.en_plazo_compromiso
+        
+    @property
+    def fuera_plazo(self) -> int:
+        return self.fuera_plazo_compromiso
+    
     sin_fecha: int = 0
     es_levantamiento: bool = False
-    # Subclasificación para levantamientos
-    info_completa: int = 0
-    info_incompleta: int = 0
+    licitaciones: int = 0  # ← Solicitudes que son licitaciones
     
+    # Properties KPI Interno
     @property
-    def porcentaje_en_plazo(self) -> float:
-        """Calcula % en plazo sobre total con fecha."""
-        total_con_fecha = self.en_plazo + self.fuera_plazo
-        if total_con_fecha == 0:
-            return 0.0
-        return round((self.en_plazo / total_con_fecha) * 100, 1)
-    
-    @property
-    def semaforo(self) -> str:
-        """Determina color del semáforo."""
+    def porcentaje_en_plazo_interno(self) -> float:
         if self.es_levantamiento:
-            return "gray"  # Levantamientos no tienen semáforo
-        pct = self.porcentaje_en_plazo
+            return 0.0
+        total_con_kpi = self.en_plazo_interno + self.fuera_plazo_interno
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.en_plazo_interno / total_con_kpi) * 100, 1)
+    
+    @property
+    def semaforo_interno(self) -> str:
+        if self.es_levantamiento:
+            return "gray"
+        pct = self.porcentaje_en_plazo_interno
         if pct >= UMBRAL_VERDE:
             return "green"
         elif pct >= UMBRAL_AMBAR:
             return "amber"
-        else:
-            return "red"
+        return "red"
+    
+    # Properties KPI Compromiso
+    @property
+    def porcentaje_en_plazo_compromiso(self) -> float:
+        if self.es_levantamiento:
+            return 0.0
+        total_con_kpi = self.en_plazo_compromiso + self.fuera_plazo_compromiso
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.en_plazo_compromiso / total_con_kpi) * 100, 1)
+    
+    @property
+    def semaforo_compromiso(self) -> str:
+        if self.es_levantamiento:
+            return "gray"
+        pct = self.porcentaje_en_plazo_compromiso
+        if pct >= UMBRAL_VERDE:
+            return "green"
+        elif pct >= UMBRAL_AMBAR:
+            return "amber"
+        return "red"
+        
+    # Compatibilidad Legacy
+    @property
+    def porcentaje_en_plazo(self) -> float:
+        return self.porcentaje_en_plazo_compromiso
+        
+    @property
+    def semaforo(self) -> str:
+        return self.semaforo_compromiso
+    
+    @property
+    def porcentaje_licitaciones(self) -> float:
+        """% de solicitudes que son licitaciones."""
+        if self.total == 0:
+            return 0.0
+        return round((self.licitaciones / self.total) * 100, 1)
+
+
+@dataclass
+class ResumenUsuario:
+    """Datos estructurados para resumen de usuario"""
+    nombre: str
+    total_ofertas: int
+    tecnologia_principal: Optional[Dict[str, Any]]  # {"nombre": "FV", "solicitudes": 30}
+    porcentaje_interno: float
+    porcentaje_compromiso: float
+    tiempo_promedio_por_tipo: List[Dict[str, Any]]  # [{"tipo": "COTIZACIÓN", "dias": 3.5}, ...]
+    licitaciones: int
+    porcentaje_licitaciones: float
+    extraordinarias: int
+    versiones: int
+    
+    # Campos adicionales
+    tiempo_promedio_global_dias: float = None
+    total_retrabajos: int = 0
+    porcentaje_retrabajos: float = 0.0
+    motivo_retrabajo_principal: str = None
 
 
 @dataclass
@@ -154,6 +329,38 @@ class DetalleUsuario:
     metricas_generales: MetricasGenerales = field(default_factory=MetricasGenerales)
     metricas_por_tecnologia: List[MetricaTecnologia] = field(default_factory=list)
     tabla_contabilizacion: List[FilaContabilizacion] = field(default_factory=list)
+    tiempo_promedio_por_tipo: Dict[str, float] = field(default_factory=dict)  # tipo_solicitud -> días promedio
+    resumen_texto: str = ""  # Legacy: Texto descriptivo (HTML string) - MANTENER por compatibilidad si es necesario
+    resumen_datos: Optional[ResumenUsuario] = None  # Nuevo objeto estructurado
+
+
+@dataclass
+class MetricaUsuario:
+    """Métricas individuales mejoradas para reporte de usuario."""
+    usuario_id: UUID
+    nombre: str
+    total_solicitudes: int = 0
+    total_ofertas: int = 0
+    entregas_a_tiempo_compromiso: int = 0
+    entregas_tarde_compromiso: int = 0
+    licitaciones: int = 0  # ← Solicitudes que son licitaciones
+    resumen_texto: str = ""  # ← Texto descriptivo para resumen desplegable
+    tiempo_promedio_por_tipo: Dict[str, float] = field(default_factory=dict)  # ← tipo_solicitud -> horas promedio
+    
+    @property
+    def porcentaje_a_tiempo(self) -> float:
+        """% entregas a tiempo según KPI Compromiso."""
+        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.entregas_a_tiempo_compromiso / total_con_kpi) * 100, 1)
+    
+    @property
+    def porcentaje_licitaciones(self) -> float:
+        """% de solicitudes que son licitaciones."""
+        if self.total_solicitudes == 0:
+            return 0.0
+        return round((self.licitaciones / self.total_solicitudes) * 100, 1)
 
 
 @dataclass
@@ -183,6 +390,50 @@ class FiltrosReporte:
     id_estatus: Optional[int] = None
     responsable_id: Optional[UUID] = None
     incluir_levantamientos_en_kpi: bool = False  # Por defecto NO
+
+
+@dataclass
+class ResumenEjecutivo:
+    """Datos estructurados para el resumen ejecutivo"""
+    # Fechas
+    fecha_inicio_formatted: str
+    fecha_fin_formatted: str
+    
+    # Solicitudes
+    total_solicitudes: int
+    total_ofertas: int
+    
+    # Top tipos
+    top_tipos: List[Dict[str, Any]]  # [{"nombre": "COTIZACIÓN", "total": 150, "porcentaje": 39.0}, ...]
+    
+    # KPIs
+    porcentaje_cumplimiento_interno: float
+    entregas_a_tiempo_interno: int
+    total_entregas_interno: int
+    
+    porcentaje_cumplimiento_compromiso: float
+    entregas_a_tiempo_compromiso: int
+    total_entregas_compromiso: int
+    
+    # Mejor usuario
+    mejor_usuario: Optional[Dict[str, Any]]  # {"nombre": "Juan", "ofertas": 45, ...}
+    
+    # Métricas adicionales
+    licitaciones: int
+    porcentaje_licitaciones: float
+    extraordinarias: int
+    porcentaje_extraordinarias: float
+    versiones: int
+    porcentaje_versiones: float
+    
+    # Retrabajos
+    total_retrabajos: int = 0
+    porcentaje_retrabajos: float = 0.0
+    motivo_retrabajo_principal: str = None
+    conteo_motivo_principal: int = 0
+
+
+
 
 
 # =============================================================================
@@ -293,9 +544,12 @@ class ReportesSimulacionService:
     
     async def get_metricas_generales(self, conn, filtros: FiltrosReporte) -> MetricasGenerales:
         """
-        Obtiene métricas agregadas principales.
+        Obtiene métricas agregadas principales CON KPIs DUALES.
         
-        Query optimizado que calcula todo en una sola pasada.
+        Query optimizado que:
+        1. JOIN con tb_sitios_oportunidad para obtener KPIs a nivel sitio
+        2. Calcula ambos KPIs (Interno + Compromiso)
+        3. Separa Versiones (parent_id) de Retrabajos (es_retrabajo)
         """
         where_clause, params = self._build_where_clause(filtros)
         
@@ -313,7 +567,12 @@ class ReportesSimulacionService:
         id_en_revision = cats['estatus'].get('en revisión')
         
         # Agregar parámetros adicionales
-        params.extend([id_entregado, id_perdido, id_cancelado, id_levantamiento, id_pendiente, id_en_proceso, id_en_revision])
+        params.extend([
+            id_entregado, id_perdido, id_cancelado, id_levantamiento, 
+            id_pendiente, id_en_proceso, id_en_revision
+        ])
+        
+        # Calcular índices de parámetros
         idx_entregado = len(params) - 6
         idx_perdido = len(params) - 5
         idx_cancelado = len(params) - 4
@@ -323,75 +582,129 @@ class ReportesSimulacionService:
         idx_revision = len(params)
         
         query = f"""
+            WITH sitios_kpis AS (
+                -- Obtener KPIs de todos los sitios
+                SELECT 
+                    s.id_oportunidad,
+                    s.id_sitio,
+                    s.kpi_status_interno,
+                    s.kpi_status_compromiso,
+                    s.es_retrabajo,
+                    o.parent_id,
+                    o.clasificacion_solicitud,
+                    o.es_licitacion,
+                    o.id_tipo_solicitud,
+                    o.id_estatus_global,
+                    o.id_motivo_cierre,
+                    o.tiempo_elaboracion_horas,
+                    o.fecha_entrega_simulacion
+                FROM tb_sitios_oportunidad s
+                JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
+                JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+                {where_clause}
+            )
             SELECT 
-                -- Totales básicos
-                COUNT(*) as total_solicitudes,
+                -- Totales básicos (contar oportunidades únicas, no sitios)
+                COUNT(DISTINCT id_oportunidad) as total_solicitudes,
                 
-                -- Ofertas generadas (Entregado + Perdido)
-                COUNT(*) FILTER (
-                    WHERE o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                ) as total_ofertas,
+                -- Ofertas generadas (Entregado + Perdido) - contar oportunidades
+                COUNT(DISTINCT CASE 
+                    WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido}) 
+                    THEN id_oportunidad 
+                END) as total_ofertas,
                 
-                -- En espera (Pendiente, En Proceso, En Revisión)
-                COUNT(*) FILTER (
-                    WHERE o.id_estatus_global IN (${idx_pendiente}, ${idx_proceso}, ${idx_revision})
-                ) as en_espera,
+                -- En espera
+                COUNT(DISTINCT CASE 
+                    WHEN id_estatus_global IN (${idx_pendiente}, ${idx_proceso}, ${idx_revision})
+                    THEN id_oportunidad 
+                END) as en_espera,
                 
                 -- Canceladas
-                COUNT(*) FILTER (
-                    WHERE o.id_estatus_global = ${idx_cancelado}
-                ) as canceladas,
+                COUNT(DISTINCT CASE 
+                    WHEN id_estatus_global = ${idx_cancelado} 
+                    THEN id_oportunidad 
+                END) as canceladas,
                 
-                -- No viables (canceladas con motivo técnico/regulatorio: IDs 1-8)
-                COUNT(*) FILTER (
-                    WHERE o.id_estatus_global = ${idx_cancelado}
-                    AND o.id_motivo_cierre BETWEEN 1 AND 8
-                ) as no_viables,
+                -- No viables (motivo técnico: IDs 1-8)
+                COUNT(DISTINCT CASE 
+                    WHEN id_estatus_global = ${idx_cancelado} 
+                    AND id_motivo_cierre BETWEEN 1 AND 8
+                    THEN id_oportunidad 
+                END) as no_viables,
                 
                 -- Extraordinarias
-                COUNT(*) FILTER (
-                    WHERE o.clasificacion_solicitud = 'EXTRAORDINARIO'
-                ) as extraordinarias,
+                COUNT(DISTINCT CASE 
+                    WHEN clasificacion_solicitud = 'EXTRAORDINARIO' 
+                    THEN id_oportunidad 
+                END) as extraordinarias,
                 
-                -- Retrabajadas (tienen parent_id)
-                COUNT(*) FILTER (
-                    WHERE o.parent_id IS NOT NULL
-                ) as retrabajadas,
+                -- VERSIONES: Oportunidades con parent_id
+                COUNT(DISTINCT CASE 
+                    WHEN parent_id IS NOT NULL 
+                    THEN id_oportunidad 
+                END) as versiones,
+                
+                -- RETRABAJOS: SITIOS con es_retrabajo=true (NO CONTAR OPORTUNIDADES)
+                COUNT(CASE 
+                    WHEN es_retrabajo = TRUE 
+                    THEN id_sitio 
+                END) as retrabajos,
                 
                 -- Licitaciones
-                COUNT(*) FILTER (
-                    WHERE o.es_licitacion = true
-                ) as licitaciones,
+                COUNT(DISTINCT CASE 
+                    WHEN es_licitacion = TRUE 
+                    THEN id_oportunidad 
+                END) as licitaciones,
                 
-                -- KPI: Entregas a tiempo (excluyendo levantamientos)
-                COUNT(*) FILTER (
-                    WHERE o.kpi_status_compromiso = 'Entrega a tiempo'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND o.id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_a_tiempo,
+                -- ============================================
+                -- KPI INTERNO (SLA del Sistema)
+                -- ============================================
+                COUNT(CASE 
+                    WHEN kpi_status_interno = 'Entrega a tiempo'
+                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND id_tipo_solicitud != ${idx_levantamiento}
+                    THEN id_sitio 
+                END) as entregas_a_tiempo_interno,
                 
-                -- KPI: Entregas tarde (excluyendo levantamientos)
-                COUNT(*) FILTER (
-                    WHERE o.kpi_status_compromiso = 'Entrega tarde'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND o.id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_tarde,
+                COUNT(CASE 
+                    WHEN kpi_status_interno = 'Entrega tarde'
+                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND id_tipo_solicitud != ${idx_levantamiento}
+                    THEN id_sitio 
+                END) as entregas_tarde_interno,
                 
-                -- Sin fecha de entrega (ofertas sin fecha)
-                COUNT(*) FILTER (
-                    WHERE o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND o.fecha_entrega_simulacion IS NULL
-                ) as sin_fecha_entrega,
+                -- ============================================
+                -- KPI COMPROMISO (SLA del Cliente)
+                -- ============================================
+                COUNT(CASE 
+                    WHEN kpi_status_compromiso = 'Entrega a tiempo'
+                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND id_tipo_solicitud != ${idx_levantamiento}
+                    THEN id_sitio 
+                END) as entregas_a_tiempo_compromiso,
                 
-                -- Tiempo promedio de elaboración (solo ofertas con tiempo)
-                AVG(o.tiempo_elaboracion_horas) FILTER (
-                    WHERE o.tiempo_elaboracion_horas IS NOT NULL
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                ) as tiempo_promedio_horas
+                COUNT(CASE 
+                    WHEN kpi_status_compromiso = 'Entrega tarde'
+                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND id_tipo_solicitud != ${idx_levantamiento}
+                    THEN id_sitio 
+                END) as entregas_tarde_compromiso,
                 
-            FROM tb_oportunidades o
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-            {where_clause}
+                -- Sin fecha de entrega
+                COUNT(DISTINCT CASE 
+                    WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND fecha_entrega_simulacion IS NULL
+                    THEN id_oportunidad 
+                END) as sin_fecha_entrega,
+                
+                -- Tiempo promedio (de oportunidades, no sitios)
+                AVG(CASE 
+                    WHEN tiempo_elaboracion_horas IS NOT NULL
+                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    THEN tiempo_elaboracion_horas 
+                END) as tiempo_promedio_horas
+                
+            FROM sitios_kpis
         """
         
         row = await conn.fetchrow(query, *params)
@@ -406,17 +719,96 @@ class ReportesSimulacionService:
             canceladas=row['canceladas'] or 0,
             no_viables=row['no_viables'] or 0,
             extraordinarias=row['extraordinarias'] or 0,
-            retrabajadas=row['retrabajadas'] or 0,
+            versiones=row['versiones'] or 0,
+            retrabajos=row['retrabajos'] or 0,
             licitaciones=row['licitaciones'] or 0,
-            entregas_a_tiempo=row['entregas_a_tiempo'] or 0,
-            entregas_tarde=row['entregas_tarde'] or 0,
+            entregas_a_tiempo_interno=row['entregas_a_tiempo_interno'] or 0,
+            entregas_tarde_interno=row['entregas_tarde_interno'] or 0,
+            entregas_a_tiempo_compromiso=row['entregas_a_tiempo_compromiso'] or 0,
+            entregas_tarde_compromiso=row['entregas_tarde_compromiso'] or 0,
             sin_fecha_entrega=row['sin_fecha_entrega'] or 0,
-            tiempo_promedio_horas=float(row['tiempo_promedio_horas']) if row['tiempo_promedio_horas'] else None
+            tiempo_promedio_horas=row['tiempo_promedio_horas']
         )
+    
+    async def get_motivo_retrabajo_principal(
+        self, 
+        conn, 
+        filtros: FiltrosReporte,
+        user_id: UUID = None
+    ) -> tuple:
+        """Obtiene el motivo de retrabajo más común"""
+        where_clause, params = self._build_where_clause(filtros)
+        
+        if user_id:
+            where_clause += f" AND o.responsable_simulacion_id = ${len(params) + 1}"
+            params.append(user_id)
+        
+        query = f"""
+            SELECT 
+                mr.nombre as motivo,
+                COUNT(*) as conteo
+            FROM tb_sitios_oportunidad s
+            JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
+            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            LEFT JOIN tb_cat_motivos_retrabajo mr ON s.id_motivo_retrabajo = mr.id
+            {where_clause}
+            AND s.es_retrabajo = TRUE
+            AND s.id_motivo_retrabajo IS NOT NULL
+            GROUP BY mr.nombre
+            ORDER BY conteo DESC
+            LIMIT 1
+        """
+        
+        row = await conn.fetchrow(query, *params)
+        
+        if row:
+            return row['motivo'], row['conteo']
+        else:
+            return None, 0
+    
+    async def get_tiempo_promedio_global_usuario(
+        self, 
+        conn, 
+        user_id: UUID, 
+        filtros: FiltrosReporte
+    ) -> float:
+        """Calcula tiempo promedio global del usuario"""
+        where_clause, params = self._build_where_clause(filtros)
+        
+        where_clause += f" AND o.responsable_simulacion_id = ${len(params) + 1}"
+        params.append(user_id)
+        
+        query = f"""
+            WITH tiempos AS (
+                SELECT tiempo_elaboracion_horas / 24 as dias
+                FROM tb_oportunidades o
+                JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+                {where_clause}
+                AND o.tiempo_elaboracion_horas IS NOT NULL
+                AND o.id_estatus_global IN (
+                    SELECT id FROM tb_cat_estatus_global 
+                    WHERE LOWER(nombre) IN ('entregado', 'perdido')
+                )
+                AND o.id_tipo_solicitud != (
+                    SELECT id FROM tb_cat_tipos_solicitud 
+                    WHERE LOWER(nombre) = 'levantamiento'
+                )
+            )
+            SELECT AVG(dias) as dias_promedio
+            FROM tiempos
+            WHERE dias <= (
+                SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY dias) 
+                FROM tiempos
+            )
+        """
+        
+        row = await conn.fetchrow(query, *params)
+        return round(row['dias_promedio'], 1) if row and row['dias_promedio'] else None
     
     async def get_metricas_por_tecnologia(self, conn, filtros: FiltrosReporte) -> List[MetricaTecnologia]:
         """
-        Obtiene métricas desglosadas por cada tecnología.
+        Obtiene métricas desglosadas por cada tecnología con KPIs duales.
+        Usa CTE con join a tb_sitios_oportunidad para KPIs a nivel sitio.
         """
         where_clause, params = self._build_where_clause(filtros)
         
@@ -433,97 +825,95 @@ class ReportesSimulacionService:
         idx_levantamiento = len(params)
         
         query = f"""
-            SELECT 
-                t.id as id_tecnologia,
-                t.nombre,
-                
-                COUNT(o.id_oportunidad) as total_solicitudes,
-                
-                COUNT(o.id_oportunidad) FILTER (
-                    WHERE o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                ) as total_ofertas,
-                
-                COUNT(o.id_oportunidad) FILTER (
-                    WHERE o.kpi_status_compromiso = 'Entrega a tiempo'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND o.id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_a_tiempo,
-                
-                COUNT(o.id_oportunidad) FILTER (
-                    WHERE o.kpi_status_compromiso = 'Entrega tarde'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND o.id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_tarde,
-                
-                COUNT(o.id_oportunidad) FILTER (
-                    WHERE o.clasificacion_solicitud = 'EXTRAORDINARIO'
-                ) as extraordinarias,
-                
-                COUNT(o.id_oportunidad) FILTER (
-                    WHERE o.parent_id IS NOT NULL
-                ) as retrabajadas,
-                
-                AVG(o.tiempo_elaboracion_horas) FILTER (
-                    WHERE o.tiempo_elaboracion_horas IS NOT NULL
-                ) as tiempo_promedio_horas,
-                
-                COALESCE(SUM(o.potencia_cierre_fv_kwp), 0) as potencia_total_kwp,
-                COALESCE(SUM(o.capacidad_cierre_bess_kwh), 0) as capacidad_total_kwh
-                
-            FROM tb_cat_tecnologias t
-            LEFT JOIN tb_oportunidades o ON o.id_tecnologia = t.id
-            LEFT JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-                AND e.modulo_aplicable = 'SIMULACION'
-            {where_clause.replace('WHERE', 'AND') if 'WHERE' in where_clause else ''}
-            WHERE t.activo = true
-            GROUP BY t.id, t.nombre
-            ORDER BY t.id
-        """
-        
-        # Ajustar query para manejar el LEFT JOIN correctamente
-        query_adjusted = f"""
-            WITH filtered_ops AS (
-                SELECT o.*, e.modulo_aplicable
-                FROM tb_oportunidades o
+            WITH sitios_tech AS (
+                SELECT 
+                    o.id_tecnologia,
+                    s.id_oportunidad,
+                    s.kpi_status_interno,
+                    s.kpi_status_compromiso,
+                    s.es_retrabajo,
+                    o.parent_id,
+                    o.clasificacion_solicitud,
+                    o.es_licitacion,
+                    o.id_estatus_global,
+                    o.id_tipo_solicitud,
+                    o.tiempo_elaboracion_horas,
+                    o.potencia_cierre_fv_kwp,
+                    o.capacidad_cierre_bess_kwh
+                FROM tb_sitios_oportunidad s
+                JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
                 JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
                 {where_clause}
             )
             SELECT 
                 t.id as id_tecnologia,
                 t.nombre,
-                COUNT(fo.id_oportunidad) as total_solicitudes,
-                COUNT(fo.id_oportunidad) FILTER (
-                    WHERE fo.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                
+                -- Conteos a nivel oportunidad (DISTINCT)
+                COUNT(DISTINCT st.id_oportunidad) as total_solicitudes,
+                COUNT(DISTINCT st.id_oportunidad) FILTER (
+                    WHERE st.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
                 ) as total_ofertas,
-                COUNT(fo.id_oportunidad) FILTER (
-                    WHERE fo.kpi_status_compromiso = 'Entrega a tiempo'
-                    AND fo.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND fo.id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_a_tiempo,
-                COUNT(fo.id_oportunidad) FILTER (
-                    WHERE fo.kpi_status_compromiso = 'Entrega tarde'
-                    AND fo.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND fo.id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_tarde,
-                COUNT(fo.id_oportunidad) FILTER (
-                    WHERE fo.clasificacion_solicitud = 'EXTRAORDINARIO'
+                
+                -- KPIs DUALES a nivel sitio (COUNT sin DISTINCT)
+                COUNT(*) FILTER (
+                    WHERE st.kpi_status_interno = 'Entrega a tiempo'
+                    AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND st.id_tipo_solicitud != ${idx_levantamiento}
+                ) as entregas_a_tiempo_interno,
+                
+                COUNT(*) FILTER (
+                    WHERE st.kpi_status_interno = 'Entrega tarde'
+                    AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND st.id_tipo_solicitud != ${idx_levantamiento}
+                ) as entregas_tarde_interno,
+                
+                COUNT(*) FILTER (
+                    WHERE st.kpi_status_compromiso = 'Entrega a tiempo'
+                    AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND st.id_tipo_solicitud != ${idx_levantamiento}
+                ) as entregas_a_tiempo_compromiso,
+                
+                COUNT(*) FILTER (
+                    WHERE st.kpi_status_compromiso = 'Entrega tarde'
+                    AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND st.id_tipo_solicitud != ${idx_levantamiento}
+                ) as entregas_tarde_compromiso,
+                
+                -- Clasificaciones
+                COUNT(DISTINCT st.id_oportunidad) FILTER (
+                    WHERE st.clasificacion_solicitud = 'EXTRAORDINARIO'
                 ) as extraordinarias,
-                COUNT(fo.id_oportunidad) FILTER (
-                    WHERE fo.parent_id IS NOT NULL
-                ) as retrabajadas,
-                AVG(fo.tiempo_elaboracion_horas) FILTER (
-                    WHERE fo.tiempo_elaboracion_horas IS NOT NULL
+                
+                COUNT(DISTINCT st.id_oportunidad) FILTER (
+                    WHERE st.parent_id IS NOT NULL
+                ) as versiones,
+                
+                COUNT(*) FILTER (
+                    WHERE st.es_retrabajo = TRUE
+                ) as retrabajos,
+                
+                -- Licitaciones
+                COUNT(DISTINCT st.id_oportunidad) FILTER (
+                    WHERE st.es_licitacion = TRUE
+                ) as licitaciones,
+                
+                -- Agregados
+                AVG(st.tiempo_elaboracion_horas) FILTER (
+                    WHERE st.tiempo_elaboracion_horas IS NOT NULL
                 ) as tiempo_promedio_horas,
-                COALESCE(SUM(fo.potencia_cierre_fv_kwp), 0) as potencia_total_kwp,
-                COALESCE(SUM(fo.capacidad_cierre_bess_kwh), 0) as capacidad_total_kwh
+                
+                COALESCE(SUM(DISTINCT st.potencia_cierre_fv_kwp), 0) as potencia_total_kwp,
+                COALESCE(SUM(DISTINCT st.capacidad_cierre_bess_kwh), 0) as capacidad_total_kwh
+                
             FROM tb_cat_tecnologias t
-            LEFT JOIN filtered_ops fo ON fo.id_tecnologia = t.id
+            LEFT JOIN sitios_tech st ON st.id_tecnologia = t.id
             WHERE t.activo = true
             GROUP BY t.id, t.nombre
             ORDER BY t.id
         """
         
-        rows = await conn.fetch(query_adjusted, *params)
+        rows = await conn.fetch(query, *params)
         
         return [
             MetricaTecnologia(
@@ -531,10 +921,14 @@ class ReportesSimulacionService:
                 nombre=row['nombre'],
                 total_solicitudes=row['total_solicitudes'] or 0,
                 total_ofertas=row['total_ofertas'] or 0,
-                entregas_a_tiempo=row['entregas_a_tiempo'] or 0,
-                entregas_tarde=row['entregas_tarde'] or 0,
+                entregas_a_tiempo_interno=row['entregas_a_tiempo_interno'] or 0,
+                entregas_tarde_interno=row['entregas_tarde_interno'] or 0,
+                entregas_a_tiempo_compromiso=row['entregas_a_tiempo_compromiso'] or 0,
+                entregas_tarde_compromiso=row['entregas_tarde_compromiso'] or 0,
                 extraordinarias=row['extraordinarias'] or 0,
-                retrabajadas=row['retrabajadas'] or 0,
+                versiones=row['versiones'] or 0,
+                retrabajados=row['retrabajos'] or 0,
+                licitaciones=row['licitaciones'] or 0,
                 tiempo_promedio_horas=float(row['tiempo_promedio_horas']) if row['tiempo_promedio_horas'] else None,
                 potencia_total_kwp=float(row['potencia_total_kwp'] or 0),
                 capacidad_total_kwh=float(row['capacidad_total_kwh'] or 0)
@@ -561,44 +955,118 @@ class ReportesSimulacionService:
         idx_levantamiento = len(params)
         
         query = f"""
-            WITH filtered_ops AS (
-                SELECT o.*, e.modulo_aplicable
-                FROM tb_oportunidades o
-                JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-                {where_clause}
-            )
+            SELECT 
+                ts.id as id_tipo,
+                ts.nombre,
+                ts.codigo_interno,
+                (ts.id = ${idx_levantamiento}) as es_levantamiento,
+                
+                -- Total de oportunidades
+                COUNT(DISTINCT o.id_oportunidad) as total,
+                
+                -- KPI INTERNO (contar SITIOS)
+                COUNT(CASE 
+                    WHEN s.kpi_status_interno = 'Entrega a tiempo'
+                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    THEN s.id_sitio 
+                END) as en_plazo_interno,
+                
+                COUNT(CASE 
+                    WHEN s.kpi_status_interno = 'Entrega tarde'
+                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    THEN s.id_sitio 
+                END) as fuera_plazo_interno,
+                
+                -- KPI COMPROMISO (contar SITIOS)
+                COUNT(CASE 
+                    WHEN s.kpi_status_compromiso = 'Entrega a tiempo'
+                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    THEN s.id_sitio 
+                END) as en_plazo_compromiso,
+                
+                COUNT(CASE 
+                    WHEN s.kpi_status_compromiso = 'Entrega tarde'
+                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    THEN s.id_sitio 
+                END) as fuera_plazo_compromiso,
+                
+                -- Sin fecha
+                COUNT(DISTINCT CASE 
+                    WHEN o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND o.fecha_entrega_simulacion IS NULL
+                    THEN o.id_oportunidad 
+                END) as sin_fecha
+                
+            FROM tb_cat_tipos_solicitud ts
+            LEFT JOIN tb_oportunidades o ON ts.id = o.id_tipo_solicitud 
+                AND o.id_estatus_global >= 1 -- Simple placeholder, the CTE filters logic is in WHERE
+            LEFT JOIN tb_sitios_oportunidad s ON o.id_oportunidad = s.id_oportunidad
+            LEFT JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            {where_clause}
+            GROUP BY ts.id, ts.nombre, ts.codigo_interno
+            HAVING COUNT(DISTINCT o.id_oportunidad) > 0 OR ts.id IS NOT NULL
+            ORDER BY ts.id
+        """
+        # Note: Previous query had slightly different logic with filtered_ops. 
+        # To strictly follow instructions, I should use the one provided in the instructions file
+        # which uses direct joins. Re-implementing strictly from instruction block.
+        
+        query = f"""
             SELECT 
                 ts.id as id_tipo_solicitud,
                 ts.nombre,
                 ts.codigo_interno,
                 
-                COUNT(fo.id_oportunidad) as total,
+                COUNT(DISTINCT o.id_oportunidad) as total,
                 
-                -- En plazo (ofertas con KPI a tiempo)
-                COUNT(fo.id_oportunidad) FILTER (
-                    WHERE fo.kpi_status_compromiso = 'Entrega a tiempo'
-                    AND fo.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                ) as en_plazo,
+                -- KPI INTERNO
+                COUNT(CASE 
+                    WHEN s.kpi_status_interno = 'Entrega a tiempo'
+                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    THEN s.id_sitio 
+                END) as en_plazo_interno,
                 
-                -- Fuera de plazo (ofertas con KPI tarde)
-                COUNT(fo.id_oportunidad) FILTER (
-                    WHERE fo.kpi_status_compromiso = 'Entrega tarde'
-                    AND fo.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                ) as fuera_plazo,
+                COUNT(CASE 
+                    WHEN s.kpi_status_interno = 'Entrega tarde'
+                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    THEN s.id_sitio 
+                END) as fuera_plazo_interno,
                 
-                -- Sin fecha (ofertas sin fecha de entrega o sin KPI)
-                COUNT(fo.id_oportunidad) FILTER (
-                    WHERE fo.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND (fo.fecha_entrega_simulacion IS NULL OR fo.kpi_status_compromiso IS NULL)
-                ) as sin_fecha,
+                -- KPI COMPROMISO
+                COUNT(CASE 
+                    WHEN s.kpi_status_compromiso = 'Entrega a tiempo'
+                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    THEN s.id_sitio 
+                END) as en_plazo_compromiso,
                 
-                -- Flag levantamiento
+                COUNT(CASE 
+                    WHEN s.kpi_status_compromiso = 'Entrega tarde'
+                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    THEN s.id_sitio 
+                END) as fuera_plazo_compromiso,
+                
+                -- Sin fecha
+                COUNT(DISTINCT CASE 
+                    WHEN o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND o.fecha_entrega_simulacion IS NULL
+                    THEN o.id_oportunidad 
+                END) as sin_fecha,
+                
+                -- Licitaciones
+                COUNT(DISTINCT CASE 
+                    WHEN o.es_licitacion = TRUE 
+                    THEN o.id_oportunidad 
+                END) as licitaciones,
+                
                 (ts.id = ${idx_levantamiento}) as es_levantamiento
                 
             FROM tb_cat_tipos_solicitud ts
-            LEFT JOIN filtered_ops fo ON fo.id_tipo_solicitud = ts.id
-            WHERE ts.activo = true
+            LEFT JOIN tb_oportunidades o ON ts.id = o.id_tipo_solicitud
+            LEFT JOIN tb_sitios_oportunidad s ON o.id_oportunidad = s.id_oportunidad
+            LEFT JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            {where_clause}
             GROUP BY ts.id, ts.nombre, ts.codigo_interno
+            HAVING COUNT(DISTINCT o.id_oportunidad) > 0
             ORDER BY ts.id
         """
         
@@ -610,9 +1078,12 @@ class ReportesSimulacionService:
                 nombre=row['nombre'],
                 codigo_interno=row['codigo_interno'],
                 total=row['total'] or 0,
-                en_plazo=row['en_plazo'] or 0,
-                fuera_plazo=row['fuera_plazo'] or 0,
+                en_plazo_interno=row['en_plazo_interno'] or 0,
+                fuera_plazo_interno=row['fuera_plazo_interno'] or 0,
+                en_plazo_compromiso=row['en_plazo_compromiso'] or 0,
+                fuera_plazo_compromiso=row['fuera_plazo_compromiso'] or 0,
                 sin_fecha=row['sin_fecha'] or 0,
+                licitaciones=row['licitaciones'] or 0,
                 es_levantamiento=row['es_levantamiento'] or False
             )
             for row in rows
@@ -664,19 +1135,241 @@ class ReportesSimulacionService:
             metricas_tech = await self.get_metricas_por_tecnologia(conn, filtros_usuario)
             tabla_cont = await self.get_tabla_contabilizacion(conn, filtros_usuario)
             
-            resultados.append(DetalleUsuario(
+            # Obtener tiempo promedio por tipo de solicitud
+            tiempo_por_tipo = await self.get_tiempo_promedio_por_tipo(
+                conn, usuario['id_usuario'], filtros
+            )
+            
+            # Crear objeto DetalleUsuario primero (sin resumen)
+            detalle_usuario = DetalleUsuario(
                 usuario_id=usuario['id_usuario'],
                 nombre=usuario['nombre'],
                 metricas_generales=metricas_gen,
                 metricas_por_tecnologia=metricas_tech,
-                tabla_contabilizacion=tabla_cont
-            ))
+                tabla_contabilizacion=tabla_cont,
+                tiempo_promedio_por_tipo=tiempo_por_tipo,
+                resumen_texto="",  # Se actualiza después
+                resumen_datos=None  # Se actualiza después
+            )
+            
+            # Obtener tiempo promedio global del usuario
+            tiempo_promedio_global = await self.get_tiempo_promedio_global_usuario(
+                conn, usuario['id_usuario'], filtros
+            )
+            
+            # Obtener motivo de retrabajo principal del usuario
+            motivo_principal, _ = await self.get_motivo_retrabajo_principal(
+                conn, filtros, user_id=usuario['id_usuario']
+            )
+            
+            # Generar resumen de datos estructurado
+            detalle_usuario.resumen_datos = self.generar_resumen_usuario(
+                detalle_usuario, 
+                filtros,
+                motivo_retrabajo_principal=motivo_principal,
+                tiempo_promedio_global_dias=tiempo_promedio_global
+            )
+            # Legacy/Fallback (opcional, si queremos mantener el string)
+            # detalle_usuario.resumen_texto = self._render_resumen_usuario_legacy(detalle_usuario) # No longer needed based on requirements
+            
+            resultados.append(detalle_usuario)
         
         return resultados
     
+    async def get_tiempo_promedio_por_tipo(
+        self, 
+        conn, 
+        user_id: UUID, 
+        filtros: FiltrosReporte
+    ) -> Dict[str, float]:
+        """
+        Obtiene tiempo promedio de elaboración agrupado por tipo de solicitud.
+        
+        Args:
+            conn: Conexión a base de datos
+            user_id: ID del usuario responsable
+            filtros: Filtros de fecha y otros criterios
+            
+        Returns:
+            Dict con nombre_tipo -> días promedio
+        """
+        where_clause, params = self._build_where_clause(filtros)
+        
+        # Agregar filtro de usuario
+        idx_user = len(params) + 1
+        params.append(user_id)
+        
+        # IDs de catálogos dinámicos
+        cats = await self._get_catalog_ids(conn)
+        id_entregado = cats['estatus'].get('entregado')
+        id_perdido = cats['estatus'].get('perdido')
+        
+        params.extend([id_entregado, id_perdido])
+        idx_entregado = len(params) - 1
+        idx_perdido = len(params)
+        
+        query = f"""
+            SELECT 
+                ts.nombre as tipo,
+                AVG(o.tiempo_elaboracion_horas) / 24 as dias_promedio
+            FROM tb_oportunidades o
+            JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
+            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            {where_clause}
+            AND o.responsable_simulacion_id = ${idx_user}
+            AND o.tiempo_elaboracion_horas IS NOT NULL
+            AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+            AND o.id_tipo_solicitud != (
+                SELECT id FROM tb_cat_tipos_solicitud 
+                WHERE LOWER(nombre) = 'levantamiento'
+            )
+            GROUP BY ts.nombre
+            HAVING AVG(o.tiempo_elaboracion_horas) IS NOT NULL
+        """
+        
+        rows = await conn.fetch(query, *params)
+        return {row['tipo']: round(float(row['dias_promedio']), 1) for row in rows}
+    
+    def generar_resumen_usuario(
+        self, 
+        usuario: 'DetalleUsuario',
+        filtros: FiltrosReporte,
+        motivo_retrabajo_principal: str = None,  # ← AGREGADO
+        tiempo_promedio_global_dias: float = None  # ← AGREGADO
+    ) -> ResumenUsuario:
+        """Genera datos estructurados para resumen de usuario"""
+        
+        # Tecnología principal
+        tech_principal = None
+        if usuario.metricas_por_tecnologia:
+            # Filtrar techs con > 0 solicitudes
+            techs_activas = [t for t in usuario.metricas_por_tecnologia if t.total_solicitudes > 0]
+            if techs_activas:
+                tech = max(techs_activas, key=lambda x: x.total_solicitudes)
+                tech_principal = {
+                    "nombre": tech.nombre,
+                    "solicitudes": tech.total_solicitudes
+                }
+        
+        # Tiempo promedio por tipo (lista ordenada)
+        tiempo_por_tipo = []
+        if usuario.tiempo_promedio_por_tipo:
+            tiempo_por_tipo = [
+                {
+                    "tipo": tipo,
+                    "dias": dias
+                }
+                for tipo, dias in sorted(usuario.tiempo_promedio_por_tipo.items(), key=lambda x: x[1])
+            ]
+        
+        # Métricas generales shortcuts
+        m = usuario.metricas_generales
+        
+        return ResumenUsuario(
+            nombre=usuario.nombre,
+            total_ofertas=m.total_ofertas,
+            tecnologia_principal=tech_principal,
+            porcentaje_interno=m.porcentaje_a_tiempo_interno,
+            porcentaje_compromiso=m.porcentaje_a_tiempo_compromiso,
+            tiempo_promedio_por_tipo=tiempo_por_tipo,
+            licitaciones=m.licitaciones,
+            porcentaje_licitaciones=round((m.licitaciones / m.total_solicitudes) * 100, 1) if m.total_solicitudes > 0 else 0,
+            extraordinarias=m.extraordinarias,
+            versiones=m.versiones,
+            # Campos adicionales de retrabajos
+            tiempo_promedio_global_dias=tiempo_promedio_global_dias,
+            total_retrabajos=m.retrabajos,
+            porcentaje_retrabajos=round((m.retrabajos / m.total_solicitudes) * 100, 1) if m.total_solicitudes > 0 else 0,
+            motivo_retrabajo_principal=motivo_retrabajo_principal
+        )
+    
+    def generar_resumen_ejecutivo(
+        self,
+        metricas: MetricasGenerales,
+        usuarios: List['DetalleUsuario'],
+        filas_tipo: List[FilaContabilizacion],
+        filtros: FiltrosReporte,
+        motivo_retrabajo_principal: tuple = (None, 0)  # ← AGREGADO
+    ) -> ResumenEjecutivo:
+        """
+        Genera SOLO DATOS para el resumen ejecutivo.
+        El renderizado HTML se hace en el template.
+        """
+        import locale
+        
+        # Configurar locale para fechas en español
+        try:
+            locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
+        except:
+            pass  # Fallback si no está disponible
+        
+        # Formatear fechas
+        fecha_inicio = filtros.fecha_inicio.strftime("%d de %B de %Y")
+        fecha_fin = filtros.fecha_fin.strftime("%d de %B de %Y")
+        
+        # Top 3 tipos
+        top_tipos = []
+        if filas_tipo and metricas.total_solicitudes > 0:
+            top_tipos_sorted = sorted(filas_tipo, key=lambda x: x.total, reverse=True)[:3]
+            top_tipos = [
+                {
+                    "nombre": t.nombre,
+                    "total": t.total,
+                    "porcentaje": round((t.total / metricas.total_solicitudes) * 100, 1) if metricas.total_solicitudes > 0 else 0
+                }
+                for t in top_tipos_sorted
+            ]
+        
+        # Mejor usuario (por KPI Compromiso)
+        mejor_usuario_data = None
+        if usuarios:
+            # Filtrar usuarios con actividad en KPI compromiso
+            usuarios_con_kpi = [u for u in usuarios if (u.metricas_generales.entregas_a_tiempo_compromiso + u.metricas_generales.entregas_tarde_compromiso) > 0]
+            
+            if usuarios_con_kpi:
+                # Encontrar el mejor usuario basado en porcentaje de compromiso
+                mejor_user = max(usuarios_con_kpi, key=lambda u: u.metricas_generales.porcentaje_a_tiempo_compromiso)
+                mejor_usuario_data = {
+                    "nombre": mejor_user.nombre,
+                    "ofertas": mejor_user.metricas_generales.total_ofertas,
+                    "porcentaje_interno": mejor_user.metricas_generales.porcentaje_a_tiempo_interno,
+                    "porcentaje_compromiso": mejor_user.metricas_generales.porcentaje_a_tiempo_compromiso
+                }
+        
+        # Calcular totales de entregas
+        total_entregas_interno = metricas.entregas_a_tiempo_interno + metricas.entregas_tarde_interno
+        total_entregas_compromiso = metricas.entregas_a_tiempo_compromiso + metricas.entregas_tarde_compromiso
+        
+        # Construir objeto de datos
+        return ResumenEjecutivo(
+            fecha_inicio_formatted=fecha_inicio,
+            fecha_fin_formatted=fecha_fin,
+            total_solicitudes=metricas.total_solicitudes,
+            total_ofertas=metricas.total_ofertas,
+            top_tipos=top_tipos,
+            porcentaje_cumplimiento_interno=metricas.porcentaje_a_tiempo_interno,
+            entregas_a_tiempo_interno=metricas.entregas_a_tiempo_interno,
+            total_entregas_interno=total_entregas_interno,
+            porcentaje_cumplimiento_compromiso=metricas.porcentaje_a_tiempo_compromiso,
+            entregas_a_tiempo_compromiso=metricas.entregas_a_tiempo_compromiso,
+            total_entregas_compromiso=total_entregas_compromiso,
+            mejor_usuario=mejor_usuario_data,
+            licitaciones=metricas.licitaciones,
+            porcentaje_licitaciones=metricas.porcentaje_licitaciones,
+            extraordinarias=metricas.extraordinarias,
+            porcentaje_extraordinarias=round((metricas.extraordinarias / metricas.total_solicitudes) * 100, 1) if metricas.total_solicitudes > 0 else 0,
+            versiones=metricas.versiones,
+            porcentaje_versiones=round((metricas.versiones / metricas.total_solicitudes) * 100, 1) if metricas.total_solicitudes > 0 else 0,
+            # Retrabajos
+            total_retrabajos=metricas.retrabajos,
+            porcentaje_retrabajos=round((metricas.retrabajos / metricas.total_solicitudes) * 100, 1) if metricas.total_solicitudes > 0 else 0,
+            motivo_retrabajo_principal=motivo_retrabajo_principal[0],
+            conteo_motivo_principal=motivo_retrabajo_principal[1]
+        )
+    
     async def get_resumen_mensual(self, conn, filtros: FiltrosReporte) -> Dict[str, FilaMensual]:
         """
-        Genera el resumen mensual tipo pivot.
+        Genera el resumen mensual tipo pivot con KPIs duales.
         
         Returns:
             Dict con métricas como keys y FilaMensual como values
@@ -705,71 +1398,114 @@ class ReportesSimulacionService:
         idx_proceso = len(params) - 1
         idx_revision = len(params)
         
+        # Query con CTE para incluir KPIs de sitios
         query = f"""
+            WITH sitios_mensual AS (
+                SELECT 
+                    EXTRACT(MONTH FROM o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::int as mes,
+                    s.id_oportunidad,
+                    s.kpi_status_interno,
+                    s.kpi_status_compromiso,
+                    s.es_retrabajo,
+                    o.parent_id,
+                    o.clasificacion_solicitud,
+                    o.id_estatus_global,
+                    o.id_tipo_solicitud,
+                    o.tiempo_elaboracion_horas,
+                    o.id_motivo_cierre
+                FROM tb_sitios_oportunidad s
+                JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
+                JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+                {where_clause}
+            )
             SELECT 
-                EXTRACT(MONTH FROM o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::int as mes,
+                mes,
                 
-                COUNT(*) as solicitudes_recibidas,
+                COUNT(DISTINCT id_oportunidad) as solicitudes_recibidas,
                 
-                COUNT(*) FILTER (
-                    WHERE o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                COUNT(DISTINCT id_oportunidad) FILTER (
+                    WHERE id_estatus_global IN (${idx_entregado}, ${idx_perdido})
                 ) as ofertas_generadas,
                 
+                -- KPI INTERNO
                 COUNT(*) FILTER (
-                    WHERE o.kpi_status_compromiso = 'Entrega a tiempo'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND o.id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_a_tiempo,
+                    WHERE kpi_status_interno = 'Entrega a tiempo'
+                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND id_tipo_solicitud != ${idx_levantamiento}
+                ) as entregas_a_tiempo_interno,
                 
                 COUNT(*) FILTER (
-                    WHERE o.kpi_status_compromiso = 'Entrega tarde'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND o.id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_tarde,
+                    WHERE kpi_status_interno = 'Entrega tarde'
+                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND id_tipo_solicitud != ${idx_levantamiento}
+                ) as entregas_tarde_interno,
                 
-                AVG(o.tiempo_elaboracion_horas) FILTER (
-                    WHERE o.tiempo_elaboracion_horas IS NOT NULL
+                -- KPI COMPROMISO
+                COUNT(*) FILTER (
+                    WHERE kpi_status_compromiso = 'Entrega a tiempo'
+                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND id_tipo_solicitud != ${idx_levantamiento}
+                ) as entregas_a_tiempo_compromiso,
+                
+                COUNT(*) FILTER (
+                    WHERE kpi_status_compromiso = 'Entrega tarde'
+                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+                    AND id_tipo_solicitud != ${idx_levantamiento}
+                ) as entregas_tarde_compromiso,
+                
+                AVG(tiempo_elaboracion_horas) FILTER (
+                    WHERE tiempo_elaboracion_horas IS NOT NULL
                 ) as tiempo_promedio,
                 
-                COUNT(*) FILTER (
-                    WHERE o.id_estatus_global IN (${idx_pendiente}, ${idx_proceso}, ${idx_revision})
+                COUNT(DISTINCT id_oportunidad) FILTER (
+                    WHERE id_estatus_global IN (${idx_pendiente}, ${idx_proceso}, ${idx_revision})
                 ) as en_espera,
                 
-                COUNT(*) FILTER (
-                    WHERE o.id_estatus_global = ${idx_cancelado}
+                COUNT(DISTINCT id_oportunidad) FILTER (
+                    WHERE id_estatus_global = ${idx_cancelado}
                 ) as canceladas,
                 
-                COUNT(*) FILTER (
-                    WHERE o.id_estatus_global = ${idx_cancelado}
-                    AND o.id_motivo_cierre BETWEEN 1 AND 8
+                COUNT(DISTINCT id_oportunidad) FILTER (
+                    WHERE id_estatus_global = ${idx_cancelado}
+                    AND id_motivo_cierre BETWEEN 1 AND 8
                 ) as no_viables,
                 
-                COUNT(*) FILTER (
-                    WHERE o.id_estatus_global = ${idx_perdido}
+                COUNT(DISTINCT id_oportunidad) FILTER (
+                    WHERE id_estatus_global = ${idx_perdido}
                 ) as perdidas,
                 
-                COUNT(*) FILTER (
-                    WHERE o.clasificacion_solicitud = 'EXTRAORDINARIO'
+                COUNT(DISTINCT id_oportunidad) FILTER (
+                    WHERE clasificacion_solicitud = 'EXTRAORDINARIO'
                 ) as extraordinarias,
                 
-                COUNT(*) FILTER (
-                    WHERE o.parent_id IS NOT NULL
-                ) as retrabajadas
+                COUNT(DISTINCT id_oportunidad) FILTER (
+                    WHERE parent_id IS NOT NULL
+                ) as versiones,
                 
-            FROM tb_oportunidades o
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-            {where_clause}
+                COUNT(*) FILTER (
+                    WHERE es_retrabajo = TRUE
+                ) as retrabajos
+                
+            FROM sitios_mensual
             GROUP BY mes
             ORDER BY mes
         """
         
         rows = await conn.fetch(query, *params)
         
-        # Inicializar estructura de respuesta
+        # Inicializar estructura de respuesta con nuevas métricas
         metricas_nombres = [
             'solicitudes_recibidas',
             'ofertas_generadas', 
-            'porcentaje_en_plazo',
+            'porcentaje_en_plazo_interno',
+            'porcentaje_fuera_plazo_interno',
+            'entregas_a_tiempo_interno',
+            'entregas_tarde_interno',
+            'porcentaje_en_plazo_compromiso',
+            'porcentaje_fuera_plazo_compromiso',
+            'entregas_a_tiempo_compromiso',
+            'entregas_tarde_compromiso',
+            'porcentaje_en_plazo',  # Legacy - mapea a compromiso
             'porcentaje_fuera_plazo',
             'tiempo_promedio',
             'en_espera',
@@ -777,7 +1513,8 @@ class ReportesSimulacionService:
             'no_viables',
             'perdidas',
             'extraordinarias',
-            'retrabajadas'
+            'versiones',
+            'retrabajos'
         ]
         
         resultado = {nombre: FilaMensual(metrica=nombre) for nombre in metricas_nombres}
@@ -786,26 +1523,46 @@ class ReportesSimulacionService:
         for row in rows:
             mes = row['mes']
             
-            # Calcular porcentajes
-            total_con_kpi = (row['entregas_a_tiempo'] or 0) + (row['entregas_tarde'] or 0)
-            pct_tiempo = round((row['entregas_a_tiempo'] or 0) / total_con_kpi * 100, 1) if total_con_kpi > 0 else 0
-            pct_tarde = round((row['entregas_tarde'] or 0) / total_con_kpi * 100, 1) if total_con_kpi > 0 else 0
+            # Calcular porcentajes KPI INTERNO
+            total_kpi_interno = (row['entregas_a_tiempo_interno'] or 0) + (row['entregas_tarde_interno'] or 0)
+            pct_interno = round((row['entregas_a_tiempo_interno'] or 0) / total_kpi_interno * 100, 1) if total_kpi_interno > 0 else 0
+            
+            # Calcular porcentajes KPI COMPROMISO
+            total_kpi_compromiso = (row['entregas_a_tiempo_compromiso'] or 0) + (row['entregas_tarde_compromiso'] or 0)
+            pct_compromiso = round((row['entregas_a_tiempo_compromiso'] or 0) / total_kpi_compromiso * 100, 1) if total_kpi_compromiso > 0 else 0
+            pct_tarde = round((row['entregas_tarde_compromiso'] or 0) / total_kpi_compromiso * 100, 1) if total_kpi_compromiso > 0 else 0
             
             resultado['solicitudes_recibidas'].valores[mes] = row['solicitudes_recibidas'] or 0
             resultado['ofertas_generadas'].valores[mes] = row['ofertas_generadas'] or 0
-            resultado['porcentaje_en_plazo'].valores[mes] = pct_tiempo
+            
+            # KPIs Internos (Porcentajes y Conteos)
+            resultado['porcentaje_en_plazo_interno'].valores[mes] = pct_interno
+            resultado['porcentaje_fuera_plazo_interno'].valores[mes] = round(100 - pct_interno, 1) if total_kpi_interno > 0 else 0
+            resultado['entregas_a_tiempo_interno'].valores[mes] = row['entregas_a_tiempo_interno'] or 0
+            resultado['entregas_tarde_interno'].valores[mes] = row['entregas_tarde_interno'] or 0
+            
+            # KPIs Compromiso (Porcentajes y Conteos)
+            resultado['porcentaje_en_plazo_compromiso'].valores[mes] = pct_compromiso
+            resultado['porcentaje_fuera_plazo_compromiso'].valores[mes] = pct_tarde
+            resultado['entregas_a_tiempo_compromiso'].valores[mes] = row['entregas_a_tiempo_compromiso'] or 0
+            resultado['entregas_tarde_compromiso'].valores[mes] = row['entregas_tarde_compromiso'] or 0
+            
+            # Legacy fields
+            resultado['porcentaje_en_plazo'].valores[mes] = pct_compromiso  
             resultado['porcentaje_fuera_plazo'].valores[mes] = pct_tarde
+            
             resultado['tiempo_promedio'].valores[mes] = round(float(row['tiempo_promedio'] or 0) / 24, 1)  # A días
             resultado['en_espera'].valores[mes] = row['en_espera'] or 0
             resultado['canceladas'].valores[mes] = row['canceladas'] or 0
             resultado['no_viables'].valores[mes] = row['no_viables'] or 0
             resultado['perdidas'].valores[mes] = row['perdidas'] or 0
             resultado['extraordinarias'].valores[mes] = row['extraordinarias'] or 0
-            resultado['retrabajadas'].valores[mes] = row['retrabajadas'] or 0
+            resultado['versiones'].valores[mes] = row['versiones'] or 0
+            resultado['retrabajos'].valores[mes] = row['retrabajos'] or 0
         
         # Calcular totales
         for nombre, fila in resultado.items():
-            if nombre in ['porcentaje_en_plazo', 'porcentaje_fuera_plazo', 'tiempo_promedio']:
+            if nombre in ['porcentaje_en_plazo', 'porcentaje_en_plazo_interno', 'porcentaje_fuera_plazo_interno', 'porcentaje_en_plazo_compromiso', 'porcentaje_fuera_plazo_compromiso', 'porcentaje_fuera_plazo', 'tiempo_promedio']:
                 # Promedios
                 valores = [v for v in fila.valores.values() if v > 0]
                 fila.total = round(sum(valores) / len(valores), 1) if valores else 0

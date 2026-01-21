@@ -1,153 +1,127 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 
 <head>
-    <meta charset="utf-8">
+    <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: #f4f4f4;
-            margin: 0;
-            padding: 0;
-        }
-
-        .container {
-            max-width: 600px;
-            margin: 20px auto;
-            background: white;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-        }
-
-        .header {
-            background: linear-gradient(135deg, #00BABB 0%, #123456 100%);
-            color: white;
-            padding: 30px 20px;
-            border-left: 4px solid #00BABB;
-        }
-
-        .header h2 {
-            margin: 0 0 10px 0;
-            font-size: 24px;
-        }
-
-        .header p {
-            margin: 5px 0;
-            opacity: 0.95;
-        }
-
-        .content {
-            padding: 25px;
-        }
-
-        .comment-box {
-            background: #f8f9fa;
-            border-left: 3px solid #00BABB;
-            padding: 15px;
-            border-radius: 4px;
-            margin: 15px 0;
-        }
-
-        .comment-text {
-            white-space: pre-wrap;
-            line-height: 1.6;
-            color: #333;
-            font-size: 14px;
-        }
-
-        .metadata {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            margin-top: 15px;
-            padding-top: 15px;
-            border-top: 1px solid #e0e0e0;
-        }
-
-        .metadata-item {
-            flex: 1;
-            min-width: 200px;
-        }
-
-        .metadata-label {
-            font-weight: 600;
-            color: #666;
-            font-size: 12px;
-            text-transform: uppercase;
-            margin-bottom: 3px;
-        }
-
-        .metadata-value {
-            color: #333;
-            font-size: 14px;
-        }
-
-        .footer {
-            background: #f8f9fa;
-            padding: 20px;
-            text-align: center;
-            font-size: 12px;
-            color: #6c757d;
-            border-top: 1px solid #e0e0e0;
-        }
-
-        .badge {
-            display: inline-block;
-            padding: 4px 8px;
-            background: #00BABB;
-            color: white;
-            border-radius: 3px;
-            font-size: 11px;
-            font-weight: 600;
-            text-transform: uppercase;
-        }
-    </style>
+    <title>Nuevo Comentario</title>
 </head>
 
-<body>
-    <div class="container">
-        <div class="header">
-            <h2>Nuevo Comentario en Workflow</h2>
-            <p><strong>{{ op.op_id_estandar }}</strong></p>
-        </div>
+<body
+    style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4; color: #333333;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <!-- Container Principal -->
+                <table width="600" cellpadding="0" cellspacing="0"
+                    style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
 
-        <div class="content">
-            <div class="metadata">
-                <div class="metadata-item">
-                    <div class="metadata-label">Proyecto</div>
-                    <div class="metadata-value">{{ op.nombre_proyecto }}</div>
-                </div>
-                <div class="metadata-item">
-                    <div class="metadata-label">Cliente</div>
-                    <div class="metadata-value">{{ op.cliente_nombre }}</div>
-                </div>
-            </div>
+                    <!-- Header con Gradiente Enertika -->
+                    <tr>
+                        <td
+                            style="background: linear-gradient(135deg, #00BABB 0%, #123456 100%); padding: 30px 40px; text-align: center; border-left: 4px solid #00BABB;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 24px; font-weight: 600;">
+                                Nuevo Comentario en Workflow
+                            </h1>
+                            <p style="margin: 10px 0 0 0; color: #E0F7F7; font-size: 14px;">
+                                <strong>{{ op.op_id_estandar }}</strong>
+                            </p>
+                        </td>
+                    </tr>
 
-            <div class="metadata">
-                <div class="metadata-item">
-                    <div class="metadata-label">Autor</div>
-                    <div class="metadata-value">{{ autor }}</div>
-                </div>
-                <div class="metadata-item">
-                    <div class="metadata-label">Departamento</div>
-                    <div class="metadata-value">
-                        <span class="badge">{{ departamento }}</span>
-                    </div>
-                </div>
-            </div>
+                    <!-- Contenido Principal -->
+                    <tr>
+                        <td style="padding: 40px; background-color: #ffffff;">
 
-            <div class="comment-box">
-                <p class="comment-text">{{ comentario }}</p>
-            </div>
-        </div>
+                            <!-- Card de Oportunidad -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #f9f9f9; border-left: 4px solid #00BABB; border-radius: 4px; margin-bottom: 25px;">
+                                <tr>
+                                    <td style="padding: 20px;">
+                                        <table width="100%" cellpadding="8" cellspacing="0">
+                                            <tr>
+                                                <td width="100"
+                                                    style="color: #666666; font-weight: 600; font-size: 12px; text-transform: uppercase; vertical-align: top;">
+                                                    Proyecto:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px;">
+                                                    {{ op.nombre_proyecto or 'Sin nombre de proyecto' }}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    style="color: #666666; font-weight: 600; font-size: 12px; text-transform: uppercase; vertical-align: top;">
+                                                    Cliente:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px;">
+                                                    {{ op.cliente_nombre }}
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
 
-        <div class="footer">
-            <p><strong>Enertika Ops Core</strong></p>
-            <p>Este es un mensaje automatico del sistema. Por favor no responda a este correo.</p>
-        </div>
-    </div>
+                            <!-- Info del Comentario -->
+                            <table width="100%" cellpadding="12" cellspacing="0" style="margin-bottom: 20px;">
+                                <tr>
+                                    <td
+                                        style="color: #666666; font-weight: 600; font-size: 12px; text-transform: uppercase;">
+                                        Autor:
+                                    </td>
+                                    <td style="color: #333333; font-size: 14px;">
+                                        {{ autor }}
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td
+                                        style="color: #666666; font-weight: 600; font-size: 12px; text-transform: uppercase;">
+                                        Departamento:
+                                    </td>
+                                    <td style="color: #333333; font-size: 14px;">
+                                        <span
+                                            style="display: inline-block; background-color: #00BABB; color: #ffffff; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                                            {{ departamento }}
+                                        </span>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Caja del Comentario -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #f8f9fa; border-left: 3px solid #00BABB; border-radius: 4px;">
+                                <tr>
+                                    <td style="padding: 20px;">
+                                        <p
+                                            style="margin: 0; white-space: pre-wrap; line-height: 1.6; color: #333333; font-size: 14px;">
+                                            {{ comentario }}</p>
+                                    </td>
+                                </tr>
+                            </table>
+
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td
+                            style="background-color: #f8f9fa; padding: 25px 40px; text-align: center; border-top: 1px solid #e0e0e0;">
+                            <p style="margin: 0 0 5px 0; color: #00BABB; font-weight: 700; font-size: 16px;">
+                                Enertika Ops Core
+                            </p>
+                            <p style="margin: 0; color: #999999; font-size: 12px;">
+                                Sistema de Gestión de Oportunidades
+                            </p>
+                            <p style="margin: 15px 0 0 0; color: #cccccc; font-size: 11px;">
+                                Este es un correo automático. Por favor no responder.
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
 
 </html>

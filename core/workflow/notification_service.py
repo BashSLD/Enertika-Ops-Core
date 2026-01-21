@@ -14,6 +14,7 @@ import httpx
 from fastapi.templating import Jinja2Templates
 from core.microsoft import MicrosoftAuth
 from core.notifications.service import get_notifications_service
+from core.config import settings
 
 logger = logging.getLogger("NotificationService")
 
@@ -68,7 +69,8 @@ class NotificationService:
                 'op': opp,
                 'comentario': comentario,
                 'autor': sender_ctx['user_name'],
-                'departamento': departamento
+                'departamento': departamento,
+                'base_url': settings.APP_BASE_URL
             })
             
             subject = f"Nuevo comentario: {opp['op_id_estandar']} - {opp['cliente_nombre']}"
@@ -141,7 +143,8 @@ class NotificationService:
         html = self._render_template('shared/emails/workflow/new_assignment.html', {
             'oportunidad': opp,
             'assigned_by': assigned_by_ctx['user_name'],
-            'new_responsable_name': new_resp['nombre']
+            'new_responsable_name': new_resp['nombre'],
+            'base_url': settings.APP_BASE_URL
         })
         
         subject = f"Asignacion: {opp['op_id_estandar']} - {opp['cliente_nombre']}"
@@ -214,7 +217,8 @@ class NotificationService:
             'oportunidad': opp,
             'old_status': status_map.get(old_status_id, 'Desconocido'),
             'new_status': status_map.get(new_status_id, 'Desconocido'),
-            'changed_by': changed_by_ctx['user_name']
+            'changed_by': changed_by_ctx['user_name'],
+            'base_url': settings.APP_BASE_URL
         })
         
         subject = f"Cambio de estatus: {opp['op_id_estandar']} - {opp['cliente_nombre']}"

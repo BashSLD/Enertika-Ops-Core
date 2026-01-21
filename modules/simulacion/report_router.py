@@ -9,7 +9,7 @@ Toda la lógica de negocio está en report_service.py
 from fastapi import APIRouter, Request, Depends, Query, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Optional
 from uuid import UUID
 import logging
@@ -81,6 +81,12 @@ def parse_filtros(
         except ValueError:
             pass
     
+    # Limitación de rango a 1 año (12 meses) para evitar duplicidad en tabla mensual
+    # Si el rango es de 365 días o más (toca el mes 13), ajustamos a 364
+    dias_diff = (dt_end - dt_start).days
+    if dias_diff >= 365:
+        dt_end = dt_start + timedelta(days=364)
+    
     return FiltrosReporte(
         fecha_inicio=dt_start,
         fecha_fin=dt_end,
@@ -104,9 +110,7 @@ async def get_reportes_ui(
     _ = require_module_access("simulacion")
 ):
     """
-    Renderiza el dashboard principal de reportes.
-    
-    Detecta contexto HTMX para cargar solo contenido o página completa.
+    Renderiza el dashboard principal de reportes (SIMPLIFICADO).
     """
     # Obtener catálogos para filtros
     catalogos = await service.get_catalogos_filtros(conn)
@@ -136,6 +140,108 @@ async def get_reportes_ui(
         return templates.TemplateResponse("simulacion/reportes/tabs.html", template_data)
     else:
         return templates.TemplateResponse("simulacion/reportes/dashboard.html", template_data)
+
+
+@router.api_route("/analisis-detallado", methods=["GET", "HEAD"], include_in_schema=False)
+async def get_analisis_detallado(
+    request: Request,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    tech_id: Optional[str] = None,
+    type_id: Optional[str] = None,
+    status_id: Optional[str] = None,
+    user_id: Optional[str] = None,
+    context = Depends(get_current_user_context),
+    conn = Depends(get_db_connection),
+    service: ReportesSimulacionService = Depends(get_reportes_service),
+    _ = require_module_access("simulacion")
+):
+    """Vista de Análisis Detallado con KPIs Duales."""
+    
+    catalogos = await service.get_catalogos_filtros(conn)
+    filtros = parse_filtros(start_date, end_date, tech_id, type_id, status_id, user_id)
+    
+    # Obtener todos los datos
+    metricas = await service.get_metricas_generales(conn, filtros)
+    metricas_tech = await service.get_metricas_por_tecnologia(conn, filtros)
+    tabla_contab = await service.get_tabla_contabilizacion(conn, filtros)
+    metricas_usuarios = await service.get_detalle_por_usuario(conn, filtros)
+    resumen_mensual = await service.get_resumen_mensual(conn, filtros)
+    
+    # Obtener motivo de retrabajo principal
+    motivo_retrabajo = await service.get_motivo_retrabajo_principal(conn, filtros)
+    
+    # Generar resumen ejecutivo
+    resumen_ejecutivo = service.generar_resumen_ejecutivo(
+        metricas=metricas,
+        usuarios=metricas_usuarios,
+        filas_tipo=tabla_contab,
+        filtros=filtros,
+        motivo_retrabajo_principal=motivo_retrabajo  # ← AGREGADO
+    )
+    
+    # Generar lista de meses
+    meses = []
+    current = filtros.fecha_inicio.replace(day=1)
+    while current <= filtros.fecha_fin:
+        meses.append(current.month)
+        if current.month == 12:
+            current = current.replace(year=current.year + 1, month=1)
+        else:
+            current = current.replace(month=current.month + 1)
+    
+    meses_nombres = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 
+                     'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+    
+    template_data = {
+        "request": request,
+        "user_name": context.get("user_name"),
+        "role": context.get("role"),
+        "module_roles": context.get("module_roles", {}),
+        "current_module_role": context.get("module_roles", {}).get("simulacion", "viewer"),
+        "catalogos": catalogos,
+        "metricas": metricas,
+        "tecnologias": metricas_tech,
+        "filas": tabla_contab,
+        "usuarios": metricas_usuarios,
+        "resumen": resumen_mensual,
+        "resumen_ejecutivo": resumen_ejecutivo,  # ← Objeto dataclass, NO HTML
+        "meses": meses,
+        "meses_nombres": meses_nombres,
+        "filtros_aplicados": {
+            "fecha_inicio": filtros.fecha_inicio.isoformat(),
+            "fecha_fin": filtros.fecha_fin.isoformat(),
+            "tecnologia": filtros.id_tecnologia,
+            "tipo_solicitud": filtros.id_tipo_solicitud,
+            "estatus": filtros.id_estatus,
+            "usuario": str(filtros.responsable_id) if filtros.responsable_id else None
+        }
+    }
+    
+    # Detección HTMX vs carga directa
+    if request.headers.get("hx-request"):
+        # Determinar qué parcial devolver según el target
+        hx_target = request.headers.get("hx-target")
+        
+        if hx_target == "report-content":
+            # Caso: Filtrado dentro de la vista (solo contenido interno)
+            return templates.TemplateResponse(
+                "simulacion/reportes/analisis_detallado_content.html", 
+                template_data
+            )
+        else:
+            # Caso: Navegación desde Dashboard (Breadcrumbs + Wrapper + Contenido)
+            # Esto asume target="main-content" o similar
+            return templates.TemplateResponse(
+                "simulacion/reportes/analisis_detallado_inner.html", 
+                template_data
+            )
+    else:
+        # Carga completa (F5)
+        return templates.TemplateResponse(
+            "simulacion/reportes/analisis_detallado.html", 
+            template_data
+        )
 
 
 @router.get("/metricas", include_in_schema=False)

@@ -1,0 +1,118 @@
+{# templates/simulacion/reportes/modals/explicacion_metricas.html #}
+<div id="modal-explicacion-metricas"
+    class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 transition-opacity duration-300 opacity-0"
+    data-modal-target="modal-explicacion-metricas">
+
+    <div
+        class="relative top-20 mx-auto p-5 border w-[600px] shadow-2xl rounded-xl bg-white transform transition-transform duration-300 scale-95">
+
+        {# Header Modal #}
+        <div class="flex justify-between items-start border-b pb-4 mb-4">
+            <div>
+                <h3 class="text-xl font-bold text-gray-900">Entendiendo los KPIs Duales</h3>
+                <p class="text-sm text-gray-500 mt-1">Diferencias entre SLA Interno y Compromiso Cliente</p>
+            </div>
+            <button onclick="closeModal('modal-explicacion-metricas')" class="text-gray-400 hover:text-gray-600">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                    </path>
+                </svg>
+            </button>
+        </div>
+
+        {# Contenido #}
+        <div class="space-y-6">
+
+            {# KPI Interno #}
+            <div class="bg-emerald-50 p-4 rounded-lg border border-emerald-100">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="p-1.5 bg-emerald-500 rounded text-white">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                        </svg>
+                    </span>
+                    <h4 class="font-bold text-emerald-900">KPI SLA Interno (Estándar)</h4>
+                </div>
+                <p class="text-sm text-gray-700 mb-2">
+                    Mide la eficiencia operativa pura. Compara la fecha de entrega real contra el
+                    <span class="font-semibold">tiempo estándar calculado por el sistema</span>.
+                </p>
+                <ul class="list-disc list-inside text-xs text-gray-600 space-y-1 ml-1">
+                    <li>No considera negociaciones con el cliente.</li>
+                    <li>Si entregas el día 15 pero el sistema calculó el 10, es <span
+                            class="text-red-500 font-bold">TARDE</span>.</li>
+                    <li>Indica qué tan rápida es nuestra operación base.</li>
+                </ul>
+            </div>
+
+            {# KPI Compromiso #}
+            <div class="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="p-1.5 bg-blue-500 rounded text-white">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                        </svg>
+                    </span>
+                    <h4 class="font-bold text-blue-900">KPI Compromiso Cliente (Real)</h4>
+                </div>
+                <p class="text-sm text-gray-700 mb-2">
+                    Mide el cumplimiento de la promesa al cliente. Compara contra la
+                    <span class="font-semibold">fecha acordada/negociada</span>.
+                </p>
+                <ul class="list-disc list-inside text-xs text-gray-600 space-y-1 ml-1">
+                    <li>Incluye extensiones de tiempo acordadas.</li>
+                    <li>Si negociaste entregar el día 20 (aunque el sistema decía el 10), y entregas el 18, es <span
+                            class="text-green-500 font-bold">A TIEMPO</span>.</li>
+                    <li>Es el métrico principal para evaluación de servicio al cliente.</li>
+                </ul>
+            </div>
+
+            {# Ejemplo Visual #}
+            <div class="border-t pt-4">
+                <h5 class="text-sm font-bold text-gray-800 mb-3">Ejemplo Práctico:</h5>
+                <div class="bg-gray-50 rounded p-3 text-xs grid grid-cols-3 gap-4 text-center">
+                    <div>
+                        <div class="text-gray-500 mb-1">Deadline Sistema</div>
+                        <div class="font-mono bg-white border rounded px-2 py-1">10 Ene</div>
+                    </div>
+                    <div class="flex items-center justify-center">
+                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                        </svg>
+                    </div>
+                    <div>
+                        <div class="text-gray-500 mb-1">Negociado Cliente</div>
+                        <div class="font-mono bg-amber-50 border border-amber-200 rounded px-2 py-1 text-amber-800">15
+                            Ene</div>
+                    </div>
+                </div>
+                <div class="mt-3 text-center">
+                    <span class="text-sm text-gray-600">Si entregas el <span class="font-bold text-gray-900">12
+                            Ene</span>:</span>
+                    <div class="flex justify-center gap-4 mt-2">
+                        <span class="px-2 py-1 bg-red-100 text-red-700 rounded text-xs font-bold border border-red-200">
+                            KPI Interno: TARDE
+                        </span>
+                        <span
+                            class="px-2 py-1 bg-green-100 text-green-700 rounded text-xs font-bold border border-green-200">
+                            KPI Compromiso: A TIEMPO
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        {# Footer Modal #}
+        <div class="mt-6 pt-4 border-t flex justify-end">
+            <button onclick="closeModal('modal-explicacion-metricas')"
+                class="px-4 py-2 bg-gray-100 text-gray-700 rounded hover:bg-gray-200 text-sm font-medium transition-colors">
+                Entendido
+            </button>
+        </div>
+    </div>
+
+</div>
