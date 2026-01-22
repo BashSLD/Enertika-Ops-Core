@@ -86,7 +86,13 @@ app.router.on_startup.append(start_background_tasks)
 
 from core.security import get_current_user_context
 from fastapi import Depends
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
+
+# Health check endpoint - simple, no dependencies
+@app.get("/health", tags=["Health"])
+async def health_check():
+    """Endpoint de diagnóstico - no usa templates ni auth."""
+    return JSONResponse({"status": "ok", "message": "Enertika Ops Core is running"})
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
