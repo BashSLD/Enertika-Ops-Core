@@ -46,7 +46,7 @@
 
     <!-- Overlay de Carga -->
     <div id="loading-overlay-analisis"
-        class="htmx-indicator opacity-0 pointer-events-none absolute inset-0 bg-white/60 backdrop-blur-[2px] z-50 flex items-center justify-center rounded-xl transition-all duration-300"
+        class="htmx-indicator opacity-0 pointer-events-none fixed inset-0 bg-white/60 backdrop-blur-[2px] z-[100] flex items-center justify-center transition-all duration-300"
         style="transition: opacity 0.3s ease;">
         <div
             class="bg-white px-6 py-4 rounded-full shadow-xl border border-blue-100 flex items-center gap-3 transform scale-100">
@@ -251,7 +251,7 @@
         }
     </script>
 
-    {# MODALS #}
-    {% include "simulacion/reportes/modals/explicacion_metricas.html" %}
-
 </div>
+
+{# MODALS - Fuera del contenedor principal para evitar conflicto con backdrop-blur #}
+{% include "simulacion/reportes/modals/explicacion_metricas.html" %}

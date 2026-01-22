@@ -1,10 +1,11 @@
 {# templates/simulacion/reportes/modals/explicacion_metricas.html #}
 <div id="modal-explicacion-metricas"
-    class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 transition-opacity duration-300 opacity-0"
+    class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 z-[9999] transition-opacity duration-300 opacity-0 flex items-center justify-center p-4"
+    onclick="if(event.target === this) closeModal('modal-explicacion-metricas')"
     data-modal-target="modal-explicacion-metricas">
 
     <div
-        class="relative top-20 mx-auto p-5 border w-[600px] shadow-2xl rounded-xl bg-white transform transition-transform duration-300 scale-95">
+        class="relative w-full max-w-[600px] max-h-[90vh] overflow-y-auto shadow-2xl rounded-xl bg-white transform transition-transform duration-300 scale-95 p-5 border">
 
         {# Header Modal #}
         <div class="flex justify-between items-start border-b pb-4 mb-4">

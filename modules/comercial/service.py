@@ -1174,18 +1174,19 @@ class ComercialService:
              condition_monthly = "AND fecha_solicitud >= NOW() - INTERVAL '6 months'"
         
         if role in roles_sin_restriccion:
-            # GERENTES: Desglose por canal_venta (vendedor)
+            # GERENTES: Desglose por vendedor (creado_por_id -> tb_usuarios)
             q_monthly = f"""
                 SELECT 
-                    TO_CHAR((fecha_solicitud AT TIME ZONE 'America/Mexico_City'), 'Mon YY') as mes,
-                    DATE_TRUNC('month', (fecha_solicitud AT TIME ZONE 'America/Mexico_City')) as mes_date,
-                    canal_venta,
+                    TO_CHAR((o.fecha_solicitud AT TIME ZONE 'America/Mexico_City'), 'Mon YY') as mes,
+                    DATE_TRUNC('month', (o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')) as mes_date,
+                    COALESCE(u.nombre, 'Sin asignar') as vendedor,
                     count(*) as count
                 FROM tb_oportunidades o
+                LEFT JOIN tb_usuarios u ON o.creado_por_id = u.id_usuario
                 {where_str}
                 {condition_monthly}
-                GROUP BY mes_date, mes, canal_venta
-                ORDER BY mes_date, canal_venta
+                GROUP BY mes_date, mes, u.nombre
+                ORDER BY mes_date, u.nombre
             """
             rows_monthly = await conn.fetch(q_monthly, *params)
             
@@ -1196,7 +1197,7 @@ class ComercialService:
             
             for row in rows_monthly:
                 mes = row['mes']
-                vendedor = row['canal_venta'] or 'Sin asignar'
+                vendedor = row['vendedor']
                 count = row['count']
                 
                 if mes not in meses_unicos:
