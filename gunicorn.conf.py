@@ -8,7 +8,7 @@ import os
 # Worker configuration
 # Railway: 2 workers ideal para plan Starter (512MB-1GB RAM)
 # Con 20 usuarios, 2 workers balancea carga sin saturar recursos
-workers = int(os.getenv("GUNICORN_WORKERS", "2"))
+workers = int(os.getenv("GUNICORN_WORKERS", "1"))  # Reducido a 1 para debugging
 
 # Worker class: UvicornWorker para ASGI + WebSocket/SSE support
 worker_class = "uvicorn.workers.UvicornWorker"
@@ -39,15 +39,15 @@ loglevel = os.getenv("LOG_LEVEL", "info")
 # Access log format (incluye info útil para debugging)
 access_log_format = '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 
-# Preload app (carga la app antes de fork workers, ahorra memoria)
-preload_app = True
+# Preload app deshabilitado - causa problemas con conexiones async en Railway
+preload_app = False
 
 # Server mechanics
 # Backlog de conexiones pendientes (Railway maneja bien hasta 100)
 backlog = 100
 
-# Worker temporary directory (Railway usa /tmp)
-worker_tmp_dir = "/dev/shm"  # Usa RAM para tmp files (más rápido)
+# Worker temporary directory - /tmp es más compatible en Railway
+worker_tmp_dir = "/tmp"
 
 def on_starting(server):
     """
