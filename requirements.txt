@@ -18,8 +18,8 @@ msal
 xlsxwriter
 itsdangerous
 fpdf2==2.7.4           # Generación de PDFs (High Precision)
-matplotlib==3.8.0      # Gráficas
-numpy==1.26.0
+matplotlib>=3.8.0      # Gráficas (sin version fija para compatibilidad)
+numpy>=1.26.0          # Compatible con Python 3.13
 
 # Testing
 pytest
