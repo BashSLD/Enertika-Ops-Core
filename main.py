@@ -27,7 +27,7 @@ logging.basicConfig(
     ]
 )
 
-app = FastAPI(title="Enertika Ops Core",on_startup=[connect_to_db],on_shutdown=[close_db_connection])
+app = FastAPI(title="Enertika Core Ops",on_startup=[connect_to_db],on_shutdown=[close_db_connection])
 
 # Middleware de Sesión (Cookie Segura)
 app.add_middleware(
@@ -92,7 +92,7 @@ from fastapi.responses import RedirectResponse, JSONResponse
 @app.get("/health", tags=["Health"])
 async def health_check():
     """Endpoint de diagnóstico - no usa templates ni auth."""
-    return JSONResponse({"status": "ok", "message": "Enertika Ops Core is running"})
+    return JSONResponse({"status": "ok", "message": "Enertika Core Ops is running"})
 
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
@@ -122,7 +122,7 @@ async def root(
                 "index.html",
                 {
                     "request": request,
-                    "app_name": "Enertika Ops Core",
+                    "app_name": "Enertika Core Ops",
                     "error_message": "No tienes módulos asignados. Contacta al administrador para obtener acceso."
                 }
             )
@@ -163,7 +163,7 @@ async def root(
             "index.html",
             {
                 "request": request,
-                "app_name": "Enertika Ops Core",
+                "app_name": "Enertika Core Ops",
                 "error_message": "Error de configuración. Contacta al administrador."
             }
         )
@@ -173,7 +173,7 @@ async def root(
         "index.html",
         {
             "request": request, 
-            "app_name": "Enertika Ops Core"
+            "app_name": "Enertika Core Ops"
         }
     )
     

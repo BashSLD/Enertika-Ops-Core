@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{% block title %}Enertika Ops Core{% endblock %}</title>
+    <title>{% block title %}Enertika Core Ops{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
 
     <script src="https://cdn.tailwindcss.com"></script>
@@ -286,7 +286,7 @@
             x-transition:leave-end="opacity-0" @click="mobileMenuOpen = false"
             class="fixed inset-0 bg-black/60 z-40 md:hidden" style="display: none;"></div>
         <aside
-            class="bg-[#123456] text-white flex flex-col shadow-2xl z-50 transition-all duration-300 ease-in-out overflow-hidden fixed md:relative inset-y-0 left-0 transform md:transform-none"
+            class="bg-[#123456] text-white flex flex-col shadow-2xl z-50 transition-all duration-300 ease-in-out overflow-visible fixed md:relative inset-y-0 left-0 transform md:transform-none"
             :class="[
                 sidebarOpen ? 'w-64' : 'md:w-20 w-64',
                 mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
@@ -301,7 +301,7 @@
                     x-transition:enter-start="opacity-0 transform scale-90"
                     x-transition:enter-end="opacity-100 transform scale-100"
                     class="text-xl font-bold tracking-wider text-[#00BABB] text-center whitespace-nowrap overflow-hidden">
-                    Enertika Ops Core
+                    Enertika Core Ops
                 </h1>
 
                 <!-- Collapsed: Mini Icon (E) -->

@@ -45,7 +45,7 @@ class ReportePDFGenerator:
         
         # Metadata
         self.pdf.set_title(f"Reporte Simulación {filtros.fecha_inicio} - {filtros.fecha_fin}")
-        self.pdf.set_author("Enertika Ops Core")
+        self.pdf.set_author("Enertika Core Ops")
         
         # Temp images registry to cleanup later (if using temp files)
         # Using bytes directly with FPDF 1.7.2 might require a trick or temp file 

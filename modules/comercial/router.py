@@ -70,7 +70,7 @@ async def get_comercial_ui(
         "module_roles": context.get("module_roles", {}),
         "current_module_role": context.get("module_roles", {}).get("comercial", "viewer"),
         "catalogos": catalogos
-    }, headers={"HX-Title": "Enertika Ops Core | Comercial"})
+    }, headers={"HX-Title": "Enertika Core Ops | Comercial"})
 
 @router.head("/form", include_in_schema=False)
 @router.get("/form", include_in_schema=False)
@@ -116,7 +116,7 @@ async def get_comercial_form(
         "user_name": user_context.get("user_name"),
         "role": user_context.get("role"),
         "module_roles": user_context.get("module_roles", {})
-    }, headers={"HX-Title": "Enertika Ops Core | Nuevo Comercial"})
+    }, headers={"HX-Title": "Enertika Core Ops | Nuevo Comercial"})
 
 @router.get("/partials/graphs", include_in_schema=False)
 async def get_graphs_partial(
@@ -522,7 +522,7 @@ async def get_comercial_form_extraordinario(
         "post_url": "/comercial/form-extraordinario",
         "cancel_url": "/comercial/ui",
         "is_extraordinario": True
-    }, headers={"HX-Title": "Enertika Ops Core | Solicitud Extraordinaria"})
+    }, headers={"HX-Title": "Enertika Core Ops | Solicitud Extraordinaria"})
 
 @router.post("/form-extraordinario")
 async def handle_oportunidad_extraordinaria(
