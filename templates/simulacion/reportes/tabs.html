@@ -101,6 +101,7 @@
                 <button @click="limpiarFiltros()"
                     class="text-sm text-gray-500 hover:text-red-500 underline">Limpiar</button>
 
+                {% if role in ['ADMIN', 'MANAGER'] %}
                 <a href="/simulacion/reportes/analisis-detallado" hx-get="/simulacion/reportes/analisis-detallado"
                     hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
                     hx-indicator="#loading-overlay-dashboard"
@@ -111,6 +112,7 @@
                     </svg>
                     <span>Analisis Detallado</span>
                 </a>
+                {% endif %}
             </div>
         </div>
     </div>
