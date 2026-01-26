@@ -13,6 +13,7 @@
             esRetrabajo: false,
             motivoRetrabajo: '',
             sitiosRetrabajo: [],
+            isBess: {{ 'true' if is_bess_related else 'false' }},
             canEditFecha() {
                 return this.status == this.entregado_id || 
                        this.status == this.cancelado_id || 
@@ -22,13 +23,25 @@
                 this.errors = {};
                 let valid = true;
 
-                // Validación 1: Estatus Entregado requiere potencia
+                // Validación 1: Estatus Entregado requiere potencia (FV)
                 if (this.status == this.entregado_id) {
                     const potencia = parseFloat(document.getElementById('potencia_cierre').value);
-
+                    
                     if (isNaN(potencia) || potencia <= 0) {
                         this.errors.potencia = 'La potencia es requerida para estatus Entregado';
                         valid = false;
+                    }
+                    
+                    // NUEVA Validación 1.5: Capacidad BESS requerida si es tecnología BESS
+                    if (this.isBess) {
+                        const bessEl = document.querySelector('[name=\'capacidad_cierre_bess_kwh\']');
+                        if (bessEl) {
+                            const bessCap = parseFloat(bessEl.value);
+                            if (isNaN(bessCap) || bessCap <= 0) {
+                                this.errors.bess = 'La capacidad BESS es requerida';
+                                valid = false;
+                            }
+                        }
                     }
                 }
 
@@ -41,15 +54,11 @@
                     }
                 }
 
-                // Validación 3: Obsoleta (Fecha automatica)
-                // Se ha removido el input manual, por lo que no es necesario validar permisibilidad.
-
                 // Validación 4: ID Interno cambio - CRÍTICO: detener submit si usuario cancela
                 if (valid && this.originalIdInterno && this.currentIdInterno !== this.originalIdInterno) {
                     const userConfirmed = confirm(`ID Interno Simulación se cambiará \nde: ${this.originalIdInterno} \na: ${this.currentIdInterno}\n\n¿Desea continuar?`);
                     if (!userConfirmed) {
                         valid = false;
-                        // Prevenir HTMX submit
                         event.preventDefault();
                         event.stopPropagation();
                         event.stopImmediatePropagation();
@@ -58,7 +67,6 @@
                 }
 
                 if (!valid) {
-                     // Scroll al primer error si es necesario o mostrar toast global
                      console.log('Validación fallida', this.errors);
                      event.preventDefault();
                      event.stopPropagation();
@@ -255,12 +263,16 @@
                                         x-text="errors.potencia"></p>
                                 </div>
                                 <div>
-                                    <label class="block text-xs font-bold text-gray-600 uppercase mb-1">BESS
-                                        (KWh)</label>
+                                    <label class="block text-xs font-bold text-gray-600 uppercase mb-1">
+                                        BESS (KWh) <span x-show="isBess" class="text-red-500">*</span>
+                                    </label>
                                     <input type="number" step="0.0001" name="capacidad_cierre_bess_kwh"
                                         value="{{ op.capacidad_cierre_bess_kwh or '' }}" {% if not can_manage
                                         %}disabled{% endif %}
-                                        class="w-full border-green-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100">
+                                        class="w-full border-green-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
+                                        :class="{'border-red-500 ring-1 ring-red-500': errors.bess}">
+                                    <p x-show="errors.bess" class="mt-1 text-[10px] text-red-600 font-bold"
+                                        x-text="errors.bess"></p>
                                 </div>
                             </div>
 

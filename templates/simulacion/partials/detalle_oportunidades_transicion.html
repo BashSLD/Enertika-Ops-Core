@@ -1,0 +1,79 @@
+{# templates/simulacion/partials/detalle_oportunidades_transicion.html #}
+
+<div class="p-4">
+    <!-- Header con estadísticas -->
+    <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
+        <div class="flex items-center gap-4">
+            <span class="text-sm text-gray-600">
+                <strong>{{ oportunidades | length }}</strong> oportunidades en
+                <span class="font-semibold text-indigo-600">{{ estatus_destino }}</span>
+                desde <span class="font-semibold">{{ estatus_origen }}</span>
+            </span>
+        </div>
+        <div class="flex items-center gap-6 text-sm">
+            <div>
+                <span class="text-gray-500">Promedio:</span>
+                <span class="font-bold text-blue-600 ml-1">{{ promedio_dias }}d</span>
+            </div>
+            <div>
+                <span class="text-gray-500">Máx:</span>
+                <span class="font-bold text-red-600 ml-1">{{ max_dias }}d</span>
+            </div>
+            <div>
+                <span class="text-gray-500">Mín:</span>
+                <span class="font-bold text-green-600 ml-1">{{ min_dias }}d</span>
+            </div>
+        </div>
+    </div>
+
+    {% if oportunidades %}
+    <div class="overflow-x-auto max-h-96">
+        <table class="w-full text-sm">
+            <thead class="sticky top-0 bg-gray-100">
+                <tr>
+                    <th class="px-3 py-2 text-left font-semibold text-gray-700">OP ID</th>
+                    <th class="px-3 py-2 text-left font-semibold text-gray-700">Cliente</th>
+                    <th class="px-3 py-2 text-left font-semibold text-gray-700">Proyecto</th>
+                    <th class="px-3 py-2 text-left font-semibold text-gray-700">Tecnología</th>
+                    <th class="px-3 py-2 text-left font-semibold text-gray-700">Responsable</th>
+                    <th class="px-3 py-2 text-center font-semibold text-gray-700">Días</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for op in oportunidades %}
+                <tr class="border-b border-gray-100 hover:bg-blue-50 transition-colors">
+                    <td class="px-3 py-2">
+                        <a href="#" hx-get="/simulacion/partials/detalle/{{ op.id_oportunidad }}"
+                            hx-target="#main-content" hx-push-url="true"
+                            class="text-blue-600 hover:text-blue-800 font-medium">
+                            {{ op.op_id_estandar }}
+                        </a>
+                        {% if op.es_licitacion %}
+                        <span class="ml-1 px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">LIC</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-gray-700">{{ op.cliente_nombre }}</td>
+                    <td class="px-3 py-2 text-gray-600 max-w-xs truncate" title="{{ op.titulo_proyecto }}">
+                        {{ op.titulo_proyecto }}
+                    </td>
+                    <td class="px-3 py-2">
+                        <span class="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded">
+                            {{ op.tecnologia }}
+                        </span>
+                    </td>
+                    <td class="px-3 py-2 text-gray-600">{{ op.responsable_simulacion }}</td>
+                    <td class="px-3 py-2 text-center">
+                        <span
+                            class="font-semibold {% if op.dias_en_estatus > 5 %}text-red-600{% elif op.dias_en_estatus > 3 %}text-orange-600{% else %}text-green-600{% endif %}">
+                            {{ op.dias_en_estatus }}d
+                        </span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-gray-500 text-center py-6">No hay oportunidades en esta transición</p>
+    {% endif %}
+</div>

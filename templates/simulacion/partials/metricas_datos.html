@@ -1,0 +1,230 @@
+{# templates/simulacion/partials/metricas_datos.html #}
+
+<!-- Sección 1: Tiempo por Estatus -->
+<div class="bg-white rounded-lg shadow p-6 mb-6">
+    <h3 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+        <svg class="w-6 h-6 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+        Tiempo Promedio por Estatus
+    </h3>
+
+    {% if metricas_estatus %}
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead>
+                <tr class="bg-gray-100 border-b">
+                    <th class="px-4 py-3 text-left font-semibold text-gray-700">Estatus</th>
+                    <th class="px-4 py-3 text-center font-semibold text-gray-700">Tiempo Prom.</th>
+                    <th class="px-4 py-3 text-center font-semibold text-gray-700">Transiciones</th>
+                    <th class="px-4 py-3 text-center font-semibold text-gray-700">% Tiempo Total</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for metrica in metricas_estatus %}
+                <tr class="border-b hover:bg-gray-50 transition-colors">
+                    <td class="px-4 py-3 font-medium">{{ metrica.estatus_nombre }}</td>
+                    <td class="px-4 py-3 text-center">
+                        <span class="text-lg font-bold text-blue-600">
+                            {{ metrica.tiempo_promedio_dias }}d
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-center text-gray-600">
+                        {{ metrica.cantidad_transiciones }}
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <div class="flex items-center justify-center gap-2">
+                            <div class="w-24 bg-gray-200 rounded-full h-2">
+                                <div class="bg-blue-500 h-2 rounded-full"
+                                    style="width: {{ metrica.porcentaje_tiempo_total }}%"></div>
+                            </div>
+                            <span class="text-sm text-gray-600">
+                                {{ metrica.porcentaje_tiempo_total }}%
+                            </span>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-gray-500 text-center py-8">No hay datos para el período seleccionado</p>
+    {% endif %}
+</div>
+</div>
+
+<!-- Sección 2: Transiciones Actuales del Pipeline -->
+{% if transiciones %}
+<div class="bg-white rounded-lg shadow p-6 mb-6">
+    <h3 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+        <svg class="w-6 h-6 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"></path>
+        </svg>
+        Transiciones Actuales del Pipeline
+        <span class="text-sm font-normal text-gray-500 ml-2">(última transición de cada oportunidad activa)</span>
+    </h3>
+
+    <div class="overflow-x-auto">
+        <table class="w-full">
+            <thead>
+                <tr class="bg-gray-100 border-b">
+                    <th class="px-4 py-3 text-left font-semibold text-gray-700">Transición</th>
+                    <th class="px-4 py-3 text-center font-semibold text-gray-700">Oportunidades</th>
+                    <th class="px-4 py-3 text-center font-semibold text-gray-700">Días Prom. en Destino</th>
+                    <th class="px-4 py-3 text-center font-semibold text-gray-700">Detalle</th>
+                </tr>
+            </thead>
+            {% for trans in transiciones %}
+            <tbody class="border-b" x-data="{ open: false }">
+                <tr class="hover:bg-gray-50 transition-colors {% if trans.es_retroceso %}bg-orange-50{% endif %}">
+                    <td class="px-4 py-3">
+                        <div class="flex items-center gap-2">
+                            <span class="font-medium text-gray-700">{{ trans.estatus_origen }}</span>
+                            <svg class="w-4 h-4 {% if trans.es_retroceso %}text-orange-500{% else %}text-gray-400{% endif %}"
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M{% if trans.es_retroceso %}10 19l-7-7m0 0l7-7m-7 7h18{% else %}14 5l7 7m0 0l-7 7m7-7H3{% endif %}">
+                                </path>
+                            </svg>
+                            <span
+                                class="font-medium {% if trans.es_retroceso %}text-orange-700{% else %}text-gray-900{% endif %}">
+                                {{ trans.estatus_destino }}
+                            </span>
+                            {% if trans.es_retroceso %}
+                            <span class="px-2 py-0.5 text-xs font-semibold bg-orange-200 text-orange-800 rounded-full">
+                                ↩ Retroceso
+                            </span>
+                            {% endif %}
+                        </div>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <span
+                            class="text-lg font-bold {% if trans.es_retroceso %}text-orange-600{% else %}text-indigo-600{% endif %}">
+                            {{ trans.cantidad }}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <span class="text-gray-600">{{ trans.dias_promedio_en_destino }}d</span>
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <button type="button" @click="open = !open"
+                            hx-get="/simulacion/api/metricas-operativas/detalle-transicion?estatus_origen={{ trans.estatus_origen | urlencode }}&estatus_destino={{ trans.estatus_destino | urlencode }}"
+                            hx-target="#detalle-trans-{{ loop.index }}" hx-swap="innerHTML" hx-trigger="click once"
+                            class="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center justify-center gap-1 transition-colors">
+                            <svg class="w-4 h-4 transform transition-transform" :class="{ 'rotate-180': open }"
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 9l-7 7-7-7"></path>
+                            </svg>
+                            <span x-text="open ? 'Ocultar' : 'Ver'"></span>
+                        </button>
+                    </td>
+                </tr>
+                <tr x-show="open" x-collapse>
+                    <td colspan="4" class="px-4 py-2 bg-gray-50">
+                        <div id="detalle-trans-{{ loop.index }}">
+                            <div class="flex justify-center py-4">
+                                <div class="spinner-enertika w-5 h-5"></div>
+                            </div>
+                        </div>
+                    </td>
+                </tr>
+            </tbody>
+            {% endfor %}
+        </table>
+    </div>
+</div>
+{% endif %}
+
+<!-- Sección 3: Cuellos de Botella CON DETALLE -->
+{% if cuellos_botella %}
+<div class="bg-red-50 border-l-4 border-red-500 rounded-lg shadow p-6 mb-6">
+    <h3 class="text-xl font-bold text-red-900 mb-4 flex items-center gap-2">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
+            </path>
+        </svg>
+        Cuellos de Botella Detectados
+    </h3>
+
+    <div class="space-y-4">
+        {% for cuello in cuellos_botella %}
+        <div class="bg-white rounded-lg p-4 border border-red-200" x-data="{ open: false }">
+            <!-- Header del cuello de botella -->
+            <div class="flex items-center justify-between mb-3">
+                <div>
+                    <span class="font-bold text-gray-900 text-lg">{{ cuello.estatus_lento }}</span>
+                    <span class="text-sm text-gray-600 ml-2">
+                        ({{ cuello.tiempo_promedio }}d promedio)
+                    </span>
+                </div>
+                <span
+                    class="px-3 py-1 rounded-full text-sm font-semibold {% if cuello.impacto == 'Alto' %}bg-red-200 text-red-800{% else %}bg-orange-200 text-orange-800{% endif %}">
+                    Impacto {{ cuello.impacto }}
+                </span>
+            </div>
+
+            <!-- Botón para ver detalle -->
+            <button type="button" @click="open = !open"
+                hx-get="/simulacion/api/metricas-operativas/detalle-estatus?estatus={{ cuello.estatus_lento }}&fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}"
+                hx-target="#detalle-{{ loop.index }}" hx-swap="innerHTML" hx-trigger="click once"
+                class="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 transition-colors">
+                <svg class="w-4 h-4 transform transition-transform" :class="{ 'rotate-180': open }" fill="none"
+                    stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+                </svg>
+                <span x-text="open ? 'Ocultar oportunidades' : 'Ver oportunidades afectadas'"></span>
+            </button>
+
+            <!-- Contenedor para el detalle -->
+            <div id="detalle-{{ loop.index }}" x-show="open" x-collapse class="mt-3"></div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+<!-- Sección 4: Ciclos de Retrabajo -->
+{% if ciclos %}
+<div class="bg-white rounded-lg shadow p-6">
+    <h3 class="text-xl font-bold text-gray-900 mb-4 flex items-center gap-2">
+        <svg class="w-6 h-6 text-orange-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+            </path>
+        </svg>
+        Análisis de Ciclos de Retrabajo
+    </h3>
+
+    <div class="space-y-3">
+        {% for ciclo in ciclos %}
+        <div class="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-shadow">
+            <div class="flex items-center justify-between mb-2">
+                <span class="font-semibold text-gray-900">{{ ciclo.transicion }}</span>
+                <span class="text-sm text-gray-500">
+                    {{ ciclo.oportunidades_afectadas }} oportunidades
+                </span>
+            </div>
+            <div class="grid grid-cols-2 gap-4 text-sm">
+                <div>
+                    <span class="text-gray-600">Promedio ciclos:</span>
+                    <span class="font-bold text-orange-600 ml-2">
+                        {{ ciclo.promedio_ciclos }}
+                    </span>
+                </div>
+                <div>
+                    <span class="text-gray-600">Máximo detectado:</span>
+                    <span class="font-bold text-red-600 ml-2">
+                        {{ ciclo.maximo_ciclos }}
+                    </span>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}

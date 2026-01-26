@@ -45,8 +45,7 @@
                     </tr>
                     <tr>
                         <td class="py-2 text-gray-600">% Entregas en Plazo</td>
-                        <td
-                            class="py-2 text-right font-semibold {% if tech.porcentaje_a_tiempo >= 90 %}text-green-600{% elif tech.porcentaje_a_tiempo >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
+                        <td class="py-2 text-right font-semibold text-{{ tech.semaforo_compromiso }}-600">
                             {{ tech.porcentaje_a_tiempo }}%
                         </td>
                     </tr>

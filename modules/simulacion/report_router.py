@@ -172,12 +172,13 @@ async def get_analisis_detallado(
     motivo_retrabajo = await service.get_motivo_retrabajo_principal(conn, filtros)
     
     # Generar resumen ejecutivo
-    resumen_ejecutivo = service.generar_resumen_ejecutivo(
+    resumen_ejecutivo = await service.generar_resumen_ejecutivo(
+        conn,
         metricas=metricas,
         usuarios=metricas_usuarios,
         filas_tipo=tabla_contab,
         filtros=filtros,
-        motivo_retrabajo_principal=motivo_retrabajo  # ← AGREGADO
+        motivo_retrabajo_principal=motivo_retrabajo
     )
     
     # Generar lista de meses

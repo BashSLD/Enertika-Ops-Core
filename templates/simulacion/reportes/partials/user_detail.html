@@ -20,19 +20,13 @@
             </div>
             <div class="flex items-center gap-4">
                 {# Badge de rendimiento #}
-                {% if usuario.metricas_generales.porcentaje_a_tiempo >= 90 %}
-                <span class="px-3 py-1 bg-green-500 text-white text-sm font-semibold rounded-full">
-                    Excelente {{ usuario.metricas_generales.porcentaje_a_tiempo }}%
+                <span
+                    class="px-3 py-1 bg-{{ usuario.metricas_generales.semaforo_compromiso }}-500 text-white text-sm font-semibold rounded-full">
+                    {% if usuario.metricas_generales.semaforo_compromiso == 'green' %}Excelente
+                    {% elif usuario.metricas_generales.semaforo_compromiso == 'amber' %}Bueno
+                    {% else %}A mejorar{% endif %}
+                    {{ usuario.metricas_generales.porcentaje_a_tiempo }}%
                 </span>
-                {% elif usuario.metricas_generales.porcentaje_a_tiempo >= 85 %}
-                <span class="px-3 py-1 bg-amber-500 text-white text-sm font-semibold rounded-full">
-                    Bueno {{ usuario.metricas_generales.porcentaje_a_tiempo }}%
-                </span>
-                {% else %}
-                <span class="px-3 py-1 bg-red-500 text-white text-sm font-semibold rounded-full">
-                    A mejorar {{ usuario.metricas_generales.porcentaje_a_tiempo }}%
-                </span>
-                {% endif %}
 
                 <svg class="w-5 h-5 text-white transition-transform" :class="expanded ? 'rotate-180' : ''" fill="none"
                     viewBox="0 0 24 24" stroke="currentColor">
@@ -54,8 +48,7 @@
                     <p class="text-xs text-gray-500">Ofertas</p>
                 </div>
                 <div class="bg-white rounded-lg p-4 border border-gray-200">
-                    <p
-                        class="text-2xl font-bold {% if usuario.metricas_generales.porcentaje_a_tiempo >= 90 %}text-green-600{% elif usuario.metricas_generales.porcentaje_a_tiempo >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
+                    <p class="text-2xl font-bold text-{{ usuario.metricas_generales.semaforo_compromiso }}-600">
                         {{ usuario.metricas_generales.porcentaje_a_tiempo }}%
                     </p>
                     <p class="text-xs text-gray-500">En Plazo</p>
@@ -97,8 +90,7 @@
                             </div>
                             <div class="flex justify-between">
                                 <span class="text-gray-500">% A tiempo</span>
-                                <span
-                                    class="font-medium {% if tech.porcentaje_a_tiempo >= 90 %}text-green-600{% elif tech.porcentaje_a_tiempo >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
+                                <span class="font-medium text-{{ tech.semaforo_compromiso }}-600">
                                     {{ tech.porcentaje_a_tiempo }}%
                                 </span>
                             </div>
@@ -139,8 +131,7 @@
                                 </td>
                                 <td class="px-4 py-2 text-center">
                                     {% if not fila.es_levantamiento %}
-                                    <span
-                                        class="{% if fila.porcentaje_en_plazo >= 90 %}text-green-600{% elif fila.porcentaje_en_plazo >= 85 %}text-amber-600{% else %}text-red-600{% endif %} font-semibold">
+                                    <span class="text-{{ fila.semaforo_compromiso }}-600 font-semibold">
                                         {{ fila.porcentaje_en_plazo }}%
                                     </span>
                                     {% else %}

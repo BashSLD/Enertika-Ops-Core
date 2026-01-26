@@ -200,7 +200,19 @@ class AdminService:
             ("SHAREPOINT_SITE_ID", datos.sharepoint_site_id or ""),
             ("SHAREPOINT_DRIVE_ID", datos.sharepoint_drive_id or ""),
             ("SHAREPOINT_BASE_FOLDER", datos.sharepoint_base_folder or ""),
-            ("MAX_UPLOAD_SIZE_MB", str(datos.max_upload_size_mb))
+            ("MAX_UPLOAD_SIZE_MB", str(datos.max_upload_size_mb)),
+            # Simulation KPI Config
+            ("sim_peso_compromiso", str(datos.sim_peso_compromiso)),
+            ("sim_peso_interno", str(datos.sim_peso_interno)),
+            ("sim_peso_volumen", str(datos.sim_peso_volumen)),
+            ("sim_umbral_min_entregas", str(datos.sim_umbral_min_entregas)),
+            ("sim_umbral_ratio_licitaciones", str(datos.sim_umbral_ratio_licitaciones)),
+            ("sim_umbral_verde", str(datos.sim_umbral_verde)),
+            ("sim_umbral_ambar", str(datos.sim_umbral_ambar)),
+            ("sim_mult_licitaciones", str(datos.sim_mult_licitaciones)),
+            ("sim_mult_actualizaciones", str(datos.sim_mult_actualizaciones)),
+            ("sim_penalizacion_retrabajos", str(datos.sim_penalizacion_retrabajos)),
+            ("sim_volumen_max", str(datos.sim_volumen_max))
         ]
         
         for clave, valor in updates:

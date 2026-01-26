@@ -3,5 +3,9 @@
 {% block title %}Enertika Core Ops | Simulación{% endblock %}
 
 {% block content %}
+{% if inner_template %}
+{% include inner_template %}
+{% else %}
 {% include "simulacion/tabs.html" %}
+{% endif %}
 {% endblock %}

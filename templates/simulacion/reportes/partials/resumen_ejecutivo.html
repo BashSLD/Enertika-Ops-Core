@@ -22,14 +22,7 @@
         totales).
     </p>
 
-    {% if resumen.mejor_usuario %}
-    <p class="mt-4">
-        El usuario con mejor desempeño fue <strong>{{ resumen.mejor_usuario.nombre }}</strong> con
-        {{ resumen.mejor_usuario.ofertas }} ofertas,
-        {{ resumen.mejor_usuario.porcentaje_interno }}% de cumplimiento interno y
-        {{ resumen.mejor_usuario.porcentaje_compromiso }}% de cumplimiento con cliente.
-    </p>
-    {% endif %}
+    {# REMOVED: Mejor usuario block as per user request #}
 
     <p class="mt-4">
         De las {{ resumen.total_solicitudes }} solicitudes,
@@ -54,3 +47,151 @@
     </p>
     {% endif %}
 </div>
+
+{# ============================================ #}
+{# SECCIÓN: DESEMPEÑO POR PERFIL #}
+{# ============================================ #}
+{% if resumen.categorias_usuarios %}
+<div class="mt-8 border-t-2 border-gray-200 pt-6">
+    <h3 class="text-xl font-bold text-gray-900 mb-4">
+        Desempeño por Perfil de Impacto
+    </h3>
+    <p class="text-sm text-gray-600 mb-6">
+        {# (Categorización según naturaleza del trabajo para análisis justo) - REMOVED #}
+    </p>
+
+    {# Alta Complejidad #}
+    {% if resumen.categorias_usuarios.alta_complejidad %}
+    <div class="mb-6">
+        <h4 class="text-lg font-bold text-amber-700">
+            🏆 Líderes de Alta Complejidad
+        </h4>
+
+        {% for usuario in resumen.categorias_usuarios.alta_complejidad %}
+        <div class="ml-4 mb-4 p-4 bg-amber-50 rounded-lg border-l-4 border-amber-500">
+            <div class="font-semibold text-gray-900 mb-2">
+                • {{ usuario.nombre }}:
+                <span class="text-amber-700">
+                    Score {{ "%.1f"|format(usuario.score.score_final * 100) }}/100
+                </span>
+                <span class="text-sm text-gray-600">(ponderado por complejidad)</span>
+            </div>
+
+            <div class="ml-4 text-sm text-gray-700 space-y-1">
+                <div class="flex items-start">
+                    <span class="w-4 mr-2">├─</span>
+                    <span>
+                        Entregas: <strong>{{ usuario.total_ofertas }}</strong>
+                        ({{ usuario.licitaciones }} licitaciones,
+                        {{ "%.1f"|format((usuario.licitaciones / usuario.total_ofertas) * 100) }}%)
+                    </span>
+                </div>
+                <div class="flex items-start">
+                    <span class="w-4 mr-2">├─</span>
+                    <span>
+                        Cumplimiento: <strong>{{ usuario.porcentaje_a_tiempo_compromiso }}%</strong> compromiso cliente,
+                        <strong>{{ usuario.porcentaje_a_tiempo_interno }}%</strong> SLA interno
+                    </span>
+                </div>
+                <div class="flex items-start">
+                    <span class="w-4 mr-2">└─</span>
+                    <span>
+                        Retrabajos: <strong>{{ usuario.retrabajados }}</strong>
+                        ({{ "%.1f"|format((usuario.retrabajados / usuario.total_ofertas) * 100) }}%)
+                        {% if usuario.score.motivo_retrabajo_principal %}
+                        - Principal: "{{ usuario.score.motivo_retrabajo_principal }}"
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+
+    {# Eficiencia #}
+    {% if resumen.categorias_usuarios.eficiencia %}
+    <div class="mb-6">
+        <h4 class="text-lg font-bold text-blue-700">
+            ⚡ Líderes de Eficiencia
+        </h4>
+
+        {% for usuario in resumen.categorias_usuarios.eficiencia %}
+        <div class="ml-4 mb-4 p-4 bg-blue-50 rounded-lg border-l-4 border-blue-500">
+            <div class="font-semibold text-gray-900 mb-2">
+                • {{ usuario.nombre }}:
+                <span class="text-blue-700">
+                    Score {{ "%.1f"|format(usuario.score.score_final * 100) }}/100
+                </span>
+            </div>
+
+            <div class="ml-4 text-sm text-gray-700 space-y-1">
+                <div class="flex items-start">
+                    <span class="w-4 mr-2">├─</span>
+                    <span>
+                        Entregas: <strong>{{ usuario.total_ofertas }}</strong>
+                        ({{ usuario.licitaciones }} licitaciones,
+                        {{ "%.1f"|format((usuario.licitaciones / usuario.total_ofertas) * 100) }}%)
+                    </span>
+                </div>
+                <div class="flex items-start">
+                    <span class="w-4 mr-2">├─</span>
+                    <span>
+                        Cumplimiento: <strong>{{ usuario.porcentaje_a_tiempo_compromiso }}%</strong> compromiso cliente,
+                        <strong>{{ usuario.porcentaje_a_tiempo_interno }}%</strong> SLA interno
+                    </span>
+                </div>
+                <div class="flex items-start">
+                    <span class="w-4 mr-2">└─</span>
+                    <span>
+                        Retrabajos: <strong>{{ usuario.retrabajados }}</strong>
+                        ({{ "%.1f"|format((usuario.retrabajados / usuario.total_ofertas) * 100) }}%)
+                        {% if usuario.score.motivo_retrabajo_principal %}
+                        - Principal: "{{ usuario.score.motivo_retrabajo_principal }}"
+                        {% endif %}
+                    </span>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+
+        {# Nota explicativa - SOLO si hay Alta Complejidad #}
+        {% if resumen.mostrar_nota_alta_complejidad %}
+        <div class="mt-4 p-4 bg-amber-50 rounded-lg border-l-4 border-amber-400">
+            <p class="text-sm text-amber-900">
+                <strong>ℹ️ Nota sobre "Alta Complejidad":</strong><br>
+                Esta categoría reconoce usuarios que trabajan proyectos estratégicos
+                (licitaciones ≥{{ "%.0f"|format(resumen.umbral_licitaciones_pct) }}%, el doble del promedio global de
+                <strong>{{ "%.1f"|format(resumen.ratio_licitaciones_global) }}%</strong>).
+                Estos proyectos requieren mayor tiempo de elaboración y tienen
+                requisitos formales más estrictos.
+            </p>
+        </div>
+        {% endif %}
+    </div>
+    {% endif %}
+
+    {# En Evaluación #}
+    {% if resumen.categorias_usuarios.evaluacion %}
+    <div class="mb-6">
+        <h4 class="text-lg font-bold text-gray-600">
+            📊 Otros Colaboradores
+        </h4>
+
+        {% for usuario in resumen.categorias_usuarios.evaluacion %}
+        <div class="ml-4 mb-3 text-sm text-gray-700">
+            • <strong>{{ usuario.nombre }}</strong>:
+            {{ usuario.total_ofertas }} entrega{% if usuario.total_ofertas != 1 %}s{% endif %} completada{% if
+            usuario.total_ofertas != 1 %}s{% endif %}
+            ({{ usuario.porcentaje_a_tiempo_compromiso }}% cumplimiento)
+        </div>
+        {% endfor %}
+
+        <p class="ml-4 text-xs text-gray-500 italic mt-2">
+            Nota: Se requieren al menos 10 entregas para cálculo de score de desempeño.
+        </p>
+    </div>
+    {% endif %}
+
+</div>
+{% endif %}

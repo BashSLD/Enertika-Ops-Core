@@ -986,8 +986,8 @@ class SimulacionService:
         await conn.execute("""
             INSERT INTO tb_sitios_oportunidad (
                 id_sitio, id_oportunidad, nombre_sitio, 
-                direccion_completa, enlace_google_maps, 
-                id_tipo_solicitud, id_estatus_sitio
+                direccion, google_maps_link, 
+                id_tipo_solicitud, id_estatus_global
             ) VALUES (
                 $1, $2, $3, $4, $5, $6, 1
             )

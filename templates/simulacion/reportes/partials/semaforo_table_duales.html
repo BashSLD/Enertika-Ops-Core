@@ -104,10 +104,7 @@
 
                 {# % Cumplimiento Interno #}
                 <td class="px-4 py-3 text-center bg-emerald-50/50">
-                    <span class="font-bold text-lg
-                            {% if fila.porcentaje_en_plazo_interno >= 90 %}text-green-600
-                            {% elif fila.porcentaje_en_plazo_interno >= 85 %}text-amber-600
-                            {% else %}text-red-600{% endif %}">
+                    <span class="font-bold text-lg text-{{ fila.semaforo_interno }}-600">
                         {{ fila.porcentaje_en_plazo_interno }}%
                     </span>
                 </td>
@@ -159,10 +156,7 @@
 
                 {# % Cumplimiento Compromiso #}
                 <td class="px-4 py-3 text-center bg-blue-50/50">
-                    <span class="font-bold text-lg
-                            {% if fila.porcentaje_en_plazo_compromiso >= 90 %}text-green-600
-                            {% elif fila.porcentaje_en_plazo_compromiso >= 85 %}text-amber-600
-                            {% else %}text-red-600{% endif %}">
+                    <span class="font-bold text-lg text-{{ fila.semaforo_compromiso }}-600">
                         {{ fila.porcentaje_en_plazo_compromiso }}%
                     </span>
                 </td>

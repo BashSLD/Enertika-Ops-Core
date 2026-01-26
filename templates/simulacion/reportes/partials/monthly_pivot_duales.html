@@ -208,14 +208,7 @@
             {# OTRAS MÉTRICAS #}
             {# ========================================= #}
 
-            {# Tiempo Promedio #}
-            <tr class="hover:bg-gray-50">
-                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-white">Tiempo Prom. (días)</td>
-                {% for mes in meses %}
-                <td class="px-4 py-3 text-center">{{ resumen.tiempo_promedio.valores.get(mes, '-') }}</td>
-                {% endfor %}
-                <td class="px-4 py-3 text-center font-bold bg-gray-50">{{ resumen.tiempo_promedio.total }}</td>
-            </tr>
+
 
             {# En Espera #}
             <tr class="hover:bg-gray-50 bg-amber-50/50">

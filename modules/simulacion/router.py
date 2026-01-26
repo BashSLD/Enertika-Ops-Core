@@ -2,10 +2,10 @@
 Router del Módulo Simulación
 """
 
-from fastapi import APIRouter, Request, Depends, Form, HTTPException
+from fastapi import APIRouter, Request, Depends, Form, HTTPException, Query
 from fastapi.templating import Jinja2Templates
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse
 import io
 from datetime import date
 from uuid import UUID
@@ -20,8 +20,9 @@ from core.permissions import require_module_access
 from core.database import get_db_connection
 
 # Import del Service Layer
-# Import del Service Layer
 from .service import SimulacionService, get_simulacion_service
+from .metrics_service import MetricsService, get_metrics_service
+from datetime import datetime, timedelta
 
 from .schemas import OportunidadCreateCompleta, DetalleBessCreate, SimulacionUpdate, SitiosBatchUpdate
 
@@ -497,6 +498,9 @@ async def get_edit_modal(
     
     can_edit_sensitive = is_manager_editor or is_admin_system
 
+    # Determinar si es tecnología BESS (ID 2) o FV+BESS (ID 3)
+    is_bess_related = op['id_tecnologia'] in [2, 3]
+
     return templates.TemplateResponse("simulacion/modals/update_oportunidades.html", {
         "request": request,
         "op": dict(op),
@@ -510,7 +514,8 @@ async def get_edit_modal(
         # NUEVOS para retrabajo
         "sitios_oportunidad": [dict(r) for r in sitios_oportunidad],
         "motivos_retrabajo": [dict(r) for r in motivos_retrabajo],
-        "es_multisitio": es_multisitio
+        "es_multisitio": es_multisitio,
+        "is_bess_related": is_bess_related
     })
 
 @router.put("/update/{id_oportunidad}")
@@ -751,3 +756,237 @@ async def update_responsable(
             "message": str(e)
         })
 
+
+# ========================================
+# MÉTRICAS OPERATIVAS (Solo ADMIN)
+# ========================================
+
+@router.api_route("/metricas-operativas", methods=["GET", "HEAD"], include_in_schema=False)
+async def get_metricas_operativas(
+    request: Request,
+    context = Depends(get_current_user_context),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("simulacion")
+):
+    """
+    Dashboard de métricas operativas de Simulación (solo admins).
+    """
+    
+    # Verificar que el usuario es admin
+    if not context.get("is_admin"):
+        return RedirectResponse(url="/simulacion/ui")
+    
+    # Obtener usuarios y tipos de solicitud para filtros
+    usuarios = await conn.fetch("""
+        SELECT id_usuario as id, nombre
+        FROM tb_usuarios
+        WHERE is_active = TRUE
+        ORDER BY nombre
+    """)
+    
+    tipos_solicitud = await conn.fetch("""
+        SELECT id, nombre
+        FROM tb_cat_tipos_solicitud
+        ORDER BY nombre
+    """)
+    
+    if request.headers.get("hx-request"):
+        template = "simulacion/metricas_operativas.html"
+    else:
+        template = "simulacion/dashboard.html"
+    
+    return templates.TemplateResponse(template, {
+        "request": request,
+        "usuarios": [dict(r) for r in usuarios],
+        "tipos_solicitud": [dict(r) for r in tipos_solicitud],
+        "inner_template": "simulacion/metricas_operativas.html",
+        **context
+    })
+
+
+@router.get("/api/metricas-operativas/datos", include_in_schema=False)
+async def get_datos_metricas(
+    request: Request,
+    fecha_inicio: str = Query(None),
+    fecha_fin: str = Query(None),
+    user_id: str = Query(None),
+    tipo_solicitud: str = Query(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),  # Explicit DB Connection Dependency
+    metrics_service: MetricsService = Depends(get_metrics_service),
+    _ = require_module_access("simulacion")
+):
+    """API para obtener métricas de estatus con detalle"""
+    
+    # Verificar admin
+    if not context.get("is_admin"):
+        return templates.TemplateResponse("shared/error.html", {
+            "request": request,
+            "message": "Acceso denegado"
+        })
+    
+    # Parsear fechas (últimos 3 meses por defecto)
+    if not fecha_inicio or not fecha_fin:
+        end = datetime.now()
+        # Si no hay fechas, mostrar todo el historial (desde 2020)
+        start = datetime(2020, 1, 1)
+    else:
+        try:
+            start = datetime.fromisoformat(fecha_inicio)
+            end = datetime.fromisoformat(fecha_fin)
+        except ValueError:
+             end = datetime.now()
+             start = datetime(2020, 1, 1)
+    
+    # Parsear filtros opcionales
+    user_uuid = None
+    if user_id:
+        try:
+             user_uuid = UUID(user_id) 
+        except ValueError:
+            pass
+
+    tipo_int = None
+    if tipo_solicitud and tipo_solicitud.isdigit():
+        tipo_int = int(tipo_solicitud)
+    
+    # Obtener métricas se usa la connexion inyectada
+    # 1. Tiempo por estatus
+    metricas_estatus = await metrics_service.get_tiempo_por_estatus(
+        conn, start.date(), end.date(),
+        user_id=user_uuid,
+        tipo_solicitud_id=tipo_int
+    )
+    
+    # 2. Cuellos de botella
+    cuellos = await metrics_service.get_cuellos_botella(metricas_estatus)
+    
+    # 3. Análisis de ciclos
+    ciclos = await metrics_service.get_analisis_ciclos(
+        conn, start.date(), end.date()
+    )
+    
+    # 4. Transiciones par a par (estado actual del pipeline)
+    transiciones = await metrics_service.get_transiciones_par_a_par(
+        conn,
+        user_id=user_uuid,
+        tipo_solicitud_id=tipo_int
+    )
+    
+    return templates.TemplateResponse("simulacion/partials/metricas_datos.html", {
+        "request": request,
+        "metricas_estatus": metricas_estatus,
+        "cuellos_botella": cuellos,
+        "ciclos": ciclos,
+        "transiciones": transiciones,
+        "fecha_inicio": start.date().isoformat(),
+        "fecha_fin": end.date().isoformat(),
+        **context
+    })
+
+
+@router.get("/api/metricas-operativas/detalle-estatus", include_in_schema=False)
+async def get_detalle_estatus(
+    request: Request,
+    estatus: str = Query(...),
+    fecha_inicio: str = Query(...),
+    fecha_fin: str = Query(...),
+    user_id: str = Query(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    metrics_service: MetricsService = Depends(get_metrics_service),
+    _ = require_module_access("simulacion")
+):
+    """Obtiene detalle de oportunidades en un estatus específico"""
+    
+    if not context.get("is_admin"):
+        return templates.TemplateResponse("shared/error.html", {
+            "request": request,
+            "message": "Acceso denegado"
+        })
+    
+    try:
+        start = datetime.fromisoformat(fecha_inicio).date()
+        end = datetime.fromisoformat(fecha_fin).date()
+    except ValueError:
+        return templates.TemplateResponse("shared/error.html", {"request": request, "message": "Fechas inválidas"})
+
+    user_uuid = None
+    if user_id:
+        try:
+            user_uuid = UUID(user_id)
+        except ValueError:
+            pass
+    
+    oportunidades = await metrics_service.get_oportunidades_por_estatus(
+        conn, estatus, start, end, user_id=user_uuid
+    )
+    
+    # Calcular estadísticas
+    if oportunidades:
+        dias_list = [op['dias_en_estatus'] for op in oportunidades]
+        promedio_dias = round(sum(dias_list) / len(dias_list), 1)
+        max_dias = round(max(dias_list), 1)
+        min_dias = round(min(dias_list), 1)
+    else:
+        promedio_dias = max_dias = min_dias = 0
+    
+    return templates.TemplateResponse("simulacion/partials/detalle_oportunidades_estatus.html", {
+        "request": request,
+        "oportunidades": oportunidades,
+        "promedio_dias": promedio_dias,
+        "max_dias": max_dias,
+        "min_dias": min_dias,
+        **context
+    })
+
+
+@router.get("/api/metricas-operativas/detalle-transicion", include_in_schema=False)
+async def get_detalle_transicion(
+    request: Request,
+    estatus_origen: str = Query(...),
+    estatus_destino: str = Query(...),
+    user_id: str = Query(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    metrics_service: MetricsService = Depends(get_metrics_service),
+    _ = require_module_access("simulacion")
+):
+    """Obtiene detalle de oportunidades para una transición específica (origen → destino)"""
+    
+    if not context.get("is_admin"):
+        return templates.TemplateResponse("shared/error.html", {
+            "request": request,
+            "message": "Acceso denegado"
+        })
+    
+    user_uuid = None
+    if user_id:
+        try:
+            user_uuid = UUID(user_id)
+        except ValueError:
+            pass
+    
+    oportunidades = await metrics_service.get_oportunidades_por_transicion(
+        conn, estatus_origen, estatus_destino, user_id=user_uuid
+    )
+    
+    # Calcular estadísticas
+    if oportunidades:
+        dias_list = [op['dias_en_estatus'] for op in oportunidades]
+        promedio_dias = round(sum(dias_list) / len(dias_list), 1)
+        max_dias = round(max(dias_list), 1)
+        min_dias = round(min(dias_list), 1)
+    else:
+        promedio_dias = max_dias = min_dias = 0
+    
+    return templates.TemplateResponse("simulacion/partials/detalle_oportunidades_transicion.html", {
+        "request": request,
+        "oportunidades": oportunidades,
+        "estatus_origen": estatus_origen,
+        "estatus_destino": estatus_destino,
+        "promedio_dias": promedio_dias,
+        "max_dias": max_dias,
+        "min_dias": min_dias,
+        **context
+    })

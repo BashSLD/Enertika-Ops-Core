@@ -266,115 +266,141 @@
         </div>
     </div>
 
-    <!-- Global Filter Bar -->
-    <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100 mb-6">
-        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
-            <!-- 1. Search (Existing but moved into grid) -->
-            <div class="lg:col-span-1">
-                <div class="flex justify-between items-center mb-1">
-                    <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wider">Búsqueda</label>
-                    <button type="button"
-                        class="text-xs text-[#00BABB] hover:text-teal-700 underline cursor-pointer transition-colors"
-                        onclick="document.querySelectorAll('.global-filter:not(#active_tab_input)').forEach(el => el.value = ''); htmx.trigger('#search-input', 'search');">
-                        Limpiar Filtros
-                    </button>
+    <!-- Global Filter Bar (Collapsible on Mobile) -->
+    <div x-data="{ showFilters: false }" class="mb-6">
+        <!-- Mobile Toggle Button -->
+        <button @click="showFilters = !showFilters"
+            class="w-full mb-2 flex items-center justify-between lg:hidden bg-white p-4 rounded-lg shadow-sm border border-gray-200 text-gray-700 font-medium transition-colors hover:bg-gray-50">
+            <span class="flex items-center gap-2">
+                <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+                Filtros y Búsqueda
+            </span>
+            <svg class="w-5 h-5 transform transition-transform duration-200" :class="showFilters ? 'rotate-180' : ''"
+                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+        </button>
+
+        <!-- Filter Container -->
+        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100"
+            :class="showFilters ? 'block' : 'hidden lg:block'" x-transition:enter="transition ease-out duration-200"
+            x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0">
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
+                <!-- 1. Search (Existing but moved into grid) -->
+                <div class="lg:col-span-1">
+                    <div class="flex justify-between items-center mb-1">
+                        <label
+                            class="block text-xs font-semibold text-gray-500 uppercase tracking-wider">Búsqueda</label>
+                        <button type="button"
+                            class="text-xs text-[#00BABB] hover:text-teal-700 underline cursor-pointer transition-colors"
+                            onclick="document.querySelectorAll('.global-filter:not(#active_tab_input)').forEach(el => el.value = ''); htmx.trigger('#search-input', 'search');">
+                            Limpiar Filtros
+                        </button>
+                    </div>
+                    <input type="hidden" id="active_tab_input" name="tab" value="activos" class="global-filter">
+                    <div class="relative">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-3">
+                            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                            </svg>
+                        </span>
+                        <input type="text" id="search-input" name="q"
+                            class="global-filter w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] transition-all"
+                            placeholder="Empresa, Proyecto..." hx-get="/comercial/partials/graphs"
+                            hx-trigger="keyup changed delay:500ms, search" hx-target="#tab-content"
+                            hx-include=".global-filter">
+                    </div>
                 </div>
-                <input type="hidden" id="active_tab_input" name="tab" value="activos" class="global-filter">
-                <div class="relative">
-                    <span class="absolute inset-y-0 left-0 flex items-center pl-3">
-                        <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                        </svg>
-                    </span>
-                    <input type="text" id="search-input" name="q"
-                        class="global-filter w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] transition-all"
-                        placeholder="Empresa, Proyecto..." hx-get="/comercial/partials/graphs"
-                        hx-trigger="keyup changed delay:500ms, search" hx-target="#tab-content"
-                        hx-include=".global-filter">
-                </div>
-            </div>
 
-            <!-- 2. User Filter (Admin/Manager only) -->
-            {% if role in ['ADMIN', 'MANAGER', 'DIRECTOR'] %}
-            <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Solicitado
-                    Por</label>
-                <select name="filtro_usuario_id"
-                    class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
-                    hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
-                    hx-include=".global-filter">
-                    <option value="">Todos</option>
-                    {% for u in catalogos.usuarios %}
-                    <option value="{{ u.id }}">{{ u.nombre }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-            {% else %}
-            <!-- Spacer if user hidden to keep grid aligned or just omit -->
-            <div class="hidden lg:block"></div>
-            {% endif %}
-
-            <!-- 3. Type Filter -->
-            <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Tipo</label>
-                <select name="filtro_tipo_id"
-                    class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
-                    hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
-                    hx-include=".global-filter">
-                    <option value="">Todos</option>
-                    {% for t in catalogos.tipos_solicitud %}
-                    <option value="{{ t.id }}">{{ t.nombre }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <!-- 4. Technology Filter -->
-            <div>
-                <label
-                    class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Tecnología</label>
-                <select name="filtro_tecnologia_id"
-                    class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
-                    hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
-                    hx-include=".global-filter">
-                    <option value="">Todos</option>
-                    {% for t in catalogos.tecnologias %}
-                    <option value="{{ t.id }}">{{ t.nombre }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <!-- 4. Status Filter -->
-            <div>
-                <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Estatus</label>
-                <select name="filtro_estatus_id"
-                    class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
-                    hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
-                    hx-include=".global-filter">
-                    <option value="">Todos</option>
-                    {% for s in catalogos.estatus_global %}
-                    <option value="{{ s.id }}">{{ s.nombre }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <!-- 5. Date Range -->
-            <div class="flex gap-2 col-span-1 lg:col-span-1">
-                <div class="w-1/2">
-                    <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Desde</label>
-                    <input type="date" name="filtro_fecha_inicio"
-                        class="global-filter w-full px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                <!-- 2. User Filter (Admin/Manager only) -->
+                {% if role in ['ADMIN', 'MANAGER', 'DIRECTOR'] %}
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Solicitado
+                        Por</label>
+                    <select name="filtro_usuario_id"
+                        class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                         hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                         hx-include=".global-filter">
+                        <option value="">Todos</option>
+                        {% for u in catalogos.usuarios %}
+                        <option value="{{ u.id }}">{{ u.nombre }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
-                <div class="w-1/2">
-                    <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Hasta</label>
-                    <input type="date" name="filtro_fecha_fin"
-                        class="global-filter w-full px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                {% else %}
+                <!-- Spacer if user hidden to keep grid aligned or just omit -->
+                <div class="hidden lg:block"></div>
+                {% endif %}
+
+                <!-- 3. Type Filter -->
+                <div>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Tipo</label>
+                    <select name="filtro_tipo_id"
+                        class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                         hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                         hx-include=".global-filter">
+                        <option value="">Todos</option>
+                        {% for t in catalogos.tipos_solicitud %}
+                        <option value="{{ t.id }}">{{ t.nombre }}</option>
+                        {% endfor %}
+                    </select>
                 </div>
 
+                <!-- 4. Technology Filter -->
+                <div>
+                    <label
+                        class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Tecnología</label>
+                    <select name="filtro_tecnologia_id"
+                        class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                        hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                        hx-include=".global-filter">
+                        <option value="">Todos</option>
+                        {% for t in catalogos.tecnologias %}
+                        <option value="{{ t.id }}">{{ t.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- 4. Status Filter -->
+                <div>
+                    <label
+                        class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Estatus</label>
+                    <select name="filtro_estatus_id"
+                        class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                        hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                        hx-include=".global-filter">
+                        <option value="">Todos</option>
+                        {% for s in catalogos.estatus_global %}
+                        <option value="{{ s.id }}">{{ s.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                <!-- 5. Date Range -->
+                <div class="flex gap-2 col-span-1 lg:col-span-1">
+                    <div class="w-1/2">
+                        <label
+                            class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Desde</label>
+                        <input type="date" name="filtro_fecha_inicio"
+                            class="global-filter w-full px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                            hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                            hx-include=".global-filter">
+                    </div>
+                    <div class="w-1/2">
+                        <label
+                            class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Hasta</label>
+                        <input type="date" name="filtro_fecha_fin"
+                            class="global-filter w-full px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                            hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                            hx-include=".global-filter">
+                    </div>
+
+                </div>
             </div>
         </div>
     </div>

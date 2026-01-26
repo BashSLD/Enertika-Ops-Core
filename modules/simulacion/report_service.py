@@ -22,6 +22,21 @@ from dataclasses import dataclass, field
 from enum import Enum
 import logging
 
+from .constants import (
+    UMBRAL_MIN_ENTREGAS,
+    UMBRAL_RATIO_LICITACIONES,
+    PESO_CUMPLIMIENTO_COMPROMISO,
+    PESO_CUMPLIMIENTO_INTERNO,
+    PESO_VOLUMEN,
+    MULTIPLICADOR_LICITACIONES,
+    MULTIPLICADOR_ACTUALIZACIONES,
+    PENALIZACION_RETRABAJOS,
+    VOLUMEN_MAX_NORMALIZACION
+)
+
+import logging
+from core.config_service import ConfigService, UmbralesKPI
+
 logger = logging.getLogger("ReportesSimulacion")
 
 
@@ -30,8 +45,9 @@ logger = logging.getLogger("ReportesSimulacion")
 # =============================================================================
 
 # Umbrales para semáforo
-UMBRAL_VERDE = 90.0    # >= 90%
-UMBRAL_AMBAR = 85.0    # >= 85% y < 90%
+# Umbrales por defecto (fallback)
+UMBRAL_VERDE = 90.0
+UMBRAL_AMBAR = 85.0
 # < 85% = Rojo
 
 
@@ -40,8 +56,28 @@ UMBRAL_AMBAR = 85.0    # >= 85% y < 90%
 # =============================================================================
 
 @dataclass
+class ConfiguracionScore:
+    """Configuración dinámica para cálculo de scores"""
+    umbral_min_entregas: int = UMBRAL_MIN_ENTREGAS
+    umbral_ratio_licitaciones: float = UMBRAL_RATIO_LICITACIONES
+    umbral_verde: float = UMBRAL_VERDE
+    umbral_ambar: float = UMBRAL_AMBAR
+    peso_compromiso: float = PESO_CUMPLIMIENTO_COMPROMISO
+    peso_interno: float = PESO_CUMPLIMIENTO_INTERNO
+    peso_volumen: float = PESO_VOLUMEN
+    mult_licitaciones: float = MULTIPLICADOR_LICITACIONES
+    mult_actualizaciones: float = MULTIPLICADOR_ACTUALIZACIONES
+    penalizacion_retrabajos: float = PENALIZACION_RETRABAJOS
+    volumen_max: int = VOLUMEN_MAX_NORMALIZACION
+
+
+@dataclass
 class MetricasGenerales:
     """Métricas principales del dashboard con KPIs duales."""
+    # Configuración dinámica
+    umbrales_interno: Optional[UmbralesKPI] = None
+    umbrales_compromiso: Optional[UmbralesKPI] = None
+
     total_solicitudes: int = 0
     total_ofertas: int = 0
     en_espera: int = 0
@@ -119,6 +155,30 @@ class MetricasGenerales:
         return self.porcentaje_tarde_compromiso
     
     @property
+    def semaforo_interno(self) -> str:
+        pct = self.porcentaje_a_tiempo_interno
+        if self.umbrales_interno:
+            return self.umbrales_interno.get_color(pct)
+        # Fallback
+        if pct >= UMBRAL_VERDE:
+            return "green"
+        elif pct >= UMBRAL_AMBAR:
+            return "amber"
+        return "red"
+
+    @property
+    def semaforo_compromiso(self) -> str:
+        pct = self.porcentaje_a_tiempo_compromiso
+        if self.umbrales_compromiso:
+            return self.umbrales_compromiso.get_color(pct)
+        # Fallback
+        if pct >= UMBRAL_VERDE:
+            return "green"
+        elif pct >= UMBRAL_AMBAR:
+            return "amber"
+        return "red"
+
+    @property
     def tiempo_promedio_dias(self) -> Optional[float]:
         """Convierte horas a días para display."""
         if self.tiempo_promedio_horas is None:
@@ -138,6 +198,11 @@ class MetricaTecnologia:
     """Métricas para una tecnología específica con KPIs duales."""
     id_tecnologia: int
     nombre: str
+    
+    # Configuración dinámica
+    umbrales_interno: Optional[UmbralesKPI] = None
+    umbrales_compromiso: Optional[UmbralesKPI] = None
+
     total_solicitudes: int = 0
     total_ofertas: int = 0
     
@@ -211,6 +276,31 @@ class MetricaTecnologia:
             return 0.0
         return round((self.licitaciones / self.total_solicitudes) * 100, 1)
 
+    @property
+    def semaforo_interno(self) -> str:
+        pct = self.porcentaje_a_tiempo_interno
+        if self.umbrales_interno:
+            return self.umbrales_interno.get_color(pct)
+        # Fallback
+        if pct >= UMBRAL_VERDE:
+            return "green"
+        elif pct >= UMBRAL_AMBAR:
+            return "amber"
+        return "red"
+
+    @property
+    def semaforo_compromiso(self) -> str:
+        pct = self.porcentaje_a_tiempo_compromiso
+        if self.umbrales_compromiso:
+            return self.umbrales_compromiso.get_color(pct)
+        # Fallback
+        if pct >= UMBRAL_VERDE:
+            return "green"
+        elif pct >= UMBRAL_AMBAR:
+            return "amber"
+        return "red"
+
+
 
 @dataclass
 class FilaContabilizacion:
@@ -218,6 +308,11 @@ class FilaContabilizacion:
     id_tipo_solicitud: int
     nombre: str
     codigo_interno: str
+
+    # Configuración dinámica
+    umbrales_interno: Optional[UmbralesKPI] = None
+    umbrales_compromiso: Optional[UmbralesKPI] = None
+
     total: int = 0
     
     # KPI Interno
@@ -256,11 +351,26 @@ class FilaContabilizacion:
         if self.es_levantamiento:
             return "gray"
         pct = self.porcentaje_en_plazo_interno
+        
+        # Usar config dinámica si existe
+        if self.umbrales_interno:
+            return self.umbrales_interno.get_color(pct)
+            
+        # Fallback
         if pct >= UMBRAL_VERDE:
             return "green"
         elif pct >= UMBRAL_AMBAR:
             return "amber"
         return "red"
+
+    @property
+    def semaforo_interno_label(self) -> str:
+        if self.es_levantamiento:
+            return "No aplica"
+        pct = self.porcentaje_en_plazo_interno
+        if self.umbrales_interno:
+            return self.umbrales_interno.get_label(pct)
+        return f"{pct}%"
     
     # Properties KPI Compromiso
     @property
@@ -277,11 +387,26 @@ class FilaContabilizacion:
         if self.es_levantamiento:
             return "gray"
         pct = self.porcentaje_en_plazo_compromiso
+        
+        # Usar config dinámica si existe
+        if self.umbrales_compromiso:
+            return self.umbrales_compromiso.get_color(pct)
+            
+        # Fallback
         if pct >= UMBRAL_VERDE:
             return "green"
         elif pct >= UMBRAL_AMBAR:
             return "amber"
         return "red"
+        
+    @property
+    def semaforo_compromiso_label(self) -> str:
+        if self.es_levantamiento:
+            return "No aplica"
+        pct = self.porcentaje_en_plazo_compromiso
+        if self.umbrales_compromiso:
+            return self.umbrales_compromiso.get_label(pct)
+        return f"{pct}%"
         
     # Compatibilidad Legacy
     @property
@@ -291,6 +416,10 @@ class FilaContabilizacion:
     @property
     def semaforo(self) -> str:
         return self.semaforo_compromiso
+        
+    @property
+    def semaforo_label(self) -> str:
+        return self.semaforo_compromiso_label
     
     @property
     def porcentaje_licitaciones(self) -> float:
@@ -343,9 +472,14 @@ class MetricaUsuario:
     total_ofertas: int = 0
     entregas_a_tiempo_compromiso: int = 0
     entregas_tarde_compromiso: int = 0
+    entregas_a_tiempo_interno: int = 0
+    entregas_tarde_interno: int = 0
     licitaciones: int = 0  # ← Solicitudes que son licitaciones
+    versiones: int = 0  # ← Oportunidades con parent_id
+    retrabajados: int = 0  # ← Sitios con es_retrabajo=true
     resumen_texto: str = ""  # ← Texto descriptivo para resumen desplegable
     tiempo_promedio_por_tipo: Dict[str, float] = field(default_factory=dict)  # ← tipo_solicitud -> horas promedio
+    score: Optional['ScoreUsuario'] = None  # ← Score calculado
     
     @property
     def porcentaje_a_tiempo(self) -> float:
@@ -356,11 +490,135 @@ class MetricaUsuario:
         return round((self.entregas_a_tiempo_compromiso / total_con_kpi) * 100, 1)
     
     @property
+    def porcentaje_a_tiempo_compromiso(self) -> float:
+        """% entregas a tiempo según KPI Compromiso (alias)."""
+        return self.porcentaje_a_tiempo
+    
+    @property
+    def porcentaje_a_tiempo_interno(self) -> float:
+        """% entregas a tiempo según KPI Interno."""
+        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.entregas_a_tiempo_interno / total_con_kpi) * 100, 1)
+    
+    @property
     def porcentaje_licitaciones(self) -> float:
         """% de solicitudes que son licitaciones."""
         if self.total_solicitudes == 0:
             return 0.0
         return round((self.licitaciones / self.total_solicitudes) * 100, 1)
+
+
+@dataclass
+class ScoreUsuario:
+    """Score ponderado de desempeño del usuario"""
+    
+    # Componentes del score base
+    cumplimiento_compromiso: float  # 0.0 - 1.0
+    cumplimiento_interno: float     # 0.0 - 1.0
+    factor_volumen: float           # 0.0 - 1.0
+    
+    # Componentes del multiplicador
+    ratio_licitaciones: float       # 0.0 - 1.0
+    ratio_actualizaciones: float    # 0.0 - 1.0
+    ratio_retrabajos: float         # 0.0 - 1.0
+    
+    # Resultados
+    score_base: float = 0.0         # 0.0 - 1.0
+    multiplicador: float = 1.0      # 0.8 - 1.3 típico
+    score_final: float = 0.0        # 0.0 - 1.0
+    
+    # Metadata
+    entregas_total: int = 0
+    licitaciones_total: int = 0
+    actualizaciones_total: int = 0
+    retrabajos_total: int = 0
+    categoria: str = "evaluacion"
+    motivo_retrabajo_principal: str = None
+    config: Optional['ConfiguracionScore'] = field(default=None, repr=False)
+    
+    def calcular(self):
+        """Calcula score base, multiplicador y score final con config dinámica"""
+        
+        cfg = self.config or ConfiguracionScore()
+
+        # Score Base
+        self.score_base = (
+            self.cumplimiento_compromiso * cfg.peso_compromiso +
+            self.cumplimiento_interno * cfg.peso_interno +
+            self.factor_volumen * cfg.peso_volumen
+        )
+        
+        # Multiplicador de Complejidad
+        bonus_licitaciones = self.ratio_licitaciones * cfg.mult_licitaciones
+        bonus_actualizaciones = self.ratio_actualizaciones * cfg.mult_actualizaciones
+        penalizacion = self.ratio_retrabajos * cfg.penalizacion_retrabajos
+        
+        self.multiplicador = 1.0 + bonus_licitaciones + bonus_actualizaciones + penalizacion
+        
+        # Score Final
+        self.score_final = self.score_base * self.multiplicador
+        
+        # Asegurar rango 0-1
+        self.score_final = max(0.0, min(1.0, self.score_final))
+        
+        return self
+
+
+def categorizar_usuario(entregas: int, ratio_licitaciones: float, config: 'ConfiguracionScore' = None) -> str:
+    """
+    Categoriza al usuario según sus entregas y ratio de licitaciones.
+    """
+    cfg = config or ConfiguracionScore()
+    
+    if entregas < cfg.umbral_min_entregas:
+        return "evaluacion"
+    elif ratio_licitaciones >= cfg.umbral_ratio_licitaciones:
+        return "alta_complejidad"
+    else:
+        return "eficiencia"
+
+
+def calcular_score_usuario(usuario: MetricaUsuario, config: 'ConfiguracionScore' = None) -> ScoreUsuario:
+    """
+    Calcula el score ponderado de un usuario con configuración dinámica.
+    """
+    cfg = config or ConfiguracionScore()
+    
+    # Componente 1: Cumplimientos (ya están como % en usuario, normalizar a 0-1)
+    cumplimiento_compromiso = usuario.porcentaje_a_tiempo_compromiso / 100.0
+    cumplimiento_interno = usuario.porcentaje_a_tiempo_interno / 100.0
+    
+    # Componente 2: Factor volumen (normalizado 0-1)
+    # Usar config max volumen
+    factor_volumen = min(usuario.total_ofertas / cfg.volumen_max, 1.0)
+    
+    # Componente 3: Ratios de complejidad
+    ratio_licitaciones = usuario.licitaciones / usuario.total_solicitudes if usuario.total_solicitudes > 0 else 0.0
+    ratio_actualizaciones = usuario.versiones / usuario.total_solicitudes if usuario.total_solicitudes > 0 else 0.0
+    ratio_retrabajos = usuario.retrabajados / usuario.total_solicitudes if usuario.total_solicitudes > 0 else 0.0
+    
+    # Categorizar usuario
+    categoria = categorizar_usuario(usuario.total_ofertas, ratio_licitaciones, cfg)
+    
+    # Crear y calcular score
+    score = ScoreUsuario(
+        cumplimiento_compromiso=cumplimiento_compromiso,
+        cumplimiento_interno=cumplimiento_interno,
+        factor_volumen=factor_volumen,
+        ratio_licitaciones=ratio_licitaciones,
+        ratio_actualizaciones=ratio_actualizaciones,
+        ratio_retrabajos=ratio_retrabajos,
+        entregas_total=usuario.total_ofertas,
+        licitaciones_total=usuario.licitaciones,
+        actualizaciones_total=usuario.versiones,
+        retrabajos_total=usuario.retrabajados,
+        categoria=categoria,
+        config=cfg
+    ).calcular()
+    
+    return score
 
 
 @dataclass
@@ -431,6 +689,12 @@ class ResumenEjecutivo:
     porcentaje_retrabajos: float = 0.0
     motivo_retrabajo_principal: str = None
     conteo_motivo_principal: int = 0
+    
+    # Categorías de usuarios por desempeño
+    categorias_usuarios: Dict[str, List[MetricaUsuario]] = field(default_factory=dict)
+    mostrar_nota_alta_complejidad: bool = False
+    ratio_licitaciones_global: float = 0.0
+    umbral_licitaciones_pct: float = 10.0  # Default 10%
 
 
 
@@ -461,6 +725,22 @@ class ReportesSimulacionService:
     def get_current_datetime_mx(self) -> datetime:
         """Obtiene hora actual en México."""
         return datetime.now(self.zona_mx)
+        
+    async def _get_score_config(self, conn) -> ConfiguracionScore:
+        """Obtiene configuración de scoring desde DB o defaults"""
+        return ConfiguracionScore(
+            umbral_min_entregas=await ConfigService.get_global_config(conn, "sim_umbral_min_entregas", UMBRAL_MIN_ENTREGAS, int),
+            umbral_ratio_licitaciones=await ConfigService.get_global_config(conn, "sim_umbral_ratio_licitaciones", UMBRAL_RATIO_LICITACIONES, float),
+            peso_compromiso=await ConfigService.get_global_config(conn, "sim_peso_compromiso", PESO_CUMPLIMIENTO_COMPROMISO, float),
+            peso_interno=await ConfigService.get_global_config(conn, "sim_peso_interno", PESO_CUMPLIMIENTO_INTERNO, float),
+            peso_volumen=await ConfigService.get_global_config(conn, "sim_peso_volumen", PESO_VOLUMEN, float),
+            mult_licitaciones=await ConfigService.get_global_config(conn, "sim_mult_licitaciones", MULTIPLICADOR_LICITACIONES, float),
+            mult_actualizaciones=await ConfigService.get_global_config(conn, "sim_mult_actualizaciones", MULTIPLICADOR_ACTUALIZACIONES, float),
+            penalizacion_retrabajos=await ConfigService.get_global_config(conn, "sim_penalizacion_retrabajos", PENALIZACION_RETRABAJOS, float),
+            volumen_max=await ConfigService.get_global_config(conn, "sim_volumen_max", VOLUMEN_MAX_NORMALIZACION, int),
+            umbral_verde=await ConfigService.get_global_config(conn, "sim_umbral_verde", UMBRAL_VERDE, float),
+            umbral_ambar=await ConfigService.get_global_config(conn, "sim_umbral_ambar", UMBRAL_AMBAR, float)
+        )
     
     def _build_where_clause(self, filtros: FiltrosReporte, param_offset: int = 0) -> Tuple[str, List]:
         """
@@ -530,11 +810,14 @@ class ReportesSimulacionService:
         
         return result
 
-    def calcular_semaforo(self, porcentaje: float) -> str:
+    def calcular_semaforo(self, porcentaje: float, config: ConfiguracionScore = None) -> str:
         """Determina color del semáforo según porcentaje."""
-        if porcentaje >= UMBRAL_VERDE:
+        u_verde = config.umbral_verde if config else UMBRAL_VERDE
+        u_ambar = config.umbral_ambar if config else UMBRAL_AMBAR
+        
+        if porcentaje >= u_verde:
             return "green"
-        elif porcentaje >= UMBRAL_AMBAR:
+        elif porcentaje >= u_ambar:
             return "amber"
         return "red"
     
@@ -709,10 +992,19 @@ class ReportesSimulacionService:
         
         row = await conn.fetchrow(query, *params)
         
+        # Cargar umbrales dinámicos
+        u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
+        u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso")
+        
         if not row:
-            return MetricasGenerales()
+            return MetricasGenerales(
+                umbrales_interno=u_interno,
+                umbrales_compromiso=u_compromiso
+            )
         
         return MetricasGenerales(
+            umbrales_interno=u_interno,
+            umbrales_compromiso=u_compromiso,
             total_solicitudes=row['total_solicitudes'] or 0,
             total_ofertas=row['total_ofertas'] or 0,
             en_espera=row['en_espera'] or 0,
@@ -915,10 +1207,16 @@ class ReportesSimulacionService:
         
         rows = await conn.fetch(query, *params)
         
+        # Cargar umbrales dinámicos
+        u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
+        u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso")
+
         return [
             MetricaTecnologia(
                 id_tecnologia=row['id_tecnologia'],
                 nombre=row['nombre'],
+                umbrales_interno=u_interno,
+                umbrales_compromiso=u_compromiso,
                 total_solicitudes=row['total_solicitudes'] or 0,
                 total_ofertas=row['total_ofertas'] or 0,
                 entregas_a_tiempo_interno=row['entregas_a_tiempo_interno'] or 0,
@@ -1072,11 +1370,17 @@ class ReportesSimulacionService:
         
         rows = await conn.fetch(query, *params)
         
+        # Cargar umbrales dinámicos
+        u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
+        u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso")
+
         return [
             FilaContabilizacion(
                 id_tipo_solicitud=row['id_tipo_solicitud'],
                 nombre=row['nombre'],
                 codigo_interno=row['codigo_interno'],
+                umbrales_interno=u_interno,
+                umbrales_compromiso=u_compromiso,
                 total=row['total'] or 0,
                 en_plazo_interno=row['en_plazo_interno'] or 0,
                 fuera_plazo_interno=row['fuera_plazo_interno'] or 0,
@@ -1283,13 +1587,14 @@ class ReportesSimulacionService:
             motivo_retrabajo_principal=motivo_retrabajo_principal
         )
     
-    def generar_resumen_ejecutivo(
+    async def generar_resumen_ejecutivo(
         self,
+        conn,
         metricas: MetricasGenerales,
         usuarios: List['DetalleUsuario'],
         filas_tipo: List[FilaContabilizacion],
         filtros: FiltrosReporte,
-        motivo_retrabajo_principal: tuple = (None, 0)  # ← AGREGADO
+        motivo_retrabajo_principal: tuple = (None, 0)
     ) -> ResumenEjecutivo:
         """
         Genera SOLO DATOS para el resumen ejecutivo.
@@ -1340,6 +1645,52 @@ class ReportesSimulacionService:
         total_entregas_interno = metricas.entregas_a_tiempo_interno + metricas.entregas_tarde_interno
         total_entregas_compromiso = metricas.entregas_a_tiempo_compromiso + metricas.entregas_tarde_compromiso
         
+        # =====================================================================
+        # NUEVO: Calcular scores y categorizar usuarios
+        # =====================================================================
+        score_config = await self._get_score_config(conn)
+        
+        usuarios_con_score = []
+        for usuario in usuarios:
+            # Crear MetricaUsuario a partir de DetalleUsuario para calcular score
+            metrica_usuario = MetricaUsuario(
+                usuario_id=usuario.usuario_id,
+                nombre=usuario.nombre,
+                total_solicitudes=usuario.metricas_generales.total_solicitudes,
+                total_ofertas=usuario.metricas_generales.total_ofertas,
+                entregas_a_tiempo_compromiso=usuario.metricas_generales.entregas_a_tiempo_compromiso,
+                entregas_tarde_compromiso=usuario.metricas_generales.entregas_tarde_compromiso,
+                entregas_a_tiempo_interno=usuario.metricas_generales.entregas_a_tiempo_interno,
+                entregas_tarde_interno=usuario.metricas_generales.entregas_tarde_interno,
+                licitaciones=usuario.metricas_generales.licitaciones,
+                versiones=usuario.metricas_generales.versiones,
+                retrabajados=usuario.metricas_generales.retrabajos,
+            )
+            
+            # Calcular score
+            score = calcular_score_usuario(metrica_usuario, score_config)
+            metrica_usuario.score = score
+            
+            # Obtener motivo de retrabajo principal del usuario
+            if metrica_usuario.retrabajados > 0:
+                motivo_usuario, _ = await self.get_motivo_retrabajo_principal(
+                    conn, filtros, user_id=metrica_usuario.usuario_id
+                )
+                score.motivo_retrabajo_principal = motivo_usuario
+            
+            usuarios_con_score.append(metrica_usuario)
+        
+        # Categorizar usuarios
+        categorias = {
+            "alta_complejidad": [u for u in usuarios_con_score if u.score and u.score.categoria == "alta_complejidad"],
+            "eficiencia": [u for u in usuarios_con_score if u.score and u.score.categoria == "eficiencia"],
+            "evaluacion": [u for u in usuarios_con_score if u.score and u.score.categoria == "evaluacion"]
+        }
+        
+        # Ordenar por score dentro de cada categoría
+        for cat in categorias.values():
+            cat.sort(key=lambda u: u.score.score_final if u.score else 0, reverse=True)
+        
         # Construir objeto de datos
         return ResumenEjecutivo(
             fecha_inicio_formatted=fecha_inicio,
@@ -1364,7 +1715,11 @@ class ReportesSimulacionService:
             total_retrabajos=metricas.retrabajos,
             porcentaje_retrabajos=round((metricas.retrabajos / metricas.total_solicitudes) * 100, 1) if metricas.total_solicitudes > 0 else 0,
             motivo_retrabajo_principal=motivo_retrabajo_principal[0],
-            conteo_motivo_principal=motivo_retrabajo_principal[1]
+            conteo_motivo_principal=motivo_retrabajo_principal[1],
+            categorias_usuarios=categorias,
+            mostrar_nota_alta_complejidad=len(categorias["alta_complejidad"]) > 0,
+            ratio_licitaciones_global=round((metricas.licitaciones / metricas.total_solicitudes * 100) if metricas.total_solicitudes > 0 else 0, 1),
+            umbral_licitaciones_pct=score_config.umbral_ratio_licitaciones * 100
         )
     
     async def get_resumen_mensual(self, conn, filtros: FiltrosReporte) -> Dict[str, FilaMensual]:
