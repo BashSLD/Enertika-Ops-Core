@@ -332,6 +332,33 @@ async def update_global_config_endpoint(
         "message": f"Reglas de negocio y parámetros de SharePoint actualizados correctamente."
     })
 
+@router.post("/config/global/reset-simulation")
+async def reset_simulation_config_endpoint(
+    request: Request,
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_module_access("admin")
+):
+    """
+    Restaura los valores por defecto de la configuración de simulación.
+    Elimina los registros de tb_configuracion_global para que el sistema use los defaults del código.
+    """
+    if context.get("role") not in ["ADMIN"]:
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Acceso Denegado",
+            "message": "No tienes permisos para realizar esta acción."
+        }, status_code=403)
+        
+    await service.reset_simulation_defaults(conn)
+    
+    return templates.TemplateResponse("admin/partials/messages/success.html", {
+        "request": request,
+        "title": "Valores Restaurados",
+        "message": "Se han restablecido los valores por defecto para Simulación."
+    })
+
 # --- USER MANAGEMENT ENDPOINTS ---
 
 from uuid import UUID

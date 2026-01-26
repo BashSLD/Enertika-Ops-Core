@@ -1,52 +1,167 @@
 {# templates/simulacion/reportes/partials/resumen_ejecutivo.html #}
-{# Parcial para renderizar el Resumen Ejecutivo Global con datos estructurados #}
+{# Resumen Ejecutivo V2 - Estructura profesional para directores/gerentes #}
 
-<div class="prose max-w-none text-gray-700 leading-relaxed text-sm">
-    <p>
-        En el período del <strong>{{ resumen.fecha_inicio_formatted }}</strong> al <strong>{{
-            resumen.fecha_fin_formatted }}</strong>
-        se recibieron <strong>{{ resumen.total_solicitudes }} solicitudes</strong>
-        {% if resumen.top_tipos %}
-        , de las cuales
-        {% for tipo in resumen.top_tipos %}
-        {{ tipo.nombre }} ({{ tipo.total }} - {{ tipo.porcentaje }}%){% if not loop.last %}, {% endif %}
-        {% endfor %}
-        {% endif %}.
-    </p>
+<details class="group mb-8" open>
+    <summary
+        class="flex items-center justify-between cursor-pointer p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors mb-4">
+        <h3 class="text-xl font-bold text-gray-900">Resumen Ejecutivo General</h3>
+        <span class="text-gray-500 group-open:rotate-180 transition-transform">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+        </span>
+    </summary>
 
-    <p class="mt-4">
-        Se obtuvo un <strong>cumplimiento interno del {{ resumen.porcentaje_cumplimiento_interno }}%</strong>
-        ({{ resumen.entregas_a_tiempo_interno }} entregas a tiempo de {{ resumen.total_entregas_interno }} totales)
-        y un <strong>cumplimiento con cliente del {{ resumen.porcentaje_cumplimiento_compromiso }}%</strong>
-        ({{ resumen.entregas_a_tiempo_compromiso }} entregas a tiempo de {{ resumen.total_entregas_compromiso }}
-        totales).
-    </p>
+    <div class="prose max-w-none space-y-6 px-2">
 
-    {# REMOVED: Mejor usuario block as per user request #}
+        {# ============================================ #}
+        {# SECCIÓN 1: GESTIÓN DE DEMANDA #}
+        {# ============================================ #}
+        <div>
+            <h4 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 border-b pb-1">Gestión de Demanda
+            </h4>
+            <p class="text-gray-700 leading-relaxed text-sm">
+                Durante el período del <strong>{{ resumen.fecha_inicio_formatted }}</strong> al
+                <strong>{{ resumen.fecha_fin_formatted }}</strong>, se captaron
+                <strong>{{ resumen.total_solicitudes }} solicitudes</strong>.
+                La capacidad operativa permitió procesar <strong>{{ resumen.total_ofertas }} ofertas</strong>,
+                con <strong>{{ resumen.en_espera }}</strong> casos en espera al cierre.
+                {% if resumen.diferencia_explicacion %}
+                <br><span class="text-gray-500 italic text-xs">({{ resumen.diferencia_explicacion }})</span>
+                {% endif %}
+            </p>
+            <p class="text-gray-700 leading-relaxed text-sm mt-2">
+                <strong>Mix de Solicitudes:</strong>
+                {% for tipo in resumen.top_tipos %}
+                {{ tipo.nombre }} ({{ tipo.total }} - {{ tipo.porcentaje }}%){% if not loop.last %}, {% endif %}
+                {% endfor %}.
+            </p>
+        </div>
 
-    <p class="mt-4">
-        De las {{ resumen.total_solicitudes }} solicitudes,
-        <strong>{{ resumen.licitaciones }} fueron licitaciones</strong> ({{ resumen.porcentaje_licitaciones }}%),
-        <strong>{{ resumen.extraordinarias }} extraordinarias</strong> ({{ resumen.porcentaje_extraordinarias }}%),
-        y <strong>{{ resumen.versiones }} actualizaciones</strong> de proyectos existentes ({{
-        resumen.porcentaje_versiones }}%).
-    </p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {# ============================================ #}
+            {# SECCIÓN 2: INDICADORES DE CUMPLIMIENTO #}
+            {# ============================================ #}
+            <div>
+                <h4 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 border-b pb-1">Indicadores de
+                    Cumplimiento</h4>
+                <div class="text-sm text-gray-700 space-y-2">
+                    <p>Base: <strong>{{ resumen.total_entregas_interno }} solicitudes evaluables</strong>.</p>
 
-    {# Bloque de Retrabajos #}
-    {% if resumen.total_retrabajos > 0 %}
-    <p class="text-gray-700 leading-relaxed mt-4">
-        <strong class="text-orange-700">{{ resumen.total_retrabajos }} solicitudes
-            ({{ resumen.porcentaje_retrabajos }}%) tuvieron que retrabajarse</strong>
-        {% if resumen.motivo_retrabajo_principal %}
-        , siendo la causa principal
-        <strong class="text-red-700">"{{ resumen.motivo_retrabajo_principal }}"</strong>
-        ({{ resumen.conteo_motivo_principal }} casos).
-        {% else %}
-        .
+                    <div class="flex items-center justify-between bg-gray-50 p-2 rounded">
+                        <span>SLA Interno:</span>
+                        <span
+                            class="font-bold {% if resumen.porcentaje_cumplimiento_interno >= 90 %}text-green-600{% elif resumen.porcentaje_cumplimiento_interno >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
+                            {{ resumen.porcentaje_cumplimiento_interno }}%
+                        </span>
+                    </div>
+
+                    <div class="flex items-center justify-between bg-gray-50 p-2 rounded">
+                        <span>Compromiso Cliente:</span>
+                        <span
+                            class="font-bold {% if resumen.porcentaje_cumplimiento_compromiso >= 90 %}text-green-600{% elif resumen.porcentaje_cumplimiento_compromiso >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
+                            {{ resumen.porcentaje_cumplimiento_compromiso }}%
+                        </span>
+                    </div>
+                </div>
+            </div>
+
+            {# ============================================ #}
+            {# SECCIÓN 5: CALIDAD #}
+            {# ============================================ #}
+            <div>
+                <h4 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 border-b pb-1">Calidad y
+                    Complejidad</h4>
+                <ul class="text-sm text-gray-700 space-y-1">
+                    <li>• <strong>{{ resumen.licitaciones }}</strong> Licitaciones ({{ resumen.porcentaje_licitaciones
+                        }}%)</li>
+                    <li>• <strong>{{ resumen.extraordinarias }}</strong> Extraordinarias ({{
+                        resumen.porcentaje_extraordinarias }}%)</li>
+                    <li>• <strong>{{ resumen.versiones }}</strong> Actualizaciones de alcance ({{
+                        resumen.porcentaje_versiones }}%)</li>
+                </ul>
+                {% if resumen.total_retrabajos > 0 %}
+                <div class="mt-2 text-xs bg-red-50 text-red-800 p-2 rounded border border-red-100">
+                    <strong>⚠️ Retrabajos:</strong> {{ resumen.total_retrabajos }} casos ({{
+                    resumen.porcentaje_retrabajos }}%)
+                    {% if resumen.motivo_retrabajo_principal %}
+                    <br>Principal causa: "{{ resumen.motivo_retrabajo_principal }}" ({{ resumen.conteo_motivo_principal
+                    }})
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        {# ============================================ #}
+        {# SECCIÓN 3: ANÁLISIS POR TECNOLOGÍA #}
+        {# ============================================ #}
+        {% if resumen.tecnologias_detalle %}
+        <div>
+            <h4 class="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2 border-b pb-1">Desempeño por
+                Tecnología</h4>
+            <div class="overflow-x-auto">
+                <table class="min-w-full text-xs">
+                    <thead>
+                        <tr class="bg-gray-50 text-gray-600">
+                            <th class="text-left py-2 px-2 font-semibold">Tecnología</th>
+                            <th class="text-center py-2 px-2 font-semibold">Solicitudes</th>
+                            <th class="text-center py-2 px-2 font-semibold">Ofertas</th>
+                            <th class="text-center py-2 px-2 font-semibold">SLA Interno</th>
+                            <th class="text-center py-2 px-2 font-semibold">Compromiso</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% for tech in resumen.tecnologias_detalle %}
+                        <tr
+                            class="{% if resumen.peor_tecnologia and tech.nombre == resumen.peor_tecnologia.nombre %}bg-red-50{% elif resumen.mejor_tecnologia and tech.nombre == resumen.mejor_tecnologia.nombre %}bg-green-50{% endif %}">
+                            <td class="py-2 px-2 text-gray-700 font-medium">
+                                {{ tech.nombre }}
+                                {% if resumen.mejor_tecnologia and tech.nombre == resumen.mejor_tecnologia.nombre %}
+                                <span class="text-green-600 ml-1 text-[10px]">▲ Líder</span>
+                                {% endif %}
+                                {% if resumen.peor_tecnologia and tech.nombre == resumen.peor_tecnologia.nombre %}
+                                <span class="text-red-600 ml-1 text-[10px]">▼ Atención</span>
+                                {% endif %}
+                            </td>
+                            <td class="py-2 px-2 text-center text-gray-600">{{ tech.solicitudes }}</td>
+                            <td class="py-2 px-2 text-center text-gray-600">{{ tech.ofertas }}</td>
+                            <td
+                                class="py-2 px-2 text-center {% if tech.pct_interno >= 90 %}text-green-600{% elif tech.pct_interno >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
+                                {{ tech.pct_interno }}%
+                            </td>
+                            <td
+                                class="py-2 px-2 text-center font-bold {% if tech.pct_compromiso >= 90 %}text-green-600{% elif tech.pct_compromiso >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
+                                {{ tech.pct_compromiso }}%
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
         {% endif %}
-    </p>
-    {% endif %}
-</div>
+
+        {# ============================================ #}
+        {# SECCIÓN 4: ESTACIONALIDAD (solo si >6 meses) #}
+        {# ============================================ #}
+        {% if resumen.mostrar_estacionalidad and resumen.mejor_mes %}
+        <div class="bg-blue-50 p-3 rounded-lg border border-blue-100">
+            <h4 class="text-xs font-bold text-blue-800 uppercase tracking-wider mb-1">Análisis Estacional ({{
+                resumen.meses_en_rango }} meses)</h4>
+            <p class="text-gray-700 text-sm">
+                Mejor desempeño: <strong>{{ resumen.mejor_mes.nombre }}</strong> ({{ resumen.mejor_mes.pct_compromiso
+                }}%).
+                {% if resumen.peor_mes %}
+                Punto más bajo: <strong>{{ resumen.peor_mes.nombre }}</strong> ({{ resumen.peor_mes.pct_compromiso }}%).
+                {% endif %}
+            </p>
+        </div>
+        {% endif %}
+
+    </div>
+</details>
 
 {# ============================================ #}
 {# SECCIÓN: DESEMPEÑO POR PERFIL #}
@@ -160,8 +275,8 @@
         <div class="mt-4 p-4 bg-amber-50 rounded-lg border-l-4 border-amber-400">
             <p class="text-sm text-amber-900">
                 <strong>ℹ️ Nota sobre "Alta Complejidad":</strong><br>
-                Esta categoría reconoce usuarios que trabajan proyectos estratégicos
-                (licitaciones ≥{{ "%.0f"|format(resumen.umbral_licitaciones_pct) }}%, el doble del promedio global de
+                Esta categoría reconoce usuarios que trabajan proyectos estratégicos con un alto volumen de licitaciones
+                (≥{{ "%.1f"|format(resumen.umbral_licitaciones_pct) }}%, siendo el promedio global del periodo
                 <strong>{{ "%.1f"|format(resumen.ratio_licitaciones_global) }}%</strong>).
                 Estos proyectos requieren mayor tiempo de elaboración y tienen
                 requisitos formales más estrictos.

@@ -25,3 +25,4 @@ numpy==1.26.0          # Compatible con Python 3.12
 pytest
 pytest-asyncio
 httpx
+python-dateutil

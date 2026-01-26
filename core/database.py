@@ -3,7 +3,7 @@
 import asyncpg
 import logging
 from core.config import settings
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from uuid import UUID
 
 logger = logging.getLogger("Database")
@@ -12,8 +12,8 @@ logger = logging.getLogger("Database")
 _connection_pool: Optional[asyncpg.Pool] = None
 
 # Tracking de conexiones SSE dedicadas (fuera del pool)
-# Key: user_id (UUID), Value: asyncpg.Connection
-_sse_connections: Dict[UUID, asyncpg.Connection] = {}
+# Key: user_id (UUID), Value: List[asyncpg.Connection]
+_sse_connections: Dict[UUID, List[asyncpg.Connection]] = {}
 
 async def connect_to_db():
     """Inicializa el pool de conexiones al inicio de la aplicación (startup)."""
@@ -41,13 +41,14 @@ async def close_db_connection():
     
     # 1. PRIMERO: Cerrar todas las conexiones SSE activas
     if _sse_connections:
-        logger.info(f"Cerrando {len(_sse_connections)} conexiones SSE activas...")
-        for user_id, conn in list(_sse_connections.items()):
-            try:
-                await conn.close()
-                logger.info(f"Conexión SSE cerrada para usuario {user_id}")
-            except Exception as e:
-                logger.warning(f"Error cerrando SSE connection {user_id}: {e}")
+        logger.info(f"Cerrando conexiones SSE activas...")
+        for user_id, conns in list(_sse_connections.items()):
+            for conn in conns:
+                try:
+                    await conn.close()
+                except Exception as e:
+                    logger.warning(f"Error cerrando SSE connection {user_id}: {e}")
+            logger.info(f"Conexiones SSE cerradas para usuario {user_id}")
         _sse_connections.clear()
         logger.info("Todas las conexiones SSE cerradas.")
     
@@ -82,32 +83,29 @@ async def get_db_pool():
 async def get_sse_connection(user_id: UUID) -> asyncpg.Connection:
     """
     Crea y retorna una conexión dedicada para SSE streaming de un usuario.
-    
-    Esta conexión es INDEPENDIENTE del pool principal y se mantiene abierta
-    mientras el usuario está conectado al stream SSE.
-    
-    Args:
-        user_id: UUID del usuario que se conecta
-        
-    Returns:
-        asyncpg.Connection dedicada para SSE
-        
-    Raises:
-        Exception: Si ya existe una conexión para este usuario
+    Permite múltiples conexiones por usuario (ej. múltiples pestañas).
     """
     global _sse_connections
     
-    # Validar que no exista conexión previa (evitar duplicados)
-    if user_id in _sse_connections:
-        logger.warning(f"[SSE-CONN] Ya existe conexión activa para usuario {user_id}, cerrando anterior...")
-        await close_sse_connection(user_id)
+    MAX_SSE_CONNECTIONS = 2
+    if user_id in _sse_connections and len(_sse_connections[user_id]) >= MAX_SSE_CONNECTIONS:
+        # Cerrar lap conexión más antigua para liberar recursos
+        logger.warning(f"[SSE-LIMIT] Usuario {user_id} alcanzó límite de {MAX_SSE_CONNECTIONS} conexiones. Cerrando la más antigua.")
+        oldest_conn = _sse_connections[user_id].pop(0)
+        try:
+            await oldest_conn.close()
+        except Exception as e:
+            logger.warning(f"[SSE-LIMIT] Error cerrando conexión antigua: {e}")
+            
+    if user_id not in _sse_connections:
+        _sse_connections[user_id] = []
     
     try:
         # Crear conexión directa (fuera del pool)
         conn = await asyncpg.connect(settings.DB_URL_ASYNC)
-        _sse_connections[user_id] = conn
+        _sse_connections[user_id].append(conn)
         
-        logger.info(f"[SSE-CONN] Conexión SSE creada para usuario {user_id} (Total activas: {len(_sse_connections)})")
+        logger.info(f"[SSE-CONN] Nueva conexión SSE creada para usuario {user_id}")
         return conn
         
     except Exception as e:
@@ -115,28 +113,43 @@ async def get_sse_connection(user_id: UUID) -> asyncpg.Connection:
         raise
 
 
-async def close_sse_connection(user_id: UUID):
+async def close_sse_connection(user_id: UUID, conn: asyncpg.Connection = None):
     """
-    Cierra y remueve la conexión SSE dedicada de un usuario.
-    
-    Args:
-        user_id: UUID del usuario a desconectar
+    Cierra y remueve la conexión SSE dedicada.
+    Si se pasa 'conn', cierra solo esa. Si no, cierra TODAS las del usuario (fallback).
     """
     global _sse_connections
     
     if user_id in _sse_connections:
-        try:
-            conn = _sse_connections[user_id]
-            await conn.close()
+        conns = _sse_connections[user_id]
+        
+        if conn:
+            # Cerrar conexión específica
+            try:
+                if conn in conns:
+                    conns.remove(conn)
+                
+                if not conn.is_closed():
+                    await conn.close()
+                    
+                logger.debug(f"[SSE-CONN] Conexión específica cerrada para {user_id}")
+            except Exception as e:
+                logger.warning(f"[SSE-CONN] Error cerrando conexión específica: {e}")
+        else:
+            # Fallback: Cerrar todas (legacy behavior)
+            logger.warning(f"[SSE-CONN] Cerrando TODAS las conexiones de {user_id} (uso no recomendado)")
+            for c in conns:
+                try:
+                    await c.close()
+                except:
+                    pass
+            _sse_connections[user_id] = []
+
+        # Limpieza si no quedan conexiones
+        if not _sse_connections[user_id]:
             del _sse_connections[user_id]
-            
-            logger.info(f"[SSE-CONN] Conexión SSE cerrada para usuario {user_id} (Restantes: {len(_sse_connections)})")
-        except Exception as e:
-            logger.warning(f"[SSE-CONN] Error cerrando conexión SSE para {user_id}: {e}")
-            # Asegurar que se remueva del dict incluso si falla el close
-            _sse_connections.pop(user_id, None)
     else:
-        logger.debug(f"[SSE-CONN] No se encontró conexión activa para usuario {user_id}")
+        logger.debug(f"[SSE-CONN] No se encontró usuario {user_id} para cerrar conexión")
 
 
 def get_active_sse_connections_count() -> int:

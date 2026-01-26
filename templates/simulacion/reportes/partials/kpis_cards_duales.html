@@ -28,10 +28,11 @@
     </div>
 
     {# 3. KPI INTERNO #}
+    {% set sem_int = metricas.semaforo_interno %}
     <div
-        class="bg-emerald-50 rounded-lg shadow-sm border border-emerald-200 p-4 relative overflow-hidden group hover:shadow-md transition-all">
+        class="bg-{{ sem_int }}-50 rounded-lg shadow-sm border border-{{ sem_int }}-200 p-4 relative overflow-hidden group hover:shadow-md transition-all">
         <div class="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
-            <svg class="w-16 h-16 text-emerald-600" fill="currentColor" viewBox="0 0 20 20">
+            <svg class="w-16 h-16 text-{{ sem_int }}-600" fill="currentColor" viewBox="0 0 20 20">
                 <path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" />
                 <path fill-rule="evenodd"
                     d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z"
@@ -39,18 +40,19 @@
             </svg>
         </div>
         <div class="relative z-10">
-            <h4 class="text-emerald-800 font-bold mb-1 text-sm uppercase tracking-wide">KPI Interno</h4>
+            <h4 class="text-{{ sem_int }}-800 font-bold mb-1 text-sm uppercase tracking-wide">KPI Interno</h4>
             <div class="flex items-baseline gap-2 mb-1">
-                <span class="text-3xl font-bold text-emerald-700">{{ metricas.porcentaje_a_tiempo_interno }}%</span>
-                <span class="text-xs text-emerald-600 font-medium">A tiempo</span>
+                <span class="text-3xl font-bold text-{{ sem_int }}-700">{{ metricas.porcentaje_a_tiempo_interno
+                    }}%</span>
+                <span class="text-xs text-{{ sem_int }}-600 font-medium">A tiempo</span>
             </div>
 
-            <div class="w-full bg-emerald-200 rounded-full h-1.5 mb-2 overflow-hidden">
-                <div class="bg-emerald-600 h-1.5 rounded-full"
+            <div class="w-full bg-{{ sem_int }}-200 rounded-full h-1.5 mb-2 overflow-hidden">
+                <div class="bg-{{ sem_int }}-600 h-1.5 rounded-full"
                     style="width: {{ metricas.porcentaje_a_tiempo_interno }}%"></div>
             </div>
 
-            <div class="text-[10px] text-emerald-700 flex justify-between">
+            <div class="text-[10px] text-{{ sem_int }}-700 flex justify-between">
                 <span>{{ metricas.entregas_a_tiempo_interno }} A tiempo</span>
                 <span>{{ metricas.entregas_tarde_interno }} Tarde</span>
             </div>
@@ -58,27 +60,29 @@
     </div>
 
     {# 4. KPI COMPROMISO #}
+    {% set sem_comp = metricas.semaforo_compromiso %}
     <div
-        class="bg-blue-50 rounded-lg shadow-sm border border-blue-200 p-4 relative overflow-hidden group hover:shadow-md transition-all">
+        class="bg-{{ sem_comp }}-50 rounded-lg shadow-sm border border-{{ sem_comp }}-200 p-4 relative overflow-hidden group hover:shadow-md transition-all">
         <div class="absolute top-0 right-0 p-2 opacity-10 group-hover:opacity-20 transition-opacity">
-            <svg class="w-16 h-16 text-blue-600" fill="currentColor" viewBox="0 0 20 20">
+            <svg class="w-16 h-16 text-{{ sem_comp }}-600" fill="currentColor" viewBox="0 0 20 20">
                 <path
                     d="M13 6a3 3 0 11-6 0 3 3 0 016 0zM18 8a2 2 0 11-4 0 2 2 0 014 0zM14 15a4 4 0 00-8 0v3h8v-3zM6 8a2 2 0 11-4 0 2 2 0 014 0zM16 18v-3a5.972 5.972 0 00-.75-2.906A3.005 3.005 0 0119 15v3h-3zM4.75 12.094A5.973 5.973 0 004 15v3H1v-3a3 3 0 013.75-2.906z" />
             </svg>
         </div>
         <div class="relative z-10">
-            <h4 class="text-blue-800 font-bold mb-1 text-sm uppercase tracking-wide">KPI Compromiso</h4>
+            <h4 class="text-{{ sem_comp }}-800 font-bold mb-1 text-sm uppercase tracking-wide">KPI Compromiso</h4>
             <div class="flex items-baseline gap-2 mb-1">
-                <span class="text-3xl font-bold text-blue-700">{{ metricas.porcentaje_a_tiempo_compromiso }}%</span>
-                <span class="text-xs text-blue-600 font-medium">A tiempo</span>
+                <span class="text-3xl font-bold text-{{ sem_comp }}-700">{{ metricas.porcentaje_a_tiempo_compromiso
+                    }}%</span>
+                <span class="text-xs text-{{ sem_comp }}-600 font-medium">A tiempo</span>
             </div>
 
-            <div class="w-full bg-blue-200 rounded-full h-1.5 mb-2 overflow-hidden">
-                <div class="bg-blue-600 h-1.5 rounded-full"
+            <div class="w-full bg-{{ sem_comp }}-200 rounded-full h-1.5 mb-2 overflow-hidden">
+                <div class="bg-{{ sem_comp }}-600 h-1.5 rounded-full"
                     style="width: {{ metricas.porcentaje_a_tiempo_compromiso }}%"></div>
             </div>
 
-            <div class="text-[10px] text-blue-700 flex justify-between">
+            <div class="text-[10px] text-{{ sem_comp }}-700 flex justify-between">
                 <span>{{ metricas.entregas_a_tiempo_compromiso }} A tiempo</span>
                 <span>{{ metricas.entregas_tarde_compromiso }} Tarde</span>
             </div>

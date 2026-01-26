@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, Tuple
 import asyncpg
+import time
 
 @dataclass
 class UmbralesKPI:
@@ -34,7 +35,9 @@ class UmbralesKPI:
 class ConfigService:
     """Servicio para gestionar configuración global del sistema"""
     
-    _cache_umbrales: Dict[str, UmbralesKPI] = {}
+    # Cache con TTL: {key: (timestamp, value)}
+    _cache_umbrales: Dict[str, Tuple[float, UmbralesKPI]] = {}
+    _CACHE_TTL = 30.0  # 30 segundos de vida
     
     @classmethod
     async def get_umbrales_kpi(
@@ -45,13 +48,15 @@ class ConfigService:
     ) -> UmbralesKPI:
         """
         Obtiene umbrales activos para un tipo de KPI.
-        Usa cache para evitar queries repetidas.
+        Usa cache con TTL (30s) para evitar stale data en multi-workers.
         """
         cache_key = f"{departamento}_{tipo_kpi}"
         
-        # Verificar cache
+        # Verificar cache con TTL
         if cache_key in cls._cache_umbrales:
-            return cls._cache_umbrales[cache_key]
+            ts, val = cls._cache_umbrales[cache_key]
+            if time.time() - ts < cls._CACHE_TTL:
+                return val
         
         # Consultar BD
         try:
@@ -84,22 +89,30 @@ class ConfigService:
                     tipo_kpi=tipo_kpi,
                     umbral_excelente=u_verde,
                     umbral_bueno=u_ambar,
-                    color_excelente="emerald", # Verde Tailwind
-                    color_bueno="yellow",      # Amarillo Tailwind
-                    color_critico="red"        # Rojo Tailwind
+                    color_excelente="green",   # Normalizado para coincidir con template
+                    color_bueno="amber",       # Normalizado para coincidir con template
+                    color_critico="red"
                 )
             else:
+                # Normalización de colores de BD a nombres de clases usados en template
+                c_excelente = row['color_excelente']
+                c_bueno = row['color_bueno']
+                
+                # Mapeo de compatibilidad
+                if c_excelente == "emerald": c_excelente = "green"
+                if c_bueno == "yellow": c_bueno = "amber"
+                
                 umbrales = UmbralesKPI(
                     tipo_kpi=row['tipo_kpi'],
                     umbral_excelente=float(row['umbral_excelente']),
                     umbral_bueno=float(row['umbral_bueno']),
-                    color_excelente=row['color_excelente'],
-                    color_bueno=row['color_bueno'],
+                    color_excelente=c_excelente,
+                    color_bueno=c_bueno,
                     color_critico=row['color_critico']
                 )
             
-            # Guardar en cache
-            cls._cache_umbrales[cache_key] = umbrales
+            # Guardar en cache con timestamp actual
+            cls._cache_umbrales[cache_key] = (time.time(), umbrales)
             
             return umbrales
         except Exception as e:
@@ -115,8 +128,8 @@ class ConfigService:
                 tipo_kpi=tipo_kpi,
                 umbral_excelente=u_verde,
                 umbral_bueno=u_ambar,
-                color_excelente="emerald",
-                color_bueno="yellow",
+                color_excelente="green",
+                color_bueno="amber",
                 color_critico="red"
             )
     

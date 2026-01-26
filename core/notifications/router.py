@@ -117,18 +117,20 @@ async def stream_notifications(
                 
                 try:
                     # Esperar notificación (puede venir de NOTIFY o fallback local)
-                    # Timeout de 45s: evita que Gunicorn (timeout=120s) mate el worker
-                    notification_data = await asyncio.wait_for(queue.get(), timeout=45.0)
+                    # Timeout de 15s: evita que Gunicorn/Proxies maten la conexión por inactividad
+                    notification_data = await asyncio.wait_for(queue.get(), timeout=15.0)
                     
                     yield {
                         "event": "notification",
-                        "data": json.dumps(notification_data)
+                        "data": json.dumps(notification_data),
+                        "retry": 5000
                     }
                 except asyncio.TimeoutError:
-                    # Heartbeat para mantener vivo el worker de Gunicorn
+                    # Heartbeat para mantener vivo el worker y la conexión HTTP
                     yield {
                         "event": "heartbeat",
-                        "data": json.dumps({"status": "alive"})
+                        "data": json.dumps({"status": "alive"}),
+                        "retry": 5000
                     }
         
         except asyncio.CancelledError:
@@ -140,23 +142,30 @@ async def stream_notifications(
             if listen_conn:
                 try:
                     # Remover listener antes de cerrar conexión
-                    await listen_conn.remove_listener(channel, pg_listener)
-                    logger.info(f"[SSE-PG] Listener removido: {channel}")
+                    if not listen_conn.is_closed():
+                        await listen_conn.remove_listener(channel, pg_listener)
+                        logger.info(f"[SSE-PG] Listener removido: {channel}")
                 except Exception as e:
                     logger.warning(f"[SSE-PG] Error removiendo listener: {e}")
                 
-                # Cerrar conexión SSE dedicada
+                # Cerrar conexión SSE dedicada (Pasamos la conexión específica)
                 try:
-                    await close_sse_connection(usuario_id)
+                    await close_sse_connection(usuario_id, listen_conn)
                 except Exception as e:
                     logger.warning(f"[SSE-CONN] Error en cleanup de conexión: {e}")
             
             # Remover de dict local
             from .service import active_connections
             if usuario_id in active_connections:
-                del active_connections[usuario_id]
-                logger.info(f"[SSE-LOCAL] Usuario {usuario_id} removido localmente")
-    
+                # Solo borramos si el queue es el nuestro (para evitar borrar el queue de OTRA conexión)
+                # Pero active_connections solo guarda UNO.
+                # Con la nueva lógica, active_connections del service solo sirve para fallback local
+                # Si hay multiples pestañas, todas competirán por este slot.
+                # Es aceptable borrarlo al salir.
+                if active_connections[usuario_id] == queue:
+                    del active_connections[usuario_id]
+                    logger.info(f"[SSE-LOCAL] Queue local removido para {usuario_id}")
+
     return EventSourceResponse(
         event_generator(),
         headers={

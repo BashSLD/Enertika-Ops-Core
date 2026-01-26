@@ -128,24 +128,25 @@
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
 
                     {# KPI Interno #}
+                    {% set sem_int = usuario.metricas_generales.semaforo_interno %}
                     <div
-                        class="bg-gradient-to-br from-emerald-50 to-emerald-100 rounded-lg p-5 border-2 border-emerald-300">
+                        class="bg-gradient-to-br from-{{ sem_int }}-50 to-{{ sem_int }}-100 rounded-lg p-5 border-2 border-{{ sem_int }}-300">
                         <div class="flex items-center gap-2 mb-4">
-                            <div class="p-2 bg-emerald-500 rounded-lg">
+                            <div class="p-2 bg-{{ sem_int }}-500 rounded-lg">
                                 <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                         d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
                                 </svg>
                             </div>
                             <div>
-                                <h5 class="font-bold text-emerald-900">KPI SLA Interno</h5>
-                                <p class="text-xs text-emerald-700">vs Deadline Sistema</p>
+                                <h5 class="font-bold text-{{ sem_int }}-900">KPI SLA Interno</h5>
+                                <p class="text-xs text-{{ sem_int }}-700">vs Deadline Sistema</p>
                             </div>
                         </div>
 
                         <div class="space-y-3">
                             <div class="flex justify-between items-end">
-                                <span class="text-sm text-emerald-800">En Plazo</span>
+                                <span class="text-sm text-{{ sem_int }}-800">En Plazo</span>
                                 <span
                                     class="text-3xl font-bold text-{{ usuario.metricas_generales.semaforo_interno }}-600">
                                     {{ usuario.metricas_generales.porcentaje_a_tiempo_interno }}%
@@ -153,20 +154,20 @@
                             </div>
 
                             <div class="flex justify-between items-end">
-                                <span class="text-sm text-emerald-800">Fuera de Plazo</span>
+                                <span class="text-sm text-{{ sem_int }}-800">Fuera de Plazo</span>
                                 <span class="text-2xl font-bold text-red-600">
                                     {{ usuario.metricas_generales.porcentaje_tarde_interno }}%
                                 </span>
                             </div>
 
-                            <div class="mt-3 h-3 bg-emerald-200 rounded-full overflow-hidden flex">
-                                <div class="bg-green-500 transition-all duration-500"
+                            <div class="mt-3 h-3 bg-{{ sem_int }}-200 rounded-full overflow-hidden flex">
+                                <div class="bg-{{ sem_int }}-500 transition-all duration-500"
                                     style="width: {{ usuario.metricas_generales.porcentaje_a_tiempo_interno }}%"></div>
                                 <div class="bg-red-500 transition-all duration-500"
                                     style="width: {{ usuario.metricas_generales.porcentaje_tarde_interno }}%"></div>
                             </div>
 
-                            <div class="text-xs text-emerald-700 bg-white/50 p-2 rounded mt-3">
+                            <div class="text-xs text-{{ sem_int }}-700 bg-white/50 p-2 rounded mt-3">
                                 {{ usuario.metricas_generales.entregas_a_tiempo_interno }} a tiempo /
                                 {{ usuario.metricas_generales.entregas_tarde_interno }} tarde
                             </div>
@@ -174,23 +175,25 @@
                     </div>
 
                     {# KPI Compromiso #}
-                    <div class="bg-gradient-to-br from-blue-50 to-blue-100 rounded-lg p-5 border-2 border-blue-300">
+                    {% set sem_comp = usuario.metricas_generales.semaforo_compromiso %}
+                    <div
+                        class="bg-gradient-to-br from-{{ sem_comp }}-50 to-{{ sem_comp }}-100 rounded-lg p-5 border-2 border-{{ sem_comp }}-300">
                         <div class="flex items-center gap-2 mb-4">
-                            <div class="p-2 bg-blue-500 rounded-lg">
+                            <div class="p-2 bg-{{ sem_comp }}-500 rounded-lg">
                                 <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                         d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
                                 </svg>
                             </div>
                             <div>
-                                <h5 class="font-bold text-blue-900">KPI Compromiso Cliente</h5>
-                                <p class="text-xs text-blue-700">vs Deadline Negociado</p>
+                                <h5 class="font-bold text-{{ sem_comp }}-900">KPI Compromiso Cliente</h5>
+                                <p class="text-xs text-{{ sem_comp }}-700">vs Deadline Negociado</p>
                             </div>
                         </div>
 
                         <div class="space-y-3">
                             <div class="flex justify-between items-end">
-                                <span class="text-sm text-blue-800">En Plazo</span>
+                                <span class="text-sm text-{{ sem_comp }}-800">En Plazo</span>
                                 <span
                                     class="text-3xl font-bold text-{{ usuario.metricas_generales.semaforo_compromiso }}-600">
                                     {{ usuario.metricas_generales.porcentaje_a_tiempo_compromiso }}%
@@ -198,21 +201,21 @@
                             </div>
 
                             <div class="flex justify-between items-end">
-                                <span class="text-sm text-blue-800">Fuera de Plazo</span>
+                                <span class="text-sm text-{{ sem_comp }}-800">Fuera de Plazo</span>
                                 <span class="text-2xl font-bold text-orange-600">
                                     {{ usuario.metricas_generales.porcentaje_tarde_compromiso }}%
                                 </span>
                             </div>
 
-                            <div class="mt-3 h-3 bg-blue-200 rounded-full overflow-hidden flex">
-                                <div class="bg-green-500 transition-all duration-500"
+                            <div class="mt-3 h-3 bg-{{ sem_comp }}-200 rounded-full overflow-hidden flex">
+                                <div class="bg-{{ sem_comp }}-500 transition-all duration-500"
                                     style="width: {{ usuario.metricas_generales.porcentaje_a_tiempo_compromiso }}%">
                                 </div>
                                 <div class="bg-orange-500 transition-all duration-500"
                                     style="width: {{ usuario.metricas_generales.porcentaje_tarde_compromiso }}%"></div>
                             </div>
 
-                            <div class="text-xs text-blue-700 bg-white/50 p-2 rounded mt-3">
+                            <div class="text-xs text-{{ sem_comp }}-700 bg-white/50 p-2 rounded mt-3">
                                 {{ usuario.metricas_generales.entregas_a_tiempo_compromiso }} a tiempo /
                                 {{ usuario.metricas_generales.entregas_tarde_compromiso }} tarde
                             </div>

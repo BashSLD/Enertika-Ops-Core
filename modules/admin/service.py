@@ -8,6 +8,7 @@ import json
 import logging
 
 from .schemas import ConfiguracionGlobalUpdate, EmailRuleCreate
+from core.config_service import ConfigService
 
 logger = logging.getLogger("AdminModule")
 
@@ -180,7 +181,19 @@ class AdminService:
             "sharepoint_site_id": config_dict.get("SHAREPOINT_SITE_ID", ""),
             "sharepoint_drive_id": config_dict.get("SHAREPOINT_DRIVE_ID", ""),
             "sharepoint_base_folder": config_dict.get("SHAREPOINT_BASE_FOLDER", ""),
-            "max_upload_size_mb": int(config_dict.get("MAX_UPLOAD_SIZE_MB", "500"))
+            "max_upload_size_mb": int(config_dict.get("MAX_UPLOAD_SIZE_MB", "500")),
+            # Simulation KPIS
+            "sim_peso_compromiso": config_dict.get("sim_peso_compromiso", None),
+            "sim_peso_interno": config_dict.get("sim_peso_interno", None),
+            "sim_peso_volumen": config_dict.get("sim_peso_volumen", None),
+            "sim_umbral_min_entregas": config_dict.get("sim_umbral_min_entregas", None),
+            "sim_umbral_ratio_licitaciones": config_dict.get("sim_umbral_ratio_licitaciones", None),
+            "sim_umbral_verde": config_dict.get("sim_umbral_verde", None),
+            "sim_umbral_ambar": config_dict.get("sim_umbral_ambar", None),
+            "sim_mult_licitaciones": config_dict.get("sim_mult_licitaciones", None),
+            "sim_mult_actualizaciones": config_dict.get("sim_mult_actualizaciones", None),
+            "sim_penalizacion_retrabajos": config_dict.get("sim_penalizacion_retrabajos", None),
+            "sim_volumen_max": config_dict.get("sim_volumen_max", None)
         }
 
     async def update_global_config(self, conn, datos: ConfiguracionGlobalUpdate) -> None:
@@ -223,6 +236,33 @@ class AdminService:
                 clave, valor
             )
         logger.info(f"Configuración global actualizada (incluyendo SharePoint): SLA={datos.dias_sla_default}")
+        ConfigService.invalidar_cache()
+
+    
+    async def reset_simulation_defaults(self, conn) -> None:
+        """
+        Elimina las configuraciones personalizadas de simulación para restaurar los defaults del código.
+        """
+        keys_to_delete = [
+            "sim_peso_compromiso",
+            "sim_peso_interno",
+            "sim_peso_volumen",
+            "sim_umbral_min_entregas",
+            "sim_umbral_ratio_licitaciones",
+            "sim_umbral_verde",
+            "sim_umbral_ambar",
+            "sim_mult_licitaciones",
+            "sim_mult_actualizaciones",
+            "sim_penalizacion_retrabajos",
+            "sim_volumen_max"
+        ]
+        
+        await conn.execute(
+            "DELETE FROM tb_configuracion_global WHERE clave = ANY($1)",
+            keys_to_delete
+        )
+        logger.info("Configuración de simulación restaurada a defaults (filas eliminadas)")
+        ConfigService.invalidar_cache()
     
     # --- LÓGICA PARA REGLAS DE CORREO DINÁMICAS ---
 

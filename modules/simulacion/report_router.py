@@ -23,6 +23,7 @@ from .report_service import (
     get_reportes_service,
     FiltrosReporte
 )
+from core.config_service import ConfigService
 
 logger = logging.getLogger("ReportesSimulacionRouter")
 templates = Jinja2Templates(directory="templates")
@@ -120,6 +121,10 @@ async def get_reportes_ui(
     metricas = await service.get_metricas_generales(conn, filtros)
     graficas = await service.get_datos_graficas(conn, filtros)
     
+    # Obtener umbrales dinámicos para inyección en template
+    u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno", "SIMULACION")
+    u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso", "SIMULACION")
+
     template_data = {
         "request": request,
         "user_name": context.get("user_name"),
@@ -132,7 +137,12 @@ async def get_reportes_ui(
         "filtros_aplicados": {
             "fecha_inicio": filtros.fecha_inicio.isoformat(),
             "fecha_fin": filtros.fecha_fin.isoformat()
-        }
+        },
+        # Inyección de umbrales para evitar hardcodes en templates
+        "umbral_verde_interno": u_interno.umbral_excelente,
+        "umbral_ambar_interno": u_interno.umbral_bueno,
+        "umbral_verde_compromiso": u_compromiso.umbral_excelente,
+        "umbral_ambar_compromiso": u_compromiso.umbral_bueno,
     }
     
     # Detección HTMX vs carga directa
@@ -161,6 +171,10 @@ async def get_analisis_detallado(
     catalogos = await service.get_catalogos_filtros(conn)
     filtros = parse_filtros(start_date, end_date, tech_id, type_id, status_id, user_id)
     
+    # Obtener umbrales dinámicos para inyección en template
+    u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno", "SIMULACION")
+    u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso", "SIMULACION")
+    
     # Obtener todos los datos
     metricas = await service.get_metricas_generales(conn, filtros)
     metricas_tech = await service.get_metricas_por_tecnologia(conn, filtros)
@@ -178,7 +192,9 @@ async def get_analisis_detallado(
         usuarios=metricas_usuarios,
         filas_tipo=tabla_contab,
         filtros=filtros,
-        motivo_retrabajo_principal=motivo_retrabajo
+        motivo_retrabajo_principal=motivo_retrabajo,
+        metricas_tecnologia=metricas_tech,
+        resumen_mensual=resumen_mensual
     )
     
     # Generar lista de meses
@@ -215,8 +231,14 @@ async def get_analisis_detallado(
             "tecnologia": filtros.id_tecnologia,
             "tipo_solicitud": filtros.id_tipo_solicitud,
             "estatus": filtros.id_estatus,
+            "estatus": filtros.id_estatus,
             "usuario": str(filtros.responsable_id) if filtros.responsable_id else None
-        }
+        },
+        # Inyección de umbrales para evitar hardcodes en templates
+        "umbral_verde_interno": u_interno.umbral_excelente,
+        "umbral_ambar_interno": u_interno.umbral_bueno,
+        "umbral_verde_compromiso": u_compromiso.umbral_excelente,
+        "umbral_ambar_compromiso": u_compromiso.umbral_bueno,
     }
     
     # Detección HTMX vs carga directa
@@ -314,9 +336,21 @@ async def get_contabilizacion_partial(
     filtros = parse_filtros(start_date, end_date, tech_id, type_id, status_id, user_id)
     tabla = await service.get_tabla_contabilizacion(conn, filtros)
     
+    # Obtener umbrales dinámicos
+    u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno", "SIMULACION")
+    u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso", "SIMULACION")
+    
+    # Obtener umbrales dinámicos
+    u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno", "SIMULACION")
+    u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso", "SIMULACION")
+    
     return templates.TemplateResponse("simulacion/reportes/partials/semaforo_table.html", {
         "request": request,
-        "filas": tabla
+        "filas": tabla,
+        "umbral_verde_interno": u_interno.umbral_excelente,
+        "umbral_ambar_interno": u_interno.umbral_bueno,
+        "umbral_verde_compromiso": u_compromiso.umbral_excelente,
+        "umbral_ambar_compromiso": u_compromiso.umbral_bueno,
     })
 
 
@@ -364,6 +398,10 @@ async def get_mensual_partial(
     filtros = parse_filtros(start_date, end_date, tech_id, type_id, status_id, user_id)
     resumen = await service.get_resumen_mensual(conn, filtros)
     
+    # Obtener umbrales dinámicos
+    u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno", "SIMULACION")
+    u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso", "SIMULACION")
+    
     # Generar lista de meses en el rango
     meses = []
     current = filtros.fecha_inicio.replace(day=1)
@@ -382,7 +420,11 @@ async def get_mensual_partial(
         "request": request,
         "resumen": resumen,
         "meses": meses,
-        "meses_nombres": meses_nombres
+        "meses_nombres": meses_nombres,
+        "umbral_verde_interno": u_interno.umbral_excelente,
+        "umbral_ambar_interno": u_interno.umbral_bueno,
+        "umbral_verde_compromiso": u_compromiso.umbral_excelente,
+        "umbral_ambar_compromiso": u_compromiso.umbral_bueno,
     })
 
 

@@ -93,16 +93,17 @@
     </div>
 
     {# 7. % Entregas en Plazo (KPI Interno) #}
+    {% set sem_int = metricas.semaforo_interno %}
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
         <div class="flex items-center justify-between">
-            <div class="p-2 bg-emerald-100 rounded-lg">
-                <svg class="w-5 h-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div class="p-2 bg-{{ sem_int }}-100 rounded-lg">
+                <svg class="w-5 h-5 text-{{ sem_int }}-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
             </div>
         </div>
-        <p class="mt-3 text-2xl font-bold text-{{ metricas.semaforo_interno }}-600">
+        <p class="mt-3 text-2xl font-bold text-{{ sem_int }}-600">
             {{ metricas.porcentaje_a_tiempo_interno }}%
         </p>
         <p class="text-xs text-gray-500 mt-1">En Plazo (SLA Interno)</p>
@@ -110,16 +111,17 @@
     </div>
 
     {# 8. % Entregas en Plazo (KPI Compromiso) #}
+    {% set sem_comp = metricas.semaforo_compromiso %}
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
         <div class="flex items-center justify-between">
-            <div class="p-2 bg-blue-100 rounded-lg">
-                <svg class="w-5 h-5 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <div class="p-2 bg-{{ sem_comp }}-100 rounded-lg">
+                <svg class="w-5 h-5 text-{{ sem_comp }}-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
             </div>
         </div>
-        <p class="mt-3 text-2xl font-bold text-{{ metricas.semaforo_compromiso }}-600">
+        <p class="mt-3 text-2xl font-bold text-{{ sem_comp }}-600">
             {{ metricas.porcentaje_a_tiempo_compromiso }}%
         </p>
         <p class="text-xs text-gray-500 mt-1">En Plazo (Compromiso)</p>

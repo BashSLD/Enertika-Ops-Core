@@ -195,6 +195,11 @@ class NotificationsService:
             # Ejecutar NOTIFY usando pg_notify para soportar parametros seguros
             await conn.execute("SELECT pg_notify($1, $2)", channel, payload)
             logger.info(f"[SSE-PG] NOTIFY enviado a canal {channel[:30]}...")
+            
+            # Si el NOTIFY fue exitoso, no necesitamos hacer entrega local
+            # El listener en router.py lo recibirá y lo pondrá en la queue.
+            return 
+            
         except Exception as e:
             logger.warning(f"[SSE-PG] NOTIFY falló (usando fallback local): {e}")
         

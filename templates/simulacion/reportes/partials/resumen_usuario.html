@@ -14,23 +14,7 @@
         cumplimiento con cliente.
     </p>
 
-    {# Tiempo promedio de elaboración #}
-    {% if resumen.tiempo_promedio_global_dias %}
-    <p class="text-xs text-gray-600">
-        Tiempo promedio de elaboración:
-        <strong class="text-blue-700">{{ resumen.tiempo_promedio_global_dias }} días</strong>.
-        {% if resumen.tiempo_promedio_por_tipo %}
-        Desglose por tipo:
-        {% for item in resumen.tiempo_promedio_por_tipo %}
-        <strong>{{ item.tipo }}</strong> ({{ item.dias }}d){% if not loop.last %}, {% endif %}
-        {% endfor %}.
-        {% endif %}
-    </p>
-    {% else %}
-    <p class="text-xs text-gray-500 italic">
-        No hay suficientes datos de tiempo promedio disponibles.
-    </p>
-    {% endif %}
+
 
     <p>
         De sus ofertas, <strong>{{ resumen.licitaciones }} fueron licitaciones</strong>

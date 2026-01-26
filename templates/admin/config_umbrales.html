@@ -1,16 +1,19 @@
-<div class="container mx-auto p-6 animate-fade-in">
+<div class="bg-white rounded-xl shadow-2xl max-w-5xl w-full max-h-[90vh] overflow-y-auto p-8 animate-fade-in relative">
 
-    <div class="flex justify-between items-center mb-8">
-        <h1 class="text-3xl font-bold text-gray-900">
-            ⚙️ Configuración de Umbrales KPI
-        </h1>
-        <a href="/admin/ui" class="text-sm text-blue-600 hover:text-blue-800 flex items-center gap-1">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18">
-                </path>
-            </svg>
-            Volver al Dashboard
-        </a>
+    <button onclick="document.getElementById('config-umbrales-modal').classList.add('hidden')"
+        class="absolute top-4 right-4 text-gray-400 hover:text-gray-600 p-2 rounded-full hover:bg-gray-100 transition-colors">
+        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+        </svg>
+    </button>
+
+    <div class="flex justify-between items-center mb-8 border-b pb-4">
+        <div>
+            <h1 class="text-3xl font-bold text-gray-900">
+                ⚙️ Configuración de Umbrales KPI
+            </h1>
+            <p class="text-sm text-gray-500 mt-1">Define los rangos de semáforo para la simulación.</p>
+        </div>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-6">

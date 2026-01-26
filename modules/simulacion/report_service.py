@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 from dataclasses import dataclass, field
 from enum import Enum
 import logging
+from dateutil.relativedelta import relativedelta
 
 from .constants import (
     UMBRAL_MIN_ENTREGAS,
@@ -659,6 +660,8 @@ class ResumenEjecutivo:
     
     # Solicitudes
     total_solicitudes: int
+    clasificadas: int  # Total - En Espera
+    en_espera: int
     total_ofertas: int
     
     # Top tipos
@@ -695,6 +698,27 @@ class ResumenEjecutivo:
     mostrar_nota_alta_complejidad: bool = False
     ratio_licitaciones_global: float = 0.0
     umbral_licitaciones_pct: float = 10.0  # Default 10%
+
+    # === NUEVOS CAMPOS ===
+
+    # Gestión de demanda - desglose de diferencia
+    sin_fecha_sistema: int = 0
+    diferencia_explicacion: str = ""  # Ej: "14 canceladas, 3 no viables, 3 sin fecha"
+
+    # Análisis por tecnología (lista completa)
+    tecnologias_detalle: List[Dict[str, Any]] = field(default_factory=list)
+    # Estructura: [{"nombre": "FV", "solicitudes": 100, "pct_interno": 45.2, "pct_compromiso": 62.1}, ...]
+
+    mejor_tecnologia: Optional[Dict[str, Any]] = None  # {"nombre": "X", "pct_compromiso": Y}
+    peor_tecnologia: Optional[Dict[str, Any]] = None   # {"nombre": "X", "pct_compromiso": Y}
+
+    # Estacionalidad (solo se llena si hay >6 meses en el rango)
+    mostrar_estacionalidad: bool = False
+    mejor_mes: Optional[Dict[str, Any]] = None  # {"nombre": "Marzo", "pct_interno": X, "pct_compromiso": Y}
+    peor_mes: Optional[Dict[str, Any]] = None   # {"nombre": "Octubre", "pct_interno": X, "pct_compromiso": Y}
+
+    # Cantidad de meses en el rango (para decidir si mostrar estacionalidad)
+    meses_en_rango: int = 0
 
 
 
@@ -1594,7 +1618,10 @@ class ReportesSimulacionService:
         usuarios: List['DetalleUsuario'],
         filas_tipo: List[FilaContabilizacion],
         filtros: FiltrosReporte,
-        motivo_retrabajo_principal: tuple = (None, 0)
+        motivo_retrabajo_principal: tuple = (None, 0),
+        # === NUEVOS PARÁMETROS ===
+        metricas_tecnologia: List[MetricaTecnologia] = None,
+        resumen_mensual: Dict[str, 'FilaMensual'] = None
     ) -> ResumenEjecutivo:
         """
         Genera SOLO DATOS para el resumen ejecutivo.
@@ -1691,11 +1718,104 @@ class ReportesSimulacionService:
         for cat in categorias.values():
             cat.sort(key=lambda u: u.score.score_final if u.score else 0, reverse=True)
         
+        # =====================================================================
+        # NUEVO: Gestión de demanda - explicación de diferencia
+        # =====================================================================
+        diferencia = metricas.total_solicitudes - metricas.total_ofertas - metricas.en_espera
+        partes_explicacion = []
+        if metricas.canceladas > 0:
+            partes_explicacion.append(f"{metricas.canceladas} canceladas")
+        if metricas.no_viables > 0:
+            partes_explicacion.append(f"{metricas.no_viables} no viables")
+        if metricas.sin_fecha_entrega > 0:
+            partes_explicacion.append(f"{metricas.sin_fecha_entrega} sin fecha")
+        diferencia_explicacion = ", ".join(partes_explicacion) if partes_explicacion else ""
+
+        # =====================================================================
+        # NUEVO: Análisis por tecnología
+        # =====================================================================
+        tecnologias_detalle = []
+        mejor_tecnologia = None
+        peor_tecnologia = None
+
+        if metricas_tecnologia:
+            for tech in metricas_tecnologia:
+                # Solo incluir tecnologías con actividad
+                if tech.total_solicitudes > 0:
+                    detalle = {
+                        "nombre": tech.nombre,
+                        "solicitudes": tech.total_solicitudes,
+                        "ofertas": tech.total_ofertas,
+                        "pct_interno": tech.porcentaje_a_tiempo_interno,
+                        "pct_compromiso": tech.porcentaje_a_tiempo_compromiso
+                    }
+                    tecnologias_detalle.append(detalle)
+            
+            # Ordenar por solicitudes descendente
+            tecnologias_detalle.sort(key=lambda x: x["solicitudes"], reverse=True)
+            
+            # Encontrar mejor y peor por cumplimiento compromiso (mínimo 5 ofertas para ser considerado)
+            techs_evaluables = [t for t in tecnologias_detalle if t["ofertas"] >= 5]
+            if techs_evaluables:
+                mejor_tecnologia = max(techs_evaluables, key=lambda x: x["pct_compromiso"])
+                peor_tecnologia = min(techs_evaluables, key=lambda x: x["pct_compromiso"])
+                # Evitar que mejor y peor sean el mismo si solo hay una tecnología evaluable
+                if mejor_tecnologia == peor_tecnologia:
+                    peor_tecnologia = None
+
+        # =====================================================================
+        # NUEVO: Estacionalidad (solo si >6 meses)
+        # =====================================================================
+        # Calcular cantidad de meses en el rango
+        
+        delta = relativedelta(filtros.fecha_fin, filtros.fecha_inicio)
+        meses_en_rango = delta.years * 12 + delta.months + 1
+
+        mostrar_estacionalidad = meses_en_rango > 6
+        mejor_mes = None
+        peor_mes = None
+
+        meses_nombres_full = ['', 'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                              'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+
+        if mostrar_estacionalidad and resumen_mensual:
+            # Extraer datos mensuales de KPI compromiso
+            meses_data = []
+            
+            # resumen_mensual tiene estructura: {"metrica_nombre": FilaMensual}
+            # Necesitamos cruzar entregas_a_tiempo_compromiso con total evaluable por mes
+            
+            fila_a_tiempo = resumen_mensual.get("entregas_a_tiempo_compromiso")
+            fila_tarde = resumen_mensual.get("entregas_tarde_compromiso")
+            
+            if fila_a_tiempo and fila_tarde:
+                for mes in fila_a_tiempo.valores.keys():
+                    a_tiempo = fila_a_tiempo.valores.get(mes, 0) or 0
+                    tarde = fila_tarde.valores.get(mes, 0) or 0
+                    total = a_tiempo + tarde
+                    if total >= 5:  # Mínimo para considerar
+                        pct = round((a_tiempo / total) * 100, 1) if total > 0 else 0
+                        meses_data.append({
+                            "mes": mes,
+                            "nombre": meses_nombres_full[mes],
+                            "pct_compromiso": pct,
+                            "total": total
+                        })
+            
+            if meses_data:
+                mejor_mes = max(meses_data, key=lambda x: x["pct_compromiso"])
+                peor_mes = min(meses_data, key=lambda x: x["pct_compromiso"])
+                # Evitar que mejor y peor sean el mismo
+                if mejor_mes["mes"] == peor_mes["mes"]:
+                    peor_mes = None
+        
         # Construir objeto de datos
         return ResumenEjecutivo(
             fecha_inicio_formatted=fecha_inicio,
             fecha_fin_formatted=fecha_fin,
             total_solicitudes=metricas.total_solicitudes,
+            clasificadas=metricas.total_solicitudes - metricas.en_espera,
+            en_espera=metricas.en_espera,
             total_ofertas=metricas.total_ofertas,
             top_tipos=top_tipos,
             porcentaje_cumplimiento_interno=metricas.porcentaje_a_tiempo_interno,
@@ -1719,7 +1839,18 @@ class ReportesSimulacionService:
             categorias_usuarios=categorias,
             mostrar_nota_alta_complejidad=len(categorias["alta_complejidad"]) > 0,
             ratio_licitaciones_global=round((metricas.licitaciones / metricas.total_solicitudes * 100) if metricas.total_solicitudes > 0 else 0, 1),
-            umbral_licitaciones_pct=score_config.umbral_ratio_licitaciones * 100
+            umbral_licitaciones_pct=score_config.umbral_ratio_licitaciones * 100,
+
+            # === NUEVOS CAMPOS ===
+            sin_fecha_sistema=metricas.sin_fecha_entrega,
+            diferencia_explicacion=diferencia_explicacion,
+            tecnologias_detalle=tecnologias_detalle,
+            mejor_tecnologia=mejor_tecnologia,
+            peor_tecnologia=peor_tecnologia,
+            mostrar_estacionalidad=mostrar_estacionalidad,
+            mejor_mes=mejor_mes,
+            peor_mes=peor_mes,
+            meses_en_rango=meses_en_rango,
         )
     
     async def get_resumen_mensual(self, conn, filtros: FiltrosReporte) -> Dict[str, FilaMensual]:

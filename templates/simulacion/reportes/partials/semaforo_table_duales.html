@@ -113,16 +113,17 @@
                 <td class="px-4 py-3 text-center bg-emerald-50/50">
                     {% if fila.semaforo_interno == 'green' %}
                     <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green-100"
-                        title=">= 90%">
+                        title=">= {{ umbral_verde_interno }}%">
                         <span class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
                     </span>
                     {% elif fila.semaforo_interno == 'amber' %}
                     <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-amber-100"
-                        title=">= 85% y < 90%">
+                        title=">= {{ umbral_ambar_interno }}% y < {{ umbral_verde_interno }}%">
                         <span class="w-3 h-3 rounded-full bg-amber-500 animate-pulse"></span>
                     </span>
                     {% else %}
-                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-100" title="< 85%">
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-100"
+                        title="< {{ umbral_ambar_interno }}%">
                         <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
                     </span>
                     {% endif %}
@@ -165,16 +166,17 @@
                 <td class="px-4 py-3 text-center bg-blue-50/50">
                     {% if fila.semaforo_compromiso == 'green' %}
                     <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-green-100"
-                        title=">= 90%">
+                        title=">= {{ umbral_verde_compromiso }}%">
                         <span class="w-3 h-3 rounded-full bg-green-500 animate-pulse"></span>
                     </span>
                     {% elif fila.semaforo_compromiso == 'amber' %}
                     <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-amber-100"
-                        title=">= 85% y < 90%">
+                        title=">= {{ umbral_ambar_compromiso }}% y < {{ umbral_verde_compromiso }}%">
                         <span class="w-3 h-3 rounded-full bg-amber-500 animate-pulse"></span>
                     </span>
                     {% else %}
-                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-100" title="< 85%">
+                    <span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-red-100"
+                        title="< {{ umbral_ambar_compromiso }}%">
                         <span class="w-3 h-3 rounded-full bg-red-500 animate-pulse"></span>
                     </span>
                     {% endif %}
@@ -246,15 +248,15 @@
         <div class="flex flex-wrap items-center gap-4 text-xs text-gray-700">
             <div class="flex items-center gap-2">
                 <span class="w-3 h-3 rounded-full bg-green-500"></span>
-                <span>Verde: ≥ 90%</span>
+                <span>Verde: ≥ {{ umbral_verde_interno }}%</span>
             </div>
             <div class="flex items-center gap-2">
                 <span class="w-3 h-3 rounded-full bg-amber-500"></span>
-                <span>Ámbar: ≥ 85% y < 90%</span>
+                <span>Ámbar: ≥ {{ umbral_ambar_interno }}% y < {{ umbral_verde_interno }}%</span>
             </div>
             <div class="flex items-center gap-2">
                 <span class="w-3 h-3 rounded-full bg-red-500"></span>
-                <span>Rojo: < 85%</span>
+                <span>Rojo: < {{ umbral_ambar_interno }}%</span>
             </div>
         </div>
         <p class="text-xs text-emerald-800 mt-3 italic">
@@ -274,15 +276,15 @@
         <div class="flex flex-wrap items-center gap-4 text-xs text-gray-700">
             <div class="flex items-center gap-2">
                 <span class="w-3 h-3 rounded-full bg-green-500"></span>
-                <span>Verde: ≥ 90%</span>
+                <span>Verde: ≥ {{ umbral_verde_compromiso }}%</span>
             </div>
             <div class="flex items-center gap-2">
                 <span class="w-3 h-3 rounded-full bg-amber-500"></span>
-                <span>Ámbar: ≥ 85% y < 90%</span>
+                <span>Ámbar: ≥ {{ umbral_ambar_compromiso }}% y < {{ umbral_verde_compromiso }}%</span>
             </div>
             <div class="flex items-center gap-2">
                 <span class="w-3 h-3 rounded-full bg-red-500"></span>
-                <span>Rojo: < 85%</span>
+                <span>Rojo: < {{ umbral_ambar_compromiso }}%</span>
             </div>
         </div>
         <p class="text-xs text-blue-800 mt-3 italic">

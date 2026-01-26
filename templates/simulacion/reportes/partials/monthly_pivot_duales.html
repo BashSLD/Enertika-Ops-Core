@@ -57,15 +57,15 @@
                 {% for mes in meses %}
                 {% set valor = resumen.porcentaje_en_plazo_interno.valores.get(mes, 0) %}
                 <td class="px-4 py-3 text-center 
-                    {% if valor >= 90 %}text-green-600
-                    {% elif valor >= 85 %}text-amber-600
+                    {% if valor >= umbral_verde_interno %}text-green-600
+                    {% elif valor >= umbral_ambar_interno %}text-amber-600
                     {% else %}text-red-600{% endif %} font-semibold">
                     {{ valor }}%
                 </td>
                 {% endfor %}
                 <td class="px-4 py-3 text-center font-bold bg-gray-50 
-                    {% if resumen.porcentaje_en_plazo_interno.total >= 90 %}text-green-600
-                    {% elif resumen.porcentaje_en_plazo_interno.total >= 85 %}text-amber-600
+                    {% if resumen.porcentaje_en_plazo_interno.total >= umbral_verde_interno %}text-green-600
+                    {% elif resumen.porcentaje_en_plazo_interno.total >= umbral_ambar_interno %}text-amber-600
                     {% else %}text-red-600{% endif %}">
                     {{ resumen.porcentaje_en_plazo_interno.total }}%
                 </td>
@@ -137,15 +137,15 @@
                 {% for mes in meses %}
                 {% set valor = resumen.porcentaje_en_plazo_compromiso.valores.get(mes, 0) %}
                 <td class="px-4 py-3 text-center 
-                    {% if valor >= 90 %}text-green-600
-                    {% elif valor >= 85 %}text-amber-600
+                    {% if valor >= umbral_verde_compromiso %}text-green-600
+                    {% elif valor >= umbral_ambar_compromiso %}text-amber-600
                     {% else %}text-red-600{% endif %} font-semibold">
                     {{ valor }}%
                 </td>
                 {% endfor %}
                 <td class="px-4 py-3 text-center font-bold bg-gray-50 
-                    {% if resumen.porcentaje_en_plazo_compromiso.total >= 90 %}text-green-600
-                    {% elif resumen.porcentaje_en_plazo_compromiso.total >= 85 %}text-amber-600
+                    {% if resumen.porcentaje_en_plazo_compromiso.total >= umbral_verde_compromiso %}text-green-600
+                    {% elif resumen.porcentaje_en_plazo_compromiso.total >= umbral_ambar_compromiso %}text-amber-600
                     {% else %}text-red-600{% endif %}">
                     {{ resumen.porcentaje_en_plazo_compromiso.total }}%
                 </td>
@@ -260,7 +260,6 @@
             <tr class="hover:bg-gray-50 bg-purple-50/50">
                 <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-purple-50/50">
                     Actualizaciones
-                    <span class="block text-xs text-gray-500 font-normal mt-0.5">Cambios de alcance (parent_id)</span>
                 </td>
                 {% for mes in meses %}
                 <td class="px-4 py-3 text-center text-purple-600">{{ resumen.versiones.valores.get(mes, 0) }}</td>
