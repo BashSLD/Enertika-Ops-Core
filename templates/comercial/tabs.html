@@ -16,6 +16,7 @@
             {% if can_edit %}
             <!-- Botón 1: Nuevo Registro (Todos los editores) -->
             <button hx-get="/comercial/form" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                hx-indicator="#loading-overlay-comercial"
                 class="ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white font-bold py-2.5 px-5 rounded-lg shadow-lg shadow-[#00BABB]/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
@@ -92,6 +93,7 @@
                             </button>
                             <button hx-get="/comercial/form-extraordinario" hx-target="#main-content"
                                 hx-swap="innerHTML" hx-push-url="true" @click="showWarning = false"
+                                hx-indicator="#loading-overlay-comercial"
                                 class="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-lg transition shadow-lg">
                                 Continuar
                             </button>
@@ -144,6 +146,23 @@
                     });
                 }
             }" class="relative">
+                <!-- Overlay de Carga (Compartido) -->
+                <div id="loading-overlay-comercial"
+                    class="htmx-indicator hidden fixed inset-0 bg-white/60 backdrop-blur-[2px] z-[100] flex items-center justify-center transition-all duration-300">
+                    <div
+                        class="bg-white px-6 py-4 rounded-full shadow-xl border border-blue-100 flex items-center gap-3 transform scale-100 animate-in fade-in zoom-in duration-200">
+                        <svg class="animate-spin h-5 w-5 text-[#00BABB]" xmlns="http://www.w3.org/2000/svg" fill="none"
+                            viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                            </circle>
+                            <path class="opacity-75" fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                            </path>
+                        </svg>
+                        <span class="font-medium text-gray-700 tracking-wide">Cargando...</span>
+                    </div>
+                </div>
+
                 <button @click="showPopup = true; searchTerm = ''; errorMsg = ''"
                     class="ripple-effect bg-purple-600 hover:bg-purple-700 text-white font-bold py-2.5 px-5 rounded-lg shadow-lg shadow-purple-600/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"

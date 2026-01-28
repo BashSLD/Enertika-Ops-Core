@@ -1,0 +1,72 @@
+{% if insertados > 0 %}
+<div class="success-message bg-green-50 border border-green-200 rounded-lg p-4">
+    <div class="flex items-center gap-2 text-green-800">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+        <span class="font-medium">{{ message }}</span>
+    </div>
+</div>
+{% endif %}
+
+{% if duplicados %}
+<div class="mt-3 bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+    <div class="flex items-start gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-yellow-600 mt-0.5" fill="none" viewBox="0 0 24 24"
+            stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+        </svg>
+        <div>
+            <p class="font-medium text-yellow-800">{{ duplicados|length }} archivo(s) rechazado(s) por duplicado:</p>
+            <ul class="mt-2 text-sm text-yellow-700 space-y-1 max-h-32 overflow-y-auto">
+                {% for dup in duplicados %}
+                <li class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full bg-yellow-400"></span>
+                    {{ dup.fecha }} - {{ dup.beneficiario|truncate(25) }} - ${{ "{:,.2f}".format(dup.monto) }} {{
+                    dup.moneda }}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if errores %}
+<div class="mt-3 bg-red-50 border border-red-200 rounded-lg p-4">
+    <div class="flex items-start gap-2">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-600 mt-0.5" fill="none" viewBox="0 0 24 24"
+            stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div>
+            <p class="font-medium text-red-800">{{ errores|length }} archivo(s) con errores:</p>
+            <ul class="mt-2 text-sm text-red-700 space-y-1 max-h-32 overflow-y-auto">
+                {% for err in errores %}
+                <li class="flex items-start gap-2">
+                    <span class="w-2 h-2 rounded-full bg-red-400 mt-1.5"></span>
+                    <div>
+                        <span class="font-medium">{{ err.archivo|truncate(30) }}:</span>
+                        <span class="text-red-600">{{ err.error }}</span>
+                    </div>
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{% if not insertados and not duplicados and not errores %}
+<div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+    <div class="flex items-center gap-2 text-gray-600">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span>No se procesaron archivos</span>
+    </div>
+</div>
+{% endif %}

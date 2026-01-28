@@ -824,11 +824,11 @@ class SimulacionService:
         # 3. Generar Identificadores
         new_id = uuid4()
         timestamp_id = fecha_solicitud.strftime("%y%m%d%H%M")
-        op_id_estandar = f"OP-{timestamp_id}"  # Formato OP-YYMMDDHHMM
+        op_id_estandar = f"OP - {timestamp_id}"  # Formato OP - YYMMDDHHMM (Homologado)
         
         # ID Interno: USAR final_cliente_nombre
         base_interno = f"{op_id_estandar}_{datos.nombre_proyecto}_{final_cliente_nombre}"
-        id_interno = base_interno.upper().replace(" ", "_")[:150]
+        id_interno = base_interno.upper()[:150]
 
         # 3. Título del Proyecto (Generación standard)
         # Necesitamos nombres de catalogos

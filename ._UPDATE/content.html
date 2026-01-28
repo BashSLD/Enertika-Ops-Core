@@ -1,0 +1,284 @@
+<div class="container mx-auto animate-fade-in-down">
+    <!-- Header -->
+    <div class="bg-white rounded-lg shadow-lg p-6 border-t-4 border-[#00BABB] mb-6">
+        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            <div>
+                <h1 class="text-3xl font-bold text-[#123456] mb-2">
+                    Comprobantes de Pago
+                </h1>
+                <p class="text-gray-600">
+                    Gestión de comprobantes de pago y relación con facturas
+                </p>
+            </div>
+
+            <!-- Acciones principales -->
+            {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'assignor', 'admin', 'owner']) %}
+            <div class="flex flex-wrap gap-3">
+                {% if can_edit %}
+                <!-- Botón Upload -->
+                <button onclick="document.getElementById('upload-modal').classList.remove('hidden')"
+                    class="ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white font-bold py-2.5 px-5 rounded-lg shadow-lg shadow-[#00BABB]/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    Cargar PDFs
+                </button>
+                {% endif %}
+
+                <!-- Botón Export Excel -->
+                <a id="export-excel-btn"
+                    href="/compras/export-excel?estatus=PENDIENTE&fecha_inicio={{ filtros.fecha_inicio }}&fecha_fin={{ filtros.fecha_fin }}"
+                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 px-5 rounded-lg shadow flex items-center gap-2 transition-all">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Exportar Excel
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Estadísticas del mes -->
+    <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+        <div class="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
+            <p class="text-xs text-gray-500 uppercase">Total Mes</p>
+            <p class="text-2xl font-bold text-gray-800">{{ estadisticas.total }}</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-4 border-l-4 border-yellow-500">
+            <p class="text-xs text-gray-500 uppercase">Pendientes</p>
+            <p class="text-2xl font-bold text-yellow-600">{{ estadisticas.pendientes }}</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
+            <p class="text-xs text-gray-500 uppercase">Facturados</p>
+            <p class="text-2xl font-bold text-green-600">{{ estadisticas.facturados }}</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
+            <p class="text-xs text-gray-500 uppercase">Total MXN</p>
+            <p class="text-xl font-bold text-gray-800">${{ "{:,.2f}".format(estadisticas.total_mxn) }}</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-4 border-l-4 border-indigo-500">
+            <p class="text-xs text-gray-500 uppercase">Total USD</p>
+            <p class="text-xl font-bold text-gray-800">${{ "{:,.2f}".format(estadisticas.total_usd) }}</p>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="bg-white rounded-lg shadow p-4 mb-6">
+        <form id="filtros-form" hx-get="/compras/comprobantes" hx-target="#tabla-comprobantes" hx-swap="innerHTML"
+            hx-trigger="submit, change from:select" class="flex flex-wrap gap-4 items-end">
+
+            <div class="flex-1 min-w-[150px]">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio</label>
+                <input type="date" name="fecha_inicio" value="{{ filtros.fecha_inicio }}"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+            </div>
+
+            <div class="flex-1 min-w-[150px]">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Fecha Fin</label>
+                <input type="date" name="fecha_fin" value="{{ filtros.fecha_fin }}"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+            </div>
+
+            <div class="flex-1 min-w-[140px]">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Estatus</label>
+                <select name="estatus"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                    <option value="PENDIENTE" {% if filtros.estatus=='PENDIENTE' %}selected{% endif %}>Pendiente</option>
+                    <option value="FACTURADO" {% if filtros.estatus=='FACTURADO' %}selected{% endif %}>Facturado</option>
+                    <option value="TODOS" {% if filtros.estatus=='TODOS' %}selected{% endif %}>Todos</option>
+                </select>
+            </div>
+
+            <div class="flex-1 min-w-[140px]">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Zona</label>
+                <select name="id_zona"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                    <option value="">Todas</option>
+                    {% for zona in zonas %}
+                    <option value="{{ zona.id }}" {% if filtros.id_zona==zona.id %}selected{% endif %}>{{ zona.nombre }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="flex-1 min-w-[140px]">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Categoría</label>
+                <select name="id_categoria"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                    <option value="">Todas</option>
+                    {% for cat in categorias %}
+                    <option value="{{ cat.id }}" {% if filtros.id_categoria==cat.id %}selected{% endif %}>{{ cat.nombre
+                        }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <button type="submit"
+                    class="bg-[#123456] hover:bg-[#0d2640] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                    Filtrar
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- Barra de acciones bulk (oculta por defecto) -->
+    <div id="bulk-actions" class="hidden bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
+        <div class="flex items-center justify-between">
+            <span class="text-blue-800 font-medium">
+                <span id="selected-count">0</span> comprobante(s) seleccionado(s)
+            </span>
+            <div class="flex gap-3">
+                <select id="bulk-zona"
+                    class="px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500">
+                    <option value="">Asignar Zona...</option>
+                    {% for zona in zonas %}
+                    <option value="{{ zona.id }}">{{ zona.nombre }}</option>
+                    {% endfor %}
+                </select>
+
+                <select id="bulk-categoria"
+                    class="px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500">
+                    <option value="">Asignar Categoría...</option>
+                    {% for cat in categorias %}
+                    <option value="{{ cat.id }}">{{ cat.nombre }}</option>
+                    {% endfor %}
+                </select>
+
+                <select id="bulk-estatus"
+                    class="px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500">
+                    <option value="">Cambiar Estatus...</option>
+                    <option value="PENDIENTE">Pendiente</option>
+                    <option value="FACTURADO">Facturado</option>
+                </select>
+
+                <button onclick="aplicarBulkUpdate()"
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors">
+                    Aplicar
+                </button>
+
+                <button onclick="cancelarSeleccion()"
+                    class="bg-gray-400 hover:bg-gray-500 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors">
+                    Cancelar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Tabla de comprobantes -->
+    <div id="tabla-comprobantes">
+        {% include "compras/partials/tabla_comprobantes.html" %}
+    </div>
+
+    <!-- Modal de Upload -->
+    {% include "compras/partials/modal_upload.html" %}
+
+    <!-- Container para modal de edición (se carga dinámicamente) -->
+    <div id="modal-editar-container"></div>
+</div>
+
+<!-- Scripts -->
+<script>
+    // Estado de selección
+    let selectedIds = new Set();
+
+    // Toggle selección individual
+    function toggleSelection(checkbox, id) {
+        if (checkbox.checked) {
+            selectedIds.add(id);
+        } else {
+            selectedIds.delete(id);
+        }
+        updateBulkUI();
+    }
+
+    // Toggle seleccionar todos
+    function toggleSelectAll(checkbox) {
+        const checkboxes = document.querySelectorAll('.row-checkbox');
+        checkboxes.forEach(cb => {
+            cb.checked = checkbox.checked;
+            const id = cb.dataset.id;
+            if (checkbox.checked) {
+                selectedIds.add(id);
+            } else {
+                selectedIds.delete(id);
+            }
+        });
+        updateBulkUI();
+    }
+
+    // Actualizar UI de acciones bulk
+    function updateBulkUI() {
+        const bulkActions = document.getElementById('bulk-actions');
+        const selectedCount = document.getElementById('selected-count');
+
+        if (selectedIds.size > 0) {
+            bulkActions.classList.remove('hidden');
+            selectedCount.textContent = selectedIds.size;
+        } else {
+            bulkActions.classList.add('hidden');
+        }
+    }
+
+    // Cancelar selección
+    function cancelarSeleccion() {
+        selectedIds.clear();
+        document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = false);
+        document.getElementById('select-all').checked = false;
+        updateBulkUI();
+    }
+
+    // Aplicar actualización masiva
+    function aplicarBulkUpdate() {
+        const zona = document.getElementById('bulk-zona').value;
+        const categoria = document.getElementById('bulk-categoria').value;
+        const estatus = document.getElementById('bulk-estatus').value;
+
+        if (!zona && !categoria && !estatus) {
+            alert('Selecciona al menos un campo para actualizar');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('ids', JSON.stringify(Array.from(selectedIds)));
+        if (zona) formData.append('id_zona', zona);
+        if (categoria) formData.append('id_categoria', categoria);
+        if (estatus) formData.append('estatus', estatus);
+
+        htmx.ajax('POST', '/compras/comprobantes/bulk-update', {
+            values: Object.fromEntries(formData),
+            target: '#tabla-comprobantes',
+            swap: 'innerHTML'
+        }).then(() => {
+            cancelarSeleccion();
+            // Reset dropdowns
+            document.getElementById('bulk-zona').value = '';
+            document.getElementById('bulk-categoria').value = '';
+            document.getElementById('bulk-estatus').value = '';
+        });
+    }
+
+    // Abrir modal de edición
+    function abrirModalEdicion(id) {
+        htmx.ajax('GET', `/compras/comprobantes/${id}/modal`, {
+            target: '#modal-editar-container',
+            swap: 'innerHTML'
+        });
+    }
+
+    // Cerrar modal de edición
+    function cerrarModalEdicion() {
+        document.getElementById('modal-editar-container').innerHTML = '';
+    }
+
+    // Actualizar URL de export Excel cuando cambian filtros
+    document.getElementById('filtros-form').addEventListener('change', function () {
+        const formData = new FormData(this);
+        const params = new URLSearchParams(formData);
+        document.getElementById('export-excel-btn').href = '/compras/export-excel?' + params.toString();
+    });
+</script>

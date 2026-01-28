@@ -1,0 +1,13 @@
+{% if proveedores %}
+{% for proveedor in proveedores %}
+<div class="px-3 py-2 cursor-pointer hover:bg-gray-100 border-b last:border-0"
+    onclick="seleccionarProveedor('{{ proveedor.id_proveedor }}', '{{ proveedor.razon_social }}')">
+    <div class="text-sm font-medium text-gray-900">{{ proveedor.razon_social }}</div>
+    <div class="text-xs text-gray-500">{{ proveedor.rfc }}</div>
+</div>
+{% endfor %}
+{% else %}
+<div class="px-3 py-2 text-sm text-gray-500 text-center">
+    No se encontraron proveedores
+</div>
+{% endif %}

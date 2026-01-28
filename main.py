@@ -47,6 +47,9 @@ templates = Jinja2Templates(directory="templates")
 from core.jinja_filters import register_timezone_filters
 register_timezone_filters(templates.env)
 
+# Variables Globales para Templates
+templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
+
 # Montar directorios estáticos
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
@@ -72,6 +75,10 @@ app.include_router(workflow_router)
 # Notificaciones en Tiempo Real (SSE)
 from core.notifications import router as notifications_router
 app.include_router(notifications_router.router)
+
+# Agregar después de los otros routers
+from core.projects import router as projects_router
+app.include_router(projects_router)
 
 # --- Background Tasks ---
 import asyncio

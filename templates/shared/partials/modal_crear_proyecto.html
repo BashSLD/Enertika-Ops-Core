@@ -1,0 +1,234 @@
+<!-- Modal Crear Proyecto Gate -->
+<div class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+    <!-- Overlay -->
+    <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onclick="cerrarModalProyecto()"></div>
+
+    <!-- Modal Content -->
+    <div class="flex min-h-full items-center justify-center p-4">
+        <div class="relative transform overflow-hidden rounded-lg bg-white shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg">
+            <!-- Header -->
+            <div class="bg-[#123456] px-6 py-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-white" id="modal-title">
+                        Crear Nuevo Proyecto
+                    </h3>
+                    <button onclick="cerrarModalProyecto()" class="text-white hover:text-gray-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Body -->
+            <div class="px-6 py-4">
+                <form id="crear-proyecto-form" 
+                      hx-post="/projects/crear" 
+                      hx-target="#proyecto-result"
+                      hx-swap="innerHTML"
+                      class="space-y-4">
+
+                    <!-- Oportunidad (Select) -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                            Oportunidad Ganada <span class="text-red-500">*</span>
+                        </label>
+                        <select name="id_oportunidad" required
+                                onchange="actualizarTecnologiaDesdeOportunidad(this)"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                            <option value="">Seleccionar oportunidad...</option>
+                            {% for op in oportunidades %}
+                            <option value="{{ op.id_oportunidad }}" 
+                                    data-tecnologia="{{ op.id_tecnologia }}"
+                                    data-nombre="{{ op.nombre_proyecto }}">
+                                {{ op.op_id_estandar }} - {{ op.cliente_nombre }} - {{ op.nombre_proyecto }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        {% if not oportunidades %}
+                        <p class="mt-1 text-xs text-amber-600">
+                            ⚠️ No hay oportunidades ganadas sin proyecto asignado
+                        </p>
+                        {% endif %}
+                    </div>
+
+                    <!-- Prefijo y Consecutivo (en línea) -->
+                    <div class="grid grid-cols-3 gap-3">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">
+                                Prefijo
+                            </label>
+                            <select name="prefijo" id="prefijo-select"
+                                    onchange="actualizarPreview()"
+                                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                                <option value="MX" selected>MX</option>
+                                <!-- Agregar más prefijos si se necesitan en el futuro -->
+                            </select>
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-sm font-medium text-gray-700 mb-1">
+                                Consecutivo <span class="text-red-500">*</span>
+                            </label>
+                            <div class="relative">
+                                <input type="number" name="consecutivo" id="consecutivo-input"
+                                       value="{{ siguiente_consecutivo }}"
+                                       min="1" required
+                                       onchange="validarConsecutivo(this.value)"
+                                       oninput="actualizarPreview()"
+                                       class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                                <div id="consecutivo-status" class="absolute right-2 top-1/2 transform -translate-y-1/2">
+                                    <!-- Icono de validación -->
+                                </div>
+                            </div>
+                            <p id="consecutivo-msg" class="mt-1 text-xs text-gray-500">
+                                Sugerido: {{ siguiente_consecutivo }}
+                            </p>
+                        </div>
+                    </div>
+
+                    <!-- Tecnología -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                            Tecnología <span class="text-red-500">*</span>
+                        </label>
+                        <select name="id_tecnologia" id="tecnologia-select" required
+                                onchange="actualizarPreview()"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                            <option value="">Seleccionar tecnología...</option>
+                            {% for tec in tecnologias %}
+                            <option value="{{ tec.id }}">{{ tec.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Nombre Corto -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                            Nombre Corto <span class="text-red-500">*</span>
+                        </label>
+                        <input type="text" name="nombre_corto" id="nombre-corto-input"
+                               placeholder="Ej: Santa Teresa, Granja Norbertas"
+                               required maxlength="100"
+                               oninput="actualizarPreview()"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                    </div>
+
+                    <!-- Preview -->
+                    <div class="bg-gray-50 rounded-lg p-4">
+                        <label class="block text-xs font-medium text-gray-500 mb-1">
+                            Vista previa del ID de Proyecto:
+                        </label>
+                        <p id="proyecto-preview" class="text-lg font-bold text-[#123456]">
+                            MX-{{ siguiente_consecutivo }}-
+                        </p>
+                    </div>
+
+                    <!-- Resultado -->
+                    <div id="proyecto-result"></div>
+                </form>
+            </div>
+
+            <!-- Footer -->
+            <div class="bg-gray-50 px-6 py-3 flex justify-end gap-3">
+                <button type="button" onclick="cerrarModalProyecto()"
+                        class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Cancelar
+                </button>
+                <button type="submit" form="crear-proyecto-form" id="btn-crear-proyecto"
+                        {% if not oportunidades %}disabled{% endif %}
+                        class="px-4 py-2 text-sm font-medium text-white bg-[#00BABB] rounded-lg hover:bg-[#009999] disabled:opacity-50 disabled:cursor-not-allowed">
+                    Crear Proyecto
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Actualizar tecnología cuando se selecciona oportunidad
+function actualizarTecnologiaDesdeOportunidad(select) {
+    const option = select.options[select.selectedIndex];
+    const tecnologiaId = option.dataset.tecnologia;
+    const nombreProyecto = option.dataset.nombre;
+    
+    if (tecnologiaId) {
+        document.getElementById('tecnologia-select').value = tecnologiaId;
+    }
+    
+    if (nombreProyecto) {
+        document.getElementById('nombre-corto-input').value = nombreProyecto;
+    }
+    
+    actualizarPreview();
+}
+
+// Actualizar vista previa
+function actualizarPreview() {
+    const prefijo = document.getElementById('prefijo-select').value || 'MX';
+    const consecutivo = document.getElementById('consecutivo-input').value || '?????';
+    const tecnologiaSelect = document.getElementById('tecnologia-select');
+    const tecnologia = tecnologiaSelect.options[tecnologiaSelect.selectedIndex]?.text || '';
+    const nombreCorto = document.getElementById('nombre-corto-input').value || '';
+    
+    let preview = `${prefijo}-${consecutivo}`;
+    if (tecnologia && tecnologia !== 'Seleccionar tecnología...') {
+        preview += `-${tecnologia}`;
+    }
+    if (nombreCorto) {
+        preview += ` ${nombreCorto}`;
+    }
+    
+    document.getElementById('proyecto-preview').textContent = preview;
+}
+
+// Validar consecutivo en tiempo real
+let validacionTimeout;
+function validarConsecutivo(valor) {
+    clearTimeout(validacionTimeout);
+    
+    const statusDiv = document.getElementById('consecutivo-status');
+    const msgP = document.getElementById('consecutivo-msg');
+    
+    if (!valor || valor < 1) {
+        statusDiv.innerHTML = '';
+        msgP.textContent = 'Ingresa un número válido';
+        msgP.className = 'mt-1 text-xs text-red-500';
+        return;
+    }
+    
+    // Mostrar loading
+    statusDiv.innerHTML = '<svg class="animate-spin h-4 w-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>';
+    
+    validacionTimeout = setTimeout(async () => {
+        try {
+            const response = await fetch(`/projects/validar-consecutivo/${valor}`);
+            const data = await response.json();
+            
+            if (data.disponible) {
+                statusDiv.innerHTML = '<svg class="h-5 w-5 text-green-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+                msgP.textContent = '✓ Disponible';
+                msgP.className = 'mt-1 text-xs text-green-600';
+            } else {
+                statusDiv.innerHTML = '<svg class="h-5 w-5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>';
+                msgP.textContent = `✗ ${data.mensaje}`;
+                msgP.className = 'mt-1 text-xs text-red-500';
+            }
+        } catch (e) {
+            statusDiv.innerHTML = '';
+            msgP.textContent = 'Error validando';
+            msgP.className = 'mt-1 text-xs text-red-500';
+        }
+    }, 500);
+}
+
+// Cerrar modal
+function cerrarModalProyecto() {
+    document.getElementById('modal-proyecto-container').innerHTML = '';
+}
+
+// Inicializar preview
+actualizarPreview();
+
+// Validar consecutivo inicial
+validarConsecutivo(document.getElementById('consecutivo-input').value);
+</script>

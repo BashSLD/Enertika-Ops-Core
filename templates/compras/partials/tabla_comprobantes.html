@@ -1,0 +1,107 @@
+<div class="bg-white rounded-lg shadow overflow-hidden">
+    <!-- Contador de resultados -->
+    <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+        <span class="text-sm text-gray-600">
+            Mostrando <strong>{{ comprobantes|length }}</strong> de <strong>{{ total }}</strong> comprobantes
+        </span>
+        {% if pages > 1 %}
+        <span class="text-sm text-gray-500">
+            Página {{ page }} de {{ pages }}
+        </span>
+        {% endif %}
+    </div>
+
+    <!-- Tabla -->
+    <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-[#123456]">
+                <tr>
+                    <th class="px-3 py-3 text-left">
+                        <input type="checkbox" id="select-all" onchange="toggleSelectAll(this)"
+                            class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
+                    </th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                        Fecha
+                    </th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                        Beneficiario
+                    </th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-white uppercase tracking-wider">
+                        Monto
+                    </th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                        Comprador
+                    </th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                        Zona
+                    </th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                        Categoría
+                    </th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                        Estatus
+                    </th>
+                    <th class="px-4 py-3 text-center text-xs font-medium text-white uppercase tracking-wider">
+                        Acciones
+                    </th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+                {% if comprobantes %}
+                {% for comp in comprobantes %}
+                {% include "compras/partials/row_comprobante.html" %}
+                {% endfor %}
+                {% else %}
+                <tr>
+                    <td colspan="9" class="px-6 py-12 text-center">
+                        <div class="flex flex-col items-center justify-center text-gray-500">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mb-4 text-gray-300" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1"
+                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            <p class="text-lg font-medium">No hay comprobantes</p>
+                            <p class="text-sm">Ajusta los filtros o carga nuevos PDFs</p>
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Paginación -->
+    {% if pages > 1 %}
+    <div class="px-4 py-3 bg-gray-50 border-t border-gray-200 flex justify-center">
+        <nav class="flex gap-1">
+            {% if page > 1 %}
+            <button hx-get="/compras/comprobantes?page={{ page - 1 }}&{{ filtros|urlencode }}"
+                hx-target="#tabla-comprobantes" hx-swap="innerHTML"
+                class="px-3 py-1 rounded border border-gray-300 text-sm hover:bg-gray-100">
+                ← Anterior
+            </button>
+            {% endif %}
+
+            {% for p in range(1, pages + 1) %}
+            {% if p == page %}
+            <span class="px-3 py-1 rounded bg-[#123456] text-white text-sm">{{ p }}</span>
+            {% elif p == 1 or p == pages or (p >= page - 2 and p <= page + 2) %} <button
+                hx-get="/compras/comprobantes?page={{ p }}&{{ filtros|urlencode }}" hx-target="#tabla-comprobantes"
+                hx-swap="innerHTML" class="px-3 py-1 rounded border border-gray-300 text-sm hover:bg-gray-100">
+                {{ p }}
+                </button>
+                {% elif p == page - 3 or p == page + 3 %}
+                <span class="px-2 py-1 text-gray-400">...</span>
+                {% endif %}
+                {% endfor %}
+
+                {% if page < pages %} <button hx-get="/compras/comprobantes?page={{ page + 1 }}&{{ filtros|urlencode }}"
+                    hx-target="#tabla-comprobantes" hx-swap="innerHTML"
+                    class="px-3 py-1 rounded border border-gray-300 text-sm hover:bg-gray-100">
+                    Siguiente →
+                    </button>
+                    {% endif %}
+        </nav>
+    </div>
+    {% endif %}
+</div>

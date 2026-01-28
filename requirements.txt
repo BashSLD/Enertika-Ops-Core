@@ -17,6 +17,7 @@ openpyxl               # Backend necesario para que Pandas lea .xlsx
 msal
 xlsxwriter
 itsdangerous
+pdfplumber
 fpdf2==2.7.4           # Generación de PDFs (High Precision)
 matplotlib==3.8.0      # Gráficas
 numpy==1.26.0          # Compatible con Python 3.12

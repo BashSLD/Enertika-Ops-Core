@@ -1,30 +1,236 @@
 # Archivo: modules/compras/schemas.py
+"""
+Schemas Pydantic para el módulo Compras.
+Incluye modelos para comprobantes de pago y catálogos.
+"""
 
-from typing import Optional
-from datetime import date
+from typing import Optional, List
+from datetime import date, datetime
 from uuid import UUID
-from pydantic import BaseModel, Field, ConfigDict
+from decimal import Decimal
+from pydantic import BaseModel, Field, ConfigDict, field_validator
+from enum import Enum
 
-# --- Modelos de Tracking de Gasto ---
 
-class CompraTrackingCreate(BaseModel):
-    """Carga manual de Excel para tracking de facturas/pagos por proyecto."""
-    id_proyecto: UUID = Field(..., description="Proyecto al que se vincula el gasto.")
-    descripcion_proveedor: str
-    descripcion_interna: str = Field(..., description="Homologación: Mapear a la descripción interna.")
-    categoria_gasto: Optional[str] = Field(None, description="Control de categorías de gasto.")
-    monto: float = Field(..., gt=0.0)
-    fecha_factura: date = Field(..., description="Fecha de la factura.")
-    status_pago: str = Field(..., description="Status del pago (Pendiente, Pagado, Cancelado).")
-    creado_por_id: UUID = Field(..., description="Usuario que cargó la factura/gasto.")
+# ========================================
+# ENUMS
+# ========================================
 
-class CompraTrackingRead(CompraTrackingCreate):
-    """Schema de lectura."""
-    id_tracking: UUID
+class EstatusComprobante(str, Enum):
+    """Estados posibles de un comprobante."""
+    PENDIENTE = "PENDIENTE"
+    FACTURADO = "FACTURADO"
 
+
+class MonedaComprobante(str, Enum):
+    """Monedas soportadas."""
+    MXN = "MXN"
+    USD = "USD"
+
+
+# ========================================
+# COMPROBANTES DE PAGO
+# ========================================
+
+class ComprobanteBase(BaseModel):
+    """Campos base de un comprobante."""
+    fecha_pago: date
+    beneficiario_orig: str = Field(..., min_length=1, max_length=500)
+    monto: Decimal = Field(..., gt=0, decimal_places=2)
+    moneda: MonedaComprobante = MonedaComprobante.MXN
+
+
+class ComprobanteCreate(ComprobanteBase):
+    """Schema para creación manual (si se necesita en futuro)."""
+    pass
+
+
+class ComprobanteUpdate(BaseModel):
+    """Schema para actualización de comprobante."""
+    id_zona: Optional[int] = None
+    id_proyecto: Optional[UUID] = None
+    id_categoria: Optional[int] = None
+    id_proveedor: Optional[UUID] = None
+    estatus: Optional[EstatusComprobante] = None
+    
+    model_config = ConfigDict(use_enum_values=True)
+
+
+class ComprobanteBulkUpdate(BaseModel):
+    """Schema para actualización masiva."""
+    ids: List[UUID] = Field(..., min_length=1)
+    updates: ComprobanteUpdate
+
+
+class ComprobanteRead(ComprobanteBase):
+    """Schema de lectura completa de comprobante."""
+    id_comprobante: UUID
+    estatus: EstatusComprobante
+    uuid_factura: Optional[UUID] = None
+    
+    # Relaciones (IDs)
+    id_proveedor: Optional[UUID] = None
+    id_zona: Optional[int] = None
+    id_proyecto: Optional[UUID] = None
+    id_categoria: Optional[int] = None
+    capturado_por_id: UUID
+    
+    # Campos calculados/joined
+    comprador_nombre: Optional[str] = None
+    proveedor_nombre: Optional[str] = None
+    proveedor_rfc: Optional[str] = None
+    zona_nombre: Optional[str] = None
+    proyecto_nombre: Optional[str] = None
+    categoria_nombre: Optional[str] = None
+    
+    # Timestamps
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+    
+    @field_validator('monto', mode='before')
+    @classmethod
+    def convert_decimal(cls, v):
+        """Convierte Decimal a float para serialización."""
+        if isinstance(v, Decimal):
+            return float(v)
+        return v
+
+
+class ComprobanteListResponse(BaseModel):
+    """Respuesta paginada de comprobantes."""
+    items: List[ComprobanteRead]
+    total: int
+    page: int
+    per_page: int
+    pages: int
+
+
+# ========================================
+# RESULTADO DE CARGA DE PDFs
+# ========================================
+
+class PDFUploadError(BaseModel):
+    """Detalle de error en carga de PDF."""
+    archivo: str
+    error: str
+
+
+class PDFUploadDuplicate(BaseModel):
+    """Detalle de duplicado detectado."""
+    archivo: str
+    fecha: str
+    beneficiario: str
+    monto: float
+    moneda: str
+
+
+class PDFUploadResult(BaseModel):
+    """Resultado de la carga de PDFs."""
+    insertados: int
+    duplicados: List[PDFUploadDuplicate]
+    errores: List[PDFUploadError]
+    
+    @property
+    def total_procesados(self) -> int:
+        return self.insertados + len(self.duplicados) + len(self.errores)
+
+
+# ========================================
+# CATÁLOGOS
+# ========================================
+
+class ZonaCompraRead(BaseModel):
+    """Schema de zona de compra."""
+    id: int
+    nombre: str
+    
     model_config = ConfigDict(from_attributes=True)
 
-# --- Modelos de Homologación (Catálogos) ---
 
-# Nota: Si la homologación es dinámica, se necesita otra tabla (tb_homologacion)
-# Por ahora, se asume que la descripción interna es texto libre o de un catálogo.
+class CategoriaCompraRead(BaseModel):
+    """Schema de categoría de compra."""
+    id: int
+    nombre: str
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProyectoGateRead(BaseModel):
+    """Schema simplificado de proyecto para dropdown."""
+    id_proyecto: UUID
+    nombre: str  # proyecto_id_estandar
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CatalogosComprasResponse(BaseModel):
+    """Respuesta con todos los catálogos."""
+    zonas: List[ZonaCompraRead]
+    categorias: List[CategoriaCompraRead]
+    proyectos: List[ProyectoGateRead]
+
+
+# ========================================
+# PROVEEDORES
+# ========================================
+
+class ProveedorBase(BaseModel):
+    """Campos base de proveedor."""
+    rfc: str = Field(..., min_length=12, max_length=13)
+    razon_social: str = Field(..., min_length=1, max_length=500)
+    nombre_comercial: Optional[str] = Field(None, max_length=500)
+
+
+class ProveedorCreate(ProveedorBase):
+    """Schema para creación de proveedor."""
+    pass
+
+
+class ProveedorRead(ProveedorBase):
+    """Schema de lectura de proveedor."""
+    id_proveedor: UUID
+    activo: bool
+    created_at: datetime
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProveedorSearchResult(BaseModel):
+    """Resultado de búsqueda de proveedor."""
+    id_proveedor: UUID
+    rfc: str
+    razon_social: str
+    nombre_comercial: Optional[str] = None
+    
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ========================================
+# FILTROS DE BÚSQUEDA
+# ========================================
+
+class ComprobanteFiltros(BaseModel):
+    """Filtros para búsqueda de comprobantes."""
+    fecha_inicio: Optional[date] = None
+    fecha_fin: Optional[date] = None
+    estatus: Optional[EstatusComprobante] = None
+    id_zona: Optional[int] = None
+    id_proyecto: Optional[UUID] = None
+    id_categoria: Optional[int] = None
+    page: int = Field(default=1, ge=1)
+    per_page: int = Field(default=50, ge=1, le=500)
+
+
+# ========================================
+# ESTADÍSTICAS
+# ========================================
+
+class EstadisticasMes(BaseModel):
+    """Estadísticas del mes actual."""
+    total: int
+    pendientes: int
+    facturados: int
+    total_mxn: float
+    total_usd: float

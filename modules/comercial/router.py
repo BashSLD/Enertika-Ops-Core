@@ -12,6 +12,7 @@ from core.database import get_db_connection
 from core.microsoft import get_ms_auth
 from core.security import get_current_user_context, get_valid_graph_token
 from core.permissions import require_module_access
+from core.config import settings
 from .schemas import OportunidadCreateCompleta, DetalleBessCreate
 from .service import ComercialService, get_comercial_service
 from .email_handler import EmailHandler, get_email_handler
@@ -22,6 +23,7 @@ from core.workflow.service import get_workflow_service
 logger = logging.getLogger("ComercialModule")
 
 templates = Jinja2Templates(directory="templates")
+templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 
 from core.jinja_filters import register_timezone_filters
 register_timezone_filters(templates.env)

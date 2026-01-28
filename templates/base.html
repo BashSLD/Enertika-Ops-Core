@@ -11,6 +11,17 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org/ext/json-enc.js"></script>
 
+    <script>
+        const DEBUG_MODE = {{ DEBUG_MODE | tojson }};
+        if (!DEBUG_MODE) {
+            // Silenciar logs en producción
+            console.log = function() {};
+            console.info = function() {};
+            console.debug = function() {};
+            // console.warn y console.error se mantienen activos
+        }
+    </script>
+
     <!-- Inicializar Alpine store ANTES de cargar Alpine.js -->
     <script>
         document.addEventListener('alpine:init', () => {

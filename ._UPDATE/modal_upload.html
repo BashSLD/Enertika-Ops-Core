@@ -1,0 +1,205 @@
+<!-- Modal de Upload PDFs -->
+<div id="upload-modal" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog"
+    aria-modal="true">
+    <!-- Overlay -->
+    <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity"
+        onclick="document.getElementById('upload-modal').classList.add('hidden')"></div>
+
+    <!-- Modal Content -->
+    <div class="flex min-h-full items-center justify-center p-4">
+        <div
+            class="relative transform overflow-hidden rounded-lg bg-white shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg">
+            <!-- Header -->
+            <div class="bg-[#123456] px-6 py-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-white" id="modal-title">
+                        Cargar Comprobantes de Pago
+                    </h3>
+                    <button onclick="document.getElementById('upload-modal').classList.add('hidden')"
+                        class="text-white hover:text-gray-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Body -->
+            <div class="px-6 py-4">
+                <form id="upload-form" hx-post="/compras/upload" hx-encoding="multipart/form-data"
+                    hx-target="#upload-result" hx-swap="innerHTML" hx-indicator="#upload-indicator">
+
+                    <!-- Drag & Drop Zone -->
+                    <div id="drop-zone"
+                        class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-[#00BABB] transition-colors cursor-pointer"
+                        onclick="document.getElementById('file-input').click()">
+
+                        <input type="file" id="file-input" name="files" accept=".pdf" multiple class="hidden"
+                            onchange="handleFileSelect(this)">
+
+                        <div id="drop-placeholder">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-12 w-12 text-gray-400" fill="none"
+                                viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1"
+                                    d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                            </svg>
+                            <p class="mt-2 text-sm text-gray-600">
+                                <span class="font-semibold text-[#00BABB]">Arrastra archivos PDF</span> o haz clic para
+                                seleccionar
+                            </p>
+                            <p class="mt-1 text-xs text-gray-500">
+                                Solo archivos PDF de comprobantes BBVA
+                            </p>
+                        </div>
+
+                        <!-- Preview de archivos seleccionados -->
+                        <div id="file-preview" class="hidden mt-4 text-left">
+                            <p class="text-sm font-medium text-gray-700 mb-2">Archivos seleccionados:</p>
+                            <ul id="file-list" class="space-y-1 max-h-40 overflow-y-auto"></ul>
+                        </div>
+                    </div>
+
+                    <!-- Loading indicator -->
+                    <div id="upload-indicator" class="htmx-indicator mt-4">
+                        <div class="flex items-center justify-center gap-2 text-[#00BABB]">
+                            <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none"
+                                viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor"
+                                    stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor"
+                                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                                </path>
+                            </svg>
+                            <span>Procesando archivos...</span>
+                        </div>
+                    </div>
+
+                    <!-- Resultado -->
+                    <div id="upload-result" class="mt-4"></div>
+                </form>
+            </div>
+
+            <!-- Footer -->
+            <div class="bg-gray-50 px-6 py-3 flex justify-end gap-3">
+                <button type="button" onclick="document.getElementById('upload-modal').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Cancelar
+                </button>
+                <button type="submit" form="upload-form" id="upload-submit-btn" disabled
+                    class="px-4 py-2 text-sm font-medium text-white bg-[#00BABB] rounded-lg hover:bg-[#009999] disabled:opacity-50 disabled:cursor-not-allowed">
+                    Cargar Comprobantes
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Drag & Drop functionality
+    const dropZone = document.getElementById('drop-zone');
+    const fileInput = document.getElementById('file-input');
+    const filePreview = document.getElementById('file-preview');
+    const fileList = document.getElementById('file-list');
+    const dropPlaceholder = document.getElementById('drop-placeholder');
+    const uploadBtn = document.getElementById('upload-submit-btn');
+
+    // Prevent default drag behaviors
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, preventDefaults, false);
+    });
+
+    function preventDefaults(e) {
+        e.preventDefault();
+        e.stopPropagation();
+    }
+
+    // Highlight drop zone
+    ['dragenter', 'dragover'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.add('border-[#00BABB]', 'bg-[#00BABB]/5');
+        });
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+        dropZone.addEventListener(eventName, () => {
+            dropZone.classList.remove('border-[#00BABB]', 'bg-[#00BABB]/5');
+        });
+    });
+
+    // Handle drop
+    dropZone.addEventListener('drop', (e) => {
+        const dt = e.dataTransfer;
+        const files = dt.files;
+        fileInput.files = files;
+        handleFileSelect(fileInput);
+    });
+
+    // Handle file selection
+    function handleFileSelect(input) {
+        const files = input.files;
+        if (files.length === 0) {
+            filePreview.classList.add('hidden');
+            dropPlaceholder.classList.remove('hidden');
+            uploadBtn.disabled = true;
+            return;
+        }
+
+        // Filter only PDFs
+        const pdfFiles = Array.from(files).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+
+        if (pdfFiles.length === 0) {
+            alert('Por favor selecciona archivos PDF');
+            input.value = '';
+            return;
+        }
+
+        // Show preview
+        filePreview.classList.remove('hidden');
+        dropPlaceholder.classList.add('hidden');
+        fileList.innerHTML = '';
+
+        pdfFiles.forEach(file => {
+            const li = document.createElement('li');
+            li.className = 'flex items-center gap-2 text-sm text-gray-600 bg-gray-50 px-2 py-1 rounded';
+            li.innerHTML = `
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                </svg>
+                <span class="truncate flex-1">${file.name}</span>
+                <span class="text-xs text-gray-400">${(file.size / 1024).toFixed(1)} KB</span>
+            `;
+            fileList.appendChild(li);
+        });
+
+        uploadBtn.disabled = false;
+    }
+
+    // Reset form after successful upload
+    document.body.addEventListener('htmx:afterSwap', (event) => {
+        if (event.detail.target.id === 'upload-result') {
+            // Check if upload was successful
+            const result = event.detail.target;
+            if (result.querySelector('.success-message')) {
+                // Reset form
+                fileInput.value = '';
+                filePreview.classList.add('hidden');
+                dropPlaceholder.classList.remove('hidden');
+                uploadBtn.disabled = true;
+
+                // Refresh table
+                htmx.ajax('GET', '/compras/comprobantes', {
+                    target: '#tabla-comprobantes',
+                    swap: 'innerHTML'
+                });
+
+                // Close modal after 2 seconds
+                setTimeout(() => {
+                    document.getElementById('upload-modal').classList.add('hidden');
+                    result.innerHTML = '';
+                }, 2000);
+            }
+        }
+    });
+</script>

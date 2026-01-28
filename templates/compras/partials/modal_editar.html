@@ -1,0 +1,130 @@
+<!-- Modal de Edición de Comprobante -->
+<div class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+    <!-- Overlay -->
+    <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" onclick="cerrarModalEdicion()"></div>
+
+    <!-- Modal Content -->
+    <div class="flex min-h-full items-center justify-center p-4">
+        <div
+            class="relative transform overflow-hidden rounded-lg bg-white shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-md">
+            <!-- Header -->
+            <div class="bg-[#123456] px-6 py-4">
+                <div class="flex items-center justify-between">
+                    <h3 class="text-lg font-semibold text-white" id="modal-title">
+                        Editar Comprobante
+                    </h3>
+                    <button onclick="cerrarModalEdicion()" class="text-white hover:text-gray-200">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Body -->
+            <div class="px-6 py-4">
+                <!-- Info del comprobante (solo lectura) -->
+                <div class="bg-gray-50 rounded-lg p-4 mb-4">
+                    <div class="grid grid-cols-2 gap-3 text-sm">
+                        <div>
+                            <span class="text-gray-500">Fecha:</span>
+                            <span class="font-medium ml-1">{{ comprobante.fecha_pago.strftime('%d/%m/%Y') }}</span>
+                        </div>
+                        <div>
+                            <span class="text-gray-500">Monto:</span>
+                            <span class="font-bold ml-1">${{ "{:,.2f}".format(comprobante.monto) }} {{
+                                comprobante.moneda }}</span>
+                        </div>
+                        <div class="col-span-2">
+                            <span class="text-gray-500">Beneficiario:</span>
+                            <span class="font-medium ml-1">{{ comprobante.beneficiario_orig }}</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Formulario de edición -->
+                <form hx-patch="/compras/comprobantes/{{ comprobante.id_comprobante }}"
+                    hx-target="#row-{{ comprobante.id_comprobante }}" hx-swap="outerHTML"
+                    hx-on::after-request="if(event.detail.successful) cerrarModalEdicion()" class="space-y-4">
+
+                    <!-- Zona -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Zona</label>
+                        <select name="id_zona"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                            <option value="">Sin asignar</option>
+                            {% for zona in zonas %}
+                            <option value="{{ zona.id }}" {% if comprobante.id_zona==zona.id %}selected{% endif %}>
+                                {{ zona.nombre }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Proyecto -->
+                    <div>
+                        <div class="flex justify-between items-center mb-1">
+                            <label class="block text-sm font-medium text-gray-700">Proyecto</label>
+                            <a href="#" onclick="abrirModalCrearProyecto(); return false;"
+                                class="text-xs text-[#00BABB] hover:text-[#009999] hover:underline transition-colors">
+                                + Crear Proyecto
+                            </a>
+                        </div>
+                        <select name="id_proyecto"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                            <option value="">Sin asignar</option>
+                            {% for proy in proyectos %}
+                            <option value="{{ proy.id_proyecto }}" {% if comprobante.id_proyecto==proy.id_proyecto
+                                %}selected{% endif %}>
+                                {{ proy.nombre }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Categoría -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Categoría</label>
+                        <select name="id_categoria"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                            <option value="">Sin asignar</option>
+                            {% for cat in categorias %}
+                            <option value="{{ cat.id }}" {% if comprobante.id_categoria==cat.id %}selected{% endif %}>
+                                {{ cat.nombre }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <!-- Estatus -->
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Estatus</label>
+                        <select name="estatus"
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                            <option value="PENDIENTE" {% if comprobante.estatus=='PENDIENTE' %}selected{% endif %}>
+                                Pendiente
+                            </option>
+                            <option value="FACTURADO" {% if comprobante.estatus=='FACTURADO' %}selected{% endif %}>
+                                Facturado
+                            </option>
+                        </select>
+                    </div>
+
+                    <!-- Botones -->
+                    <div class="flex justify-end gap-3 pt-4 border-t">
+                        <button type="button" onclick="cerrarModalEdicion()"
+                            class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                            Cancelar
+                        </button>
+                        <button type="submit"
+                            class="px-4 py-2 text-sm font-medium text-white bg-[#00BABB] rounded-lg hover:bg-[#009999]">
+                            Guardar Cambios
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</div>

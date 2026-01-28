@@ -1,0 +1,56 @@
+{% if success %}
+<div class="bg-green-50 border border-green-200 rounded-lg p-4 animate-fade-in-down">
+    <div class="flex items-start gap-3">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div>
+            <p class="font-medium text-green-800">{{ mensaje }}</p>
+            {% if proyecto %}
+            <div class="mt-2 text-sm text-green-700">
+                <p><strong>ID:</strong> {{ proyecto.proyecto_id_estandar }}</p>
+                <p><strong>Cliente:</strong> {{ proyecto.cliente_nombre }}</p>
+                <p><strong>Fase:</strong> {{ proyecto.status_fase }}</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+
+<script>
+    // Cerrar modal después de 2 segundos
+    setTimeout(() => {
+        cerrarModalProyecto();
+        
+        // Refrescar datos si estamos en compras
+        if (typeof htmx !== 'undefined') {
+            // Refrescar catálogos de proyectos en la página
+            htmx.ajax('GET', '/compras/catalogos', {
+                target: '#catalogos-container',
+                swap: 'none'
+            }).catch(() => {});
+            
+            // Refrescar la tabla de comprobantes
+            htmx.ajax('GET', '/compras/comprobantes', {
+                target: '#tabla-comprobantes',
+                swap: 'innerHTML'
+            }).catch(() => {});
+        }
+        
+        // Recargar la página para refrescar dropdowns
+        window.location.reload();
+    }, 2000);
+</script>
+{% else %}
+<div class="bg-red-50 border border-red-200 rounded-lg p-4">
+    <div class="flex items-start gap-3">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6 text-red-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <div>
+            <p class="font-medium text-red-800">Error al crear proyecto</p>
+            <p class="mt-1 text-sm text-red-600">{{ mensaje }}</p>
+        </div>
+    </div>
+</div>
+{% endif %}

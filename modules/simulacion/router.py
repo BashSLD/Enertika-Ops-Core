@@ -17,6 +17,7 @@ import asyncpg
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
 from core.permissions import require_module_access
+from core.config import settings
 from core.database import get_db_connection
 
 # Import del Service Layer
@@ -32,6 +33,7 @@ from core.workflow.service import get_workflow_service
 logger = logging.getLogger("SimulacionModule")
 
 templates = Jinja2Templates(directory="templates")
+templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 
 # Registrar filtros de timezone (México)
 from core.jinja_filters import register_timezone_filters

@@ -4,6 +4,8 @@ from core.database import get_db_connection
 from fastapi.templating import Jinja2Templates
 from core.security import get_current_user_context
 from core.permissions import require_module_access
+
+from core.config import settings
 from .service import AdminService, get_admin_service
 import asyncpg
 
@@ -19,6 +21,7 @@ router = APIRouter(
 )
 
 templates = Jinja2Templates(directory="templates")
+templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 
 # --- CONFIG EMAIL ENDPOINTS ---
 
