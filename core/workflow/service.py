@@ -261,6 +261,41 @@ class WorkflowService:
         
         return [grouped[cid] for cid in order]
 
+        return [grouped[cid] for cid in order]
+
+    async def get_detalle_oportunidad(self, conn, id_oportunidad: UUID) -> Optional[dict]:
+        """
+        Obtiene los detalles de una oportunidad para el modal unificado.
+        """
+        query = """
+            SELECT 
+                op.*,
+                c.nombre_fiscal as cliente_nombre,
+                t.nombre as tecnologia_nombre,
+                u_sim.nombre as responsable_simulacion,
+                u_com.email as responsable_email
+            FROM tb_oportunidades op
+            LEFT JOIN tb_clientes c ON op.cliente_id = c.id
+            LEFT JOIN tb_cat_tecnologias t ON op.id_tecnologia = t.id
+            LEFT JOIN tb_usuarios u_sim ON op.responsable_simulacion_id = u_sim.id_usuario
+            LEFT JOIN tb_usuarios u_com ON op.creado_por_id = u_com.id_usuario
+            WHERE op.id_oportunidad = $1
+        """
+        row = await conn.fetchrow(query, id_oportunidad)
+        return dict(row) if row else None
+
+    async def get_oportunidad_basic_info(self, conn, id_oportunidad: UUID) -> Optional[dict]:
+        """
+        Obtiene información básica de la oportunidad para el header del modal de comentarios.
+        """
+        query = """
+            SELECT op_id_estandar, nombre_proyecto, titulo_proyecto, cliente_nombre 
+            FROM tb_oportunidades 
+            WHERE id_oportunidad = $1
+        """
+        row = await conn.fetchrow(query, id_oportunidad)
+        return dict(row) if row else None
+
     # --- LOGICA DE NOTIFICACION INTELIGENTE ---
     
     async def _notificar_comentario(

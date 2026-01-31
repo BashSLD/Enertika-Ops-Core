@@ -74,6 +74,13 @@ app.include_router(workflow_router)
 
 # Notificaciones en Tiempo Real (SSE)
 from core.notifications import router as notifications_router
+from core.notifications.service import startup_notifications, shutdown_notifications
+
+# Agregar lifecycle hooks para el multiplexer de notificaciones
+# Se ejecutan al iniciar y cerrar la app
+app.router.on_startup.append(startup_notifications)
+app.router.on_shutdown.append(shutdown_notifications)
+
 app.include_router(notifications_router.router)
 
 # Agregar después de los otros routers

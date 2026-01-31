@@ -23,7 +23,9 @@ class EmailHandler:
         ms_auth,
         id_oportunidad: UUID,
         form_data: Dict,
-        user_email: str
+
+        user_email: str,
+        user_context: dict
     ) -> Tuple[bool, Optional[dict]]:
         """
         Procesa formulario de correo y envía notificación.
@@ -32,7 +34,7 @@ class EmailHandler:
         if not access_token:
             from fastapi import Response
             return (False, Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"}))
-        row = await service.get_oportunidad_for_email(conn, id_oportunidad)
+        row = await service.get_oportunidad_for_email(conn, id_oportunidad, user_context)
         
         if not row:
             return (False, templates.TemplateResponse(
@@ -71,7 +73,8 @@ class EmailHandler:
             service,
             row,
             id_oportunidad,
-            form_data.get("archivos_extra", [])
+            form_data.get("archivos_extra", []),
+            user_context
         )
         
         if not adjuntos_result["success"]:
@@ -87,7 +90,7 @@ class EmailHandler:
         prioridad_envio = form_data.get("prioridad") or "normal"
         subject = form_data.get("subject", "")
         
-        await service.update_oportunidad_prioridad(conn, id_oportunidad, prioridad_envio)
+        await service.update_oportunidad_prioridad(conn, id_oportunidad, prioridad_envio, user_context)
         
         envio_result = await self._enviar_con_hilos(
             conn,
@@ -109,7 +112,7 @@ class EmailHandler:
         if not envio_result["success"]:
             return (False, self._manejar_error_envio(request, envio_result["error"]))
         
-        await service.update_email_status(conn, id_oportunidad)
+        await service.update_email_status(conn, id_oportunidad, user_context)
         
         success_response = templates.TemplateResponse(
             "comercial/partials/messages/success_sent.html",
@@ -151,7 +154,8 @@ class EmailHandler:
         service,
         row: dict,
         id_oportunidad: UUID,
-        archivos_extra: List[UploadFile]
+        archivos_extra: List[UploadFile],
+        user_context: dict
     ) -> Dict:
         """Procesa archivos adjuntos incluyendo Excel multisitio."""
         adjuntos_procesados = []
@@ -160,7 +164,8 @@ class EmailHandler:
             excel_attachment = await service.generate_multisite_excel(
                 conn,
                 id_oportunidad,
-                row.get('id_interno_simulacion')
+                row.get('id_interno_simulacion'),
+                user_context
             )
             if excel_attachment:
                 adjuntos_procesados.append(excel_attachment)

@@ -37,7 +37,46 @@ class ConfigService:
     
     # Cache con TTL: {key: (timestamp, value)}
     _cache_umbrales: Dict[str, Tuple[float, UmbralesKPI]] = {}
+    _cache_global: Dict[str, Tuple[float, Any]] = {} # Updated to support TTL
     _CACHE_TTL = 30.0  # 30 segundos de vida
+
+    @classmethod
+    async def get_cached_value(cls, key: str, ttl: float = 30.0) -> Optional[Any]:
+        """Recupera valor del cache si no ha expirado."""
+        if key in cls._cache_global:
+            ts, val = cls._cache_global[key]
+            if time.time() - ts < ttl:
+                return val
+            else:
+                del cls._cache_global[key] # Expired
+        return None
+
+    @classmethod
+    async def set_cached_value(cls, key: str, value: Any):
+        """Guarda valor en cache con timestamp actual."""
+        cls._cache_global[key] = (time.time(), value)
+
+    @classmethod
+    async def get_catalog_map(cls, conn: asyncpg.Connection, table: str, key_col: str = "nombre", val_col: str = "id") -> Dict[str, Any]:
+        """
+        Obtiene un mapa de catálogo {nombre: id} con cache de 30s.
+        Normaliza claves a lowercase para búsquedas case-insensitive.
+        """
+        cache_key = f"CAT_{table}_{key_col}_{val_col}"
+        cached = await cls.get_cached_value(cache_key)
+        if cached: return cached
+        
+        # Fetch fresh
+        try:
+            rows = await conn.fetch(f"SELECT {key_col}, {val_col} FROM {table}")
+            data = {str(row[key_col]).lower(): row[val_col] for row in rows}
+            await cls.set_cached_value(cache_key, data)
+            return data
+        except Exception as e:
+            # Log error but don't crash
+            print(f"Error loading catalog {table}: {e}")
+            return {}
+
     
     @classmethod
     async def get_umbrales_kpi(
@@ -139,16 +178,20 @@ class ConfigService:
         cls._cache_umbrales.clear()
         cls._cache_global.clear()
 
-    _cache_global: Dict[str, Any] = {}
+    _cache_global: Dict[str, Tuple[float, Any]] = {} # Redefined above, but just ensuring cleanup if needed.
+    # Actually, we replaced the definition above. Removing the duplicate definition at line 142 if it existed.
+    # In the file, line 142 is `_cache_global: Dict[str, Any] = {}`.
+    # We should remove it or update it. Since I updated the class definition above, I should remove this line.
 
     @classmethod
     async def get_global_config(cls, conn: asyncpg.Connection, clave: str, default: Any, tipo: type = str) -> Any:
         """
         Obtiene un valor de configuración global con cast de tipo.
-        Usa cache simple.
+        Usa cache con TTL (30s).
         """
-        if clave in cls._cache_global:
-            return cls._cache_global[clave]
+        # Check cache
+        cached = await cls.get_cached_value(f"CFG_{clave}")
+        if cached is not None: return cached
 
         try:
             row = await conn.fetchrow("""
@@ -170,7 +213,7 @@ class ConfigService:
             else:
                 val_typed = valor
 
-            cls._cache_global[clave] = val_typed
+            await cls.set_cached_value(f"CFG_{clave}", val_typed)
             return val_typed
         except Exception:
             return default

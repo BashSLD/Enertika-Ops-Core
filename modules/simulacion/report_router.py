@@ -340,10 +340,6 @@ async def get_contabilizacion_partial(
     u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno", "SIMULACION")
     u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso", "SIMULACION")
     
-    # Obtener umbrales dinámicos
-    u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno", "SIMULACION")
-    u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso", "SIMULACION")
-    
     return templates.TemplateResponse("simulacion/reportes/partials/semaforo_table.html", {
         "request": request,
         "filas": tabla,

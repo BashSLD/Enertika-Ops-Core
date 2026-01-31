@@ -45,7 +45,7 @@ class OportunidadCreateCompleta(BaseModel):
     sharepoint_folder_url: Optional[str] = None
     fecha_manual_str: Optional[str] = None
     detalles_bess: Optional[DetalleBessCreate] = None
-    id_estatus_global: Optional[int] = 1
+    id_estatus_global: Optional[int] = None
     
     # Campo para búsqueda inteligente de clientes
     cliente_id: Optional[UUID] = None
@@ -58,20 +58,7 @@ class OportunidadCreateCompleta(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
-class OportunidadCierreUpdate(BaseModel):
-    """Schema para cerrar, perder o cancelar."""
-    id_motivo_cierre: int
-    comentarios_cierre: str
-    monto_cierre_usd: Optional[float] = 0.0
-    potencia_final_fv_kwp: Optional[float] = 0.0
-    potencia_final_bess_kw: Optional[float] = 0.0
-    capacidad_final_bess_kwh: Optional[float] = 0.0
 
-
-class OportunidadCreate(BaseModel):
-    """Schema para la creación inicial de una Oportunidad."""
-    cliente_nombre: str = Field(..., min_length=3, description="Nombre del cliente.")
-    creado_por_id: UUID = Field(..., description="UUID del usuario Comercial.")
 
 
 class OportunidadRead(BaseSchema):

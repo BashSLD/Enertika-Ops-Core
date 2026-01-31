@@ -6,12 +6,14 @@ from typing import Optional, List
 import io
 import logging
 import pandas as pd
-import asyncpg
+import asyncio
+import urllib.parse
+
 
 from core.database import get_db_connection
 from core.microsoft import get_ms_auth
 from core.security import get_current_user_context, get_valid_graph_token
-from core.permissions import require_module_access
+from core.permissions import require_module_access, require_manager_access
 from core.config import settings
 from .schemas import OportunidadCreateCompleta, DetalleBessCreate
 from .service import ComercialService, get_comercial_service
@@ -74,7 +76,7 @@ async def get_comercial_ui(
         "catalogos": catalogos
     }, headers={"HX-Title": "Enertika Core Ops | Comercial"})
 
-@router.head("/form", include_in_schema=False)
+
 @router.get("/form", include_in_schema=False)
 async def get_comercial_form(
     request: Request,
@@ -224,10 +226,12 @@ async def get_sitios_partial(
     request: Request,
     id_oportunidad: UUID,
     service: ComercialService = Depends(get_comercial_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    user_context = Depends(get_current_user_context),
+    _ = require_module_access("comercial")
 ):
     """Retorna la sub-tabla de sitios para una oportunidad."""
-    rows = await service.get_sitios_simple(conn, id_oportunidad)
+    rows = await service.get_sitios_simple(conn, id_oportunidad, user_context)
     return templates.TemplateResponse(
         "comercial/partials/sitios_list.html",
         {"request": request, "sitios": rows}
@@ -254,10 +258,11 @@ async def get_bess_partial(
     id_oportunidad: UUID,
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
+    user_context = Depends(get_current_user_context),
     _ = require_module_access("comercial")
 ):
     """Retorna los detalles BESS para una oportunidad."""
-    bess = await service.get_detalles_bess(conn, id_oportunidad)
+    bess = await service.get_detalles_bess(conn, id_oportunidad, user_context)
     return templates.TemplateResponse(
         "shared/partials/bess_info.html",  # Shared component
         {"request": request, "bess": bess}
@@ -307,26 +312,34 @@ async def notificar_oportunidad(
         ms_auth=ms_auth,
         id_oportunidad=id_oportunidad,
         form_data=form_data,
-        user_email=context['user_email']
+
+        user_email=context['user_email'],
+        user_context=context # Pasamos el contexto completo para validación de ownership
     )
     
     return result
 
 @router.get("/plantilla", response_class=StreamingResponse)
 async def descargar_plantilla_sitios():
-    """Genera y descarga la plantilla Excel oficial."""
-    # Columnas actualizadas según requerimiento
-    cols = ["#", "NOMBRE", "# DE SERVICIO", "TARIFA", "LINK GOOGLE", "DIRECCION", "COMENTARIOS"]
-    df = pd.DataFrame(columns=cols)
+    """Genera y descarga la plantilla Excel oficial (Async/Non-blocking)."""
     
-    # Fila de ejemplo actualizada
-    df.loc[0] = [1, "SUCURSAL NORTE", "123456789012", "GDMTO", "https://maps.google.com/?q=19.4326,-99.1332", "Av. Reforma 123, Col. Centro", "Ejemplo de comentario"]
-    
-    # Guardar en buffer de memoria
-    buffer = io.BytesIO()
-    with pd.ExcelWriter(buffer, engine='xlsxwriter') as writer:
-        df.to_excel(writer, index=False, sheet_name='Sitios')
-    buffer.seek(0)
+    def _generate_excel_sync():
+        cols = ["#", "NOMBRE", "# DE SERVICIO", "TARIFA", "LINK GOOGLE", "DIRECCION", "COMENTARIOS"]
+        df = pd.DataFrame(columns=cols)
+        df.loc[0] = [1, "SUCURSAL NORTE", "123456789012", "GDMTO", 
+                     "https://maps.google.com/?q=19.4326,-99.1332", 
+                     "Av. Reforma 123, Col. Centro", "Ejemplo de comentario"]
+        
+        buffer = io.BytesIO()
+        # Changed engine to openpyxl to unify libraries
+        with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False, sheet_name='Sitios')
+        buffer.seek(0)
+        return buffer
+
+    # Run CPU-bound task in run_in_executor
+    loop = asyncio.get_running_loop()
+    buffer = await loop.run_in_executor(None, _generate_excel_sync)
     
     headers = {"Content-Disposition": 'attachment; filename="plantilla_sitios_enertika.xlsx"'}
     return StreamingResponse(buffer, headers=headers, media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
@@ -335,7 +348,8 @@ async def descargar_plantilla_sitios():
 async def validate_thread_check(
     request: Request,
     search_term: str = Form(...),
-    ms_auth = Depends(get_ms_auth)
+    ms_auth = Depends(get_ms_auth),
+    _ = require_module_access("comercial")
 ):
     """Valida si existe un hilo de correo antes de permitir avanzar al usuario (Modo Homologación)."""
     token = await get_valid_graph_token(request)
@@ -358,6 +372,7 @@ async def search_clientes(
     conn = Depends(get_db_connection),
     # Validar acceso básico, aunque sea read-only
     user_context: dict = Depends(get_current_user_context),
+    _ = require_module_access("comercial")
 ):
     """API para búsqueda inteligente de clientes."""
     if not q:
@@ -395,34 +410,29 @@ async def handle_oportunidad_creation(
     bess_cargas_criticas: Optional[float] = Form(None),
     bess_tiene_motores: bool = Form(False),
     bess_potencia_motor: Optional[float] = Form(None),
-    bess_tiempo_autonomia: Optional[str] = Form(None),
-    bess_voltaje_operacion: Optional[str] = Form(None),
+    bess_autonomia: Optional[str] = Form(None),
+    bess_voltaje: Optional[str] = Form(None),
     bess_cargas_separadas: bool = Form(False),
-    bess_tiene_planta_emergencia: bool = Form(False),
+    bess_planta_emergencia: bool = Form(False),
     # --- Dependencies ---
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
     user_context: dict = Depends(get_current_user_context),
-    _ = require_module_access("comercial")
+    _ = require_module_access("comercial", "editor")
 ):
-    # Validar permisos de escritura (EDITOR)
-    role = user_context.get("module_roles", {}).get("comercial", "viewer")
-    if role not in ["editor", "admin"]:
-         raise HTTPException(status_code=403, detail="No tiene permisos para crear oportunidades.")
 
-    # Construir objeto BESS (solo si es BESS)
-    detalles_bess = None
-    if bess_uso_sistema: 
-         detalles_bess = DetalleBessCreate(
-            uso_sistema_json=bess_uso_sistema,
-            cargas_criticas_kw=bess_cargas_criticas,
-            tiene_motores=bess_tiene_motores,
-            potencia_motor_hp=bess_potencia_motor,
-            tiempo_autonomia=bess_tiempo_autonomia,
-            voltaje_operacion=bess_voltaje_operacion,
-            cargas_separadas=bess_cargas_separadas,
-            tiene_planta_emergencia=bess_tiene_planta_emergencia
-         )
+
+    # Construir objeto BESS (Delegado al Service)
+    detalles_bess = ComercialService.build_bess_detail(
+        uso_sistema=bess_uso_sistema,
+        cargas_criticas=bess_cargas_criticas,
+        tiene_motores=bess_tiene_motores,
+        potencia_motor=bess_potencia_motor,
+        tiempo_autonomia=bess_autonomia,
+        voltaje_operacion=bess_voltaje,
+        cargas_separadas=bess_cargas_separadas,
+        tiene_planta_emergencia=bess_planta_emergencia
+    )
 
     oportunidad_data = OportunidadCreateCompleta(
         cliente_nombre=cliente_nombre,
@@ -449,30 +459,29 @@ async def handle_oportunidad_creation(
         
         new_id, op_std_id, fuera_horario = await service.crear_oportunidad_transaccional(conn, oportunidad_data, user_context, legacy_search_term=legacy_term)
         
-        # Respuesta HTMX: Redirección
-        target_url = f"/comercial/detalle/{new_id}"
+        # Redirección Delegada (Datos Lógicos)
+        redir_data = service.get_redirection_params(
+            new_id=new_id,
+            op_std_id=op_std_id,
+            cant_sitios=cantidad_sitios,
+            es_fuera_horario=fuera_horario,
+            legacy_term=legacy_term,
+            is_extraordinario=False
+        )
+
+        # Construcción de URL y Headers en Router (capa de transporte)
+        query_string = urllib.parse.urlencode(redir_data["query_params"])
+        full_redirect_url = f"{redir_data['redirect_url']}?{query_string}"
         
-        # Redirección (Lógica Multisitos vs Unisitio)
-        if cantidad_sitios == 1:
-             # Auto-creación de sitio único
-            await service.auto_crear_sitio_unico(
-                conn, new_id, nombre_proyecto, direccion_obra, google_maps_link, id_tipo_solicitud
-            )
-            target_url = f"/comercial/paso3/{new_id}"
-        else:
-            target_url = f"/comercial/paso2/{new_id}"
-
-        params = f"?new_op={op_std_id}&fh={str(fuera_horario).lower()}"
-        if legacy_term:
-            import urllib.parse
-            safe_legacy = urllib.parse.quote(legacy_term)
-            params += f"&legacy_term={safe_legacy}"
-
-        return Response(status_code=200, headers={"HX-Redirect": f"{target_url}{params}"})
+        return Response(status_code=200, headers={"HX-Redirect": full_redirect_url})
     
     except ValueError as e:
         # Errores de validación de negocio
-        return HTMLResponse(f"<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4' role='alert'><p class='font-bold'>Error</p><p>{str(e)}</p></div>", status_code=200)
+        return templates.TemplateResponse(
+            "comercial/error_message.html", 
+            {"request": request, "detail": str(e)},
+            status_code=200 
+        )
     except Exception as e:
         logger.error(f"Error creando oportunidad: {e}", exc_info=True)
         return HTMLResponse(f"<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4' role='alert'><p class='font-bold'>Error del Sistema</p><p>Ocurrió un error inesperado.</p></div>", status_code=500)
@@ -483,20 +492,14 @@ async def get_comercial_form_extraordinario(
     request: Request,
     user_context = Depends(get_current_user_context),
     conn = Depends(get_db_connection),
-    service: ComercialService = Depends(get_comercial_service)
+    service: ComercialService = Depends(get_comercial_service),
+    _ = require_manager_access("comercial")
 ):
     """Shows the extraordinary creation form (ADMIN/MANAGER ONLY)."""
     
-    # Validación de Rol: ADMIN GLOBAL o ADMIN DE MODULO o MANAGER CON PERMISO DE EDICIÓN
+    # Validación de Rol: Delegada a require_manager_access
     role = user_context.get("role")
-    module_role = user_context.get("module_roles", {}).get("comercial", "")
-    
-    is_module_editor_or_higher = module_role in ["editor", "assignor", "admin"]
-    has_access = (role == "ADMIN") or (module_role == "admin") or (role == "MANAGER" and is_module_editor_or_higher)
-    
-    if not has_access:
-        from fastapi import Response
-        return Response(status_code=403, content="Acceso denegado. Se requiere nivel Administrador o Manager Editor en el módulo.")
+
     
     # Validación de sesión
     if not user_context.get("email"):
@@ -564,28 +567,28 @@ async def handle_oportunidad_extraordinaria(
     conn = Depends(get_db_connection),
     service: ComercialService = Depends(get_comercial_service),
     context = Depends(get_current_user_context),
-    ms_auth = Depends(get_ms_auth)
+    ms_auth = Depends(get_ms_auth),
+    _ = require_manager_access("comercial")
 ):
     try:
+
         # Validación de sesión y token
         token = await get_valid_graph_token(request)
         if not token:
              from fastapi import Response
              return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
 
-         # Construir objeto BESS
-        detalles_bess = None
-        if bess_uso_sistema: 
-             detalles_bess = DetalleBessCreate(
-                uso_sistema_json=bess_uso_sistema,
-                cargas_criticas_kw=bess_cargas_criticas,
-                tiene_motores=bess_tiene_motores,
-                potencia_motor_hp=bess_potencia_motor,
-                tiempo_autonomia=bess_tiempo_autonomia,
-                voltaje_operacion=bess_voltaje_operacion,
-                cargas_separadas=bess_cargas_separadas,
-                tiene_planta_emergencia=bess_tiene_planta_emergencia
-             )
+         # Construir objeto BESS (Delegado al Service)
+        detalles_bess = ComercialService.build_bess_detail(
+            uso_sistema=bess_uso_sistema,
+            cargas_criticas=bess_cargas_criticas,
+            tiene_motores=bess_tiene_motores,
+            potencia_motor=bess_potencia_motor,
+            tiempo_autonomia=bess_tiempo_autonomia,
+            voltaje_operacion=bess_voltaje_operacion,
+            cargas_separadas=bess_cargas_separadas,
+            tiene_planta_emergencia=bess_tiene_planta_emergencia
+        )
 
         oportunidad_data = OportunidadCreateCompleta(
             cliente_nombre=cliente_nombre,
@@ -629,19 +632,21 @@ async def handle_oportunidad_extraordinaria(
         
         logger.info(f"Solicitud extraordinaria {op_id_estandar} creada y notificada.")
 
-        # Redirección (Lógica Multisitos vs Unisitio)
-        if cantidad_sitios == 1:
-            await service.auto_crear_sitio_unico(
-                conn, new_id, nombre_proyecto, direccion_obra, google_maps_link, id_tipo_solicitud
-            )
-            target_url = "/comercial/ui"
-            params = f"?new_op={op_id_estandar}&fh={str(es_fuera_horario).lower()}&extraordinaria=1"
-        else:
-            target_url = f"/comercial/paso2/{new_id}"
-            params = f"?new_op={op_id_estandar}&fh={str(es_fuera_horario).lower()}&extraordinaria=1"
+        # Redirección Delegada (Datos Lógicos)
+        redir_data = service.get_redirection_params(
+            new_id=new_id,
+            op_std_id=op_id_estandar,
+            cant_sitios=cantidad_sitios,
+            es_fuera_horario=es_fuera_horario,
+            is_extraordinario=True
+        )
+        
+        # Construcción de URL y Headers
+        query_string = urllib.parse.urlencode(redir_data["query_params"])
+        full_redirect_url = f"{redir_data['redirect_url']}?{query_string}"
         
         from fastapi import Response
-        return Response(status_code=200, headers={"HX-Redirect": f"{target_url}{params}"})
+        return Response(status_code=200, headers={"HX-Redirect": full_redirect_url})
 
     except Exception as e:
         logger.error(f"Error en creación de solicitud extraordinaria: {e}")
@@ -656,7 +661,8 @@ async def cancelar_oportunidad(
     request: Request,
     id_oportunidad: UUID,
     service: ComercialService = Depends(get_comercial_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    user_context = Depends(get_current_user_context)
 ):
     """Elimina borrador y fuerza una recarga completa al Dashboard."""
     
@@ -668,11 +674,30 @@ async def cancelar_oportunidad(
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
         
     # Borrar datos en BD via Service
-    await service.cancelar_oportunidad(conn, id_oportunidad)
+    await service.cancelar_oportunidad(conn, id_oportunidad, user_context)
     
     # Usar HX-Redirect para recarga completa y limpieza de memoria
     from fastapi import Response
     return Response(status_code=200, headers={"HX-Redirect": "/comercial/ui"}) 
+
+@router.post("/reasignar/{id_oportunidad}")
+async def reasignar_oportunidad(
+    request: Request,
+    id_oportunidad: UUID,
+    new_owner_id: UUID = Form(...),
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection),
+    user_context = Depends(get_current_user_context),
+    _ = require_manager_access("comercial")
+):
+    """Permite a un Manager/Admin transferir la oportunidad a otro usuario."""
+    await service.reasignar_oportunidad(conn, id_oportunidad, new_owner_id, user_context)
+    
+    # Retornar mensaje de éxito (Toast) y tal vez recargar la tabla o redirigir
+    return templates.TemplateResponse("comercial/partials/messages/success_toast.html", {
+        "request": request,
+        "message": "Oportunidad reasignada correctamente."
+    })
 
 
 # ----------------------------------------
@@ -692,8 +717,9 @@ async def get_paso3_email_form(
     if not await get_valid_graph_token(request):
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
     
+    
     # Delegar TODA la lógica de preparación de datos y reglas al Service
-    data = await service.get_data_for_email_form(conn, id_oportunidad)
+    data = await service.get_data_for_email_form(conn, id_oportunidad, context)
     if not data: return HTMLResponse("Oportunidad no encontrada", 404)
     
     template = "comercial/email_form.html" if request.headers.get("hx-request") else "comercial/email_full.html"
@@ -718,7 +744,8 @@ async def upload_preview_endpoint(
     file: UploadFile = File(...),
     extraordinaria: int = Form(0),
     service: ComercialService = Depends(get_comercial_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    user_context = Depends(get_current_user_context)
 ):
     """Procesa previsualización de Excel (Lógica movida al Service)."""
     try:
@@ -729,7 +756,7 @@ async def upload_preview_endpoint(
         uuid_op = UUID(id_oportunidad)
         
         # Delegar Lógica Compleja al Service
-        result = await service.preview_site_upload(conn, contents, uuid_op)
+        result = await service.preview_site_upload(conn, contents, uuid_op, user_context)
         
         return templates.TemplateResponse("comercial/partials/upload_preview.html", {
             "request": request,
@@ -754,11 +781,13 @@ async def upload_confirm_endpoint(
     op_id: str = Form(...),
     extraordinaria: int = Form(0),
     service: ComercialService = Depends(get_comercial_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    user_context = Depends(get_current_user_context)
 ):
     try:
         uuid_op = UUID(op_id)
-        count = await service.confirm_site_upload(conn, uuid_op, sitios_json)
+        
+        count = await service.confirm_site_upload(conn, uuid_op, sitios_json, user_context)
         
         if extraordinaria == 1:
             return templates.TemplateResponse("comercial/partials/messages/success_redirect.html", {
@@ -831,6 +860,8 @@ async def delete_sitio_endpoint(
 ):
     if not await get_valid_graph_token(request):
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
-    await service.delete_sitio(conn, id_sitio)
+    
+    user_context = await get_current_user_context(request)
+    await service.delete_sitio(conn, id_sitio, user_context)
     return HTMLResponse("", status_code=200)
     

@@ -18,7 +18,7 @@ from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional, Any, Tuple
 from uuid import UUID
 from zoneinfo import ZoneInfo
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from enum import Enum
 import logging
 from dateutil.relativedelta import relativedelta
@@ -35,7 +35,7 @@ from .constants import (
     VOLUMEN_MAX_NORMALIZACION
 )
 
-import logging
+from .db_service import SimulacionDBService
 from core.config_service import ConfigService, UmbralesKPI
 
 logger = logging.getLogger("ReportesSimulacion")
@@ -57,6 +57,94 @@ UMBRAL_AMBAR = 85.0
 # =============================================================================
 
 @dataclass
+class KPIMetricsMixin:
+    """
+    Mixin to centralize KPI percentage and semaphore logic.
+    Expected attributes in consuming classes:
+    - entregas_a_tiempo_interno: int
+    - entregas_tarde_interno: int
+    - entregas_a_tiempo_compromiso: int
+    - entregas_tarde_compromiso: int
+    - umbrales_interno: Optional[UmbralesKPI]
+    - umbrales_compromiso: Optional[UmbralesKPI]
+    """
+
+    @property
+    def porcentaje_a_tiempo_interno(self) -> float:
+        """% entregas a tiempo según KPI Interno."""
+        # Check for optional override (e.g., FilaContabilizacion)
+        if hasattr(self, 'es_levantamiento') and self.es_levantamiento:
+            return 0.0
+            
+        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.entregas_a_tiempo_interno / total_con_kpi) * 100, 1)
+    
+    @property
+    def porcentaje_tarde_interno(self) -> float:
+        """% entregas tarde según KPI Interno."""
+        if hasattr(self, 'es_levantamiento') and self.es_levantamiento:
+            return 0.0
+
+        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.entregas_tarde_interno / total_con_kpi) * 100, 1)
+    
+    @property
+    def porcentaje_a_tiempo_compromiso(self) -> float:
+        """% entregas a tiempo según KPI Compromiso."""
+        if hasattr(self, 'es_levantamiento') and self.es_levantamiento:
+            return 0.0
+
+        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.entregas_a_tiempo_compromiso / total_con_kpi) * 100, 1)
+    
+    @property
+    def porcentaje_tarde_compromiso(self) -> float:
+        """% entregas tarde según KPI Compromiso."""
+        if hasattr(self, 'es_levantamiento') and self.es_levantamiento:
+            return 0.0
+
+        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
+        if total_con_kpi == 0:
+            return 0.0
+        return round((self.entregas_tarde_compromiso / total_con_kpi) * 100, 1)
+
+    @property
+    def semaforo_interno(self) -> str:
+        if hasattr(self, 'es_levantamiento') and self.es_levantamiento:
+            return "gray"
+            
+        pct = self.porcentaje_a_tiempo_interno
+        if self.umbrales_interno:
+            return self.umbrales_interno.get_color(pct)
+        # Fallback
+        if pct >= UMBRAL_VERDE:
+            return "green"
+        elif pct >= UMBRAL_AMBAR:
+            return "amber"
+        return "red"
+
+    @property
+    def semaforo_compromiso(self) -> str:
+        if hasattr(self, 'es_levantamiento') and self.es_levantamiento:
+            return "gray"
+
+        pct = self.porcentaje_a_tiempo_compromiso
+        if self.umbrales_compromiso:
+            return self.umbrales_compromiso.get_color(pct)
+        # Fallback
+        if pct >= UMBRAL_VERDE:
+            return "green"
+        elif pct >= UMBRAL_AMBAR:
+            return "amber"
+        return "red"
+
+@dataclass
 class ConfiguracionScore:
     """Configuración dinámica para cálculo de scores"""
     umbral_min_entregas: int = UMBRAL_MIN_ENTREGAS
@@ -73,7 +161,7 @@ class ConfiguracionScore:
 
 
 @dataclass
-class MetricasGenerales:
+class MetricasGenerales(KPIMetricsMixin):
     """Métricas principales del dashboard con KPIs duales."""
     # Configuración dinámica
     umbrales_interno: Optional[UmbralesKPI] = None
@@ -112,39 +200,9 @@ class MetricasGenerales:
     sin_fecha_entrega: int = 0
     tiempo_promedio_horas: Optional[float] = None
     
-    # Properties para porcentajes KPI Interno
-    @property
-    def porcentaje_a_tiempo_interno(self) -> float:
-        """% entregas a tiempo según KPI Interno."""
-        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_a_tiempo_interno / total_con_kpi) * 100, 1)
+    # Properties para porcentajes KPI Interno (Managed by Mixin)
     
-    @property
-    def porcentaje_tarde_interno(self) -> float:
-        """% entregas tarde según KPI Interno."""
-        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_tarde_interno / total_con_kpi) * 100, 1)
-    
-    # Properties para porcentajes KPI Compromiso
-    @property
-    def porcentaje_a_tiempo_compromiso(self) -> float:
-        """% entregas a tiempo según KPI Compromiso."""
-        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_a_tiempo_compromiso / total_con_kpi) * 100, 1)
-    
-    @property
-    def porcentaje_tarde_compromiso(self) -> float:
-        """% entregas tarde según KPI Compromiso."""
-        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_tarde_compromiso / total_con_kpi) * 100, 1)
+    # Properties para porcentajes KPI Compromiso (Managed by Mixin)
     
     # Compatibilidad Legacy
     @property
@@ -154,30 +212,7 @@ class MetricasGenerales:
     @property
     def porcentaje_tarde(self) -> float:
         return self.porcentaje_tarde_compromiso
-    
-    @property
-    def semaforo_interno(self) -> str:
-        pct = self.porcentaje_a_tiempo_interno
-        if self.umbrales_interno:
-            return self.umbrales_interno.get_color(pct)
-        # Fallback
-        if pct >= UMBRAL_VERDE:
-            return "green"
-        elif pct >= UMBRAL_AMBAR:
-            return "amber"
-        return "red"
 
-    @property
-    def semaforo_compromiso(self) -> str:
-        pct = self.porcentaje_a_tiempo_compromiso
-        if self.umbrales_compromiso:
-            return self.umbrales_compromiso.get_color(pct)
-        # Fallback
-        if pct >= UMBRAL_VERDE:
-            return "green"
-        elif pct >= UMBRAL_AMBAR:
-            return "amber"
-        return "red"
 
     @property
     def tiempo_promedio_dias(self) -> Optional[float]:
@@ -195,7 +230,7 @@ class MetricasGenerales:
 
 
 @dataclass
-class MetricaTecnologia:
+class MetricaTecnologia(KPIMetricsMixin):
     """Métricas para una tecnología específica con KPIs duales."""
     id_tecnologia: int
     nombre: str
@@ -240,35 +275,9 @@ class MetricaTecnologia:
     def porcentaje_tarde(self) -> float:
         return self.porcentaje_tarde_compromiso
     
-    # Properties KPI Interno
-    @property
-    def porcentaje_a_tiempo_interno(self) -> float:
-        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_a_tiempo_interno / total_con_kpi) * 100, 1)
-    
-    @property
-    def porcentaje_tarde_interno(self) -> float:
-        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_tarde_interno / total_con_kpi) * 100, 1)
-    
-    # Properties KPI Compromiso
-    @property
-    def porcentaje_a_tiempo_compromiso(self) -> float:
-        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_a_tiempo_compromiso / total_con_kpi) * 100, 1)
-    
-    @property
-    def porcentaje_tarde_compromiso(self) -> float:
-        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_tarde_compromiso / total_con_kpi) * 100, 1)
+    # Properties KPI Interno (Managed by Mixin)
+        
+    # Properties KPI Compromiso (Managed by Mixin)
     
     @property
     def porcentaje_licitaciones(self) -> float:
@@ -277,34 +286,10 @@ class MetricaTecnologia:
             return 0.0
         return round((self.licitaciones / self.total_solicitudes) * 100, 1)
 
-    @property
-    def semaforo_interno(self) -> str:
-        pct = self.porcentaje_a_tiempo_interno
-        if self.umbrales_interno:
-            return self.umbrales_interno.get_color(pct)
-        # Fallback
-        if pct >= UMBRAL_VERDE:
-            return "green"
-        elif pct >= UMBRAL_AMBAR:
-            return "amber"
-        return "red"
-
-    @property
-    def semaforo_compromiso(self) -> str:
-        pct = self.porcentaje_a_tiempo_compromiso
-        if self.umbrales_compromiso:
-            return self.umbrales_compromiso.get_color(pct)
-        # Fallback
-        if pct >= UMBRAL_VERDE:
-            return "green"
-        elif pct >= UMBRAL_AMBAR:
-            return "amber"
-        return "red"
-
 
 
 @dataclass
-class FilaContabilizacion:
+class FilaContabilizacion(KPIMetricsMixin):
     """Fila de la tabla de contabilización con KPIs duales."""
     id_tipo_solicitud: int
     nombre: str
@@ -316,95 +301,45 @@ class FilaContabilizacion:
 
     total: int = 0
     
-    # KPI Interno
-    en_plazo_interno: int = 0
-    fuera_plazo_interno: int = 0
+    # KPI Interno (Renamed to match Mixin)
+    entregas_a_tiempo_interno: int = 0
+    entregas_tarde_interno: int = 0
     
-    # KPI Compromiso
-    en_plazo_compromiso: int = 0
-    fuera_plazo_compromiso: int = 0
+    # KPI Compromiso (Renamed to match Mixin)
+    entregas_a_tiempo_compromiso: int = 0
+    entregas_tarde_compromiso: int = 0
     
     # Compatibilidad Legacy (apunta a compromiso)
     @property
     def en_plazo(self) -> int:
-        return self.en_plazo_compromiso
+        return self.entregas_a_tiempo_compromiso
         
     @property
     def fuera_plazo(self) -> int:
-        return self.fuera_plazo_compromiso
+        return self.entregas_tarde_compromiso
     
     sin_fecha: int = 0
     es_levantamiento: bool = False
     licitaciones: int = 0  # ← Solicitudes que son licitaciones
     
-    # Properties KPI Interno
-    @property
-    def porcentaje_en_plazo_interno(self) -> float:
-        if self.es_levantamiento:
-            return 0.0
-        total_con_kpi = self.en_plazo_interno + self.fuera_plazo_interno
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.en_plazo_interno / total_con_kpi) * 100, 1)
+    # Properties KPI Interno (Managed by Mixin)
     
-    @property
-    def semaforo_interno(self) -> str:
-        if self.es_levantamiento:
-            return "gray"
-        pct = self.porcentaje_en_plazo_interno
-        
-        # Usar config dinámica si existe
-        if self.umbrales_interno:
-            return self.umbrales_interno.get_color(pct)
-            
-        # Fallback
-        if pct >= UMBRAL_VERDE:
-            return "green"
-        elif pct >= UMBRAL_AMBAR:
-            return "amber"
-        return "red"
-
     @property
     def semaforo_interno_label(self) -> str:
         if self.es_levantamiento:
             return "No aplica"
-        pct = self.porcentaje_en_plazo_interno
+        pct = self.porcentaje_a_tiempo_interno
         if self.umbrales_interno:
             return self.umbrales_interno.get_label(pct)
         return f"{pct}%"
     
-    # Properties KPI Compromiso
-    @property
-    def porcentaje_en_plazo_compromiso(self) -> float:
-        if self.es_levantamiento:
-            return 0.0
-        total_con_kpi = self.en_plazo_compromiso + self.fuera_plazo_compromiso
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.en_plazo_compromiso / total_con_kpi) * 100, 1)
-    
-    @property
-    def semaforo_compromiso(self) -> str:
-        if self.es_levantamiento:
-            return "gray"
-        pct = self.porcentaje_en_plazo_compromiso
-        
-        # Usar config dinámica si existe
-        if self.umbrales_compromiso:
-            return self.umbrales_compromiso.get_color(pct)
-            
-        # Fallback
-        if pct >= UMBRAL_VERDE:
-            return "green"
-        elif pct >= UMBRAL_AMBAR:
-            return "amber"
-        return "red"
+    # Properties KPI Compromiso (Managed by Mixin)
         
     @property
     def semaforo_compromiso_label(self) -> str:
         if self.es_levantamiento:
             return "No aplica"
-        pct = self.porcentaje_en_plazo_compromiso
+        pct = self.porcentaje_a_tiempo_compromiso
         if self.umbrales_compromiso:
             return self.umbrales_compromiso.get_label(pct)
         return f"{pct}%"
@@ -412,7 +347,7 @@ class FilaContabilizacion:
     # Compatibilidad Legacy
     @property
     def porcentaje_en_plazo(self) -> float:
-        return self.porcentaje_en_plazo_compromiso
+        return self.porcentaje_a_tiempo_compromiso
         
     @property
     def semaforo(self) -> str:
@@ -465,7 +400,7 @@ class DetalleUsuario:
 
 
 @dataclass
-class MetricaUsuario:
+class MetricaUsuario(KPIMetricsMixin):
     """Métricas individuales mejoradas para reporte de usuario."""
     usuario_id: UUID
     nombre: str
@@ -482,27 +417,60 @@ class MetricaUsuario:
     tiempo_promedio_por_tipo: Dict[str, float] = field(default_factory=dict)  # ← tipo_solicitud -> horas promedio
     score: Optional['ScoreUsuario'] = None  # ← Score calculado
     
+    # Configuración dinámica (Added for Mixin support if needed later, but MetricaUsuario wasn't using it directly for semaphores in code, but properties use it)
+    # Wait, MetricaUsuario didn't have umbrales fields in definition!
+    # But semaforo_interno used self.umbrales_interno in Mixin.
+    # MetricaUsuario needs these fields if it's going to use the Mixin fully.
+    # Let's check original code.
+    
+    # Original code:
+    # @property
+    # def porcentaje_a_tiempo_interno(self) -> float:
+    # ... logic internal only ...
+    
+    # It didn't have semaforo_interno property! It only had percent properties.
+    # My Mixin ADDS semaforo properties. This is fine, extra functionality.
+    # BUT, the Mixin expects self.umbrales_interno to exist.
+    # If MetricaUsuario doesn't have it, accessing semaforo_interno will crash if I don't handle it.
+    
+    # However, looking at the code I'm removing:
+    # It ONLY had percentage properties. It did NOT have semaphores.
+    # So I can just inherit the percentage logic.
+    # But the mixin defines semaphores too.
+    # If I use the mixin, I get semaphores. 
+    # If I access them, I need umbrales.
+    # If I don't access them, I'm fine?
+    
+    # Wait, the Mixin implementation of semaforo_interno:
+    # if self.umbrales_interno:
+    
+    # This implies self has attribute umbrales_interno.
+    # If MetricaUsuario doesn't have it, it will raise AttributeError.
+    
+    # So I MUST add these fields to MetricaUsuario, defaulting to None.
+    
+    umbrales_interno: Optional[UmbralesKPI] = None
+    umbrales_compromiso: Optional[UmbralesKPI] = None
+
     @property
     def porcentaje_a_tiempo(self) -> float:
         """% entregas a tiempo según KPI Compromiso."""
-        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_a_tiempo_compromiso / total_con_kpi) * 100, 1)
+        return self.porcentaje_a_tiempo_compromiso
     
     @property
     def porcentaje_a_tiempo_compromiso(self) -> float:
         """% entregas a tiempo según KPI Compromiso (alias)."""
-        return self.porcentaje_a_tiempo
+        return super().porcentaje_a_tiempo_compromiso
+
+    # Mixin handles: porcentaje_a_tiempo_interno, porcentaje_a_tiempo_compromiso (Wait, I need to check MRO)
+    # The Mixin has porcentaje_a_tiempo_compromiso.
+    # I can just remove the manual definition if it matches.
+    # Original:
+    # return round((self.entregas_a_tiempo_compromiso / total_con_kpi) * 100, 1)
+    # Mixin:
+    # Same logic.
     
-    @property
-    def porcentaje_a_tiempo_interno(self) -> float:
-        """% entregas a tiempo según KPI Interno."""
-        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_a_tiempo_interno / total_con_kpi) * 100, 1)
-    
+    # So I can remove them all.
     @property
     def porcentaje_licitaciones(self) -> float:
         """% de solicitudes que son licitaciones."""
@@ -741,6 +709,7 @@ class ReportesSimulacionService:
     
     def __init__(self):
         self.zona_mx = ZoneInfo("America/Mexico_City")
+        self.db = SimulacionDBService()
     
     # =========================================================================
     # MÉTODOS AUXILIARES
@@ -750,6 +719,8 @@ class ReportesSimulacionService:
         """Obtiene hora actual en México."""
         return datetime.now(self.zona_mx)
         
+    # _get_catalog_ids removed/replaced by db_service call
+
     async def _get_score_config(self, conn) -> ConfiguracionScore:
         """Obtiene configuración de scoring desde DB o defaults"""
         return ConfiguracionScore(
@@ -765,74 +736,6 @@ class ReportesSimulacionService:
             umbral_verde=await ConfigService.get_global_config(conn, "sim_umbral_verde", UMBRAL_VERDE, float),
             umbral_ambar=await ConfigService.get_global_config(conn, "sim_umbral_ambar", UMBRAL_AMBAR, float)
         )
-    
-    def _build_where_clause(self, filtros: FiltrosReporte, param_offset: int = 0) -> Tuple[str, List]:
-        """
-        Construye cláusula WHERE dinámica con parámetros posicionales.
-        
-        Returns:
-            Tuple[str, List]: (where_clause, params)
-        """
-        conditions = [
-            "e.modulo_aplicable = 'SIMULACION'",
-            f"o.fecha_solicitud >= ${param_offset + 1}::timestamptz",
-            f"o.fecha_solicitud < ${param_offset + 2}::timestamptz + INTERVAL '1 day'"
-        ]
-        params = [filtros.fecha_inicio, filtros.fecha_fin]
-        
-        if filtros.id_tecnologia:
-            conditions.append(f"o.id_tecnologia = ${param_offset + len(params) + 1}")
-            params.append(filtros.id_tecnologia)
-        
-        if filtros.id_tipo_solicitud:
-            conditions.append(f"o.id_tipo_solicitud = ${param_offset + len(params) + 1}")
-            params.append(filtros.id_tipo_solicitud)
-        
-        if filtros.id_estatus:
-            conditions.append(f"o.id_estatus_global = ${param_offset + len(params) + 1}")
-            params.append(filtros.id_estatus)
-        
-        if filtros.responsable_id:
-            conditions.append(f"o.responsable_simulacion_id = ${param_offset + len(params) + 1}")
-            params.append(filtros.responsable_id)
-        
-        where_clause = " AND ".join(conditions)
-        return f"WHERE {where_clause}", params
-    
-    async def _get_catalog_ids(self, conn) -> dict:
-        """
-        Carga IDs de catálogos dinámicamente desde BD con caché de 5 min.
-        """
-        import time
-        
-        if not hasattr(self.__class__, '_catalog_cache'):
-            self.__class__._catalog_cache = None
-            self.__class__._cache_timestamp = None
-            self.__class__._CACHE_TTL_SECONDS = 300
-        
-        now = time.time()
-        
-        if (self.__class__._catalog_cache is not None and 
-            self.__class__._cache_timestamp is not None and 
-            (now - self.__class__._cache_timestamp) < self.__class__._CACHE_TTL_SECONDS):
-            return self.__class__._catalog_cache
-        
-        estatus = await conn.fetch(
-            "SELECT id, LOWER(nombre) as nombre FROM tb_cat_estatus_global WHERE activo = true"
-        )
-        tipos = await conn.fetch(
-            "SELECT id, LOWER(codigo_interno) as codigo FROM tb_cat_tipos_solicitud WHERE activo = true"
-        )
-        
-        result = {
-            "estatus": {row['nombre']: row['id'] for row in estatus},
-            "tipos": {row['codigo']: row['id'] for row in tipos}
-        }
-        
-        self.__class__._catalog_cache = result
-        self.__class__._cache_timestamp = now
-        
-        return result
 
     def calcular_semaforo(self, porcentaje: float, config: ConfiguracionScore = None) -> str:
         """Determina color del semáforo según porcentaje."""
@@ -852,169 +755,13 @@ class ReportesSimulacionService:
     async def get_metricas_generales(self, conn, filtros: FiltrosReporte) -> MetricasGenerales:
         """
         Obtiene métricas agregadas principales CON KPIs DUALES.
-        
         Query optimizado que:
         1. JOIN con tb_sitios_oportunidad para obtener KPIs a nivel sitio
         2. Calcula ambos KPIs (Interno + Compromiso)
         3. Separa Versiones (parent_id) de Retrabajos (es_retrabajo)
         """
-        where_clause, params = self._build_where_clause(filtros)
-        
-        # IDs de catálogos dinámicos
-        cats = await self._get_catalog_ids(conn)
-        
-        id_entregado = cats['estatus'].get('entregado')
-        id_perdido = cats['estatus'].get('perdido')
-        id_cancelado = cats['estatus'].get('cancelado')
-        id_levantamiento = cats['tipos'].get('levantamiento')
-        
-        # IDs para estatus "en espera"
-        id_pendiente = cats['estatus'].get('pendiente')
-        id_en_proceso = cats['estatus'].get('en proceso')
-        id_en_revision = cats['estatus'].get('en revisión')
-        
-        # Agregar parámetros adicionales
-        params.extend([
-            id_entregado, id_perdido, id_cancelado, id_levantamiento, 
-            id_pendiente, id_en_proceso, id_en_revision
-        ])
-        
-        # Calcular índices de parámetros
-        idx_entregado = len(params) - 6
-        idx_perdido = len(params) - 5
-        idx_cancelado = len(params) - 4
-        idx_levantamiento = len(params) - 3
-        idx_pendiente = len(params) - 2
-        idx_proceso = len(params) - 1
-        idx_revision = len(params)
-        
-        query = f"""
-            WITH sitios_kpis AS (
-                -- Obtener KPIs de todos los sitios
-                SELECT 
-                    s.id_oportunidad,
-                    s.id_sitio,
-                    s.kpi_status_interno,
-                    s.kpi_status_compromiso,
-                    s.es_retrabajo,
-                    o.parent_id,
-                    o.clasificacion_solicitud,
-                    o.es_licitacion,
-                    o.id_tipo_solicitud,
-                    o.id_estatus_global,
-                    o.id_motivo_cierre,
-                    o.tiempo_elaboracion_horas,
-                    o.fecha_entrega_simulacion
-                FROM tb_sitios_oportunidad s
-                JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
-                JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-                {where_clause}
-            )
-            SELECT 
-                -- Totales básicos (contar oportunidades únicas, no sitios)
-                COUNT(DISTINCT id_oportunidad) as total_solicitudes,
-                
-                -- Ofertas generadas (Entregado + Perdido) - contar oportunidades
-                COUNT(DISTINCT CASE 
-                    WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido}) 
-                    THEN id_oportunidad 
-                END) as total_ofertas,
-                
-                -- En espera
-                COUNT(DISTINCT CASE 
-                    WHEN id_estatus_global IN (${idx_pendiente}, ${idx_proceso}, ${idx_revision})
-                    THEN id_oportunidad 
-                END) as en_espera,
-                
-                -- Canceladas
-                COUNT(DISTINCT CASE 
-                    WHEN id_estatus_global = ${idx_cancelado} 
-                    THEN id_oportunidad 
-                END) as canceladas,
-                
-                -- No viables (motivo técnico: IDs 1-8)
-                COUNT(DISTINCT CASE 
-                    WHEN id_estatus_global = ${idx_cancelado} 
-                    AND id_motivo_cierre BETWEEN 1 AND 8
-                    THEN id_oportunidad 
-                END) as no_viables,
-                
-                -- Extraordinarias
-                COUNT(DISTINCT CASE 
-                    WHEN clasificacion_solicitud = 'EXTRAORDINARIO' 
-                    THEN id_oportunidad 
-                END) as extraordinarias,
-                
-                -- VERSIONES: Oportunidades con parent_id
-                COUNT(DISTINCT CASE 
-                    WHEN parent_id IS NOT NULL 
-                    THEN id_oportunidad 
-                END) as versiones,
-                
-                -- RETRABAJOS: SITIOS con es_retrabajo=true (NO CONTAR OPORTUNIDADES)
-                COUNT(CASE 
-                    WHEN es_retrabajo = TRUE 
-                    THEN id_sitio 
-                END) as retrabajos,
-                
-                -- Licitaciones
-                COUNT(DISTINCT CASE 
-                    WHEN es_licitacion = TRUE 
-                    THEN id_oportunidad 
-                END) as licitaciones,
-                
-                -- ============================================
-                -- KPI INTERNO (SLA del Sistema)
-                -- ============================================
-                COUNT(CASE 
-                    WHEN kpi_status_interno = 'Entrega a tiempo'
-                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND id_tipo_solicitud != ${idx_levantamiento}
-                    THEN id_sitio 
-                END) as entregas_a_tiempo_interno,
-                
-                COUNT(CASE 
-                    WHEN kpi_status_interno = 'Entrega tarde'
-                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND id_tipo_solicitud != ${idx_levantamiento}
-                    THEN id_sitio 
-                END) as entregas_tarde_interno,
-                
-                -- ============================================
-                -- KPI COMPROMISO (SLA del Cliente)
-                -- ============================================
-                COUNT(CASE 
-                    WHEN kpi_status_compromiso = 'Entrega a tiempo'
-                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND id_tipo_solicitud != ${idx_levantamiento}
-                    THEN id_sitio 
-                END) as entregas_a_tiempo_compromiso,
-                
-                COUNT(CASE 
-                    WHEN kpi_status_compromiso = 'Entrega tarde'
-                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND id_tipo_solicitud != ${idx_levantamiento}
-                    THEN id_sitio 
-                END) as entregas_tarde_compromiso,
-                
-                -- Sin fecha de entrega
-                COUNT(DISTINCT CASE 
-                    WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND fecha_entrega_simulacion IS NULL
-                    THEN id_oportunidad 
-                END) as sin_fecha_entrega,
-                
-                -- Tiempo promedio (de oportunidades, no sitios)
-                AVG(CASE 
-                    WHEN tiempo_elaboracion_horas IS NOT NULL
-                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    THEN tiempo_elaboracion_horas 
-                END) as tiempo_promedio_horas
-                
-            FROM sitios_kpis
-        """
-        
-        row = await conn.fetchrow(query, *params)
+        cats = await self.db.get_report_catalog_ids(conn)
+        row = await self.db.get_report_metricas_generales_row(conn, asdict(filtros), cats)
         
         # Cargar umbrales dinámicos
         u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
@@ -1053,29 +800,12 @@ class ReportesSimulacionService:
         user_id: UUID = None
     ) -> tuple:
         """Obtiene el motivo de retrabajo más común"""
-        where_clause, params = self._build_where_clause(filtros)
+        row = await self.db.get_report_motivo_retrabajo(conn, asdict(filtros), user_id)
         
-        if user_id:
-            where_clause += f" AND o.responsable_simulacion_id = ${len(params) + 1}"
-            params.append(user_id)
-        
-        query = f"""
-            SELECT 
-                mr.nombre as motivo,
-                COUNT(*) as conteo
-            FROM tb_sitios_oportunidad s
-            JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-            LEFT JOIN tb_cat_motivos_retrabajo mr ON s.id_motivo_retrabajo = mr.id
-            {where_clause}
-            AND s.es_retrabajo = TRUE
-            AND s.id_motivo_retrabajo IS NOT NULL
-            GROUP BY mr.nombre
-            ORDER BY conteo DESC
-            LIMIT 1
-        """
-        
-        row = await conn.fetchrow(query, *params)
+        if row:
+            return row['motivo'], row['conteo']
+        else:
+            return None, 0
         
         if row:
             return row['motivo'], row['conteo']
@@ -1089,147 +819,16 @@ class ReportesSimulacionService:
         filtros: FiltrosReporte
     ) -> float:
         """Calcula tiempo promedio global del usuario"""
-        where_clause, params = self._build_where_clause(filtros)
-        
-        where_clause += f" AND o.responsable_simulacion_id = ${len(params) + 1}"
-        params.append(user_id)
-        
-        query = f"""
-            WITH tiempos AS (
-                SELECT tiempo_elaboracion_horas / 24 as dias
-                FROM tb_oportunidades o
-                JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-                {where_clause}
-                AND o.tiempo_elaboracion_horas IS NOT NULL
-                AND o.id_estatus_global IN (
-                    SELECT id FROM tb_cat_estatus_global 
-                    WHERE LOWER(nombre) IN ('entregado', 'perdido')
-                )
-                AND o.id_tipo_solicitud != (
-                    SELECT id FROM tb_cat_tipos_solicitud 
-                    WHERE LOWER(nombre) = 'levantamiento'
-                )
-            )
-            SELECT AVG(dias) as dias_promedio
-            FROM tiempos
-            WHERE dias <= (
-                SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY dias) 
-                FROM tiempos
-            )
-        """
-        
-        row = await conn.fetchrow(query, *params)
-        return round(row['dias_promedio'], 1) if row and row['dias_promedio'] else None
+        dias_promedio = await self.db.get_report_tiempo_promedio_global(conn, user_id, asdict(filtros))
+        return round(dias_promedio, 1) if dias_promedio else None
     
     async def get_metricas_por_tecnologia(self, conn, filtros: FiltrosReporte) -> List[MetricaTecnologia]:
         """
         Obtiene métricas desglosadas por cada tecnología con KPIs duales.
         Usa CTE con join a tb_sitios_oportunidad para KPIs a nivel sitio.
         """
-        where_clause, params = self._build_where_clause(filtros)
-        
-        # IDs de catálogos dinámicos
-        cats = await self._get_catalog_ids(conn)
-        
-        id_entregado = cats['estatus'].get('entregado')
-        id_perdido = cats['estatus'].get('perdido')
-        id_levantamiento = cats['tipos'].get('levantamiento')
-        
-        params.extend([id_entregado, id_perdido, id_levantamiento])
-        idx_entregado = len(params) - 2
-        idx_perdido = len(params) - 1
-        idx_levantamiento = len(params)
-        
-        query = f"""
-            WITH sitios_tech AS (
-                SELECT 
-                    o.id_tecnologia,
-                    s.id_oportunidad,
-                    s.kpi_status_interno,
-                    s.kpi_status_compromiso,
-                    s.es_retrabajo,
-                    o.parent_id,
-                    o.clasificacion_solicitud,
-                    o.es_licitacion,
-                    o.id_estatus_global,
-                    o.id_tipo_solicitud,
-                    o.tiempo_elaboracion_horas,
-                    o.potencia_cierre_fv_kwp,
-                    o.capacidad_cierre_bess_kwh
-                FROM tb_sitios_oportunidad s
-                JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
-                JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-                {where_clause}
-            )
-            SELECT 
-                t.id as id_tecnologia,
-                t.nombre,
-                
-                -- Conteos a nivel oportunidad (DISTINCT)
-                COUNT(DISTINCT st.id_oportunidad) as total_solicitudes,
-                COUNT(DISTINCT st.id_oportunidad) FILTER (
-                    WHERE st.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                ) as total_ofertas,
-                
-                -- KPIs DUALES a nivel sitio (COUNT sin DISTINCT)
-                COUNT(*) FILTER (
-                    WHERE st.kpi_status_interno = 'Entrega a tiempo'
-                    AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND st.id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_a_tiempo_interno,
-                
-                COUNT(*) FILTER (
-                    WHERE st.kpi_status_interno = 'Entrega tarde'
-                    AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND st.id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_tarde_interno,
-                
-                COUNT(*) FILTER (
-                    WHERE st.kpi_status_compromiso = 'Entrega a tiempo'
-                    AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND st.id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_a_tiempo_compromiso,
-                
-                COUNT(*) FILTER (
-                    WHERE st.kpi_status_compromiso = 'Entrega tarde'
-                    AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND st.id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_tarde_compromiso,
-                
-                -- Clasificaciones
-                COUNT(DISTINCT st.id_oportunidad) FILTER (
-                    WHERE st.clasificacion_solicitud = 'EXTRAORDINARIO'
-                ) as extraordinarias,
-                
-                COUNT(DISTINCT st.id_oportunidad) FILTER (
-                    WHERE st.parent_id IS NOT NULL
-                ) as versiones,
-                
-                COUNT(*) FILTER (
-                    WHERE st.es_retrabajo = TRUE
-                ) as retrabajos,
-                
-                -- Licitaciones
-                COUNT(DISTINCT st.id_oportunidad) FILTER (
-                    WHERE st.es_licitacion = TRUE
-                ) as licitaciones,
-                
-                -- Agregados
-                AVG(st.tiempo_elaboracion_horas) FILTER (
-                    WHERE st.tiempo_elaboracion_horas IS NOT NULL
-                ) as tiempo_promedio_horas,
-                
-                COALESCE(SUM(DISTINCT st.potencia_cierre_fv_kwp), 0) as potencia_total_kwp,
-                COALESCE(SUM(DISTINCT st.capacidad_cierre_bess_kwh), 0) as capacidad_total_kwh
-                
-            FROM tb_cat_tecnologias t
-            LEFT JOIN sitios_tech st ON st.id_tecnologia = t.id
-            WHERE t.activo = true
-            GROUP BY t.id, t.nombre
-            ORDER BY t.id
-        """
-        
-        rows = await conn.fetch(query, *params)
+        cats = await self.db.get_report_catalog_ids(conn)
+        rows = await self.db.get_report_metricas_tech(conn, asdict(filtros), cats)
         
         # Cargar umbrales dinámicos
         u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
@@ -1262,137 +861,8 @@ class ReportesSimulacionService:
         """
         Genera la tabla de contabilización por tipo de solicitud con semáforos.
         """
-        where_clause, params = self._build_where_clause(filtros)
-        
-        # IDs de catálogos dinámicos
-        cats = await self._get_catalog_ids(conn)
-        
-        id_entregado = cats['estatus'].get('entregado')
-        id_perdido = cats['estatus'].get('perdido')
-        id_levantamiento = cats['tipos'].get('levantamiento')
-        
-        params.extend([id_entregado, id_perdido, id_levantamiento])
-        idx_entregado = len(params) - 2
-        idx_perdido = len(params) - 1
-        idx_levantamiento = len(params)
-        
-        query = f"""
-            SELECT 
-                ts.id as id_tipo,
-                ts.nombre,
-                ts.codigo_interno,
-                (ts.id = ${idx_levantamiento}) as es_levantamiento,
-                
-                -- Total de oportunidades
-                COUNT(DISTINCT o.id_oportunidad) as total,
-                
-                -- KPI INTERNO (contar SITIOS)
-                COUNT(CASE 
-                    WHEN s.kpi_status_interno = 'Entrega a tiempo'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    THEN s.id_sitio 
-                END) as en_plazo_interno,
-                
-                COUNT(CASE 
-                    WHEN s.kpi_status_interno = 'Entrega tarde'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    THEN s.id_sitio 
-                END) as fuera_plazo_interno,
-                
-                -- KPI COMPROMISO (contar SITIOS)
-                COUNT(CASE 
-                    WHEN s.kpi_status_compromiso = 'Entrega a tiempo'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    THEN s.id_sitio 
-                END) as en_plazo_compromiso,
-                
-                COUNT(CASE 
-                    WHEN s.kpi_status_compromiso = 'Entrega tarde'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    THEN s.id_sitio 
-                END) as fuera_plazo_compromiso,
-                
-                -- Sin fecha
-                COUNT(DISTINCT CASE 
-                    WHEN o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND o.fecha_entrega_simulacion IS NULL
-                    THEN o.id_oportunidad 
-                END) as sin_fecha
-                
-            FROM tb_cat_tipos_solicitud ts
-            LEFT JOIN tb_oportunidades o ON ts.id = o.id_tipo_solicitud 
-                AND o.id_estatus_global >= 1 -- Simple placeholder, the CTE filters logic is in WHERE
-            LEFT JOIN tb_sitios_oportunidad s ON o.id_oportunidad = s.id_oportunidad
-            LEFT JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-            {where_clause}
-            GROUP BY ts.id, ts.nombre, ts.codigo_interno
-            HAVING COUNT(DISTINCT o.id_oportunidad) > 0 OR ts.id IS NOT NULL
-            ORDER BY ts.id
-        """
-        # Note: Previous query had slightly different logic with filtered_ops. 
-        # To strictly follow instructions, I should use the one provided in the instructions file
-        # which uses direct joins. Re-implementing strictly from instruction block.
-        
-        query = f"""
-            SELECT 
-                ts.id as id_tipo_solicitud,
-                ts.nombre,
-                ts.codigo_interno,
-                
-                COUNT(DISTINCT o.id_oportunidad) as total,
-                
-                -- KPI INTERNO
-                COUNT(CASE 
-                    WHEN s.kpi_status_interno = 'Entrega a tiempo'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    THEN s.id_sitio 
-                END) as en_plazo_interno,
-                
-                COUNT(CASE 
-                    WHEN s.kpi_status_interno = 'Entrega tarde'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    THEN s.id_sitio 
-                END) as fuera_plazo_interno,
-                
-                -- KPI COMPROMISO
-                COUNT(CASE 
-                    WHEN s.kpi_status_compromiso = 'Entrega a tiempo'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    THEN s.id_sitio 
-                END) as en_plazo_compromiso,
-                
-                COUNT(CASE 
-                    WHEN s.kpi_status_compromiso = 'Entrega tarde'
-                    AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    THEN s.id_sitio 
-                END) as fuera_plazo_compromiso,
-                
-                -- Sin fecha
-                COUNT(DISTINCT CASE 
-                    WHEN o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND o.fecha_entrega_simulacion IS NULL
-                    THEN o.id_oportunidad 
-                END) as sin_fecha,
-                
-                -- Licitaciones
-                COUNT(DISTINCT CASE 
-                    WHEN o.es_licitacion = TRUE 
-                    THEN o.id_oportunidad 
-                END) as licitaciones,
-                
-                (ts.id = ${idx_levantamiento}) as es_levantamiento
-                
-            FROM tb_cat_tipos_solicitud ts
-            LEFT JOIN tb_oportunidades o ON ts.id = o.id_tipo_solicitud
-            LEFT JOIN tb_sitios_oportunidad s ON o.id_oportunidad = s.id_oportunidad
-            LEFT JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-            {where_clause}
-            GROUP BY ts.id, ts.nombre, ts.codigo_interno
-            HAVING COUNT(DISTINCT o.id_oportunidad) > 0
-            ORDER BY ts.id
-        """
-        
-        rows = await conn.fetch(query, *params)
+        cats = await self.db.get_report_catalog_ids(conn)
+        rows = await self.db.get_report_tabla_contabilizacion(conn, asdict(filtros), cats)
         
         # Cargar umbrales dinámicos
         u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
@@ -1406,10 +876,10 @@ class ReportesSimulacionService:
                 umbrales_interno=u_interno,
                 umbrales_compromiso=u_compromiso,
                 total=row['total'] or 0,
-                en_plazo_interno=row['en_plazo_interno'] or 0,
-                fuera_plazo_interno=row['fuera_plazo_interno'] or 0,
-                en_plazo_compromiso=row['en_plazo_compromiso'] or 0,
-                fuera_plazo_compromiso=row['fuera_plazo_compromiso'] or 0,
+                entregas_a_tiempo_interno=row['entregas_a_tiempo_interno'] or 0,
+                entregas_tarde_interno=row['entregas_tarde_interno'] or 0,
+                entregas_a_tiempo_compromiso=row['entregas_a_tiempo_compromiso'] or 0,
+                entregas_tarde_compromiso=row['entregas_tarde_compromiso'] or 0,
                 sin_fecha=row['sin_fecha'] or 0,
                 licitaciones=row['licitaciones'] or 0,
                 es_levantamiento=row['es_levantamiento'] or False
@@ -1427,20 +897,7 @@ class ReportesSimulacionService:
         - Tabla de contabilización personal
         """
         # Primero obtener lista de usuarios con actividad en el período
-        where_clause, base_params = self._build_where_clause(filtros)
-        
-        query_usuarios = f"""
-            SELECT DISTINCT 
-                u.id_usuario,
-                u.nombre
-            FROM tb_usuarios u
-            INNER JOIN tb_oportunidades o ON o.responsable_simulacion_id = u.id_usuario
-            INNER JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-            {where_clause}
-            ORDER BY u.nombre
-        """
-        
-        usuarios = await conn.fetch(query_usuarios, *base_params)
+        usuarios = await self.db.get_report_users_active(conn, asdict(filtros))
         
         if not usuarios:
             return []
@@ -1521,42 +978,9 @@ class ReportesSimulacionService:
         Returns:
             Dict con nombre_tipo -> días promedio
         """
-        where_clause, params = self._build_where_clause(filtros)
-        
-        # Agregar filtro de usuario
-        idx_user = len(params) + 1
-        params.append(user_id)
-        
-        # IDs de catálogos dinámicos
-        cats = await self._get_catalog_ids(conn)
-        id_entregado = cats['estatus'].get('entregado')
-        id_perdido = cats['estatus'].get('perdido')
-        
-        params.extend([id_entregado, id_perdido])
-        idx_entregado = len(params) - 1
-        idx_perdido = len(params)
-        
-        query = f"""
-            SELECT 
-                ts.nombre as tipo,
-                AVG(o.tiempo_elaboracion_horas) / 24 as dias_promedio
-            FROM tb_oportunidades o
-            JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-            {where_clause}
-            AND o.responsable_simulacion_id = ${idx_user}
-            AND o.tiempo_elaboracion_horas IS NOT NULL
-            AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-            AND o.id_tipo_solicitud != (
-                SELECT id FROM tb_cat_tipos_solicitud 
-                WHERE LOWER(nombre) = 'levantamiento'
-            )
-            GROUP BY ts.nombre
-            HAVING AVG(o.tiempo_elaboracion_horas) IS NOT NULL
-        """
-        
-        rows = await conn.fetch(query, *params)
-        return {row['tipo']: round(float(row['dias_promedio']), 1) for row in rows}
+
+        cats = await self.db.get_report_catalog_ids(conn)
+        return await self.db.get_report_tiempo_promedio_tipo(conn, user_id, asdict(filtros), cats)
     
     def generar_resumen_usuario(
         self, 
@@ -1860,124 +1284,8 @@ class ReportesSimulacionService:
         Returns:
             Dict con métricas como keys y FilaMensual como values
         """
-        where_clause, params = self._build_where_clause(filtros)
-        
-        # IDs de catálogos dinámicos
-        cats = await self._get_catalog_ids(conn)
-        
-        id_entregado = cats['estatus'].get('entregado')
-        id_perdido = cats['estatus'].get('perdido')
-        id_cancelado = cats['estatus'].get('cancelado')
-        id_levantamiento = cats['tipos'].get('levantamiento')
-        
-        # IDs para estatus "en espera"
-        id_pendiente = cats['estatus'].get('pendiente')
-        id_en_proceso = cats['estatus'].get('en proceso')
-        id_en_revision = cats['estatus'].get('en revisión')
-        
-        params.extend([id_entregado, id_perdido, id_cancelado, id_levantamiento, id_pendiente, id_en_proceso, id_en_revision])
-        idx_entregado = len(params) - 6
-        idx_perdido = len(params) - 5
-        idx_cancelado = len(params) - 4
-        idx_levantamiento = len(params) - 3
-        idx_pendiente = len(params) - 2
-        idx_proceso = len(params) - 1
-        idx_revision = len(params)
-        
-        # Query con CTE para incluir KPIs de sitios
-        query = f"""
-            WITH sitios_mensual AS (
-                SELECT 
-                    EXTRACT(MONTH FROM o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::int as mes,
-                    s.id_oportunidad,
-                    s.kpi_status_interno,
-                    s.kpi_status_compromiso,
-                    s.es_retrabajo,
-                    o.parent_id,
-                    o.clasificacion_solicitud,
-                    o.id_estatus_global,
-                    o.id_tipo_solicitud,
-                    o.tiempo_elaboracion_horas,
-                    o.id_motivo_cierre
-                FROM tb_sitios_oportunidad s
-                JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
-                JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-                {where_clause}
-            )
-            SELECT 
-                mes,
-                
-                COUNT(DISTINCT id_oportunidad) as solicitudes_recibidas,
-                
-                COUNT(DISTINCT id_oportunidad) FILTER (
-                    WHERE id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                ) as ofertas_generadas,
-                
-                -- KPI INTERNO
-                COUNT(*) FILTER (
-                    WHERE kpi_status_interno = 'Entrega a tiempo'
-                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_a_tiempo_interno,
-                
-                COUNT(*) FILTER (
-                    WHERE kpi_status_interno = 'Entrega tarde'
-                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_tarde_interno,
-                
-                -- KPI COMPROMISO
-                COUNT(*) FILTER (
-                    WHERE kpi_status_compromiso = 'Entrega a tiempo'
-                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_a_tiempo_compromiso,
-                
-                COUNT(*) FILTER (
-                    WHERE kpi_status_compromiso = 'Entrega tarde'
-                    AND id_estatus_global IN (${idx_entregado}, ${idx_perdido})
-                    AND id_tipo_solicitud != ${idx_levantamiento}
-                ) as entregas_tarde_compromiso,
-                
-                AVG(tiempo_elaboracion_horas) FILTER (
-                    WHERE tiempo_elaboracion_horas IS NOT NULL
-                ) as tiempo_promedio,
-                
-                COUNT(DISTINCT id_oportunidad) FILTER (
-                    WHERE id_estatus_global IN (${idx_pendiente}, ${idx_proceso}, ${idx_revision})
-                ) as en_espera,
-                
-                COUNT(DISTINCT id_oportunidad) FILTER (
-                    WHERE id_estatus_global = ${idx_cancelado}
-                ) as canceladas,
-                
-                COUNT(DISTINCT id_oportunidad) FILTER (
-                    WHERE id_estatus_global = ${idx_cancelado}
-                    AND id_motivo_cierre BETWEEN 1 AND 8
-                ) as no_viables,
-                
-                COUNT(DISTINCT id_oportunidad) FILTER (
-                    WHERE id_estatus_global = ${idx_perdido}
-                ) as perdidas,
-                
-                COUNT(DISTINCT id_oportunidad) FILTER (
-                    WHERE clasificacion_solicitud = 'EXTRAORDINARIO'
-                ) as extraordinarias,
-                
-                COUNT(DISTINCT id_oportunidad) FILTER (
-                    WHERE parent_id IS NOT NULL
-                ) as versiones,
-                
-                COUNT(*) FILTER (
-                    WHERE es_retrabajo = TRUE
-                ) as retrabajos
-                
-            FROM sitios_mensual
-            GROUP BY mes
-            ORDER BY mes
-        """
-        
-        rows = await conn.fetch(query, *params)
+        cats = await self.db.get_report_catalog_ids(conn)
+        rows = await self.db.get_report_resumen_mensual(conn, asdict(filtros), cats)
         
         # Inicializar estructura de respuesta con nuevas métricas
         metricas_nombres = [
@@ -2100,21 +1408,7 @@ class ReportesSimulacionService:
     
     async def _get_grafica_estatus(self, conn, filtros: FiltrosReporte) -> DatosGrafica:
         """Distribución por estatus."""
-        where_clause, params = self._build_where_clause(filtros)
-        
-        query = f"""
-            SELECT 
-                e.nombre,
-                e.color_hex,
-                COUNT(*) as total
-            FROM tb_oportunidades o
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-            {where_clause}
-            GROUP BY e.id, e.nombre, e.color_hex
-            ORDER BY total DESC
-        """
-        
-        rows = await conn.fetch(query, *params)
+        rows = await self.db.get_chart_estatus(conn, asdict(filtros))
         
         return DatosGrafica(
             tipo='doughnut',
@@ -2127,20 +1421,7 @@ class ReportesSimulacionService:
     
     async def _get_grafica_mensual(self, conn, filtros: FiltrosReporte) -> DatosGrafica:
         """Solicitudes por mes."""
-        where_clause, params = self._build_where_clause(filtros)
-        
-        query = f"""
-            SELECT 
-                EXTRACT(MONTH FROM o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::int as mes,
-                COUNT(*) as total
-            FROM tb_oportunidades o
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-            {where_clause}
-            GROUP BY mes
-            ORDER BY mes
-        """
-        
-        rows = await conn.fetch(query, *params)
+        rows = await self.db.get_chart_mensual(conn, asdict(filtros))
         
         meses_nombres = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 
                          'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
@@ -2157,21 +1438,7 @@ class ReportesSimulacionService:
     
     async def _get_grafica_tecnologia(self, conn, filtros: FiltrosReporte) -> DatosGrafica:
         """Distribución por tecnología."""
-        where_clause, params = self._build_where_clause(filtros)
-        
-        query = f"""
-            SELECT 
-                t.nombre,
-                COUNT(*) as total
-            FROM tb_oportunidades o
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-            JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
-            {where_clause}
-            GROUP BY t.id, t.nombre
-            ORDER BY total DESC
-        """
-        
-        rows = await conn.fetch(query, *params)
+        rows = await self.db.get_chart_tecnologia(conn, asdict(filtros))
         
         # Colores predefinidos para tecnologías
         colores = ['#00BABB', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6']
@@ -2209,24 +1476,7 @@ class ReportesSimulacionService:
     
     async def _get_grafica_motivos(self, conn, filtros: FiltrosReporte) -> DatosGrafica:
         """Distribución de motivos de cierre."""
-        where_clause, params = self._build_where_clause(filtros)
-        
-        query = f"""
-            SELECT 
-                m.motivo,
-                m.categoria,
-                COUNT(*) as total
-            FROM tb_oportunidades o
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
-            JOIN tb_cat_motivos_cierre m ON o.id_motivo_cierre = m.id
-            {where_clause}
-            AND o.id_motivo_cierre IS NOT NULL
-            GROUP BY m.id, m.motivo, m.categoria
-            ORDER BY total DESC
-            LIMIT 10
-        """
-        
-        rows = await conn.fetch(query, *params)
+        rows = await self.db.get_chart_motivos_cierre(conn, asdict(filtros))
         
         # Colores por categoría
         colores_categoria = {
@@ -2253,32 +1503,7 @@ class ReportesSimulacionService:
     # =========================================================================
     
     async def get_catalogos_filtros(self, conn) -> Dict[str, List[Dict]]:
-        """
-        Obtiene catálogos para poblar los filtros del reporte.
-        """
-        tecnologias = await conn.fetch(
-            "SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre"
-        )
-        tipos = await conn.fetch(
-            "SELECT id, nombre, codigo_interno FROM tb_cat_tipos_solicitud WHERE activo = true ORDER BY nombre"
-        )
-        estatus = await conn.fetch(
-            "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY id"
-        )
-        usuarios = await conn.fetch("""
-            SELECT id_usuario, nombre 
-            FROM tb_usuarios 
-            WHERE is_active = true 
-            AND LOWER(department) = 'simulación'
-            ORDER BY nombre
-        """)
-        
-        return {
-            "tecnologias": [dict(t) for t in tecnologias],
-            "tipos_solicitud": [dict(t) for t in tipos],
-            "estatus": [dict(e) for e in estatus],
-            "usuarios": [dict(u) for u in usuarios]
-        }
+        return await self.db.get_report_catalogos_filtros(conn)
 
 
 # =============================================================================
@@ -2286,5 +1511,4 @@ class ReportesSimulacionService:
 # =============================================================================
 
 def get_reportes_service() -> ReportesSimulacionService:
-    """Factory para inyección de dependencias en FastAPI."""
     return ReportesSimulacionService()

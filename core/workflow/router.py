@@ -63,11 +63,7 @@ async def get_comentarios_modal(
         raise HTTPException(status_code=400, detail=f"Módulo '{module}' no válido")
     
     # Obtener info de la oportunidad para el header
-    op = await conn.fetchrow("""
-        SELECT op_id_estandar, nombre_proyecto, titulo_proyecto, cliente_nombre 
-        FROM tb_oportunidades 
-        WHERE id_oportunidad = $1
-    """, id_oportunidad)
+    op = await workflow_service.get_oportunidad_basic_info(conn, id_oportunidad)
     
     if not op:
         raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
@@ -170,4 +166,27 @@ async def create_comentario_workflow(
     })
     
     return response
+
+
+@router.get("/modals/detalle/{id_oportunidad}")
+async def get_detalle_oportunidad_modal(
+    request: Request,
+    id_oportunidad: UUID,
+    workflow_service = Depends(get_workflow_service),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context)
+):
+    """
+    Modal de detalles de oportunidad (Solo lectura).
+    Accesible desde Comercial y Simulación.
+    """
+    op = await workflow_service.get_detalle_oportunidad(conn, id_oportunidad)
+    
+    if not op:
+         raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
+
+    return templates.TemplateResponse("shared/modals/detalle_oportunidad_modal.html", {
+        "request": request,
+        "op": op
+    })
 

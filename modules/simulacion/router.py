@@ -4,7 +4,6 @@ Router del Módulo Simulación
 
 from fastapi import APIRouter, Request, Depends, Form, HTTPException, Query
 from fastapi.templating import Jinja2Templates
-from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse
 import io
 from datetime import date
@@ -16,12 +15,17 @@ import asyncpg
 
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
-from core.permissions import require_module_access
+from core.permissions import require_module_access, require_manager_access, require_role
 from core.config import settings
+
 from core.database import get_db_connection
 
 # Import del Service Layer
 from .service import SimulacionService, get_simulacion_service
+from .db_service import SimulacionDBService, get_db_service
+from ..comercial.service import ComercialService # Reusing logic from Comercial
+from modules.shared.services import SiteService
+
 from .metrics_service import MetricsService, get_metrics_service
 from datetime import datetime, timedelta
 
@@ -91,21 +95,15 @@ async def get_form_extraordinario(
     context = Depends(get_current_user_context),
     service: SimulacionService = Depends(get_simulacion_service),
     conn = Depends(get_db_connection),
-    _ = require_module_access("simulacion")
+    _ = require_manager_access("simulacion")
 ):
     """
     Formulario para registro extraordinario de oportunidades.
     Solo accesible para ADMIN y MANAGER.
     """
-    # Validación de permiso: Admin Global, Admin de Módulo, o Manager Editor
+    # Validación de permiso: Delegada a require_manager_access
     role = context.get("role")
-    module_role = context.get("module_roles", {}).get("simulacion", "")
-    
-    is_module_editor_or_higher = module_role in ["editor", "assignor", "admin"]
-    has_access = (role == "ADMIN") or (module_role == "admin") or (role == "MANAGER" and is_module_editor_or_higher)
-    
-    if not has_access:
-        raise HTTPException(status_code=403, detail="Acceso denegado. Se requiere nivel Administrador o Manager (Editor) en el módulo.")
+
     
     # Cargar catálogos para el formulario
     catalogos = await service.get_catalogos_ui(conn)
@@ -156,36 +154,26 @@ async def create_oportunidad_extraordinaria(
     context = Depends(get_current_user_context),
     service: SimulacionService = Depends(get_simulacion_service),
     conn = Depends(get_db_connection),
-    _ = require_module_access("simulacion")
+    _ = require_manager_access("simulacion")
 ):
     """
     Procesa el formulario extraordinario y crea la oportunidad.
     Solo accesible para ADMIN y MANAGER.
     """
-    # Validación de permiso: Admin Global, Admin de Módulo, o Manager Editor
-    role = context.get("role")
-    module_role = context.get("module_roles", {}).get("simulacion", "")
-    
-    is_module_editor_or_higher = module_role in ["editor", "assignor", "admin"]
-    has_access = (role == "ADMIN") or (module_role == "admin") or (role == "MANAGER" and is_module_editor_or_higher)
-    
-    if not has_access:
-        raise HTTPException(status_code=403, detail="Acceso denegado. Se requiere nivel Administrador o Manager (Editor) en el módulo")
+    # Validación de permiso: Delegada a require_manager_access
     
     try:
-        # Construir objeto BESS
-        detalles_bess = None
-        if bess_uso_sistema or bess_cargas_criticas:
-            detalles_bess = DetalleBessCreate(
-                uso_sistema_json=bess_uso_sistema,
-                cargas_criticas_kw=bess_cargas_criticas,
-                tiene_motores=bess_tiene_motores,
-                potencia_motor_hp=bess_potencia_motor,
-                tiempo_autonomia=bess_autonomia,
-                voltaje_operacion=bess_voltaje,
-                cargas_separadas=bess_cargas_separadas,
-                tiene_planta_emergencia=bess_planta_emergencia
-            )
+        # Construir objeto BESS (Reusando lógica centralizada de Comercial)
+        detalles_bess = ComercialService.build_bess_detail(
+            uso_sistema=bess_uso_sistema,
+            cargas_criticas=bess_cargas_criticas,
+            tiene_motores=bess_tiene_motores,
+            potencia_motor=bess_potencia_motor,
+            tiempo_autonomia=bess_autonomia,
+            voltaje_operacion=bess_voltaje,
+            cargas_separadas=bess_cargas_separadas,
+            tiene_planta_emergencia=bess_planta_emergencia
+        )
         
         # Crear objeto de datos completo
         datos = OportunidadCreateCompleta(
@@ -216,7 +204,7 @@ async def create_oportunidad_extraordinaria(
         
         # Auto-crear sitio si es unisitio (Para evitar proyectos huérfanos de sitio)
         if cantidad_sitios == 1:
-            await service.auto_crear_sitio_unico(
+            await SiteService.create_single_site(
                 conn, new_id, nombre_proyecto, direccion_obra, google_maps_link, id_tipo_solicitud
             )
         
@@ -412,6 +400,7 @@ async def get_sitios_partial(
     id_oportunidad: UUID,
     request: Request,
     service: SimulacionService = Depends(get_simulacion_service),
+    db_service: SimulacionDBService = Depends(get_db_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
     _ = require_module_access("simulacion")
@@ -421,10 +410,8 @@ async def get_sitios_partial(
     
     # Obtener opciones para dropdown (Excluyendo "Ganada")
     status_ids = await service._get_status_ids(conn)
-    estatus_options = await conn.fetch(
-        "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND id != $1 ORDER BY id",
-        status_ids["ganada"]
-    )
+    # Using DB Service
+    estatus_options = await db_service.get_estatus_simulacion_dropdown(conn, exclude_id=status_ids["ganada"])
     
     return templates.TemplateResponse("simulacion/partials/sitios_list.html", {
         "request": request,
@@ -441,13 +428,14 @@ async def get_edit_modal(
     request: Request,
     id_oportunidad: UUID,
     service: SimulacionService = Depends(get_simulacion_service),
+    db_service: SimulacionDBService = Depends(get_db_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context), # Necesario para checar rol
     _ = require_module_access("simulacion") # Acceso base (Viewer puede ver el modal, pero no guardar)
 ):
     """Renderiza el modal de edición principal."""
     # 1. Obtener datos actuales
-    op = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
+    op = await db_service.get_oportunidad_by_id(conn, id_oportunidad)
     if not op:
         return JSONResponse(status_code=404, content={"message": "Oportunidad no encontrada"})
 
@@ -458,26 +446,14 @@ async def get_edit_modal(
     status_ids = await service._get_status_ids(conn)
     
     # Excluir "Ganada" del dropdown (solo para selección manual) -> CORRECCIÓN: Se debe mostrar TODO
-    estatus_global = await conn.fetch(
-        "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY id"
-    )
-    motivos_cierre = await conn.fetch("SELECT id, motivo FROM tb_cat_motivos_cierre WHERE activo = true ORDER BY motivo")
+    estatus_global = await db_service.get_estatus_simulacion_dropdown(conn)
+    motivos_cierre = await db_service.get_motivos_cierre(conn)
     
     # NUEVO: Cargar sitios de esta oportunidad para checkbox de retrabajo
-    sitios_oportunidad = await conn.fetch(
-        """
-        SELECT id_sitio, nombre_sitio, direccion, es_retrabajo
-        FROM tb_sitios_oportunidad 
-        WHERE id_oportunidad = $1 
-        ORDER BY nombre_sitio
-        """,
-        id_oportunidad
-    )
+    sitios_oportunidad = await db_service.get_sitios_by_oportunidad(conn, id_oportunidad)
     
     # NUEVO: Cargar catálogo de motivos de retrabajo
-    motivos_retrabajo = await conn.fetch(
-        "SELECT id, nombre FROM tb_cat_motivos_retrabajo WHERE activo = true ORDER BY nombre"
-    )
+    motivos_retrabajo = await db_service.get_motivos_retrabajo(conn)
     
     # Determinar si es multisitio
     es_multisitio = len(sitios_oportunidad) > 1
@@ -603,6 +579,7 @@ async def batch_update_sitios(
     request: Request,
     # Removed schemas.SitiosBatchUpdate strict dependency to avoid 422 before handler
     service: SimulacionService = Depends(get_simulacion_service),
+    db_service: SimulacionDBService = Depends(get_db_service),
     conn = Depends(get_db_connection),
     _ = require_module_access("simulacion", "editor") # <--- SEGURIDAD
 ):
@@ -687,10 +664,7 @@ async def batch_update_sitios(
         id_estatus_global = int(id_estatus_global)
         
         # Obtener id_oportunidad del primer sitio
-        id_op = await conn.fetchval(
-            "SELECT id_oportunidad FROM tb_sitios_oportunidad WHERE id_sitio = $1", 
-            ids_sitios[0]
-        )
+        id_op = await db_service.get_id_oportunidad_from_sitio(conn, ids_sitios[0])
         
         if not id_op:
             raise ValueError("Sitio no encontrado")
@@ -710,10 +684,7 @@ async def batch_update_sitios(
         # 6. Response (Refresh Table)
         sitios = await service.get_sitios(conn, id_op)
         status_ids = await service._get_status_ids(conn)
-        estatus_options = await conn.fetch(
-            "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND id != $1 ORDER BY id",
-            status_ids["ganada"]
-        )
+        estatus_options = await db_service.get_estatus_simulacion_dropdown(conn, exclude_id=status_ids["ganada"])
         
         return templates.TemplateResponse("simulacion/partials/sitios_list.html", {
             "request": request,
@@ -737,15 +708,13 @@ async def update_responsable(
     id_oportunidad: UUID,
     responsable_simulacion_id: UUID = Form(...),
     conn = Depends(get_db_connection),
+    db_service: SimulacionDBService = Depends(get_db_service),
     _ = require_module_access("simulacion", "editor")
 ):
     """Actualización rápida de responsable (Inline)."""
     try:
         # Update directo
-        await conn.execute(
-            "UPDATE tb_oportunidades SET responsable_simulacion_id = $1 WHERE id_oportunidad = $2",
-            responsable_simulacion_id, id_oportunidad
-        )
+        await db_service.update_responsable(conn, id_oportunidad, responsable_simulacion_id)
         return templates.TemplateResponse("shared/partials/toasts/toast_success.html", {
             "request": request,
             "title": "Asignación Actualizada",
@@ -768,29 +737,20 @@ async def get_metricas_operativas(
     request: Request,
     context = Depends(get_current_user_context),
     conn = Depends(get_db_connection),
-    _ = require_module_access("simulacion")
+    db_service: SimulacionDBService = Depends(get_db_service),
+    _ = require_role(["ADMIN"])
 ):
     """
     Dashboard de métricas operativas de Simulación (solo admins).
     """
     
-    # Verificar que el usuario es admin
-    if not context.get("is_admin"):
-        return RedirectResponse(url="/simulacion/ui")
+    # Verificar que el usuario es admin (Delegado a require_role)
+
     
     # Obtener usuarios y tipos de solicitud para filtros
-    usuarios = await conn.fetch("""
-        SELECT id_usuario as id, nombre
-        FROM tb_usuarios
-        WHERE is_active = TRUE
-        ORDER BY nombre
-    """)
+    usuarios = await db_service.get_usuarios_activos(conn)
     
-    tipos_solicitud = await conn.fetch("""
-        SELECT id, nombre
-        FROM tb_cat_tipos_solicitud
-        ORDER BY nombre
-    """)
+    tipos_solicitud = await db_service.get_tipos_solicitud(conn)
     
     if request.headers.get("hx-request"):
         template = "simulacion/metricas_operativas.html"

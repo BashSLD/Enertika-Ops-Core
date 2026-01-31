@@ -234,124 +234,141 @@
 </div>
 
 <!-- SharePoint Help Modal -->
+<!-- SharePoint Help Modal -->
 <div id="sp-help-modal"
-    class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
-    <div class="relative p-5 border w-[600px] shadow-lg rounded-lg bg-white">
-        <div class="flex justify-between items-center mb-4">
-            <h3 class="text-lg font-bold text-gray-900">Guía: Obtener IDs de SharePoint</h3>
-            <button type="button" onclick="document.getElementById('sp-help-modal').classList.add('hidden')"
-                class="text-gray-400 hover:text-gray-500">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
-                    </path>
-                </svg>
-            </button>
-        </div>
+    class="hidden fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+    <div class="relative w-full max-w-2xl bg-white rounded-xl shadow-2xl transform transition-all animate-scale-in">
 
-        <div class="mt-2 text-sm text-gray-600 space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-            <p>Sigue estos pasos en <strong>Graph Explorer</strong>:</p>
-
-            <div class="bg-gray-50 p-3 rounded border border-gray-200">
-                <p class="font-bold text-blue-700">1. Obtener Site ID</p>
-                <p class="mb-1">GET <code>https://graph.microsoft.com/v1.0/sites/{hostname}:/sites/{sitename}</code></p>
-                <p class="text-xs text-gray-500 italic">Ej: sites/miempresa.sharepoint.com:/sites/Comercial</p>
-                <p class="mt-1">Copia el valor del campo <strong>"id"</strong>.</p>
-            </div>
-
-            <div class="bg-gray-50 p-3 rounded border border-gray-200">
-                <p class="font-bold text-blue-700">2. Obtener Drive ID (Document Library)</p>
-                <p class="mb-1">GET <code>https://graph.microsoft.com/v1.0/sites/{SITE_ID}/drives</code></p>
-                <p class="mt-1">Busca el objeto con <code>valor completo del campo id/drives</code> (o tu librería).</p>
-                <p class="mt-1">Copia el valor del campo <strong>"id"</strong> (empieza con 'b!').</p>
-            </div>
-
-            <div class="bg-yellow-50 p-3 rounded border border-yellow-200">
-                <p class="font-bold text-yellow-800">Carpeta Base (Opcional)</p>
-                <p>Define una ruta relativa como <code>Sistema/Proyectos</code>.</p>
-                <p>Si la dejas vacía, se crearán las carpetas en la raíz.</p>
+        <div class="bg-gradient-to-r from-[#00BABB] to-[#123456] px-6 py-4 rounded-t-xl mb-4">
+            <div class="flex justify-between items-center">
+                <h3 class="text-lg font-bold text-white">Guía: Obtener IDs de SharePoint</h3>
+                <button type="button" onclick="document.getElementById('sp-help-modal').classList.add('hidden')"
+                    class="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                        </path>
+                    </svg>
+                </button>
             </div>
         </div>
 
-        <div class="mt-4 flex justify-end">
-            <button type="button" onclick="document.getElementById('sp-help-modal').classList.add('hidden')"
-                class="bg-blue-600 text-white px-4 py-2 rounded text-base font-medium hover:bg-blue-700">
-                Entendido
-            </button>
+        <div class="p-6 pt-0">
+            <div class="mt-2 text-sm text-gray-600 space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+                <p>Sigue estos pasos en <strong>Graph Explorer</strong>:</p>
+
+                <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <p class="font-bold text-[#123456]">1. Obtener Site ID</p>
+                    <p class="mb-1 font-mono text-xs bg-white p-2 rounded border mt-2">GET
+                        https://graph.microsoft.com/v1.0/sites/{hostname}:/sites/{sitename}</p>
+                    <p class="text-xs text-gray-500 italic mt-1">Ej: sites/miempresa.sharepoint.com:/sites/Comercial</p>
+                    <p class="mt-2 text-xs">Copia el valor del campo <strong class="text-[#00BABB]">"id"</strong>.</p>
+                </div>
+
+                <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <p class="font-bold text-[#123456]">2. Obtener Drive ID (Document Library)</p>
+                    <p class="mb-1 font-mono text-xs bg-white p-2 rounded border mt-2">GET
+                        https://graph.microsoft.com/v1.0/sites/{SITE_ID}/drives</p>
+                    <p class="mt-2 text-xs">Busca el objeto con <code>valor completo del campo id/drives</code> (o tu
+                        librería).</p>
+                    <p class="mt-1 text-xs">Copia el valor del campo <strong class="text-[#00BABB]">"id"</strong>
+                        (empieza con 'b!').</p>
+                </div>
+
+                <div class="bg-yellow-50 p-4 rounded-lg border border-yellow-200">
+                    <p class="font-bold text-yellow-800">Carpeta Base (Opcional)</p>
+                    <p class="mt-1 text-xs">Define una ruta relativa como <code>Sistema/Proyectos</code>.</p>
+                    <p class="text-xs">Si la dejas vacía, se crearán las carpetas en la raíz.</p>
+                </div>
+            </div>
+
+            <div class="mt-6 flex justify-end border-t pt-4">
+                <button type="button" onclick="document.getElementById('sp-help-modal').classList.add('hidden')"
+                    class="bg-[#00BABB] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#009999] transition-colors shadow-sm">
+                    Entendido
+                </button>
+            </div>
         </div>
     </div>
 </div>
 <!-- Simulation Help Modal -->
+<!-- Simulation Help Modal -->
 <div id="sim-help-modal"
-    class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50 flex items-center justify-center">
-    <div class="relative p-5 border w-[600px] shadow-lg rounded-lg bg-white">
-        <div class="flex justify-between items-center mb-4 border-b pb-2">
-            <h3 class="text-lg font-bold text-purple-900">Ayuda: Configuración de KPIs</h3>
-            <button type="button" onclick="document.getElementById('sim-help-modal').classList.add('hidden')"
-                class="text-gray-400 hover:text-gray-500">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
-                    </path>
-                </svg>
-            </button>
-        </div>
+    class="hidden fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in">
+    <div class="relative w-full max-w-2xl bg-white rounded-xl shadow-2xl transform transition-all animate-scale-in">
 
-        <div class="mt-2 text-sm text-gray-600 space-y-4 max-h-[70vh] overflow-y-auto pr-2">
-
-            <div class="bg-gray-100 p-3 rounded border border-gray-300">
-                <h4 class="font-bold text-gray-800 mb-2">Fórmula de Cálculo</h4>
-                <p class="font-mono text-xs bg-white p-2 rounded border">
-                    Score Final = (Score Base × Multiplicador)<br>
-                    <br>
-                    Score Base = (%Compromiso × PesoComp) + (%Interno × PesoInt) + (%Volumen × PesoVol)<br>
-                    Multiplicador = 1.0 + (RatioLic × BonusLic) + (RatioAct × BonusAct) + Penalización
-                </p>
-            </div>
-
-            <div class="bg-purple-50 p-3 rounded border border-purple-100">
-                <h4 class="font-bold text-purple-800 mb-2">Ponderaciones (Pesos)</h4>
-                <p>Determinan la importancia de cada métrica en el Score Base.</p>
-                <ul class="list-disc pl-5 mt-1 space-y-1 text-xs">
-                    <li><strong>Peso Compromiso:</strong> Cumplimiento de fechas cliente (Default: 0.50).</li>
-                    <li><strong>Peso Interno:</strong> Cumplimiento SLA interno (Default: 0.35).</li>
-                    <li><strong>Peso Volumen:</strong> Cantidad entregada vs Max (Default: 0.15).</li>
-                </ul>
-            </div>
-
-            <div class="bg-indigo-50 p-3 rounded border border-indigo-100">
-                <h4 class="font-bold text-indigo-700 mb-2">Factores y Multiplicadores</h4>
-                <ul class="list-disc pl-5 mt-1 space-y-1 text-xs">
-                    <li><strong>Ratio Licitaciones (Umbral):</strong> Si un usuario supera este % de licitaciones, se
-                        clasifica como "Alta Complejidad". (No afecta fórmula directa, solo categoría).</li>
-                    <li><strong>Mult. Licitaciones:</strong> Bonus por complejidad de licitaciones (ej: 0.20 suma 20% al
-                        multiplicador por cada punto de ratio).</li>
-                    <li><strong>Penalización Retrabajos:</strong> <span class="text-red-600 font-bold">Valor
-                            Negativo</span>. Resta puntos por retrabajos (ej: -0.15 resta 15%).</li>
-                </ul>
-            </div>
-
-            <div class="bg-yellow-50 p-3 rounded border border-yellow-100">
-                <h4 class="font-bold text-yellow-800 mb-2">Semáforo (Umbrales)</h4>
-                <div class="mt-2 space-y-2 text-xs">
-                    <div class="flex items-center gap-2">
-                        <span class="w-3 h-3 rounded-full bg-green-500"></span>
-                        <strong>Verde:</strong> Score >= 90
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span class="w-3 h-3 rounded-full bg-yellow-500"></span>
-                        <strong>Ámbar:</strong> 85 <= Score < 90 </div>
-                            <div class="flex items-center gap-2">
-                                <span class="w-3 h-3 rounded-full bg-red-500"></span>
-                                <strong>Rojo:</strong> Score < 85 </div>
-                            </div>
-                    </div>
-
-                </div>
-
-                <div class="mt-4 flex justify-end">
-                    <button type="button" onclick="document.getElementById('sim-help-modal').classList.add('hidden')"
-                        class="bg-purple-600 text-white px-4 py-2 rounded text-base font-medium hover:bg-purple-700">
-                        Entendido
-                    </button>
-                </div>
+        <div class="bg-gradient-to-r from-[#00BABB] to-[#123456] px-6 py-4 rounded-t-xl mb-4">
+            <div class="flex justify-between items-center">
+                <h3 class="text-lg font-bold text-white">Ayuda: Configuración de KPIs</h3>
+                <button type="button" onclick="document.getElementById('sim-help-modal').classList.add('hidden')"
+                    class="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12">
+                        </path>
+                    </svg>
+                </button>
             </div>
         </div>
+
+        <div class="p-6 pt-0">
+            <div class="mt-2 text-sm text-gray-600 space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+
+                <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                    <h4 class="font-bold text-[#123456] mb-2">Fórmula de Cálculo</h4>
+                    <p class="font-mono text-xs bg-white p-3 rounded border text-gray-700 block">
+                        Score Final = (Score Base × Multiplicador)<br><br>
+                        Score Base = (%Compromiso × PesoComp) + (%Interno × PesoInt) + (%Volumen × PesoVol)<br>
+                        Multiplicador = 1.0 + (RatioLic × BonusLic) + (RatioAct × BonusAct) + Penalización
+                    </p>
+                </div>
+
+                <div class="bg-purple-50 p-4 rounded-lg border border-purple-100">
+                    <h4 class="font-bold text-purple-800 mb-2">Ponderaciones (Pesos)</h4>
+                    <p>Determinan la importancia de cada métrica en el Score Base.</p>
+                    <ul class="list-disc pl-5 mt-2 space-y-1 text-xs">
+                        <li><strong>Peso Compromiso:</strong> Cumplimiento de fechas cliente (Default: 0.50).</li>
+                        <li><strong>Peso Interno:</strong> Cumplimiento SLA interno (Default: 0.35).</li>
+                        <li><strong>Peso Volumen:</strong> Cantidad entregada vs Max (Default: 0.15).</li>
+                    </ul>
+                </div>
+
+                <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-100">
+                    <h4 class="font-bold text-indigo-700 mb-2">Factores y Multiplicadores</h4>
+                    <ul class="list-disc pl-5 mt-2 space-y-1 text-xs">
+                        <li><strong>Ratio Licitaciones (Umbral):</strong> Si un usuario supera este % de licitaciones,
+                            se
+                            clasifica como "Alta Complejidad". (No afecta fórmula directa, solo categoría).</li>
+                        <li><strong>Mult. Licitaciones:</strong> Bonus por complejidad de licitaciones (ej: 0.20 suma
+                            20% al
+                            multiplicador por cada punto de ratio).</li>
+                        <li><strong>Penalización Retrabajos:</strong> <span class="text-red-600 font-bold">Valor
+                                Negativo</span>. Resta puntos por retrabajos (ej: -0.15 resta 15%).</li>
+                    </ul>
+                </div>
+
+                <div class="bg-yellow-50 p-4 rounded-lg border border-yellow-100">
+                    <h4 class="font-bold text-yellow-800 mb-2">Semáforo (Umbrales)</h4>
+                    <div class="mt-2 space-y-2 text-xs">
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-green-500 shadow-sm"></span>
+                            <strong>Verde:</strong> Score >= 90
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="w-3 h-3 rounded-full bg-yellow-500 shadow-sm"></span>
+                            <strong>Ámbar:</strong> 85 <= Score < 90 </div>
+                                <div class="flex items-center gap-2">
+                                    <span class="w-3 h-3 rounded-full bg-red-500 shadow-sm"></span>
+                                    <strong>Rojo:</strong> Score < 85 </div>
+                                </div>
+                        </div>
+
+                    </div>
+
+                    <div class="mt-6 flex justify-end border-t pt-4">
+                        <button type="button"
+                            onclick="document.getElementById('sim-help-modal').classList.add('hidden')"
+                            class="bg-[#00BABB] text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-[#009999] transition-colors shadow-sm">
+                            Entendido
+                        </button>
+                    </div>
+                </div>
+            </div>

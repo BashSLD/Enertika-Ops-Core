@@ -2,29 +2,31 @@
 {# Modal explicativo de métricas y números #}
 
 <div id="modal-explicacion-metricas"
-    class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
+    class="hidden fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm overflow-y-auto h-full w-full z-50 animate-fade-in"
     onclick="if(event.target === this) closeModal('modal-explicacion-metricas')">
 
-    <div class="relative top-10 mx-auto p-6 w-11/12 md:w-4/5 lg:w-3/4 xl:w-2/3 shadow-2xl rounded-xl bg-white mb-10">
+    <div
+        class="relative top-10 mx-auto w-11/12 md:w-4/5 lg:w-3/4 xl:w-2/3 shadow-2xl rounded-xl bg-white mb-10 overflow-hidden animate-scale-in">
 
         {# ============================================ #}
         {# HEADER #}
         {# ============================================ #}
-        <div class="flex items-center justify-between mb-6 pb-4 border-b-2 border-blue-200">
+        <div
+            class="bg-gradient-to-r from-[#00BABB] to-[#123456] px-6 py-4 rounded-t-xl flex items-center justify-between mb-6">
             <div class="flex items-center gap-3">
-                <div class="p-3 bg-blue-100 rounded-lg">
-                    <svg class="w-7 h-7 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div class="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+                    <svg class="w-7 h-7 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                 </div>
                 <div>
-                    <h3 class="text-2xl font-bold text-gray-900">Guía de Métricas</h3>
-                    <p class="text-sm text-gray-600 mt-1">Entendiendo los números del sistema</p>
+                    <h3 class="text-2xl font-bold text-white">Guía de Métricas</h3>
+                    <p class="text-sm text-white/80 mt-1">Entendiendo los números del sistema</p>
                 </div>
             </div>
             <button onclick="closeModal('modal-explicacion-metricas')"
-                class="text-gray-400 hover:text-gray-600 transition-colors p-2 hover:bg-gray-100 rounded-lg">
+                class="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -34,7 +36,7 @@
         {# ============================================ #}
         {# CONTENIDO - TABS #}
         {# ============================================ #}
-        <div x-data="{ activeTab: 'numeros' }">
+        <div class="p-6" x-data="{ activeTab: 'numeros' }">
 
             {# Tabs Navigation #}
             <div class="flex border-b border-gray-200 mb-6">

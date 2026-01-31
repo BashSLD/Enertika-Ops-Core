@@ -224,7 +224,6 @@ class ReportePDFGenerator:
         self.pdf.set_text_color(*COLORS['primary'])
         self.pdf.cell(0, 10, "Contabilización y Semáforos", 0, 1)
         
-        # headers = ["Tipo Solicitud", "Código", "Total", "En Plazo", "Fuera Plazo", "% Cumplimiento", "Semáforo"]
         headers = ["Tipo Solicitud", "Total", "En Plazo", "Fuera Plazo", "Sin Fecha", "% Cumpl.", "Estado"]
         widths = [70, 25, 25, 25, 25, 25, 20]
         

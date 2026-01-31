@@ -1,9 +1,9 @@
 {# templates/simulacion/reportes/modals/filter_modal_analisis.html #}
 {# Modal de filtros para la vista de Análisis Detallado #}
 
-<div id="modal-filtros-analisis" 
-     class="hidden fixed inset-0 bg-gray-600 bg-opacity-50 overflow-y-auto h-full w-full z-50"
-     x-data="{ 
+<div id="modal-filtros-analisis"
+    class="hidden fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+    x-data="{ 
          fechaInicio: '{{ filtros_aplicados.fecha_inicio }}',
          fechaFin: '{{ filtros_aplicados.fecha_fin }}',
          tecnologia: '{{ filtros_aplicados.tecnologia or "" }}',
@@ -11,173 +11,163 @@
          estatus: '{{ filtros_aplicados.estatus or "" }}',
          usuario: '{{ filtros_aplicados.usuario or "" }}'
      }">
-    
-    <div class="relative top-10 mx-auto p-5 border w-11/12 md:w-2/3 lg:w-1/2 shadow-lg rounded-lg bg-white mb-10">
-        
+
+    <div class="relative w-full max-w-2xl bg-white rounded-xl shadow-2xl transform transition-all animate-scale-in">
+
         {# Header #}
-        <div class="flex items-center justify-between mb-6 pb-4 border-b">
-            <div>
-                <h3 class="text-xl font-bold text-gray-900">Configurar Filtros</h3>
-                <p class="text-sm text-gray-600 mt-1">Personaliza el período y criterios de análisis</p>
-            </div>
-            <button onclick="closeModal('modal-filtros-analisis')" 
-                    class="text-gray-400 hover:text-gray-600 transition-colors">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                </svg>
-            </button>
-        </div>
-        
-        {# Form #}
-        <form hx-get="/simulacion/reportes/analisis-detallado"
-              hx-target="#main-content"
-              hx-swap="innerHTML"
-              hx-push-url="true"
-              @submit="closeModal('modal-filtros-analisis')"
-              class="space-y-6">
-            
-            {# Rango de Fechas #}
-            <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
-                <h4 class="text-sm font-semibold text-blue-900 mb-3 flex items-center gap-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                    </svg>
-                    Período de Análisis
-                </h4>
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Fecha Inicio
-                        </label>
-                        <input type="date" 
-                               name="start_date"
-                               x-model="fechaInicio"
-                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-                    </div>
-                    
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Fecha Fin
-                        </label>
-                        <input type="date" 
-                               name="end_date"
-                               x-model="fechaFin"
-                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-                    </div>
+        <div class="bg-gradient-to-r from-[#00BABB] to-[#123456] px-6 py-4 rounded-t-xl mb-6">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-xl font-bold text-white">Configurar Filtros</h3>
+                    <p class="text-sm text-white/80 mt-1">Personaliza el período y criterios de análisis</p>
                 </div>
-                
-                {# Atajos rápidos #}
-                <div class="mt-3 flex flex-wrap gap-2">
-                    <button type="button" 
-                            @click="
+                <button onclick="closeModal('modal-filtros-analisis')"
+                    class="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        {# Form #}
+        <div class="p-6">
+            <form hx-get="/simulacion/reportes/analisis-detallado" hx-target="#main-content" hx-swap="innerHTML"
+                hx-push-url="true" @submit="closeModal('modal-filtros-analisis')" class="space-y-6">
+
+                {# Rango de Fechas #}
+                <div class="bg-blue-50 rounded-lg p-4 border border-blue-200">
+                    <h4 class="text-sm font-semibold text-blue-900 mb-3 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                        </svg>
+                        Período de Análisis
+                    </h4>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Fecha Inicio
+                            </label>
+                            <input type="date" name="start_date" x-model="fechaInicio"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Fecha Fin
+                            </label>
+                            <input type="date" name="end_date" x-model="fechaFin"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                        </div>
+                    </div>
+
+                    {# Atajos rápidos #}
+                    <div class="mt-3 flex flex-wrap gap-2">
+                        <button type="button" @click="
                                 const hoy = new Date();
                                 fechaFin = hoy.toISOString().split('T')[0];
                                 fechaInicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0];
                             "
                             class="px-3 py-1 text-xs bg-white hover:bg-blue-100 text-blue-700 border border-blue-300 rounded-md transition-colors">
-                        Este mes
-                    </button>
-                    <button type="button"
-                            @click="
+                            Este mes
+                        </button>
+                        <button type="button" @click="
                                 const hoy = new Date();
                                 fechaFin = hoy.toISOString().split('T')[0];
                                 const mesAnterior = new Date(hoy.getFullYear(), hoy.getMonth() - 1, 1);
                                 fechaInicio = mesAnterior.toISOString().split('T')[0];
                             "
                             class="px-3 py-1 text-xs bg-white hover:bg-blue-100 text-blue-700 border border-blue-300 rounded-md transition-colors">
-                        Mes anterior
-                    </button>
-                    <button type="button"
-                            @click="
+                            Mes anterior
+                        </button>
+                        <button type="button" @click="
                                 const hoy = new Date();
                                 fechaFin = hoy.toISOString().split('T')[0];
                                 fechaInicio = new Date(hoy.getFullYear(), 0, 1).toISOString().split('T')[0];
                             "
                             class="px-3 py-1 text-xs bg-white hover:bg-blue-100 text-blue-700 border border-blue-300 rounded-md transition-colors">
-                        Este año
-                    </button>
+                            Este año
+                        </button>
+                    </div>
                 </div>
-            </div>
-            
-            {# Filtros Adicionales #}
-            <div class="space-y-4">
-                <h4 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/>
-                    </svg>
-                    Filtros Opcionales
-                </h4>
-                
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    
-                    {# Tecnología #}
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Tecnología
-                        </label>
-                        <select name="tech_id" 
-                                x-model="tecnologia"
+
+                {# Filtros Adicionales #}
+                <div class="space-y-4">
+                    <h4 class="text-sm font-semibold text-gray-700 flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                        </svg>
+                        Filtros Opcionales
+                    </h4>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+                        {# Tecnología #}
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Tecnología
+                            </label>
+                            <select name="tech_id" x-model="tecnologia"
                                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-                            <option value="">Todas las tecnologías</option>
-                            {% for tech in catalogos.tecnologias %}
-                            <option value="{{ tech.id }}">{{ tech.nombre }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    
-                    {# Tipo de Solicitud #}
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Tipo de Solicitud
-                        </label>
-                        <select name="type_id"
-                                x-model="tipoSolicitud"
+                                <option value="">Todas las tecnologías</option>
+                                {% for tech in catalogos.tecnologias %}
+                                <option value="{{ tech.id }}">{{ tech.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        {# Tipo de Solicitud #}
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Tipo de Solicitud
+                            </label>
+                            <select name="type_id" x-model="tipoSolicitud"
                                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-                            <option value="">Todos los tipos</option>
-                            {% for tipo in catalogos.tipos_solicitud %}
-                            <option value="{{ tipo.id }}">{{ tipo.nombre }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    
-                    {# Estatus #}
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Estatus
-                        </label>
-                        <select name="status_id"
-                                x-model="estatus"
+                                <option value="">Todos los tipos</option>
+                                {% for tipo in catalogos.tipos_solicitud %}
+                                <option value="{{ tipo.id }}">{{ tipo.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        {# Estatus #}
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Estatus
+                            </label>
+                            <select name="status_id" x-model="estatus"
                                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-                            <option value="">Todos los estatus</option>
-                            {% for est in catalogos.estatus %}
-                            <option value="{{ est.id }}">{{ est.nombre }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    
-                    {# Usuario Responsable #}
-                    <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2">
-                            Responsable
-                        </label>
-                        <select name="user_id"
-                                x-model="usuario"
+                                <option value="">Todos los estatus</option>
+                                {% for est in catalogos.estatus %}
+                                <option value="{{ est.id }}">{{ est.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        {# Usuario Responsable #}
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-2">
+                                Responsable
+                            </label>
+                            <select name="user_id" x-model="usuario"
                                 class="w-full px-3 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-                            <option value="">Todos los usuarios</option>
-                            {% for usr in catalogos.usuarios %}
-                            <option value="{{ usr.id_usuario }}">{{ usr.nombre }}</option>
-                            {% endfor %}
-                        </select>
+                                <option value="">Todos los usuarios</option>
+                                {% for usr in catalogos.usuarios %}
+                                <option value="{{ usr.id_usuario }}">{{ usr.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
                     </div>
-                    
                 </div>
-            </div>
-            
-            {# Botones de Acción #}
-            <div class="flex justify-between items-center pt-4 border-t">
-                <button type="button"
-                        @click="
+
+                {# Botones de Acción #}
+                <div class="flex justify-between items-center pt-4 border-t">
+                    <button type="button" @click="
                             const hoy = new Date();
                             fechaFin = hoy.toISOString().split('T')[0];
                             fechaInicio = new Date(hoy.getFullYear(), hoy.getMonth(), 1).toISOString().split('T')[0];
@@ -187,39 +177,41 @@
                             usuario = '';
                         "
                         class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors flex items-center gap-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-                    </svg>
-                    Limpiar Filtros
-                </button>
-                
-                <div class="flex gap-3">
-                    <button type="button" 
-                            onclick="closeModal('modal-filtros-analisis')"
-                            class="px-5 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors">
-                        Cancelar
-                    </button>
-                    <button type="submit"
-                            class="px-5 py-2 bg-[#00BABB] text-white rounded-md hover:bg-[#009fa0] transition-colors flex items-center gap-2">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                         </svg>
-                        Aplicar Filtros
+                        Limpiar Filtros
                     </button>
+
+                    <div class="flex gap-3">
+                        <button type="button" onclick="closeModal('modal-filtros-analisis')"
+                            class="px-5 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300 transition-colors">
+                            Cancelar
+                        </button>
+                        <button type="submit"
+                            class="px-5 py-2 bg-[#00BABB] text-white rounded-md hover:bg-[#009fa0] transition-colors flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                            </svg>
+                            Aplicar Filtros
+                        </button>
+                    </div>
                 </div>
-            </div>
-            
-        </form>
+
+            </form>
+        </div>
     </div>
 </div>
 
 <script>
-// Funciones auxiliares para el modal
-function openModal(modalId) {
-    document.getElementById(modalId).classList.remove('hidden');
-}
+    // Funciones auxiliares para el modal
+    function openModal(modalId) {
+        document.getElementById(modalId).classList.remove('hidden');
+    }
 
-function closeModal(modalId) {
-    document.getElementById(modalId).classList.add('hidden');
-}
+    function closeModal(modalId) {
+        document.getElementById(modalId).classList.add('hidden');
+    }
 </script>

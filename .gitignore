@@ -29,7 +29,7 @@ MD/
 
 
 # Documentacion
-#docs/
-#DB_SCHEMA_SNAPSHOT.md
-#scripts/
-#._UPDATE
+docs/
+DB_SCHEMA_SNAPSHOT.md
+scripts/
+._UPDATE

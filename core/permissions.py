@@ -143,3 +143,51 @@ def get_module_permissions(module_slug: str, context: dict) -> dict:
         "can_assign": role_level >= ROLE_HIERARCHY["assignor"],
         "is_admin": role_level >= ROLE_HIERARCHY["admin"]
     }
+
+def require_role(allowed_roles: list[str]) -> Callable:
+    """
+    Valida que el usuario tenga uno de los roles globales permitidos.
+    """
+    async def _validate(context = Depends(get_current_user_context)):
+        user_role = context.get("role", "USER")
+        if user_role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Se requiere uno de los siguientes roles globales: {allowed_roles}"
+            )
+        return True
+    return Depends(_validate)
+
+def require_manager_access(module_slug: str, min_module_role: str = "editor") -> Callable:
+    """
+    Valida acceso para operaciones sensibles (ej: Formularios Extraordinarios).
+    
+    Reglas:
+    1. ADMIN Global -> Acceso Total
+    2. Admin del Módulo -> Acceso Total
+    3. MANAGER Global + Rol de Módulo >= min_module_role -> Acceso
+    """
+    async def _validate(context = Depends(get_current_user_context)):
+        role = context.get("role")
+        module_role = context.get("module_roles", {}).get(module_slug, "")
+        
+        # 1. ADMIN Global
+        if role == "ADMIN":
+            return True
+            
+        # 2. Admin del Módulo
+        if module_role == "admin":
+            return True
+            
+        # 3. MANAGER con permisos en el módulo
+        if role == "MANAGER":
+             user_level = ROLE_HIERARCHY.get(module_role, 0)
+             required_level = ROLE_HIERARCHY.get(min_module_role, 0)
+             if user_level >= required_level:
+                 return True
+        
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acceso denegado. Se requiere nivel Administrador o Manager con permisos de edición."
+        )
+    return Depends(_validate)

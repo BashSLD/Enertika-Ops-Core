@@ -251,14 +251,18 @@
 
         htmx.ajax('POST', '/compras/comprobantes/bulk-update', {
             values: Object.fromEntries(formData),
-            target: '#tabla-comprobantes',
-            swap: 'innerHTML'
+            target: 'body',
+            swap: 'beforeend'
         }).then(() => {
             cancelarSeleccion();
             // Reset dropdowns
             document.getElementById('bulk-zona').value = '';
             document.getElementById('bulk-categoria').value = '';
             document.getElementById('bulk-estatus').value = '';
+
+            // Smart refresh: Trigger filter submit to reload table with current filters
+            const form = document.getElementById('filtros-form');
+            htmx.trigger(form, 'submit');
         });
     }
 

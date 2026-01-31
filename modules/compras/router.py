@@ -461,20 +461,11 @@ async def bulk_update_comprobantes(
     # Ejecutar bulk update
     count = await service.bulk_update_comprobantes(conn, uuid_list, updates)
     
-    # Obtener tabla actualizada
-    comprobantes, total = await service.get_comprobantes_default_view(conn)
-    catalogos = await service.get_catalogos(conn)
-    
     return templates.TemplateResponse(
         "compras/partials/bulk_result.html",
         {
             "request": request,
-            "count": count,
-            "comprobantes": comprobantes,
-            "total": total,
-            "zonas": catalogos.get("zonas", []),
-            "categorias": catalogos.get("categorias", []),
-            "proyectos": catalogos.get("proyectos", [])
+            "count": count
         }
     )
 
