@@ -254,11 +254,46 @@ async def get_graphs_partial(
     # Instanciar servicio de reportes
     report_service = ReportesSimulacionService()
     
-    # Filtros por defecto: mes actual
     today = date.today()
+    
+    # Default: Start of current Year
+    start_date = today.replace(month=1, day=1)
+    end_date = today
+
+    # Parse params if present
+    if request.query_params.get("fecha_inicio"):
+        try:
+            start_date = date.fromisoformat(request.query_params.get("fecha_inicio"))
+        except ValueError:
+            pass # Keep default
+            
+    if request.query_params.get("fecha_fin"):
+        try:
+            end_date = date.fromisoformat(request.query_params.get("fecha_fin"))
+        except ValueError:
+            pass # Keep default
+
+    # Parse other filters
+    id_tecnologia = request.query_params.get("id_tecnologia")
+    if id_tecnologia and id_tecnologia.isdigit():
+        id_tecnologia = int(id_tecnologia)
+    else:
+        id_tecnologia = None
+        
+    responsable_id = request.query_params.get("responsable_id")
+    if responsable_id and responsable_id != "":
+        try:
+            responsable_id = UUID(responsable_id)
+        except ValueError:
+            responsable_id = None
+    else:
+        responsable_id = None
+
     filtros = FiltrosReporte(
-        fecha_inicio=today.replace(day=1),
-        fecha_fin=today
+        fecha_inicio=start_date,
+        fecha_fin=end_date,
+        id_tecnologia=id_tecnologia,
+        responsable_id=responsable_id
     )
     
     # Obtener datos para el dashboard
@@ -277,7 +312,9 @@ async def get_graphs_partial(
         "graficas": {k: asdict(v) for k, v in graficas.items()},
         "filtros_aplicados": {
             "fecha_inicio": filtros.fecha_inicio.isoformat(),
-            "fecha_fin": filtros.fecha_fin.isoformat()
+            "fecha_fin": filtros.fecha_fin.isoformat(),
+            "id_tecnologia": filtros.id_tecnologia if filtros.id_tecnologia else "",
+            "responsable_id": str(filtros.responsable_id) if filtros.responsable_id else ""
         }
     })
 

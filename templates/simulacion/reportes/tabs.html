@@ -1,108 +1,102 @@
-<script>
-    function reportesDashboard() {
-        return {
-            filtros: {
-                fecha_inicio: '',
-                fecha_fin: '',
-                tecnologia: '',
-                usuario: ''
-            },
-            charts: {},
-            graficasData: JSON.parse('{{ graficas | tojson | safe }}'),
-
-            init() {
-                console.log("Initializing Dashboard Charts");
-                console.log("Graficas Data:", this.graficasData);
-                this.$nextTick(() => {
-                    this.renderCharts();
-                });
-            },
-
-            renderCharts() {
-                // Destroy existing charts if any to prevent canvas duplication/memory leaks
-                Object.values(this.charts).forEach(c => c.destroy());
-                this.charts = {};
-
-                if (!this.graficasData) {
-                    console.error("No graficasData found!");
-                    return;
-                }
-
-                console.log("Rendering charts with keys:", Object.keys(this.graficasData));
-
-                // Initialize charts
-                this.initChart('chart-estatus', this.graficasData.estatus_pie, 'estatus');
-                this.initChart('chart-mensual', this.graficasData.mensual_bar, 'mensual');
-                this.initChart('chart-tecnologia', this.graficasData.tecnologia_pie, 'tecnologia');
-                this.initChart('chart-kpi', this.graficasData.kpi_bar, 'kpi');
-                this.initChart('chart-motivos', this.graficasData.motivos_bar, 'motivos');
-            },
-
-            initChart(canvasId, data, key) {
-                const ctx = document.getElementById(canvasId);
-                if (!ctx || !data) return;
-
-                this.charts[key] = new Chart(ctx, {
-                    type: data.tipo,
-                    data: {
-                        labels: data.labels,
-                        datasets: data.datasets
-                    },
-                    options: {
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        ...data.opciones,
-                        plugins: {
-                            legend: {
-                                position: 'bottom',
-                                labels: {
-                                    usePointStyle: true,
-                                    boxWidth: 8
-                                }
-                            }
-                        }
-                    }
-                });
-            },
-
-            aplicarFiltros() {
-                const params = new URLSearchParams({
-                    fecha_inicio: this.filtros.fecha_inicio,
-                    fecha_fin: this.filtros.fecha_fin,
-                    id_tecnologia: this.filtros.tecnologia,
-                    responsable_id: this.filtros.usuario
-                }).toString();
-
-                htmx.ajax('GET', '/simulacion/partials/graphs?' + params, {
-                    target: '#sim-tab-content',
-                    swap: 'innerHTML'
-                });
-            },
-
-            limpiarFiltros() {
-                htmx.ajax('GET', '/simulacion/partials/graphs', {
-                    target: '#sim-tab-content',
-                    swap: 'innerHTML'
-                });
-            },
-
-            formatDateRange() {
-                if (!this.filtros.fecha_inicio) return '';
-                // Simple formatting assuming ISO strings YYYY-MM-DD
-                return `${this.filtros.fecha_inicio} - ${this.filtros.fecha_fin}`;
-            }
-        }
-    }
+<script id="sim-graficas-data" type="application/json">
+    {{ graficas | tojson | safe }}
 </script>
 
 <div id="reportes-container" class="space-y-6" x-data="{
-    ...reportesDashboard(),
+    filtros: {
+        fecha_inicio: '',
+        fecha_fin: '',
+        tecnologia: '',
+        usuario: ''
+    },
+    charts: {},
+    graficasData: null,
     isGeneratingPdf: false,
+
+    init() {
+        console.log('Initializing Dashboard');
+        try {
+            const el = document.getElementById('sim-graficas-data');
+            if (el) {
+                this.graficasData = JSON.parse(el.textContent);
+            }
+        } catch (e) {
+            console.error('Error loading graficas data:', e);
+        }
+        
+        this.$nextTick(() => {
+            this.renderCharts();
+        });
+    },
+
+    renderCharts() {
+        // Destroy existing charts
+        Object.values(this.charts).forEach(c => c.destroy());
+        this.charts = {};
+
+        if (!this.graficasData) return;
+
+        this.initChart('chart-estatus', this.graficasData.estatus_pie, 'estatus');
+        this.initChart('chart-mensual', this.graficasData.mensual_bar, 'mensual');
+        this.initChart('chart-tecnologia', this.graficasData.tecnologia_pie, 'tecnologia');
+        this.initChart('chart-kpi', this.graficasData.kpi_bar, 'kpi');
+        this.initChart('chart-motivos', this.graficasData.motivos_bar, 'motivos');
+    },
+
+    initChart(canvasId, data, key) {
+        const ctx = document.getElementById(canvasId);
+        if (!ctx || !data) return;
+
+        this.charts[key] = new Chart(ctx, {
+            type: data.tipo,
+            data: {
+                labels: data.labels,
+                datasets: data.datasets
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                ...data.opciones,
+                plugins: {
+                    legend: {
+                        position: 'bottom',
+                        labels: { usePointStyle: true, boxWidth: 8 }
+                    }
+                }
+            }
+        });
+    },
+
+    aplicarFiltros() {
+        const params = new URLSearchParams({
+            fecha_inicio: this.filtros.fecha_inicio,
+            fecha_fin: this.filtros.fecha_fin,
+            id_tecnologia: this.filtros.tecnologia,
+            responsable_id: this.filtros.usuario
+        }).toString();
+
+        htmx.ajax('GET', '/simulacion/partials/graphs?' + params, {
+            target: '#sim-tab-content',
+            swap: 'innerHTML'
+        });
+    },
+
+    limpiarFiltros() {
+        htmx.ajax('GET', '/simulacion/partials/graphs', {
+            target: '#sim-tab-content',
+            swap: 'innerHTML'
+        });
+    },
+
+    formatDateRange() {
+        if (!this.filtros.fecha_inicio) return '';
+        return `${this.filtros.fecha_inicio} - ${this.filtros.fecha_fin}`;
+    },
+
     async generarPDF() {
         this.isGeneratingPdf = true;
         try {
             const chartImages = {};
-            // Captura segura de charts existentes
             if (this.charts.estatus) chartImages.estatus = this.charts.estatus.toBase64Image();
             if (this.charts.mensual) chartImages.mensual = this.charts.mensual.toBase64Image();
             if (this.charts.tecnologia) chartImages.tecnologia = this.charts.tecnologia.toBase64Image();
@@ -136,7 +130,7 @@
         }
     }
 }"
-    x-init="filtros.fecha_inicio='{{ filtros_aplicados.fecha_inicio }}'; filtros.fecha_fin='{{ filtros_aplicados.fecha_fin }}'">
+    x-init="filtros.fecha_inicio='{{ filtros_aplicados.fecha_inicio }}'; filtros.fecha_fin='{{ filtros_aplicados.fecha_fin }}'; filtros.tecnologia='{{ filtros_aplicados.id_tecnologia }}'; filtros.usuario='{{ filtros_aplicados.responsable_id }}'">
 
     <!-- Overlay de Carga Dashboard -->
     <div id="loading-overlay-dashboard"

@@ -42,7 +42,7 @@
                 </h3>
 
                 <!-- ID Estandarizado (Destacado) -->
-                <div class="mt-1 flex items-center gap-2">
+                <div class="mt-1 flex flex-wrap items-center gap-2">
                     <span
                         class="inline-flex items-center px-3 py-1 rounded-lg bg-white/20 backdrop-blur-sm text-white text-xs sm:text-sm font-mono font-bold">
                         📋 {{ op.op_id_estandar or 'Sin ID' }}
@@ -58,6 +58,18 @@
                         {% elif op.prioridad == 'normal' %}⚡ Normal
                         {% else %}✅ Baja{% endif %}
                     </span>
+                    {% endif %}
+
+                    <!-- Botón Cierre de Venta (Solo Manager Editor+ y Status Entregado) -->
+                    {% if can_close_sale and op.status_global|lower == 'entregado' %}
+                    <button type="button"
+                        class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-bold bg-white text-emerald-700 border border-white hover:bg-emerald-50 transition shadow-sm ml-auto sm:ml-2"
+                        onclick="alert('Funcionalidad de Cierre de Venta próximamente disponible')">
+                        <svg class="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                        </svg>
+                        Cierre de Venta
+                    </button>
                     {% endif %}
                 </div>
             </div>
@@ -400,6 +412,80 @@
                 </div>
             </div>
             {% endif %}
+
+            <!-- Sección: Acciones Solicitud (Requiere Editor Comercial) -->
+            <!-- Visible solo en estatus: Entregado, Perdido, Cancelado -->
+            {% if can_edit_comercial and op.status_global|lower in ['entregado', 'perdida', 'perdido', 'cancelado'] %}
+            <div class="bg-blue-50/50 rounded-lg p-5 border border-blue-100">
+                <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                    </svg>
+                    Solicitar:
+                </h4>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+                    <!-- Solicitar Actualización -->
+                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
+                        hx-target="#modal-content-placeholder" hx-swap="none"
+                        hx-on::after-request="if(event.detail.successful) { alert('Solicitud de actualización enviada'); $el.closest('#modal-backdrop-detalle').remove(); htmx.trigger('#main-content', 'refresh'); }"
+                        class="block w-full">
+                        <input type="hidden" name="tipo_solicitud" value="ACTUALIZACION">
+                        <input type="hidden" name="prioridad" value="high">
+                        <button type="submit"
+                            class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Actualización
+                        </button>
+                    </form>
+
+                    <!-- Solicitar Levantamiento -->
+                    {% if 'LEVANTAMIENTO' not in (op.tipos_solicitud_activos or []) and 'LEVANTAMIENTO' not in
+                    (op.tipo_solicitud or '') %}
+                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
+                        hx-target="#modal-content-placeholder" hx-swap="none"
+                        hx-on::after-request="if(event.detail.successful) { alert('Solicitud de levantamiento enviada'); $el.closest('#modal-backdrop-detalle').remove(); htmx.trigger('#main-content', 'refresh'); }"
+                        class="block w-full">
+                        <input type="hidden" name="tipo_solicitud" value="LEVANTAMIENTO">
+                        <input type="hidden" name="prioridad" value="normal">
+                        <button type="submit"
+                            class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Levantamiento
+                        </button>
+                    </form>
+                    {% endif %}
+
+                    <!-- Solicitar Oferta Final -->
+                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
+                        hx-target="#modal-content-placeholder" hx-swap="none"
+                        hx-on::after-request="if(event.detail.successful) { alert('Solicitud de oferta final enviada'); $el.closest('#modal-backdrop-detalle').remove(); htmx.trigger('#main-content', 'refresh'); }"
+                        class="block w-full">
+                        <input type="hidden" name="tipo_solicitud" value="OFERTA_FINAL">
+                        <input type="hidden" name="prioridad" value="high">
+                        <button type="submit"
+                            class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                            </svg>
+                            Oferta Final
+                        </button>
+                    </form>
+
+                </div>
+            </div>
+            {% endif %}
+
+            <div id="modal-content-placeholder" class="hidden"></div>
 
             <!-- Footer Informativo -->
 

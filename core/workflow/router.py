@@ -12,7 +12,7 @@ from typing import Optional, List
 
 # Core imports
 from core.security import get_current_user_context, get_valid_graph_token
-from core.permissions import user_has_module_access
+from core.permissions import user_has_module_access, ROLE_HIERARCHY
 from core.database import get_db_connection
 from core.workflow.service import get_workflow_service
 
@@ -185,8 +185,34 @@ async def get_detalle_oportunidad_modal(
     if not op:
          raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
 
+    
+    # --- Lógica de Permisos para Botones de Acción ---
+    
+    # 1. Permiso para "Solicitar" (Actualización, Levantamiento, Oferta Final)
+    # Requiere: Role >= Editor en Módulo Comercial
+    can_edit_comercial = user_has_module_access("comercial", context, min_role="editor")
+    
+    # 2. Permiso para "Cierre de Venta"
+    # Requiere: ADMIN Global O Admin Comercial O (MANAGER Global + Editor Comercial)
+    can_close_sale = False
+    context_role = context.get("role")
+    comercial_role = context.get("module_roles", {}).get("comercial", "")
+    
+    if context_role == "ADMIN":
+        can_close_sale = True
+    elif comercial_role == "admin":
+        can_close_sale = True
+    elif context_role == "MANAGER":
+        # Verificar si tiene rol de editor o superior en comercial
+        user_level = ROLE_HIERARCHY.get(comercial_role, 0)
+        editor_level = ROLE_HIERARCHY.get("editor", 0)
+        if user_level >= editor_level:
+            can_close_sale = True
+
     return templates.TemplateResponse("shared/modals/detalle_oportunidad_modal.html", {
         "request": request,
-        "op": op
+        "op": op,
+        "can_edit_comercial": can_edit_comercial,
+        "can_close_sale": can_close_sale
     })
 
