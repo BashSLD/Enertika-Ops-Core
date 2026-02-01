@@ -7,6 +7,7 @@ from uuid import UUID
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
 from core.permissions import require_module_access
+from core.config import settings
 
 # Database connection
 from core.database import get_db_connection
@@ -15,6 +16,7 @@ from core.database import get_db_connection
 from .service import get_service, LevantamientoService
 
 templates = Jinja2Templates(directory="templates")
+templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 
 router = APIRouter(
     prefix="/levantamientos",

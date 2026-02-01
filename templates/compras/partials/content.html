@@ -1,12 +1,13 @@
 <div class="container mx-auto animate-fade-in-down">
     <!-- Header -->
-    <div class="bg-white rounded-lg shadow-lg p-6 border-t-4 border-[#00BABB] mb-6">
+    <!-- Header -->
+    <div class="glass-panel rounded-xl shadow-lg p-6 border-l-4 border-[#00BABB] mb-6">
         <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
-                <h1 class="text-3xl font-bold text-[#123456] mb-2">
-                    Comprobantes de Pago
+                <h1 class="text-3xl font-light text-[#123456] mb-2">
+                    Módulo <span class="font-bold text-[#00BABB]">Compras</span>
                 </h1>
-                <p class="text-gray-600">
+                <p class="text-gray-500">
                     Gestión de comprobantes de pago y relación con facturas
                 </p>
             </div>
@@ -30,7 +31,7 @@
                 <!-- Botón Export Excel -->
                 <a id="export-excel-btn"
                     href="/compras/export-excel?estatus=PENDIENTE&fecha_inicio={{ filtros.fecha_inicio }}&fecha_fin={{ filtros.fecha_fin }}"
-                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 px-5 rounded-lg shadow flex items-center gap-2 transition-all">
+                    class="ripple-effect bg-green-600 hover:bg-green-700 text-white font-bold py-2.5 px-5 rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -40,7 +41,7 @@
                 </a>
                 <!-- Botón Crear Proyecto -->
                 <button onclick="abrirModalCrearProyecto()"
-                    class="bg-purple-600 hover:bg-purple-700 text-white font-bold py-2.5 px-5 rounded-lg shadow flex items-center gap-2 transition-all">
+                    class="ripple-effect bg-purple-600 hover:bg-purple-700 text-white font-bold py-2.5 px-5 rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

@@ -87,47 +87,47 @@
     <div class="flex flex-col">
         <div class="-my-2 sm:-mx-6 lg:-mx-8">
             <div class="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
-                <div class="shadow border-b border-gray-200 sm:rounded-lg overflow-x-auto">
+                <div class="shadow border-b border-gray-200 sm:rounded-lg overflow-x-auto glass-panel">
                     <table class="w-full divide-y divide-gray-200">
-                        <thead class="bg-gray-50">
+                        <thead class="bg-gray-50/50 backdrop-blur-sm">
                             <tr>
                                 <th scope="col"
-                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-32">
+                                    class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap w-32 border-b border-gray-200/60">
                                     Acciones
                                 </th>
                                 <th scope="col"
-                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[300px]">
+                                    class="px-6 py-3 text-left text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[300px] border-b border-gray-200/60">
                                     ID / Título
                                 </th>
                                 <th scope="col"
-                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                                    class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap border-b border-gray-200/60">
                                     Ingeniero Asignado
                                 </th>
                                 <th scope="col"
-                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-48">
+                                    class="px-4 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap w-48 border-b border-gray-200/60">
                                     Fecha de Solicitud
                                 </th>
                                 <th scope="col"
-                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-40">
+                                    class="px-4 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap w-40 border-b border-gray-200/60">
                                     Entrega SLA
                                 </th>
                                 <th scope="col"
-                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                                    class="px-6 py-3 text-center text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap border-b border-gray-200/60">
                                     {% if current_tab == 'levantamientos' %}Status Levantamiento{% else %}Status
                                     Simulación{% endif %}
                                 </th>
                             </tr>
                         </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
+                        <tbody class="bg-white/40 divide-y divide-gray-200">
                             {% for op in oportunidades %}
                             {% set prioridad_color = 'border-green-400' if op.prioridad == 'low' else ('border-red-400'
                             if op.prioridad == 'high' else 'border-[#00BABB]') %}
-                            {% set animation_delay = 'style="animation-delay: ' ~ (loop.index0 * 20 if loop.index0 < 10
-                                else 200) ~ 'ms"' %} <!-- Fila principal con Alpine.js -->
+                            {% set animation_delay = 'style="animation-delay: ' ~ (loop.index0 * 50 if loop.index0 < 10
+                                else 0) ~ 'ms"' %} <!-- Fila principal con Alpine.js -->
                                 <tr x-data="{ confirmDelete: false }"
                                     @click="$dispatch('row-selected', '{{ op.id_oportunidad }}')"
-                                    :class="{ 'bg-blue-50 ring-2 ring-blue-400': isSelected('{{ op.id_oportunidad }}'), '!bg-gray-50 !border-l-8 !border-l-[#00BABB] shadow-md': isExpanded('{{ op.id_oportunidad }}') && !isSelected('{{ op.id_oportunidad }}') }"
-                                    class="hover:bg-gray-50 transition-all duration-200 border-l-4 {{ prioridad_color }} hover:shadow-md animate-fade-in-up cursor-pointer"
+                                    :class="{ 'bg-blue-50/80 ring-2 ring-blue-400': isSelected('{{ op.id_oportunidad }}'), '!bg-gray-50/80 !border-l-8 !border-l-[#00BABB] shadow-md': isExpanded('{{ op.id_oportunidad }}') && !isSelected('{{ op.id_oportunidad }}') }"
+                                    class="hover:bg-white/80 transition-all duration-300 ease-out border-l-4 {{ prioridad_color }} hover:shadow-lg hover:-translate-y-[2px] animate-fade-in-up cursor-pointer backdrop-blur-sm"
                                     {{ animation_delay|safe }}>
 
                                     <!-- COL 1: Acciones (Moved to start) -->

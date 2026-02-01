@@ -22,6 +22,7 @@ from dataclasses import dataclass, field, asdict
 from enum import Enum
 import logging
 from dateutil.relativedelta import relativedelta
+import asyncio
 
 from .constants import (
     UMBRAL_MIN_ENTREGAS,
@@ -316,6 +317,23 @@ class FilaContabilizacion(KPIMetricsMixin):
         
     @property
     def fuera_plazo(self) -> int:
+        return self.entregas_tarde_compromiso
+
+    # Alias para templates que usan nombres antiguos/alternativos
+    @property
+    def en_plazo_interno(self) -> int:
+        return self.entregas_a_tiempo_interno
+
+    @property
+    def fuera_plazo_interno(self) -> int:
+        return self.entregas_tarde_interno
+
+    @property
+    def en_plazo_compromiso(self) -> int:
+        return self.entregas_a_tiempo_compromiso
+
+    @property
+    def fuera_plazo_compromiso(self) -> int:
         return self.entregas_tarde_compromiso
     
     sin_fecha: int = 0
@@ -1380,9 +1398,14 @@ class ReportesSimulacionService:
             'mensual': await self.get_resumen_mensual(conn, filtros)
         }
 
-    async def get_datos_graficas(self, conn, filtros: FiltrosReporte) -> Dict[str, DatosGrafica]:
+    async def get_datos_graficas(self, conn, filtros: FiltrosReporte, metricas: Optional[MetricasGenerales] = None) -> Dict[str, DatosGrafica]:
         """
         Prepara datos estructurados para todas las gráficas del dashboard.
+        
+        Args:
+            conn: Conexión DB
+            filtros: Filtros aplicados
+            metricas: Objeto de métricas pre-calculado (opcional) para evitar doble query
         
         Returns:
             Dict con identificadores de gráfica y sus datos
@@ -1398,11 +1421,11 @@ class ReportesSimulacionService:
         # 3. Gráfica de Pie: Distribución por Tecnología
         graficas['tecnologia_pie'] = await self._get_grafica_tecnologia(conn, filtros)
         
-        # 4. Gráfica de Barras Horizontal: A Tiempo vs Tarde
-        graficas['kpi_bar'] = await self._get_grafica_kpi(conn, filtros)
-        
-        # 5. Gráfica de Motivos de Cierre
+        # 4. Gráfica de Motivos de Cierre
         graficas['motivos_bar'] = await self._get_grafica_motivos(conn, filtros)
+
+        # 5. Gráfica de KPIs (Depende de metricas)
+        graficas['kpi_bar'] = await self._get_grafica_kpi(conn, filtros, metricas)
         
         return graficas
     
@@ -1452,9 +1475,10 @@ class ReportesSimulacionService:
             }]
         )
     
-    async def _get_grafica_kpi(self, conn, filtros: FiltrosReporte) -> DatosGrafica:
+    async def _get_grafica_kpi(self, conn, filtros: FiltrosReporte, metricas: Optional[MetricasGenerales] = None) -> DatosGrafica:
         """Comparativa A Tiempo vs Tarde."""
-        metricas = await self.get_metricas_generales(conn, filtros)
+        if metricas is None:
+            metricas = await self.get_metricas_generales(conn, filtros)
         
         return DatosGrafica(
             tipo='bar',

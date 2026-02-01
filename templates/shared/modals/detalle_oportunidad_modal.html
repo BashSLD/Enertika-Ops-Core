@@ -2,33 +2,52 @@
 <!-- Uso: Desde módulos Comercial y Simulación -->
 <!-- Modo: Solo Lectura (View-Only) -->
 
-<div id="modal-backdrop-detalle" 
-     class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-[9999] animate-fade-in p-4"
-     @click.self="$el.remove()">
-    
+<div id="modal-backdrop-detalle"
+    class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-[9999] animate-fade-in p-4"
+    @click.self="$el.remove()">
+
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <!-- Modal Container - Adaptativo (Mobile/Tablet/Desktop) -->
     <div class="bg-white rounded-xl shadow-2xl overflow-hidden w-full 
                 max-w-[95vw] sm:max-w-[600px] lg:max-w-[700px] 
-                max-h-[90vh] flex flex-col animate-scale-in"
-         @click.stop>
-        
+                max-h-[90vh] flex flex-col animate-scale-in" @click.stop>
+
         <!-- HEADER con Gradiente Corporativo -->
-        <div class="px-6 py-4 bg-gradient-to-r from-[#00BABB] to-[#123456] flex justify-between items-center">
+        <!-- HEADER con Gradiente Dinámico -->
+        <div class="px-6 py-4 bg-gradient-to-r flex justify-between items-center transition-all duration-300" :class="{
+                'from-yellow-400 to-orange-500': '{{ op.status_global|lower }}' == 'pendiente',
+                'from-blue-400 to-indigo-600': ['en revision', 'en revisión'].includes('{{ op.status_global|lower }}'),
+                'from-[#00BABB] to-[#123456]': '{{ op.status_global|lower }}' == 'en proceso',
+                'from-green-400 to-emerald-600': ['entregado', 'ganada'].includes('{{ op.status_global|lower }}'),
+                'from-emerald-500 to-green-700': '{{ op.status_global|lower }}' == 'cerrada',
+                'from-red-400 to-rose-600': ['cancelado', 'error', 'perdida', 'perdido'].includes('{{ op.status_global|lower }}'),
+                'from-gray-500 to-gray-700': !['pendiente', 'en revision', 'en revisión', 'en proceso', 'entregado', 'ganada', 'cerrada', 'cancelado', 'error', 'perdida', 'perdido'].includes('{{ op.status_global|lower }}')
+             }" x-data x-init="if('{{ op.status_global|lower }}' == 'ganada') {
+                await new Promise(resolve => setTimeout(resolve, 500)); 
+                confetti({
+                    particleCount: 150,
+                    spread: 70,
+                    origin: { y: 0.6 },
+                    colors: ['#00BABB', '#123456', '#ffffff'],
+                    zIndex: 10000 
+                });
+             }">
             <div class="flex-1">
                 <h3 class="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
                     <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                              d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                     <span>Detalles de Oportunidad</span>
                 </h3>
-                
+
                 <!-- ID Estandarizado (Destacado) -->
                 <div class="mt-1 flex items-center gap-2">
-                    <span class="inline-flex items-center px-3 py-1 rounded-lg bg-white/20 backdrop-blur-sm text-white text-xs sm:text-sm font-mono font-bold">
+                    <span
+                        class="inline-flex items-center px-3 py-1 rounded-lg bg-white/20 backdrop-blur-sm text-white text-xs sm:text-sm font-mono font-bold">
                         📋 {{ op.op_id_estandar or 'Sin ID' }}
                     </span>
-                    
+
                     <!-- Badge de Prioridad -->
                     {% if op.prioridad %}
                     <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-semibold
@@ -42,161 +61,258 @@
                     {% endif %}
                 </div>
             </div>
-            
+
             <!-- Botón Cerrar -->
-            <button type="button" 
-                    @click="$el.closest('#modal-backdrop-detalle').remove()"
-                    class="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50">
+            <button type="button" @click="$el.closest('#modal-backdrop-detalle').remove()"
+                class="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-white/50">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
             </button>
         </div>
 
         <!-- BODY - Información Principal -->
         <div class="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
-            
+
             <!-- Sección: Información del Proyecto -->
-            <div class="bg-gradient-to-br from-[#E0F7F7] to-white rounded-lg p-5 border border-[#00BABB]/20 shadow-sm">
+            <div
+                class="bg-gradient-to-br from-[#E0F7F7] to-white rounded-lg p-5 border border-[#00BABB]/20 shadow-sm hover-lift transition-all duration-300">
                 <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
                     <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                              d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                     </svg>
                     Información del Proyecto
                 </h4>
-                
+
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    
+
                     <!-- Título del Proyecto -->
                     <div class="sm:col-span-2">
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                             Título del Proyecto
                         </label>
-                        <p class="text-base font-bold text-[#123456] bg-white px-3 py-2 rounded-md border border-gray-200">
+                        <p
+                            class="text-base font-bold text-[#123456] bg-white px-3 py-2 rounded-md border border-gray-200">
                             {{ op.titulo_proyecto or op.nombre_proyecto or 'Sin título' }}
                         </p>
                     </div>
-                    
+
                     <!-- Cliente -->
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                             Cliente
                         </label>
-                        <p class="text-sm font-medium text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200 flex items-center gap-2">
+                        <p
+                            class="text-sm font-medium text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200 flex items-center gap-2">
                             <svg class="w-4 h-4 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                      d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                             </svg>
                             {{ op.cliente_nombre or 'No especificado' }}
                         </p>
                     </div>
-                    
+
                     <!-- Tecnología -->
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                             Tecnología
                         </label>
-                        <p class="text-sm font-medium text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200 flex items-center gap-2">
+                        <p
+                            class="text-sm font-medium text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200 flex items-center gap-2">
                             <svg class="w-4 h-4 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                      d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M13 10V3L4 14h7v7l9-11h-7z" />
                             </svg>
                             {{ op.tecnologia_nombre or 'No especificada' }}
                         </p>
                     </div>
-                    
+
                 </div>
             </div>
 
             <!-- Sección: Estado y Seguimiento -->
-            <div class="bg-white rounded-lg p-5 border border-gray-200 shadow-sm">
+            <div
+                class="bg-white rounded-lg p-5 border border-gray-200 shadow-sm hover-lift transition-all duration-300">
                 <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
                     <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                              d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
                     </svg>
                     Estado y Seguimiento
                 </h4>
-                
+
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    
+
                     <!-- ID Interno Simulación -->
                     <div class="sm:col-span-2">
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                             ID Interno Simulación
                         </label>
-                        <p class="text-sm font-mono font-bold text-[#00BABB] bg-[#E0F7F7] px-3 py-2 rounded-md border border-[#00BABB]/30">
+                        <p
+                            class="text-sm font-mono font-bold text-[#00BABB] bg-[#E0F7F7] px-3 py-2 rounded-md border border-[#00BABB]/30">
                             {{ op.id_interno_simulacion or 'No asignado' }}
                         </p>
                     </div>
-                    
+
                     <!-- Status Global -->
-                    <div>
-                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                            Status
+                    <!-- STATUS TIMELINE COMPONENT (Replaces simple badge) -->
+                    <div class="sm:col-span-2 mt-2 mb-8" x-data="{
+                        status: '{{ op.status_global | default('pendiente') | lower }}',
+                        steps: ['pendiente', 'en proceso', 'en revisión', 'finalizado'],
+                        get currentStep() {
+                            if (['ganada', 'entregado'].includes(this.status)) return 3;
+                            if (this.status === 'en revisión' || this.status === 'en revision') return 2;
+                            if (this.status === 'en proceso') return 1;
+                            return 0;
+                        },
+                        isTerminated() {
+                            return ['cancelado', 'perdido', 'perdida', 'error'].includes(this.status);
+                        }
+                    }">
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                            Progreso de Oportunidad
                         </label>
-                        <div class="bg-white px-3 py-2 rounded-md border border-gray-200">
-                            {% set status = op.status_global | lower if op.status_global else 'pendiente' %}
-                            
-                            {% if status == 'pendiente' %}
-                            <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-bold bg-yellow-100 text-yellow-800 border border-yellow-300">
-                                ⏳ Pendiente
-                            </span>
-                            {% elif status == 'en revision' or status == 'en revisión' %}
-                            <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-bold bg-blue-100 text-blue-800 border border-blue-300">
-                                👁️ En Revisión
-                            </span>
-                            {% elif status == 'en proceso' %}
-                            <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-bold bg-[#E0F7F7] text-[#123456] border border-[#00BABB]">
-                                ⚙️ En Proceso
-                            </span>
-                            {% elif status == 'entregado' %}
-                            <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-bold bg-green-100 text-green-800 border border-green-300">
-                                ✅ Entregado
-                            </span>
-                            {% elif status == 'cancelado' %}
-                            <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-bold bg-gray-100 text-gray-800 border border-gray-300">
-                                ⛔ Cancelado
-                            </span>
-                            {% elif status == 'perdida' or status == 'perdido' %}
-                            <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-bold bg-red-100 text-red-800 border border-red-300">
-                                ❌ Perdida
-                            </span>
-                            {% elif status == 'cerrada' %}
-                            <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
-                                🎉 Cerrada
-                            </span>
-                            {% else %}
-                            <span class="inline-flex items-center px-3 py-1 rounded-lg text-xs font-bold bg-gray-100 text-gray-600 border border-gray-300">
-                                {{ op.status_global }}
-                            </span>
-                            {% endif %}
+
+                        <!-- Error State for Terminated Opportunities -->
+                        <div x-show="isTerminated()"
+                            class="w-full bg-red-50 border-l-4 border-red-500 p-3 rounded-r-md flex items-center gap-3 animate-pulse-badge">
+                            <div class="p-2 bg-red-100 rounded-full text-red-600">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M6 18L18 6M6 6l12 12"></path>
+                                </svg>
+                            </div>
+                            <div>
+                                <p class="text-sm font-bold text-red-800 uppercase" x-text="status"></p>
+                                <p class="text-xs text-red-600">El flujo de esta oportunidad se ha detenido.</p>
+                            </div>
+                        </div>
+
+                        <!-- Normal Process Timeline -->
+                        <div x-show="!isTerminated()" class="relative flex items-center justify-between w-full mt-2">
+                            <!-- Background Line -->
+                            <div
+                                class="absolute left-0 top-1/2 transform -translate-y-1/2 w-full h-1 bg-gray-200 -z-10 rounded-full">
+                            </div>
+
+                            <!-- Active Progress Line -->
+                            <div class="absolute left-0 top-1/2 transform -translate-y-1/2 h-1 bg-[#00BABB] transition-all duration-1000 ease-out -z-10 rounded-full"
+                                :style="'width: ' + (currentStep * 33) + '%'"></div>
+
+                            <!-- Step 1: Pendiente -->
+                            <div class="relative flex flex-col items-center group">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-300 z-10"
+                                    :class="currentStep >= 0 ? 'bg-[#00BABB] border-[#00BABB] text-white' : 'bg-white border-gray-300 text-gray-400'">
+                                    <template x-if="currentStep > 0">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3"
+                                                d="M5 13l4 4L19 7"></path>
+                                        </svg>
+                                    </template>
+                                    <template x-if="currentStep === 0">
+                                        <span class="text-xs font-bold">1</span>
+                                    </template>
+                                </div>
+                                <span class="absolute -bottom-6 text-[10px] font-bold uppercase tracking-wider"
+                                    :class="currentStep === 0 ? 'text-[#123456]' : 'text-gray-400'">Pendiente</span>
+                            </div>
+
+                            <!-- Step 2: En Proceso -->
+                            <div class="relative flex flex-col items-center group">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-300 z-10"
+                                    :class="[
+                                        currentStep > 1 ? 'bg-[#00BABB] border-[#00BABB] text-white' : '',
+                                        currentStep === 1 ? 'bg-white border-[#00BABB] text-[#00BABB] animate-pulse-ring shadow-[0_0_0_4px_rgba(0,186,187,0.2)]' : '',
+                                        currentStep < 1 ? 'bg-white border-gray-300 text-gray-400' : ''
+                                     ]">
+                                    <template x-if="currentStep > 1">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3"
+                                                d="M5 13l4 4L19 7"></path>
+                                        </svg>
+                                    </template>
+                                    <template x-if="currentStep === 1">
+                                        <svg class="w-4 h-4 animate-spin" fill="none" stroke="currentColor"
+                                            viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15">
+                                            </path>
+                                        </svg>
+                                    </template>
+                                    <template x-if="currentStep < 1">
+                                        <span class="text-xs font-bold">2</span>
+                                    </template>
+                                </div>
+                                <span
+                                    class="absolute -bottom-6 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
+                                    :class="currentStep === 1 ? 'text-[#123456]' : 'text-gray-400'">En Proceso</span>
+                            </div>
+
+                            <!-- Step 3: En Revisión -->
+                            <div class="relative flex flex-col items-center group">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-300 z-10"
+                                    :class="[
+                                        currentStep > 2 ? 'bg-[#00BABB] border-[#00BABB] text-white' : '',
+                                        currentStep === 2 ? 'bg-white border-[#00BABB] text-[#00BABB] animate-pulse-ring' : '',
+                                        currentStep < 2 ? 'bg-white border-gray-300 text-gray-400' : ''
+                                     ]">
+                                    <template x-if="currentStep > 2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3"
+                                                d="M5 13l4 4L19 7"></path>
+                                        </svg>
+                                    </template>
+                                    <template x-if="currentStep === 2">
+                                        <span class="text-xs font-bold">3</span>
+                                    </template>
+                                    <template x-if="currentStep < 2">
+                                        <span class="text-xs font-bold">3</span>
+                                    </template>
+                                </div>
+                                <span
+                                    class="absolute -bottom-6 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
+                                    :class="currentStep === 2 ? 'text-[#123456]' : 'text-gray-400'">En Revisión</span>
+                            </div>
+
+                            <!-- Step 4: Finalizado -->
+                            <div class="relative flex flex-col items-center group">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-300 z-10"
+                                    :class="currentStep === 3 ? 'bg-green-500 border-green-500 text-white animate-bounce' : 'bg-white border-gray-300 text-gray-400'">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3"
+                                            d="M5 13l4 4L19 7"></path>
+                                    </svg>
+                                </div>
+                                <span class="absolute -bottom-6 text-[10px] font-bold uppercase tracking-wider"
+                                    :class="currentStep === 3 ? 'text-green-600' : 'text-gray-400'">Finalizado</span>
+                            </div>
                         </div>
                     </div>
-                    
+
                     <!-- Responsable Simulación -->
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                             Responsable Simulación
                         </label>
-                        <p class="text-sm font-medium text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200 flex items-center gap-2">
+                        <p
+                            class="text-sm font-medium text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200 flex items-center gap-2">
                             {% if op.responsable_simulacion %}
                             <svg class="w-4 h-4 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                      d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
                             </svg>
                             {{ op.responsable_simulacion }}
                             {% else %}
                             <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                                      d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414"/>
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M18.364 5.636a9 9 0 010 12.728m0 0l-2.829-2.829m2.829 2.829L21 21M15.536 8.464a5 5 0 010 7.072m0 0l-2.829-2.829m-4.243 2.829a4.978 4.978 0 01-1.414-2.83m-1.414 5.658a9 9 0 01-2.167-9.238m7.824 2.167a1 1 0 111.414 1.414m-1.414-1.414L3 3m8.293 8.293l1.414 1.414" />
                             </svg>
                             <span class="text-gray-500 italic">No asignado</span>
                             {% endif %}
                         </p>
                     </div>
-                    
+
                 </div>
             </div>
 
@@ -205,14 +321,14 @@
             <div class="bg-gray-50 rounded-lg p-5 border border-gray-200">
                 <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
                     <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     Información Adicional
                 </h4>
-                
+
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-                    
+
                     {% if op.fecha_solicitud %}
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">
@@ -223,7 +339,7 @@
                         </p>
                     </div>
                     {% endif %}
-                    
+
                     {% if op.deadline_calculado %}
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">
@@ -234,7 +350,7 @@
                         </p>
                     </div>
                     {% endif %}
-                    
+
                     {% if op.cantidad_sitios %}
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">
@@ -245,7 +361,7 @@
                         </p>
                     </div>
                     {% endif %}
-                    
+
                 </div>
             </div>
             {% endif %}
@@ -253,14 +369,16 @@
             <!-- Footer Informativo -->
             <div class="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg">
                 <div class="flex items-start gap-3">
-                    <svg class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" 
-                              d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    <svg class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor"
+                        viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
                     <div>
                         <p class="text-xs font-semibold text-blue-800 mb-1">💡 Información de Solo Lectura</p>
                         <p class="text-xs text-blue-700">
-                            Esta vista muestra información básica de la oportunidad. Para editar o ver detalles completos, 
+                            Esta vista muestra información básica de la oportunidad. Para editar o ver detalles
+                            completos,
                             accede desde la tabla principal del módulo correspondiente.
                         </p>
                     </div>
@@ -271,9 +389,8 @@
 
         <!-- FOOTER - Acciones -->
         <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
-            <button type="button" 
-                    @click="$el.closest('#modal-backdrop-detalle').remove()"
-                    class="px-5 py-2.5 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
+            <button type="button" @click="$el.closest('#modal-backdrop-detalle').remove()"
+                class="px-5 py-2.5 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
                 Cerrar
             </button>
         </div>
@@ -288,6 +405,7 @@
         from {
             opacity: 0;
         }
+
         to {
             opacity: 1;
         }
@@ -298,6 +416,7 @@
             transform: scale(0.95);
             opacity: 0;
         }
+
         to {
             transform: scale(1);
             opacity: 1;

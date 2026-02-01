@@ -14,6 +14,8 @@ from typing import Optional
 from uuid import UUID
 import logging
 
+from dataclasses import asdict
+
 from core.database import get_db_connection
 from core.security import get_current_user_context
 from core.permissions import require_module_access
@@ -24,9 +26,15 @@ from .report_service import (
     FiltrosReporte
 )
 from core.config_service import ConfigService
+from core.config import settings
 
 logger = logging.getLogger("ReportesSimulacionRouter")
 templates = Jinja2Templates(directory="templates")
+templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
+
+# Registrar filtros de timezone (México)
+from core.jinja_filters import register_timezone_filters
+register_timezone_filters(templates.env)
 
 router = APIRouter(prefix="/simulacion/reportes", tags=["Simulación - Reportes"])
 
@@ -119,8 +127,11 @@ async def get_reportes_ui(
     # Datos iniciales (mes actual)
     filtros = parse_filtros()
     metricas = await service.get_metricas_generales(conn, filtros)
-    graficas = await service.get_datos_graficas(conn, filtros)
+    graficas = await service.get_datos_graficas(conn, filtros, metricas=metricas)
     
+    # Convertir dataclasses a dict para serialización JSON segura en template
+    graficas_dict = {k: asdict(v) for k, v in graficas.items()}
+
     # Obtener umbrales dinámicos para inyección en template
     u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno", "SIMULACION")
     u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso", "SIMULACION")
@@ -133,7 +144,7 @@ async def get_reportes_ui(
         "current_module_role": context.get("module_roles", {}).get("simulacion", "viewer"),
         "catalogos": catalogos,
         "metricas": metricas,
-        "graficas": graficas,
+        "graficas": graficas_dict,
         "filtros_aplicados": {
             "fecha_inicio": filtros.fecha_inicio.isoformat(),
             "fecha_fin": filtros.fecha_fin.isoformat()

@@ -12,6 +12,7 @@ from typing import Optional, List
 from decimal import Decimal
 import logging
 import asyncpg
+from dataclasses import asdict
 
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
@@ -263,7 +264,7 @@ async def get_graphs_partial(
     # Obtener datos para el dashboard
     catalogos = await report_service.get_catalogos_filtros(conn)
     metricas = await report_service.get_metricas_generales(conn, filtros)
-    graficas = await report_service.get_datos_graficas(conn, filtros)
+    graficas = await report_service.get_datos_graficas(conn, filtros, metricas=metricas)
     
     return templates.TemplateResponse("simulacion/reportes/tabs.html", {
         "request": request,
@@ -273,7 +274,7 @@ async def get_graphs_partial(
         "current_module_role": context.get("module_roles", {}).get("simulacion", "viewer"),
         "catalogos": catalogos,
         "metricas": metricas,
-        "graficas": graficas,
+        "graficas": {k: asdict(v) for k, v in graficas.items()},
         "filtros_aplicados": {
             "fecha_inicio": filtros.fecha_inicio.isoformat(),
             "fecha_fin": filtros.fecha_fin.isoformat()

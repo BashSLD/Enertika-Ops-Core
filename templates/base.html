@@ -14,25 +14,23 @@
     <script>
         const DEBUG_MODE = {{ DEBUG_MODE | tojson }};
         if (!DEBUG_MODE) {
-            // Silenciar logs en producción
             console.log = function () { };
             console.info = function () { };
             console.debug = function () { };
-            // console.warn y console.error se mantienen activos
         }
     </script>
 
-    <!-- Inicializar Alpine store ANTES de cargar Alpine.js -->
     <script>
         document.addEventListener('alpine:init', () => {
             Alpine.store('notifications', { count: 0 });
+            Alpine.store('activeModule', { slug: '' });
         });
     </script>
 
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
     <style>
-        /* Variables de Colores Corporativos Enertika */
         :root {
             --enertika-primary: #123456;
             --enertika-secondary: #00BABB;
@@ -41,7 +39,7 @@
             --enertika-secondary-light: #E0F7F7;
         }
 
-        /* === ANIMACIONES === */
+        /* === ANIMACIONES PREMIUM === */
         @keyframes fadeInDown {
             from {
                 opacity: 0;
@@ -114,6 +112,27 @@
             }
         }
 
+        @keyframes glow-pulse {
+
+            0%,
+            100% {
+                box-shadow: 0 0 5px rgba(0, 186, 187, 0.3);
+            }
+
+            50% {
+                box-shadow: 0 0 20px rgba(0, 186, 187, 0.6), 0 0 30px rgba(0, 186, 187, 0.4);
+            }
+        }
+
+        @keyframes badge-ping {
+
+            75%,
+            100% {
+                transform: scale(1.1);
+                opacity: 0;
+            }
+        }
+
         /* === CLASES DE ANIMACIÓN === */
         .animate-fade-in-down {
             animation: fadeInDown 0.5s ease-out;
@@ -131,25 +150,16 @@
             animation: slideInRight 0.3s ease-out;
         }
 
+        .animate-glow-pulse {
+            animation: glow-pulse 2s ease-in-out infinite;
+        }
+
         /* Skeleton Loader */
         .skeleton {
-            background: linear-gradient(90deg,
-                    #f0f0f0 0%,
-                    #e0e0e0 50%,
-                    #f0f0f0 100%);
+            background: linear-gradient(90deg, #f0f0f0 0%, #e0e0e0 50%, #f0f0f0 100%);
             background-size: 200% 100%;
             animation: shimmer 1.5s infinite;
             border-radius: 4px;
-        }
-
-        .skeleton-text {
-            height: 1rem;
-            margin-bottom: 0.5rem;
-        }
-
-        .skeleton-title {
-            height: 1.5rem;
-            margin-bottom: 0.75rem;
         }
 
         /* Ripple Effect */
@@ -181,7 +191,7 @@
             transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
         }
 
-        /* Utility classes para colores corporativos */
+        /* Utility classes corporativas */
         .bg-enertika-primary {
             background-color: var(--enertika-primary);
         }
@@ -233,21 +243,16 @@
             justify-content: center;
         }
 
-        /* Hide scrollbar for Chrome, Safari and Opera */
-        /* Hide scrollbar for Chrome, Safari and Opera */
+        /* Scrollbar personalizado */
         .no-scrollbar::-webkit-scrollbar {
             display: none;
         }
 
-        /* Hide scrollbar for IE, Edge and Firefox */
         .no-scrollbar {
             -ms-overflow-style: none;
-            /* IE and Edge */
             scrollbar-width: none;
-            /* Firefox */
         }
 
-        /* Custom Scrollbar for Expanded Sidebar (Enertika Theme) */
         .custom-scrollbar::-webkit-scrollbar {
             width: 5px;
         }
@@ -264,27 +269,120 @@
         .custom-scrollbar::-webkit-scrollbar-thumb:hover {
             background-color: #009999;
         }
+
+        /* === SIDEBAR PREMIUM STYLES === */
+
+        /* Glassmorphism para sidebar colapsado */
+        .sidebar-collapsed {
+            background: rgba(18, 52, 86, 0.95);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+        }
+
+        /* Active state indicator */
+        .module-link {
+            position: relative;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .module-link::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            bottom: 0;
+            width: 0;
+            background: linear-gradient(to bottom, #00BABB, #009999);
+            transition: width 0.3s ease;
+            border-radius: 0 4px 4px 0;
+        }
+
+        .module-link.active::before {
+            width: 4px;
+        }
+
+        .module-link.active {
+            background: linear-gradient(90deg, rgba(0, 186, 187, 0.15) 0%, rgba(0, 186, 187, 0.05) 100%);
+            border-left: 3px solid #00BABB;
+        }
+
+        .module-link:hover {
+            background: rgba(0, 186, 187, 0.08);
+            transform: translateX(2px);
+        }
+
+        /* Icon animation on hover */
+        .module-link:hover .module-icon {
+            transform: scale(1.15) rotate(5deg);
+        }
+
+        .module-icon {
+            transition: transform 0.3s ease;
+            display: inline-block;
+        }
+
+        /* Group headers */
+        .group-header {
+            font-size: 0.65rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            color: rgba(0, 186, 187, 0.7);
+            margin-bottom: 0.5rem;
+            padding-left: 1rem;
+        }
+
+        /* Badge notification with ping animation */
+        .notification-badge {
+            position: relative;
+        }
+
+        .notification-badge::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            right: -2px;
+            width: 100%;
+            height: 100%;
+            border-radius: 9999px;
+            background: #ef4444;
+            animation: badge-ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
+        }
+
+        /* User badge hover glow */
+        .user-badge:hover {
+            box-shadow: 0 0 15px rgba(0, 186, 187, 0.4);
+        }
+
+        /* Tooltip premium */
+        .tooltip-premium {
+            background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1);
+        }
     </style>
 </head>
 
 <body class="bg-gray-100 font-sans text-gray-900">
 
-    <div class="flex h-screen overflow-hidden"
-        x-data="{ sidebarOpen: localStorage.getItem('sidebarOpen') !== 'false', mobileMenuOpen: false }"
-        x-init="$watch('sidebarOpen', val => localStorage.setItem('sidebarOpen', val))">
+    <div class="flex h-screen overflow-hidden" x-data="{ 
+            sidebarOpen: localStorage.getItem('sidebarOpen') !== 'false', 
+            mobileMenuOpen: false,
+            notificationsOpen: false 
+        }" x-init="$watch('sidebarOpen', val => localStorage.setItem('sidebarOpen', val))">
 
         {% if user_name %}
         <!-- MOBILE HEADER -->
         <header
             class="fixed top-0 left-0 right-0 h-14 bg-[#123456] text-white flex items-center justify-between px-4 z-30 md:hidden shadow-lg">
-            <button @click="mobileMenuOpen = true" class="p-2 rounded-lg hover:bg-blue-800/50 transition">
+            <button @click="mobileMenuOpen = true; sidebarOpen = true"
+                class="p-2 rounded-lg hover:bg-blue-800/50 transition">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
             </button>
             <span class="text-lg font-bold text-[#00BABB]">Enertika</span>
             <div class="relative">
-                <span class="text-lg">🔔</span>
+                <span class="text-lg">👤</span>
                 <span x-show="$store.notifications?.count > 0"
                     x-text="$store.notifications?.count > 99 ? '99+' : $store.notifications?.count"
                     class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1 rounded-full min-w-[14px] text-center"></span>
@@ -297,90 +395,130 @@
             x-transition:leave="transition-opacity ease-in duration-200" x-transition:leave-start="opacity-100"
             x-transition:leave-end="opacity-0" @click="mobileMenuOpen = false"
             class="fixed inset-0 bg-black/60 z-40 md:hidden" style="display: none;"></div>
+
+        <!-- === SIDEBAR PREMIUM === -->
         <aside
             class="bg-[#123456] text-white flex flex-col shadow-2xl z-50 transition-all duration-300 ease-in-out overflow-visible fixed md:relative inset-y-0 left-0 transform md:transform-none"
             :class="[
-                sidebarOpen ? 'w-64' : 'md:w-20 w-64',
+                sidebarOpen ? 'w-64' : 'w-20 sidebar-collapsed',
                 mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
             ]">
 
-            <!-- HEADING / LOGO -->
+            <!-- LOGO & USER SECTION -->
             <div class="p-4 border-b border-blue-900 bg-[#0E2A47] flex flex-col items-center justify-center transition-all duration-300"
-                :class="sidebarOpen ? 'h-32' : 'h-20'">
+                :class="sidebarOpen ? 'h-32' : 'h-32'">
 
                 <!-- Expanded: Full Title -->
                 <h1 x-show="sidebarOpen" x-transition:enter="transition ease-out duration-200"
                     x-transition:enter-start="opacity-0 transform scale-90"
                     x-transition:enter-end="opacity-100 transform scale-100"
-                    class="text-xl font-bold tracking-wider text-[#00BABB] text-center whitespace-nowrap overflow-hidden">
+                    class="text-xl font-bold tracking-wider text-[#00BABB] text-center whitespace-nowrap">
                     Enertika Core Ops
                 </h1>
 
-                <!-- Collapsed: Mini Icon (E) -->
+                <!-- Collapsed: Mini Icon -->
                 <div x-show="!sidebarOpen" x-transition:enter="transition ease-out duration-200 delay-100"
                     x-transition:enter-start="opacity-0 transform rotate-180"
                     x-transition:enter-end="opacity-100 transform rotate-0" class="text-3xl font-black text-[#00BABB]">
                     E
                 </div>
 
-                <!-- USER INFO -->
-                <div class="mt-3 flex items-center justify-center">
-                    <!-- Expanded: Full Name Badge -->
-                    <div x-show="sidebarOpen"
-                        class="px-3 py-1 bg-blue-900/50 rounded-full text-xs font-mono text-blue-200 border border-blue-800 whitespace-nowrap overflow-hidden text-ellipsis max-w-[180px]">
+                <!-- USER INFO CON NOTIFICACIONES -->
+                <div class="mt-3 flex items-center justify-center relative" x-data="{ open: false }">
+                    <!-- Expanded: Full Name Badge con Click -->
+                    <button x-show="sidebarOpen" @click="open = !open"
+                        class="user-badge px-3 py-1 bg-blue-900/50 rounded-full text-xs font-mono text-blue-200 border border-blue-800 whitespace-nowrap max-w-[180px] transition-all duration-200 hover:bg-blue-900/70 cursor-pointer relative">
                         {{ user_name }}
-                    </div>
+                        <span x-show="$store.notifications?.count > 0"
+                            x-text="$store.notifications?.count > 99 ? '99+' : $store.notifications?.count"
+                            class="notification-badge ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[16px] inline-block">
+                        </span>
+                    </button>
 
-                    <!-- Collapsed: Initials Circle -->
-                    <div x-show="!sidebarOpen"
-                        class="w-8 h-8 flex items-center justify-center bg-blue-900/50 rounded-full text-xs font-mono text-blue-200 border border-blue-800"
+                    <!-- Collapsed: Initials Circle con Badge -->
+                    <button x-show="!sidebarOpen" @click="open = !open"
+                        class="user-badge w-10 h-10 flex items-center justify-center bg-blue-900/50 rounded-full text-xs font-mono text-blue-200 border border-blue-800 relative cursor-pointer transition-all duration-200 hover:bg-blue-900/70"
                         title="{{ user_name }}">
                         {{ user_name[:2].upper() if user_name else 'OPS' }}
+                        <span x-show="$store.notifications?.count > 0"
+                            x-text="$store.notifications?.count > 99 ? '9+' : $store.notifications?.count"
+                            class="notification-badge absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-bold px-1 rounded-full min-w-[14px]">
+                        </span>
+                    </button>
+
+                    <!-- Dropdown de Notificaciones -->
+                    <div x-show="open" @click.away="open = false" x-transition
+                        class="absolute top-full mt-2 w-96 bg-white rounded-lg shadow-2xl border border-gray-200 max-h-96 overflow-hidden z-50"
+                        :class="sidebarOpen ? 'left-0' : 'left-12'" style="display: none;">
+
+                        <div class="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-cyan-50">
+                            <h3 class="font-semibold text-gray-800">Notificaciones</h3>
+                        </div>
+
+                        <div id="notifications-dropdown" class="max-h-80 overflow-y-auto">
+                            <div id="empty-notifications" class="p-8 text-center text-gray-400 text-sm">
+                                <div class="text-4xl mb-2">📭</div>
+                                <p>No hay notificaciones nuevas</p>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
 
-            <nav class="flex-1 space-y-1 overflow-y-auto overflow-x-hidden text-sm transition-all duration-300"
-                :class="sidebarOpen ? 'p-4 custom-scrollbar' : 'p-2 no-scrollbar'">
-                <!-- Módulos Principales -->
-                {% set all_modules = [
+            <!-- NAVIGATION -->
+            <nav class="flex-1 space-y-1 overflow-y-auto overflow-x-hidden text-sm transition-all duration-300 py-4"
+                :class="sidebarOpen ? 'px-3 custom-scrollbar' : 'px-2 no-scrollbar'">
+
+                {% set module_groups = {
+                'OPERACIONES': [
                 {"slug": "comercial", "name": "Comercial", "icon": "💼", "url": "/comercial/ui"},
                 {"slug": "simulacion", "name": "Simulación", "icon": "⚡", "url": "/simulacion/ui"},
-                {"slug": "levantamientos", "name": "Levantamientos", "icon": "📋", "url": "/levantamientos/ui"},
+                {"slug": "levantamientos", "name": "Levantamientos", "icon": "📋", "url": "/levantamientos/ui"}
+                ],
+                'PROYECTOS': [
                 {"slug": "proyectos", "name": "Proyectos", "icon": "📁", "url": "/proyectos/ui"},
+                {"slug": "ingenieria", "name": "Ingeniería", "icon": "🏗️", "url": "/ingenieria/ui"},
                 {"slug": "construccion", "name": "Construcción", "icon": "🚧", "url": "/construccion/ui"},
-                {"slug": "compras", "name": "Compras", "icon": "🛒", "url": "/compras/ui"},
+                {"slug": "compras", "name": "Compras", "icon": "🛒", "url": "/compras/ui"}
+                ],
+                'MANTENIMIENTO': [
                 {"slug": "oym", "name": "O & M", "icon": "🔧", "url": "/oym/ui"}
-                ] %}
+                ]
+                } %}
 
-                {% for module in all_modules %}
+                {% for group_name, modules in module_groups.items() %}
+                <!-- Group Header (Solo visible cuando está expandido) -->
+                <div x-show="sidebarOpen" class="group-header mt-4 first:mt-0">
+                    {{ group_name }}
+                </div>
+
+                <!-- Divider visual cuando está colapsado -->
+                <div x-show="!sidebarOpen" class="my-3 border-t border-blue-900/30"></div>
+
+                {% for module in modules %}
                 {% set has_access = (role == 'ADMIN') or (module.slug in (module_roles or {})) %}
 
                 <div class="relative group">
                     {% if has_access %}
                     <!-- MÓDULO CON ACCESO -->
                     <a href="#" hx-get="{{ module.url }}" hx-target="#main-content" hx-swap="innerHTML"
-                        hx-push-url="true" @click="mobileMenuOpen = false"
-                        class="flex items-center gap-3 py-3 rounded-lg hover:bg-blue-800/50 transition duration-150 group/module overflow-hidden"
-                        :class="sidebarOpen ? 'px-4 justify-start' : 'px-0 md:justify-center justify-start'">
+                        hx-push-url="true"
+                        @click="mobileMenuOpen = false; $store.activeModule.slug = '{{ module.slug }}'"
+                        class="module-link flex items-center gap-3 py-3 px-3 rounded-lg transition-all duration-200 overflow-hidden"
+                        :class="$store.activeModule.slug === '{{ module.slug }}' ? 'active' : ''"
+                        x-init="if (window.location.pathname.includes('{{ module.slug }}')) $store.activeModule.slug = '{{ module.slug }}'">
 
-                        <span class="text-lg transition-transform duration-200"
-                            :class="sidebarOpen ? 'group-hover/module:scale-110' : ''">
-                            {{ module.icon }}
-                        </span>
+                        <span class="module-icon text-lg">{{ module.icon }}</span>
 
                         <span class="font-medium whitespace-nowrap transition-opacity duration-200" x-show="sidebarOpen"
                             x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0"
-                            x-transition:enter-end="opacity-100" class="md:hidden" :class="{'md:inline': sidebarOpen}">
+                            x-transition:enter-end="opacity-100">
                             {{ module.name }}
                         </span>
-                        <span class="font-medium whitespace-nowrap md:hidden" x-show="!sidebarOpen">{{ module.name
-                            }}</span>
                     </a>
                     {% else %}
                     <!-- MÓDULO BLOQUEADO -->
-                    <div class="flex items-center gap-3 py-3 rounded-lg opacity-40 overflow-hidden"
-                        :class="sidebarOpen ? 'px-4 justify-start' : 'px-0 justify-center'">
+                    <div class="flex items-center gap-3 py-3 px-3 rounded-lg opacity-40 overflow-hidden">
                         <span class="text-lg">{{ module.icon }}</span>
                         <span class="font-medium text-gray-400 whitespace-nowrap" x-show="sidebarOpen">
                             {{ module.name }}
@@ -389,31 +527,29 @@
                     </div>
                     {% endif %}
 
-                    <!-- TOOLTIP (Only visible when sidebar is collapsed) -->
+                    <!-- TOOLTIP (Solo visible cuando está colapsado) -->
                     <div x-show="!sidebarOpen"
-                        class="absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 bg-gray-900 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl border border-gray-700">
+                        class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
                         {{ module.name }}
-                        {% if not has_access %} <span class="ml-1 text-xs text-gray-400">(Bloqueado)</span> {% endif %}
-                        <!-- Arrow -->
+                        {% if not has_access %}<span class="ml-1 text-xs text-gray-400">(Bloqueado)</span>{% endif %}
                         <div
                             class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-gray-900">
                         </div>
                     </div>
                 </div>
                 {% endfor %}
+                {% endfor %}
 
                 {% if role == 'ADMIN' %}
                 <div class="my-4 border-t border-blue-900/30"></div>
                 <div class="relative group">
                     <a href="/admin/ui"
-                        class="flex items-center gap-3 py-3 rounded-lg bg-blue-900/20 hover:bg-blue-800/50 text-yellow-100 border border-transparent hover:border-yellow-500/30 transition duration-150 overflow-hidden"
-                        :class="sidebarOpen ? 'px-4 justify-start' : 'px-0 justify-center'">
-                        <span class="text-lg">⚙️</span>
+                        class="module-link flex items-center gap-3 py-3 px-3 rounded-lg bg-blue-900/20 hover:bg-blue-800/50 text-yellow-100 border border-transparent hover:border-yellow-500/30 transition-all duration-200 overflow-hidden">
+                        <span class="module-icon text-lg">⚙️</span>
                         <span class="font-medium whitespace-nowrap" x-show="sidebarOpen">Admin</span>
                     </a>
-                    <!-- Tooltip for Admin -->
                     <div x-show="!sidebarOpen"
-                        class="absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 bg-gray-900 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl border border-gray-700">
+                        class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
                         Admin
                         <div
                             class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-gray-900">
@@ -423,68 +559,18 @@
                 {% endif %}
             </nav>
 
-            <!-- Notificaciones Bell Icon -->
-            <div class="pb-2" x-data="{ open: false }">
-                <button @click="open = !open"
-                    class="relative w-full flex items-center gap-3 py-3 rounded-lg hover:bg-blue-800/50 transition"
-                    :class="sidebarOpen ? 'px-4 justify-start' : 'px-0 justify-center'">
-                    <span class="text-lg relative">
-                        🔔
-                        <!-- Badge for collapsed mode (over icon) -->
-                        <span id="notification-badge-mini"
-                            class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[16px] text-center border-2 border-[#123456]"
-                            x-show="!sidebarOpen && $store.notifications?.count > 0"
-                            x-text="$store.notifications?.count > 99 ? '99+' : $store.notifications?.count">
-                            0
-                        </span>
-                    </span>
-                    <span class="font-medium whitespace-nowrap" x-show="sidebarOpen">Notificaciones</span>
-
-                    <!-- Badge for expanded mode (right side) -->
-                    <span id="notification-badge"
-                        class="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full min-w-[20px] text-center"
-                        x-show="sidebarOpen && $store.notifications?.count > 0"
-                        x-text="$store.notifications?.count > 99 ? '99+' : $store.notifications?.count">
-                        0
-                    </span>
-                </button>
-
-                <!-- Dropdown -->
-                <div x-show="open" @click.away="open = false" x-transition
-                    class="absolute bottom-20 w-96 bg-white rounded-lg shadow-2xl border border-gray-200 max-h-96 overflow-hidden z-50"
-                    :class="sidebarOpen ? 'left-64' : 'left-20'" style="display: none;">
-
-                    <div class="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-cyan-50">
-                        <h3 class="font-semibold text-gray-800">Notificaciones</h3>
-                    </div>
-
-                    <div id="notifications-dropdown" class="max-h-80 overflow-y-auto">
-                        <!-- Notificaciones se agregan aquí dinámicamente -->
-                        <div id="empty-notifications" class="p-8 text-center text-gray-400 text-sm">
-                            <div class="text-4xl mb-2">📭</div>
-                            <p>No hay notificaciones nuevas</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- AYUDA / DOCUMENTACIÓN -->
+            <!-- AYUDA -->
             <div class="pb-2 border-t border-blue-900/30 mt-2">
                 <div class="relative group">
                     <button @click="$dispatch('open-docs-modal')"
-                        class="flex items-center gap-3 py-3 rounded-lg hover:bg-blue-800/50 transition duration-150 overflow-hidden w-full"
-                        :class="sidebarOpen ? 'px-4 justify-start' : 'px-0 justify-center'"
+                        class="module-link flex items-center gap-3 py-3 px-3 rounded-lg hover:bg-blue-800/50 transition-all duration-200 overflow-hidden w-full"
                         title="Ayuda y Documentación">
-
-                        <span class="text-lg">❓</span>
-                        <span class="font-medium whitespace-nowrap" x-show="sidebarOpen">
-                            Ayuda
-                        </span>
+                        <span class="module-icon text-lg">❓</span>
+                        <span class="font-medium whitespace-nowrap" x-show="sidebarOpen">Ayuda</span>
                     </button>
 
-                    <!-- Tooltip for collapsed mode -->
                     <div x-show="!sidebarOpen"
-                        class="absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 bg-gray-900 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl border border-gray-700">
+                        class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
                         Ayuda y Documentación
                         <div
                             class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-gray-900">
@@ -508,13 +594,11 @@
             <div class="p-2 bg-[#0E2A47] border-t border-blue-900">
                 <div class="relative group">
                     <a href="/auth/logout"
-                        class="flex items-center gap-2 w-full py-2 rounded-lg bg-red-900/20 text-red-200 hover:bg-red-900/40 transition duration-150 text-sm overflow-hidden"
-                        :class="sidebarOpen ? 'px-4 justify-start' : 'px-0 justify-center h-10'">
+                        class="flex items-center gap-2 w-full py-2 px-3 rounded-lg bg-red-900/20 text-red-200 hover:bg-red-900/40 transition-all duration-200 text-sm overflow-hidden">
                         <span class="text-lg">🚪</span>
                         <span class="whitespace-nowrap" x-show="sidebarOpen">Cerrar Sesión</span>
                     </a>
 
-                    <!-- Tooltip for Logout -->
                     <div x-show="!sidebarOpen"
                         class="absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 bg-red-900 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl border border-red-800">
                         Cerrar Sesión
@@ -527,6 +611,7 @@
         </aside>
         {% endif %}
 
+        <!-- MAIN CONTENT -->
         <main id="main-content"
             class="flex-1 overflow-y-auto relative bg-gray-50 w-full p-4 md:p-6 lg:p-8 pt-18 md:pt-4">
             {% block content %}
@@ -537,8 +622,9 @@
         </main>
     </div>
 
+    <!-- Loading Overlay -->
     <div id="global-loading-overlay"
-        class="htmx-indicator fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-[9999] transition-opacity duration-300">
+        class="htmx-indicator fixed inset-0 bg-gray-900/50 backdrop-blur-sm z-[9999] transition-opacity duration-300 flex items-center justify-center">
         <div class="bg-white p-6 rounded-xl shadow-2xl flex flex-col items-center animate-fade-in-up">
             <div class="spinner-enertika mb-4"></div>
             <p class="text-gray-800 font-bold text-lg">Procesando...</p>
@@ -546,6 +632,7 @@
         </div>
     </div>
 
+    <!-- Session Modal -->
     <div id="session-modal"
         class="fixed inset-0 bg-gray-900/80 backdrop-blur-sm z-[9999] hidden flex items-center justify-center transition-opacity duration-300">
         <div
@@ -574,47 +661,34 @@
     </div>
 
     <script>
-        // --- FUNCIÓN DE RECONEXIÓN INTELIGENTE ---
+        // === FUNCIÓN DE RECONEXIÓN ===
         function reconnectAndWatch() {
             const btn = document.getElementById('reconnect-btn');
             const originalText = btn.innerHTML;
             btn.innerHTML = '<span class="animate-pulse">Esperando login...</span>';
             btn.disabled = true;
 
-            // 1. Abrir Popup
             const popup = window.open('/auth/login', 'LoginPopup', 'width=500,height=600,left=200,top=200');
 
-            // 2. Iniciar vigilancia (Polling)
-            // Preguntamos al servidor cada 1 segundo: "¿Ya revivió la sesión?"
             const timer = setInterval(() => {
-                // FIX: Usar la ruta actual en lugar de hardcoded /comercial/form
                 fetch(window.location.pathname, { method: 'HEAD' })
                     .then(res => {
-                        // Si recibimos OK (200) y NO es una redirección al login...
                         if (res.ok && !res.redirected) {
-                            // ¡ÉXITO!
-                            clearInterval(timer); // Dejar de vigilar
-
-                            if (popup) popup.close(); // Cerrar la ventana hija automáticamente
-                            console.log("Sesión validada. Recargando contenido...");
-
-                            // FIX: Usar HTMX para recargar solo el contenido, no toda la página
+                            clearInterval(timer);
+                            if (popup) popup.close();
                             htmx.ajax('GET', window.location.pathname, { target: '#main-content', swap: 'innerHTML' });
-
-                            // Cerrar el modal
                             document.getElementById('session-modal').classList.add('hidden');
                         }
                     })
-                    .catch(() => { /* Ignorar errores de red mientras esperamos */ });
+                    .catch(() => { });
 
-                // Seguridad: Si el usuario cierra el popup manualmente, dejar de buscar a los 2 minutos
                 if (popup && popup.closed) {
-                    // Opcional: Podríamos detener el timer, pero mejor seguir intentando un poco más
+                    // Continuar intentando
                 }
-            }, 1000); // Checar cada 1 segundo
+            }, 1000);
         }
 
-        // --- INTERCEPTOR DE ERRORES 401 (Tu guardián de datos) ---
+        // === INTERCEPTOR DE ERRORES 401 ===
         document.body.addEventListener('htmx:responseError', function (evt) {
             if (evt.detail.xhr.status === 401) {
                 evt.preventDefault();
@@ -623,9 +697,8 @@
             }
         });
 
-        // 1. SISTEMA DE ALERTA TEMPRANA (Heartbeat)
+        // === HEARTBEAT ===
         setInterval(() => {
-            // FIX: Usar la ruta actual en lugar de hardcoded /comercial/ui
             fetch(window.location.pathname, { method: 'HEAD' }).then(res => {
                 if (res.redirected || res.status === 401 || res.status === 403) {
                     document.getElementById('session-modal').classList.remove('hidden');
@@ -633,14 +706,14 @@
             }).catch(() => { });
         }, 60000);
 
-        // 2. CAJA FUERTE LOCAL (Auto-Save)
+        // === AUTO-SAVE ===
         document.addEventListener('input', (e) => {
             if (e.target.name && !e.target.type.match(/password|hidden|file/)) {
                 localStorage.setItem('draft_' + window.location.pathname + '_' + e.target.name, e.target.value);
             }
         });
 
-        // 3. RESTAURACIÓN AUTOMÁTICA
+        // === RESTORE ===
         document.addEventListener("DOMContentLoaded", () => {
             document.querySelectorAll('input, textarea, select').forEach(input => {
                 if (input.name) {
@@ -653,7 +726,7 @@
             });
         });
 
-        // 4. LIMPIEZA POST-ENVÍO
+        // === CLEANUP ===
         document.body.addEventListener('htmx:afterOnLoad', (evt) => {
             if (evt.detail.xhr.status >= 200 && evt.detail.xhr.status < 300) {
                 if (evt.detail.requestConfig.verb !== 'get') {
@@ -664,7 +737,7 @@
             }
         });
 
-        // Scripts de Chips (Correos)
+        // === CHIPS (Correos) ===
         document.addEventListener('keydown', function (e) {
             if (e.target.classList.contains('chip-input') && ['Enter', 'Tab', ';', ','].includes(e.key)) {
                 e.preventDefault();
@@ -698,23 +771,18 @@
             hidden.value = Array.from(container.querySelectorAll('span')).map(s => s.textContent).join(';');
         }
 
-        // === SISTEMA DE TOAST AUTOMÁTICO ===
-        // Detecta parámetros en la URL para mostrar mensajes de éxito después de redirecciones
+        // === TOAST SYSTEM ===
         document.addEventListener("DOMContentLoaded", function () {
             const urlParams = new URLSearchParams(window.location.search);
 
-            // Detectar creación de oportunidad
             if (urlParams.has('new_op')) {
                 const opId = urlParams.get('new_op');
                 const esFuera = urlParams.get('fh') === 'true';
 
-                // SOLO mostrar toast si es FUERA de horario
                 if (esFuera) {
                     const toastHtml = `
                         <div class="bg-white border-l-4 border-orange-500 shadow-lg rounded p-4 mb-4 flex items-center gap-3 animate-fade-in-down w-80 pointer-events-auto">
-                            <div class="p-2 rounded-full bg-orange-100 text-orange-600">
-                                🌙
-                            </div>
+                            <div class="p-2 rounded-full bg-orange-100 text-orange-600">🌙</div>
                             <div>
                                 <p class="font-bold text-gray-800">Oportunidad Creada</p>
                                 <p class="text-sm text-gray-600">Ref: ${opId}</p>
@@ -727,26 +795,21 @@
                     const container = document.getElementById('global-toast-container');
                     if (container) {
                         container.innerHTML = toastHtml;
-
-                        // Autocerrar a los 5 segundos
                         setTimeout(() => {
                             if (container.firstChild) container.firstChild.remove();
                         }, 5000);
                     }
                 }
 
-                // Limpiar URL para que no salga al recargar
                 window.history.replaceState({}, document.title, window.location.pathname);
             }
         });
 
-
-        // === SISTEMA DE NOTIFICACIONES EN TIEMPO REAL (SSE) ===
+        // === NOTIFICATIONS SYSTEM (SSE) ===
         let notificationSource = null;
         let unreadCount = 0;
 
         function initNotifications() {
-            // OPTIMIZACIÓN: Cargar contador con timeout para no bloquear UI
             const timeoutPromise = new Promise((_, reject) =>
                 setTimeout(() => reject(new Error('Timeout')), 2000)
             );
@@ -757,514 +820,112 @@
             ])
                 .then(data => {
                     unreadCount = data.unread_count;
-                    if (window.Alpine && window.Alpine.store('notifications')) {
-                        window.Alpine.store('notifications').count = unreadCount;
-                    }
-                    updateBellIcon();
+                    updateBadges();
+                    loadNotifications();
                 })
-                .catch(err => {
-                    console.warn('[SSE] Contador no disponible (timeout o error):', err.message);
-                    // Continuar sin bloquear - el contador se actualizará cuando lleguen notificaciones
+                .catch(() => {
+                    console.warn('[Notifications] Timeout inicial, continuando...');
                 });
 
-            // OPTIMIZACIÓN: Conectar SSE de forma async después de cargar contador
-            setTimeout(() => {
-                try {
-                    notificationSource = new EventSource('/notifications/stream');
+            if (typeof (EventSource) !== "undefined") {
+                notificationSource = new EventSource('/notifications/stream');
 
-                    // Evento 'pending': Notificaciones existentes al conectar
-                    // NO incrementar contador (ya fueron contadas por /notifications/count)
-                    notificationSource.addEventListener('pending', function (e) {
-                        const notification = JSON.parse(e.data);
-                        console.log('[SSE] Notificacion pendiente (existente):', notification);
-                        // Solo agregar a dropdown, SIN incrementar contador ni mostrar toast
-                        addNotificationToDropdown(notification);
-                    });
+                notificationSource.addEventListener('new_notification', function (e) {
+                    const data = JSON.parse(e.data);
+                    unreadCount = data.unread_count;
+                    updateBadges();
+                    prependNotification(data.notification);
+                    showToast(data.notification);
+                });
 
-                    // Evento 'notification': Notificaciones NUEVAS en tiempo real
-                    // SÍ incrementar contador y mostrar toast
-                    notificationSource.addEventListener('notification', function (e) {
-                        const notification = JSON.parse(e.data);
-                        console.log('[SSE] Nueva notificacion (tiempo real):', notification);
-
-                        // Incrementar contador (solo para nuevas)
-                        if (unreadCount < 99) {
-                            unreadCount++;
-                        }
-                        updateBellIcon();
-
-                        // Mostrar toast
-                        showNotificationToast(notification);
-
-                        // Agregar a dropdown
-                        addNotificationToDropdown(notification);
-                    });
-
-                    notificationSource.onerror = function (e) {
-                        console.error('[SSE] Error de conexion:', e);
-                        // Reconectar después de 5s
-                        if (notificationSource.readyState === EventSource.CLOSED) {
-                            setTimeout(initNotifications, 5000);
-                        }
-                    };
-                } catch (err) {
-                    console.error('[SSE] Error iniciando EventSource:', err);
-                }
-            }, 100); // Delay mínimo para no bloquear renderizado inicial
+                notificationSource.onerror = function () {
+                    console.warn('[SSE] Error de conexión, reintentando en 5s...');
+                    notificationSource.close();
+                    setTimeout(initNotifications, 5000);
+                };
+            }
         }
 
-        function updateBellIcon() {
-            // Sincronizar con Alpine Store
-            if (window.Alpine && window.Alpine.store('notifications')) {
-                window.Alpine.store('notifications').count = unreadCount;
-            }
-
-            // Actualizar solo texto en el DOM
-            const badgeMini = document.getElementById('notification-badge-mini');
-            const badgeNormal = document.getElementById('notification-badge');
-            const countText = unreadCount > 99 ? '99+' : unreadCount.toString();
-
-            if (badgeMini) badgeMini.textContent = countText;
-            if (badgeNormal) badgeNormal.textContent = countText;
-
-            // Eliminamos la lógica manual de style.display para no interferir con x-show de Alpine
-            // y evitar duplicidad de badges.
+        function updateBadges() {
+            Alpine.store('notifications').count = unreadCount;
         }
 
-        function showNotificationToast(notif) {
-            const toast = document.createElement('div');
-            // Determine border color and icon based on notification type (if available)
-            let borderColor = 'border-blue-500';
-            let icon = '🔔';
-            if (notif.tipo === 'success') {
-                borderColor = 'border-green-500';
-                icon = '✅';
-            } else if (notif.tipo === 'error') {
-                borderColor = 'border-red-500';
-                icon = '❌';
-            } else if (notif.tipo === 'warning') {
-                borderColor = 'border-yellow-500';
-                icon = '⚠️';
-            }
+        function loadNotifications() {
+            fetch('/notifications/recent')
+                .then(r => r.json())
+                .then(data => {
+                    const container = document.getElementById('notifications-dropdown');
+                    const empty = document.getElementById('empty-notifications');
 
-            toast.className = `fixed top-5 right-5 bg-white border-l-4 ${borderColor} shadow-2xl rounded-lg p-4 max-w-sm z-[9999] animate-fade-in-down`;
-            toast.innerHTML = `
-                <div class="flex items-start gap-3">
-                    <div class="flex-shrink-0 text-2xl">${icon}</div>
-                    <div class="flex-1">
-                        <p class="font-bold text-gray-800 text-sm">${escapeHtml(notif.title || notif.titulo)}</p>
-                        <p class="text-sm text-gray-600 mt-1">${escapeHtml(notif.message || notif.mensaje)}</p>
-                    </div>
-                    <button onclick="this.parentElement.parentElement.remove()"
-                            class="text-gray-400 hover:text-gray-600 font-bold text-lg leading-none">
-                        ×
-                    </button>
-                </div>
-            `;
-            document.body.appendChild(toast);
-
-            // Auto-cerrar después de 5s
-            setTimeout(() => toast.remove(), 5000);
+                    if (data.notifications && data.notifications.length > 0) {
+                        empty.style.display = 'none';
+                        container.innerHTML = '';
+                        data.notifications.forEach(n => prependNotification(n));
+                    }
+                })
+                .catch(() => { });
         }
 
-        function addNotificationToDropdown(notif) {
-            const dropdown = document.getElementById('notifications-dropdown');
-            const emptyMsg = document.getElementById('empty-notifications');
-
-            if (!dropdown) return;
-
-            // Ocultar mensaje vacío
-            if (emptyMsg) {
-                emptyMsg.style.display = 'none';
-            }
+        function prependNotification(n) {
+            const container = document.getElementById('notifications-dropdown');
+            const empty = document.getElementById('empty-notifications');
+            if (empty) empty.style.display = 'none';
 
             const item = document.createElement('div');
-            item.className = 'px-4 py-3 hover:bg-gray-50 cursor-pointer border-b border-gray-100 transition-colors';
-            item.dataset.notifId = notif.id;
+            item.className = `p-3 hover:bg-gray-50 border-b border-gray-100 cursor-pointer transition ${n.is_read ? 'bg-white' : 'bg-blue-50'}`;
             item.innerHTML = `
-                <div class="flex justify-between items-start">
-                    <div class="flex-1 min-w-0">
-                        <p class="text-sm font-semibold text-gray-800 truncate">${escapeHtml(notif.title)}</p>
-                        <p class="text-xs text-gray-600 mt-1">${escapeHtml(notif.message)}</p>
-                        <p class="text-xs text-gray-400 mt-1">${formatDate(notif.created_at)}</p>
+                <div class="flex items-start gap-2">
+                    <span class="text-lg">${n.type === 'info' ? 'ℹ️' : n.type === 'success' ? '✅' : '⚠️'}</span>
+                    <div class="flex-1">
+                        <p class="text-sm font-medium text-gray-800">${n.title}</p>
+                        <p class="text-xs text-gray-600 mt-1">${n.message}</p>
+                        <p class="text-xs text-gray-400 mt-1">${n.created_at}</p>
                     </div>
-                    <button onclick="event.stopPropagation(); deleteNotification('${notif.id}')" 
-                            class="ml-2 text-gray-400 hover:text-red-500 text-lg font-bold" title="Eliminar">
-                        ×
-                    </button>
                 </div>
             `;
-            item.onclick = async function () {
-                // Esperar a que markAsRead complete antes de redirigir
-                await markAsRead(notif.id);
-                if (notif.oportunidad_id) {
-                    // Redirigir al home, el sistema determinará el módulo correcto según permisos
-                    window.location.href = '/';
-                }
-            };
-            dropdown.insertBefore(item, dropdown.firstChild);
+            item.onclick = () => markAsRead(n.id);
+            container.prepend(item);
         }
 
-        function markAsRead(notifId) {
-            // CRÍTICO: Retornar la Promise para que await funcione
-            return fetch(`/notifications/mark-read/${notifId}`, { method: 'POST' })
-                .then(response => {
-                    if (!response.ok) {
-                        throw new Error(`HTTP ${response.status}`);
-                    }
+        function markAsRead(id) {
+            fetch(`/notifications/${id}/read`, { method: 'POST' })
+                .then(() => {
                     unreadCount = Math.max(0, unreadCount - 1);
-                    if (window.Alpine && window.Alpine.store('notifications')) {
-                        window.Alpine.store('notifications').count = unreadCount;
-                    }
-                    updateBellIcon();
-
-                    // Actualizar visualmente el item
-                    const item = document.querySelector(`[data-notif-id="${notifId}"]`);
-                    if (item) {
-                        item.style.opacity = '0.6';
-                    }
-                })
-                .catch(err => {
-                    console.error('[SSE] Error marcando como leida:', err);
-                    throw err; // Re-throw para que el caller sepa que fallo
+                    updateBadges();
                 });
         }
 
-        function escapeHtml(text) {
-            const div = document.createElement('div');
-            div.textContent = text;
-            return div.innerHTML;
-        }
+        function showToast(n) {
+            const toastHtml = `
+                <div class="bg-white border-l-4 ${n.type === 'success' ? 'border-green-500' : 'border-blue-500'} shadow-lg rounded p-4 mb-4 flex items-center gap-3 animate-fade-in-down w-80 pointer-events-auto">
+                    <div class="p-2 rounded-full ${n.type === 'success' ? 'bg-green-100 text-green-600' : 'bg-blue-100 text-blue-600'}">
+                        ${n.type === 'success' ? '✅' : 'ℹ️'}
+                    </div>
+                    <div>
+                        <p class="font-bold text-gray-800">${n.title}</p>
+                        <p class="text-sm text-gray-600">${n.message}</p>
+                    </div>
+                    <button onclick="this.parentElement.remove()" class="ml-auto text-gray-400 hover:text-gray-600 cursor-pointer">✕</button>
+                </div>
+            `;
 
-        function formatDate(isoString) {
-            const date = new Date(isoString);
-            const now = new Date();
-            const diffMs = now - date;
-            const diffMins = Math.floor(diffMs / 60000);
+            const container = document.getElementById('global-toast-container');
+            if (container) {
+                const div = document.createElement('div');
+                div.innerHTML = toastHtml;
+                container.appendChild(div.firstElementChild);
 
-            if (diffMins < 1) return 'Justo ahora';
-            if (diffMins < 60) return `Hace ${diffMins} min`;
-
-            const diffHours = Math.floor(diffMins / 60);
-            if (diffHours < 24) return `Hace ${diffHours}h`;
-
-            return date.toLocaleDateString('es-MX', {
-                day: 'numeric',
-                month: 'short',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
-        }
-
-        async function deleteNotification(notifId) {
-            try {
-                const response = await fetch(`/notifications/${notifId}`, { method: 'DELETE' });
-                if (response.ok) {
-                    // Remover visualmente
-                    const item = document.querySelector(`[data-notif-id="${notifId}"]`);
-                    if (item) {
-                        item.style.transition = 'opacity 0.2s, transform 0.2s';
-                        item.style.opacity = '0';
-                        item.style.transform = 'translateX(10px)';
-                        setTimeout(() => item.remove(), 200);
-                    }
-
-                    // Actualizar contador
-                    unreadCount = Math.max(0, unreadCount - 1);
-                    updateBellIcon();
-                    if (window.Alpine && window.Alpine.store('notifications')) {
-                        window.Alpine.store('notifications').count = unreadCount;
-                    }
-
-                    // Mostrar mensaje vacío si no hay más notificaciones
-                    setTimeout(() => {
-                        const dropdown = document.getElementById('notifications-dropdown');
-                        const emptyMsg = document.getElementById('empty-notifications');
-                        if (dropdown && emptyMsg) {
-                            const remainingItems = dropdown.querySelectorAll('[data-notif-id]');
-                            if (remainingItems.length === 0) {
-                                emptyMsg.style.display = 'block';
-                            }
-                        }
-                    }, 250);
-                }
-            } catch (err) {
-                console.error('[NOTIF] Error eliminando:', err);
+                setTimeout(() => {
+                    if (div.firstElementChild) div.firstElementChild.remove();
+                }, 5000);
             }
         }
 
-        // OPTIMIZACIÓN: Iniciar notificaciones DESPUÉS de que el DOM esté listo
-        // Usar requestIdleCallback para no bloquear renderizado crítico
-        if (document.getElementById('notification-badge')) {
-            if (window.requestIdleCallback) {
-                // Navegadores modernos - esperar a que el navegador esté idle
-                window.requestIdleCallback(() => initNotifications(), { timeout: 1000 });
-            } else {
-                // Fallback - usar setTimeout con delay mínimo
-                if (document.readyState === 'loading') {
-                    document.addEventListener('DOMContentLoaded', () => setTimeout(initNotifications, 200));
-                } else {
-                    setTimeout(initNotifications, 200);
-                }
-            }
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initNotifications);
+        } else {
+            initNotifications();
         }
-
-        // ========================================
-        // REPORTES DASHBOARD (Alpine.js Component)
-        // Definido aquí para que esté disponible cuando HTMX carga partials
-        // ========================================
-        window.reportesDashboard = function () {
-            return {
-                activeTab: 'tecnologia',
-                filtros: { fecha_inicio: '', fecha_fin: '', tecnologia: '', usuario: '' },
-                charts: {},
-
-                init() {
-                    // Leer fechas del DOM si existen (inyectadas por Jinja)
-                    const container = this.$el;
-                    const startInput = container.querySelector('input[type="date"]');
-                    if (startInput && startInput.value) {
-                        this.filtros.fecha_inicio = startInput.value;
-                    }
-
-                    this.$nextTick(() => {
-                        if (typeof Chart !== 'undefined') {
-                            this.initCharts();
-                            this.loadChartData();
-                            this.loadTabContent('tecnologia');
-                        }
-                    });
-                },
-
-                formatDateRange() {
-                    if (!this.filtros.fecha_inicio || !this.filtros.fecha_fin) return 'Cargando...';
-                    try {
-                        const inicio = new Date(this.filtros.fecha_inicio + 'T00:00:00');
-                        const fin = new Date(this.filtros.fecha_fin + 'T00:00:00');
-                        const opts = { day: '2-digit', month: 'short', year: 'numeric' };
-                        return inicio.toLocaleDateString('es-MX', opts) + ' - ' + fin.toLocaleDateString('es-MX', opts);
-                    } catch { return 'Error'; }
-                },
-
-                aplicarFiltros() {
-                    this.loadChartData();
-                    this.loadTabContent(this.activeTab);
-                    this.loadKpis();
-                },
-
-                limpiarFiltros() {
-                    const today = new Date();
-                    this.filtros = {
-                        fecha_inicio: new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0],
-                        fecha_fin: today.toISOString().split('T')[0],
-                        tecnologia: '', usuario: ''
-                    };
-                    this.aplicarFiltros();
-                },
-
-                getQueryParams() {
-                    return new URLSearchParams({
-                        start_date: this.filtros.fecha_inicio,
-                        end_date: this.filtros.fecha_fin,
-                        tech_id: this.filtros.tecnologia || '',
-                        user_id: this.filtros.usuario || ''
-                    }).toString();
-                },
-
-                async loadKpis() {
-                    const c = document.getElementById('kpis-container');
-                    if (c) {
-                        try {
-                            const r = await fetch('/simulacion/reportes/metricas?' + this.getQueryParams());
-                            c.innerHTML = await r.text();
-                        } catch (e) { console.error('Error KPIs:', e); }
-                    }
-                },
-
-                async loadTabContent(tab) {
-                    const endpoints = {
-                        tecnologia: '/simulacion/reportes/por-tecnologia',
-                        contabilizacion: '/simulacion/reportes/contabilizacion',
-                        usuarios: '/simulacion/reportes/por-usuario',
-                        mensual: '/simulacion/reportes/mensual'
-                    };
-                    const containers = { tecnologia: 'tech-container', contabilizacion: 'contab-container', usuarios: 'users-container', mensual: 'monthly-container' };
-                    if (endpoints[tab]) {
-                        const c = document.getElementById(containers[tab]);
-                        if (c) {
-                            c.innerHTML = '<div class="flex justify-center py-8"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-[#00BABB]"></div></div>';
-                            try {
-                                const r = await fetch(endpoints[tab] + '?' + this.getQueryParams());
-                                c.innerHTML = await r.text();
-                            } catch { c.innerHTML = '<p class="text-red-500">Error</p>'; }
-                        }
-                    }
-                },
-
-                initCharts() {
-                    // Los charts se crearán de forma lazy en updateCharts
-                    // Esto evita problemas cuando los canvas no tienen dimensiones aún
-                    console.log('[Charts] Preparando sistema de gráficas...');
-                    this.chartsReady = true;
-                },
-
-                async loadChartData() {
-                    try {
-                        const r = await fetch('/simulacion/reportes/api/dashboard-data?' + this.getQueryParams());
-                        const result = await r.json();
-                        if (result.success) this.updateCharts(result.data);
-                    } catch (e) { console.error('Error gráficas:', e); }
-                },
-
-                // Renderiza charts que estaban pendientes porque su contenedor estaba oculto
-                renderPendingCharts() {
-                    if (!this._pendingCharts) return;
-
-                    Object.entries(this._pendingCharts).forEach(([chartName, config]) => {
-                        const canvas = document.getElementById(config.canvasId);
-                        if (canvas && canvas.offsetParent !== null) {
-                            // El canvas ahora es visible, renderizar
-                            this.safeUpdateChart(chartName, config.canvasId, config.chartType, config.newData, config.chartOptions);
-                            delete this._pendingCharts[chartName];
-                        }
-                    });
-                },
-
-                // Helper para crear o actualizar un chart de forma segura
-                safeUpdateChart(chartName, canvasId, chartType, newData, chartOptions = {}, retryCount = 0) {
-                    const MAX_RETRIES = 5;
-
-                    try {
-                        const canvas = document.getElementById(canvasId);
-                        if (!canvas) {
-                            // No reintentar si el canvas no existe en el DOM
-                            return;
-                        }
-
-                        // Verificar que Chart.js esté disponible
-                        if (typeof Chart === 'undefined') {
-                            console.warn('[Charts] Chart.js no disponible');
-                            return;
-                        }
-
-                        // Verificar si el elemento está oculto (display:none o dentro de elemento oculto)
-                        const isHidden = canvas.offsetParent === null;
-
-                        // Verificar que el canvas tenga dimensiones
-                        const rect = canvas.getBoundingClientRect();
-                        if (rect.width === 0 || rect.height === 0) {
-                            // Si está oculto, no reintentar (se creará cuando se muestre la pestaña)
-                            if (isHidden) {
-                                // Guardar los datos pendientes para cuando se muestre
-                                this._pendingCharts = this._pendingCharts || {};
-                                this._pendingCharts[chartName] = { canvasId, chartType, newData, chartOptions };
-                                return;
-                            }
-
-                            // Si no está oculto pero no tiene dimensiones, reintentar con límite
-                            if (retryCount < MAX_RETRIES) {
-                                setTimeout(() => this.safeUpdateChart(chartName, canvasId, chartType, newData, chartOptions, retryCount + 1), 200);
-                            }
-                            return;
-                        }
-
-                        // Si el chart existe, actualizarlo
-                        if (this.charts[chartName]) {
-                            try {
-                                this.charts[chartName].data = newData;
-                                this.charts[chartName].update('none');
-                            } catch (updateErr) {
-                                console.warn(`[Charts] Error actualizando ${chartName}, recreando...`, updateErr);
-                                // Destruir el chart corrupto y recrear
-                                try { this.charts[chartName].destroy(); } catch (e) { }
-                                this.charts[chartName] = null;
-                            }
-                        }
-
-                        // Crear nuevo chart si no existe
-                        if (!this.charts[chartName]) {
-                            // Destruir cualquier chart existente en el canvas
-                            const existingChart = Chart.getChart(canvas);
-                            if (existingChart) {
-                                existingChart.destroy();
-                            }
-
-                            this.charts[chartName] = new Chart(canvas, {
-                                type: chartType,
-                                data: newData,
-                                options: {
-                                    responsive: true,
-                                    maintainAspectRatio: false,
-                                    ...chartOptions
-                                }
-                            });
-                        }
-                    } catch (err) {
-                        console.error(`[Charts] Error en ${chartName}:`, err);
-                    }
-                },
-
-                updateCharts(data) {
-                    // Estatus (doughnut)
-                    if (data.estatus_pie?.datasets?.[0]) {
-                        this.safeUpdateChart('estatus', 'chart-estatus', 'doughnut', {
-                            labels: data.estatus_pie.labels || [],
-                            datasets: [{
-                                data: data.estatus_pie.datasets[0].data || [],
-                                backgroundColor: data.estatus_pie.datasets[0].backgroundColor || []
-                            }]
-                        }, { plugins: { legend: { position: 'right' } } });
-                    }
-
-                    // Mensual (bar)
-                    if (data.mensual_bar?.datasets?.[0]) {
-                        this.safeUpdateChart('mensual', 'chart-mensual', 'bar', {
-                            labels: data.mensual_bar.labels || [],
-                            datasets: [{
-                                label: data.mensual_bar.datasets[0].label || 'Solicitudes',
-                                data: data.mensual_bar.datasets[0].data || [],
-                                backgroundColor: data.mensual_bar.datasets[0].backgroundColor || '#00BABB'
-                            }]
-                        }, { scales: { y: { beginAtZero: true } } });
-                    }
-
-                    // Tecnología (pie)
-                    if (data.tecnologia_pie?.datasets?.[0]) {
-                        this.safeUpdateChart('tecnologia', 'chart-tecnologia', 'pie', {
-                            labels: data.tecnologia_pie.labels || [],
-                            datasets: [{
-                                data: data.tecnologia_pie.datasets[0].data || [],
-                                backgroundColor: data.tecnologia_pie.datasets[0].backgroundColor || []
-                            }]
-                        });
-                    }
-
-                    // KPI (bar horizontal)
-                    if (data.kpi_bar?.datasets?.length) {
-                        this.safeUpdateChart('kpi', 'chart-kpi', 'bar', {
-                            labels: data.kpi_bar.labels || [],
-                            datasets: data.kpi_bar.datasets.map(ds => ({
-                                label: ds.label || '',
-                                data: ds.data || [],
-                                backgroundColor: ds.backgroundColor || '#10B981'
-                            }))
-                        }, { indexAxis: 'y', scales: { x: { beginAtZero: true } } });
-                    }
-
-                    // Motivos (bar horizontal)
-                    if (data.motivos_bar?.datasets?.[0]) {
-                        this.safeUpdateChart('motivos', 'chart-motivos', 'bar', {
-                            labels: data.motivos_bar.labels || [],
-                            datasets: [{
-                                label: data.motivos_bar.datasets[0].label || 'Motivo',
-                                data: data.motivos_bar.datasets[0].data || [],
-                                backgroundColor: data.motivos_bar.datasets[0].backgroundColor || '#8B5CF6'
-                            }]
-                        }, { indexAxis: 'y', scales: { x: { beginAtZero: true } } });
-                    }
-                }
-            };
-        };
     </script>
 
     <!-- Modal de Loading Global -->
@@ -1273,9 +934,7 @@
         style="display: none;">
         <div class="bg-white rounded-xl shadow-2xl p-10">
             <div class="flex flex-col items-center gap-5">
-                <!-- Spinner Corporativo Enertika -->
                 <div class="spinner-enertika"></div>
-                <!-- Texto -->
                 <span class="text-lg font-medium text-gray-700">Procesando solicitud...</span>
                 <p class="text-sm text-gray-500">Por favor espera un momento</p>
             </div>

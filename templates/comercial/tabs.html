@@ -1,11 +1,12 @@
 <div class="flex flex-col h-full">
     <!-- Header with Actions -->
-    <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
+    <div
+        class="glass-panel p-6 rounded-xl mb-6 flex flex-col md:flex-row md:justify-between md:items-center gap-4 border-l-4 border-[#00BABB]">
         <div>
-            <h2 class="text-3xl font-light text-gray-700">Módulo Comercial</h2>
-            <div class="flex items-center gap-2 text-sm text-gray-500">
-                <p>Gestión de Oportunidades</p>
-            </div>
+            <h2 class="text-3xl font-light text-gray-800">
+                Módulo <span class="font-bold text-[#00BABB]">Comercial</span>
+            </h2>
+            <p class="text-gray-500 text-sm mt-1">Gestión de Oportunidades</p>
         </div>
 
 
@@ -289,7 +290,7 @@
     <div x-data="{ showFilters: false }" class="mb-6">
         <!-- Mobile Toggle Button -->
         <button @click="showFilters = !showFilters"
-            class="w-full mb-2 flex items-center justify-between lg:hidden bg-white p-4 rounded-lg shadow-sm border border-gray-200 text-gray-700 font-medium transition-colors hover:bg-gray-50">
+            class="w-full mb-2 flex items-center justify-between lg:hidden glass-panel p-4 rounded-lg text-gray-700 font-medium transition-colors hover:bg-white/80">
             <span class="flex items-center gap-2">
                 <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -304,9 +305,9 @@
         </button>
 
         <!-- Filter Container -->
-        <div class="bg-white p-4 rounded-lg shadow-sm border border-gray-100"
-            :class="showFilters ? 'block' : 'hidden lg:block'" x-transition:enter="transition ease-out duration-200"
-            x-transition:enter-start="opacity-0 -translate-y-2" x-transition:enter-end="opacity-100 translate-y-0">
+        <div class="glass-panel p-4 rounded-xl" :class="showFilters ? 'block' : 'hidden lg:block'"
+            x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-2"
+            x-transition:enter-end="opacity-100 translate-y-0">
 
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
                 <!-- 1. Search (Existing but moved into grid) -->
@@ -329,7 +330,7 @@
                             </svg>
                         </span>
                         <input type="text" id="search-input" name="q"
-                            class="global-filter w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] transition-all"
+                            class="global-filter w-full pl-10 pr-4 py-2 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] transition-all"
                             placeholder="Empresa, Proyecto..." hx-get="/comercial/partials/graphs"
                             hx-trigger="keyup changed delay:500ms, search" hx-target="#tab-content"
                             hx-include=".global-filter">
@@ -342,7 +343,7 @@
                     <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Solicitado
                         Por</label>
                     <select name="filtro_usuario_id"
-                        class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                        class="global-filter w-full px-3 py-2 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                         hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                         hx-include=".global-filter">
                         <option value="">Todos</option>
@@ -360,7 +361,7 @@
                 <div>
                     <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Tipo</label>
                     <select name="filtro_tipo_id"
-                        class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                        class="global-filter w-full px-3 py-2 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                         hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                         hx-include=".global-filter">
                         <option value="">Todos</option>
@@ -375,7 +376,7 @@
                     <label
                         class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Tecnología</label>
                     <select name="filtro_tecnologia_id"
-                        class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                        class="global-filter w-full px-3 py-2 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                         hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                         hx-include=".global-filter">
                         <option value="">Todos</option>
@@ -390,7 +391,7 @@
                     <label
                         class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Estatus</label>
                     <select name="filtro_estatus_id"
-                        class="global-filter w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                        class="global-filter w-full px-3 py-2 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                         hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                         hx-include=".global-filter">
                         <option value="">Todos</option>
@@ -406,7 +407,7 @@
                         <label
                             class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Desde</label>
                         <input type="date" name="filtro_fecha_inicio"
-                            class="global-filter w-full px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                            class="global-filter w-full px-2 py-2 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                             hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                             hx-include=".global-filter">
                     </div>
@@ -414,7 +415,7 @@
                         <label
                             class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Hasta</label>
                         <input type="date" name="filtro_fecha_fin"
-                            class="global-filter w-full px-2 py-2 border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                            class="global-filter w-full px-2 py-2 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                             hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                             hx-include=".global-filter">
                     </div>
@@ -431,29 +432,31 @@
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/graphs" hx-target="#tab-content" hx-swap="innerHTML"
                     hx-push-url="/comercial/ui" hx-include=".global-filter" onclick="updateTabContext('activos', this)"
-                    class="tab-link inline-block p-4 text-[#00BABB] border-b-2 border-[#00BABB] rounded-t-lg active group"
+                    class="tab-link inline-block p-4 rounded-t-lg active group glass-panel bg-white/60 transition-all"
                     aria-current="page">
                     <div class="flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
-                            stroke="currentColor">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-[#00BABB]" fill="none"
+                            viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
                         </svg>
-                        Gráficas
+                        <span
+                            class="font-bold bg-clip-text text-transparent bg-gradient-to-r from-[#00BABB] to-[#009999]">Gráficas</span>
                     </div>
                 </a>
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/cards?tab=activos" hx-target="#tab-content" hx-swap="innerHTML"
                     hx-push-url="?tab=activos" hx-include=".global-filter" onclick="updateTabContext('activos', this)"
-                    class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
+                    class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                            class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                         </svg>
-                        Solicitudes (Activos)
+                        <span>Solicitudes (Activos)</span>
                     </div>
                 </a>
             </li>
@@ -461,14 +464,15 @@
                 <a href="#" hx-get="/comercial/partials/cards?tab=historial" hx-target="#tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=historial" hx-include=".global-filter"
                     onclick="updateTabContext('historial', this)"
-                    class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
+                    class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                            class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                        Ofertas Generadas
+                        <span>Ofertas Generadas</span>
                     </div>
                 </a>
             </li>
@@ -476,41 +480,89 @@
                 <a href="#" hx-get="/comercial/partials/cards?tab=levantamientos" hx-target="#tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=levantamientos" hx-include=".global-filter"
                     onclick="updateTabContext('levantamientos', this)"
-                    class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
+                    class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                            class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7" />
                         </svg>
-                        Levantamientos
+                        <span>Levantamientos</span>
                     </div>
                 </a>
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/cards?tab=ganadas" hx-target="#tab-content" hx-swap="innerHTML"
                     hx-push-url="?tab=ganadas" hx-include=".global-filter" onclick="updateTabContext('ganadas', this)"
-                    class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:text-gray-600 hover:border-gray-300 dark:hover:text-gray-300 group">
+                    class="tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                            class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                         </svg>
-                        Ganadas
+                        <span>Ganadas</span>
                     </div>
                 </a>
             </li>
         </ul>
     </div>
 
-    <!-- Tab Content Area con loading mejorado -->
+    <!-- Tab Content Area con Skeleton Loading -->
     <div id="tab-content" class="flex-1 overflow-y-auto p-2" hx-get="/comercial/partials/graphs" hx-trigger="load">
-        <!-- Loading spinner corporativo -->
-        <div class="flex justify-center items-center h-full">
-            <div class="text-center">
-                <div class="spinner-enertika mx-auto mb-4"></div>
-                <p class="text-[#00BABB] font-medium animate-pulse-subtle">Cargando datos...</p>
+        <!-- Skeleton Loading State (Visible while HTMX loads content) -->
+        <div class="htmx-indicator w-full h-full">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 animate-pulse">
+                <!-- Skeleton Card 1 -->
+                <div
+                    class="bg-white/40 p-6 rounded-xl h-48 w-full border border-gray-100 flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <div class="h-4 bg-gray-300 rounded w-1/3"></div>
+                        <div class="h-8 w-8 bg-gray-200 rounded-full"></div>
+                    </div>
+                    <div class="h-10 bg-gray-300 rounded w-1/2 mt-4"></div>
+                    <div class="h-4 bg-gray-200 rounded w-full mt-4"></div>
+                </div>
+                <!-- Skeleton Card 2 -->
+                <div
+                    class="bg-white/40 p-6 rounded-xl h-48 w-full border border-gray-100 flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <div class="h-4 bg-gray-300 rounded w-1/3"></div>
+                        <div class="h-8 w-8 bg-gray-200 rounded-full"></div>
+                    </div>
+                    <div class="h-10 bg-gray-300 rounded w-1/2 mt-4"></div>
+                    <div class="h-4 bg-gray-200 rounded w-full mt-4"></div>
+                </div>
+                <!-- Skeleton Card 3 -->
+                <div
+                    class="bg-white/40 p-6 rounded-xl h-48 w-full border border-gray-100 flex flex-col justify-between">
+                    <div class="flex justify-between items-start">
+                        <div class="h-4 bg-gray-300 rounded w-1/3"></div>
+                        <div class="h-8 w-8 bg-gray-200 rounded-full"></div>
+                    </div>
+                    <div class="h-10 bg-gray-300 rounded w-1/2 mt-4"></div>
+                    <div class="h-4 bg-gray-200 rounded w-full mt-4"></div>
+                </div>
+
+                <!-- Skeleton Chart Area -->
+                <div
+                    class="col-span-1 md:col-span-2 lg:col-span-3 bg-white/40 h-96 rounded-xl border border-gray-100 p-6">
+                    <div class="flex justify-between mb-8">
+                        <div class="h-6 bg-gray-300 rounded w-48"></div>
+                        <div class="h-8 w-24 bg-gray-200 rounded"></div>
+                    </div>
+                    <div class="flex items-end gap-4 h-64">
+                        <div class="w-12 bg-gray-200 h-1/3 rounded-t"></div>
+                        <div class="w-12 bg-gray-300 h-1/2 rounded-t"></div>
+                        <div class="w-12 bg-gray-200 h-2/3 rounded-t"></div>
+                        <div class="w-12 bg-gray-300 h-full rounded-t"></div>
+                        <div class="w-12 bg-gray-200 h-1/2 rounded-t"></div>
+                        <div class="w-12 bg-gray-300 h-3/4 rounded-t"></div>
+                        <div class="w-12 bg-gray-200 h-1/4 rounded-t"></div>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -522,35 +574,49 @@
         document.getElementById('active_tab_input').value = tabName;
 
         // 2. Lógica visual con colores corporativos
-        document.querySelectorAll('.tab-link').forEach(el => {
-            el.classList.remove('text-[#00BABB]', 'border-[#00BABB]', 'active');
-            el.classList.add('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
+        const allTabs = document.querySelectorAll('.tab-link');
+
+        allTabs.forEach(el => {
+            // Reset to inactive state
+            el.classList.remove('glass-panel', 'bg-white/60', 'active');
+            el.classList.add('border-transparent', 'hover:bg-white/40');
+
+            // Remove gradient text from inner span
+            const span = el.querySelector('span');
+            if (span) {
+                span.classList.remove('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-[#00BABB]', 'to-[#009999]');
+            }
+            const svg = el.querySelector('svg');
+            if (svg) {
+                svg.classList.remove('text-[#00BABB]');
+            }
         });
-        element.classList.remove('border-transparent', 'hover:text-gray-600', 'hover:border-gray-300');
-        element.classList.add('text-[#00BABB]', 'border-[#00BABB]', 'active');
+
+        // Set active state
+        element.classList.remove('border-transparent', 'hover:bg-white/40');
+        element.classList.add('glass-panel', 'bg-white/60', 'active');
+
+        // Add gradient to text
+        const activeSpan = element.querySelector('span');
+        if (activeSpan) {
+            activeSpan.classList.add('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-[#00BABB]', 'to-[#009999]');
+        }
+
+        const activeSvg = element.querySelector('svg');
+        if (activeSvg) {
+            activeSvg.classList.add('text-[#00BABB]');
+        }
 
         // 3. Actualizar hx-get de los filtros globales
-        const newEndpoint = tabName === 'activos' && element.innerText.includes('Gráficas')
-            ? '/comercial/partials/graphs'
-            : '/comercial/partials/cards';
-
-        // Si el tabName es 'activos' pero estamos en el link de gráficas (hack simple por ahora)
-        // Mejor: usar un data attribute en el link
-
         const targetUrl = element.getAttribute('hx-get').split('?')[0];
 
         document.querySelectorAll('.global-filter').forEach(el => {
             el.setAttribute('hx-get', targetUrl);
-            // Reinicializar HTMX para este elemento si es necesario
             htmx.process(el);
         });
-
-        // 4. Disparar búsqueda nueva automáticamente (opcional)
-        // htmx.trigger('#search-input', 'keyup');
     }
 
     function setActiveTab(element) {
-        // Legacy wrapper if needed, or replace onclicks.
-        // For now, onclicks in HTML above need to be updated to use updateTabContext
+        // Legacy wrapper if needed
     }
 </script>

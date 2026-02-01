@@ -1,0 +1,97 @@
+<div class="h-full flex flex-col animate-fade-in-down">
+    <!-- Module Header -->
+    <div class="glass-panel p-6 rounded-xl mb-6 flex justify-between items-center border-l-4 border-[#00BABB]">
+        <div>
+            <h2 class="text-3xl font-light text-gray-800">
+                Módulo <span class="font-bold text-[#00BABB]">Construcción</span>
+            </h2>
+            <p class="text-gray-500 text-sm mt-1">Gestión y seguimiento de obras en ejecución</p>
+        </div>
+        <div class="flex gap-3">
+            <button
+                class="ripple-effect bg-[#123456] hover:bg-[#0E2A47] text-white px-5 py-2.5 rounded-lg shadow-lg shadow-blue-900/20 flex items-center gap-2 transition-transform hover:scale-105">
+                <span class="text-lg">📊</span> Reportes
+            </button>
+            <button
+                class="ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white px-5 py-2.5 rounded-lg shadow-lg shadow-[#00BABB]/30 flex items-center gap-2 transition-transform hover:scale-105">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                </svg>
+                Nuevo Proyecto
+            </button>
+        </div>
+    </div>
+
+    <!-- KPI Cards Row -->
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+        <!-- Card 1 -->
+        <div
+            class="glass-card p-6 rounded-xl relative overflow-hidden group hover:-translate-y-1 transition-transform duration-300">
+            <div class="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                <svg class="w-24 h-24 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4">
+                    </path>
+                </svg>
+            </div>
+            <h3 class="text-gray-500 text-sm font-medium uppercase tracking-wider">Obras Activas</h3>
+            <div class="text-4xl font-bold text-gray-800 mt-2">12</div>
+            <div class="mt-4 text-sm text-green-600 flex items-center gap-1">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path>
+                </svg>
+                <span>+2 nuevas este mes</span>
+            </div>
+        </div>
+
+        <!-- Card 2 -->
+        <div
+            class="glass-card p-6 rounded-xl relative overflow-hidden group hover:-translate-y-1 transition-transform duration-300">
+            <div class="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                <svg class="w-24 h-24 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+            </div>
+            <h3 class="text-gray-500 text-sm font-medium uppercase tracking-wider">Retrasos</h3>
+            <div class="text-4xl font-bold text-gray-800 mt-2">3</div>
+            <div class="mt-4 text-sm text-orange-600 flex items-center gap-1">
+                <span>Atención requerida</span>
+            </div>
+        </div>
+
+        <!-- Card 3 -->
+        <div
+            class="glass-card p-6 rounded-xl relative overflow-hidden group hover:-translate-y-1 transition-transform duration-300">
+            <div class="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                <svg class="w-24 h-24 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                </svg>
+            </div>
+            <h3 class="text-gray-500 text-sm font-medium uppercase tracking-wider">Avance Global</h3>
+            <div class="text-4xl font-bold text-gray-800 mt-2">78%</div>
+            <div class="mt-4 w-full bg-gray-200 rounded-full h-1.5 dark:bg-gray-700">
+                <div class="bg-blue-600 h-1.5 rounded-full" style="width: 78%"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Content Area (Placeholder for Table/List) -->
+    <div class="glass-panel p-6 rounded-xl flex-1 flex flex-col justify-center items-center text-center">
+        <div class="w-32 h-32 bg-blue-50 rounded-full flex items-center justify-center mb-6 animate-pulse-subtle">
+            <svg class="w-16 h-16 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+            </svg>
+        </div>
+        <h3 class="text-xl font-medium text-gray-800 mb-2">Panel de Construcción</h3>
+        <p class="text-gray-500 max-w-md">
+            Este módulo está preparado con la nueva interfaz Premium. <br>
+            Próximamente verás aquí el listado de proyectos en construcción.
+        </p>
+    </div>
+</div>

@@ -1,5 +1,99 @@
-{# templates/simulacion/reportes/tabs.html #}
-{# Dashboard de Reportes - La función reportesDashboard() está en base.html #}
+<script>
+    function reportesDashboard() {
+        return {
+            filtros: {
+                fecha_inicio: '',
+                fecha_fin: '',
+                tecnologia: '',
+                usuario: ''
+            },
+            charts: {},
+            graficasData: JSON.parse('{{ graficas | tojson | safe }}'),
+
+            init() {
+                console.log("Initializing Dashboard Charts");
+                console.log("Graficas Data:", this.graficasData);
+                this.$nextTick(() => {
+                    this.renderCharts();
+                });
+            },
+
+            renderCharts() {
+                // Destroy existing charts if any to prevent canvas duplication/memory leaks
+                Object.values(this.charts).forEach(c => c.destroy());
+                this.charts = {};
+
+                if (!this.graficasData) {
+                    console.error("No graficasData found!");
+                    return;
+                }
+
+                console.log("Rendering charts with keys:", Object.keys(this.graficasData));
+
+                // Initialize charts
+                this.initChart('chart-estatus', this.graficasData.estatus_pie, 'estatus');
+                this.initChart('chart-mensual', this.graficasData.mensual_bar, 'mensual');
+                this.initChart('chart-tecnologia', this.graficasData.tecnologia_pie, 'tecnologia');
+                this.initChart('chart-kpi', this.graficasData.kpi_bar, 'kpi');
+                this.initChart('chart-motivos', this.graficasData.motivos_bar, 'motivos');
+            },
+
+            initChart(canvasId, data, key) {
+                const ctx = document.getElementById(canvasId);
+                if (!ctx || !data) return;
+
+                this.charts[key] = new Chart(ctx, {
+                    type: data.tipo,
+                    data: {
+                        labels: data.labels,
+                        datasets: data.datasets
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        ...data.opciones,
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: {
+                                    usePointStyle: true,
+                                    boxWidth: 8
+                                }
+                            }
+                        }
+                    }
+                });
+            },
+
+            aplicarFiltros() {
+                const params = new URLSearchParams({
+                    fecha_inicio: this.filtros.fecha_inicio,
+                    fecha_fin: this.filtros.fecha_fin,
+                    id_tecnologia: this.filtros.tecnologia,
+                    responsable_id: this.filtros.usuario
+                }).toString();
+
+                htmx.ajax('GET', '/simulacion/partials/graphs?' + params, {
+                    target: '#sim-tab-content',
+                    swap: 'innerHTML'
+                });
+            },
+
+            limpiarFiltros() {
+                htmx.ajax('GET', '/simulacion/partials/graphs', {
+                    target: '#sim-tab-content',
+                    swap: 'innerHTML'
+                });
+            },
+
+            formatDateRange() {
+                if (!this.filtros.fecha_inicio) return '';
+                // Simple formatting assuming ISO strings YYYY-MM-DD
+                return `${this.filtros.fecha_inicio} - ${this.filtros.fecha_fin}`;
+            }
+        }
+    }
+</script>
 
 <div id="reportes-container" class="space-y-6" x-data="{
     ...reportesDashboard(),
@@ -74,7 +168,6 @@
                         x-text="formatDateRange()"></span></p>
             </div>
 
-            <!-- NUEVO: Botón Análisis Detallado -->
             <!-- NUEVO: Botón Análisis Detallado -->
 
 

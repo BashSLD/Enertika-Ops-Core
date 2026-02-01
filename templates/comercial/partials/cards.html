@@ -93,40 +93,40 @@
                         <thead class="bg-gray-50">
                             <tr>
                                 <th scope="col"
-                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[300px]">
+                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[300px] bg-white/70 backdrop-blur-md">
                                     ID / Título
                                 </th>
                                 <th scope="col"
-                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-white/70 backdrop-blur-md">
                                     Ingeniero Asignado
                                 </th>
                                 <th scope="col"
-                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-48">
+                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-48 bg-white/70 backdrop-blur-md">
                                     Fecha de Solicitud
                                 </th>
                                 <th scope="col"
-                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-40">
+                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-40 bg-white/70 backdrop-blur-md">
                                     Entrega SLA
                                 </th>
                                 <th scope="col"
-                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap">
+                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-white/70 backdrop-blur-md">
                                     {% if current_tab == 'levantamientos' %}Status Levantamiento{% else %}Status
                                     Simulación{% endif %}
                                 </th>
                                 <th scope="col"
-                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap {% if current_tab == 'historial' or (current_tab == 'levantamientos' and subtab == 'realizados') %}w-32{% else %}w-52{% endif %}">
+                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap {% if current_tab == 'historial' or (current_tab == 'levantamientos' and subtab == 'realizados') %}w-32{% else %}w-52{% endif %} bg-white/70 backdrop-blur-md">
                                     Detalles
                                 </th>
                                 {% if current_tab == 'historial' or (current_tab == 'levantamientos' and subtab ==
                                 'realizados') %}
                                 <th scope="col"
-                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-20">
+                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-20 bg-white/70 backdrop-blur-md">
                                     Acciones
                                 </th>
                                 {% endif %}
                             </tr>
                         </thead>
-                        <tbody class="bg-white divide-y divide-gray-200">
+                        <tbody class="bg-white/40 divide-y divide-gray-200">
                             {% for op in oportunidades %}
                             {% set prioridad_color = 'border-green-400' if op.prioridad == 'low' else
                             ('border-red-400'
@@ -134,8 +134,8 @@
                             {% set animation_delay = 'style="animation-delay: ' ~ (loop.index0 * 20 if loop.index0 < 10
                                 else 200) ~ 'ms"' %} <!-- Fila principal con Alpine.js -->
                                 <tr @click="$dispatch('row-selected', '{{ op.id_oportunidad }}')"
-                                    :class="{ 'bg-blue-50 ring-2 ring-blue-400': isSelected('{{ op.id_oportunidad }}'), '!bg-gray-50 !border-l-8 !border-l-[#00BABB] shadow-md': isExpanded('{{ op.id_oportunidad }}') && !isSelected('{{ op.id_oportunidad }}') }"
-                                    class="hover:bg-gray-50 transition-all duration-200 border-l-4 {{ prioridad_color }} hover:shadow-md animate-fade-in-up cursor-pointer"
+                                    :class="{ 'bg-blue-50/80 ring-2 ring-blue-400': isSelected('{{ op.id_oportunidad }}'), '!bg-white/90 !border-l-8 !border-l-[#00BABB] shadow-md': isExpanded('{{ op.id_oportunidad }}') && !isSelected('{{ op.id_oportunidad }}') }"
+                                    class="hover:bg-white/80 transition-all duration-200 border-l-4 {{ prioridad_color }} hover:shadow-lg hover:-translate-y-[2px] animate-fade-in-up cursor-pointer backdrop-blur-sm"
                                     {{ animation_delay|safe }}>
 
                                     <!-- COL 1: ID e Info Interna -->
@@ -150,7 +150,7 @@
                                             </button>
                                             {% if op.prioridad == 'high' %}
                                             <span
-                                                class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 border border-red-200 animate-pulse-subtle">
+                                                class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 border border-red-200 animate-pulse-subtle shadow-sm shadow-red-200">
                                                 🔥 URGENTE
                                             </span>
                                             {% endif %}
@@ -171,7 +171,7 @@
                                         {% if op.es_licitacion %}
                                         <div class="mt-1">
                                             <span
-                                                class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-800">
+                                                class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-teal-100 text-teal-800 shadow-sm">
                                                 🏛️ Licitación
                                             </span>
                                         </div>
@@ -183,7 +183,7 @@
                                         <div class="flex items-center justify-center">
                                             {% if op.responsable_simulacion %}
                                             <span
-                                                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200"
+                                                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-sm"
                                                 title="{{ op.responsable_email }}">
                                                 <div
                                                     class="flex-shrink-0 h-5 w-5 rounded-full bg-indigo-200 flex items-center justify-center text-indigo-700 mr-2 border border-indigo-300">
@@ -207,7 +207,7 @@
                                             <!-- Tooltip Alpine.js -->
                                             <div x-data="{ showTooltip: false }" class="relative inline-flex">
                                                 <span @mouseenter="showTooltip = true" @mouseleave="showTooltip = false"
-                                                    class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-full bg-rose-100 text-rose-700 border border-rose-300 whitespace-nowrap cursor-help">
+                                                    class="inline-flex items-center px-2 py-0.5 text-[11px] font-semibold rounded-full bg-rose-100 text-rose-700 border border-rose-300 whitespace-nowrap cursor-help shadow-sm">
                                                     Fuera de Horario
                                                 </span>
                                                 <!-- Tooltip flotante -->
@@ -246,13 +246,13 @@
                                         %}
                                         {% if status == 'pendiente' %}
                                         <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300 shadow-sm"
+                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300 shadow-sm shadow-yellow-200/50"
                                             title="La oportunidad ha sido enviada a simulación, pero aún no la ha revisado">
                                             ⏳ Pendiente
                                         </span>
                                         {% elif status == 'en revision' or status == 'en revisión' %}
                                         <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-blue-100 text-blue-800 border border-blue-300 shadow-sm"
+                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-blue-100 text-blue-800 border border-blue-300 shadow-sm shadow-blue-200/50"
                                             title="La oportunidad está siendo revisada por simulación">
                                             <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
                                                 viewBox="0 0 24 24">
@@ -265,7 +265,7 @@
                                         </span>
                                         {% elif status == 'en proceso' %}
                                         <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-[#E0F7F7] text-[#123456] border border-[#00BABB] shadow-sm"
+                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-[#E0F7F7] text-[#123456] border border-[#00BABB] shadow-md shadow-[#00BABB]/20 animate-pulse-subtle"
                                             title="La oportunidad está en proceso de simulación">
                                             <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
                                                 viewBox="0 0 24 24">
@@ -278,7 +278,7 @@
                                         </span>
                                         {% elif status == 'entregado' %}
                                         <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-green-100 text-green-800 border border-green-300 shadow-sm"
+                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-green-100 text-green-800 border border-green-300 shadow-sm shadow-green-200/50"
                                             title="La oportunidad ha sido enviada a comercial">
                                             <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
                                                 viewBox="0 0 24 24">
@@ -289,25 +289,25 @@
                                         </span>
                                         {% elif status == 'cancelado' %}
                                         <span
-                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800"
+                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800 border border-gray-200"
                                             title="La oportunidad ha sido cancelada">
                                             Cancelado
                                         </span>
                                         {% elif status == 'perdida' or status == 'perdido' %}
                                         <span
-                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800"
+                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 border border-red-200"
                                             title="La oportunidad ha sido perdida">
                                             Perdida
                                         </span>
                                         {% elif status == 'cerrada' %}
                                         <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm"
+                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm shadow-emerald-200/50"
                                             title="La oportunidad se ha ganado">
                                             🎉 Cerrada
                                         </span>
                                         {% else %}
                                         <span
-                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-600"
+                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-600 border border-gray-200"
                                             title="{{ op.status_global }}">
                                             {{ op.status_global }}
                                         </span>
@@ -329,7 +329,7 @@
                                                 <button
                                                     hx-get="/workflow/modals/comentarios?id_oportunidad={{ op.id_oportunidad }}&module=comercial"
                                                     hx-target="body" hx-swap="beforeend"
-                                                    class="w-full text-blue-600 hover:text-blue-700 border border-blue-300 hover:border-blue-500 px-3 py-1.5 rounded bg-blue-50 hover:bg-blue-100 flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow">
+                                                    class="w-full text-blue-600 hover:text-blue-700 border border-blue-300 hover:border-blue-500 px-3 py-1.5 rounded bg-blue-50/50 hover:bg-blue-100 flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow hover:scale-[1.02]">
                                                     <span>💬</span>
                                                     <span>Ver/Enviar Comentarios</span>
                                                 </button>
@@ -339,7 +339,7 @@
                                             {% if op.tiene_detalles_bess %}
                                             <div x-data="{ showPopup: false }" class="w-full">
                                                 <button @click="showPopup = true"
-                                                    class="w-full text-green-600 hover:text-green-700 border border-green-300 hover:border-green-500 px-3 py-1.5 rounded bg-green-50 hover:bg-green-100 flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow">
+                                                    class="w-full text-green-600 hover:text-green-700 border border-green-300 hover:border-green-500 px-3 py-1.5 rounded bg-green-50/50 hover:bg-green-100 flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow hover:scale-[1.02]">
                                                     <svg class="w-4 h-4" fill="none" stroke="currentColor"
                                                         viewBox="0 0 24 24">
                                                         <path stroke-linecap="round" stroke-linejoin="round"
@@ -350,9 +350,9 @@
 
                                                 <!-- Popup Modal BESS -->
                                                 <div x-show="showPopup" x-transition @click.outside="showPopup = false"
-                                                    class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+                                                    class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 backdrop-blur-sm">
                                                     <div
-                                                        class="bg-white rounded-lg shadow-2xl max-w-2xl mx-4 p-6 max-h-[80vh] overflow-y-auto">
+                                                        class="glass-panel bg-white/95 rounded-lg shadow-2xl max-w-2xl mx-4 p-6 max-h-[80vh] overflow-y-auto">
                                                         <!-- Contenido HTMX (lazy load) -->
                                                         <div hx-get="/comercial/partials/bess/{{ op.id_oportunidad }}"
                                                             hx-trigger="intersect once" hx-swap="innerHTML">
@@ -380,7 +380,7 @@
                                             {% if op.cantidad_sitios and op.cantidad_sitios > 1 %}
                                             <div class="flex items-center gap-2 mt-1">
                                                 <span
-                                                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 animate-pulse-subtle">
+                                                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 animate-pulse-subtle shadow-sm">
                                                     {{ op.cantidad_sitios }} Sitio{{ 's' if op.cantidad_sitios > 1
                                                     else
                                                     ''
@@ -482,7 +482,7 @@
                                                 @click.outside="menuOpen = false"
                                                 @menu-opened.window="if ($event.detail !== '{{ op.id_oportunidad }}') menuOpen = false"
                                                 :style="`position: fixed; top: ${menuY}px; left: ${menuX}px;`"
-                                                class="w-64 bg-white rounded-lg shadow-2xl py-2 z-[9999] text-left border border-gray-100"
+                                                class="w-64 glass-panel bg-white/90 rounded-lg shadow-2xl py-2 z-[9999] text-left border border-white/40"
                                                 style="box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);">
 
                                                 <!-- Opción 1: Solicitar Actualización -->

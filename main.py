@@ -68,6 +68,16 @@ app.include_router(report_router)
 from modules.levantamientos.router import router as levantamientos_router
 app.include_router(levantamientos_router)
 
+# --- NUEVOS MÓDULOS REGISTRADOS ---
+from modules.construccion import router as construccion_router
+app.include_router(construccion_router.router)
+
+from modules.ingenieria import router as ingenieria_router
+app.include_router(ingenieria_router.router)
+
+from modules.oym import router as oym_router
+app.include_router(oym_router.router)
+
 # Workflow: Comentarios centralizados
 from core.workflow.router import router as workflow_router
 app.include_router(workflow_router)

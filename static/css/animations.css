@@ -1,0 +1,298 @@
+/* Glassmorphism Utilities */
+.glass-light {
+    background: rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    border: 1px solid rgba(255, 255, 255, 0.18);
+}
+
+.glass-medium {
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+.glass-dark {
+    background: rgba(14, 42, 71, 0.85);
+    /* Enertika Dark with opacity */
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.glass-panel {
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    box-shadow: 0 8px 32px 0 rgba(31, 38, 135, 0.07);
+}
+
+.glass-card {
+    background: rgba(255, 255, 255, 0.6);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.3);
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.glass-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* New Keyframes */
+@keyframes fade-in {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slide-up {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes scale-in {
+    from {
+        transform: scale(0.95);
+        opacity: 0;
+    }
+
+    to {
+        transform: scale(1);
+        opacity: 1;
+    }
+}
+
+@keyframes pulse-ring {
+    0% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(0, 186, 187, 0.7);
+    }
+
+    70% {
+        transform: scale(1);
+        box-shadow: 0 0 0 10px rgba(0, 186, 187, 0);
+    }
+
+    100% {
+        transform: scale(0.95);
+        box-shadow: 0 0 0 0 rgba(0, 186, 187, 0);
+    }
+}
+
+@keyframes shimmer-fast {
+    0% {
+        background-position: -1000px 0;
+    }
+
+    100% {
+        background-position: 1000px 0;
+    }
+}
+
+/* Micro-interactions */
+.hover-scale {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-scale:hover {
+    transform: scale(1.05);
+}
+
+.hover-slide-right {
+    transition: transform 0.2s ease-out;
+}
+
+.hover-slide-right:hover {
+    transform: translateX(4px);
+}
+
+.click-scale:active {
+    transform: scale(0.95);
+}
+
+/* Animation Classes */
+.animate-fade-in {
+    animation: fade-in 0.3s ease-out forwards;
+}
+
+.animate-slide-up {
+    animation: slide-up 0.4s ease-out forwards;
+}
+
+.animate-scale-in {
+    animation: scale-in 0.3s ease-out forwards;
+}
+
+.animate-pulse-ring {
+    animation: pulse-ring 2s infinite;
+}
+
+/* Sidebar Specifics */
+.sidebar-glass {
+    background: linear-gradient(180deg, rgba(18, 52, 86, 0.95) 0%, rgba(14, 42, 71, 0.9) 100%);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border-right: 1px solid rgba(255, 255, 255, 0.1);
+    box-shadow: 5px 0 25px rgba(0, 0, 0, 0.3);
+}
+
+.text-shadow-sm {
+    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+}
+
+.sidebar-item-active {
+    background: linear-gradient(90deg, rgba(0, 186, 187, 0.15) 0%, rgba(18, 52, 86, 0) 100%);
+    border-left: 4px solid #00BABB;
+    color: #00BABB;
+}
+
+.sidebar-item:hover {
+    background: linear-gradient(90deg, rgba(0, 186, 187, 0.1) 0%, rgba(18, 52, 86, 0) 100%);
+}
+
+.nav-icon-hover {
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.group:hover .nav-icon-hover {
+    transform: scale(1.2) rotate(5deg);
+    color: #00BABB;
+}
+
+/* === NEW MICRO-INTERACTIONS & UTILITIES === */
+
+/* Keyframes */
+@keyframes ripple {
+    0% {
+        transform: scale(0);
+        opacity: 0.5;
+    }
+
+    100% {
+        transform: scale(2.5);
+        opacity: 0;
+    }
+}
+
+@keyframes shimmer-text {
+    0% {
+        opacity: 0.5;
+    }
+
+    50% {
+        opacity: 1;
+    }
+
+    100% {
+        opacity: 0.5;
+    }
+}
+
+@keyframes pulse-badge {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    }
+
+    70% {
+        transform: scale(1.05);
+        box-shadow: 0 0 0 6px rgba(239, 68, 68, 0);
+    }
+
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 0 0 rgba(239, 68, 68, 0);
+    }
+}
+
+/* Hover Effects */
+.hover-lift {
+    transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), box-shadow 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.hover-lift:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+}
+
+/* Button Ripple */
+.ripple {
+    position: relative;
+    overflow: hidden;
+}
+
+.ripple::after {
+    content: '';
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 50%;
+    transform: scale(0);
+    opacity: 0;
+    pointer-events: none;
+    top: 50%;
+    left: 50%;
+    /* Centering fix usually handled by JS, but this is a simple CSS-only fallback or base */
+    transform-origin: center;
+}
+
+.ripple:active::after {
+    animation: ripple 0.4s ease-out;
+    top: 0;
+    left: 0;
+    /* Reset to fill if needed, though JS usually positions this better. 
+       For pure CSS, we rely on :active state */
+}
+
+/* Global Input Focus Glow */
+input:focus,
+select:focus,
+textarea:focus {
+    outline: none;
+    box-shadow: 0 0 0 4px rgba(0, 186, 187, 0.2);
+    border-color: #00BABB;
+    transition: all 0.2s ease-in-out;
+}
+
+/* Tab Underline Animation */
+.tab-underline {
+    position: relative;
+}
+
+.tab-underline::after {
+    content: '';
+    position: absolute;
+    bottom: -2px;
+    left: 0;
+    width: 0%;
+    height: 2px;
+    background-color: #00BABB;
+    transition: width 0.3s ease-in-out;
+}
+
+.tab-underline:hover::after,
+.tab-underline.active::after {
+    width: 100%;
+}
+
+/* Badge Pulse */
+.pulse-badge {
+    animation: pulse-badge 2s infinite;
+}
