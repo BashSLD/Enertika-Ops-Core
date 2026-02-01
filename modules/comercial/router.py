@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request, Depends, HTTPException, Form, UploadFile, File, status, Response
 from fastapi.templating import Jinja2Templates
+from datetime import date
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from uuid import UUID, uuid4
 from typing import Optional, List
@@ -405,6 +406,7 @@ async def handle_oportunidad_creation(
 
     # --- Campo Fecha Manual (Gerentes) ---
     fecha_manual: Optional[str] = Form(None),
+    fecha_ideal_usuario: Optional[date] = Form(None),
     # --- Campos BESS (HTMX Conditional) ---
     bess_uso_sistema: List[str] = Form([]),
     bess_cargas_criticas: Optional[float] = Form(None),
@@ -450,6 +452,7 @@ async def handle_oportunidad_creation(
         fecha_manual_str=fecha_manual,
         detalles_bess=detalles_bess,
         es_licitacion=es_licitacion,
+        fecha_ideal_usuario=fecha_ideal_usuario,
         clasificacion_solicitud="ESPECIAL" if request.query_params.get('legacy_term') else "NORMAL"
     )
 
@@ -552,6 +555,7 @@ async def handle_oportunidad_extraordinaria(
 
     # --- Campo Fecha Manual (OBLIGATORIO en extraordinarias) ---
     fecha_manual: str = Form(...),
+    fecha_ideal_usuario: Optional[date] = Form(None),
     
     # --- Campos BESS (Opcionales) ---
     bess_uso_sistema: List[str] = Form([]),
@@ -607,6 +611,7 @@ async def handle_oportunidad_extraordinaria(
             detalles_bess=detalles_bess,
             es_licitacion=es_licitacion,
             solicitado_por_id=solicitado_por_id,
+            fecha_ideal_usuario=fecha_ideal_usuario,
             clasificacion_solicitud="EXTRAORDINARIO"
         )
 

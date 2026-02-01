@@ -23,7 +23,7 @@
     <p class="mb-4 text-gray-600">Detalles de la oportunidad: <strong>{{ op.id_interno_simulacion }}</strong>.</p>
 
     <form hx-post="/comercial/notificar/{{ op.id_oportunidad }}" hx-encoding="multipart/form-data" hx-target="this"
-        hx-swap="outerHTML" hx-indicator="#loading-indicator" class="space-y-6">
+        hx-swap="outerHTML" hx-indicator="#saving-overlay" class="space-y-6">
 
         <div>
             <label class="block text-sm font-medium text-gray-700">Asunto</label>

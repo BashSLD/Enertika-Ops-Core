@@ -93,7 +93,7 @@
                             Título del Proyecto
                         </label>
                         <p
-                            class="text-base font-bold text-[#123456] bg-white px-3 py-2 rounded-md border border-gray-200">
+                            class="text-base font-bold text-[#123456] bg-white px-3 py-2 rounded-md border border-gray-200 break-words">
                             {{ op.titulo_proyecto or op.nombre_proyecto or 'Sin título' }}
                         </p>
                     </div>
@@ -104,12 +104,13 @@
                             Cliente
                         </label>
                         <p
-                            class="text-sm font-medium text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200 flex items-center gap-2">
-                            <svg class="w-4 h-4 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            class="text-sm font-medium text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200 flex items-start gap-2">
+                            <svg class="w-4 h-4 text-[#00BABB] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor"
+                                viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
                             </svg>
-                            {{ op.cliente_nombre or 'No especificado' }}
+                            <span class="break-words min-w-0">{{ op.cliente_nombre or 'No especificado' }}</span>
                         </p>
                     </div>
 
@@ -317,7 +318,8 @@
             </div>
 
             <!-- Sección: Información Adicional (Opcional - Si existe) -->
-            {% if op.fecha_solicitud or op.deadline_calculado or op.cantidad_sitios %}
+            {% if op.fecha_solicitud or op.fecha_ideal_usuario or op.deadline_calculado or op.deadline_negociado or
+            op.fecha_entrega_simulacion or op.cantidad_sitios %}
             <div class="bg-gray-50 rounded-lg p-5 border border-gray-200">
                 <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
                     <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -340,13 +342,46 @@
                     </div>
                     {% endif %}
 
+                    {% if op.fecha_ideal_usuario %}
+                    <div>
+                        <label class="block text-xs font-semibold text-purple-600 uppercase mb-1">
+                            Fecha Requerida
+                        </label>
+                        <p class="text-purple-700 font-bold border-b border-purple-200 inline-block border-dotted">
+                            {{ op.fecha_ideal_usuario.strftime('%d/%m/%Y') }}
+                        </p>
+                    </div>
+                    {% endif %}
+
                     {% if op.deadline_calculado %}
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">
                             Deadline (SLA)
                         </label>
                         <p class="text-gray-800 font-medium">
-                            {{ op.deadline_calculado.strftime('%d/%m/%Y') if op.deadline_calculado else 'N/A' }}
+                            {{ op.deadline_calculado.strftime('%d/%m/%Y') }}
+                        </p>
+                    </div>
+                    {% endif %}
+
+                    {% if op.deadline_negociado %}
+                    <div>
+                        <label class="block text-xs font-semibold text-rose-600 uppercase mb-1">
+                            Deadline Negociado
+                        </label>
+                        <p class="text-rose-700 font-bold">
+                            {{ op.deadline_negociado.strftime('%d/%m/%Y') }}
+                        </p>
+                    </div>
+                    {% endif %}
+
+                    {% if op.fecha_entrega_simulacion %}
+                    <div>
+                        <label class="block text-xs font-semibold text-green-600 uppercase mb-1">
+                            Fecha Entrega
+                        </label>
+                        <p class="text-green-700 font-bold">
+                            {{ op.fecha_entrega_simulacion.strftime('%d/%m/%Y') }}
                         </p>
                     </div>
                     {% endif %}
@@ -367,23 +402,7 @@
             {% endif %}
 
             <!-- Footer Informativo -->
-            <div class="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg">
-                <div class="flex items-start gap-3">
-                    <svg class="w-5 h-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor"
-                        viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <div>
-                        <p class="text-xs font-semibold text-blue-800 mb-1">💡 Información de Solo Lectura</p>
-                        <p class="text-xs text-blue-700">
-                            Esta vista muestra información básica de la oportunidad. Para editar o ver detalles
-                            completos,
-                            accede desde la tabla principal del módulo correspondiente.
-                        </p>
-                    </div>
-                </div>
-            </div>
+
 
         </div>
 

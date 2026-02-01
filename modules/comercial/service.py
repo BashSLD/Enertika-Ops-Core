@@ -507,7 +507,8 @@ class ComercialService:
             datos.clasificacion_solicitud, # $23: clasificacion_solicitud
             datos.solicitado_por_id,       # $24: solicitado_por_id
             datos.es_licitacion,           # $25: es_licitacion
-            final_cliente_id        # $26: cliente_id
+            final_cliente_id,        # $26: cliente_id
+            datos.fecha_ideal_usuario # $27: fecha_ideal_usuario
         )
 
         # Insertar BESS (Shared Service)
@@ -861,7 +862,8 @@ class ComercialService:
             parent['id_interno_simulacion'], op_id_estandar_new, deadline, es_fuera_horario,
             id_status_inicial,  # Parámetro $22
             now_mx,             # Parámetro $23
-            parent['es_licitacion'] # Parámetro $24 (Herencia)
+            parent['es_licitacion'], # Parámetro $24 (Herencia)
+            (now_mx.date() + timedelta(days=7)) # Parámetro $25 (Default +7 dias para seguimiento)
         )
 
         # Clonar sitios (Heredan id_tipo_solicitud del NUEVO tipo)

@@ -371,6 +371,7 @@ class SimulacionDBService:
                 o.id_interno_simulacion, o.deadline_calculado, o.deadline_negociado,
                 o.fecha_entrega_simulacion, o.cantidad_sitios, o.prioridad, o.es_fuera_horario,
                 o.es_licitacion,
+                o.fecha_ideal_usuario,
                 tipo_sol.nombre as tipo_solicitud,
                 u_creador.nombre as solicitado_por,
                 u_sim.nombre as responsable_simulacion,

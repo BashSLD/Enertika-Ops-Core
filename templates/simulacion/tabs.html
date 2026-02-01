@@ -1,8 +1,35 @@
+<style>
+    .sim-tab-link {
+        position: relative !important;
+        overflow: hidden !important;
+    }
+
+    .sim-tab-link::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0px;
+        height: 0;
+        background: linear-gradient(to right, #059669, #14b8a6);
+        transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        z-index: 50;
+        border-top-left-radius: 4px;
+        border-top-right-radius: 4px;
+        display: block;
+        opacity: 0.8;
+    }
+
+    .sim-tab-link.active::before {
+        height: 4px;
+        opacity: 1;
+    }
+</style>
 <div class="flex flex-col h-full">
     <!-- Header with Actions -->
-    <div class="glass-panel p-6 rounded-xl mb-6 flex justify-between items-center border-l-4 border-emerald-500">
+    <div class="glass-panel p-4 rounded-xl mb-4 flex justify-between items-center border-l-4 border-emerald-500">
         <div>
-            <h2 class="text-3xl font-light text-gray-800">
+            <h2 class="text-2xl font-light text-gray-800">
                 Módulo <span class="font-bold text-emerald-600">Simulación</span>
             </h2>
             <p class="text-gray-500 text-sm mt-1">Gestión de Simulaciones y Oportunidades</p>
@@ -16,7 +43,7 @@
             <!-- Botón: Métricas Operativas (Solo ADMIN) -->
             <button hx-get="/simulacion/metricas-operativas" hx-target="#main-content" hx-swap="innerHTML"
                 hx-push-url="true"
-                class="ripple-effect bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-5 rounded-lg shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
+                class="ripple-effect bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold py-2 px-3 rounded-lg shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -27,14 +54,10 @@
             {% endif %}
 
             {% if is_admin_or_manager %}
-
-
-            <!-- Botón de Reporte PDF eliminado: Se usa el botón integrado en Dashboard -->
-
             <!-- Botón: Registro Extraordinario (Solo ADMIN/MANAGER) con Popup Advertencia -->
             <div x-data="{ showWarning: false }" class="relative">
                 <button @click="showWarning = true"
-                    class="ripple-effect bg-orange-600 hover:bg-orange-700 text-white font-bold py-2.5 px-5 rounded-lg shadow-lg shadow-orange-600/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
+                    class="ripple-effect bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold py-2 px-3 rounded-lg shadow-lg shadow-orange-600/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -64,7 +87,8 @@
                         <!-- Contenido -->
                         <div class="mb-6 space-y-3">
                             <p class="text-sm text-gray-700">
-                                Esta opción ha sido diseñada para <strong>solicitudes enviadas fuera del proceso de esta
+                                Esta opción ha sido diseñada para <strong>solicitudes enviadas fuera del
+                                    proceso de esta
                                     aplicación</strong>.
                             </p>
 
@@ -108,33 +132,15 @@
         </div>
     </div>
 
-    <!-- Search Bar with HTMX -->
-    <div class="mb-6 glass-panel p-4 rounded-xl">
-        <input type="hidden" id="active_tab_input" name="tab" value="activos">
-        <label class="block text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wider">Búsqueda Global</label>
-        <div class="relative">
-            <span class="absolute inset-y-0 left-0 flex items-center pl-3">
-                <svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                </svg>
-            </span>
-            <input type="text" id="search-input" name="q" hx-get="/simulacion/partials/cards"
-                hx-trigger="keyup changed delay:500ms, search" hx-target="#sim-tab-content"
-                hx-include="#active_tab_input"
-                class="w-full md:w-1/3 pl-10 pr-4 py-2 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all shadow-sm"
-                placeholder="Buscar por empresa, proyecto...">
-        </div>
-    </div>
-
     <!-- Tabs Navigation -->
     <div
         class="mb-6 text-sm font-medium text-center text-gray-500 border-b border-gray-200/50 dark:text-gray-400 dark:border-gray-700/50">
         <ul class="flex flex-wrap -mb-px gap-2">
+
             <li class="me-2">
                 <a href="#" hx-get="/simulacion/partials/graphs" hx-target="#sim-tab-content" hx-swap="innerHTML"
-                    hx-push-url="?tab=graphs" onclick="updateSimTabContext('graphs', this)"
-                    class="sim-tab-link inline-block p-4 rounded-t-lg active group glass-panel bg-white/60 transition-all"
+                    hx-push-url="/simulacion/ui" onclick="updateSimTabContext('graphs', this)"
+                    class="sim-tab-link inline-block p-3 rounded-t-lg active group glass-panel bg-white/60 transition-all"
                     aria-current="page">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-emerald-600" fill="none"
@@ -147,10 +153,19 @@
                     </div>
                 </a>
             </li>
+            <!-- ... (other tabs kept as context or modified if needed, but tool replaces contiguous block) ... -->
+
+            <!-- I will replace the JS function specifically in a separate block or include it if range permits.
+Let's check if I can replace the whole block including tabs to be safe on range.
+Lines 136 to 260 covers the tabs and the function start.
+Wait, I need to be precise.
+The tabs start at 136. The script starts at 214.
+I will verify the first tab replacement first. -->
+
             <li class="me-2">
                 <a href="#" hx-get="/simulacion/partials/cards?tab=activos" hx-target="#sim-tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=activos" onclick="updateSimTabContext('activos', this)"
-                    class="sim-tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                    class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
@@ -164,8 +179,8 @@
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/simulacion/partials/cards?tab=historial" hx-target="#sim-tab-content"
-                    hx-swap="innerHTML" onclick="updateSimTabContext('historial', this)"
-                    class="sim-tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                    hx-swap="innerHTML" hx-push-url="?tab=historial" onclick="updateSimTabContext('historial', this)"
+                    class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
@@ -179,8 +194,9 @@
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/simulacion/partials/cards?tab=levantamientos" hx-target="#sim-tab-content"
-                    hx-swap="innerHTML" onclick="updateSimTabContext('levantamientos', this)"
-                    class="sim-tab-link inline-block p-4 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                    hx-swap="innerHTML" hx-push-url="?tab=levantamientos"
+                    onclick="updateSimTabContext('levantamientos', this)"
+                    class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
@@ -205,65 +221,65 @@
             </div>
         </div>
     </div>
-</div>
 
-<script>
-    function updateSimTabContext(tabName, element) {
-        // 1. Actualizar el input oculto
-        document.getElementById('active_tab_input').value = tabName;
+    <script>
+        function updateSimTabContext(tabName, element) {
+            console.log("Updating Sim Tab Context:", tabName);
 
-        // 2. Guardar en localStorage para refresh del modal
-        localStorage.setItem('sim_current_tab', tabName);
-
-        // 3. Lógica visual con colores corporativos (emerald)
-        const allTabs = document.querySelectorAll('.sim-tab-link');
-
-        allTabs.forEach(el => {
-            // Reset to inactive state
-            el.classList.remove('glass-panel', 'bg-white/60', 'active');
-            el.classList.add('border-transparent', 'hover:bg-white/40');
-
-            // Remove gradient text from inner span
-            const span = el.querySelector('span'); // Assuming the text is in a span or div inside
-            if (span) {
-                span.classList.remove('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-emerald-600', 'to-teal-500');
+            // 1. Actualizar el input oculto (si existe)
+            const input = document.getElementById('active_tab_input');
+            if (input) {
+                input.value = tabName;
             }
-            // Remove gradient active SVG scale or color if needed (handled by group-hover usually, but for active we might want it fixed)
-            const svg = el.querySelector('svg');
-            if (svg) {
-                svg.classList.remove('text-emerald-600');
+
+            // 2. Guardar en localStorage para refresh del modal
+            localStorage.setItem('sim_current_tab', tabName);
+
+            // 3. Lógica visual con colores corporativos (emerald)
+            const allTabs = document.querySelectorAll('.sim-tab-link');
+
+            allTabs.forEach(el => {
+                // Reset to inactive state
+                el.classList.remove('glass-panel', 'bg-white/60', 'active');
+                el.classList.add('border-transparent', 'hover:bg-white/40');
+
+                // Remove gradient text from inner span
+                const span = el.querySelector('span'); // Assuming the text is in a span or div inside
+                if (span) {
+                    span.classList.remove('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-emerald-600', 'to-teal-500');
+                }
+                // Remove gradient active SVG scale or color if needed (handled by group-hover usually, but for active we might want it fixed)
+                const svg = el.querySelector('svg');
+                if (svg) {
+                    svg.classList.remove('text-emerald-600');
+                }
+            });
+
+            // Set active state
+            element.classList.remove('border-transparent', 'hover:bg-white/40');
+            element.classList.add('glass-panel', 'bg-white/60', 'active');
+
+            // Add gradient to text
+            const activeSpan = element.querySelector('span');
+            if (activeSpan) {
+                activeSpan.classList.add('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-emerald-600', 'to-teal-500');
+            }
+
+            const activeSvg = element.querySelector('svg');
+            if (activeSvg) {
+                activeSvg.classList.add('text-emerald-600');
+            }
+        }
+
+        // Guardar subtab cuando cambie (para historial y levantamientos)
+        document.addEventListener('htmx:configRequest', function (evt) {
+            const url = evt.detail.path;
+            const subtabMatch = url.match(/[?&]subtab=([^&]+)/);
+            if (subtabMatch) {
+                localStorage.setItem('sim_current_subtab', subtabMatch[1]);
+            } else if (url.includes('tab=')) {
+                // Si cambió de tab sin subtab, limpiar subtab
+                localStorage.removeItem('sim_current_subtab');
             }
         });
-
-        // Set active state
-        element.classList.remove('border-transparent', 'hover:bg-white/40');
-        element.classList.add('glass-panel', 'bg-white/60', 'active');
-
-        // Add gradient to text
-        const activeSpan = element.querySelector('span'); // The text container
-        // If it was just text node, we might need to wrap it? 
-        // In previous step we wrapped "Gráficas" in span, but "Solicitudes" might be just text with SVG.
-        // Let's ensure consistency in HTML first/concurrently or handle both.
-        // Assuming we wrapped them all or will wrap them.
-        if (activeSpan) {
-            activeSpan.classList.add('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-emerald-600', 'to-teal-500');
-        }
-
-        const activeSvg = element.querySelector('svg');
-        if (activeSvg) {
-            activeSvg.classList.add('text-emerald-600');
-        }
-    }
-
-    // Guardar subtab cuando cambie (para historial y levantamientos)
-    document.addEventListener('htmx:configRequest', function (evt) {
-        const url = evt.detail.path;
-        const subtabMatch = url.match(/[?&]subtab=([^&]+)/);
-        if (subtabMatch) {
-            localStorage.setItem('sim_current_subtab', subtabMatch[1]);
-        } else if (url.includes('tab=')) {
-            // Si cambió de tab sin subtab, limpiar subtab
-            localStorage.removeItem('sim_current_subtab');
-        }
-    });
-</script>
+    </script>

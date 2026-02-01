@@ -1,5 +1,5 @@
 from typing import List, Optional, Any
-from datetime import datetime
+from datetime import datetime, date
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
@@ -54,6 +54,7 @@ class OportunidadCreateCompleta(BaseModel):
     solicitado_por_id: Optional[UUID] = None
     clasificacion_solicitud: str = "NORMAL"
     es_licitacion: bool = False
+    fecha_ideal_usuario: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -129,5 +130,6 @@ class OportunidadListOut(BaseModel):
     es_fuera_horario: bool = False
     prioridad: str = "Normal"
     tiene_detalles_bess: bool = False
+    fecha_ideal_usuario: Optional[date] = None
     
     model_config = ConfigDict(from_attributes=True)

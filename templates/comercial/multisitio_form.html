@@ -25,7 +25,7 @@
         </div>
 
         <form hx-post="/comercial/upload-preview" hx-encoding="multipart/form-data" hx-target="#upload-result"
-            class="space-y-4">
+            hx-indicator="#saving-overlay" class="space-y-4">
             <input type="hidden" name="id_oportunidad" value="{{ oportunidad_id }}">
             <input type="hidden" name="extraordinaria" value="{{ extraordinaria | default(0) }}">
 

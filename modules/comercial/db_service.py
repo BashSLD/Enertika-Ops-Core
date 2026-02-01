@@ -8,6 +8,7 @@ QUERY_GET_OPORTUNIDADES_LIST = """
         tipo_sol.nombre as tipo_solicitud, o.deadline_calculado, o.deadline_negociado, o.cantidad_sitios,
         o.titulo_proyecto, o.prioridad, o.es_fuera_horario,
         o.es_licitacion, o.fecha_entrega_simulacion,
+        o.fecha_ideal_usuario,
         u_creador.nombre as solicitado_por,
         u_sim.nombre as responsable_simulacion,
         u_sim.email as responsable_email,
@@ -34,7 +35,8 @@ QUERY_INSERT_OPORTUNIDAD = """
         creado_por_id, fecha_solicitud,
         es_fuera_horario, deadline_calculado,
         solicitado_por, es_carga_manual,
-        clasificacion_solicitud, solicitado_por_id, es_licitacion
+        clasificacion_solicitud, solicitado_por_id, es_licitacion,
+        fecha_ideal_usuario
     ) VALUES (
         $1, $2, $3, $4, $5, $6, $26, $7,
         $8, $9, $22, 
@@ -42,7 +44,8 @@ QUERY_INSERT_OPORTUNIDAD = """
         $16, $17, 
         $18, $19,
         $20, $21,
-        $23, $24, $25
+        $23, $24, $25,
+        $27
     )
 """
 
@@ -58,14 +61,16 @@ QUERY_INSERT_FOLLOWUP = """
         deadline_calculado, es_fuera_horario, 
         fecha_solicitud,       -- $23 (now_mx)
         email_enviado,
-        es_licitacion         -- HEREDADO
+        es_licitacion,         -- HEREDADO
+        fecha_ideal_usuario
     ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 
         $22,  -- ID Estatus (Ya no es 1 fijo)
         $20, $21, 
         $23,  -- Fecha Solicitud (Ya no es NOW())
         FALSE,
-        $24   -- es_licitacion
+        $24,   -- es_licitacion
+        $25    -- fecha_ideal_usuario (heredada o default)
     ) RETURNING id_oportunidad
 """
 

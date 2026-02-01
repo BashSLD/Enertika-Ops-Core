@@ -58,7 +58,8 @@
             Cancelar / Reintentar
         </button>
 
-        <form hx-post="/comercial/upload-confirm" hx-target="#upload-result" hx-swap="innerHTML">
+        <form hx-post="/comercial/upload-confirm" hx-target="#upload-result" hx-swap="innerHTML"
+            hx-indicator="#saving-overlay">
             <input type="hidden" name="sitios_json" value='{{ json_data | safe }}'>
             <input type="hidden" name="op_id" value="{{ op_id }}">
             <input type="hidden" name="extraordinaria" value="{{ extraordinaria | default(0) }}">

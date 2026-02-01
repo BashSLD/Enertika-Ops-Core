@@ -93,34 +93,34 @@
                         <thead class="bg-gray-50">
                             <tr>
                                 <th scope="col"
-                                    class="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[300px] bg-white/70 backdrop-blur-md">
+                                    class="px-4 py-2 text-left text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap min-w-[300px] bg-white/70 backdrop-blur-md">
                                     ID / Título
                                 </th>
                                 <th scope="col"
-                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-white/70 backdrop-blur-md">
+                                    class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-white/70 backdrop-blur-md">
                                     Ingeniero Asignado
                                 </th>
                                 <th scope="col"
-                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-48 bg-white/70 backdrop-blur-md">
-                                    Fecha de Solicitud
+                                    class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-48 bg-white/70 backdrop-blur-md">
+                                    Solicitado
                                 </th>
                                 <th scope="col"
-                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-40 bg-white/70 backdrop-blur-md">
+                                    class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-40 bg-white/70 backdrop-blur-md">
                                     Entrega SLA
                                 </th>
                                 <th scope="col"
-                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-white/70 backdrop-blur-md">
+                                    class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-white/70 backdrop-blur-md">
                                     {% if current_tab == 'levantamientos' %}Status Levantamiento{% else %}Status
                                     Simulación{% endif %}
                                 </th>
                                 <th scope="col"
-                                    class="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap {% if current_tab == 'historial' or (current_tab == 'levantamientos' and subtab == 'realizados') %}w-32{% else %}w-52{% endif %} bg-white/70 backdrop-blur-md">
+                                    class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap {% if current_tab == 'historial' or (current_tab == 'levantamientos' and subtab == 'realizados') %}w-32{% else %}w-52{% endif %} bg-white/70 backdrop-blur-md">
                                     Detalles
                                 </th>
                                 {% if current_tab == 'historial' or (current_tab == 'levantamientos' and subtab ==
                                 'realizados') %}
                                 <th scope="col"
-                                    class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-20 bg-white/70 backdrop-blur-md">
+                                    class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-20 bg-white/70 backdrop-blur-md">
                                     Acciones
                                 </th>
                                 {% endif %}
@@ -139,7 +139,7 @@
                                     {{ animation_delay|safe }}>
 
                                     <!-- COL 1: ID e Info Interna -->
-                                    <td class="px-6 py-4 min-w-[300px]">
+                                    <td class="px-4 py-2 min-w-[300px]">
                                         <div
                                             class="text-sm font-mono text-gray-700 font-bold whitespace-nowrap flex items-center gap-2">
                                             <button hx-get="/workflow/modals/detalle/{{ op.id_oportunidad }}"
@@ -179,11 +179,11 @@
                                     </td>
 
                                     <!-- COL 2: Ingeniero Asignado -->
-                                    <td class="px-6 py-4 whitespace-nowrap">
+                                    <td class="px-4 py-2 whitespace-nowrap">
                                         <div class="flex items-center justify-center">
                                             {% if op.responsable_simulacion %}
                                             <span
-                                                class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-sm"
+                                                class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200 shadow-sm"
                                                 title="{{ op.responsable_email }}">
                                                 <div
                                                     class="flex-shrink-0 h-5 w-5 rounded-full bg-indigo-200 flex items-center justify-center text-indigo-700 mr-2 border border-indigo-300">
@@ -198,7 +198,7 @@
                                     </td>
 
                                     <!-- COL 3: Envío (con Tooltip Alpine.js) -->
-                                    <td class="px-4 py-4 w-48">
+                                    <td class="px-4 py-2 w-48">
                                         <div class="flex flex-col items-center gap-2">
                                             <div class="text-sm text-gray-700 text-center">
                                                 {{ op.fecha_solicitud | time_mx }}
@@ -220,11 +220,27 @@
                                                 </div>
                                             </div>
                                             {% endif %}
+
+                                            {% if op.fecha_ideal_usuario %}
+                                            <div x-data="{ showTooltip: false }" class="relative inline-flex mt-1">
+                                                <span @mouseenter="showTooltip = true" @mouseleave="showTooltip = false"
+                                                    class="text-xs text-purple-600 font-medium cursor-help border-b border-purple-300 border-dotted">
+                                                    Requerida: {{ op.fecha_ideal_usuario.strftime('%d/%m/%Y') }}
+                                                </span>
+                                                <div x-show="showTooltip" x-transition
+                                                    class="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-2 px-3 py-2 bg-gray-900 text-white text-xs rounded-lg shadow-lg whitespace-nowrap z-50 pointer-events-none">
+                                                    Fecha Requerida por el usuario
+                                                    <div
+                                                        class="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900">
+                                                    </div>
+                                                </div>
+                                            </div>
+                                            {% endif %}
                                         </div>
                                     </td>
 
                                     <!-- COL 4: Entrega SLA -->
-                                    <td class="px-4 py-4 w-40">
+                                    <td class="px-4 py-2 w-40">
                                         <div class="flex flex-col items-center gap-2">
                                             <div class="text-sm text-blue-600 font-semibold text-center">
                                                 {{ op.deadline_calculado.strftime('%d/%m/%Y') if
@@ -241,18 +257,18 @@
                                     </td>
 
                                     <!-- COL 5: Status -->
-                                    <td class="px-6 py-4 whitespace-nowrap text-center">
+                                    <td class="px-4 py-2 whitespace-nowrap text-center">
                                         {% set status = op.status_global|lower if op.status_global else 'pendiente'
                                         %}
                                         {% if status == 'pendiente' %}
                                         <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300 shadow-sm shadow-yellow-200/50"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300 shadow-sm shadow-yellow-200/50"
                                             title="La oportunidad ha sido enviada a simulación, pero aún no la ha revisado">
                                             ⏳ Pendiente
                                         </span>
                                         {% elif status == 'en revision' or status == 'en revisión' %}
                                         <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-blue-100 text-blue-800 border border-blue-300 shadow-sm shadow-blue-200/50"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-blue-100 text-blue-800 border border-blue-300 shadow-sm shadow-blue-200/50"
                                             title="La oportunidad está siendo revisada por simulación">
                                             <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
                                                 viewBox="0 0 24 24">
@@ -265,7 +281,7 @@
                                         </span>
                                         {% elif status == 'en proceso' %}
                                         <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-[#E0F7F7] text-[#123456] border border-[#00BABB] shadow-md shadow-[#00BABB]/20 animate-pulse-subtle"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-[#E0F7F7] text-[#123456] border border-[#00BABB] shadow-md shadow-[#00BABB]/20 animate-pulse-subtle"
                                             title="La oportunidad está en proceso de simulación">
                                             <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
                                                 viewBox="0 0 24 24">
@@ -278,7 +294,7 @@
                                         </span>
                                         {% elif status == 'entregado' %}
                                         <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-green-100 text-green-800 border border-green-300 shadow-sm shadow-green-200/50"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-green-100 text-green-800 border border-green-300 shadow-sm shadow-green-200/50"
                                             title="La oportunidad ha sido enviada a comercial">
                                             <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
                                                 viewBox="0 0 24 24">
@@ -289,19 +305,19 @@
                                         </span>
                                         {% elif status == 'cancelado' %}
                                         <span
-                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800 border border-gray-200"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800 border border-gray-200"
                                             title="La oportunidad ha sido cancelada">
                                             Cancelado
                                         </span>
                                         {% elif status == 'perdida' or status == 'perdido' %}
                                         <span
-                                            class="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 border border-red-200"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 border border-red-200"
                                             title="La oportunidad ha sido perdida">
                                             Perdida
                                         </span>
                                         {% elif status == 'cerrada' %}
                                         <span
-                                            class="px-3 py-1 inline-flex text-xs leading-5 font-bold rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm shadow-emerald-200/50"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm shadow-emerald-200/50"
                                             title="La oportunidad se ha ganado">
                                             🎉 Cerrada
                                         </span>
@@ -321,7 +337,7 @@
                                     </td>
 
                                     <!-- COL 6: Detalles -->
-                                    <td class="px-6 py-4 whitespace-nowrap text-sm font-medium relative">
+                                    <td class="px-4 py-2 whitespace-nowrap text-sm font-medium relative">
                                         <div class="flex flex-col gap-2 items-center">
 
                                             <!-- Botón 1: Comentarios Simulacion con Popup -->
@@ -329,7 +345,7 @@
                                                 <button
                                                     hx-get="/workflow/modals/comentarios?id_oportunidad={{ op.id_oportunidad }}&module=comercial"
                                                     hx-target="body" hx-swap="beforeend"
-                                                    class="w-full text-blue-600 hover:text-blue-700 border border-blue-300 hover:border-blue-500 px-3 py-1.5 rounded bg-blue-50/50 hover:bg-blue-100 flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow hover:scale-[1.02]">
+                                                    class="w-full text-blue-600 hover:text-blue-700 border border-blue-300 hover:border-blue-500 px-2 py-1 rounded bg-blue-50/50 hover:bg-blue-100 flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow hover:scale-[1.02]">
                                                     <span>💬</span>
                                                     <span>Ver/Enviar Comentarios</span>
                                                 </button>
@@ -339,7 +355,7 @@
                                             {% if op.tiene_detalles_bess %}
                                             <div x-data="{ showPopup: false }" class="w-full">
                                                 <button @click="showPopup = true"
-                                                    class="w-full text-green-600 hover:text-green-700 border border-green-300 hover:border-green-500 px-3 py-1.5 rounded bg-green-50/50 hover:bg-green-100 flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow hover:scale-[1.02]">
+                                                    class="w-full text-green-600 hover:text-green-700 border border-green-300 hover:border-green-500 px-2 py-1 rounded bg-green-50/50 hover:bg-green-100 flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow hover:scale-[1.02]">
                                                     <svg class="w-4 h-4" fill="none" stroke="currentColor"
                                                         viewBox="0 0 24 24">
                                                         <path stroke-linecap="round" stroke-linejoin="round"
@@ -412,7 +428,7 @@
                                     <!-- COL 7: Acciones (Solo Historial o Levantamientos Realizados) -->
                                     {% if current_tab == 'historial' or (current_tab == 'levantamientos' and subtab ==
                                     'realizados') %}
-                                    <td class="px-4 py-4 text-center">
+                                    <td class="px-4 py-2 text-center">
                                         <div x-data="{ 
                             menuOpen: false, 
                             menuX: 0, 
@@ -667,7 +683,7 @@
                                 {% else %}
                                 <tr>
                                     <td colspan="{{ 7 if current_tab == 'historial' else 6 }}"
-                                        class="px-6 py-4 text-center text-gray-500">
+                                        class="px-4 py-2 text-center text-gray-500">
                                         No hay solicitudes registradas aún.
                                     </td>
                                 </tr>
