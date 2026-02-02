@@ -105,7 +105,7 @@
                             Título del Proyecto
                         </label>
                         <p
-                            class="text-base font-bold text-[#123456] bg-white px-3 py-2 rounded-md border border-gray-200 break-words">
+                            class="text-sm font-bold text-[#123456] bg-white px-3 py-2 rounded-md border border-gray-200 break-words">
                             {{ op.titulo_proyecto or op.nombre_proyecto or 'Sin título' }}
                         </p>
                     </div>
@@ -113,7 +113,7 @@
                     <!-- Cliente -->
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
-                            Cliente
+                            Empresa
                         </label>
                         <p
                             class="text-sm font-medium text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200 flex items-start gap-2">
@@ -429,8 +429,8 @@
 
                     <!-- Solicitar Actualización -->
                     <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
-                        hx-target="#modal-content-placeholder" hx-swap="none"
-                        hx-on::after-request="if(event.detail.successful) { alert('Solicitud de actualización enviada'); $el.closest('#modal-backdrop-detalle').remove(); htmx.trigger('#main-content', 'refresh'); }"
+                        hx-target="#modal-content-placeholder" hx-swap="none" hx-indicator="#global-loading-overlay"
+                        x-on:submit="$el.closest('#modal-backdrop-detalle').style.display='none'; document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
                         class="block w-full">
                         <input type="hidden" name="tipo_solicitud" value="ACTUALIZACION">
                         <input type="hidden" name="prioridad" value="high">
@@ -448,8 +448,8 @@
                     {% if 'LEVANTAMIENTO' not in (op.tipos_solicitud_activos or []) and 'LEVANTAMIENTO' not in
                     (op.tipo_solicitud or '') %}
                     <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
-                        hx-target="#modal-content-placeholder" hx-swap="none"
-                        hx-on::after-request="if(event.detail.successful) { alert('Solicitud de levantamiento enviada'); $el.closest('#modal-backdrop-detalle').remove(); htmx.trigger('#main-content', 'refresh'); }"
+                        hx-target="#modal-content-placeholder" hx-swap="none" hx-indicator="#global-loading-overlay"
+                        x-on:submit="$el.closest('#modal-backdrop-detalle').style.display='none'; document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
                         class="block w-full">
                         <input type="hidden" name="tipo_solicitud" value="LEVANTAMIENTO">
                         <input type="hidden" name="prioridad" value="normal">
@@ -466,8 +466,8 @@
 
                     <!-- Solicitar Oferta Final -->
                     <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
-                        hx-target="#modal-content-placeholder" hx-swap="none"
-                        hx-on::after-request="if(event.detail.successful) { alert('Solicitud de oferta final enviada'); $el.closest('#modal-backdrop-detalle').remove(); htmx.trigger('#main-content', 'refresh'); }"
+                        hx-target="#modal-content-placeholder" hx-swap="none" hx-indicator="#global-loading-overlay"
+                        x-on:submit="$el.closest('#modal-backdrop-detalle').style.display='none'; document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
                         class="block w-full">
                         <input type="hidden" name="tipo_solicitud" value="OFERTA_FINAL">
                         <input type="hidden" name="prioridad" value="high">

@@ -216,6 +216,16 @@ class MicrosoftAuth:
         # Obtenemos el HTML que Microsoft generó automáticamente (que tiene el "From:...", "Sent:...", etc.)
         original_history_html = draft_data.get("body", {}).get("content", "")
         
+        # VALIDACIÓN DE SEGURIDAD: Verificar que realmente tenemos historial
+        len_history = len(original_history_html or "")
+        logger.info(f"Creado borrador de respuesta. Longitud Historial: {len_history} caracteres.")
+        
+        if not original_history_html or len_history < 50:
+            logger.error("Error Crítico: Microsoft retornó un borrador sin historial HTML (Cuerpo vacío o incompleto).")
+            # Intentar borrar el borrador corrupto para no dejar basura
+            await self._http_client.delete(f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}", headers=headers)
+            return False, "Error: Microsoft retornó un borrador sin historial. Intenta nuevamente."
+        
         # Combinamos: Tu mensaje nuevo + Salto de línea + Historial original
         # Nota: body.replace('\n', '<br>') convierte tus saltos de línea de texto a HTML
         full_body_html = f"{body.replace(chr(10), '<br>')}<br><br>{original_history_html}"

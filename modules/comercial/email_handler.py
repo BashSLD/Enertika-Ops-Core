@@ -241,7 +241,7 @@ class EmailHandler:
         # Buscar hilo si hay search_key
         thread_id = None
         if threading_context["search_key"]:
-            thread_id = ms_auth.find_thread_id(access_token, threading_context["search_key"])
+            thread_id = await ms_auth.find_thread_id(access_token, threading_context["search_key"])
             
             if thread_id:
                 logger.info(
@@ -250,9 +250,16 @@ class EmailHandler:
                 )
             else:
                 logger.warning(
-                    f"HILO NO ENCONTRADO | Búsqueda: '{search_key}' | "
+                    f"HILO NO ENCONTRADO | Búsqueda: '{threading_context.get('search_key')}' | "
                     f"Se enviará como correo nuevo"
                 )
+        
+        # --- SEGURIDAD: Bloquear envío si es Modo Homologación y falló la búsqueda ---
+        if legacy_search_term and not thread_id:
+             error_msg = f"Error: No se encontró el hilo para '{legacy_search_term}'. El envío ha sido bloqueado por seguridad."
+             logger.error(error_msg)
+             # Retornamos error explícito en lugar de enviar correo nuevo "roto"
+             return {"success": False, "error": error_msg}
         
         if thread_id:
             ok, msg = await ms_auth.reply_with_new_subject(

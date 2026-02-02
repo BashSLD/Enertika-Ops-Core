@@ -407,6 +407,10 @@ async def handle_oportunidad_creation(
     # --- Campo Fecha Manual (Gerentes) ---
     fecha_manual: Optional[str] = Form(None),
     fecha_ideal_usuario: Optional[date] = Form(None),
+    
+    # --- Campo Legacy (Modo Homologación) ---
+    legacy_search_term: Optional[str] = Form(None),
+
     # --- Campos BESS (HTMX Conditional) ---
     bess_uso_sistema: List[str] = Form([]),
     bess_cargas_criticas: Optional[float] = Form(None),
@@ -453,12 +457,13 @@ async def handle_oportunidad_creation(
         detalles_bess=detalles_bess,
         es_licitacion=es_licitacion,
         fecha_ideal_usuario=fecha_ideal_usuario,
-        clasificacion_solicitud="ESPECIAL" if request.query_params.get('legacy_term') else "NORMAL"
+        clasificacion_solicitud="ESPECIAL" if legacy_search_term else "NORMAL"
     )
 
     try:
         # Check for legacy search term (Modo Homologación)
-        legacy_term = request.query_params.get("legacy_term")
+        # legacy_term = request.query_params.get("legacy_term")  <-- BUG: It comes in Form body
+        legacy_term = legacy_search_term
         
         new_id, op_std_id, fuera_horario = await service.crear_oportunidad_transaccional(conn, oportunidad_data, user_context, legacy_search_term=legacy_term)
         

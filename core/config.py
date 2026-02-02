@@ -12,8 +12,13 @@ class Settings(BaseSettings):
     DB_PASSWORD: str = os.getenv("DB_PASSWORD", "")
     DB_USER: str = os.getenv("DB_USER", "postgres")
     
+    
     # Construcción de URL Async para SQLAlchemy/Asyncpg
-    DB_URL_ASYNC: str = f"postgresql://{DB_USER}:{DB_PASSWORD}@{SUPABASE_URL.replace('https://', '').replace('http://', '')}:5432/postgres"
+    DB_PORT: str = os.getenv("DB_PORT", "5432")
+    DB_URL_ASYNC: str = f"postgresql://{DB_USER}:{DB_PASSWORD}@{SUPABASE_URL.replace('https://', '').replace('http://', '')}:{DB_PORT}/postgres"
+    
+    # NOTA: Para producción con muchos usuarios, usar el puerto 6543 (Transaction Mode)
+    # y configurar DB_PORT=6543 en el archivo .env
     
     # --- Configuración de Seguridad y Sesión ---
     SECRET_KEY: str = os.getenv("SECRET_KEY")

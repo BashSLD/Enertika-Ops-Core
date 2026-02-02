@@ -137,8 +137,9 @@
                                             class="text-sm font-mono text-gray-700 font-bold whitespace-nowrap flex items-center gap-2">
                                             <button hx-get="/workflow/modals/detalle/{{ op.id_oportunidad }}"
                                                 hx-target="body" hx-swap="beforeend"
+                                                hx-indicator="#global-loading-overlay" hx-disabled-elt="this"
                                                 class="hover:text-[#00BABB] hover:underline focus:outline-none transition-colors"
-                                                @click.stop>
+                                                @click.stop="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...'">
                                                 {{ op.id_interno_simulacion or 'N/A' }}
                                             </button>
                                             {% if op.prioridad == 'high' %}
