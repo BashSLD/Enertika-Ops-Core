@@ -435,6 +435,38 @@ class ComercialService:
             if row:
                 final_cliente_nombre = row['nombre_fiscal']
                 frozen_id = row['id_interno_simulacion']
+
+                # LÓGICA DE RECUPERACIÓN (BACKFILL)
+                # Si el cliente existe pero NO tiene ID Interno (Legacy Bug), lo arreglamos ahora.
+                if not frozen_id:
+                    logger.info(f"Cliente {final_cliente_id} sin ID Interno. Iniciando recuperación histórica...")
+                    
+                    # 1. Buscar la oportunidad MÁS ANTIGUA de este cliente para heredar su fecha
+                    oldest_op = await conn.fetchrow(
+                        "SELECT op_id_estandar FROM tb_oportunidades WHERE cliente_id = $1 ORDER BY fecha_solicitud ASC LIMIT 1",
+                        final_cliente_id
+                    )
+                    
+                    if oldest_op and oldest_op['op_id_estandar']:
+                        # Reconstruir ID Ancestral
+                        frozen_id = IdGeneratorService.generate_internal_id(
+                            oldest_op['op_id_estandar'], final_cliente_nombre, "", 1
+                        )
+                        logger.info(f"RECUPERADO HISTÓRICO: Usando '{frozen_id}' basado en op antigua {oldest_op['op_id_estandar']}")
+                    else:
+                        # Cliente sin historial previo (o error de datos), generamos uno nuevo HOY.
+                        frozen_id = IdGeneratorService.generate_internal_id(
+                             op_id_estandar, final_cliente_nombre, "", 1
+                        )
+                        logger.info(f"SIN HISTORIAL: Generando nuevo ID Interno '{frozen_id}'")
+
+                    # 2. GUARDAR EN EL CLIENTE (Persistencia futura)
+                    await conn.execute(
+                        "UPDATE tb_clientes SET id_interno_simulacion = $1 WHERE id = $2",
+                        frozen_id, final_cliente_id
+                    )
+                    logger.info("BACKFILL EXITOSO: Cliente actualizado.")
+
             else:
                 frozen_id = None # Should not happen if client exists
 
