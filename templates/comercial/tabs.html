@@ -661,105 +661,69 @@
     // ========================================
     // Inicialización: Auto-selección de Tab + Confetti
     // ========================================
-    // IMPORTANTE: Usar htmx:afterSettle en lugar de DOMContentLoaded
-    // para evitar race conditions cuando HTMX carga el contenido
-    let graphsInitialized = false;
+    (function () {
+        function initComercialView() {
+            const tabContent = document.getElementById('tab-content');
+            const isInComercial = window.location.pathname.includes('/comercial') || window.location.pathname === '/';
 
-    document.body.addEventListener('htmx:afterSettle', function (evt) {
-        // Verificar si estamos en el módulo comercial
-        const isInComercial = window.location.pathname.includes('/comercial/ui') || window.location.pathname === '/comercial';
+            // Debug para verificar ejecución
+            // console.log('[Comercial] Init check:', { exists: !!tabContent, inModule: isInComercial, readyState: document.readyState });
 
-        // Si NO estamos en comercial, resetear flag y salir
-        if (!isInComercial) {
-            console.log('[Comercial] Fuera del módulo, reseteando flag');
-            graphsInitialized = false;
-            return;
-        }
+            if (tabContent && isInComercial) {
+                // Verificar si ya hay contenido cargado (evitar recargas dobles)
+                const hasSpinner = tabContent.querySelector('.spinner-enertika');
+                if (!hasSpinner) {
+                    return;
+                }
 
-        // Solo ejecutar si el target es #main-content Y estamos en comercial Y existe #tab-content
-        if (evt.detail.target.id === 'main-content' && isInComercial && document.getElementById('tab-content')) {
-            console.log('[Comercial] Evento afterSettle detectado, graphsInitialized:', graphsInitialized);
+                const urlParams = new URLSearchParams(window.location.search);
+                const tabParam = urlParams.get('tab');
+                const confettiParam = urlParams.get('confetti');
 
-            const urlParams = new URLSearchParams(window.location.search);
-            const tabParam = urlParams.get('tab');
-            const confettiParam = urlParams.get('confetti');
+                // Encontrar el tab objetivo
+                let targetTab = null;
+                const tabs = document.querySelectorAll('.tab-link');
 
-            // Activar el tab correcto según URL o cargar gráficos por defecto
-            if (tabParam && !graphsInitialized) {
-                console.log('[Comercial] Cargando tab específico:', tabParam);
-                // Buscar el elemento del tab correspondiente
-                const tabLinks = document.querySelectorAll('.tab-link');
-                let tabFound = false;
-
-                tabLinks.forEach(link => {
-                    const href = link.getAttribute('hx-get') || '';
-                    if (href.includes(`tab=${tabParam}`)) {
-                        tabFound = true;
-                        // Simular click en el tab
-                        updateTabContext(tabParam, link);
-                        // Cargar contenido del tab
-                        htmx.ajax('GET', `/comercial/partials/cards?tab=${tabParam}`, {
-                            target: '#tab-content',
-                            swap: 'innerHTML'
-                        });
-                    }
-                });
-
-                // Fallback: Si no se encontró el tab, cargar gráficos
-                if (!tabFound) {
-                    console.log('[Comercial] Tab no encontrado, cargando gráficas por defecto');
-                    htmx.ajax('GET', '/comercial/partials/graphs', {
-                        target: '#tab-content',
-                        swap: 'innerHTML'
+                if (tabParam) {
+                    tabs.forEach(t => {
+                        const hxGet = t.getAttribute('hx-get') || '';
+                        if (hxGet.includes(`tab=${tabParam}`)) targetTab = t;
                     });
                 }
-                graphsInitialized = true;
-            } else if (!tabParam && !graphsInitialized) {
-                // Sin parámetro tab: Cargar gráficos por defecto
-                console.log('[Comercial] Sin parámetro tab, cargando gráficas por defecto');
-                htmx.ajax('GET', '/comercial/partials/graphs', {
-                    target: '#tab-content',
-                    swap: 'innerHTML'
-                });
-                graphsInitialized = true;
-            } else {
-                console.log('[Comercial] Gráficas ya inicializadas o sin acción necesaria');
-            }
 
-            // Mostrar celebración de confetti si viene el parámetro
-            if (confettiParam === '1') {
-                setTimeout(() => {
-                    // Confetti masivo de celebración
-                    confetti({
-                        particleCount: 200,
-                        spread: 100,
-                        origin: { y: 0.6 },
-                        colors: ['#00BABB', '#123456', '#10B981', '#ffffff', '#34D399'],
-                        zIndex: 10000
-                    });
+                // Si no hay param o no se encuentra, usar el activo por defecto (Gráficas)
+                if (!targetTab) {
+                    targetTab = document.querySelector('.tab-link.active') || tabs[0];
+                }
 
-                    // Segunda onda de confetti
+                if (targetTab) {
+                    // console.log('[Comercial] Triggering tab load:', targetTab);
+
+                    // Si hay tabParam, actualizamos visualmente antes de cargar
+                    if (tabParam && window.updateTabContext) {
+                        window.updateTabContext(tabParam, targetTab);
+                    }
+
+                    // Disparar click para usar la config nativa de HTMX (hx-include, indicadores, etc)
+                    targetTab.click();
+                }
+
+                // Confetti Logic
+                if (confettiParam === '1' && typeof confetti === 'function') {
                     setTimeout(() => {
-                        confetti({
-                            particleCount: 100,
-                            spread: 60,
-                            origin: { y: 0.5, x: 0.3 },
-                            colors: ['#00BABB', '#123456', '#10B981'],
-                            zIndex: 10000
-                        });
-                        confetti({
-                            particleCount: 100,
-                            spread: 60,
-                            origin: { y: 0.5, x: 0.7 },
-                            colors: ['#00BABB', '#123456', '#10B981'],
-                            zIndex: 10000
-                        });
-                    }, 300);
-                }, 500);
-
-                // Limpiar URL para que no se repita el confetti si actualiza
-                const cleanUrl = window.location.pathname + '?tab=' + (tabParam || 'ganadas');
-                window.history.replaceState({}, '', cleanUrl);
+                        confetti({ particleCount: 200, spread: 100, origin: { y: 0.6 }, colors: ['#00BABB', '#123456', '#10B981'], zIndex: 10000 });
+                        const cleanUrl = window.location.pathname + '?tab=' + (tabParam || 'ganadas');
+                        window.history.replaceState({}, '', cleanUrl);
+                    }, 500);
+                }
             }
-        });
+        }
+
+        // Ejecutar cuando el DOM esté listo (Full Page Load) o inmediatamente (HTMX Swap)
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initComercialView);
+        } else {
+            initComercialView();
+        }
+    })();
 </script>
