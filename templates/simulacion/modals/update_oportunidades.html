@@ -2,18 +2,53 @@
     class="fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
     _="on keyup[key=='Escape'] remove #modal-backdrop">
 
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl transform transition-all animate-scale-in" x-data="{ 
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl transform transition-all animate-scale-in relative"
+        x-data="{ 
             status: {{ op.id_estatus_global }}, 
+            initialStatus: {{ op.id_estatus_global }},
+            
             entregado_id: {{ status_ids.entregado }},
             cancelado_id: {{ status_ids.cancelado }},
             perdido_id: {{ status_ids.perdido }},
+            
             originalIdInterno: '{{ op.id_interno_simulacion or '' }}',
             currentIdInterno: '{{ op.id_interno_simulacion or '' }}',
+            
+            responsable: '{{ op.responsable_simulacion_id or '' }}',
+            initialResponsable: '{{ op.responsable_simulacion_id or '' }}',
+            
+            deadline: '{{ op.deadline_negociado.strftime('%Y-%m-%d') if op.deadline_negociado else '' }}',
+            initialDeadline: '{{ op.deadline_negociado.strftime('%Y-%m-%d') if op.deadline_negociado else '' }}',
+            
+            potencia: '{{ op.potencia_cierre_fv_kwp if op.potencia_cierre_fv_kwp is not none else '' }}',
+            initialPotencia: '{{ op.potencia_cierre_fv_kwp if op.potencia_cierre_fv_kwp is not none else '' }}',
+            
+            bess: '{{ op.capacidad_cierre_bess_kwh if op.capacidad_cierre_bess_kwh is not none else '' }}',
+            initialBess: '{{ op.capacidad_cierre_bess_kwh if op.capacidad_cierre_bess_kwh is not none else '' }}',
+            
+            motivoSelected: '{{ op.id_motivo_cierre or '' }}',
+            initialMotivo: '{{ op.id_motivo_cierre or '' }}',
+
             errors: {},
+            
             esRetrabajo: false,
             motivoRetrabajo: '',
             sitiosRetrabajo: [],
             isBess: {{ 'true' if is_bess_related else 'false' }},
+            
+            get isDirty() {
+                if (this.status != this.initialStatus) return true;
+                if (this.currentIdInterno != this.originalIdInterno) return true;
+                if (this.responsable != this.initialResponsable) return true;
+                if (this.deadline != this.initialDeadline) return true;
+                // Double equals to handle number/string differences if any
+                if (this.potencia != this.initialPotencia) return true; 
+                if (this.bess != this.initialBess) return true;
+                if (this.motivoSelected != this.initialMotivo) return true;
+                if (this.esRetrabajo) return true;
+                return false;
+            },
+
             canEditFecha() {
                 return this.status == this.entregado_id || 
                        this.status == this.cancelado_id || 
@@ -25,7 +60,7 @@
 
                 // Validación 1: Estatus Entregado requiere potencia (FV)
                 if (this.status == this.entregado_id) {
-                    const potencia = parseFloat(document.getElementById('potencia_cierre').value);
+                    const potencia = parseFloat(this.potencia);
                     
                     if (isNaN(potencia) || potencia <= 0) {
                         this.errors.potencia = 'La potencia es requerida para estatus Entregado';
@@ -34,21 +69,17 @@
                     
                     // NUEVA Validación 1.5: Capacidad BESS requerida si es tecnología BESS
                     if (this.isBess) {
-                        const bessEl = document.querySelector('[name=\'capacidad_cierre_bess_kwh\']');
-                        if (bessEl) {
-                            const bessCap = parseFloat(bessEl.value);
-                            if (isNaN(bessCap) || bessCap <= 0) {
-                                this.errors.bess = 'La capacidad BESS es requerida';
-                                valid = false;
-                            }
+                        const bessCap = parseFloat(this.bess);
+                        if (isNaN(bessCap) || bessCap <= 0) {
+                            this.errors.bess = 'La capacidad BESS es requerida';
+                            valid = false;
                         }
                     }
                 }
 
                 // Validación 2: Cancelado/Perdido requiere motivo
                 if (this.status == this.cancelado_id || this.status == this.perdido_id) {
-                    const motivo = document.getElementById('motivo_cierre').value;
-                    if (!motivo) {
+                    if (!this.motivoSelected) {
                         this.errors.motivo = 'Debe seleccionar un motivo de cierre';
                         valid = false;
                     }
@@ -77,6 +108,19 @@
             }
          }">
 
+        <!-- GLOBAL OVERLAY MOVED HERE FOR FULL COVERAGE -->
+        <div id="loading-overlay-main"
+            class="htmx-indicator absolute inset-0 bg-white/60 backdrop-blur-[2px] flex items-center justify-center z-50 rounded-xl">
+            <div
+                class="flex flex-col items-center gap-3 p-6 bg-white shadow-2xl rounded-2xl border border-gray-100 transform scale-100 animate-pulse-subtle">
+                <div class="spinner-enertika h-10 w-10 border-4"></div>
+                <div class="text-center">
+                    <p class="text-gray-800 font-bold text-lg">Guardando</p>
+                    <p class="text-xs text-gray-500 uppercase tracking-wider font-semibold">Por favor espere</p>
+                </div>
+            </div>
+        </div>
+
         <!-- HEADER -->
         <div
             class="px-6 py-4 bg-gradient-to-r from-[#00BABB] to-[#123456] border-b border-gray-200 flex justify-between items-center rounded-t-xl">
@@ -100,26 +144,7 @@
         </div>
 
         <!-- FORMULARIO -->
-
-
         <div class="max-h-[70vh] overflow-y-auto relative">
-            <!-- Scroll container para cuerpo y comentarios, Added relative for overlay -->
-
-            <!-- Overlay de carga Principal -->
-            <div id="loading-overlay-main"
-                class="htmx-indicator hidden absolute inset-0 bg-white/50 backdrop-blur-[1px] flex items-center justify-center z-20">
-                <div class="flex items-center gap-2 px-4 py-2 bg-white shadow-lg rounded-full border border-blue-100">
-                    <svg class="animate-spin h-5 w-5 text-[#00BABB]" xmlns="http://www.w3.org/2000/svg" fill="none"
-                        viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
-                        </circle>
-                        <path class="opacity-75" fill="currentColor"
-                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
-                        </path>
-                    </svg>
-                    <span class="text-sm font-medium text-gray-600">Guardando Cambios...</span>
-                </div>
-            </div>
 
             <div class="p-6 space-y-6">
                 <form id="form-update-op" {% if can_manage %}hx-put="/simulacion/update/{{ op.id_oportunidad }}"
@@ -173,7 +198,8 @@
                                 </div>
                                 <span>Responsable Asignado</span>
                             </label>
-                            <select name="responsable_simulacion_id" {% if not can_edit_sensitive %}disabled{% endif %}
+                            <select name="responsable_simulacion_id" x-model="responsable" {% if not can_edit_sensitive
+                                %}disabled{% endif %}
                                 class="w-full border-2 border-[#00BABB] rounded-md shadow-sm focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 font-medium text-sm text-gray-800 transition-all hover:border-[#009999]">
                                 <option value="">-- Sin Asignar --</option>
                                 {% for resp in responsables %}
@@ -198,7 +224,7 @@
                                 </div>
                                 <span>Deadline Negociado</span>
                             </label>
-                            <input type="date" name="deadline_negociado"
+                            <input type="date" name="deadline_negociado" x-model="deadline"
                                 value="{{ op.deadline_negociado.strftime('%Y-%m-%d') if op.deadline_negociado else '' }}"
                                 {% if not can_edit_sensitive %}disabled{% endif %}
                                 class="w-full border-2 border-[#00BABB] rounded-md shadow-sm focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 text-sm transition-all hover:border-[#009999]">
@@ -225,7 +251,7 @@
                             <div>
                                 <label class="block text-xs font-bold text-gray-700 mb-1 uppercase">Motivo de Cierre /
                                     Pérdida *</label>
-                                <select name="id_motivo_cierre" id="motivo_cierre"
+                                <select name="id_motivo_cierre" id="motivo_cierre" x-model="motivoSelected"
                                     class="w-full border-red-300 rounded-md shadow-sm focus:ring-red-500 focus:border-red-500 bg-white text-sm"
                                     :class="{'border-red-500 ring-1 ring-red-500': errors.motivo}">
                                     <option value="">-- Seleccione Motivo --</option>
@@ -256,8 +282,9 @@
                                     <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Potencia FV
                                         (KWp) *</label>
                                     <input type="number" step="0.0001" name="potencia_cierre_fv_kwp"
-                                        id="potencia_cierre" value="{{ op.potencia_cierre_fv_kwp or '' }}" {% if not
-                                        can_manage %}disabled{% endif %}
+                                        id="potencia_cierre" value="{{ op.potencia_cierre_fv_kwp or '' }}"
+                                        x-model="potencia" {% if not can_manage %}disabled{% endif %}
+                                        onkeydown="return !['e', 'E', '+', '-'].includes(event.key)"
                                         class="w-full border-green-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
                                         :class="{'border-red-500 ring-1 ring-red-500': errors.potencia}">
                                     <p x-show="errors.potencia" class="mt-1 text-[10px] text-red-600 font-bold"
@@ -268,8 +295,9 @@
                                         BESS (KWh) <span x-show="isBess" class="text-red-500">*</span>
                                     </label>
                                     <input type="number" step="0.0001" name="capacidad_cierre_bess_kwh"
-                                        value="{{ op.capacidad_cierre_bess_kwh or '' }}" {% if not can_manage
-                                        %}disabled{% endif %}
+                                        value="{{ op.capacidad_cierre_bess_kwh or '' }}" x-model="bess" {% if not
+                                        can_manage %}disabled{% endif %}
+                                        onkeydown="return !['e', 'E', '+', '-'].includes(event.key)"
                                         class="w-full border-green-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
                                         :class="{'border-red-500 ring-1 ring-red-500': errors.bess}">
                                     <p x-show="errors.bess" class="mt-1 text-[10px] text-red-600 font-bold"
@@ -284,7 +312,7 @@
                                         name="es_retrabajo"
                                         class="w-4 h-4 rounded text-cyan-600 border-gray-300 focus:ring-cyan-500">
                                     <label for="es_retrabajo_check"
-                                        class="text-sm font-medium text-gray-700 cursor-pointer">
+                                        class="text-sm font-bold text-gray-700 cursor-pointer">
                                         ¿Este trabajo requirió correcciones (retrabajo)?
                                     </label>
                                 </div>
@@ -371,8 +399,6 @@
                 </div>
             </div>
         </div>
-
-
         <!-- FOOTER -->
         <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 rounded-b-xl flex justify-end items-center gap-3">
             <button type="button" onclick="document.getElementById('modal-backdrop').remove()"
@@ -381,8 +407,9 @@
             </button>
 
             {% if can_manage %}
-            <button type="submit" form="form-update-op"
-                class="ripple-effect px-5 py-2 bg-[#00BABB] hover:bg-[#009999] text-white rounded-lg font-bold shadow-md flex items-center gap-2 transform hover:scale-105 transition-all duration-200">
+            <button type="submit" form="form-update-op" :disabled="!isDirty"
+                :class="{'opacity-50 cursor-not-allowed': !isDirty, 'hover:scale-105 hover:bg-[#009999]': isDirty}"
+                class="ripple-effect px-5 py-2 bg-[#00BABB] text-white rounded-lg font-bold shadow-md flex items-center gap-2 transform transition-all duration-200">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4">

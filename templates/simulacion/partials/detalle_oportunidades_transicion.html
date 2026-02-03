@@ -43,9 +43,9 @@
                 {% for op in oportunidades %}
                 <tr class="border-b border-gray-100 hover:bg-blue-50 transition-colors">
                     <td class="px-3 py-2">
-                        <a href="#" hx-get="/simulacion/partials/detalle/{{ op.id_oportunidad }}"
-                            hx-target="#main-content" hx-push-url="true"
-                            class="text-blue-600 hover:text-blue-800 font-medium">
+                        <a href="#" hx-get="/simulacion/modals/detalle/{{ op.id_oportunidad }}" hx-target="body"
+                            hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                            class="text-blue-600 hover:text-blue-800 font-medium hover:underline">
                             {{ op.op_id_estandar }}
                         </a>
                         {% if op.es_licitacion %}

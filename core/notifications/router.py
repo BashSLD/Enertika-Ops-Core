@@ -140,6 +140,21 @@ async def mark_notification_as_read(
     return {"status": "ok"}
 
 
+@router.delete("/all")
+async def delete_all_notifications(
+    context = Depends(get_current_user_context),
+    conn = Depends(get_db_connection),
+    service: NotificationsService = Depends(get_notifications_service)
+):
+    """
+    "Elimina" TODAS las notificaciones (Soft Delete: Marca todas como leídas).
+    """
+    usuario_id = context['user_db_id']
+    count = await service.mark_all_read(conn, usuario_id)
+    
+    return {"status": "ok", "deleted_count": count}
+
+
 @router.delete("/{notification_id}")
 async def delete_notification(
     notification_id: UUID,
@@ -148,21 +163,14 @@ async def delete_notification(
     service: NotificationsService = Depends(get_notifications_service)
 ):
     """
-    Elimina una notificación del usuario.
-    
-    Args:
-        notification_id: UUID de la notificación
-        
-    Returns:
-        Status de la operación
+    "Elimina" una notificación (Soft Delete: Marca como leída).
+    Idempotente: Si ya no existe o ya está leída, retorna OK para evitar errores en frontend.
     """
     usuario_id = context['user_db_id']
-    deleted = await service.delete_notification(conn, notification_id, usuario_id)
+    # Cambiamos lógica a Marcar como Leída según solicitud
+    await service.mark_as_read(conn, notification_id, usuario_id)
     
-    if not deleted:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="Notificación no encontrada")
-    
+    # Siempre retornar OK, incluso si ya estaba leída/borrada
     return {"status": "ok"}
 
 
@@ -174,9 +182,6 @@ async def get_unread_count(
 ):
     """
     Retorna cantidad de notificaciones no leídas.
-    
-    Returns:
-        Cantidad de notificaciones pendientes
     """
     usuario_id = context['user_db_id']
     count = await service.get_unread_count(conn, usuario_id)
@@ -192,20 +197,15 @@ async def list_notifications(
     service: NotificationsService = Depends(get_notifications_service)
 ):
     """
-    Lista todas las notificaciones del usuario (leídas y no leídas).
-    
-    Args:
-        limit: Máximo de notificaciones a retornar
-        
-    Returns:
-        Lista de notificaciones
+    Lista notificaciones NO LEÍDAS (estilo Inbox).
+    Las leídas se consideran "archivadas".
     """
     usuario_id = context['user_db_id']
     
     query = """
         SELECT id, tipo, titulo, mensaje, id_oportunidad, leida, created_at
         FROM tb_notificaciones
-        WHERE usuario_id = $1
+        WHERE usuario_id = $1 AND leida = false
         ORDER BY created_at DESC
         LIMIT $2
     """

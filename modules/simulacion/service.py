@@ -26,6 +26,7 @@ class SimulacionService:
 
     def __init__(self):
         self.db = SimulacionDBService()
+        self.notification_service = get_notification_service()
 
     async def get_current_datetime_mx(self, conn) -> datetime:
         """Fuente de verdad de tiempo (CDMX o Configurado)."""
@@ -193,16 +194,19 @@ class SimulacionService:
         total_sitios = await self.db.get_total_sitios_count(conn, id_oportunidad)
 
         # 0.5 Validacion Inteligente Multisitio (Pre-Permission Check)
-        if datos.id_estatus_global == status_map["entregado"] and total_sitios > 1:
+        # Permitir si queda 1 solo sitio pendiente (se cerrará en cascada)
+        sitios_pendientes = 0
+        if total_sitios > 1:
             sitios_pendientes = await self.db.get_sitios_pendientes_count(
                 conn, id_oportunidad, 
-                [status_map["entregado"], status_map["cancelado"], status_map["perdido"]]
+                [status_map["entregado"], status_map["cancelado"], status_map["perdido"], status_map["ganada"]]
             )
             
-            if sitios_pendientes > 0:
+            # Solo bloqueamos si hay MÁS de 1 sitio pendiente
+            if datos.id_estatus_global == status_map["entregado"] and sitios_pendientes > 1:
                 raise HTTPException(
                     status_code=400, 
-                    detail=f"Bloqueo de Calidad: Existen {sitios_pendientes} sitios activos. Debe finalizar todos los sitios antes de entregar."
+                    detail=f"Bloqueo de Calidad: Existen {sitios_pendientes} sitios activos. Debe cerrar sitios individuales hasta que quede solo uno."
                 )
 
         # 0.6 Historial de Cambios de Deadline
@@ -230,7 +234,6 @@ class SimulacionService:
         )
 
         # 3. Ejecutar Update del Padre
-        # 3. Ejecutar Update del Padre
         # Helper params dict update
         datos_dict = datos.model_dump()
         datos_dict.update({
@@ -242,7 +245,7 @@ class SimulacionService:
 
         # 4. Manejar Cascada a Sitios y Retrabajos
         await self._handle_site_updates(
-            conn, id_oportunidad, current_data, datos, status_map, total_sitios
+            conn, id_oportunidad, current_data, datos, status_map, total_sitios, sitios_pendientes
         )
 
         # 5. Enviar Notificaciones
@@ -276,7 +279,7 @@ class SimulacionService:
         
         # 2. Preparar datos de actualización
         status_map = await self._get_status_ids(conn)
-        fecha_actual = await self.get_current_datetime_mx()
+        fecha_actual = await self.get_current_datetime_mx(conn)
         
         es_cierre = datos.id_estatus_global in [
             status_map["entregado"], 
@@ -367,8 +370,8 @@ class SimulacionService:
             datos.responsable_simulacion_id = current_data['responsable_simulacion_id']
             datos.deadline_negociado = current_data['deadline_negociado']
             datos.monto_cierre_usd = current_data['monto_cierre_usd']
-            datos.potencia_cierre_fv_kwp = current_data['potencia_cierre_fv_kwp']
-            datos.capacidad_cierre_bess_kwh = current_data['capacidad_cierre_bess_kwh']
+            # REMOVED: potencia_cierre_fv_kwp and capacidad_cierre_bess_kwh are now editable by standard editors
+            # as they are required for the closing process.
         else:
              # Si tiene permisos y envió una fecha de deadline, forzamos la hora a las 18:00:00 (Regla de negocio original)
             if datos.deadline_negociado:
@@ -383,20 +386,14 @@ class SimulacionService:
         
         if es_cierre:
             # Validación: Motivo de cierre obligatorio
-            if not datos.id_motivo_cierre:
-                raise HTTPException(
-                    status_code=400, 
-                    detail="El motivo de cierre es obligatorio para estados terminales."
-                )
-            
-            # Validación: Monto USD obligatorio si es Entregado/Perdido (no Cancelado)
-            if datos.id_estatus_global != status_map["cancelado"]:
-                 if datos.monto_cierre_usd is None:
+            # SOLO para Perdido y Cancelado (Entregado es éxito, no requiere motivo de "cierre/falla")
+            if datos.id_estatus_global in [status_map["perdido"], status_map["cancelado"]]:
+                if not datos.id_motivo_cierre:
                     raise HTTPException(
-                        status_code=400,
-                        detail="El monto de cierre (USD) es obligatorio."
+                        status_code=400, 
+                        detail="El motivo de cierre es obligatorio para estados terminales (Perdido/Cancelado)."
                     )
-            
+
             # Validación específica Entregado
             if datos.id_estatus_global == status_map["entregado"]:
                 # VALIDACIÓN INTELIGENTE:
@@ -444,7 +441,7 @@ class SimulacionService:
         ]
         
         if datos.id_estatus_global in estatus_terminales:
-             fecha_fin_real = datos.fecha_entrega_simulacion or await self.get_current_datetime_mx()
+             fecha_fin_real = datos.fecha_entrega_simulacion or await self.get_current_datetime_mx(conn)
              datos.fecha_entrega_simulacion = fecha_fin_real
         else:
             # Si no es terminal, verificar reactivación (terminal -> no terminal)
@@ -482,20 +479,26 @@ class SimulacionService:
         current_data: dict, 
         datos: SimulacionUpdate, 
         status_map: dict, 
-        total_sitios: int
+        total_sitios: int,
+        sitios_pendientes: int
     ):
         """
         Maneja actualizaciones en cascada a sitios y marcado de retrabajos.
         """
-        # 1. Regla de Cascada: Cancelación/Pérdida (Siempre) OR Entregado (Solo si es sitio único)
+        # 1. Regla de Cascada Mejorada: 
+        # - Cancelación/Pérdida: Aplica a TODOS los sitios pendientes
+        # - Entregado: Aplica si es unisitio o si solo queda 1 sitio pendiente (Smart Close)
         should_cascade = False
+        
         if datos.id_estatus_global in [status_map["cancelado"], status_map["perdido"]]:
             should_cascade = True
-        elif datos.id_estatus_global == status_map["entregado"] and total_sitios == 1:
-            should_cascade = True
+        elif datos.id_estatus_global == status_map["entregado"]:
+            # Cascada si es unisitio O si estamos en el último sitio activo
+            if total_sitios == 1 or sitios_pendientes <= 1:
+                should_cascade = True
 
         if should_cascade:
-            fecha_cierre_cascada = datos.fecha_entrega_simulacion or await self.get_current_datetime_mx()
+            fecha_cierre_cascada = datos.fecha_entrega_simulacion or await self.get_current_datetime_mx(conn)
             
             # Calcular KPIs duales para sitios
             kpi_sitio_interno, kpi_sitio_compromiso = self.calcular_kpis_sitio(
@@ -538,9 +541,9 @@ class SimulacionService:
         old_status = current_data['id_estatus_global']
         
         try:
-             # Notificar asignación si cambió
+            # Notificar asignación si cambió
             if datos.responsable_simulacion_id and old_responsable != datos.responsable_simulacion_id:
-                await notification_service.notify_assignment(
+                await self.notification_service.notify_assignment(
                     conn=conn,
                     id_oportunidad=id_oportunidad,
                     old_responsable_id=old_responsable,
@@ -550,7 +553,7 @@ class SimulacionService:
             
             # Notificar cambio de estatus si cambió
             if datos.id_estatus_global and old_status != datos.id_estatus_global:
-                await notification_service.notify_status_change(
+                await self.notification_service.notify_status_change(
                     conn=conn,
                     id_oportunidad=id_oportunidad,
                     old_status_id=old_status,
@@ -657,7 +660,7 @@ class SimulacionService:
         if datos.fecha_manual_str:
             fecha_solicitud = datetime.fromisoformat(datos.fecha_manual_str).replace(tzinfo=ZoneInfo("America/Mexico_City"))
         else:
-            fecha_solicitud = await self.get_current_datetime_mx()
+            fecha_solicitud = await self.get_current_datetime_mx(conn)
             
         # Calcular si es fuera de horario usando configuración global
         config = await self.get_configuracion_global(conn)

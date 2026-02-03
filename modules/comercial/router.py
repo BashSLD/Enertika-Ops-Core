@@ -874,4 +874,49 @@ async def delete_sitio_endpoint(
     user_context = await get_current_user_context(request)
     await service.delete_sitio(conn, id_sitio, user_context)
     return HTMLResponse("", status_code=200)
+
+
+# ----------------------------------------
+# Endpoint: Cierre de Venta (Marcar como Ganada)
+# ----------------------------------------
+
+@router.post("/cierre-venta/{id_oportunidad}")
+async def cierre_venta(
+    request: Request,
+    id_oportunidad: UUID,
+    sitios_ganados: List[UUID] = Form(default=[]),  # Solo para multisitio (opcional)
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection),
+    user_context = Depends(get_current_user_context),
+    _ = require_module_access("comercial", "editor")
+):
+    """
+    Marca una oportunidad como Ganada (cierre de venta).
     
+    Reglas de negocio:
+    - Solo se puede ejecutar si status actual = Entregado
+    - Para multisitio: sitios_ganados define cuáles sitios se ganaron (el resto = Perdido)
+    - Para unisitio: todos los sitios pasan a Ganada
+    - Los KPIs ya fueron calculados en el paso anterior, se heredan
+    """
+    try:
+        result = await service.marcar_como_ganada(
+            conn, id_oportunidad, sitios_ganados, user_context
+        )
+        
+        # Redirigir a la sección de ganadas con confetti
+        return HTMLResponse(
+            headers={"HX-Redirect": f"/comercial/ui?tab=ganadas&confetti=1"}
+        )
+        
+    except HTTPException as he:
+        return templates.TemplateResponse(
+            "comercial/partials/toasts/toast_error.html",
+            {"request": request, "title": "Error", "message": he.detail}
+        )
+    except Exception as e:
+        logger.error(f"Error en cierre de venta: {e}", exc_info=True)
+        return templates.TemplateResponse(
+            "comercial/partials/toasts/toast_error.html",
+            {"request": request, "title": "Error", "message": str(e)}
+        )

@@ -155,6 +155,8 @@
                                             {% if current_tab == 'activos' %}
                                             <button hx-get="/simulacion/modals/edit/{{ op.id_oportunidad }}"
                                                 hx-target="body" hx-swap="beforeend"
+                                                hx-indicator="#global-loading-overlay"
+                                                onclick="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...'"
                                                 class="w-full text-[#00BABB] hover:text-[#009999] border border-[#00BABB] hover:border-[#009999] px-2 py-1 rounded bg-[#E0F7F7] hover:bg-[#b3e6e6] flex items-center justify-center gap-1 text-xs transition-all shadow-sm hover:shadow font-bold">
                                                 <span>✏️</span>
                                                 <span>Actualizar</span>

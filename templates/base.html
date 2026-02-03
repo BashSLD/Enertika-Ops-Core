@@ -451,8 +451,13 @@
                         class="absolute top-full mt-2 w-96 bg-white rounded-lg shadow-2xl border border-gray-200 max-h-96 overflow-hidden z-50"
                         :class="sidebarOpen ? 'left-0' : 'left-12'" style="display: none;">
 
-                        <div class="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-cyan-50">
+                        <div
+                            class="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-cyan-50 flex justify-between items-center">
                             <h3 class="font-semibold text-gray-800">Notificaciones</h3>
+                            <button onclick="deleteAllNotifications(event)"
+                                class="text-xs text-red-500 hover:text-red-700 font-bold hover:bg-red-50 px-2 py-1 rounded transition">
+                                Borrar todas
+                            </button>
                         </div>
 
                         <div id="notifications-dropdown" class="max-h-80 overflow-y-auto">
@@ -830,12 +835,13 @@
             if (typeof (EventSource) !== "undefined") {
                 notificationSource = new EventSource('/notifications/stream');
 
-                notificationSource.addEventListener('new_notification', function (e) {
+                notificationSource.addEventListener('notification', function (e) {
                     const data = JSON.parse(e.data);
-                    unreadCount = data.unread_count;
+                    // El backend no envía unread_count en el evento, lo incrementamos localmente
+                    unreadCount++;
                     updateBadges();
-                    prependNotification(data.notification);
-                    showToast(data.notification);
+                    prependNotification(data);
+                    showToast(data);
                 });
 
                 notificationSource.onerror = function () {
@@ -851,16 +857,33 @@
         }
 
         function loadNotifications() {
-            fetch('/notifications/recent')
+            fetch('/notifications/list')
                 .then(r => r.json())
                 .then(data => {
                     const container = document.getElementById('notifications-dropdown');
                     const empty = document.getElementById('empty-notifications');
 
                     if (data.notifications && data.notifications.length > 0) {
-                        empty.style.display = 'none';
+                        // empty.style.display = 'none'; // Don't rely on style if we nuke innerHTML
+
+                        // Save empty div if needed, or just recreate structure?
+                        // Better: remove all notification items, keep empty hidden?
+                        // Simpler: Just nuke and rebuild. If empty loop, put empty back.
                         container.innerHTML = '';
-                        data.notifications.forEach(n => prependNotification(n));
+
+                        [...data.notifications].reverse().forEach(n => prependNotification(n));
+                    } else {
+                        // Ensure empty state is visible
+                        if (!document.getElementById('empty-notifications')) {
+                            container.innerHTML = `
+                                <div id="empty-notifications" class="p-8 text-center text-gray-400 text-sm">
+                                    <div class="text-4xl mb-2">📭</div>
+                                    <p>No hay notificaciones nuevas</p>
+                                </div>
+                             `;
+                        } else {
+                            document.getElementById('empty-notifications').style.display = 'block';
+                        }
                     }
                 })
                 .catch(() => { });
@@ -871,28 +894,106 @@
             const empty = document.getElementById('empty-notifications');
             if (empty) empty.style.display = 'none';
 
+            // Evitar duplicados si ya existe
+            if (document.getElementById(`notif-${n.id}`)) return;
+
             const item = document.createElement('div');
-            item.className = `p-3 hover:bg-gray-50 border-b border-gray-100 cursor-pointer transition ${n.is_read ? 'bg-white' : 'bg-blue-50'}`;
+            item.id = `notif-${n.id}`;
+            item.className = `p-3 hover:bg-gray-50 border-b border-gray-100 cursor-pointer transition ${n.read ? 'bg-white' : 'bg-blue-50'}`;
             item.innerHTML = `
                 <div class="flex items-start gap-2">
                     <span class="text-lg">${n.type === 'info' ? 'ℹ️' : n.type === 'success' ? '✅' : '⚠️'}</span>
                     <div class="flex-1">
                         <p class="text-sm font-medium text-gray-800">${n.title}</p>
-                        <p class="text-xs text-gray-600 mt-1">${n.message}</p>
-                        <p class="text-xs text-gray-400 mt-1">${n.created_at}</p>
+                        <p class="text-sm text-gray-600 mt-1">${n.message}</p>
+                        <p class="text-xs text-gray-400 mt-1">${new Date(n.created_at).toLocaleString()}</p>
                     </div>
+                    <button class="text-gray-400 hover:text-red-500 transition p-1 rounded-full hover:bg-red-50" onclick="deleteNotification('${n.id}', event)" title="Eliminar">
+                        ✕
+                    </button>
                 </div>
             `;
-            item.onclick = () => markAsRead(n.id);
+            item.onclick = () => markAsRead(n.id, item);
             container.prepend(item);
         }
 
-        function markAsRead(id) {
-            fetch(`/notifications/${id}/read`, { method: 'POST' })
-                .then(() => {
-                    unreadCount = Math.max(0, unreadCount - 1);
-                    updateBadges();
+        function markAsRead(id, itemElement) {
+            // Optimistic update
+            if (itemElement && itemElement.classList.contains('bg-blue-50')) {
+                itemElement.classList.remove('bg-blue-50');
+                itemElement.classList.add('bg-white');
+                unreadCount = Math.max(0, unreadCount - 1);
+                updateBadges();
+            }
+
+            fetch(`/notifications/mark-read/${id}`, { method: 'POST' })
+                .then(r => {
+                    if (!r.ok) {
+                        // Revert if error?
+                        console.error("Error marking read");
+                    }
                 });
+        }
+
+        function deleteNotification(id, event) {
+            event.stopPropagation();
+            if (!confirm('¿Eliminar notificación?')) return;
+
+            fetch(`/notifications/${id}`, { method: 'DELETE' })
+                .then(r => {
+                    if (r.ok) {
+                        const el = document.getElementById(`notif-${id}`);
+                        if (el) {
+                            if (el.classList.contains('bg-blue-50')) {
+                                unreadCount = Math.max(0, unreadCount - 1);
+                                updateBadges();
+                            }
+                            el.remove();
+                        }
+
+                        const container = document.getElementById('notifications-dropdown');
+                        // Check if any notifications remain (ignoring empty placeholder if present, though innerHTML might have nuked it)
+                        // But if we remove one by one, eventually...
+                        if (container.querySelectorAll('div[id^="notif-"]').length === 0) {
+                            let empty = document.getElementById('empty-notifications');
+                            if (!empty) {
+                                container.innerHTML = `
+                                    <div id="empty-notifications" class="p-8 text-center text-gray-400 text-sm">
+                                        <div class="text-4xl mb-2">📭</div>
+                                        <p>No hay notificaciones nuevas</p>
+                                    </div>
+                                 `;
+                            } else {
+                                empty.style.display = 'block';
+                            }
+                        }
+                    }
+                });
+        }
+
+        function deleteAllNotifications(event) {
+            event.stopPropagation();
+            if (!confirm('¿Estás seguro de querer eliminar TODAS las notificaciones?')) return;
+
+            fetch('/notifications/all', { method: 'DELETE' })
+                .then(r => {
+                    if (r.ok) {
+                        // Clear UI immediately
+                        unreadCount = 0;
+                        updateBadges();
+
+                        const container = document.getElementById('notifications-dropdown');
+                        container.innerHTML = `
+                            <div id="empty-notifications" class="p-8 text-center text-gray-400 text-sm">
+                                <div class="text-4xl mb-2">📭</div>
+                                <p>No hay notificaciones nuevas</p>
+                            </div>
+                        `;
+                    } else {
+                        alert("Error eliminando notificaciones");
+                    }
+                })
+                .catch(() => alert("Error de conexión"));
         }
 
         function showToast(n) {

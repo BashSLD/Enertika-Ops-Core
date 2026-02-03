@@ -20,10 +20,10 @@ class SimulacionDBService:
         return dict(row) if row else None
 
     async def get_estatus_simulacion_dropdown(self, conn, exclude_id: Optional[int] = None) -> List[Dict[str, Any]]:
-        """Obtiene opciones para el dropdown de estatus global."""
+        """Obtiene opciones para el dropdown de estatus global, filtrando por módulo."""
         if exclude_id:
             rows = await conn.fetch(
-                "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND id != $1 ORDER BY id",
+                "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND modulo_aplicable = 'SIMULACION' AND id != $1 ORDER BY id",
                 exclude_id
             )
         else:
@@ -202,6 +202,10 @@ class SimulacionDBService:
 
     async def update_sitios_cascada(self, conn, id_oportunidad: UUID, id_estatus_global: int, 
                                   fecha_cierre: datetime, kpi_interno: str, kpi_compromiso: str):
+        # Solo actualizar sitios NO terminales (evitar reabrir o cambiar estatus de cerrados)
+        # IDs terminales hardcoded por seguridad (o pasados como arg, pero SQL es más directo)
+        # 2=Entregado, 3=Cancelado, 4=Perdido, 5=Ganada (según catálogo estándar)
+        # Mejor: Usamos "NOT IN" con subselect o filtro lógico.
         query = """
             UPDATE tb_sitios_oportunidad
             SET id_estatus_global = $1,
@@ -209,6 +213,10 @@ class SimulacionDBService:
                 kpi_status_interno = $3,
                 kpi_status_compromiso = $4
             WHERE id_oportunidad = $5
+            AND id_estatus_global NOT IN (
+                SELECT id FROM tb_cat_estatus_global 
+                WHERE LOWER(nombre) IN ('entregado', 'cancelado', 'perdido', 'ganada')
+            )
         """
         await conn.execute(query, id_estatus_global, fecha_cierre, kpi_interno, kpi_compromiso, id_oportunidad)
 
@@ -395,7 +403,7 @@ class SimulacionDBService:
              elif subtab == "cancelado_perdido":
                   ids_historial = [status_map.get("cancelado"), status_map.get("perdido")]
              else:
-                  ids_historial = [status_map.get("entregado"), status_map.get("cancelado"), status_map.get("perdido"), status_map.get("ganada")]
+                  ids_historial = [status_map.get("entregado"), status_map.get("ganada")]
              
              ids_historial = [i for i in ids_historial if i is not None]
              
@@ -517,19 +525,21 @@ class SimulacionDBService:
         id_entregado = cats['estatus'].get('entregado')
         id_perdido = cats['estatus'].get('perdido')
         id_cancelado = cats['estatus'].get('cancelado')
+        id_ganada = cats['estatus'].get('ganada')  # FIX: Incluir Ganada en métricas
         id_levantamiento = cats['tipos'].get('levantamiento')
         id_pendiente = cats['estatus'].get('pendiente')
         id_en_proceso = cats['estatus'].get('en proceso')
         id_en_revision = cats['estatus'].get('en revisión')
         
         params.extend([
-            id_entregado, id_perdido, id_cancelado, id_levantamiento, 
+            id_entregado, id_perdido, id_cancelado, id_ganada, id_levantamiento, 
             id_pendiente, id_en_proceso, id_en_revision
         ])
         
-        idx_entregado = len(params) - 6
-        idx_perdido = len(params) - 5
-        idx_cancelado = len(params) - 4
+        idx_entregado = len(params) - 7
+        idx_perdido = len(params) - 6
+        idx_cancelado = len(params) - 5
+        idx_ganada = len(params) - 4
         idx_levantamiento = len(params) - 3
         idx_pendiente = len(params) - 2
         idx_proceso = len(params) - 1
@@ -558,7 +568,7 @@ class SimulacionDBService:
             )
             SELECT 
                 COUNT(DISTINCT id_oportunidad) as total_solicitudes,
-                COUNT(DISTINCT CASE WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido}) THEN id_oportunidad END) as total_ofertas,
+                COUNT(DISTINCT CASE WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN id_oportunidad END) as total_ofertas,
                 COUNT(DISTINCT CASE WHEN id_estatus_global IN (${idx_pendiente}, ${idx_proceso}, ${idx_revision}) THEN id_oportunidad END) as en_espera,
                 COUNT(DISTINCT CASE WHEN id_estatus_global = ${idx_cancelado} THEN id_oportunidad END) as canceladas,
                 COUNT(DISTINCT CASE WHEN id_estatus_global = ${idx_cancelado} AND id_motivo_cierre BETWEEN 1 AND 8 THEN id_oportunidad END) as no_viables,
@@ -566,12 +576,12 @@ class SimulacionDBService:
                 COUNT(DISTINCT CASE WHEN parent_id IS NOT NULL THEN id_oportunidad END) as versiones,
                 COUNT(CASE WHEN es_retrabajo = TRUE THEN id_sitio END) as retrabajos,
                 COUNT(DISTINCT CASE WHEN es_licitacion = TRUE THEN id_oportunidad END) as licitaciones,
-                COUNT(CASE WHEN kpi_status_interno = 'Entrega a tiempo' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as entregas_a_tiempo_interno,
-                COUNT(CASE WHEN kpi_status_interno = 'Entrega tarde' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as entregas_tarde_interno,
-                COUNT(CASE WHEN kpi_status_compromiso = 'Entrega a tiempo' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as entregas_a_tiempo_compromiso,
-                COUNT(CASE WHEN kpi_status_compromiso = 'Entrega tarde' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as entregas_tarde_compromiso,
-                COUNT(DISTINCT CASE WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND fecha_entrega_simulacion IS NULL THEN id_oportunidad END) as sin_fecha_entrega,
-                AVG(CASE WHEN tiempo_elaboracion_horas IS NOT NULL AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}) THEN tiempo_elaboracion_horas END) as tiempo_promedio_horas
+                COUNT(CASE WHEN kpi_status_interno = 'Entrega a tiempo' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as entregas_a_tiempo_interno,
+                COUNT(CASE WHEN kpi_status_interno = 'Entrega tarde' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as entregas_tarde_interno,
+                COUNT(CASE WHEN kpi_status_compromiso = 'Entrega a tiempo' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as entregas_a_tiempo_compromiso,
+                COUNT(CASE WHEN kpi_status_compromiso = 'Entrega tarde' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as entregas_tarde_compromiso,
+                COUNT(DISTINCT CASE WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND fecha_entrega_simulacion IS NULL THEN id_oportunidad END) as sin_fecha_entrega,
+                AVG(CASE WHEN tiempo_elaboracion_horas IS NOT NULL AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN tiempo_elaboracion_horas END) as tiempo_promedio_horas
             FROM sitios_kpis
         """
         row = await conn.fetchrow(query, *params)
@@ -627,10 +637,11 @@ class SimulacionDBService:
         
         id_entregado = cats['estatus'].get('entregado')
         id_perdido = cats['estatus'].get('perdido')
+        id_ganada = cats['estatus'].get('ganada')  # FIX: Incluir Ganada
         id_levantamiento = cats['tipos'].get('levantamiento')
         
-        params.extend([id_entregado, id_perdido, id_levantamiento])
-        idx_entregado, idx_perdido, idx_levantamiento = len(params)-2, len(params)-1, len(params)
+        params.extend([id_entregado, id_perdido, id_ganada, id_levantamiento])
+        idx_entregado, idx_perdido, idx_ganada, idx_levantamiento = len(params)-3, len(params)-2, len(params)-1, len(params)
         
         query = f"""
             WITH sitios_tech AS (
@@ -646,11 +657,11 @@ class SimulacionDBService:
             SELECT 
                 t.id as id_tecnologia, t.nombre,
                 COUNT(DISTINCT st.id_oportunidad) as total_solicitudes,
-                COUNT(DISTINCT st.id_oportunidad) FILTER (WHERE st.id_estatus_global IN (${idx_entregado}, ${idx_perdido})) as total_ofertas,
-                COUNT(*) FILTER (WHERE st.kpi_status_interno = 'Entrega a tiempo' AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND st.id_tipo_solicitud != ${idx_levantamiento}) as entregas_a_tiempo_interno,
-                COUNT(*) FILTER (WHERE st.kpi_status_interno = 'Entrega tarde' AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND st.id_tipo_solicitud != ${idx_levantamiento}) as entregas_tarde_interno,
-                COUNT(*) FILTER (WHERE st.kpi_status_compromiso = 'Entrega a tiempo' AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND st.id_tipo_solicitud != ${idx_levantamiento}) as entregas_a_tiempo_compromiso,
-                COUNT(*) FILTER (WHERE st.kpi_status_compromiso = 'Entrega tarde' AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND st.id_tipo_solicitud != ${idx_levantamiento}) as entregas_tarde_compromiso,
+                COUNT(DISTINCT st.id_oportunidad) FILTER (WHERE st.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada})) as total_ofertas,
+                COUNT(*) FILTER (WHERE st.kpi_status_interno = 'Entrega a tiempo' AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND st.id_tipo_solicitud != ${idx_levantamiento}) as entregas_a_tiempo_interno,
+                COUNT(*) FILTER (WHERE st.kpi_status_interno = 'Entrega tarde' AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND st.id_tipo_solicitud != ${idx_levantamiento}) as entregas_tarde_interno,
+                COUNT(*) FILTER (WHERE st.kpi_status_compromiso = 'Entrega a tiempo' AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND st.id_tipo_solicitud != ${idx_levantamiento}) as entregas_a_tiempo_compromiso,
+                COUNT(*) FILTER (WHERE st.kpi_status_compromiso = 'Entrega tarde' AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND st.id_tipo_solicitud != ${idx_levantamiento}) as entregas_tarde_compromiso,
                 COUNT(DISTINCT st.id_oportunidad) FILTER (WHERE st.clasificacion_solicitud = 'EXTRAORDINARIO') as extraordinarias,
                 COUNT(DISTINCT st.id_oportunidad) FILTER (WHERE st.parent_id IS NOT NULL) as versiones,
                 COUNT(*) FILTER (WHERE st.es_retrabajo = TRUE) as retrabajos,
@@ -691,20 +702,21 @@ class SimulacionDBService:
         
         id_entregado = cats['estatus'].get('entregado')
         id_perdido = cats['estatus'].get('perdido')
+        id_ganada = cats['estatus'].get('ganada')  # FIX: Incluir Ganada
         id_levantamiento = cats['tipos'].get('levantamiento')
         
-        params.extend([id_entregado, id_perdido, id_levantamiento])
-        idx_entregado, idx_perdido, idx_levantamiento = len(params)-2, len(params)-1, len(params)
+        params.extend([id_entregado, id_perdido, id_ganada, id_levantamiento])
+        idx_entregado, idx_perdido, idx_ganada, idx_levantamiento = len(params)-3, len(params)-2, len(params)-1, len(params)
 
         query = f"""
             SELECT 
                 ts.id as id_tipo_solicitud, ts.nombre, ts.codigo_interno,
                 COUNT(DISTINCT o.id_oportunidad) as total,
-                COUNT(CASE WHEN s.kpi_status_interno = 'Entrega a tiempo' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}) THEN s.id_sitio END) as entregas_a_tiempo_interno,
-                COUNT(CASE WHEN s.kpi_status_interno = 'Entrega tarde' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}) THEN s.id_sitio END) as entregas_tarde_interno,
-                COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega a tiempo' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}) THEN s.id_sitio END) as entregas_a_tiempo_compromiso,
-                COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega tarde' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}) THEN s.id_sitio END) as entregas_tarde_compromiso,
-                COUNT(DISTINCT CASE WHEN o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND o.fecha_entrega_simulacion IS NULL THEN o.id_oportunidad END) as sin_fecha,
+                COUNT(CASE WHEN s.kpi_status_interno = 'Entrega a tiempo' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN s.id_sitio END) as entregas_a_tiempo_interno,
+                COUNT(CASE WHEN s.kpi_status_interno = 'Entrega tarde' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN s.id_sitio END) as entregas_tarde_interno,
+                COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega a tiempo' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN s.id_sitio END) as entregas_a_tiempo_compromiso,
+                COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega tarde' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN s.id_sitio END) as entregas_tarde_compromiso,
+                COUNT(DISTINCT CASE WHEN o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND o.fecha_entrega_simulacion IS NULL THEN o.id_oportunidad END) as sin_fecha,
                 COUNT(DISTINCT CASE WHEN o.es_licitacion = TRUE THEN o.id_oportunidad END) as licitaciones,
                 (ts.id = ${idx_levantamiento}) as es_levantamiento
             FROM tb_cat_tipos_solicitud ts
@@ -738,8 +750,9 @@ class SimulacionDBService:
         
         id_entregado = cats['estatus'].get('entregado')
         id_perdido = cats['estatus'].get('perdido')
-        params.extend([id_entregado, id_perdido])
-        idx_entregado, idx_perdido = len(params)-1, len(params)
+        id_ganada = cats['estatus'].get('ganada')  # FIX: Incluir Ganada
+        params.extend([id_entregado, id_perdido, id_ganada])
+        idx_entregado, idx_perdido, idx_ganada = len(params)-2, len(params)-1, len(params)
         
         query = f"""
             SELECT ts.nombre as tipo, AVG(o.tiempo_elaboracion_horas) / 24 as dias_promedio
@@ -749,7 +762,7 @@ class SimulacionDBService:
             {where_clause}
             AND o.responsable_simulacion_id = ${idx_user}
             AND o.tiempo_elaboracion_horas IS NOT NULL
-            AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido})
+            AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada})
             AND o.id_tipo_solicitud != (SELECT id FROM tb_cat_tipos_solicitud WHERE LOWER(nombre) = 'levantamiento')
             GROUP BY ts.nombre HAVING AVG(o.tiempo_elaboracion_horas) IS NOT NULL
         """
@@ -762,13 +775,14 @@ class SimulacionDBService:
         id_entregado = cats['estatus'].get('entregado')
         id_perdido = cats['estatus'].get('perdido')
         id_cancelado = cats['estatus'].get('cancelado')
+        id_ganada = cats['estatus'].get('ganada')  # FIX: Incluir Ganada
         id_levantamiento = cats['tipos'].get('levantamiento')
         id_pendiente = cats['estatus'].get('pendiente')
         id_en_proceso = cats['estatus'].get('en proceso')
         id_en_revision = cats['estatus'].get('en revisión')
         
-        params.extend([id_entregado, id_perdido, id_cancelado, id_levantamiento, id_pendiente, id_en_proceso, id_en_revision])
-        idx_entregado, idx_perdido, idx_cancelado, idx_levantamiento = len(params)-6, len(params)-5, len(params)-4, len(params)-3
+        params.extend([id_entregado, id_perdido, id_cancelado, id_ganada, id_levantamiento, id_pendiente, id_en_proceso, id_en_revision])
+        idx_entregado, idx_perdido, idx_cancelado, idx_ganada, idx_levantamiento = len(params)-7, len(params)-6, len(params)-5, len(params)-4, len(params)-3
         idx_pendiente, idx_proceso, idx_revision = len(params)-2, len(params)-1, len(params)
         
         query = f"""
@@ -786,11 +800,11 @@ class SimulacionDBService:
             SELECT 
                 mes,
                 COUNT(DISTINCT id_oportunidad) as solicitudes_recibidas,
-                COUNT(DISTINCT id_oportunidad) FILTER (WHERE id_estatus_global IN (${idx_entregado}, ${idx_perdido})) as ofertas_generadas,
-                COUNT(*) FILTER (WHERE kpi_status_interno = 'Entrega a tiempo' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND id_tipo_solicitud != ${idx_levantamiento}) as entregas_a_tiempo_interno,
-                COUNT(*) FILTER (WHERE kpi_status_interno = 'Entrega tarde' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND id_tipo_solicitud != ${idx_levantamiento}) as entregas_tarde_interno,
-                COUNT(*) FILTER (WHERE kpi_status_compromiso = 'Entrega a tiempo' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND id_tipo_solicitud != ${idx_levantamiento}) as entregas_a_tiempo_compromiso,
-                COUNT(*) FILTER (WHERE kpi_status_compromiso = 'Entrega tarde' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}) AND id_tipo_solicitud != ${idx_levantamiento}) as entregas_tarde_compromiso,
+                COUNT(DISTINCT id_oportunidad) FILTER (WHERE id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada})) as ofertas_generadas,
+                COUNT(*) FILTER (WHERE kpi_status_interno = 'Entrega a tiempo' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento}) as entregas_a_tiempo_interno,
+                COUNT(*) FILTER (WHERE kpi_status_interno = 'Entrega tarde' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento}) as entregas_tarde_interno,
+                COUNT(*) FILTER (WHERE kpi_status_compromiso = 'Entrega a tiempo' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento}) as entregas_a_tiempo_compromiso,
+                COUNT(*) FILTER (WHERE kpi_status_compromiso = 'Entrega tarde' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento}) as entregas_tarde_compromiso,
                 AVG(tiempo_elaboracion_horas) FILTER (WHERE tiempo_elaboracion_horas IS NOT NULL) as tiempo_promedio,
                 COUNT(DISTINCT id_oportunidad) FILTER (WHERE id_estatus_global IN (${idx_pendiente}, ${idx_proceso}, ${idx_revision})) as en_espera,
                 COUNT(DISTINCT id_oportunidad) FILTER (WHERE id_estatus_global = ${idx_cancelado}) as canceladas,

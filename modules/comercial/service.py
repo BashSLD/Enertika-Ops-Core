@@ -1202,6 +1202,117 @@ class ComercialService:
             "query_params": params
         }
 
+    async def marcar_como_ganada(
+        self, 
+        conn, 
+        id_oportunidad: UUID, 
+        sitios_ganados: List[UUID], 
+        user_context: dict
+    ) -> dict:
+        """
+        Marca una oportunidad como Ganada (cierre de venta exitoso).
+        
+        Reglas de negocio:
+        1. Solo se puede marcar si status actual = Entregado
+        2. Los KPIs ya fueron calculados al marcar como Entregado (se heredan)
+        3. Para multisitio: solo cambia status de sitios seleccionados a Ganada
+        4. Sitios no seleccionados pasan a Perdido (si hay selección parcial)
+        5. La oportunidad padre siempre cambia a Ganada
+        
+        Args:
+            conn: Conexión asyncpg
+            id_oportunidad: UUID de la oportunidad
+            sitios_ganados: Lista de UUIDs de sitios ganados (vacía = todos ganados)
+            user_context: Contexto del usuario actual
+            
+        Returns:
+            dict con información del cierre
+            
+        Raises:
+            HTTPException: Si status actual no es Entregado
+        """
+        # Obtener mapa de estatus
+        cats = await self.get_catalog_ids(conn)
+        estatus_map = cats.get("estatus", {})
+        
+        id_entregado = estatus_map.get("entregado")
+        id_ganada = estatus_map.get("ganada")
+        id_perdido = estatus_map.get("perdido")
+        
+        if not all([id_entregado, id_ganada, id_perdido]):
+            raise HTTPException(500, "Error de configuración: faltan estatus en catálogo")
+        
+        # Validar status actual de la oportunidad
+        current_status = await conn.fetchval(
+            "SELECT id_estatus_global FROM tb_oportunidades WHERE id_oportunidad = $1",
+            id_oportunidad
+        )
+        
+        if current_status != id_entregado:
+            raise HTTPException(
+                400, 
+                "Solo se puede marcar como Ganada desde status 'Entregado'"
+            )
+        
+        # Obtener cantidad de sitios para determinar lógica
+        sitios_count = await conn.fetchval(
+            "SELECT COUNT(*) FROM tb_sitios_oportunidad WHERE id_oportunidad = $1",
+            id_oportunidad
+        )
+        
+        async with conn.transaction():
+            # Lógica de actualización de sitios
+            if sitios_ganados and len(sitios_ganados) > 0:
+                # Multisitio con selección parcial
+                # Sitios seleccionados → Ganada
+                await conn.execute("""
+                    UPDATE tb_sitios_oportunidad 
+                    SET id_estatus_global = $1 
+                    WHERE id_sitio = ANY($2) AND id_oportunidad = $3
+                """, id_ganada, sitios_ganados, id_oportunidad)
+                
+                # Sitios NO seleccionados → Perdido (solo los que están en Entregado)
+                await conn.execute("""
+                    UPDATE tb_sitios_oportunidad 
+                    SET id_estatus_global = $1 
+                    WHERE id_oportunidad = $2 
+                    AND id_sitio != ALL($3)
+                    AND id_estatus_global = $4
+                """, id_perdido, id_oportunidad, sitios_ganados, id_entregado)
+                
+                sitios_ganados_count = len(sitios_ganados)
+                sitios_perdidos_count = sitios_count - sitios_ganados_count
+            else:
+                # Unisitio o multisitio sin selección específica → todos Ganada
+                await conn.execute("""
+                    UPDATE tb_sitios_oportunidad 
+                    SET id_estatus_global = $1 
+                    WHERE id_oportunidad = $2
+                """, id_ganada, id_oportunidad)
+                
+                sitios_ganados_count = sitios_count
+                sitios_perdidos_count = 0
+            
+            # Actualizar oportunidad padre a Ganada
+            await conn.execute("""
+                UPDATE tb_oportunidades 
+                SET id_estatus_global = $1 
+                WHERE id_oportunidad = $2
+            """, id_ganada, id_oportunidad)
+        
+        logger.info(
+            f"Cierre de venta: Oportunidad {id_oportunidad} marcada como Ganada "
+            f"por {user_context.get('user_name')}. "
+            f"Sitios ganados: {sitios_ganados_count}, perdidos: {sitios_perdidos_count}"
+        )
+        
+        return {
+            "success": True,
+            "id_oportunidad": str(id_oportunidad),
+            "sitios_ganados": sitios_ganados_count,
+            "sitios_perdidos": sitios_perdidos_count
+        }
+
     def get_next_ui_step(self, cantidad_sitios: int) -> str:
         """Determina el siguiente paso del flujo UI basado en reglas de negocio."""
         # Regla: Unisitio (1) -> Paso 3 (Email)

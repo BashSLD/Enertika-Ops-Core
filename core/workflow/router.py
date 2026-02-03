@@ -209,10 +209,22 @@ async def get_detalle_oportunidad_modal(
         if user_level >= editor_level:
             can_close_sale = True
 
+    # 3. Obtener sitios para el formulario de cierre de venta (multisitio)
+    sitios = []
+    if can_close_sale and op.get('cantidad_sitios', 1) > 1:
+        sitios_rows = await conn.fetch("""
+            SELECT id_sitio, nombre_sitio 
+            FROM tb_sitios_oportunidad 
+            WHERE id_oportunidad = $1
+            ORDER BY nombre_sitio
+        """, id_oportunidad)
+        sitios = [dict(row) for row in sitios_rows]
+
     return templates.TemplateResponse("shared/modals/detalle_oportunidad_modal.html", {
         "request": request,
         "op": op,
         "can_edit_comercial": can_edit_comercial,
-        "can_close_sale": can_close_sale
+        "can_close_sale": can_close_sale,
+        "sitios": sitios  # Lista de sitios para cierre de venta
     })
 

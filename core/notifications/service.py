@@ -145,6 +145,21 @@ class NotificationsService:
             notification_id, usuario_id
         )
         return int(result.split()[-1]) > 0
+
+    async def mark_all_read(self, conn, usuario_id: UUID) -> int:
+        result = await conn.execute(
+            "UPDATE tb_notificaciones SET leida = true WHERE usuario_id = $1 AND leida = false",
+            usuario_id
+        )
+        return int(result.split()[-1])
+
+    async def delete_all_notifications(self, conn, usuario_id: UUID) -> int:
+        # Mantener método legacy por si acaso, pero router usará mark_all_read
+        result = await conn.execute(
+            "DELETE FROM tb_notificaciones WHERE usuario_id = $1",
+            usuario_id
+        )
+        return int(result.split()[-1])
     
     async def create_notification(self, conn, usuario_id: UUID, tipo: str, titulo: str, mensaje: str, id_oportunidad: Optional[UUID] = None) -> dict:
         query = """

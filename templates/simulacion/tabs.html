@@ -36,11 +36,12 @@
         </div>
 
         {% set is_admin_or_manager = (role == 'ADMIN') or (role == 'MANAGER') %}
+        {% set can_view_metrics = is_admin_or_manager and (current_module_role in ['editor', 'admin']) %}
 
         <div class="flex gap-3">
 
-            {% if role == 'ADMIN' %}
-            <!-- Botón: Métricas Operativas (Solo ADMIN) -->
+            {% if can_view_metrics %}
+            <!-- Botón: Métricas Operativas (Admin y Manager) -->
             <button hx-get="/simulacion/metricas-operativas" hx-target="#main-content" hx-swap="innerHTML"
                 hx-push-url="true"
                 class="ripple-effect bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold py-2 px-3 rounded-lg shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">

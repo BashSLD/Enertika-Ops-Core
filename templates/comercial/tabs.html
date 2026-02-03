@@ -546,9 +546,12 @@
     </div>
 
     <!-- Tab Content Area -->
-    <div id="tab-content" class="flex-1 overflow-y-auto p-2 relative" hx-get="/comercial/partials/graphs"
-        hx-trigger="load">
-        <!-- Contenido inicial o vacío -->
+    <!-- Note: Initial content loaded via JS to respect URL tab parameter -->
+    <div id="tab-content" class="flex-1 overflow-y-auto p-2 relative">
+        <!-- Contenido se carga via JavaScript -->
+        <div class="flex items-center justify-center h-32">
+            <div class="spinner-enertika"></div>
+        </div>
     </div>
 </div>
 
@@ -563,6 +566,7 @@
     </div>
 </div>
 
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 <script>
     function updateTabContext(tabName, element) {
         // 1. Actualizar el input oculto
@@ -614,4 +618,84 @@
     function setActiveTab(element) {
         // Legacy wrapper if needed
     }
+
+    // ========================================
+    // Inicialización: Auto-selección de Tab + Confetti
+    // ========================================
+    document.addEventListener('DOMContentLoaded', function () {
+        const urlParams = new URLSearchParams(window.location.search);
+        const tabParam = urlParams.get('tab');
+        const confettiParam = urlParams.get('confetti');
+
+        // Activar el tab correcto según URL o cargar gráficos por defecto
+        if (tabParam) {
+            // Buscar el elemento del tab correspondiente
+            const tabLinks = document.querySelectorAll('.tab-link');
+            let tabFound = false;
+
+            tabLinks.forEach(link => {
+                const href = link.getAttribute('hx-get') || '';
+                if (href.includes(`tab=${tabParam}`)) {
+                    tabFound = true;
+                    // Simular click en el tab
+                    updateTabContext(tabParam, link);
+                    // Cargar contenido del tab
+                    htmx.ajax('GET', `/comercial/partials/cards?tab=${tabParam}`, {
+                        target: '#tab-content',
+                        swap: 'innerHTML'
+                    });
+                }
+            });
+
+            // Fallback: Si no se encontró el tab, cargar gráficos
+            if (!tabFound) {
+                htmx.ajax('GET', '/comercial/partials/graphs', {
+                    target: '#tab-content',
+                    swap: 'innerHTML'
+                });
+            }
+        } else {
+            // Sin parámetro tab: Cargar gráficos por defecto
+            htmx.ajax('GET', '/comercial/partials/graphs', {
+                target: '#tab-content',
+                swap: 'innerHTML'
+            });
+        }
+
+        // Mostrar celebración de confetti si viene el parámetro
+        if (confettiParam === '1') {
+            setTimeout(() => {
+                // Confetti masivo de celebración
+                confetti({
+                    particleCount: 200,
+                    spread: 100,
+                    origin: { y: 0.6 },
+                    colors: ['#00BABB', '#123456', '#10B981', '#ffffff', '#34D399'],
+                    zIndex: 10000
+                });
+
+                // Segunda onda de confetti
+                setTimeout(() => {
+                    confetti({
+                        particleCount: 100,
+                        spread: 60,
+                        origin: { y: 0.5, x: 0.3 },
+                        colors: ['#00BABB', '#123456', '#10B981'],
+                        zIndex: 10000
+                    });
+                    confetti({
+                        particleCount: 100,
+                        spread: 60,
+                        origin: { y: 0.5, x: 0.7 },
+                        colors: ['#00BABB', '#123456', '#10B981'],
+                        zIndex: 10000
+                    });
+                }, 300);
+            }, 500);
+
+            // Limpiar URL para que no se repita el confetti si actualiza
+            const cleanUrl = window.location.pathname + '?tab=' + (tabParam || 'ganadas');
+            window.history.replaceState({}, '', cleanUrl);
+        }
+    });
 </script>

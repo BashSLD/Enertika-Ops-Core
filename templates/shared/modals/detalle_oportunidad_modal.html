@@ -62,14 +62,145 @@
 
                     <!-- Botón Cierre de Venta (Solo Manager Editor+ y Status Entregado) -->
                     {% if can_close_sale and op.status_global|lower == 'entregado' %}
-                    <button type="button"
-                        class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-bold bg-white text-emerald-700 border border-white hover:bg-emerald-50 transition shadow-sm ml-auto sm:ml-2"
-                        onclick="alert('Funcionalidad de Cierre de Venta próximamente disponible')">
-                        <svg class="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-                        </svg>
-                        Cierre de Venta
-                    </button>
+                    <div x-data="{ showCierreMenu: false }" class="relative ml-auto sm:ml-2">
+                        <!-- Botón Principal -->
+                        <button type="button" @click="showCierreMenu = !showCierreMenu"
+                            class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-bold bg-white text-emerald-700 border border-white hover:bg-emerald-50 transition shadow-sm">
+                            <svg class="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M5 13l4 4L19 7" />
+                            </svg>
+                            Cierre de Venta
+                            <svg class="w-3 h-3 ml-1 transition-transform" :class="{ 'rotate-180': showCierreMenu }"
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+
+                        <!-- Dropdown de Confirmación -->
+                        <div x-show="showCierreMenu" x-transition:enter="transition ease-out duration-200"
+                            x-transition:enter-start="opacity-0 transform scale-95"
+                            x-transition:enter-end="opacity-100 transform scale-100"
+                            x-transition:leave="transition ease-in duration-100"
+                            x-transition:leave-start="opacity-100 transform scale-100"
+                            x-transition:leave-end="opacity-0 transform scale-95" @click.away="showCierreMenu = false"
+                            class="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden">
+
+                            <form hx-post="/comercial/cierre-venta/{{ op.id_oportunidad }}" hx-swap="none"
+                                class="divide-y divide-gray-100">
+
+                                <!-- Header del Dropdown -->
+                                <div class="bg-gradient-to-r from-emerald-500 to-green-600 px-4 py-3">
+                                    <h4 class="text-white font-bold text-sm flex items-center gap-2">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                        </svg>
+                                        Confirmar Cierre de Venta
+                                    </h4>
+                                    <p class="text-emerald-100 text-xs mt-1">La oportunidad pasará a status "Ganada"</p>
+                                </div>
+
+                                <!-- Contenido -->
+                                <div class="p-4">
+                                    {% if op.cantidad_sitios > 1 and sitios %}
+                                    <!-- Multisitio: Selección de sitios ganados -->
+                                    <div class="mb-4" x-data="{ 
+                                        allSelected: true,
+                                        setAllChecked(checked) {
+                                            document.querySelectorAll('input[name=sitios_ganados]').forEach(cb => cb.checked = checked);
+                                            this.allSelected = checked;
+                                        },
+                                        updateSelectAll() {
+                                            const checkboxes = document.querySelectorAll('input[name=sitios_ganados]');
+                                            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
+                                            this.allSelected = allChecked;
+                                        }
+                                    }"
+                                        x-init="$nextTick(() => document.querySelectorAll('input[name=sitios_ganados]').forEach(cb => cb.checked = true))">
+                                        <label class="block text-sm font-medium text-gray-700 mb-2">
+                                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor"
+                                                viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                                            </svg>
+                                            Seleccionar sitios ganados:
+                                        </label>
+
+                                        <!-- Checkbox Seleccionar Todos -->
+                                        <label
+                                            class="flex items-center gap-2 py-2 px-3 bg-emerald-100 rounded-lg mb-2 cursor-pointer border border-emerald-300 hover:bg-emerald-200 transition">
+                                            <input type="checkbox" :checked="allSelected"
+                                                @click="setAllChecked(!allSelected)"
+                                                class="rounded border-emerald-400 text-emerald-600 focus:ring-emerald-500">
+                                            <span class="text-sm font-semibold text-emerald-800">✓ Seleccionar todos los
+                                                sitios</span>
+                                        </label>
+
+                                        <!-- Lista de sitios con scroll (max 200px = ~6-7 sitios visibles) -->
+                                        <div
+                                            class="max-h-[200px] overflow-y-auto space-y-2 bg-gray-50 rounded-lg p-3 border border-gray-200">
+                                            {% for sitio in sitios %}
+                                            <label
+                                                class="flex items-center gap-2 py-1.5 px-2 hover:bg-gray-100 rounded cursor-pointer transition">
+                                                <input type="checkbox" name="sitios_ganados"
+                                                    value="{{ sitio.id_sitio }}" @change="updateSelectAll()"
+                                                    class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+                                                <span class="text-sm text-gray-700">{{ sitio.nombre_sitio }}</span>
+                                            </label>
+                                            {% endfor %}
+                                        </div>
+                                        <p class="text-xs text-gray-500 mt-2 italic">
+                                            ⚠️ Sitios <strong>no seleccionados</strong> quedarán como "Perdido"
+                                        </p>
+                                    </div>
+                                    {% else %}
+                                    <!-- Unisitio: Mensaje simple -->
+                                    <div class="bg-emerald-50 rounded-lg p-3 mb-4">
+                                        <p class="text-sm text-emerald-800">
+                                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor"
+                                                viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                            </svg>
+                                            Esta oportunidad será marcada como <strong>Ganada</strong>.
+                                        </p>
+                                    </div>
+                                    {% endif %}
+
+                                    <!-- Advertencia -->
+                                    <div class="bg-amber-50 border border-amber-200 rounded-lg p-3 mb-4">
+                                        <p class="text-xs text-amber-800">
+                                            <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor"
+                                                viewBox="0 0 24 24">
+                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                                            </svg>
+                                            Esta acción habilitará la oportunidad para crear un proyecto en
+                                            <strong>Projects Gate</strong>.
+                                        </p>
+                                    </div>
+                                </div>
+
+                                <!-- Botones de Acción -->
+                                <div class="bg-gray-50 px-4 py-3 flex justify-end gap-2">
+                                    <button type="button" @click="showCierreMenu = false"
+                                        class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                                        Cancelar
+                                    </button>
+                                    <button type="submit"
+                                        class="px-4 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition shadow-sm flex items-center gap-1">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                d="M5 13l4 4L19 7" />
+                                        </svg>
+                                        Confirmar Cierre
+                                    </button>
+                                </div>
+                            </form>
+                        </div>
+                    </div>
                     {% endif %}
                 </div>
             </div>
