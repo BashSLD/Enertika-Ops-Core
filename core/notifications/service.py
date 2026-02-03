@@ -46,10 +46,11 @@ async def startup_notifications():
     try:
         if not _shared_listener_conn:
             logger.info("[SSE-GLOBAL] Iniciando Shared Listener Connection...")
-            # Crear conexión directa fuera del pool
-            _shared_listener_conn = await asyncpg.connect(settings.DB_URL_ASYNC)
+            # Crear conexión directa fuera del pool - DEBE usar Session Mode (5432)
+            # porque Transaction Mode (6543) NO soporta LISTEN/NOTIFY
+            _shared_listener_conn = await asyncpg.connect(settings.DB_URL_SSE)
             
-            # Registrar callback global para TODO el canal de notificaciones
+            # Registrar callback global para TODOS los canales de notificaciones
             # OJO: Postgres LISTEN funciona por canal.
             # No podemos hacer 'LISTEN *'.
             # Estrategia: 

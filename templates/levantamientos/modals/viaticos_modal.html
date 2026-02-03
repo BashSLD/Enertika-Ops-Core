@@ -1,0 +1,315 @@
+<!-- templates/levantamientos/modals/viaticos_modal.html -->
+<!-- Modal completo para gestión de viáticos -->
+<!-- Variables: lev_data, viaticos, usuarios, cc_configurados, historial_envios -->
+
+<div class="modal-header">
+    <h3 class="modal-title">
+        <i class="fas fa-money-bill-wave text-emerald-500"></i>
+        Solicitud de Viáticos
+    </h3>
+    <button type="button" class="modal-close" onclick="closeModal()">
+        <i class="fas fa-times"></i>
+    </button>
+</div>
+
+<div class="modal-body viaticos-modal-body">
+    <!-- Info del levantamiento -->
+    <div class="bg-slate-800/50 rounded-lg p-4 mb-4 border border-slate-700">
+        <div class="grid grid-cols-2 gap-3 text-sm">
+            <div>
+                <span class="text-slate-400">OP-ID:</span>
+                <span class="text-white font-medium ml-2">{{ lev_data.op_id_estandar }}</span>
+            </div>
+            <div>
+                <span class="text-slate-400">Cliente:</span>
+                <span class="text-white font-medium ml-2">{{ lev_data.cliente_nombre }}</span>
+            </div>
+            <div class="col-span-2">
+                <span class="text-slate-400">Proyecto:</span>
+                <span class="text-white font-medium ml-2">{{ lev_data.nombre_proyecto or lev_data.titulo_proyecto or
+                    'Sin nombre' }}</span>
+            </div>
+            {% if lev_data.sitio_direccion %}
+            <div class="col-span-2">
+                <span class="text-slate-400">Dirección:</span>
+                <span class="text-slate-300 text-xs ml-2">{{ lev_data.sitio_direccion }}</span>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- ========== SECCIÓN: AGREGAR VIÁTICO ========== -->
+    <div class="section-card mb-4">
+        <h4 class="section-title">
+            <i class="fas fa-plus-circle text-emerald-400"></i>
+            Agregar Viático
+        </h4>
+        <form id="form-agregar-viatico" hx-post="/levantamientos/viaticos/{{ lev_data.id_levantamiento }}"
+            hx-target="#tabla-viaticos-container" hx-swap="innerHTML"
+            hx-on::after-request="if(event.detail.successful) this.reset()">
+            <div class="grid grid-cols-12 gap-3">
+                <!-- Usuario -->
+                <div class="col-span-4">
+                    <label class="form-label-sm required">Usuario</label>
+                    <select name="usuario_id" class="form-select-sm" required>
+                        <option value="">Seleccionar...</option>
+                        {% for u in usuarios %}
+                        <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <!-- Concepto -->
+                <div class="col-span-4">
+                    <label class="form-label-sm required">Concepto</label>
+                    <input type="text" name="concepto" class="form-input-sm" placeholder="Ej: Hospedaje, Transporte..."
+                        required />
+                </div>
+                <!-- Monto -->
+                <div class="col-span-2">
+                    <label class="form-label-sm required">Monto</label>
+                    <input type="number" name="monto" class="form-input-sm" step="0.01" min="0.01" placeholder="0.00"
+                        required />
+                </div>
+                <!-- Botón -->
+                <div class="col-span-2 flex items-end">
+                    <button type="submit" class="btn btn-success btn-sm w-full">
+                        <i class="fas fa-plus"></i> Agregar
+                    </button>
+                </div>
+            </div>
+        </form>
+    </div>
+
+    <!-- ========== SECCIÓN: TABLA DE VIÁTICOS ========== -->
+    <div class="section-card mb-4">
+        <h4 class="section-title">
+            <i class="fas fa-list text-blue-400"></i>
+            Viáticos Registrados
+        </h4>
+        <div id="tabla-viaticos-container">
+            {% include "levantamientos/partials/tabla_viaticos.html" %}
+        </div>
+    </div>
+
+    <!-- ========== SECCIÓN: ENVIAR SOLICITUD ========== -->
+    <div class="section-card mb-4">
+        <h4 class="section-title">
+            <i class="fas fa-envelope text-amber-400"></i>
+            Enviar Solicitud por Correo
+        </h4>
+        <form id="form-enviar-solicitud" hx-post="/levantamientos/viaticos/solicitud/{{ lev_data.id_levantamiento }}"
+            hx-target="#historial-envios-container" hx-swap="innerHTML" hx-indicator="#enviar-loading">
+
+            <!-- CC Configurados (solo lectura) -->
+            {% if cc_configurados %}
+            <div class="mb-3">
+                <label class="form-label-sm text-slate-400">CC Configurados:</label>
+                <div class="text-xs text-slate-300">
+                    {{ cc_configurados | join(', ') }}
+                </div>
+            </div>
+            {% endif %}
+
+            <!-- CC Adicionales -->
+            <div class="mb-3">
+                <label class="form-label-sm">CC Adicionales (separados por ;)</label>
+                <input type="text" id="cc_adicionales_input" class="form-input-sm"
+                    placeholder="correo1@ejemplo.com; correo2@ejemplo.com" />
+                <input type="hidden" name="cc_adicionales" id="cc_adicionales_hidden" value="" />
+            </div>
+
+            <div class="flex justify-end">
+                <button type="submit" class="btn btn-primary">
+                    <span id="enviar-loading" class="htmx-indicator">
+                        <i class="fas fa-spinner fa-spin mr-2"></i>
+                    </span>
+                    <i class="fas fa-paper-plane mr-2"></i>
+                    Enviar Solicitud
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- ========== SECCIÓN: HISTORIAL DE ENVÍOS ========== -->
+    <div class="section-card">
+        <h4 class="section-title">
+            <i class="fas fa-history text-purple-400"></i>
+            Historial de Envíos
+        </h4>
+        <div id="historial-envios-container">
+            {% include "levantamientos/partials/historial_envios.html" %}
+        </div>
+    </div>
+</div>
+
+<div class="modal-footer">
+    <button type="button" class="btn btn-secondary" onclick="closeModal()">
+        Cerrar
+    </button>
+</div>
+
+<style>
+    .viaticos-modal-body {
+        max-height: 70vh;
+        overflow-y: auto;
+    }
+
+    .section-card {
+        background: rgba(30, 41, 59, 0.5);
+        border: 1px solid rgba(100, 116, 139, 0.2);
+        border-radius: 0.5rem;
+        padding: 1rem;
+    }
+
+    .section-title {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: #e2e8f0;
+        margin-bottom: 0.75rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .form-label-sm {
+        display: block;
+        font-size: 0.75rem;
+        color: #94a3b8;
+        margin-bottom: 0.25rem;
+    }
+
+    .required::after {
+        content: " *";
+        color: #f87171;
+    }
+
+    .form-input-sm,
+    .form-select-sm {
+        width: 100%;
+        background: rgba(15, 23, 42, 0.8);
+        border: 1px solid rgba(100, 116, 139, 0.3);
+        border-radius: 0.375rem;
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+        color: white;
+    }
+
+    .form-input-sm:focus,
+    .form-select-sm:focus {
+        outline: none;
+        border-color: #3b82f6;
+    }
+
+    .btn-sm {
+        padding: 0.5rem 0.75rem;
+        font-size: 0.875rem;
+    }
+
+    .btn-success {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+        color: white;
+    }
+
+    .btn-success:hover {
+        background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    }
+
+    /* Tabla de viáticos */
+    .tabla-viaticos {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 0.875rem;
+    }
+
+    .tabla-viaticos th {
+        text-align: left;
+        padding: 0.5rem;
+        border-bottom: 1px solid rgba(100, 116, 139, 0.3);
+        color: #94a3b8;
+        font-weight: 500;
+    }
+
+    .tabla-viaticos td {
+        padding: 0.5rem;
+        border-bottom: 1px solid rgba(100, 116, 139, 0.15);
+        color: #e2e8f0;
+    }
+
+    .monto-col {
+        text-align: right;
+        font-family: monospace;
+    }
+
+    .elim-btn {
+        background: transparent;
+        border: none;
+        color: #f87171;
+        cursor: pointer;
+        padding: 0.25rem;
+    }
+
+    .elim-btn:hover {
+        color: #ef4444;
+    }
+
+    .total-row {
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        padding: 0.75rem 0.5rem;
+        font-weight: 600;
+        color: #10b981;
+    }
+
+    .empty-viat {
+        text-align: center;
+        padding: 1rem;
+        color: #64748b;
+        font-style: italic;
+    }
+
+    /* Historial de envíos */
+    .historial-envio-item {
+        padding: 0.5rem;
+        border-bottom: 1px solid rgba(100, 116, 139, 0.15);
+        font-size: 0.75rem;
+    }
+
+    .historial-envio-item:last-child {
+        border-bottom: none;
+    }
+
+    .fecha-env {
+        font-weight: 600;
+        color: #e2e8f0;
+    }
+
+    .detalle {
+        color: #94a3b8;
+        margin-top: 0.25rem;
+    }
+
+    .estatus-ok {
+        color: #10b981;
+    }
+
+    .estatus-err {
+        color: #f87171;
+    }
+
+    .htmx-indicator {
+        display: none;
+    }
+
+    .htmx-request .htmx-indicator {
+        display: inline;
+    }
+</style>
+
+<script>
+    // Sincronizar input visible con hidden antes de enviar
+    document.getElementById('form-enviar-solicitud').addEventListener('submit', function () {
+        document.getElementById('cc_adicionales_hidden').value =
+            document.getElementById('cc_adicionales_input').value;
+    });
+</script>

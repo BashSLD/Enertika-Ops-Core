@@ -134,7 +134,7 @@
     {% endif %}
 
     <form hx-post="{{ post_url | default('/comercial/form') }}" hx-target="#main-content" hx-swap="innerHTML"
-        class="space-y-6" @submit="isSubmitting = true">
+        hx-indicator="#global-loading-overlay" class="space-y-6" @submit="isSubmitting = true">
 
         {% if is_extraordinario %}
         <!-- CAMPOS EXTRA DE EXTRAORDINARIO -->
@@ -746,7 +746,7 @@
 
         <!-- Botones de Acción -->
         <div class="flex justify-end gap-4 pt-6 border-t">
-            <button type="button" hx-get="/comercial/ui" hx-target="#main-content"
+            <button type="button" hx-get="/comercial/ui" hx-target="#main-content" hx-push-url="true"
                 class="px-6 py-2.5 rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 font-medium transition-colors">
                 Cancelar
             </button>
@@ -763,8 +763,8 @@
                 <span class="font-medium">Guardando...</span>
             </div>
 
-            <button type="submit" :disabled="isSubmitting" hx-indicator="#submit-indicator"
-                class="ripple-effect px-6 py-2.5 rounded-lg {{ btn_submit_bg }} text-white font-bold {{ btn_submit_shadow }} transition-all transform hover:scale-105 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed htmx-request:hidden">
+            <button type="submit" :disabled="isSubmitting"
+                class="ripple-effect px-6 py-2.5 rounded-lg {{ btn_submit_bg }} text-white font-bold {{ btn_submit_shadow }} transition-all transform hover:scale-105 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed">
                 <span>💾</span> Guardar Oportunidad
             </button>
 

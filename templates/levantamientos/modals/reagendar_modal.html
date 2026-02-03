@@ -1,0 +1,119 @@
+<!-- templates/levantamientos/modals/reagendar_modal.html -->
+<!-- Modal para reagendar un levantamiento -->
+<!-- Variables: lev_data (dict), desde (str: pendiente|pospuesto), today_str (str: YYYY-MM-DD) -->
+
+<div class="modal-header">
+    <h3 class="modal-title">
+        <i class="fas fa-calendar-alt text-blue-500"></i>
+        {% if desde == 'pospuesto' %}Reagendar{% else %}Agendar{% endif %} Levantamiento
+    </h3>
+    <button type="button" class="modal-close" onclick="closeModal()">
+        <i class="fas fa-times"></i>
+    </button>
+</div>
+
+<div class="modal-body">
+    <!-- Info del levantamiento -->
+    <div class="bg-slate-800/50 rounded-lg p-4 mb-4 border border-slate-700">
+        <div class="grid grid-cols-2 gap-4 text-sm">
+            <div>
+                <span class="text-slate-400">OP-ID:</span>
+                <span class="text-white font-medium ml-2">{{ lev_data.op_id_estandar }}</span>
+            </div>
+            <div>
+                <span class="text-slate-400">Cliente:</span>
+                <span class="text-white font-medium ml-2">{{ lev_data.cliente_nombre }}</span>
+            </div>
+            <div class="col-span-2">
+                <span class="text-slate-400">Proyecto:</span>
+                <span class="text-white font-medium ml-2">{{ lev_data.nombre_proyecto or lev_data.titulo_proyecto or
+                    'Sin nombre' }}</span>
+            </div>
+            {% if lev_data.fecha_visita_programada %}
+            <div class="col-span-2">
+                <span class="text-slate-400">Fecha anterior:</span>
+                <span class="text-amber-400 font-medium ml-2">
+                    {{ lev_data.fecha_visita_programada.strftime('%d/%m/%Y') if lev_data.fecha_visita_programada else
+                    'Sin fecha' }}
+                </span>
+            </div>
+            {% endif %}
+            {% if desde == 'pospuesto' and lev_data.motivo_pospone %}
+            <div class="col-span-2">
+                <span class="text-slate-400">Motivo posposición:</span>
+                <p class="text-amber-300 text-xs mt-1 italic">{{ lev_data.motivo_pospone }}</p>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Formulario -->
+    <form id="form-reagendar" hx-post="/levantamientos/reagendar/{{ lev_data.id_levantamiento }}"
+        hx-target="#kanban-container" hx-swap="outerHTML"
+        hx-on::after-request="if(event.detail.successful) closeModal()">
+
+        <div class="form-group mb-4">
+            <label for="nueva_fecha_visita" class="form-label required">
+                Nueva fecha de visita
+            </label>
+            <input type="date" id="nueva_fecha_visita" name="nueva_fecha_visita" class="form-input"
+                min="{{ today_str }}" required />
+            <p class="form-help text-slate-400 text-xs mt-1">
+                <i class="fas fa-info-circle"></i>
+                La fecha debe ser igual o posterior a hoy.
+            </p>
+        </div>
+
+        <div class="form-group">
+            <label for="observaciones" class="form-label">
+                Observaciones (opcional)
+            </label>
+            <textarea id="observaciones" name="observaciones" class="form-textarea" rows="3"
+                placeholder="Comentarios adicionales sobre el reagendado..."></textarea>
+        </div>
+
+        <div class="modal-footer mt-6 flex justify-end gap-3">
+            <button type="button" class="btn btn-secondary" onclick="closeModal()">
+                Cancelar
+            </button>
+            <button type="submit" class="btn btn-primary">
+                <i class="fas fa-calendar-check mr-2"></i>
+                {% if desde == 'pospuesto' %}Reagendar{% else %}Agendar{% endif %}
+            </button>
+        </div>
+    </form>
+</div>
+
+<style>
+    .required::after {
+        content: " *";
+        color: #f87171;
+    }
+
+    .form-input,
+    .form-textarea {
+        width: 100%;
+        background: rgba(30, 41, 59, 0.8);
+        border: 1px solid rgba(100, 116, 139, 0.3);
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        color: white;
+    }
+
+    .form-input:focus,
+    .form-textarea:focus {
+        outline: none;
+        border-color: #3b82f6;
+        box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+    }
+
+    .form-textarea {
+        resize: vertical;
+    }
+
+    /* Fix date input para tema oscuro */
+    input[type="date"]::-webkit-calendar-picker-indicator {
+        filter: invert(1);
+        cursor: pointer;
+    }
+</style>

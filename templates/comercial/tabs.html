@@ -1,3 +1,42 @@
+<script>
+    // Define functions globally BEFORE any HTML elements that reference them
+    // This fixes the "updateTabContext is not defined" error when HTMX loads from another module
+    window.updateTabContext = function (tabName, element) {
+        var activeTabInput = document.getElementById('active_tab_input');
+        if (activeTabInput) activeTabInput.value = tabName;
+
+        var allTabs = document.querySelectorAll('.tab-link');
+        allTabs.forEach(function (el) {
+            el.classList.remove('glass-panel', 'bg-white/60', 'active');
+            el.classList.add('border-transparent', 'hover:bg-white/40');
+            var span = el.querySelector('span');
+            if (span) {
+                span.classList.remove('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-[#00BABB]', 'to-[#009999]');
+            }
+            var svg = el.querySelector('svg');
+            if (svg) svg.classList.remove('text-[#00BABB]');
+        });
+
+        element.classList.remove('border-transparent', 'hover:bg-white/40');
+        element.classList.add('glass-panel', 'bg-white/60', 'active');
+        var activeSpan = element.querySelector('span');
+        if (activeSpan) {
+            activeSpan.classList.add('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-[#00BABB]', 'to-[#009999]');
+        }
+        var activeSvg = element.querySelector('svg');
+        if (activeSvg) activeSvg.classList.add('text-[#00BABB]');
+
+        var targetUrl = element.getAttribute('hx-get');
+        if (targetUrl) {
+            targetUrl = targetUrl.split('?')[0];
+            document.querySelectorAll('.global-filter').forEach(function (el) {
+                el.setAttribute('hx-get', targetUrl);
+                if (typeof htmx !== 'undefined') htmx.process(el);
+            });
+        }
+    };
+    window.setActiveTab = function (element) { /* Legacy wrapper */ };
+</script>
 <style>
     .tab-link {
         position: relative;
@@ -622,80 +661,105 @@
     // ========================================
     // Inicialización: Auto-selección de Tab + Confetti
     // ========================================
-    document.addEventListener('DOMContentLoaded', function () {
-        const urlParams = new URLSearchParams(window.location.search);
-        const tabParam = urlParams.get('tab');
-        const confettiParam = urlParams.get('confetti');
+    // IMPORTANTE: Usar htmx:afterSettle en lugar de DOMContentLoaded
+    // para evitar race conditions cuando HTMX carga el contenido
+    let graphsInitialized = false;
 
-        // Activar el tab correcto según URL o cargar gráficos por defecto
-        if (tabParam) {
-            // Buscar el elemento del tab correspondiente
-            const tabLinks = document.querySelectorAll('.tab-link');
-            let tabFound = false;
+    document.body.addEventListener('htmx:afterSettle', function (evt) {
+        // Verificar si estamos en el módulo comercial
+        const isInComercial = window.location.pathname.includes('/comercial/ui') || window.location.pathname === '/comercial';
 
-            tabLinks.forEach(link => {
-                const href = link.getAttribute('hx-get') || '';
-                if (href.includes(`tab=${tabParam}`)) {
-                    tabFound = true;
-                    // Simular click en el tab
-                    updateTabContext(tabParam, link);
-                    // Cargar contenido del tab
-                    htmx.ajax('GET', `/comercial/partials/cards?tab=${tabParam}`, {
+        // Si NO estamos en comercial, resetear flag y salir
+        if (!isInComercial) {
+            console.log('[Comercial] Fuera del módulo, reseteando flag');
+            graphsInitialized = false;
+            return;
+        }
+
+        // Solo ejecutar si el target es #main-content Y estamos en comercial Y existe #tab-content
+        if (evt.detail.target.id === 'main-content' && isInComercial && document.getElementById('tab-content')) {
+            console.log('[Comercial] Evento afterSettle detectado, graphsInitialized:', graphsInitialized);
+
+            const urlParams = new URLSearchParams(window.location.search);
+            const tabParam = urlParams.get('tab');
+            const confettiParam = urlParams.get('confetti');
+
+            // Activar el tab correcto según URL o cargar gráficos por defecto
+            if (tabParam && !graphsInitialized) {
+                console.log('[Comercial] Cargando tab específico:', tabParam);
+                // Buscar el elemento del tab correspondiente
+                const tabLinks = document.querySelectorAll('.tab-link');
+                let tabFound = false;
+
+                tabLinks.forEach(link => {
+                    const href = link.getAttribute('hx-get') || '';
+                    if (href.includes(`tab=${tabParam}`)) {
+                        tabFound = true;
+                        // Simular click en el tab
+                        updateTabContext(tabParam, link);
+                        // Cargar contenido del tab
+                        htmx.ajax('GET', `/comercial/partials/cards?tab=${tabParam}`, {
+                            target: '#tab-content',
+                            swap: 'innerHTML'
+                        });
+                    }
+                });
+
+                // Fallback: Si no se encontró el tab, cargar gráficos
+                if (!tabFound) {
+                    console.log('[Comercial] Tab no encontrado, cargando gráficas por defecto');
+                    htmx.ajax('GET', '/comercial/partials/graphs', {
                         target: '#tab-content',
                         swap: 'innerHTML'
                     });
                 }
-            });
-
-            // Fallback: Si no se encontró el tab, cargar gráficos
-            if (!tabFound) {
+                graphsInitialized = true;
+            } else if (!tabParam && !graphsInitialized) {
+                // Sin parámetro tab: Cargar gráficos por defecto
+                console.log('[Comercial] Sin parámetro tab, cargando gráficas por defecto');
                 htmx.ajax('GET', '/comercial/partials/graphs', {
                     target: '#tab-content',
                     swap: 'innerHTML'
                 });
+                graphsInitialized = true;
+            } else {
+                console.log('[Comercial] Gráficas ya inicializadas o sin acción necesaria');
             }
-        } else {
-            // Sin parámetro tab: Cargar gráficos por defecto
-            htmx.ajax('GET', '/comercial/partials/graphs', {
-                target: '#tab-content',
-                swap: 'innerHTML'
-            });
-        }
 
-        // Mostrar celebración de confetti si viene el parámetro
-        if (confettiParam === '1') {
-            setTimeout(() => {
-                // Confetti masivo de celebración
-                confetti({
-                    particleCount: 200,
-                    spread: 100,
-                    origin: { y: 0.6 },
-                    colors: ['#00BABB', '#123456', '#10B981', '#ffffff', '#34D399'],
-                    zIndex: 10000
-                });
-
-                // Segunda onda de confetti
+            // Mostrar celebración de confetti si viene el parámetro
+            if (confettiParam === '1') {
                 setTimeout(() => {
+                    // Confetti masivo de celebración
                     confetti({
-                        particleCount: 100,
-                        spread: 60,
-                        origin: { y: 0.5, x: 0.3 },
-                        colors: ['#00BABB', '#123456', '#10B981'],
+                        particleCount: 200,
+                        spread: 100,
+                        origin: { y: 0.6 },
+                        colors: ['#00BABB', '#123456', '#10B981', '#ffffff', '#34D399'],
                         zIndex: 10000
                     });
-                    confetti({
-                        particleCount: 100,
-                        spread: 60,
-                        origin: { y: 0.5, x: 0.7 },
-                        colors: ['#00BABB', '#123456', '#10B981'],
-                        zIndex: 10000
-                    });
-                }, 300);
-            }, 500);
 
-            // Limpiar URL para que no se repita el confetti si actualiza
-            const cleanUrl = window.location.pathname + '?tab=' + (tabParam || 'ganadas');
-            window.history.replaceState({}, '', cleanUrl);
-        }
-    });
+                    // Segunda onda de confetti
+                    setTimeout(() => {
+                        confetti({
+                            particleCount: 100,
+                            spread: 60,
+                            origin: { y: 0.5, x: 0.3 },
+                            colors: ['#00BABB', '#123456', '#10B981'],
+                            zIndex: 10000
+                        });
+                        confetti({
+                            particleCount: 100,
+                            spread: 60,
+                            origin: { y: 0.5, x: 0.7 },
+                            colors: ['#00BABB', '#123456', '#10B981'],
+                            zIndex: 10000
+                        });
+                    }, 300);
+                }, 500);
+
+                // Limpiar URL para que no se repita el confetti si actualiza
+                const cleanUrl = window.location.pathname + '?tab=' + (tabParam || 'ganadas');
+                window.history.replaceState({}, '', cleanUrl);
+            }
+        });
 </script>

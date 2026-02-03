@@ -1,0 +1,24 @@
+<!-- templates/levantamientos/partials/historial_envios.html -->
+<!-- Partial que retorna POST /viaticos/solicitud/{id} -->
+<!-- Se inyecta como innerHTML de #historial-envios-container -->
+<!-- Variables: historial_envios (list) -->
+
+{% if historial_envios %}
+{% for env in historial_envios %}
+<div class="historial-envio-item">
+    <span class="fecha-env">{{ env.fecha_envio.strftime('%d/%m/%Y %H:%M') }}</span>
+    <div class="detalle">
+        Enviado por: {{ env.enviado_por_nombre or 'N/A' }} |
+        TO: {{ env.to_destinatarios|join(', ') if env.to_destinatarios else 'Ninguno' }} |
+        CC: {{ env.cc_destinatarios|join(', ') if env.cc_destinatarios else 'Ninguno' }} |
+        Total: ${{ "%.2f"|format(env.total_monto) }} |
+        <span class="estatus-{{ 'ok' if env.estatus == 'enviado' else 'err' }}">
+            {{ '✓ Enviado' if env.estatus == 'enviado' else '✕ Error' }}
+        </span>
+        {% if env.error_detalle %}
+        <span class="estatus-err"> — {{ env.error_detalle }}</span>
+        {% endif %}
+    </div>
+</div>
+{% endfor %}
+{% endif %}

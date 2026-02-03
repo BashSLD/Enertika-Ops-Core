@@ -1,0 +1,95 @@
+<!-- templates/levantamientos/modals/posponer_modal.html -->
+<!-- Modal para posponer un levantamiento -->
+<!-- Variables: lev_data (dict con datos del levantamiento) -->
+
+<div class="modal-header">
+    <h3 class="modal-title">
+        <i class="fas fa-pause-circle text-amber-500"></i>
+        Posponer Levantamiento
+    </h3>
+    <button type="button" class="modal-close" onclick="closeModal()">
+        <i class="fas fa-times"></i>
+    </button>
+</div>
+
+<div class="modal-body">
+    <!-- Info del levantamiento -->
+    <div class="bg-slate-800/50 rounded-lg p-4 mb-4 border border-slate-700">
+        <div class="grid grid-cols-2 gap-4 text-sm">
+            <div>
+                <span class="text-slate-400">OP-ID:</span>
+                <span class="text-white font-medium ml-2">{{ lev_data.op_id_estandar }}</span>
+            </div>
+            <div>
+                <span class="text-slate-400">Cliente:</span>
+                <span class="text-white font-medium ml-2">{{ lev_data.cliente_nombre }}</span>
+            </div>
+            <div class="col-span-2">
+                <span class="text-slate-400">Proyecto:</span>
+                <span class="text-white font-medium ml-2">{{ lev_data.nombre_proyecto or lev_data.titulo_proyecto or
+                    'Sin nombre' }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Formulario -->
+    <form id="form-posponer" hx-post="/levantamientos/posponer/{{ lev_data.id_levantamiento }}"
+        hx-target="#kanban-container" hx-swap="outerHTML"
+        hx-on::after-request="if(event.detail.successful) closeModal()">
+
+        <div class="form-group">
+            <label for="motivo_pospone" class="form-label required">
+                Motivo de posposición
+            </label>
+            <textarea id="motivo_pospone" name="motivo_pospone" class="form-textarea" rows="4"
+                placeholder="Explica el motivo por el cual se pospone este levantamiento (mínimo 10 caracteres)..."
+                required minlength="10"></textarea>
+            <p class="form-help text-slate-400 text-xs mt-1">
+                <i class="fas fa-info-circle"></i>
+                El levantamiento pasará a estado "Pospuesto" y podrá reagendarse posteriormente.
+            </p>
+        </div>
+
+        <div class="modal-footer mt-6 flex justify-end gap-3">
+            <button type="button" class="btn btn-secondary" onclick="closeModal()">
+                Cancelar
+            </button>
+            <button type="submit" class="btn btn-warning">
+                <i class="fas fa-pause-circle mr-2"></i>
+                Posponer
+            </button>
+        </div>
+    </form>
+</div>
+
+<style>
+    .required::after {
+        content: " *";
+        color: #f87171;
+    }
+
+    .form-textarea {
+        width: 100%;
+        background: rgba(30, 41, 59, 0.8);
+        border: 1px solid rgba(100, 116, 139, 0.3);
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        color: white;
+        resize: vertical;
+    }
+
+    .form-textarea:focus {
+        outline: none;
+        border-color: #f59e0b;
+        box-shadow: 0 0 0 2px rgba(245, 158, 11, 0.2);
+    }
+
+    .btn-warning {
+        background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+        color: white;
+    }
+
+    .btn-warning:hover {
+        background: linear-gradient(135deg, #d97706 0%, #b45309 100%);
+    }
+</style>

@@ -281,6 +281,7 @@ async def notificar_oportunidad(
     body: str = Form(""),           # Mensaje adicional del usuario
     auto_message: str = Form(...),  # Mensaje automático
     prioridad: str = Form("normal"),  # Prioridad del email
+    fecha_ideal_usuario: Optional[date] = Form(None),  # Nueva fecha ideal (seguimientos)
     legacy_search_term: Optional[str] = Form(None),  # Capturar término legacy
     archivos_extra: List[UploadFile] = File(default=[]),
     service: ComercialService = Depends(get_comercial_service),
@@ -290,6 +291,13 @@ async def notificar_oportunidad(
     context = Depends(get_current_user_context)
 ):
     """Envía el correo de notificación usando el token de la sesión."""
+    
+    # Actualizar fecha_ideal_usuario si se proporcionó (para seguimientos)
+    if fecha_ideal_usuario:
+        await conn.execute(
+            "UPDATE tb_oportunidades SET fecha_ideal_usuario = $1 WHERE id_oportunidad = $2",
+            fecha_ideal_usuario, id_oportunidad
+        )
     
     # Preparar datos del formulario
     form_data = {

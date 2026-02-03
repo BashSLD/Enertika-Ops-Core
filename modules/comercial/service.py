@@ -871,6 +871,20 @@ class ComercialService:
         query_clone = QUERY_CLONE_SITIOS
         await conn.execute(query_clone, new_uuid, parent_id, id_tipo_solicitud, id_status_inicial)
         
+        # ========================================
+        # HOOK: Crear levantamiento automáticamente si es tipo LEVANTAMIENTO
+        # ========================================
+        if nuevo_tipo_solicitud == 'LEVANTAMIENTO':
+            try:
+                from modules.levantamientos.service import LevantamientoService
+                lev_service = LevantamientoService()
+                user_context = {'user_db_id': user_id, 'user_name': user_name}
+                lev_id = await lev_service.crear_desde_oportunidad(conn, new_uuid, user_context)
+                logger.info(f"Levantamiento {lev_id} creado automáticamente para seguimiento {new_uuid}")
+            except Exception as e:
+                logger.error(f"Error creando levantamiento automático en seguimiento: {e}")
+                # No fallar la creación del seguimiento por esto
+        
         return new_uuid
 
 

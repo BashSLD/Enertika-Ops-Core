@@ -1,0 +1,41 @@
+<!-- templates/levantamientos/partials/tabla_viaticos.html -->
+<!-- Partial que retorna POST /viaticos y DELETE /viaticos/{id}/{viat_id} -->
+<!-- Se inyecta como innerHTML de #tabla-viaticos-container -->
+<!-- Variables: viaticos (list), id_levantamiento (UUID) -->
+
+{% if viaticos %}
+<table class="tabla-viaticos">
+    <thead>
+        <tr>
+            <th>Usuario</th>
+            <th>Concepto</th>
+            <th style="text-align:right;">Monto</th>
+            <th style="width:36px;"></th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for v in viaticos %}
+        <tr id="row-viat-{{ v.id }}">
+            <td>{{ v.usuario_nombre }}</td>
+            <td>{{ v.concepto }}</td>
+            <td class="monto-col">${{ "%.2f"|format(v.monto) }}</td>
+            <td>
+                <button class="elim-btn"
+                        hx-delete="/levantamientos/viaticos/{{ id_levantamiento }}/{{ v.id }}"
+                        hx-target="#tabla-viaticos-container"
+                        hx-swap="innerHTML"
+                        hx-confirm="¿Eliminar este registro?">
+                    🗑
+                </button>
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+<div class="total-row">
+    <span class="label">Total:</span>
+    <span class="valor" id="total-viaticos">${{ "%.2f"|format(viaticos|sum(attribute='monto')) }}</span>
+</div>
+{% else %}
+<div class="empty-viat">No hay viaticos registrados aún.</div>
+{% endif %}

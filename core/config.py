@@ -14,11 +14,16 @@ class Settings(BaseSettings):
     
     
     # Construcción de URL Async para SQLAlchemy/Asyncpg
-    DB_PORT: str = os.getenv("DB_PORT", "5432")
+    # Puerto principal: 6543 (Transaction Mode) para queries normales - escalable
+    DB_PORT: str = os.getenv("DB_PORT", "6543")
     DB_URL_ASYNC: str = f"postgresql://{DB_USER}:{DB_PASSWORD}@{SUPABASE_URL.replace('https://', '').replace('http://', '')}:{DB_PORT}/postgres"
     
-    # NOTA: Para producción con muchos usuarios, usar el puerto 6543 (Transaction Mode)
-    # y configurar DB_PORT=6543 en el archivo .env
+    # Puerto SSE: 5432 (Session Mode) para LISTEN/NOTIFY - requerido para notificaciones en tiempo real
+    DB_PORT_SSE: str = os.getenv("DB_PORT_SSE", "5432")
+    DB_URL_SSE: str = f"postgresql://{DB_USER}:{DB_PASSWORD}@{SUPABASE_URL.replace('https://', '').replace('http://', '')}:{DB_PORT_SSE}/postgres"
+    
+    # NOTA: Transaction Mode (6543) NO soporta LISTEN/NOTIFY ni prepared statements
+    # Por eso se usa configuración híbrida: queries en 6543, SSE en 5432
     
     # --- Configuración de Seguridad y Sesión ---
     SECRET_KEY: str = os.getenv("SECRET_KEY")

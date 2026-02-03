@@ -282,3 +282,9 @@ async def mover_tarjeta_endpoint_legacy(
         service=service,
         context=context
     )
+
+# ========================================
+# INTEGRAR ENDPOINTS NUEVOS (Posponer, Reagendar, Viaticos)
+# ========================================
+from .router_levantamientos_nuevos import register_nuevos_endpoints
+register_nuevos_endpoints(router)

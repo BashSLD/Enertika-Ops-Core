@@ -23,7 +23,7 @@
     <p class="mb-4 text-gray-600">Detalles de la oportunidad: <strong>{{ op.id_interno_simulacion }}</strong>.</p>
 
     <form hx-post="/comercial/notificar/{{ op.id_oportunidad }}" hx-encoding="multipart/form-data" hx-target="this"
-        hx-swap="outerHTML" hx-indicator="#saving-overlay" class="space-y-6">
+        hx-swap="outerHTML" hx-indicator="#global-loading-overlay" class="space-y-6">
 
         <div>
             <label class="block text-sm font-medium text-gray-700">Asunto</label>
@@ -71,6 +71,36 @@
             </select>
             <p class="text-xs text-gray-500 mt-1">Puedes cambiar la prioridad antes de enviar</p>
         </div>
+
+        {% if is_followup %}
+        <!-- Fecha Ideal (Solo para seguimientos) -->
+        <div x-data="{
+            init() {
+                // Inicializar con la fecha actual de la oportunidad o +7 días
+                {% if op.fecha_ideal_usuario %}
+                this.val = '{{ op.fecha_ideal_usuario.strftime('%Y-%m-%d') if op.fecha_ideal_usuario else '' }}';
+                {% else %}
+                const date = new Date();
+                date.setDate(date.getDate() + 7);
+                this.val = date.toISOString().split('T')[0];
+                {% endif %}
+            },
+            get minDate() {
+                const now = new Date();
+                return now.toISOString().split('T')[0];
+            },
+            val: ''
+        }" class="bg-blue-50 p-4 rounded-lg border border-blue-200">
+            <label class="block text-sm font-bold text-gray-700 mb-1">
+                📅 ¿Para cuándo lo requieres? *
+            </label>
+            <input type="date" name="fecha_ideal_usuario" required :min="minDate" x-model="val"
+                class="w-full rounded-lg bg-white border-blue-300 focus:border-[#00BABB] focus:ring-[#00BABB] shadow-sm">
+            <p class="text-xs text-blue-600 mt-2">
+                <strong>Nota:</strong> Puedes ajustar la fecha de entrega ideal para esta solicitud de seguimiento.
+            </p>
+        </div>
+        {% endif %}
 
         <div>
 

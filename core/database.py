@@ -20,9 +20,10 @@ async def connect_to_db():
             
             _connection_pool = await asyncpg.create_pool(
                 settings.DB_URL_ASYNC,
-                min_size=0,
-                max_size=15,  # REDUCED: Limit for Dev/Session Mode (Supabase Free limit ~60 total)
+                min_size=2,
+                max_size=20,  # Transaction Mode permite más conexiones virtuales
                 timeout=30,  # seconds
+                statement_cache_size=0,  # OBLIGATORIO para Transaction Mode (6543)
                 max_inactive_connection_lifetime=300  # Cierra conexiones inactivas tras 5 min
             )
             # NOTA PARA PRODUCCION (>25 usuarios concurrentes):

@@ -18,4 +18,180 @@
         </div>
     </div>
 </div>
+
+<!-- ========== MODAL CONTAINER ========== -->
+<div id="modal-overlay" class="modal-overlay hidden" onclick="closeModal(event)">
+    <div id="modal-container" class="modal-container" onclick="event.stopPropagation()">
+        <div id="modal-content">
+            <!-- Contenido del modal se carga vía HTMX -->
+        </div>
+    </div>
+</div>
+
+<style>
+    .modal-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(4px);
+        z-index: 1000;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0;
+        transition: opacity 0.2s ease;
+    }
+
+    .modal-overlay.show {
+        opacity: 1;
+    }
+
+    .modal-overlay.hidden {
+        display: none;
+    }
+
+    .modal-container {
+        background: linear-gradient(145deg, #1e293b 0%, #0f172a 100%);
+        border: 1px solid rgba(100, 116, 139, 0.3);
+        border-radius: 1rem;
+        max-width: 700px;
+        width: 95%;
+        max-height: 90vh;
+        overflow-y: auto;
+        box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+        transform: scale(0.95);
+        transition: transform 0.2s ease;
+    }
+
+    .modal-overlay.show .modal-container {
+        transform: scale(1);
+    }
+
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 1.25rem 1.5rem;
+        border-bottom: 1px solid rgba(100, 116, 139, 0.2);
+    }
+
+    .modal-title {
+        font-size: 1.25rem;
+        font-weight: 600;
+        color: #e2e8f0;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .modal-close {
+        background: transparent;
+        border: none;
+        color: #64748b;
+        font-size: 1.25rem;
+        cursor: pointer;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        transition: all 0.15s;
+    }
+
+    .modal-close:hover {
+        color: #f87171;
+        background: rgba(248, 113, 113, 0.1);
+    }
+
+    .modal-body {
+        padding: 1.5rem;
+    }
+
+    .modal-footer {
+        padding: 1rem 1.5rem;
+        border-top: 1px solid rgba(100, 116, 139, 0.2);
+        display: flex;
+        justify-content: flex-end;
+        gap: 0.75rem;
+    }
+
+    .btn {
+        padding: 0.625rem 1.25rem;
+        border-radius: 0.5rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        border: none;
+        cursor: pointer;
+        transition: all 0.15s;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .btn-secondary {
+        background: rgba(100, 116, 139, 0.2);
+        color: #94a3b8;
+    }
+
+    .btn-secondary:hover {
+        background: rgba(100, 116, 139, 0.3);
+        color: #e2e8f0;
+    }
+
+    .btn-primary {
+        background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%);
+        color: white;
+    }
+
+    .btn-primary:hover {
+        background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+    }
+
+    .form-label {
+        display: block;
+        font-size: 0.875rem;
+        font-weight: 500;
+        color: #e2e8f0;
+        margin-bottom: 0.5rem;
+    }
+</style>
+
+<script>
+    function openModal() {
+        const overlay = document.getElementById('modal-overlay');
+        overlay.classList.remove('hidden');
+        // Trigger transition
+        requestAnimationFrame(() => {
+            overlay.classList.add('show');
+        });
+        // Prevent body scroll
+        document.body.style.overflow = 'hidden';
+    }
+
+    function closeModal(event) {
+        // Si se clickea el contenido del modal, no cerrar
+        if (event && event.target.id !== 'modal-overlay') return;
+
+        const overlay = document.getElementById('modal-overlay');
+        overlay.classList.remove('show');
+
+        setTimeout(() => {
+            overlay.classList.add('hidden');
+            document.getElementById('modal-content').innerHTML = '';
+        }, 200);
+
+        // Restore body scroll
+        document.body.style.overflow = '';
+    }
+
+    // Cerrar con ESC
+    document.addEventListener('keydown', function (e) {
+        if (e.key === 'Escape') {
+            const overlay = document.getElementById('modal-overlay');
+            if (!overlay.classList.contains('hidden')) {
+                closeModal();
+            }
+        }
+    });
+</script>
 {% endblock %}
