@@ -23,6 +23,7 @@ from datetime import datetime, date
 from zoneinfo import ZoneInfo
 import json
 import logging
+import asyncio
 
 from core.security import get_current_user_context
 from core.permissions import require_module_access
@@ -64,6 +65,31 @@ def register_nuevos_endpoints(router: APIRouter):
         return templates.TemplateResponse("levantamientos/modals/posponer_modal.html", {
             "request": request,
             "lev_data": lev,
+        })
+
+    # ----------------------------------------------------------
+
+    @router.get("/modal/historial/{id_levantamiento}", include_in_schema=False)
+    async def get_modal_historial(
+        request: Request,
+        id_levantamiento: UUID,
+        conn=Depends(get_db_connection),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
+        service: LevantamientoService = Depends(get_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "viewer"),
+    ):
+        """Renderiza el modal de historial con timeline de cambios."""
+        lev = await db_svc.get_levantamiento_base(conn, id_levantamiento)
+        if not lev:
+            raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+
+        historial = await service.get_historial_estados(conn, id_levantamiento)
+
+        return templates.TemplateResponse("levantamientos/modals/historial_modal.html", {
+            "request": request,
+            "lev_data": lev,
+            "historial": historial,
         })
 
     # ----------------------------------------------------------
@@ -179,6 +205,16 @@ def register_nuevos_endpoints(router: APIRouter):
             metadata={"tipo_cambio": "posponer"}
         )
 
+        # Notificar (Background)
+        asyncio.create_task(
+            service._execute_notification_background(
+                service._notificar_pospuesto_impl,
+                id_oportunidad=lev["id_oportunidad"],
+                motivo=motivo_pospone.strip(),
+                user_context=context
+            )
+        )
+
         # Retornar kanban completo
         return await _render_kanban(request, conn, service, context)
 
@@ -226,23 +262,54 @@ def register_nuevos_endpoints(router: APIRouter):
         estado_anterior = lev["id_estatus_global"]
 
         # UPDATE
-        await db_svc.update_reagendar(conn, id_levantamiento, nueva_fecha_visita, context["user_db_id"])
+        await db_svc.update_reagendar(conn, id_levantamiento, fecha_obj, context["user_db_id"])
 
         # Historial
+        obs_text = observaciones or f"Visita reagendada para {nueva_fecha_visita}"
         await service._registrar_en_historial(
             conn=conn,
             id_levantamiento=id_levantamiento,
             estatus_anterior=estado_anterior,
             estatus_nuevo=9,
             user_context=context,
-            observaciones=observaciones.strip() if observaciones else None,
-            metadata={
-                "tipo_cambio": "reagendar",
-                "nueva_fecha": nueva_fecha_visita,
-            }
+            observaciones=obs_text,
+            metadata={"tipo_cambio": "reagendar", "nueva_fecha": nueva_fecha_visita}
         )
 
-        return await _render_kanban(request, conn, service, context)
+        # Notificar (Background)
+        asyncio.create_task(
+            service._execute_notification_background(
+                service._notificar_agendado_impl,
+                id_oportunidad=lev["id_oportunidad"],
+                fecha_visita=nueva_fecha_visita,
+                user_context=context
+            )
+        )
+
+        # Verificar si hay ingenieros asignados para notificar
+        # Debugging logging
+        has_techs_new = await conn.fetchval("""
+            SELECT EXISTS(SELECT 1 FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1)
+        """, id_levantamiento)
+        
+        has_techs_legacy = await conn.fetchval("""
+            SELECT (tecnico_asignado_id IS NOT NULL) FROM tb_levantamientos WHERE id_levantamiento = $1
+        """, id_levantamiento)
+
+        has_techs = has_techs_new or has_techs_legacy
+
+        logger.info(f"Reagendar Validation - ID: {id_levantamiento}, HasTechsNew: {has_techs_new}, HasTechsLegacy: {has_techs_legacy}, Final: {has_techs}")
+        
+        notification = None
+        if not has_techs:
+            logger.info("Triggering Warning Toast: No technicians assigned.")
+            notification = {
+                "title": "Asignación Pendiente",
+                "message": "El levantamiento ha sido agendado. Recuerda asignar un ingeniero.",
+                "type": "warning"
+            }
+
+        return await _render_kanban(request, conn, service, context, notification)
 
     # ==============================================================
     # POST / DELETE — VIATICOS CRUD
@@ -347,8 +414,9 @@ def register_nuevos_endpoints(router: APIRouter):
         to_list = await db_svc.get_to_configurados_viaticos(conn)
         cc_configurados = await db_svc.get_cc_configurados_viaticos(conn)
 
-        # CC manuales: separados por ";" desde el hidden input
-        cc_manuales = [e.strip() for e in cc_adicionales.split(";") if e.strip() and "@" in e.strip()]
+        import re
+        # CC manuales: separados por ";" o ","
+        cc_manuales = [e.strip() for e in re.split(r'[;,]', cc_adicionales) if e.strip() and "@" in e.strip()]
 
         # Unir CC sin duplicados, quitar TO de CC
         cc_all = list(set(cc_configurados + cc_manuales) - set(to_list))
@@ -439,7 +507,7 @@ def register_nuevos_endpoints(router: APIRouter):
     # HELPER interno: renderiza el Kanban completo (outerHTML)
     # ==============================================================
 
-    async def _render_kanban(request, conn, service, context):
+    async def _render_kanban(request, conn, service, context, notification: Optional[dict] = None):
         """
         Recarga datos del kanban y retorna el template completo.
         Usado por posponer y reagendar para refrescar el tablero.
@@ -448,7 +516,7 @@ def register_nuevos_endpoints(router: APIRouter):
 
         can_edit = (
             context.get("role") == "ADMIN"
-            or context.get("module_roles", {}).get("levantamientos") in ["editor", "assignor", "admin"]
+            or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
         )
 
         return templates.TemplateResponse("levantamientos/partials/kanban.html", {
@@ -461,4 +529,5 @@ def register_nuevos_endpoints(router: APIRouter):
             "pospuestos": data["pospuestos"],
             "can_edit": can_edit,
             "user_context": context,
+            "notification": notification # OOB Toast support
         })

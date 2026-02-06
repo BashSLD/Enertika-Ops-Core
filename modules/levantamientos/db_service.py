@@ -101,7 +101,7 @@ class LevantamientosDBService:
     # REAGENDAR
     # ----------------------------------------------------------
 
-    async def update_reagendar(self, conn, id_levantamiento: UUID, nueva_fecha: str, user_id: UUID) -> None:
+    async def update_reagendar(self, conn, id_levantamiento: UUID, nueva_fecha, user_id: UUID) -> None:
         """
         Actualiza fecha_visita_programada con la nueva fecha,
         registra fecha_reagenda (now), limpia motivo_pospone,
@@ -110,7 +110,7 @@ class LevantamientosDBService:
         await conn.execute("""
             UPDATE tb_levantamientos
             SET id_estatus_global       = 9,
-                fecha_visita_programada = $1::date AT TIME ZONE 'America/Mexico_City',
+                fecha_visita_programada = $1,
                 fecha_reagenda          = now(),
                 motivo_pospone          = NULL,
                 updated_at              = now(),

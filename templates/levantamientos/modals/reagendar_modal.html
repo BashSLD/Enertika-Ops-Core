@@ -53,8 +53,8 @@
         hx-on::after-request="if(event.detail.successful) closeModal()">
 
         <div class="form-group mb-4">
-            <label for="nueva_fecha_visita" class="form-label required">
-                Nueva fecha de visita
+            <label for="nueva_fecha_visita" class="form-label required text-white">
+                Agendar visita
             </label>
             <input type="date" id="nueva_fecha_visita" name="nueva_fecha_visita" class="form-input"
                 min="{{ today_str }}" required />
@@ -65,19 +65,22 @@
         </div>
 
         <div class="form-group">
-            <label for="observaciones" class="form-label">
+            <label for="observaciones" class="form-label text-white">
                 Observaciones (opcional)
             </label>
             <textarea id="observaciones" name="observaciones" class="form-textarea" rows="3"
-                placeholder="Comentarios adicionales sobre el reagendado..."></textarea>
+                placeholder="Comentarios adicionales..."></textarea>
         </div>
 
-        <div class="modal-footer mt-6 flex justify-end gap-3">
-            <button type="button" class="btn btn-secondary" onclick="closeModal()">
+        <div class="modal-footer mt-6 flex justify-end gap-3 border-t border-gray-700/50 pt-4">
+            <button type="button"
+                class="px-4 py-2 bg-slate-700 text-gray-200 font-medium rounded-lg hover:bg-slate-600 transition-colors shadow-sm text-sm"
+                onclick="closeModal()">
                 Cancelar
             </button>
-            <button type="submit" class="btn btn-primary">
-                <i class="fas fa-calendar-check mr-2"></i>
+            <button type="submit"
+                class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-lg shadow-blue-600/30 transition-all transform hover:scale-[1.02] flex items-center gap-2 text-sm">
+                <i class="fas fa-calendar-check text-white"></i>
                 {% if desde == 'pospuesto' %}Reagendar{% else %}Agendar{% endif %}
             </button>
         </div>

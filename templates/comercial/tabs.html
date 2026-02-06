@@ -73,7 +73,7 @@
         </div>
 
 
-        {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'assignor', 'admin']) %}
+        {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
         {% set is_admin_or_manager = (role == 'ADMIN') or (role == 'MANAGER') %}
 
         <div class="flex flex-wrap gap-3">
@@ -401,7 +401,7 @@
                 </div>
 
                 <!-- 2. User Filter (Admin/Manager only) -->
-                {% if role in ['ADMIN', 'MANAGER', 'DIRECTOR'] %}
+                {% if role in ['ADMIN', 'MANAGER'] %}
                 <div>
                     <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Solicitado
                         Por</label>

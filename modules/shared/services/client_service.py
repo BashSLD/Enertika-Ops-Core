@@ -50,6 +50,34 @@ class ClientService:
         return clean.strip()
 
     @staticmethod
+    def _sanitize_for_storage(name: str) -> str:
+        """
+        Limpia errores de dedo comunes al INICIO y FINAL del nombre.
+        No toca el contenido interno.
+        
+        Elimina: Espacios, puntos, pipes, comas, guiones, guiones bajos, asteriscos.
+        Ejemplos:
+          "EMPRESA|" -> "EMPRESA"
+          ".EMPRESA." -> "EMPRESA"
+          "| EMPRESA |" -> "EMPRESA"
+          "S.A. DE C.V." -> "S.A. DE C.V"
+        """
+        if not name:
+            return ""
+            
+        # Regex para caracteres "sucios" en los extremos
+        # \s = whitespace
+        # \. = dot
+        # \| = pipe
+        # , = comma
+        # \- = dash
+        # _ = underscore
+        # \* = asterisk
+        dirty_pattern = r"^[\s\.|,_*-]+|[\s\.|,_*-]+$"
+        
+        return re.sub(dirty_pattern, "", name).strip().upper()
+
+    @staticmethod
     def _calculate_similarity(a: str, b: str) -> float:
         """Retorna ratio de similitud entre 0 y 1"""
         return difflib.SequenceMatcher(None, a, b).ratio()
@@ -78,7 +106,9 @@ class ClientService:
         Returns:
             Tuple: (id, nombre_fiscal, id_interno_simulacion)
         """
-        final_nombre = nombre_cliente.strip().upper()
+
+        # Limpieza inicial de "errores de dedo"
+        final_nombre = ClientService._sanitize_for_storage(nombre_cliente)
         
         # 1. ID Explícito
         if mb_id:

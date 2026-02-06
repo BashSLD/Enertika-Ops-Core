@@ -10,8 +10,7 @@ from core.security import get_current_user_context
 ROLE_HIERARCHY = {
     "viewer": 1,    # Solo lectura
     "editor": 2,    # Lectura + edición
-    "assignor": 3,  # Lectura + edición + asignación
-    "admin": 4      # Control total del módulo
+    "admin": 3      # Control total del módulo
 }
 
 
@@ -21,7 +20,7 @@ def require_module_access(module_slug: str, min_role: str = "viewer") -> Callabl
     
     Args:
         module_slug: Slug del módulo (ej: "comercial", "simulacion")
-        min_role: Rol mínimo requerido ("viewer", "editor", "assignor", "admin")
+        min_role: Rol mínimo requerido ("viewer", "editor", "admin")
     
     Returns:
         Dependency function que valida el acceso
@@ -77,7 +76,7 @@ def get_user_module_role(module_slug: str, context: dict) -> str:
         context: Contexto del usuario (retornado por get_current_user_context)
     
     Returns:
-        Rol del usuario en el módulo ("viewer", "editor", "assignor", "admin")
+        Rol del usuario en el módulo ("viewer", "editor", "admin")
         Si es ADMIN del sistema, retorna "admin"
         Si no tiene acceso, retorna cadena vacía ""
     """
@@ -113,36 +112,6 @@ def user_has_module_access(module_slug: str, context: dict, min_role: str = "vie
     
     return user_role_level >= min_role_level
 
-
-def get_module_permissions(module_slug: str, context: dict) -> dict:
-    """
-    Obtiene un diccionario con los permisos del usuario en un módulo.
-    
-    Args:
-        module_slug: Slug del módulo
-        context: Contexto del usuario
-    
-    Returns:
-        Dict con permisos: {"can_view": bool, "can_edit": bool, "can_assign": bool, "is_admin": bool}
-    """
-    user_role = get_user_module_role(module_slug, context)
-    
-    if not user_role:
-        return {
-            "can_view": False,
-            "can_edit": False,
-            "can_assign": False,
-            "is_admin": False
-        }
-    
-    role_level = ROLE_HIERARCHY.get(user_role, 0)
-    
-    return {
-        "can_view": role_level >= ROLE_HIERARCHY["viewer"],
-        "can_edit": role_level >= ROLE_HIERARCHY["editor"],
-        "can_assign": role_level >= ROLE_HIERARCHY["assignor"],
-        "is_admin": role_level >= ROLE_HIERARCHY["admin"]
-    }
 
 def require_role(allowed_roles: list[str]) -> Callable:
     """

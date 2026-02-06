@@ -461,6 +461,32 @@ async def get_user_modules(
     return await service.get_user_modules(conn, user_id)
 
 
+@router.post("/users/{user_id}/simulation-flag")
+async def update_simulation_flag(
+    request: Request,
+    user_id: UUID,
+    puede_asignarse_simulacion: bool = Form(False),
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection)
+):
+    """Actualiza el flag que permite a un usuario ser asignado como responsable de simulación."""
+    if context.get("role") not in ["ADMIN"]:
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Acceso Denegado",
+            "message": "No tienes permisos para realizar esta acción."
+        }, status_code=403)
+    
+    await service.update_user_simulation_flag(conn, user_id, puede_asignarse_simulacion)
+    
+    return templates.TemplateResponse("admin/partials/messages/success.html", {
+        "request": request, 
+        "title": "OK", 
+        "message": f"Flag simulación {'activado' if puede_asignarse_simulacion else 'desactivado'}"
+    })
+
+
 # --- ABM DE CATÁLOGOS ---
 
 @router.post("/catalogs/tecnologias")

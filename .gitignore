@@ -33,3 +33,6 @@ docs/
 DB_SCHEMA_SNAPSHOT.md
 scripts/
 ._UPDATE
+.claude/
+CLAUDE.md
+.claude/settings.json

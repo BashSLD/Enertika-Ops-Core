@@ -170,7 +170,8 @@ class NotificationService:
         id_oportunidad: UUID,
         old_status_id: int,
         new_status_id: int,
-        changed_by_ctx: dict
+        changed_by_ctx: dict,
+        extra_data: Optional[dict] = None
     ):
         """
         Notifica cambio de estatus de oportunidad.
@@ -181,6 +182,7 @@ class NotificationService:
             old_status_id: ID del estatus anterior
             new_status_id: ID del nuevo estatus
             changed_by_ctx: Contexto del usuario que cambió el estatus
+            extra_data: Datos adicionales (opcional, ej. fecha_visita, motivo)
             
         TO: Creador de la oportunidad
         CC: Correos configurados en tb_config_emails con trigger_value='CAMBIO_ESTATUS'
@@ -218,7 +220,8 @@ class NotificationService:
             'old_status': status_map.get(old_status_id, 'Desconocido'),
             'new_status': status_map.get(new_status_id, 'Desconocido'),
             'changed_by': changed_by_ctx['user_name'],
-            'base_url': settings.APP_BASE_URL
+            'base_url': settings.APP_BASE_URL,
+            'extra_data': extra_data or {}
         })
         
         subject = f"Cambio de estatus: {opp['op_id_estandar']} - {opp['cliente_nombre']}"

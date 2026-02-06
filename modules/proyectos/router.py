@@ -165,7 +165,7 @@ async def get_proyectos_ui(
 async def aprobar_traspaso_a_proyecto(
     id_oportunidad: UUID,
     context = Depends(get_current_user_context),
-    _ = require_module_access("proyectos", "owner"),  # ✅ SOLO OWNER (Director/Manager)
+    _ = require_module_access("proyectos", "admin"),  # Solo Admin/Manager puede aprobar
     service: ProyectosService = Depends(get_service),
     ms_auth: MicrosoftAuth = Depends(get_ms_auth),
     conn = Depends(get_db_connection)
@@ -173,7 +173,7 @@ async def aprobar_traspaso_a_proyecto(
     """
     Gate 1: Dirección aprueba el cierre y crea la estructura del proyecto.
     
-    ⚠️ REQUIERE ROL OWNER: Solo Director/Manager puede aprobar proyectos.
+    Solo ADMIN o MANAGER con permisos de módulo puede aprobar proyectos.
     
     Acciones:
     - Genera ID de proyecto
@@ -182,7 +182,7 @@ async def aprobar_traspaso_a_proyecto(
     """
     # Validación adicional por rol de sistema
     role = context.get("role", "USER")
-    if role not in ["ADMIN", "MANAGER", "DIRECTOR"]:
+    if role not in ["ADMIN", "MANAGER"]:
         raise HTTPException(
             status_code=403,
             detail="Solo Director o Manager pueden aprobar proyectos"

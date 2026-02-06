@@ -1,0 +1,77 @@
+<!-- templates/levantamientos/modals/historial_modal.html -->
+<div class="modal-header">
+    <h3 class="modal-title">
+        📜 Historial de Cambios
+    </h3>
+    <button onclick="closeModal()" class="modal-close">&times;</button>
+</div>
+
+<div class="modal-body">
+    <!-- Datos del levantamiento -->
+    <div class="bg-slate-800/50 p-4 rounded-lg mb-4 border border-slate-700/50">
+        <h4 class="text-white font-semibold">{{ lev_data.nombre_proyecto or lev_data.titulo_proyecto }}</h4>
+        <p class="text-slate-400 text-sm mt-1">{{ lev_data.cliente_nombre }}</p>
+        <p class="text-slate-500 text-xs mt-0.5">{{ lev_data.op_id_estandar }}</p>
+    </div>
+
+    <!-- Timeline -->
+    <div class="space-y-4 max-h-96 overflow-y-auto pr-2">
+        {% for item in historial %}
+        <div class="relative pl-6 pb-4 {% if not loop.last %}border-l-2 border-slate-700/50 ml-2{% endif %}">
+            <!-- Dot -->
+            <div class="absolute left-0 top-0 w-4 h-4 rounded-full 
+                {% if item.metadata.tipo_cambio == 'posponer' %}bg-amber-500
+                {% elif item.metadata.tipo_cambio == 'reagendar' %}bg-blue-500
+                {% elif item.metadata.tipo_cambio == 'asignacion' %}bg-purple-500
+                {% else %}bg-emerald-500{% endif %} 
+                -translate-x-1/2 border-2 border-slate-900"></div>
+
+            <div class="bg-slate-800/30 p-3 rounded-lg border border-slate-700/30">
+                <!-- Estado -->
+                <div class="flex items-center gap-2 mb-2">
+                    {% if item.nombre_estado_anterior %}
+                    <span class="text-slate-400 text-xs">{{ item.nombre_estado_anterior|replace('Lev_', '') }}</span>
+                    <span class="text-slate-500">→</span>
+                    {% endif %}
+                    <span class="px-2 py-0.5 rounded text-xs font-medium"
+                        style="background-color: {{ item.color_nuevo }}20; color: {{ item.color_nuevo }}">
+                        {{ item.nombre_estado_nuevo|replace('Lev_', '') }}
+                    </span>
+                </div>
+
+                <!-- Observaciones -->
+                {% if item.observaciones %}
+                <p class="text-slate-300 text-sm mb-2">{{ item.observaciones }}</p>
+                {% endif %}
+
+                <!-- Metadata adicional -->
+                {% if item.metadata.tipo_cambio %}
+                <div class="text-xs text-slate-500 mb-2">
+                    {% if item.metadata.tipo_cambio == 'posponer' %}
+                    <span class="text-amber-400">⏸️ Pospuesto</span>
+                    {% elif item.metadata.tipo_cambio == 'reagendar' %}
+                    <span class="text-blue-400">📅 Reagendado{% if item.metadata.nueva_fecha %} para {{
+                        item.metadata.nueva_fecha }}{% endif %}</span>
+                    {% elif item.metadata.tipo_cambio == 'asignacion' %}
+                    <span class="text-purple-400">👤 Asignación actualizada</span>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <!-- Footer -->
+                <div class="flex justify-between items-center text-xs text-slate-500">
+                    <span>{{ item.modificado_por_nombre }}</span>
+                    <span>{{ item.fecha_transicion.strftime('%d/%m/%Y %H:%M') }}</span>
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="text-center py-8 text-slate-500">
+            No hay historial de cambios
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="modal-footer">
+        <button onclick="closeModal()" class="btn btn-secondary">Cerrar</button>
+    </div>

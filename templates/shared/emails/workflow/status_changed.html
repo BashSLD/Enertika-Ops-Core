@@ -112,6 +112,26 @@
 
                             <!-- Info Adicional -->
                             <table width="100%" cellpadding="12" cellspacing="0" style="border-top: 1px solid #e0e0e0;">
+                                {% if extra_data.fecha_visita %}
+                                <tr>
+                                    <td style="color: #123456; font-weight: 600; font-size: 14px;">
+                                        Fecha Visita:
+                                    </td>
+                                    <td style="color: #666666; font-size: 14px;">
+                                        {{ extra_data.fecha_visita }}
+                                    </td>
+                                </tr>
+                                {% endif %}
+                                {% if extra_data.motivo %}
+                                <tr>
+                                    <td style="color: #123456; font-weight: 600; font-size: 14px;">
+                                        Motivo:
+                                    </td>
+                                    <td style="color: #666666; font-size: 14px;">
+                                        {{ extra_data.motivo }}
+                                    </td>
+                                </tr>
+                                {% endif %}
                                 <tr>
                                     <td style="color: #123456; font-weight: 600; font-size: 14px;">
                                         Cambiado por:

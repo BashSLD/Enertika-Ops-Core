@@ -1,7 +1,7 @@
 <div id="sitios-container-{{ id_oportunidad }}"
     x-data="{ selected: [], batchStatus: '{{ estatus_options[0].id if estatus_options else 1 }}' }">
 
-    {% if current_module_role in ['editor', 'admin'] or context.role == 'ADMIN' %}
+    {% if (current_module_role in ['editor', 'admin'] or context.role == 'ADMIN') and not is_locked %}
     <div x-show="selected.length > 0"
         class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between animate-fade-in-down"
         style="display: none;">
@@ -28,7 +28,7 @@
         <table class="min-w-full divide-y divide-gray-300">
             <thead class="bg-gray-50">
                 <tr>
-                    {% if current_module_role in ['editor', 'admin'] or context.role == 'ADMIN' %}
+                    {% if (current_module_role in ['editor', 'admin'] or context.role == 'ADMIN') and not is_locked %}
                     <th scope="col" class="px-3 py-3.5 w-10">
                         <input type="checkbox"
                             @change="selected.length === {{ sitios|length }} ? selected = [] : selected = [{% for s in sitios %}'{{ s.id_sitio }}'{% if not loop.last %},{% endif %}{% endfor %}]"
@@ -46,7 +46,7 @@
             <tbody class="divide-y divide-gray-200 bg-white">
                 {% for sitio in sitios %}
                 <tr class="hover:bg-gray-50 transition-colors">
-                    {% if current_module_role in ['editor', 'admin'] or context.role == 'ADMIN' %}
+                    {% if (current_module_role in ['editor', 'admin'] or context.role == 'ADMIN') and not is_locked %}
                     <td class="px-3 py-4 text-sm text-gray-500">
                         <input type="checkbox" value="{{ sitio.id_sitio }}" x-model="selected"
                             class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">

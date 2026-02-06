@@ -474,6 +474,21 @@ class AdminService:
         )
         return [dict(p) for p in permisos]
     
+    async def update_user_simulation_flag(self, conn, user_id: UUID, value: bool) -> None:
+        """
+        Actualiza el flag puede_asignarse_simulacion del usuario.
+        
+        Args:
+            conn: Conexión a la base de datos
+            user_id: ID del usuario
+            value: Nuevo valor del flag
+        """
+        await conn.execute(
+            "UPDATE tb_usuarios SET puede_asignarse_simulacion = $1 WHERE id_usuario = $2",
+            value, user_id
+        )
+        logger.info(f"Flag simulación actualizado para usuario {user_id}: {value}")
+    
     async def deactivate_user(self, conn, user_id: UUID) -> Dict:
         """
         Desactiva un usuario (soft delete).

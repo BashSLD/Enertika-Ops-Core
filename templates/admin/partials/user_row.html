@@ -1,4 +1,5 @@
-<tr id="user-{{ u.id_usuario }}" class="{% if u.is_active is false %}bg-gray-100 text-gray-500{% endif %}">
+<tr id="user-{{ u.id_usuario }}" class="{% if u.is_active is false %}bg-gray-100 text-gray-500{% endif %}"
+    data-simulation-flag="{{ u.puede_asignarse_simulacion|default(false)|lower }}">
     <td
         class="px-6 py-4 whitespace-nowrap font-medium {% if u.is_active is false %}text-gray-500{% else %}text-gray-900{% endif %}">
         {{ u.nombre }}

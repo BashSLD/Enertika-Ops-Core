@@ -22,7 +22,7 @@ router = APIRouter()
 async def list_config_correos(
     request: Request,
     conn = Depends(get_db_connection),
-    _ = require_module_access("admin", "owner")
+    _ = require_module_access("admin", "admin")
 ):
     """Lista todas las configuraciones de correos de notificaciones."""
     configs = await conn.fetch("""
@@ -44,7 +44,7 @@ async def list_config_correos(
 @router.get("/config-correos-notificaciones/form", include_in_schema=False)
 async def new_config_correo_form(
     request: Request,
-    _ = require_module_access("admin", "owner")
+    _ = require_module_access("admin", "admin")
 ):
     """Formulario para nueva configuración de correo."""
     return templates.TemplateResponse("admin/partials/config_correos_form.html", {
@@ -58,7 +58,7 @@ async def edit_config_correo_form(
     request: Request,
     config_id: UUID,
     conn = Depends(get_db_connection),
-    _ = require_module_access("admin", "owner")
+    _ = require_module_access("admin", "admin")
 ):
     """Formulario para editar configuración de correo."""
     config = await conn.fetchrow(
@@ -86,7 +86,7 @@ async def save_config_correo(
     activo: Optional[str] = Form(None),  # Checkbox viene como string o None
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
-    _ = require_module_access("admin", "owner")
+    _ = require_module_access("admin", "admin")
 ):
     """Guarda o actualiza configuración de correo de notificaciones."""
     
@@ -140,7 +140,7 @@ async def save_config_correo(
 async def activate_config_correo(
     config_id: UUID,
     conn = Depends(get_db_connection),
-    _ = require_module_access("admin", "owner")
+    _ = require_module_access("admin", "admin")
 ):
     """Activa una configuración de correo (desactivando otras del mismo departamento)."""
     

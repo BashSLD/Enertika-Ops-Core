@@ -460,7 +460,6 @@
                             <option value="">Sin Acceso</option>
                             <option value="viewer" ${rol === 'viewer' ? 'selected' : ''}>Viewer</option>
                             <option value="editor" ${rol === 'editor' ? 'selected' : ''}>Editor</option>
-                            <option value="assignor" ${rol === 'assignor' ? 'selected' : ''}>Assignor</option>
                             <option value="admin" ${rol === 'admin' ? 'selected' : ''}>Admin</option>
                         </select>
                     </td>
@@ -480,6 +479,13 @@
                 prefSelect.value = currentUserPref;
             }
 
+            // Cargar flag de simulación (reutiliza userRow de línea 431)
+            if (userRow && userRow.dataset.simulationFlag) {
+                document.getElementById('user-simulation-flag').checked = userRow.dataset.simulationFlag === 'true';
+            } else {
+                document.getElementById('user-simulation-flag').checked = false;
+            }
+
         } catch (e) {
             console.error(e);
             document.getElementById('perms-response').innerHTML = '<div class="text-red-500">Error cargando datos</div>';
@@ -488,8 +494,13 @@
 
     async function savePermissions() {
         if (!currentUserId) return;
+
+        // Mostrar overlay de carga
+        const overlay = document.getElementById('perms-loading-overlay');
+        overlay.classList.remove('hidden');
+
         const msgDiv = document.getElementById('perms-response');
-        msgDiv.innerHTML = '<div class="text-blue-500">Guardando...</div>';
+        msgDiv.innerHTML = '';
 
         try {
             const deptSlug = document.getElementById('user-department').value;
@@ -507,11 +518,18 @@
             fdPref.append('modulo_slug', pref);
             await fetch(`/admin/users/${currentUserId}/preferred-module`, { method: 'POST', body: fdPref });
 
-            msgDiv.innerHTML = '<div class="text-green-600 font-bold">✅ Guardado. Recargando...</div>';
-            setTimeout(() => location.reload(), 1000);
+            // Guardar flag de simulación
+            const simFlag = document.getElementById('user-simulation-flag').checked;
+            const fdSim = new FormData();
+            fdSim.append('puede_asignarse_simulacion', simFlag ? 'true' : 'false');
+            await fetch(`/admin/users/${currentUserId}/simulation-flag`, { method: 'POST', body: fdSim });
+
+            // Mostrar éxito y recargar
+            setTimeout(() => location.reload(), 500);
 
         } catch (e) {
-            msgDiv.innerHTML = '<div class="text-red-600 font-bold">❌ Error al guardar</div>';
+            overlay.classList.add('hidden');
+            msgDiv.innerHTML = '<div class="text-red-600 font-bold">❗ Error al guardar. Intenta de nuevo.</div>';
         }
     }
 
@@ -599,7 +617,14 @@
 
 <div id="permissions-modal"
     class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative">
+        <!-- Overlay de carga -->
+        <div id="perms-loading-overlay"
+            class="hidden absolute inset-0 bg-white bg-opacity-90 z-10 flex flex-col items-center justify-center rounded-lg">
+            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-[#00BABB] mb-4"></div>
+            <span class="text-[#123456] font-bold text-lg">Guardando cambios...</span>
+            <span class="text-gray-500 text-sm mt-1">Por favor espera</span>
+        </div>
         <div class="p-6">
             <div class="flex justify-between items-center mb-4 border-b pb-2">
                 <h3 class="text-xl font-bold text-[#123456]">Permisos: <span id="modal-user-name"
@@ -636,6 +661,19 @@
                 <div>
                     <label class="block text-sm font-bold text-gray-700">Módulo Inicio</label>
                     <select id="user-preferred-module" class="w-full rounded-lg border-gray-300"></select>
+                </div>
+
+                <!-- Flag Asignación Simulación -->
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" id="user-simulation-flag"
+                            class="w-5 h-5 rounded text-[#00BABB] focus:ring-[#00BABB]">
+                        <div>
+                            <span class="text-sm font-bold text-gray-700">Puede asignarse a Simulación</span>
+                            <span class="text-gray-500 text-xs block">Permitir ser responsable de simulaciones aunque no
+                                esté en el departamento Simulación</span>
+                        </div>
+                    </label>
                 </div>
 
                 <div class="flex justify-end gap-3 pt-4">

@@ -566,14 +566,18 @@ class ComercialService:
         
         # Site Unico (Si aplica, pasar id_tipo_solicitud)
         if datos.cantidad_sitios == 1:
-            await self.auto_crear_sitio_unico(
-                conn, new_id, 
-                datos.nombre_proyecto, 
-                datos.direccion_obra, 
-                datos.google_maps_link,
-                datos.id_tipo_solicitud,
-                id_status_inicial
-            )
+            #Evitar doble creación para LEVANTAMIENTO (Ya lo creó el hook arriba)
+            es_levantamiento = (tipo_datos and tipo_datos['codigo_interno'] == 'LEVANTAMIENTO')
+            
+            if not es_levantamiento:
+                await self.auto_crear_sitio_unico(
+                    conn, new_id, 
+                    datos.nombre_proyecto, 
+                    datos.direccion_obra, 
+                    datos.google_maps_link,
+                    datos.id_tipo_solicitud,
+                    id_status_inicial
+                )
         
         logger.info(f"Oportunidad {op_id_estandar} creada exitosamente por usuario {user_context.get('user_db_id')}")
         return new_id, op_id_estandar, es_fuera_horario
@@ -759,7 +763,7 @@ class ComercialService:
             params.append(f"%{q}%")
             param_idx += 1
 
-        # Filtro de seguridad (solo ADMIN, MANAGER, DIRECTOR ven todo)
+        # Filtro de seguridad (solo ADMIN, MANAGER ven todo)
         # Filtro de seguridad:
         # Si NO es admin del módulo (ni global), solo ve sus propias oportunidades
         if not user_has_module_access("comercial", user_context, "admin"):
@@ -811,11 +815,16 @@ class ComercialService:
         Transfiere la propiedad de una oportunidad a otro usuario.
         Solo permitido para MANAGER o ADMIN.
         """
-        # Validación de Roles usando el sistema centralizado de permisos
-        # Requiere rol 'assignor' (o superior) en el módulo 'comercial'
-        # Esto cubre: GLOBAL ADMIN, Module ADMIN, Module ASSIGNOR
-        if not user_has_module_access("comercial", user_context, "assignor"):
-             raise HTTPException(status_code=403, detail="No tienes permisos para reasignar oportunidades (Requiere Rol Assignor o superior).")
+        # Validación: ADMIN global, admin del módulo, o MANAGER + editor del módulo
+        role = user_context.get("role")
+        com_role = user_context.get("module_roles", {}).get("comercial", "")
+        can_reassign = (
+            role == "ADMIN" or
+            com_role == "admin" or
+            (role == "MANAGER" and com_role in ["editor", "admin"])
+        )
+        if not can_reassign:
+             raise HTTPException(status_code=403, detail="No tienes permisos para reasignar oportunidades.")
 
         await conn.execute(QUERY_UPDATE_OPORTUNIDAD_OWNER, new_owner_id, id_oportunidad)
         logger.info(f"Oportunidad {id_oportunidad} reasignada a {new_owner_id} por {user_context.get('user_db_id')}")
@@ -1098,18 +1107,48 @@ class ComercialService:
         # Obtener id_tipo_solicitud de la oportunidad padre
         id_tipo_solicitud = await conn.fetchval(QUERY_GET_TIPO_SOLICITUD_FROM_OP, id_oportunidad)
         
-        # Ejecutar Bloque Atómico
+        # Recuperar IDs de sitios existentes (para borrar selectivamente después)
+        old_rows = await conn.fetch("SELECT id_sitio FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
+        old_ids_list = [r['id_sitio'] for r in old_rows]
+        
+    # Ejecutar Bloque Atómico
         # Si algo falla aquí, Postgres hace rollback automático del DELETE
         async with conn.transaction():
-            # Limpiar anteriores
-            await conn.execute(QUERY_DELETE_SITIOS_OP, id_oportunidad)
-            
+             
+            # 1. Insertar NUEVOS sitios primero (para tener IDs válidos para el re-link)
             if records:
                 q = QUERY_INSERT_SITIO_BULK
                 
                 # Adjuntar id_tipo_solicitud a cada tupla
                 records_with_type = [r + (id_tipo_solicitud,) for r in records]
                 await conn.executemany(q, records_with_type)
+
+            # 2. Desvincular/Re-vincular Levantamientos (FIX FK Constraint)
+            # Como id_sitio es NOT NULL, debemos apuntarlo a uno de los NUEVOS sitios
+            # antes de borrar los viejos.
+            if records:
+                new_main_id = records[0][0] # Usamos el primer sitio nuevo como principal
+                await conn.execute("""
+                    UPDATE tb_levantamientos 
+                    SET id_sitio = $1 
+                    WHERE id_oportunidad = $2
+                """, new_main_id, id_oportunidad)
+            
+            # 3. Borrar los sitios VIEJOS explicitamente
+            # (No podemos usar delete * by oportunidad porque borraría los que acabamos de insertar)
+            if old_ids_list:
+                await conn.execute("""
+                    DELETE FROM tb_sitios_oportunidad 
+                    WHERE id_sitio = ANY($1::uuid[])
+                """, old_ids_list)
+            
+            # 4. Sincronizar Contador (Metadata vs Realidad)
+            new_count = len(records)
+            await conn.execute("""
+                UPDATE tb_oportunidades 
+                SET cantidad_sitios = $1 
+                WHERE id_oportunidad = $2
+            """, new_count, id_oportunidad)
         
         return len(records)
 
@@ -1122,6 +1161,17 @@ class ComercialService:
             await self.verify_ownership(conn, id_oportunidad, user_context)
             
         await conn.execute(QUERY_DELETE_SITIO, id_sitio)
+    
+        # Actualizar contador tras borrado (Evitar desincronización)
+        if id_oportunidad:
+            # Recalcular count real
+            real_count = await conn.fetchval("""
+                SELECT count(*) FROM tb_sitios_oportunidad WHERE id_oportunidad = $1
+            """, id_oportunidad)
+            
+            await conn.execute("""
+                UPDATE tb_oportunidades SET cantidad_sitios = $1 WHERE id_oportunidad = $2
+            """, real_count, id_oportunidad)
 
     # --- MÉTODOS DE LIMPIEZA ---
 

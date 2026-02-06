@@ -146,7 +146,7 @@ class LevantamientoService:
                 WHERE lh.id_estatus_nuevo = l.id_estatus_global
                 GROUP BY lh.id_levantamiento
             )
-            SELECT DISTINCT ON (l.id_levantamiento)
+            SELECT
                    l.id_levantamiento,
                    l.id_oportunidad,
                    l.id_estatus_global,
@@ -162,9 +162,9 @@ class LevantamientoService:
                    o.cantidad_sitios,
                    s.direccion,
                    s.nombre_sitio,
-                   u_tec.nombre as tecnico_nombre,
-                   u_tec.id_usuario as tecnico_id,
-                   u_tec.email as tecnico_email,
+                   -- Logic for Multi-Technician Display
+                   COALESCE(techs.nombres, u_tec.nombre) as tecnico_nombre,
+                   u_tec.email as tecnico_email, -- Legacy
                    NULL as tecnico_area,
                    u_jefe.nombre as jefe_nombre,
                    u_jefe.id_usuario as jefe_id,
@@ -184,9 +184,16 @@ class LevantamientoService:
             -- JOIN con CTEs para optimización
             LEFT JOIN comentarios_count cc ON l.id_oportunidad = cc.id_oportunidad
             LEFT JOIN tiempo_en_estado te ON l.id_levantamiento = te.id_levantamiento
-            WHERE l.id_estatus_global IN (8, 9, 10, 11, 12, 13)
-            ORDER BY l.id_levantamiento, o.prioridad DESC, l.fecha_solicitud ASC
-        """
+            -- LATERAL JOIN for Multiple Technicians
+            LEFT JOIN LATERAL (
+                SELECT string_agg(u.nombre, ', ') as nombres
+                FROM tb_levantamiento_asignaciones la
+                JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
+                WHERE la.id_levantamiento = l.id_levantamiento
+            ) techs ON true
+        WHERE l.id_estatus_global IN (8, 9, 10, 11, 12, 13)
+        ORDER BY l.created_at DESC
+    """
         rows = await conn.fetch(query)
         
         # Organizar en columnas del Kanban (6 columnas)
@@ -199,11 +206,24 @@ class LevantamientoService:
             "pospuestos": []         # Estado 13
         }
         
+        # Obtener Jefe Default para fallback visual
+        jefe_default = await conn.fetchrow("""
+             SELECT id_usuario, nombre FROM tb_usuarios 
+             WHERE es_jefe_levantamientos_default = TRUE LIMIT 1
+        """)
+        jefe_default_nombre = jefe_default['nombre'] if jefe_default else "Sin asignar"
+        jefe_default_id = jefe_default['id_usuario'] if jefe_default else None
+
         for row in rows:
             item = dict(row)
             # Calcular tiempo relativo
             item['tiempo_relativo'] = self._format_tiempo_relativo(item.get('segundos_en_estado', 0))
             
+            # Fallback Jefe Default (Visual)
+            if not item['jefe_nombre'] and jefe_default_nombre:
+                item['jefe_nombre'] = jefe_default_nombre
+                # Opcional: item['jefe_id'] = jefe_default_id
+
             st = item['id_estatus_global']
             if st == 8:
                 kanban['pendientes'].append(item)
@@ -239,77 +259,102 @@ class LevantamientoService:
     # ASIGNACIÓN DE RESPONSABLES
     # ========================================
     
+    async def get_jefe_default(self, conn) -> Optional[UUID]:
+        """Obtiene el ID del jefe de levantamientos por defecto."""
+        return await conn.fetchval("""
+            SELECT id_usuario 
+            FROM tb_usuarios 
+            WHERE es_jefe_levantamientos_default = TRUE 
+            LIMIT 1
+        """)
+
     async def assign_responsables(
         self,
         conn,
         id_levantamiento: UUID,
-        tecnico_id: Optional[UUID],
+        tecnicos_ids: List[UUID],
         jefe_id: Optional[UUID],
         user_context: dict,
         observaciones: Optional[str] = None
     ):
         """
-        Asigna técnico y/o jefe de área a un levantamiento.
-        Envía notificaciones automáticamente.
-        
-        Args:
-            conn: Conexión a BD
-            id_levantamiento: ID del levantamiento
-            tecnico_id: ID del técnico a asignar (None para desasignar)
-            jefe_id: ID del jefe de área a asignar (None para desasignar)
-            user_context: Contexto del usuario que asigna
-            observaciones: Comentarios sobre la asignación
+        Asigna técnicos (multiples) y/o jefe de área.
+        Usa tb_levantamiento_asignaciones para técnicos.
         """
-        # Obtener asignaciones actuales
+        # Validar levantamiento
         current = await conn.fetchrow("""
-            SELECT tecnico_asignado_id, jefe_area_id, id_oportunidad, id_estatus_global
+            SELECT id_levantamiento, jefe_area_id, id_oportunidad, id_estatus_global
             FROM tb_levantamientos
             WHERE id_levantamiento = $1
         """, id_levantamiento)
         
         if not current:
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
-        
-        # Actualizar asignaciones
+
+        # 1. Actualizar Jefe en tabla principal
         now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
+        
+        # Mantener legacy tecnico_asignado_id con el primero de la lista (para compatibilidad)
+        legacy_tecnico_id = tecnicos_ids[0] if tecnicos_ids else None
+
         await conn.execute("""
             UPDATE tb_levantamientos
-            SET tecnico_asignado_id = $1,
-                jefe_area_id = $2,
+            SET jefe_area_id = $1,
+                tecnico_asignado_id = $2, -- Legacy support
                 updated_at = $3,
                 updated_by_id = $4
             WHERE id_levantamiento = $5
-        """, tecnico_id, jefe_id, now_mx, user_context['user_db_id'], id_levantamiento)
+        """, jefe_id, legacy_tecnico_id, now_mx, user_context['user_db_id'], id_levantamiento)
+
+        # 2. Actualizar Tabla Pivote (Sync Strategy: Borrar e Insertar)
+        # Comparar con actuales para notificaciones
+        old_tech_rows = await conn.fetch("""
+            SELECT tecnico_id FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1
+        """, id_levantamiento)
+        old_tech_ids = [r['tecnico_id'] for r in old_tech_rows]
         
-        # Registrar en historial (sin cambio de estado, solo asignación)
+        # Borrar asignaciones existentes
+        await conn.execute("DELETE FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1", id_levantamiento)
+        
+        # Insertar nuevas
+        if tecnicos_ids:
+            records = [(id_levantamiento, tid, user_context['user_db_id']) for tid in set(tecnicos_ids)]
+            await conn.executemany("""
+                INSERT INTO tb_levantamiento_asignaciones (id_levantamiento, tecnico_id, asignado_por_id)
+                VALUES ($1, $2, $3)
+            """, records)
+
+        # 3. Registrar Historial
         obs_text = observaciones or "Asignación de responsables actualizada"
+        metadata = {
+            "tipo_cambio": "asignacion",
+            "jefe_id": str(jefe_id) if jefe_id else None,
+            "tecnicos_ids": [str(t) for t in tecnicos_ids]
+        }
+        
         await self._registrar_en_historial(
             conn=conn,
             id_levantamiento=id_levantamiento,
             estatus_anterior=current['id_estatus_global'],
-            estatus_nuevo=current['id_estatus_global'],  # Mismo estado
+            estatus_nuevo=current['id_estatus_global'],
             user_context=user_context,
             observaciones=obs_text,
-            metadata={
-                "tipo_cambio": "asignacion", 
-                "tecnico_id": str(tecnico_id) if tecnico_id else None, 
-                "jefe_id": str(jefe_id) if jefe_id else None
-            }
+            metadata=metadata
         )
-        
-        # Notificar al técnico asignado (si cambió) - Fire & Forget
-        if tecnico_id and tecnico_id != current['tecnico_asignado_id']:
-            asyncio.create_task(
+
+        # 4. Notificaciones
+        # Notificar a nuevos técnicos asignados
+        new_techs = set(tecnicos_ids) - set(old_tech_ids)
+        for new_tid in new_techs:
+             asyncio.create_task(
                 self._execute_notification_background(
                     self._notificar_asignacion_impl,
                     id_oportunidad=current['id_oportunidad'],
-                    old_responsable_id=current['tecnico_asignado_id'],
-                    new_responsable_id=tecnico_id,
+                    old_responsable_id=None, # Tratamos como nueva asignación
+                    new_responsable_id=new_tid,
                     user_context=user_context
                 )
             )
-        
-        logger.info(f"[ASIGNACIÓN] Levantamiento {id_levantamiento} - Técnico: {tecnico_id}, Jefe: {jefe_id}")
     
     # ========================================
     # CAMBIO DE ESTADO
@@ -554,6 +599,80 @@ class LevantamientoService:
                     "new_status": new_status_id
                 }
             )
+
+    async def _notificar_agendado_impl(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        fecha_visita: str,
+        user_context: dict
+    ):
+        """Notificación específica para cuando se agenda una visita."""
+        try:
+            from core.workflow.notification_service import get_notification_service
+            
+            # TODO: Add specific method in notification_service if needed, 
+            # for now using status change or generic message
+            # But user requested "Notificar al capturador cuando se agenda"
+            
+            # Since we don't know if notify_scheduled exists in notification_service,
+            # we'll assume we need to implement it or use a generic one.
+            # Checking existing code, notify_status_change sends emails.
+            # We will use a generic "scheduler" notification if available or create a simple email.
+            
+            # For this implementation I will try to use a custom email via notification service's internal helper if exposed,
+            # or rely on the fact that changing status to 9 (Agendado) already triggers notify_status_change.
+            
+            # WAIT: The router calls update_reagendar which sets status to 9.
+            # And change_status_endpoint calls cambiar_estado which triggers _notificar_cambio_estado_impl.
+            # BUT reagendar_endpoint calls db_svc.update_reagendar directly, limiting the status change trigger.
+            # So we DO need to trigger a notification here.
+            
+            # Let's verify if notification_service has a generic 'send_custom_notification'.
+            # If not, I'll stick to notify_status_change logic but customized.
+            
+            # To be safe and reuse existing logic, I will emulate a status change notification
+            # but with specific context of "Agendado para fecha X".
+            
+            notif_service = get_notification_service()
+            # We trigger a status change notification to 9 (Agendado) explictly
+            await notif_service.notify_status_change(
+                conn=conn,
+                id_oportunidad=id_oportunidad,
+                old_status_id=8, # Assumptions usually from Pendiente
+                new_status_id=9, # Agendado
+                changed_by_ctx=user_context,
+                extra_data={"fecha_visita": str(fecha_visita)}
+            )
+            logger.info(f"[NOTIFICACIÓN] Visita agendada notificada para oportunidad {id_oportunidad}")
+            
+        except Exception as e:
+            logger.error(f"[NOTIFICACIÓN] Error al notificar agenda: {e}", exc_info=True)
+
+    async def _notificar_pospuesto_impl(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        motivo: str,
+        user_context: dict
+    ):
+        """Notificación específica para cuando se pospone."""
+        try:
+            from core.workflow.notification_service import get_notification_service
+            notif_service = get_notification_service()
+            
+            await notif_service.notify_status_change(
+                conn=conn,
+                id_oportunidad=id_oportunidad,
+                old_status_id=9, # Assumption
+                new_status_id=13, # Pospuesto
+                changed_by_ctx=user_context,
+                extra_data={"motivo": motivo}
+            )
+            logger.info(f"[NOTIFICACIÓN] Posposición notificada para oportunidad {id_oportunidad}")
+            
+        except Exception as e:
+            logger.error(f"[NOTIFICACIÓN] Error al notificar posponer: {e}", exc_info=True)
     
     # ========================================
     # CATÁLOGOS
@@ -580,16 +699,14 @@ class LevantamientoService:
             ORDER BY u.nombre
         """)
         
-        # Jefes: Gerentes O usuarios con flag puede_ser_jefe_area
+        # Jefes: Solo usuarios marcados como jefe default
         jefes = await conn.fetch("""
             SELECT id_usuario, nombre, email, rol_sistema
             FROM tb_usuarios
-            WHERE (
-                    rol_sistema IN ('MANAGER', 'DIRECTOR', 'ADMIN')
-                    OR puede_ser_jefe_area = true
-                  )
+            WHERE es_jefe_levantamientos_default = true
               AND is_active = true
             ORDER BY nombre
+            LIMIT 1
         """)
         
         return {

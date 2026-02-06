@@ -48,7 +48,7 @@ def check_puede_crear_proyecto(context: dict) -> bool:
         return True
     
     # Verificar permisos en módulos específicos
-    roles_permitidos = ["editor", "assignor", "admin", "owner"]
+    roles_permitidos = ["editor", "admin"]
     
     compras_role = module_roles.get("compras", "")
     construccion_role = module_roles.get("construccion", "")

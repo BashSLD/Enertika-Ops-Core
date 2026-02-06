@@ -149,7 +149,7 @@ async def get_template_form(
     Formulario de creación - requiere permisos de edición.
     
     Nota: require_module_access("TEMPLATE", "editor") valida que el usuario
-    tenga rol de "editor" o superior ("owner") en este módulo.
+    tenga rol de "editor" o superior en este módulo.
     """
     return templates.TemplateResponse("TEMPLATE/form.html", {
         "request": request,

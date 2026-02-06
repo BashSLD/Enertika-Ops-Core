@@ -13,7 +13,7 @@
             </div>
 
             <!-- Acciones principales -->
-            {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'assignor', 'admin', 'owner']) %}
+            {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
             <div class="flex flex-wrap gap-3">
                 {% if can_edit %}
                 <!-- Botón Upload -->

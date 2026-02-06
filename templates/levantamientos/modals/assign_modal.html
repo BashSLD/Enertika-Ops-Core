@@ -1,0 +1,156 @@
+<!-- Variables: lev_data, tecnicos, jefes, current_tecnico_ids (list), current_jefe_id -->
+<div
+    class="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] mx-auto overflow-hidden animate-fade-in-up">
+
+    <!-- Header -->
+    <div
+        class="bg-gradient-to-r from-blue-600 to-indigo-700 p-4 flex-none flex justify-between items-center text-white relative overflow-hidden">
+        <div class="absolute inset-0 bg-white/10 opacity-30 pattern-grid"></div>
+        <h3 class="text-lg font-bold z-10 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                stroke="currentColor" class="w-6 h-6">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                    d="M18 18.72a9.094 9.094 0 003.741-.479 3 3 0 00-4.682-2.72m.94 3.198l.001.031c0 .225-.012.447-.037.666A11.944 11.944 0 0112 21c-2.17 0-4.207-.576-5.963-1.584A6.062 6.062 0 016 18.719m12 0a5.971 5.971 0 00-.941-3.197m0 0A5.995 5.995 0 0012 12.75a5.995 5.995 0 00-5.058 2.772m0 0a3 3 0 00-4.681 2.72 8.986 8.986 0 003.74.477m.94-3.197a5.971 5.971 0 00-.94 3.197M15 6.75a3 3 0 11-6 0 3 3 0 016 0zm6 3a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0zm-13.5 0a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+            </svg> Asignar Responsables
+        </h3>
+        <button onclick="closeModal()"
+            class="text-white/80 hover:text-white transition-colors z-10 rounded-full p-1 hover:bg-white/20">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
+    </div>
+
+    <!-- Main Form Container -->
+    <form hx-post="/levantamientos/assign/{{ id_levantamiento }}" hx-target="#kanban-container" hx-swap="outerHTML"
+        hx-on::after-request="if(event.detail.successful) closeModal()" class="flex flex-col flex-1 overflow-hidden">
+
+        <!-- Scrollable Body -->
+        <div class="flex-1 overflow-y-auto p-6 bg-slate-50 custom-scrollbar">
+            <!-- Info Resumen -->
+            <div class="bg-blue-50/50 rounded-xl p-3 mb-5 border border-blue-100/50">
+                <h4 class="font-semibold text-blue-900 text-sm mb-1">{{ lev_data.nombre_proyecto or
+                    lev_data.titulo_proyecto }}</h4>
+                <div class="flex items-center gap-3 text-xs text-blue-700/70">
+                    <span class="flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3">
+                            <path fill-rule="evenodd"
+                                d="M4 4a2 2 0 012-2h8a2 2 0 012 2v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4zm3 1h6v4H7V5zm13 1.5a1 1 0 011 1v5a1 1 0 01-1 1h-1.5a1 1 0 01-1-1v-5a1 1 0 011-1H20z"
+                                clip-rule="evenodd" />
+                        </svg> {{ lev_data.cliente_nombre }}
+                    </span>
+                    <span class="flex items-center gap-1">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-3 h-3">
+                            <path fill-rule="evenodd"
+                                d="M10 2a1 1 0 00-1 1v1a1 1 0 002 0V3a1 1 0 00-1-1zM4 4h3a3 3 0 006 0h3a2 2 0 012 2v9a2 2 0 01-2 2H4a2 2 0 01-2-2V6a2 2 0 012-2zm2.5 7a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm2.45 4a2.5 2.5 0 10-4.9 0h4.9zM12 9a1 1 0 100 2h3a1 1 0 100-2h-3zm-1 4a1 1 0 011-1h2a1 1 0 110 2h-2a1 1 0 01-1-1z"
+                                clip-rule="evenodd" />
+                        </svg> {{ lev_data.op_id_estandar }}
+                    </span>
+                </div>
+            </div>
+
+            <div class="space-y-5">
+                <!-- Jefe de Área -->
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Jefe de Área /
+                        Supervisor</label>
+                    <div class="relative">
+                        <select name="jefe_area_id" {% if not can_assign %}disabled{% endif %}
+                            class="w-full bg-white border border-gray-200 text-gray-700 py-2.5 pl-3 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 appearance-none shadow-sm cursor-pointer hover:border-blue-300 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed">
+                            <!-- Removed Option Sin Asignar -->
+                            {% for j in jefes %}
+                            <option value="{{ j.id_usuario }}" {% if current_jefe_id and
+                                j.id_usuario|string==current_jefe_id|string %}selected{% endif %}>{{ j.nombre }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                        <div
+                            class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-500">
+                            <svg class="fill-current h-4 w-4" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
+                                <path d="M9.293 12.95l.707.707L15.657 8l-1.414-1.414L10 10.828 5.757 6.586 4.343 8z" />
+                            </svg>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Técnicos (Multi-select) -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide">Ingeniero(s)
+                            Asignado(s)</label>
+                        <span class="text-xs text-gray-400 font-normal">Selecciona múltiples</span>
+                    </div>
+                    <div
+                        class="max-h-48 overflow-y-auto border border-gray-200 rounded-lg bg-white shadow-inner p-2 space-y-1 custom-scrollbar">
+                        {% for t in tecnicos %}
+                        <label
+                            class="flex items-center p-2 rounded hover:bg-slate-50 cursor-pointer transition-colors group">
+                            <input type="checkbox" name="tecnico_asignado_id" value="{{ t.id_usuario }}" {% if not
+                                can_assign %}disabled{% endif %}
+                                class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 focus:ring-offset-0 transition-all cursor-pointer disabled:cursor-not-allowed disabled:bg-gray-100"
+                                {% if t.id_usuario in current_tecnico_ids %}checked{% endif %}>
+                            <span
+                                class="ml-3 text-sm text-gray-600 group-hover:text-gray-900 group-hover:font-medium transition-all">{{
+                                t.nombre }}</span>
+                        </label>
+                        {% endfor %}
+                    </div>
+                </div>
+
+                <!-- Observaciones -->
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Notas de
+                        Asignación</label>
+                    <textarea name="observaciones" rows="2" {% if not can_assign %}readonly{% endif %}
+                        class="w-full bg-white border border-gray-200 text-gray-700 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 shadow-sm resize-none text-sm placeholder-gray-300 read-only:bg-gray-50"
+                        placeholder="Instrucciones para el equipo..."></textarea>
+                </div>
+            </div>
+        </div>
+
+        <!-- Footer Actions (Fixed) -->
+        <div
+            class="p-4 bg-white border-t border-gray-100 flex justify-end gap-3 flex-none shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+            <button type="button" onclick="closeModal()"
+                class="px-4 py-2 bg-white text-gray-600 font-medium rounded-lg border border-gray-200 hover:bg-gray-50 hover:text-gray-800 transition-colors shadow-sm text-sm">
+                Cancelar
+            </button>
+            {% if can_assign %}
+            <button type="submit"
+                class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-lg shadow-blue-600/30 transition-all transform hover:scale-[1.02] flex items-center gap-2 text-sm">
+                <span>
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
+                        class="w-4 h-4 inline-block -mt-0.5">
+                        <path
+                            d="M7.707 10.293a1 1 0 10-1.414 1.414l3 3a1 1 0 001.414 0l3-3a1 1 0 00-1.414-1.414L11 11.586V6h5a2 2 0 012 2v7a2 2 0 01-2 2H4a2 2 0 01-2-2V8a2 2 0 012-2h5v5.586l-1.293-1.293zM9 4a1 1 0 012 0v2H9V4z" />
+                    </svg> Guardar Asignación
+                </span>
+            </button>
+            {% else %}
+            <span class="text-xs text-gray-400 italic py-2">Solo lectura</span>
+            {% endif %}
+        </div>
+    </form>
+</div>
+
+
+<style>
+    /* Estilos personalizados para scrollbar */
+    .custom-scrollbar::-webkit-scrollbar {
+        width: 6px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-track {
+        background: #f1f5f9;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb {
+        background: #cbd5e1;
+        border-radius: 3px;
+    }
+
+    .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+        background: #94a3b8;
+    }
+</style>

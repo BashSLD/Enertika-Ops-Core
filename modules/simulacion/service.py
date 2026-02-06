@@ -353,25 +353,24 @@ class SimulacionService:
         # I should add 'id_oportunidad' to this helper signature.
         
         # 1. Verificar Permisos de Campos Sensibles
-        can_edit_sensitive = False
-        allowed_roles = await ConfigService.get_global_config(
-            conn, 
-            "roles_edit_simulacion_sensitive", 
-            ["ADMIN", "MANAGER_SIMULATION"], 
-            list
-        )
-        
-        if user_context.get('role') in allowed_roles:
-            can_edit_sensitive = True
-            
-        # Si no tiene permisos, restaurar valores originales de campos sensibles
+        # Lógica espejo del router (update_oportunidades modal):
+        #   - ADMIN del sistema -> SI
+        #   - admin del módulo simulación -> SI
+        #   - MANAGER del sistema + editor/admin del módulo -> SI
+        #   - Editor regular -> NO
+        sim_role = user_context.get("module_roles", {}).get("simulacion", "")
+        is_admin_system = (user_context.get("role") == "ADMIN" or sim_role == "admin")
+        is_manager_editor = (user_context.get("role") == "MANAGER" and sim_role in ["editor", "admin"])
+        can_edit_sensitive = is_admin_system or is_manager_editor
+
+        # monto_cierre_usd: siempre preservar de BD (no hay input en el modal)
+        datos.monto_cierre_usd = current_data['monto_cierre_usd']
+
+        # Si no tiene permisos sensibles, restaurar campos protegidos
         if not can_edit_sensitive:
             datos.id_interno_simulacion = current_data['id_interno_simulacion']
             datos.responsable_simulacion_id = current_data['responsable_simulacion_id']
             datos.deadline_negociado = current_data['deadline_negociado']
-            datos.monto_cierre_usd = current_data['monto_cierre_usd']
-            # REMOVED: potencia_cierre_fv_kwp and capacidad_cierre_bess_kwh are now editable by standard editors
-            # as they are required for the closing process.
         else:
              # Si tiene permisos y envió una fecha de deadline, forzamos la hora a las 18:00:00 (Regla de negocio original)
             if datos.deadline_negociado:
@@ -770,21 +769,6 @@ class SimulacionService:
             "usuarios": usuarios
         }
     
-    async def auto_crear_sitio_unico(self, conn, id_oportunidad, nombre_proyecto, direccion, google_maps, id_tipo):
-        """
-        Crea automáticamente el Sitio 01 para opportunidades de 1 solo sitio.
-        Espejo de la lógica comercial para mantener consistencia.
-        """
-        await conn.execute("""
-            INSERT INTO tb_sitios_oportunidad (
-                id_sitio, id_oportunidad, nombre_sitio, 
-                direccion_completa, enlace_google_maps, 
-                id_tipo_solicitud, id_estatus_sitio
-            ) VALUES (
-                $1, $2, $3, $4, $5, $6, 1
-            )
-        """, uuid4(), id_oportunidad, nombre_proyecto, direccion, google_maps, id_tipo)
-
     @staticmethod
     def get_canal_from_user_name(user_name: str) -> str:
 

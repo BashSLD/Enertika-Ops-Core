@@ -16,7 +16,7 @@
             </div>
 
             <!-- Botón de acción principal con ripple effect -->
-            {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'assignor', 'admin']) %}
+            {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
             {% if can_edit %}
             <button hx-get="/TEMPLATE/form" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
                 class="ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white font-bold py-2.5 px-5 rounded-lg shadow-lg shadow-[#00BABB]/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">

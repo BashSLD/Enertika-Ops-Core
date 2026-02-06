@@ -38,7 +38,7 @@
         hx-on::after-request="if(event.detail.successful) closeModal()">
 
         <div class="form-group">
-            <label for="motivo_pospone" class="form-label required">
+            <label for="motivo_pospone" class="form-label required text-white">
                 Motivo de posposición
             </label>
             <textarea id="motivo_pospone" name="motivo_pospone" class="form-textarea" rows="4"
@@ -50,12 +50,15 @@
             </p>
         </div>
 
-        <div class="modal-footer mt-6 flex justify-end gap-3">
-            <button type="button" class="btn btn-secondary" onclick="closeModal()">
+        <div class="modal-footer mt-6 flex justify-end gap-3 border-t border-gray-700/50 pt-4">
+            <button type="button"
+                class="px-4 py-2 bg-slate-700 text-gray-200 font-medium rounded-lg hover:bg-slate-600 transition-colors shadow-sm text-sm"
+                onclick="closeModal()">
                 Cancelar
             </button>
-            <button type="submit" class="btn btn-warning">
-                <i class="fas fa-pause-circle mr-2"></i>
+            <button type="submit"
+                class="px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-lg shadow-lg shadow-amber-500/30 transition-all transform hover:scale-[1.02] flex items-center gap-2 text-sm">
+                <i class="fas fa-pause-circle text-white"></i>
                 Posponer
             </button>
         </div>

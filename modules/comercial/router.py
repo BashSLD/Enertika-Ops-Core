@@ -874,12 +874,12 @@ async def delete_sitio_endpoint(
     request: Request, 
     id_sitio: UUID, 
     service: ComercialService = Depends(get_comercial_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    user_context = Depends(get_current_user_context)
 ):
     if not await get_valid_graph_token(request):
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
     
-    user_context = await get_current_user_context(request)
     await service.delete_sitio(conn, id_sitio, user_context)
     return HTMLResponse("", status_code=200)
 

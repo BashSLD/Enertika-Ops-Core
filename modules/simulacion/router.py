@@ -458,13 +458,23 @@ async def get_sitios_partial(
     else:
         effective_role = context.get("module_roles", {}).get("simulacion", "viewer")
 
+    # Validar si la oportunidad está en estado terminal (Bloquear edición)
+    op = await db_service.get_oportunidad_by_id(conn, id_oportunidad)
+    is_locked = False
+    if op:
+         # Estados terminales: Entregado(4), Cancelado(3), Perdido(5), Ganada(2) - IDs aproximados standard
+         # Usamos el mapa de IDs para ser precisos
+         if op['id_estatus_global'] in [status_ids.get('entregado'), status_ids.get('cancelado'), status_ids.get('perdido'), status_ids.get('ganada')]:
+             is_locked = True
+
     return templates.TemplateResponse("simulacion/partials/sitios_list.html", {
         "request": request,
         "sitios": sitios,
         "context": context,
-        "current_module_role": effective_role, # <--- NEW: Explicit role for template
+        "current_module_role": effective_role, 
         "estatus_options": [dict(r) for r in estatus_options],
-        "id_oportunidad": id_oportunidad
+        "id_oportunidad": id_oportunidad,
+        "is_locked": is_locked # <--- Variable de bloqueo para UI
     })
 
 # ========================================

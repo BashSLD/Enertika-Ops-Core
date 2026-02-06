@@ -87,7 +87,10 @@ class SimulacionDBService:
             SELECT id_usuario, nombre, department as departamento
             FROM tb_usuarios
             WHERE is_active = true 
-            AND LOWER(department) = 'simulación'
+            AND (
+                LOWER(department) = 'simulación'
+                OR puede_asignarse_simulacion = true
+            )
             ORDER BY nombre
         """
         rows = await conn.fetch(query)
