@@ -6,18 +6,16 @@ import logging
 import asyncpg
 from fastapi import HTTPException
 from zoneinfo import ZoneInfo
-import pandas as pd
 import io
 
 from openpyxl import load_workbook
-from fastapi.templating import Jinja2Templates
 from .schemas import SitioImportacion, DetalleBessCreate
 from .constants import STATUS_PENDIENTE, DEFAULT_STATUS_ID_PENDIENTE
 import asyncio
 from .db_service import (
-    QUERY_GET_OPORTUNIDADES_LIST, 
-    QUERY_INSERT_OPORTUNIDAD, 
-    QUERY_INSERT_FOLLOWUP, 
+    QUERY_GET_OPORTUNIDADES_LIST,
+    QUERY_INSERT_OPORTUNIDAD,
+    QUERY_INSERT_FOLLOWUP,
     QUERY_CLONE_SITIOS,
     QUERY_GET_TECNOLOGIAS,
     QUERY_GET_TIPOS_SOLICITUD,
@@ -51,7 +49,23 @@ from .db_service import (
     QUERY_DELETE_DOCS,
     QUERY_DELETE_LEVANTAMIENTOS,
     QUERY_DELETE_BESS,
-    QUERY_SEARCH_CLIENTES
+    QUERY_SEARCH_CLIENTES,
+    # Fase 5: queries extraídas de inline
+    QUERY_GET_CLIENTE_BY_ID,
+    QUERY_GET_OLDEST_OP_BY_CLIENTE,
+    QUERY_UPDATE_CLIENTE_ID_INTERNO,
+    QUERY_GET_OPORTUNIDAD_FULL,
+    QUERY_GET_PASO2_DATA,
+    QUERY_GET_SITIO_IDS_BY_OP,
+    QUERY_DELETE_SITIOS_BY_IDS,
+    QUERY_RELINK_LEVANTAMIENTOS,
+    QUERY_UPDATE_CANTIDAD_SITIOS,
+    QUERY_COUNT_SITIOS_BY_OP,
+    QUERY_GET_OP_ESTATUS,
+    QUERY_UPDATE_OP_ESTATUS,
+    QUERY_UPDATE_SITIOS_ESTATUS_BY_IDS,
+    QUERY_UPDATE_SITIOS_ESTATUS_OTHERS,
+    QUERY_UPDATE_SITIOS_ESTATUS_ALL,
 )
 
 # Shared Services
@@ -60,7 +74,6 @@ from modules.shared.services import IdGeneratorService, ClientService, BessServi
 # Sub-Services
 from .services import DashboardService, NotificationService
 from .sla_calculator import SLACalculator
-from modules.admin.service import AdminService # Para config global si se requiere
 from core.config_service import ConfigService
 from core.permissions import user_has_module_access
 
@@ -76,13 +89,10 @@ class ComercialService:
     def __init__(
         self,
         dashboard_service: Optional[DashboardService] = None,
-        notification_service: Optional[NotificationService] = None,
-        admin_service: Optional[AdminService] = None
+        notification_service: Optional[NotificationService] = None
     ):
-        # Composition: Sub-services (Dependency Injection ready)
         self.dashboard_service = dashboard_service or DashboardService()
         self.notification_service = notification_service or NotificationService()
-        self.admin_service = admin_service or AdminService()
         
         # Shared Helpers
         # (Static methods don't need instantiation but we use them directly)
@@ -310,7 +320,7 @@ class ComercialService:
         """, *codigos)
         
         # Usuarios (Para delegación)
-        usuarios = await conn.fetch("SELECT id_usuario, nombre FROM tb_usuarios WHERE is_active = true ORDER BY nombre")
+        usuarios = await conn.fetch(QUERY_GET_ALL_USUARIOS)
 
         return {
             "tecnologias": [dict(t) for t in tecnologias],
@@ -369,16 +379,11 @@ class ComercialService:
             return
 
         owner_id = await conn.fetchval(QUERY_GET_OPORTUNIDAD_OWNER, id_oportunidad)
-        
-        if not owner_id:
-             # Si no existe la oportunidad, dejamos que el 404 ocurra aguas abajo o lanzamos aquí.
-             # Para seguridad, es mejor no revelar existencia si no es owner, pero por usability 
-             # asumiremos que si no existe, el siguiente query fallará con 404.
-             # Si se prefiere strict security: raise HTTPException(404)
-             pass
-        
+
+        if owner_id is None:
+            raise HTTPException(status_code=404, detail="Oportunidad no encontrada.")
+
         user_id = user_context.get("user_db_id")
-        # Comparar UUIDs como strings para evitar problemas de tipos
         if str(owner_id) != str(user_id):
             logger.warning(f"ACCESS DENIED: User {user_id} tried to access op {id_oportunidad} owned by {owner_id}")
             raise HTTPException(status_code=403, detail="No tiene permiso para acceder a esta oportunidad.")
@@ -431,7 +436,7 @@ class ComercialService:
         else:
             # Caso 2: Cliente Seleccionado (Explicit ID)
             # Solo recuperamos sus datos para ver si ya tiene ID congelado
-            row = await conn.fetchrow("SELECT nombre_fiscal, id_interno_simulacion FROM tb_clientes WHERE id = $1", final_cliente_id)
+            row = await conn.fetchrow(QUERY_GET_CLIENTE_BY_ID, final_cliente_id)
             if row:
                 final_cliente_nombre = row['nombre_fiscal']
                 frozen_id = row['id_interno_simulacion']
@@ -442,10 +447,7 @@ class ComercialService:
                     logger.info(f"Cliente {final_cliente_id} sin ID Interno. Iniciando recuperación histórica...")
                     
                     # 1. Buscar la oportunidad MÁS ANTIGUA de este cliente para heredar su fecha
-                    oldest_op = await conn.fetchrow(
-                        "SELECT op_id_estandar FROM tb_oportunidades WHERE cliente_id = $1 ORDER BY fecha_solicitud ASC LIMIT 1",
-                        final_cliente_id
-                    )
+                    oldest_op = await conn.fetchrow(QUERY_GET_OLDEST_OP_BY_CLIENTE, final_cliente_id)
                     
                     if oldest_op and oldest_op['op_id_estandar']:
                         # Reconstruir ID Ancestral
@@ -461,10 +463,7 @@ class ComercialService:
                         logger.info(f"SIN HISTORIAL: Generando nuevo ID Interno '{frozen_id}'")
 
                     # 2. GUARDAR EN EL CLIENTE (Persistencia futura)
-                    await conn.execute(
-                        "UPDATE tb_clientes SET id_interno_simulacion = $1 WHERE id = $2",
-                        frozen_id, final_cliente_id
-                    )
+                    await conn.execute(QUERY_UPDATE_CLIENTE_ID_INTERNO, frozen_id, final_cliente_id)
                     logger.info("BACKFILL EXITOSO: Cliente actualizado.")
 
             else:
@@ -622,13 +621,15 @@ class ComercialService:
             try:
                 filtro_fecha_inicio = datetime.strptime(filtro_fecha_inicio, '%Y-%m-%d').date()
             except ValueError:
-                pass
-        
+                logger.warning(f"Fecha inicio inválida ignorada: {filtro_fecha_inicio}")
+                filtro_fecha_inicio = None
+
         if filtro_fecha_fin and isinstance(filtro_fecha_fin, str):
             try:
                 filtro_fecha_fin = datetime.strptime(filtro_fecha_fin, '%Y-%m-%d').date()
             except ValueError:
-                pass
+                logger.warning(f"Fecha fin inválida ignorada: {filtro_fecha_fin}")
+                filtro_fecha_fin = None
 
         # Cargar IDs de catálogos
         cats = await self.get_catalog_ids(conn)
@@ -857,7 +858,7 @@ class ComercialService:
         # Obtenemos la hora con timezone de México. Asyncpg la convertirá a UTC al guardar.
         now_mx = await self.get_current_datetime_mx(conn)
 
-        parent = await conn.fetchrow(f"SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", parent_id)
+        parent = await conn.fetchrow(QUERY_GET_OPORTUNIDAD_FULL, parent_id)
         if not parent: 
             raise HTTPException(status_code=404, detail="Oportunidad original no encontrada")
 
@@ -1091,10 +1092,8 @@ class ComercialService:
             raise HTTPException(status_code=400, detail="JSON corrupto")
 
         records = []
-        # Preparar datos en memoria primero
         for item in raw_data:
             try:
-                # Usar Schema Pydantic para validación
                 sitio = SitioImportacion(**item)
                 records.append((
                     uuid4(), id_oportunidad, sitio.nombre_sitio, sitio.direccion,
@@ -1104,74 +1103,51 @@ class ComercialService:
                 logger.warning(f"Saltando fila inválida: {e}")
                 continue
 
-        # Obtener id_tipo_solicitud de la oportunidad padre
-        id_tipo_solicitud = await conn.fetchval(QUERY_GET_TIPO_SOLICITUD_FROM_OP, id_oportunidad)
-        
-        # Recuperar IDs de sitios existentes (para borrar selectivamente después)
-        old_rows = await conn.fetch("SELECT id_sitio FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", id_oportunidad)
-        old_ids_list = [r['id_sitio'] for r in old_rows]
-        
-    # Ejecutar Bloque Atómico
-        # Si algo falla aquí, Postgres hace rollback automático del DELETE
+        # Bloque Atómico: reads + writes en la misma transacción (fix race condition B12)
         async with conn.transaction():
-             
-            # 1. Insertar NUEVOS sitios primero (para tener IDs válidos para el re-link)
+            # Obtener id_tipo_solicitud y estatus inicial dentro de la transacción
+            id_tipo_solicitud = await conn.fetchval(QUERY_GET_TIPO_SOLICITUD_FROM_OP, id_oportunidad)
+
+            cats = await self.get_catalog_ids(conn)
+            id_status_inicial = cats['estatus'].get(STATUS_PENDIENTE) or DEFAULT_STATUS_ID_PENDIENTE
+
+            # Recuperar IDs de sitios existentes (para borrar selectivamente después)
+            old_rows = await conn.fetch(QUERY_GET_SITIO_IDS_BY_OP, id_oportunidad)
+            old_ids_list = [r['id_sitio'] for r in old_rows]
+
+            # 1. Insertar NUEVOS sitios
             if records:
                 q = QUERY_INSERT_SITIO_BULK
-                
-                # Adjuntar id_tipo_solicitud a cada tupla
-                records_with_type = [r + (id_tipo_solicitud,) for r in records]
-                await conn.executemany(q, records_with_type)
+                records_with_status_and_type = [r + (id_status_inicial, id_tipo_solicitud) for r in records]
+                await conn.executemany(q, records_with_status_and_type)
 
             # 2. Desvincular/Re-vincular Levantamientos (FIX FK Constraint)
-            # Como id_sitio es NOT NULL, debemos apuntarlo a uno de los NUEVOS sitios
-            # antes de borrar los viejos.
             if records:
-                new_main_id = records[0][0] # Usamos el primer sitio nuevo como principal
-                await conn.execute("""
-                    UPDATE tb_levantamientos 
-                    SET id_sitio = $1 
-                    WHERE id_oportunidad = $2
-                """, new_main_id, id_oportunidad)
-            
-            # 3. Borrar los sitios VIEJOS explicitamente
-            # (No podemos usar delete * by oportunidad porque borraría los que acabamos de insertar)
+                new_main_id = records[0][0]
+                await conn.execute(QUERY_RELINK_LEVANTAMIENTOS, new_main_id, id_oportunidad)
+
+            # 3. Borrar los sitios VIEJOS explícitamente
             if old_ids_list:
-                await conn.execute("""
-                    DELETE FROM tb_sitios_oportunidad 
-                    WHERE id_sitio = ANY($1::uuid[])
-                """, old_ids_list)
-            
-            # 4. Sincronizar Contador (Metadata vs Realidad)
+                await conn.execute(QUERY_DELETE_SITIOS_BY_IDS, old_ids_list)
+
+            # 4. Sincronizar Contador
             new_count = len(records)
-            await conn.execute("""
-                UPDATE tb_oportunidades 
-                SET cantidad_sitios = $1 
-                WHERE id_oportunidad = $2
-            """, new_count, id_oportunidad)
-        
+            await conn.execute(QUERY_UPDATE_CANTIDAD_SITIOS, new_count, id_oportunidad)
+
         return len(records)
 
     async def delete_sitio(self, conn, id_sitio: UUID, user_context: dict):
-        """Elimina un sitio específico con validación de seguridad."""
-        # 1. Obtener id_oportunidad del sitio
+        """Elimina un sitio específico con validación de seguridad (atómico)."""
         id_oportunidad = await conn.fetchval(QUERY_GET_OPORTUNIDAD_FROM_SITIO, id_sitio)
         if id_oportunidad:
-            # 2. Verificar ownership de la oportunidad
             await self.verify_ownership(conn, id_oportunidad, user_context)
-            
-        await conn.execute(QUERY_DELETE_SITIO, id_sitio)
-    
-        # Actualizar contador tras borrado (Evitar desincronización)
-        if id_oportunidad:
-            # Recalcular count real
-            real_count = await conn.fetchval("""
-                SELECT count(*) FROM tb_sitios_oportunidad WHERE id_oportunidad = $1
-            """, id_oportunidad)
-            
-            await conn.execute("""
-                UPDATE tb_oportunidades SET cantidad_sitios = $1 WHERE id_oportunidad = $2
-            """, real_count, id_oportunidad)
+
+        async with conn.transaction():
+            await conn.execute(QUERY_DELETE_SITIO, id_sitio)
+
+            if id_oportunidad:
+                real_count = await conn.fetchval(QUERY_COUNT_SITIOS_BY_OP, id_oportunidad)
+                await conn.execute(QUERY_UPDATE_CANTIDAD_SITIOS, real_count, id_oportunidad)
 
     # --- MÉTODOS DE LIMPIEZA ---
 
@@ -1188,11 +1164,7 @@ class ComercialService:
 
     async def auto_crear_sitio_unico(self, conn, id_oportunidad: UUID, nombre: str, direccion: str, link: Optional[str], id_tipo_solicitud: int, id_estatus: int):
         """Crea automáticamente el registro de sitio para flujos de un solo sitio."""
-        try:
-
-            await conn.execute(QUERY_INSERT_SITIO_UNICO, uuid4(), id_oportunidad, nombre, direccion, link, id_tipo_solicitud, id_estatus)
-        except Exception as e:
-            logger.error(f"Error auto-creando sitio único: {e}")
+        await conn.execute(QUERY_INSERT_SITIO_UNICO, uuid4(), id_oportunidad, nombre, direccion, link, id_tipo_solicitud, id_estatus)
 
     async def marcar_extraordinaria_enviada(self, conn, id_oportunidad: UUID):
         """Marca una solicitud extraordinaria como 'enviada' sin mandar correo real."""
@@ -1337,12 +1309,11 @@ class ComercialService:
         
         if not all([id_entregado, id_ganada, id_perdido]):
             raise HTTPException(500, "Error de configuración: faltan estatus en catálogo")
-        
+
+        await self.verify_ownership(conn, id_oportunidad, user_context)
+
         # Validar status actual de la oportunidad
-        current_status = await conn.fetchval(
-            "SELECT id_estatus_global FROM tb_oportunidades WHERE id_oportunidad = $1",
-            id_oportunidad
-        )
+        current_status = await conn.fetchval(QUERY_GET_OP_ESTATUS, id_oportunidad)
         
         if current_status != id_entregado:
             raise HTTPException(
@@ -1351,50 +1322,26 @@ class ComercialService:
             )
         
         # Obtener cantidad de sitios para determinar lógica
-        sitios_count = await conn.fetchval(
-            "SELECT COUNT(*) FROM tb_sitios_oportunidad WHERE id_oportunidad = $1",
-            id_oportunidad
-        )
+        sitios_count = await conn.fetchval(QUERY_COUNT_SITIOS_BY_OP, id_oportunidad)
         
         async with conn.transaction():
-            # Lógica de actualización de sitios
             if sitios_ganados and len(sitios_ganados) > 0:
-                # Multisitio con selección parcial
-                # Sitios seleccionados → Ganada
-                await conn.execute("""
-                    UPDATE tb_sitios_oportunidad 
-                    SET id_estatus_global = $1 
-                    WHERE id_sitio = ANY($2) AND id_oportunidad = $3
-                """, id_ganada, sitios_ganados, id_oportunidad)
-                
-                # Sitios NO seleccionados → Perdido (solo los que están en Entregado)
-                await conn.execute("""
-                    UPDATE tb_sitios_oportunidad 
-                    SET id_estatus_global = $1 
-                    WHERE id_oportunidad = $2 
-                    AND id_sitio != ALL($3)
-                    AND id_estatus_global = $4
-                """, id_perdido, id_oportunidad, sitios_ganados, id_entregado)
-                
+                # Multisitio: seleccionados → Ganada
+                await conn.execute(QUERY_UPDATE_SITIOS_ESTATUS_BY_IDS, id_ganada, sitios_ganados, id_oportunidad)
+                # No seleccionados → Perdido (solo los que están en Entregado)
+                await conn.execute(QUERY_UPDATE_SITIOS_ESTATUS_OTHERS, id_perdido, id_oportunidad, sitios_ganados, id_entregado)
+
                 sitios_ganados_count = len(sitios_ganados)
                 sitios_perdidos_count = sitios_count - sitios_ganados_count
             else:
-                # Unisitio o multisitio sin selección específica → todos Ganada
-                await conn.execute("""
-                    UPDATE tb_sitios_oportunidad 
-                    SET id_estatus_global = $1 
-                    WHERE id_oportunidad = $2
-                """, id_ganada, id_oportunidad)
-                
+                # Unisitio o sin selección → todos Ganada
+                await conn.execute(QUERY_UPDATE_SITIOS_ESTATUS_ALL, id_ganada, id_oportunidad)
+
                 sitios_ganados_count = sitios_count
                 sitios_perdidos_count = 0
-            
+
             # Actualizar oportunidad padre a Ganada
-            await conn.execute("""
-                UPDATE tb_oportunidades 
-                SET id_estatus_global = $1 
-                WHERE id_oportunidad = $2
-            """, id_ganada, id_oportunidad)
+            await conn.execute(QUERY_UPDATE_OP_ESTATUS, id_ganada, id_oportunidad)
         
         logger.info(
             f"Cierre de venta: Oportunidad {id_oportunidad} marcada como Ganada "
@@ -1408,6 +1355,11 @@ class ComercialService:
             "sitios_ganados": sitios_ganados_count,
             "sitios_perdidos": sitios_perdidos_count
         }
+
+    async def get_paso2_data(self, conn, id_oportunidad: UUID) -> Optional[dict]:
+        """Recupera datos mínimos para renderizar el formulario de Paso 2."""
+        row = await conn.fetchrow(QUERY_GET_PASO2_DATA, id_oportunidad)
+        return dict(row) if row else None
 
     def get_next_ui_step(self, cantidad_sitios: int) -> str:
         """Determina el siguiente paso del flujo UI basado en reglas de negocio."""

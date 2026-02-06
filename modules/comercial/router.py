@@ -6,6 +6,7 @@ from uuid import UUID, uuid4
 from typing import Optional, List
 import io
 import logging
+import asyncpg
 import pandas as pd
 import asyncio
 import urllib.parse
@@ -35,6 +36,18 @@ router = APIRouter(
     prefix="/comercial",
     tags=["Módulo Comercial"],
 )
+
+def _safe_uuid(val: str) -> Optional[UUID]:
+    try:
+        return UUID(val) if val and val.strip() else None
+    except ValueError:
+        return None
+
+def _safe_int(val: str) -> Optional[int]:
+    try:
+        return int(val) if val and val.strip() else None
+    except (ValueError, TypeError):
+        return None
 
 
 
@@ -98,9 +111,8 @@ async def get_comercial_form(
     if not token:
         # Token expirado y no se pudo renovar - redirigir al login AHORA
         # Mejor que el usuario lo sepa de inmediato en lugar de perder 10 minutos de trabajo
-        from fastapi import Response
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
-    
+
     # Generar canal default desde el servicio
     canal_default = ComercialService.get_canal_from_user_name(
         user_context.get("user_name")
@@ -138,12 +150,10 @@ async def get_graphs_partial(
     _ = require_module_access("comercial")
 ):
     """Partial: Graphs Tab Content."""
-    
-    # Process inputs to handle empty strings
-    f_user = UUID(filtro_usuario_id) if filtro_usuario_id and filtro_usuario_id.strip() else None
-    f_tipo = int(filtro_tipo_id) if filtro_tipo_id and filtro_tipo_id.strip() else None
-    f_estatus = int(filtro_estatus_id) if filtro_estatus_id and filtro_estatus_id.strip() else None
-    f_tecnologia = int(filtro_tecnologia_id) if filtro_tecnologia_id and filtro_tecnologia_id.strip() else None
+    f_user = _safe_uuid(filtro_usuario_id)
+    f_tipo = _safe_int(filtro_tipo_id)
+    f_estatus = _safe_int(filtro_estatus_id)
+    f_tecnologia = _safe_int(filtro_tecnologia_id)
     f_inicio = filtro_fecha_inicio if filtro_fecha_inicio and filtro_fecha_inicio.strip() else None
     f_fin = filtro_fecha_fin if filtro_fecha_fin and filtro_fecha_fin.strip() else None
 
@@ -178,12 +188,10 @@ async def get_cards_partial(
     _ = require_module_access("comercial")
 ):
     """Partial: List of Opportunities (Cards/Grid)."""
-    
-    # Process inputs
-    f_user = UUID(filtro_usuario_id) if filtro_usuario_id and filtro_usuario_id.strip() else None
-    f_tipo = int(filtro_tipo_id) if filtro_tipo_id and filtro_tipo_id.strip() else None
-    f_estatus = int(filtro_estatus_id) if filtro_estatus_id and filtro_estatus_id.strip() else None
-    f_tecnologia = int(filtro_tecnologia_id) if filtro_tecnologia_id and filtro_tecnologia_id.strip() else None
+    f_user = _safe_uuid(filtro_usuario_id)
+    f_tipo = _safe_int(filtro_tipo_id)
+    f_estatus = _safe_int(filtro_estatus_id)
+    f_tecnologia = _safe_int(filtro_tecnologia_id)
     f_inicio = filtro_fecha_inicio if filtro_fecha_inicio and filtro_fecha_inicio.strip() else None
     f_fin = filtro_fecha_fin if filtro_fecha_fin and filtro_fecha_fin.strip() else None
     
@@ -288,7 +296,8 @@ async def notificar_oportunidad(
     ms_auth = Depends(get_ms_auth),
     conn = Depends(get_db_connection),
     email_handler = Depends(get_email_handler),  # Inyectar EmailHandler
-    context = Depends(get_current_user_context)
+    context = Depends(get_current_user_context),
+    _auth = require_module_access("comercial", "editor")
 ):
     """Envía el correo de notificación usando el token de la sesión."""
     
@@ -329,7 +338,10 @@ async def notificar_oportunidad(
     return result
 
 @router.get("/plantilla", response_class=StreamingResponse)
-async def descargar_plantilla_sitios():
+async def descargar_plantilla_sitios(
+    user_context = Depends(get_current_user_context),
+    _auth = require_module_access("comercial")
+):
     """Genera y descarga la plantilla Excel oficial (Async/Non-blocking)."""
     
     def _generate_excel_sync():
@@ -498,9 +510,12 @@ async def handle_oportunidad_creation(
             {"request": request, "detail": str(e)},
             status_code=200 
         )
+    except asyncpg.PostgresError as e:
+        logger.error(f"Error BD creando oportunidad: {e}", exc_info=True)
+        return HTMLResponse("<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4' role='alert'><p class='font-bold'>Error de Base de Datos</p><p>Ocurrió un error al guardar. Intente nuevamente.</p></div>", status_code=500)
     except Exception as e:
         logger.error(f"Error creando oportunidad: {e}", exc_info=True)
-        return HTMLResponse(f"<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4' role='alert'><p class='font-bold'>Error del Sistema</p><p>Ocurrió un error inesperado.</p></div>", status_code=500)
+        return HTMLResponse("<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4' role='alert'><p class='font-bold'>Error del Sistema</p><p>Ocurrió un error inesperado.</p></div>", status_code=500)
 
 # ===== FORMULARIO EXTRAORDINARIO (ADMIN/MANAGER ONLY) =====
 @router.get("/form-extraordinario", include_in_schema=False)
@@ -524,9 +539,8 @@ async def get_comercial_form_extraordinario(
     # Validar token
     token = await get_valid_graph_token(request)
     if not token:
-        from fastapi import Response
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
-    
+
     # Generar canal default
     canal_default = ComercialService.get_canal_from_user_name(user_context.get("user_name"))
     
@@ -592,7 +606,6 @@ async def handle_oportunidad_extraordinaria(
         # Validación de sesión y token
         token = await get_valid_graph_token(request)
         if not token:
-             from fastapi import Response
              return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
 
          # Construir objeto BESS (Delegado al Service)
@@ -663,14 +676,26 @@ async def handle_oportunidad_extraordinaria(
         query_string = urllib.parse.urlencode(redir_data["query_params"])
         full_redirect_url = f"{redir_data['redirect_url']}?{query_string}"
         
-        from fastapi import Response
         return Response(status_code=200, headers={"HX-Redirect": full_redirect_url})
 
-    except Exception as e:
-        logger.error(f"Error en creación de solicitud extraordinaria: {e}")
+    except ValueError as e:
         return templates.TemplateResponse(
-            "comercial/error_message.html", 
+            "comercial/error_message.html",
             {"request": request, "detail": str(e)},
+            status_code=200
+        )
+    except asyncpg.PostgresError as e:
+        logger.error(f"Error BD en solicitud extraordinaria: {e}", exc_info=True)
+        return templates.TemplateResponse(
+            "comercial/error_message.html",
+            {"request": request, "detail": "Error de base de datos. Intente nuevamente."},
+            status_code=500
+        )
+    except Exception as e:
+        logger.error(f"Error en creación de solicitud extraordinaria: {e}", exc_info=True)
+        return templates.TemplateResponse(
+            "comercial/error_message.html",
+            {"request": request, "detail": "Ocurrió un error inesperado."},
             status_code=500
         )
 
@@ -680,22 +705,19 @@ async def cancelar_oportunidad(
     id_oportunidad: UUID,
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
-    user_context = Depends(get_current_user_context)
+    user_context = Depends(get_current_user_context),
+    _auth = require_module_access("comercial", "editor")
 ):
     """Elimina borrador y fuerza una recarga completa al Dashboard."""
     
     # Protección de Sesión
     access_token = await get_valid_graph_token(request)
     if not access_token:
-        # Token expirado y no se pudo renovar
-        from fastapi import Response
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
-        
+
     # Borrar datos en BD via Service
     await service.cancelar_oportunidad(conn, id_oportunidad, user_context)
-    
-    # Usar HX-Redirect para recarga completa y limpieza de memoria
-    from fastapi import Response
+
     return Response(status_code=200, headers={"HX-Redirect": "/comercial/ui"}) 
 
 @router.post("/reasignar/{id_oportunidad}")
@@ -711,9 +733,11 @@ async def reasignar_oportunidad(
     """Permite a un Manager/Admin transferir la oportunidad a otro usuario."""
     await service.reasignar_oportunidad(conn, id_oportunidad, new_owner_id, user_context)
     
-    # Retornar mensaje de éxito (Toast) y tal vez recargar la tabla o redirigir
-    return templates.TemplateResponse("comercial/partials/messages/success_toast.html", {
+    # Retornar toast de éxito via OOB swap
+    return templates.TemplateResponse("shared/toast.html", {
         "request": request,
+        "type": "success",
+        "title": "Reasignación exitosa",
         "message": "Oportunidad reasignada correctamente."
     })
 
@@ -729,7 +753,8 @@ async def get_paso3_email_form(
     legacy_term: Optional[str] = None,
     conn = Depends(get_db_connection),
     service: ComercialService = Depends(get_comercial_service),
-    context = Depends(get_current_user_context) # Inyectamos el contexto completo
+    context = Depends(get_current_user_context),
+    _auth = require_module_access("comercial", "editor")
 ):
     """Formulario final de envío de correo."""
     if not await get_valid_graph_token(request):
@@ -763,7 +788,8 @@ async def upload_preview_endpoint(
     extraordinaria: int = Form(0),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
-    user_context = Depends(get_current_user_context)
+    user_context = Depends(get_current_user_context),
+    _auth = require_module_access("comercial", "editor")
 ):
     """Procesa previsualización de Excel (Lógica movida al Service)."""
     try:
@@ -788,8 +814,8 @@ async def upload_preview_endpoint(
     except HTTPException as he:
         return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {"request": request, "title": "Error", "message": he.detail})
     except Exception as e:
-        logger.error(f"Error upload: {e}")
-        return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {"request": request, "title": "Error técnico", "message": str(e)})
+        logger.error(f"Error upload: {e}", exc_info=True)
+        return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {"request": request, "title": "Error técnico", "message": "Error procesando el archivo. Verifique el formato e intente nuevamente."})
 
 
 @router.post("/upload-confirm", response_class=HTMLResponse)
@@ -800,7 +826,8 @@ async def upload_confirm_endpoint(
     extraordinaria: int = Form(0),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
-    user_context = Depends(get_current_user_context)
+    user_context = Depends(get_current_user_context),
+    _auth = require_module_access("comercial", "editor")
 ):
     try:
         uuid_op = UUID(op_id)
@@ -823,20 +850,25 @@ async def upload_confirm_endpoint(
         return HTMLResponse(f"<div class='text-red-500'>Error: {he.detail}</div>", 400)
 
 @router.get("/paso2/{id_oportunidad}", include_in_schema=False)
-async def get_paso_2_form(request: Request, id_oportunidad: UUID, extraordinaria: int = 0, conn = Depends(get_db_connection)):
+async def get_paso_2_form(
+    request: Request,
+    id_oportunidad: UUID,
+    extraordinaria: int = 0,
+    conn = Depends(get_db_connection),
+    service: ComercialService = Depends(get_comercial_service),
+    user_context = Depends(get_current_user_context),
+    _auth = require_module_access("comercial", "editor")
+):
     """Re-renderiza el formulario de carga multisitio (Paso 2)."""
-    row = await conn.fetchrow(
-        "SELECT id_interno_simulacion, titulo_proyecto, cliente_nombre, cantidad_sitios FROM tb_oportunidades WHERE id_oportunidad = $1", 
-        id_oportunidad
-    )
+    row = await service.get_paso2_data(conn, id_oportunidad)
     if not row:
          return HTMLResponse("Oportunidad no encontrada", 404)
-         
+
     return templates.TemplateResponse(
         "comercial/paso2.html",
         {
             "request": request,
-            "oportunidad_id": id_oportunidad, 
+            "oportunidad_id": id_oportunidad,
             "nombre_cliente": row['cliente_nombre'],
             "id_interno": row['id_interno_simulacion'],
             "titulo_proyecto": row['titulo_proyecto'],
@@ -853,9 +885,8 @@ async def crear_seguimiento(
     prioridad: str = Form(...),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
-    # Validar permisos explícitamente
-    _ = require_module_access("comercial", "editor"),
-    user_context = Depends(get_current_user_context)
+    user_context = Depends(get_current_user_context),
+    _auth = require_module_access("comercial", "editor")
 ):
     """Acción del Historial: Crea seguimiento y salta directo al correo."""
     if not user_context.get("email"): 
@@ -871,11 +902,12 @@ async def crear_seguimiento(
 
 @router.delete("/sitios/{id_sitio}", response_class=HTMLResponse)
 async def delete_sitio_endpoint(
-    request: Request, 
-    id_sitio: UUID, 
+    request: Request,
+    id_sitio: UUID,
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
-    user_context = Depends(get_current_user_context)
+    user_context = Depends(get_current_user_context),
+    _auth = require_module_access("comercial", "editor")
 ):
     if not await get_valid_graph_token(request):
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
@@ -926,5 +958,5 @@ async def cierre_venta(
         logger.error(f"Error en cierre de venta: {e}", exc_info=True)
         return templates.TemplateResponse(
             "comercial/partials/toasts/toast_error.html",
-            {"request": request, "title": "Error", "message": str(e)}
+            {"request": request, "title": "Error", "message": "Ocurrió un error al procesar el cierre de venta."}
         )

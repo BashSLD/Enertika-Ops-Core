@@ -4,16 +4,6 @@ from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, ConfigDict
 
 
-class BaseSchema(BaseModel):
-    """Base para campos comunes en lectura."""
-    id: UUID = Field(..., alias='id_oportunidad')
-    
-    model_config = ConfigDict(
-        populate_by_name=True,
-        from_attributes=True
-    )
-
-
 class DetalleBessCreate(BaseModel):
     """Datos técnicos específicos para proyectos BESS."""
     # Pregunta raíz: ¿Cómo usarás tu Sistema de almacenamiento?
@@ -33,13 +23,26 @@ class DetalleBessCreate(BaseModel):
 class OportunidadCreateCompleta(BaseModel):
     """Schema maestro para la creación transaccional."""
     cliente_nombre: str = Field(..., min_length=3)
-    nombre_proyecto: str
+    nombre_proyecto: str = Field(..., min_length=2)
     canal_venta: str
     id_tecnologia: int
     id_tipo_solicitud: int
-    cantidad_sitios: int
+    cantidad_sitios: int = Field(..., ge=1, le=500)
     prioridad: str
     direccion_obra: str
+
+    @field_validator('prioridad')
+    @classmethod
+    def validate_prioridad(cls, v: str) -> str:
+        allowed = {'baja', 'normal', 'alta', 'urgente'}
+        if v.lower() not in allowed:
+            raise ValueError(f"Prioridad debe ser una de: {', '.join(allowed)}")
+        return v.lower()
+
+    @field_validator('nombre_proyecto')
+    @classmethod
+    def validate_nombre_proyecto(cls, v: str) -> str:
+        return v.strip()
     coordenadas_gps: Optional[str] = None
     google_maps_link: Optional[str] = None
     sharepoint_folder_url: Optional[str] = None
@@ -60,15 +63,6 @@ class OportunidadCreateCompleta(BaseModel):
 
 
 
-
-
-class OportunidadRead(BaseSchema):
-    """Schema para la lectura de una Oportunidad."""
-    op_id_estandar: str
-    cliente_nombre: str
-    status_global: str
-    fecha_creacion: datetime
-    creado_por_id: UUID
 
 
 class SitioOportunidadBase(BaseModel):
@@ -111,25 +105,3 @@ class SitioImportacion(BaseModel):
         return str(v) if not isinstance(v, str) else v
 
 
-class OportunidadListOut(BaseModel):
-    """Schema para el listado de oportunidades con información resumida y JOINs."""
-    id_oportunidad: UUID
-    titulo_proyecto: str
-    nombre_proyecto: str
-    cliente_nombre: str
-    fecha_solicitud: datetime
-    status_global: str
-    email_enviado: bool
-    id_interno_simulacion: str
-    tipo_solicitud: str
-    deadline_calculado: Optional[datetime] = None
-    deadline_negociado: Optional[datetime] = None
-    cantidad_sitios: Optional[int] = None
-    responsable_simulacion: Optional[str] = None
-    solicitado_por: Optional[str] = None
-    es_fuera_horario: bool = False
-    prioridad: str = "Normal"
-    tiene_detalles_bess: bool = False
-    fecha_ideal_usuario: Optional[date] = None
-    
-    model_config = ConfigDict(from_attributes=True)

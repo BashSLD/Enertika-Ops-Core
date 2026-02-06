@@ -112,7 +112,8 @@ class NotificationService:
                 raw = row['uso_sistema_json']
                 loaded = json.loads(raw) if isinstance(raw, str) else raw
                 if isinstance(loaded, list): bess_str = ", ".join(loaded)
-            except: pass
+            except Exception as e:
+                logger.warning(f"Error parseando uso_sistema_json: {e}")
 
         return {
             "op": dict(row),
@@ -165,8 +166,8 @@ class NotificationService:
         html_body = template.render({"op": op_data, "dashboard_url": f"{base_url}/comercial/ui"})
 
         subject = f"Nueva Solicitud Extraordinaria: {op_data['op_id_estandar']} - {op_data['cliente_nombre']}"
-        ms_auth.send_email_with_attachments(
-            access_token=token, from_email=user_email, subject=subject, 
+        await ms_auth.send_email_with_attachments(
+            access_token=token, from_email=user_email, subject=subject,
             body=html_body, recipients=recipients, cc_recipients=cc_list, importance="high"
         )
         logger.info(f"Notificación extraordinaria enviada: {op_data['op_id_estandar']}")

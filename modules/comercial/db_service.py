@@ -137,17 +137,17 @@ QUERY_GET_TIPO_SOLICITUD_FROM_OP = "SELECT id_tipo_solicitud FROM tb_oportunidad
 QUERY_DELETE_SITIOS_OP = "DELETE FROM tb_sitios_oportunidad WHERE id_oportunidad = $1"
 QUERY_INSERT_SITIO_BULK = """
     INSERT INTO tb_sitios_oportunidad (
-        id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa, 
+        id_sitio, id_oportunidad, nombre_sitio, direccion, tipo_tarifa,
         google_maps_link, numero_servicio, comentarios, id_estatus_global, id_tipo_solicitud
-    ) 
-    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 1, $9)
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 """
 QUERY_DELETE_SITIO = "DELETE FROM tb_sitios_oportunidad WHERE id_sitio = $1"
 QUERY_GET_SITIOS_SIMPLE = "SELECT * FROM tb_sitios_oportunidad WHERE id_oportunidad = $1 ORDER BY id_sitio"
 
 QUERY_INSERT_SITIO_UNICO = """
-    INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link, id_estatus_global, id_tipo_solicitud)
-    VALUES ($1, $2, $3, $4, $5, $7, $6)
+    INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link, id_tipo_solicitud, id_estatus_global)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
 """
 
 # Updates
@@ -166,9 +166,44 @@ QUERY_DELETE_BESS = "DELETE FROM tb_detalles_bess WHERE id_oportunidad = $1"
 
 # Clients
 QUERY_SEARCH_CLIENTES = """
-    SELECT id, nombre_fiscal 
-    FROM tb_clientes 
-    WHERE nombre_fiscal ILIKE $1 
-    ORDER BY nombre_fiscal 
+    SELECT id, nombre_fiscal
+    FROM tb_clientes
+    WHERE nombre_fiscal ILIKE $1
+    ORDER BY nombre_fiscal
     LIMIT 10
+"""
+QUERY_GET_CLIENTE_BY_ID = "SELECT nombre_fiscal, id_interno_simulacion FROM tb_clientes WHERE id = $1"
+QUERY_GET_OLDEST_OP_BY_CLIENTE = "SELECT op_id_estandar FROM tb_oportunidades WHERE cliente_id = $1 ORDER BY fecha_solicitud ASC LIMIT 1"
+QUERY_UPDATE_CLIENTE_ID_INTERNO = "UPDATE tb_clientes SET id_interno_simulacion = $1 WHERE id = $2"
+
+# Oportunidad Full (for followup creation)
+QUERY_GET_OPORTUNIDAD_FULL = "SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1"
+
+# Paso 2 form data
+QUERY_GET_PASO2_DATA = """
+    SELECT id_interno_simulacion, titulo_proyecto, cliente_nombre, cantidad_sitios
+    FROM tb_oportunidades WHERE id_oportunidad = $1
+"""
+
+# Site Management (extended)
+QUERY_GET_SITIO_IDS_BY_OP = "SELECT id_sitio FROM tb_sitios_oportunidad WHERE id_oportunidad = $1"
+QUERY_DELETE_SITIOS_BY_IDS = "DELETE FROM tb_sitios_oportunidad WHERE id_sitio = ANY($1::uuid[])"
+QUERY_RELINK_LEVANTAMIENTOS = "UPDATE tb_levantamientos SET id_sitio = $1 WHERE id_oportunidad = $2"
+QUERY_UPDATE_CANTIDAD_SITIOS = "UPDATE tb_oportunidades SET cantidad_sitios = $1 WHERE id_oportunidad = $2"
+QUERY_COUNT_SITIOS_BY_OP = "SELECT count(*) FROM tb_sitios_oportunidad WHERE id_oportunidad = $1"
+
+# Status Updates (cierre de venta)
+QUERY_GET_OP_ESTATUS = "SELECT id_estatus_global FROM tb_oportunidades WHERE id_oportunidad = $1"
+QUERY_UPDATE_OP_ESTATUS = "UPDATE tb_oportunidades SET id_estatus_global = $1 WHERE id_oportunidad = $2"
+QUERY_UPDATE_SITIOS_ESTATUS_BY_IDS = """
+    UPDATE tb_sitios_oportunidad SET id_estatus_global = $1
+    WHERE id_sitio = ANY($2) AND id_oportunidad = $3
+"""
+QUERY_UPDATE_SITIOS_ESTATUS_OTHERS = """
+    UPDATE tb_sitios_oportunidad SET id_estatus_global = $1
+    WHERE id_oportunidad = $2 AND id_sitio != ALL($3) AND id_estatus_global = $4
+"""
+QUERY_UPDATE_SITIOS_ESTATUS_ALL = """
+    UPDATE tb_sitios_oportunidad SET id_estatus_global = $1
+    WHERE id_oportunidad = $2
 """
