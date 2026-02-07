@@ -3,6 +3,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from typing import Optional
 from uuid import UUID
+import logging
 
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
@@ -14,6 +15,8 @@ from core.database import get_db_connection
 
 # Service Layer
 from .service import get_service, LevantamientoService
+
+logger = logging.getLogger("Levantamientos.Router")
 
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
@@ -124,7 +127,8 @@ async def get_assign_modal(
     id_levantamiento: UUID,
     conn = Depends(get_db_connection),
     service: LevantamientoService = Depends(get_service),
-    context = Depends(get_current_user_context)
+    context = Depends(get_current_user_context),
+    _ = require_module_access("levantamientos"),
 ):
     """Modal para asignar responsables."""
     # Obtener datos del levantamiento
@@ -182,7 +186,9 @@ async def get_historial_modal(
     request: Request,
     id_levantamiento: UUID,
     conn = Depends(get_db_connection),
-    service: LevantamientoService = Depends(get_service)
+    service: LevantamientoService = Depends(get_service),
+    context = Depends(get_current_user_context),
+    _ = require_module_access("levantamientos"),
 ):
     """Modal con timeline de cambios de estado."""
     # Obtener datos del levantamiento
@@ -210,13 +216,15 @@ async def get_historial_modal(
 # ========================================
 @router.post("/assign/{id_levantamiento}")
 async def assign_responsables_endpoint(
+    request: Request,
     id_levantamiento: UUID,
-    tecnico_asignado_id: Optional[list[UUID]] = Form(None), # Recibe lista
+    tecnico_asignado_id: Optional[list[UUID]] = Form(None),
     jefe_area_id: Optional[UUID] = Form(None),
     observaciones: Optional[str] = Form(None),
     conn = Depends(get_db_connection),
     service: LevantamientoService = Depends(get_service),
-    context = Depends(get_current_user_context)
+    context = Depends(get_current_user_context),
+    _ = require_module_access("levantamientos", "editor"),
 ):
     """
     API: Asigna responsables (múltiples técnicos) a un levantamiento.
@@ -226,26 +234,59 @@ async def assign_responsables_endpoint(
         await service.assign_responsables(
             conn=conn,
             id_levantamiento=id_levantamiento,
-            tecnicos_ids=tecnico_asignado_id or [], # Pasar lista vacía si None
+            tecnicos_ids=tecnico_asignado_id or [],
             jefe_id=jefe_area_id,
             user_context=context,
             observaciones=observaciones
         )
-        
-        return await get_kanban_partial(
-            request=Request(scope={"type": "http"}), # Mock request or cleaner way: call get_kanban_data directly
-            conn=conn,
-            service=service,
-            context=context
+
+        data = await service.get_kanban_data(conn)
+        can_edit = (
+            context.get("role") == "ADMIN"
+            or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
         )
-        
+        return templates.TemplateResponse("levantamientos/partials/kanban.html", {
+            "request": request,
+            "pendientes": data['pendientes'],
+            "agendados": data['agendados'],
+            "en_proceso": data['en_proceso'],
+            "completados": data['completados'],
+            "entregados": data['entregados'],
+            "pospuestos": data['pospuestos'],
+            "can_edit": can_edit,
+            "user_context": context,
+            "notification": {
+                "title": "Asignación Guardada",
+                "message": "Los responsables han sido actualizados correctamente.",
+                "type": "success"
+            }
+        })
+
     except HTTPException as e:
         raise e
     except Exception as e:
-        return HTMLResponse(
-            f"<div class='text-red-500'>Error: {str(e)}</div>",
-            status_code=500
+        logger.error(f"[ASSIGN] Error asignando responsables lev {id_levantamiento}: {e}", exc_info=True)
+        data = await service.get_kanban_data(conn)
+        can_edit = (
+            context.get("role") == "ADMIN"
+            or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
         )
+        return templates.TemplateResponse("levantamientos/partials/kanban.html", {
+            "request": request,
+            "pendientes": data['pendientes'],
+            "agendados": data['agendados'],
+            "en_proceso": data['en_proceso'],
+            "completados": data['completados'],
+            "entregados": data['entregados'],
+            "pospuestos": data['pospuestos'],
+            "can_edit": can_edit,
+            "user_context": context,
+            "notification": {
+                "title": "Error",
+                "message": "No se pudo completar la asignación. Intenta de nuevo.",
+                "type": "error"
+            }
+        })
 
 @router.post("/change-status/{id_levantamiento}")
 async def change_status_endpoint(
@@ -255,60 +296,77 @@ async def change_status_endpoint(
     observaciones: Optional[str] = Form(None),
     conn = Depends(get_db_connection),
     service: LevantamientoService = Depends(get_service),
-    context = Depends(get_current_user_context)
+    context = Depends(get_current_user_context),
+    _ = require_module_access("levantamientos", "editor"),
 ):
     """
     API: Cambia el estado de un levantamiento.
     Registra en historial y notifica automáticamente.
     """
     # VALIDACION: No iniciar si no hay técnicos asignados
-    if nuevo_estado == 10: # En Proceso
-        # Verificar asignaciones
+    if nuevo_estado == 10:  # En Proceso
         has_techs = await conn.fetchval("""
             SELECT EXISTS(SELECT 1 FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1)
         """, id_levantamiento)
-        
-        # Legacy check
+
         if not has_techs:
-             has_techs = await conn.fetchval("""
+            has_techs = await conn.fetchval("""
                 SELECT (tecnico_asignado_id IS NOT NULL) FROM tb_levantamientos WHERE id_levantamiento = $1
-             """, id_levantamiento)
-             
+            """, id_levantamiento)
+
         if not has_techs:
-             # Retornar Kanban COMPLETO con notificación de error
-             return await get_kanban_partial(
-                request=request,
-                conn=conn,
-                service=service,
-                context=context,
-                notification={
+            data = await service.get_kanban_data(conn)
+            can_edit = (
+                context.get("role") == "ADMIN"
+                or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
+            )
+            return templates.TemplateResponse("levantamientos/partials/kanban.html", {
+                "request": request,
+                "pendientes": data['pendientes'],
+                "agendados": data['agendados'],
+                "en_proceso": data['en_proceso'],
+                "completados": data['completados'],
+                "entregados": data['entregados'],
+                "pospuestos": data['pospuestos'],
+                "can_edit": can_edit,
+                "user_context": context,
+                "notification": {
                     "title": "Acción Requerida",
                     "message": "Debes asignar al menos un ingeniero antes de iniciar el levantamiento.",
                     "type": "error"
                 }
-             )
+            })
 
         # CHECK 2: Solicitud de Viáticos Enviada
-        # Verificar si existe al menos un registro en el histórico de envíos con estatus 'enviado'
         has_viaticos_sent = await conn.fetchval("""
             SELECT EXISTS(
-                SELECT 1 FROM tb_levantamiento_viaticos_historico 
+                SELECT 1 FROM tb_levantamiento_viaticos_historico
                 WHERE id_levantamiento = $1 AND estatus = 'enviado'
             )
         """, id_levantamiento)
 
         if not has_viaticos_sent:
-             return await get_kanban_partial(
-                request=request,
-                conn=conn,
-                service=service,
-                context=context,
-                notification={
+            data = await service.get_kanban_data(conn)
+            can_edit = (
+                context.get("role") == "ADMIN"
+                or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
+            )
+            return templates.TemplateResponse("levantamientos/partials/kanban.html", {
+                "request": request,
+                "pendientes": data['pendientes'],
+                "agendados": data['agendados'],
+                "en_proceso": data['en_proceso'],
+                "completados": data['completados'],
+                "entregados": data['entregados'],
+                "pospuestos": data['pospuestos'],
+                "can_edit": can_edit,
+                "user_context": context,
+                "notification": {
                     "title": "Falta Solicitud de Viáticos",
                     "message": "Debes enviar la solicitud de viáticos antes de iniciar.",
                     "type": "error"
                 }
-             )
+            })
 
     try:
         await service.cambiar_estado(
@@ -318,46 +376,75 @@ async def change_status_endpoint(
             user_context=context,
             observaciones=observaciones
         )
-        
+
         # Recargar datos del kanban y retornar HTML actualizado
-        return await get_kanban_partial(
-            request=request,
-            conn=conn,
-            service=service,
-            context=context
+        data = await service.get_kanban_data(conn)
+        can_edit = (
+            context.get("role") == "ADMIN"
+            or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
         )
+        return templates.TemplateResponse("levantamientos/partials/kanban.html", {
+            "request": request,
+            "pendientes": data['pendientes'],
+            "agendados": data['agendados'],
+            "en_proceso": data['en_proceso'],
+            "completados": data['completados'],
+            "entregados": data['entregados'],
+            "pospuestos": data['pospuestos'],
+            "can_edit": can_edit,
+            "user_context": context,
+        })
 
     except HTTPException as e:
         raise e
     except Exception as e:
-        return HTMLResponse(
-            f"<div class='text-red-500'>Error: {str(e)}</div>",
-            status_code=500
+        logger.error(f"[STATUS] Error cambiando estado lev {id_levantamiento}: {e}", exc_info=True)
+        data = await service.get_kanban_data(conn)
+        can_edit = (
+            context.get("role") == "ADMIN"
+            or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
         )
+        return templates.TemplateResponse("levantamientos/partials/kanban.html", {
+            "request": request,
+            "pendientes": data['pendientes'],
+            "agendados": data['agendados'],
+            "en_proceso": data['en_proceso'],
+            "completados": data['completados'],
+            "entregados": data['entregados'],
+            "pospuestos": data['pospuestos'],
+            "can_edit": can_edit,
+            "user_context": context,
+            "notification": {
+                "title": "Error",
+                "message": "No se pudo cambiar el estado. Intenta de nuevo.",
+                "type": "error"
+            }
+        })
 
-# DEPRECATED: Mantener por compatibilidad pero marcar como obsoleto
 @router.post("/move/{id_oportunidad}")
-async def mover_tarjeta_endpoint_legacy(
+async def mover_tarjeta_endpoint(
+    request: Request,
     id_oportunidad: UUID,
     status: int = Form(...),
     conn = Depends(get_db_connection),
     service: LevantamientoService = Depends(get_service),
-    context = Depends(get_current_user_context)
+    context = Depends(get_current_user_context),
+    _ = require_module_access("levantamientos", "editor"),
 ):
     """
-    API LEGACY: Mantener por compatibilidad.
-    Usar /change-status en su lugar.
+    API: Cambia estado de un levantamiento usando id_oportunidad.
+    Alias de /change-status para acceso por oportunidad.
     """
-    # Obtener id_levantamiento desde id_oportunidad
     lev_id = await conn.fetchval(
         "SELECT id_levantamiento FROM tb_levantamientos WHERE id_oportunidad = $1 LIMIT 1",
         id_oportunidad
     )
-    
+
     if not lev_id:
         raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
-    
+
     return await change_status_endpoint(
+        request=request,
         id_levantamiento=lev_id,
         nuevo_estado=status,
         observaciones=None,

@@ -24,7 +24,7 @@
 
     <!-- Main Form Container -->
     <form hx-post="/levantamientos/assign/{{ id_levantamiento }}" hx-target="#kanban-container" hx-swap="outerHTML"
-        hx-on::after-request="if(event.detail.successful) closeModal()" class="flex flex-col flex-1 overflow-hidden">
+        hx-on::after-request="if(event.detail.successful) setTimeout(() => closeModal(), 150)" class="flex flex-col flex-1 overflow-hidden">
 
         <!-- Scrollable Body -->
         <div class="flex-1 overflow-y-auto p-6 bg-slate-50 custom-scrollbar">

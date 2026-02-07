@@ -371,7 +371,7 @@ class SimulacionDBService:
             "SELECT id FROM tb_cat_tipos_solicitud WHERE LOWER(nombre) = 'levantamiento' LIMIT 1"
         )
 
-    async def get_oportunidades_filtradas(self, conn, tab: str, subtab: Optional[str], q: Optional[str], limit: int) -> List[Dict[str, Any]]:
+    async def get_oportunidades_filtradas(self, conn, tab: str, subtab: Optional[str], q: Optional[str], limit: int, filtro_tecnologia_id: Optional[int] = None) -> List[Dict[str, Any]]:
         status_map = await self.get_status_map(conn)
         
         # Query base
@@ -460,6 +460,11 @@ class SimulacionDBService:
             if id_levantamiento:
                 query += f" AND o.id_tipo_solicitud != ${len(params) + 1}"
                 params.append(id_levantamiento)
+
+        # Filtro de Tecnología (Nuevo)
+        if filtro_tecnologia_id:
+            query += f" AND o.id_tecnologia = ${len(params) + 1}"
+            params.append(filtro_tecnologia_id)
 
         # Búsqueda
         if q:

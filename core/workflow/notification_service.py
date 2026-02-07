@@ -105,21 +105,23 @@ class NotificationService:
         id_oportunidad: UUID,
         old_responsable_id: Optional[UUID],
         new_responsable_id: UUID,
-        assigned_by_ctx: dict
+        assigned_by_ctx: dict,
+        modulo_nombre: str = "oportunidad"
     ):
         """
         Notifica asignación o cambio de responsable.
-        
+
         Args:
             conn: Conexión a base de datos
             id_oportunidad: ID de la oportunidad
             old_responsable_id: ID del responsable anterior (None si era sin asignar)
             new_responsable_id: ID del nuevo responsable
             assigned_by_ctx: Contexto del usuario que asignó
-            
+            modulo_nombre: Nombre legible del módulo ("simulación", "levantamiento", etc.)
+
         TO: Nuevo responsable
         CC: Correos configurados en tb_config_emails con trigger_value='ASIGNACION'
-        
+
         Si old_responsable_id == new_responsable_id, no envía (sin cambio real).
         """
         if old_responsable_id == new_responsable_id:
@@ -144,7 +146,8 @@ class NotificationService:
             'oportunidad': opp,
             'assigned_by': assigned_by_ctx['user_name'],
             'new_responsable_name': new_resp['nombre'],
-            'base_url': settings.APP_BASE_URL
+            'base_url': settings.APP_BASE_URL,
+            'modulo_nombre': modulo_nombre,
         })
         
         subject = f"Asignacion: {opp['op_id_estandar']} - {opp['cliente_nombre']}"

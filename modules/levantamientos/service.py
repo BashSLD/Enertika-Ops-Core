@@ -552,7 +552,8 @@ class LevantamientoService:
                 id_oportunidad=id_oportunidad,
                 old_responsable_id=old_responsable_id,
                 new_responsable_id=new_responsable_id,
-                assigned_by_ctx=user_context
+                assigned_by_ctx=user_context,
+                modulo_nombre="levantamiento",
             )
             logger.info(f"[NOTIFICACIÓN] Asignación notificada exitosamente para oportunidad {id_oportunidad}")
         except Exception as e:

@@ -128,7 +128,7 @@
                                 else 200) ~ 'ms"' %} <!-- Fila principal con Alpine.js -->
                                 <tr @click="$dispatch('row-selected', '{{ op.id_oportunidad }}')"
                                     :class="{ 'bg-blue-50/80 ring-2 ring-blue-400': isSelected('{{ op.id_oportunidad }}'), '!bg-white/90 !border-l-8 !border-l-[#00BABB] shadow-md': isExpanded('{{ op.id_oportunidad }}') && !isSelected('{{ op.id_oportunidad }}') }"
-                                    class="hover:bg-white/80 transition-all duration-200 border-l-4 {{ prioridad_color }} hover:shadow-lg hover:-translate-y-[2px] animate-fade-in-up cursor-pointer backdrop-blur-sm"
+                                    class="hover:bg-white/80 transition-all duration-200 border-l-4 {{ prioridad_color }} {{ 'shadow-[0_0_10px_rgba(239,68,68,0.5)]' if op.prioridad == 'high' }} hover:shadow-lg hover:-translate-y-[2px] animate-fade-in-up cursor-pointer backdrop-blur-sm"
                                     {{ animation_delay|safe }}>
 
                                     <!-- COL 1: ID e Info Interna -->

@@ -1,0 +1,168 @@
+<!-- templates/levantamientos/modals/entrega_modal.html -->
+<!-- Modal para entregar un levantamiento (estado 11 -> 12) -->
+<!-- Variables: lev_data (dict del levantamiento) -->
+
+<div class="modal-header">
+    <h3 class="modal-title">
+        <i class="fas fa-clipboard-check text-green-500"></i>
+        Entregar Levantamiento
+    </h3>
+    <button type="button" class="modal-close" onclick="closeModal()">
+        <i class="fas fa-times"></i>
+    </button>
+</div>
+
+<div class="modal-body">
+    <!-- Info del levantamiento -->
+    <div class="bg-slate-800/50 rounded-lg p-4 mb-4 border border-slate-700">
+        <div class="grid grid-cols-2 gap-4 text-sm">
+            <div>
+                <span class="text-slate-400">OP-ID:</span>
+                <span class="text-white font-medium ml-2">{{ lev_data.op_id_estandar }}</span>
+            </div>
+            <div>
+                <span class="text-slate-400">Cliente:</span>
+                <span class="text-white font-medium ml-2">{{ lev_data.cliente_nombre }}</span>
+            </div>
+            <div class="col-span-2">
+                <span class="text-slate-400">Proyecto:</span>
+                <span class="text-white font-medium ml-2">{{ lev_data.nombre_proyecto or lev_data.titulo_proyecto or 'Sin nombre' }}</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Formulario -->
+    <form id="form-entrega"
+        hx-post="/levantamientos/entregar/{{ lev_data.id_levantamiento }}"
+        hx-target="#kanban-container" hx-swap="outerHTML"
+        hx-encoding="multipart/form-data"
+        hx-on::after-request="if(event.detail.successful) setTimeout(() => closeModal(), 150)">
+
+        <div class="form-group mb-4">
+            <label for="observaciones_entrega" class="form-label text-white">
+                Observaciones de entrega (opcional)
+            </label>
+            <textarea id="observaciones_entrega" name="observaciones" class="form-textarea" rows="3"
+                placeholder="Comentarios sobre la entrega del levantamiento..."></textarea>
+        </div>
+
+        <!-- Secccion de archivos adjuntos -->
+        <div class="form-group mb-4">
+            <label class="form-label text-white">
+                Archivos adjuntos (opcional)
+            </label>
+            <p class="text-slate-400 text-xs mb-2">
+                <i class="fas fa-info-circle"></i>
+                Puedes adjuntar documentos del levantamiento (planos, fotos, reportes).
+            </p>
+
+            <div class="flex items-center gap-2">
+                <label for="file_uploads_entrega"
+                    class="cursor-pointer inline-flex items-center px-3 py-2 border border-slate-600 rounded-lg text-slate-300 bg-slate-700/50 hover:bg-slate-600/50 transition-all text-sm gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13">
+                        </path>
+                    </svg>
+                    Seleccionar archivos
+                </label>
+                <input id="file_uploads_entrega" name="file_uploads" type="file" class="hidden" multiple
+                    onchange="handleFileSelectEntrega(this)">
+            </div>
+
+            <!-- Lista de archivos seleccionados -->
+            <div id="file-list-entrega" class="mt-3 space-y-2"></div>
+        </div>
+
+        <div class="modal-footer mt-6 flex justify-end gap-3 border-t border-gray-700/50 pt-4">
+            <button type="button"
+                class="px-4 py-2 bg-slate-700 text-gray-200 font-medium rounded-lg hover:bg-slate-600 transition-colors shadow-sm text-sm"
+                onclick="closeModal()">
+                Cancelar
+            </button>
+            <button type="submit"
+                class="px-5 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-lg shadow-green-600/30 transition-all transform hover:scale-[1.02] flex items-center gap-2 text-sm">
+                <i class="fas fa-clipboard-check text-white"></i>
+                Entregar
+            </button>
+        </div>
+    </form>
+</div>
+
+<script>
+    function handleFileSelectEntrega(input) {
+        const container = document.getElementById('file-list-entrega');
+        const newFiles = Array.from(input.files);
+
+        if (!input.acumulatedFiles) {
+            input.acumulatedFiles = [];
+        }
+
+        input.acumulatedFiles = [...input.acumulatedFiles, ...newFiles];
+
+        const dataTransfer = new DataTransfer();
+        input.acumulatedFiles.forEach(file => dataTransfer.items.add(file));
+        input.files = dataTransfer.files;
+
+        renderFilesEntrega(input);
+    }
+
+    function renderFilesEntrega(input) {
+        const container = document.getElementById('file-list-entrega');
+        container.innerHTML = '';
+
+        input.acumulatedFiles.forEach((file, index) => {
+            const fileSize = (file.size / 1024).toFixed(1) + ' KB';
+
+            const fileItem = document.createElement('div');
+            fileItem.className = 'flex items-center justify-between bg-slate-700/50 border border-slate-600 rounded-lg px-3 py-1.5 text-xs';
+
+            fileItem.innerHTML = `
+                <div class="flex items-center gap-2 overflow-hidden">
+                    <svg class="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path>
+                    </svg>
+                    <span class="font-medium text-slate-200 truncate">${file.name}</span>
+                    <span class="text-slate-400">(${fileSize})</span>
+                </div>
+                <button type="button" onclick="removeFileEntrega(${index})" class="text-red-400 hover:text-red-300 p-1 rounded-full hover:bg-red-900/30 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path>
+                    </svg>
+                </button>
+            `;
+            container.appendChild(fileItem);
+        });
+    }
+
+    function removeFileEntrega(index) {
+        const input = document.getElementById('file_uploads_entrega');
+        if (!input.acumulatedFiles) return;
+
+        input.acumulatedFiles.splice(index, 1);
+
+        const dataTransfer = new DataTransfer();
+        input.acumulatedFiles.forEach(file => dataTransfer.items.add(file));
+        input.files = dataTransfer.files;
+
+        renderFilesEntrega(input);
+    }
+</script>
+
+<style>
+    .form-textarea {
+        width: 100%;
+        background: rgba(30, 41, 59, 0.8);
+        border: 1px solid rgba(100, 116, 139, 0.3);
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        color: white;
+        resize: vertical;
+    }
+
+    .form-textarea:focus {
+        outline: none;
+        border-color: #22c55e;
+        box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+    }
+</style>

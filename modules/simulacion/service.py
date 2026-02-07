@@ -547,7 +547,8 @@ class SimulacionService:
                     id_oportunidad=id_oportunidad,
                     old_responsable_id=old_responsable,
                     new_responsable_id=datos.responsable_simulacion_id,
-                    assigned_by_ctx=user_context
+                    assigned_by_ctx=user_context,
+                    modulo_nombre="simulación",
                 )
             
             # Notificar cambio de estatus si cambió
@@ -564,11 +565,11 @@ class SimulacionService:
 
     # --- CONSULTAS (CORREGIDO: LISTA COMPLETA) ---
 
-    async def get_oportunidades_list(self, conn, user_context: dict, tab: str = "activos", q: str = None, limit: int = 30, subtab: str = None) -> List[dict]:
+    async def get_oportunidades_list(self, conn, user_context: dict, tab: str = "activos", q: str = None, limit: int = 30, subtab: str = None, filtro_tecnologia_id: Optional[int] = None) -> List[dict]:
         """
         Recupera lista filtrada de oportunidades para Simulación.
         """
-        return await self.db.get_oportunidades_filtradas(conn, tab, subtab, q, limit)
+        return await self.db.get_oportunidades_filtradas(conn, tab, subtab, q, limit, filtro_tecnologia_id)
 
     async def get_dashboard_stats(self, conn, user_context: dict) -> dict:
         """Calcula KPIs globales."""

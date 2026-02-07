@@ -33,7 +33,7 @@
             <div class="col-span-2">
                 <span class="text-slate-400">Fecha anterior:</span>
                 <span class="text-amber-400 font-medium ml-2">
-                    {{ lev_data.fecha_visita_programada.strftime('%d/%m/%Y') if lev_data.fecha_visita_programada else
+                    {{ lev_data.fecha_visita_programada.strftime('%d/%m/%Y %H:%M') if lev_data.fecha_visita_programada else
                     'Sin fecha' }}
                 </span>
             </div>
@@ -50,17 +50,17 @@
     <!-- Formulario -->
     <form id="form-reagendar" hx-post="/levantamientos/reagendar/{{ lev_data.id_levantamiento }}"
         hx-target="#kanban-container" hx-swap="outerHTML"
-        hx-on::after-request="if(event.detail.successful) closeModal()">
+        hx-on::after-request="if(event.detail.successful) setTimeout(() => closeModal(), 150)">
 
         <div class="form-group mb-4">
             <label for="nueva_fecha_visita" class="form-label required text-white">
-                Agendar visita
+                Fecha y hora de visita
             </label>
-            <input type="date" id="nueva_fecha_visita" name="nueva_fecha_visita" class="form-input"
+            <input type="datetime-local" id="nueva_fecha_visita" name="nueva_fecha_visita" class="form-input"
                 min="{{ today_str }}" required />
             <p class="form-help text-slate-400 text-xs mt-1">
                 <i class="fas fa-info-circle"></i>
-                La fecha debe ser igual o posterior a hoy.
+                Selecciona fecha y hora de la visita (debe ser igual o posterior a hoy).
             </p>
         </div>
 
@@ -114,8 +114,9 @@
         resize: vertical;
     }
 
-    /* Fix date input para tema oscuro */
-    input[type="date"]::-webkit-calendar-picker-indicator {
+    /* Fix date/datetime input para tema oscuro */
+    input[type="date"]::-webkit-calendar-picker-indicator,
+    input[type="datetime-local"]::-webkit-calendar-picker-indicator {
         filter: invert(1);
         cursor: pointer;
     }

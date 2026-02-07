@@ -133,6 +133,9 @@
         </div>
     </div>
 
+    <!-- Hidden Input for State Management (Preserved) -->
+    <input type="hidden" id="active_tab_input" name="tab" value="activos" class="global-filter">
+
     <!-- Tabs Navigation -->
     <div
         class="mb-6 text-sm font-medium text-center text-gray-500 border-b border-gray-200/50 dark:text-gray-400 dark:border-gray-700/50">
@@ -140,47 +143,43 @@
 
             <li class="me-2">
                 <a href="#" hx-get="/simulacion/partials/graphs" hx-target="#sim-tab-content" hx-swap="innerHTML"
-                    hx-push-url="/simulacion/ui" onclick="updateSimTabContext('graphs', this)"
-                    class="sim-tab-link inline-block p-3 rounded-t-lg active group glass-panel bg-white/60 transition-all"
-                    aria-current="page">
-                    <div class="flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-emerald-600" fill="none"
-                            viewBox="0 0 24 24" stroke="currentColor">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
-                        </svg>
-                        <span
-                            class="font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-teal-500">Gráficas</span>
-                    </div>
-                </a>
-            </li>
-            <!-- ... (other tabs kept as context or modified if needed, but tool replaces contiguous block) ... -->
-
-            <!-- I will replace the JS function specifically in a separate block or include it if range permits.
-Let's check if I can replace the whole block including tabs to be safe on range.
-Lines 136 to 260 covers the tabs and the function start.
-Wait, I need to be precise.
-The tabs start at 136. The script starts at 214.
-I will verify the first tab replacement first. -->
-
-            <li class="me-2">
-                <a href="#" hx-get="/simulacion/partials/cards?tab=activos" hx-target="#sim-tab-content"
-                    hx-swap="innerHTML" hx-push-url="?tab=activos" onclick="updateSimTabContext('activos', this)"
+                    hx-push-url="/simulacion/ui?tab=graphs" hx-include=".global-filter"
+                    onclick="updateSimTabContext('graphs', this)"
                     class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
                             stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                        </svg>
+                        <span>Gráficas</span>
+                    </div>
+                </a>
+            </li>
+
+            <li class="me-2">
+                <a href="#" hx-get="/simulacion/partials/cards?tab=activos" hx-target="#sim-tab-content"
+                    hx-swap="innerHTML" hx-push-url="?tab=activos" hx-include=".global-filter"
+                    onclick="updateSimTabContext('activos', this)"
+                    class="sim-tab-link inline-block p-3 rounded-t-lg active group glass-panel bg-white/60 transition-all"
+                    aria-current="page">
+                    <div class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-emerald-600" fill="none"
+                            viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                         </svg>
-                        <span>Solicitudes (Activos)</span>
+                        <span
+                            class="font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-teal-500">Solicitudes
+                            (Activos)</span>
                     </div>
                 </a>
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/simulacion/partials/cards?tab=historial" hx-target="#sim-tab-content"
-                    hx-swap="innerHTML" hx-push-url="?tab=historial" onclick="updateSimTabContext('historial', this)"
+                    hx-swap="innerHTML" hx-push-url="?tab=historial" hx-include=".global-filter"
+                    onclick="updateSimTabContext('historial', this)"
                     class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
@@ -195,7 +194,7 @@ I will verify the first tab replacement first. -->
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/simulacion/partials/cards?tab=levantamientos" hx-target="#sim-tab-content"
-                    hx-swap="innerHTML" hx-push-url="?tab=levantamientos"
+                    hx-swap="innerHTML" hx-push-url="?tab=levantamientos" hx-include=".global-filter"
                     onclick="updateSimTabContext('levantamientos', this)"
                     class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
@@ -213,7 +212,8 @@ I will verify the first tab replacement first. -->
     </div>
 
     <!-- Tab Content Area con loading mejorado -->
-    <div id="sim-tab-content" class="flex-1 overflow-y-auto p-2" hx-get="/simulacion/partials/graphs" hx-trigger="load">
+    <div id="sim-tab-content" class="flex-1 overflow-y-auto p-2" hx-get="/simulacion/partials/cards?tab=activos"
+        hx-trigger="load" hx-include=".global-filter">
         <!-- Loading spinner corporativo -->
         <div class="flex justify-center items-center h-full">
             <div class="text-center">
@@ -270,6 +270,14 @@ I will verify the first tab replacement first. -->
             if (activeSvg) {
                 activeSvg.classList.add('text-emerald-600');
             }
+
+            // 4. Actualizar hx-get de los filtros globales
+            const targetUrl = element.getAttribute('hx-get').split('?')[0];
+
+            document.querySelectorAll('.global-filter').forEach(el => {
+                el.setAttribute('hx-get', targetUrl);
+                htmx.process(el);
+            });
         }
 
         // Guardar subtab cuando cambie (para historial y levantamientos)

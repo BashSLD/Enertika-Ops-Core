@@ -81,15 +81,35 @@
                 </span>
                 <input type="text" id="search-input" name="q" hx-get="/simulacion/partials/cards"
                     hx-trigger="keyup changed delay:500ms, search" hx-target="#sim-tab-content" value="{{ q or '' }}"
+                    hx-include="#limit-selector, .filter-select"
                     class="w-full pl-8 pr-3 py-1 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all shadow-sm"
                     placeholder="Buscar...">
+            </div>
+
+            <!-- TECH FILTER (Nuevo - Reubicado) -->
+            <div class="flex items-center gap-2">
+                <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Tecnología:</label>
+                <select name="filtro_tecnologia_id"
+                    class="filter-select w-32 md:w-40 px-2 py-1 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all shadow-sm"
+                    hx-get="/simulacion/partials/cards" hx-trigger="change" hx-target="#sim-tab-content"
+                    hx-include="#active_tab_input, #search-input, #limit-selector">
+                    <option value="">Todas</option>
+                    {% if catalogos and catalogos.tecnologias %}
+                    {% for t in catalogos.tecnologias %}
+                    <option value="{{ t.id }}" {{ 'selected' if filtro_tecnologia_id==t.id else '' }}>{{ t.nombre }}
+                    </option>
+                    {% endfor %}
+                    {% else %}
+                    <option value="" disabled>Cargando...</option>
+                    {% endif %}
+                </select>
             </div>
 
             <div class="flex items-center gap-2">
                 <label for="limit-selector"
                     class="text-sm text-gray-600 font-medium font-bold whitespace-nowrap">Mostrar:</label>
-                <select id="limit-selector" hx-get="/simulacion/partials/cards" hx-target="#tab-content"
-                    hx-include="#active_tab_input, #search-input" name="limit"
+                <select id="limit-selector" hx-get="/simulacion/partials/cards" hx-target="#sim-tab-content"
+                    hx-include="#active_tab_input, #search-input, .filter-select" name="limit"
                     class="border border-gray-300 rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                     <option value="15" {{ 'selected' if limit==15 else '' }}>15 registros</option>
                     <option value="50" {{ 'selected' if limit==50 else '' }}>50 registros</option>
@@ -144,7 +164,7 @@
                                 <tr x-data="{ confirmDelete: false }"
                                     @click="$dispatch('row-selected', '{{ op.id_oportunidad }}')"
                                     :class="{ 'bg-blue-50/80 ring-2 ring-blue-400': isSelected('{{ op.id_oportunidad }}'), '!bg-gray-50/80 !border-l-8 !border-l-[#00BABB] shadow-md': isExpanded('{{ op.id_oportunidad }}') && !isSelected('{{ op.id_oportunidad }}') }"
-                                    class="hover:bg-white/80 transition-all duration-300 ease-out border-l-4 {{ prioridad_color }} hover:shadow-lg hover:-translate-y-[2px] animate-fade-in-up cursor-pointer backdrop-blur-sm"
+                                    class="bg-white/95 hover:bg-gray-50 transition-all duration-300 ease-out border-l-4 {{ prioridad_color }} {{ 'shadow-[0_0_10px_rgba(239,68,68,0.5)]' if op.prioridad == 'high' }} hover:-translate-y-[2px] animate-fade-in-up cursor-pointer"
                                     {{ animation_delay|safe }}>
 
                                     <!-- COL 1: Acciones (Moved to start) -->

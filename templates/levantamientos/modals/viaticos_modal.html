@@ -118,11 +118,11 @@
                 <input type="hidden" name="cc_adicionales" id="cc_adicionales_hidden" value="" />
             </div>
 
-            <div class="flex justify-end">
+            <div class="flex justify-end items-center gap-3">
+                <span id="enviar-loading" class="htmx-indicator text-blue-400 text-sm">
+                    <i class="fas fa-spinner fa-spin mr-1"></i> Enviando...
+                </span>
                 <button type="submit" class="btn btn-primary">
-                    <span id="enviar-loading" class="htmx-indicator">
-                        <i class="fas fa-spinner fa-spin mr-2"></i>
-                    </span>
                     <i class="fas fa-paper-plane mr-2"></i>
                     Enviar Solicitud
                 </button>

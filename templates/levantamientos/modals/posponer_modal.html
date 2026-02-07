@@ -35,7 +35,7 @@
     <!-- Formulario -->
     <form id="form-posponer" hx-post="/levantamientos/posponer/{{ lev_data.id_levantamiento }}"
         hx-target="#kanban-container" hx-swap="outerHTML"
-        hx-on::after-request="if(event.detail.successful) closeModal()">
+        hx-on::after-request="if(event.detail.successful) setTimeout(() => closeModal(), 150)">
 
         <div class="form-group">
             <label for="motivo_pospone" class="form-label required text-white">

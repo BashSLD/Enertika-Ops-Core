@@ -30,6 +30,23 @@ from modules.shared.services import SiteService
 from .metrics_service import MetricsService, get_metrics_service
 from datetime import datetime, timedelta
 
+# Helper para conversión segura
+def _safe_int(val: Optional[str]) -> Optional[int]:
+    if not val:
+        return None
+    try:
+        return int(val)
+    except ValueError:
+        return None
+        
+def _safe_uuid(val: Optional[str]) -> Optional[UUID]:
+    if not val:
+        return None
+    try:
+        return UUID(val)
+    except ValueError:
+        return None
+
 from .schemas import OportunidadCreateCompleta, DetalleBessCreate, SimulacionUpdate, SitiosBatchUpdate
 
 # Import Workflow Service (Centralizado)
@@ -56,6 +73,8 @@ router = APIRouter(
 async def get_simulacion_ui(
     request: Request,
     context = Depends(get_current_user_context),
+    service: SimulacionService = Depends(get_simulacion_service),
+    conn = Depends(get_db_connection),
     _ = require_module_access("simulacion")
 ):
     """
@@ -84,7 +103,8 @@ async def get_simulacion_ui(
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
-        "current_module_role": effective_role
+        "current_module_role": effective_role,
+        "catalogos": await service.get_catalogos_ui(conn)
     })
 
 # ========================================
@@ -243,6 +263,10 @@ async def create_oportunidad_extraordinaria(
 @router.get("/partials/graphs", include_in_schema=False)
 async def get_graphs_partial(
     request: Request,
+    filtro_fecha_inicio: Optional[str] = None,
+    filtro_fecha_fin: Optional[str] = None,
+    filtro_tecnologia_id: Optional[str] = None,
+    filtro_responsable_id: Optional[str] = None,
     context = Depends(get_current_user_context),
     conn = Depends(get_db_connection),
     _ = require_module_access("simulacion")
@@ -259,36 +283,23 @@ async def get_graphs_partial(
     # Default: Start of current Year
     start_date = today.replace(month=1, day=1)
     end_date = today
-
+    
     # Parse params if present
-    if request.query_params.get("fecha_inicio"):
+    if filtro_fecha_inicio:
         try:
-            start_date = date.fromisoformat(request.query_params.get("fecha_inicio"))
+            start_date = datetime.strptime(filtro_fecha_inicio, '%Y-%m-%d').date()
         except ValueError:
             pass # Keep default
             
-    if request.query_params.get("fecha_fin"):
+    if filtro_fecha_fin:
         try:
-            end_date = date.fromisoformat(request.query_params.get("fecha_fin"))
+            end_date = datetime.strptime(filtro_fecha_fin, '%Y-%m-%d').date()
         except ValueError:
             pass # Keep default
 
-    # Parse other filters
-    id_tecnologia = request.query_params.get("id_tecnologia")
-    if id_tecnologia and id_tecnologia.isdigit():
-        id_tecnologia = int(id_tecnologia)
-    else:
-        id_tecnologia = None
-        
-    responsable_id = request.query_params.get("responsable_id")
-    if responsable_id and responsable_id != "":
-        try:
-            responsable_id = UUID(responsable_id)
-        except ValueError:
-            responsable_id = None
-    else:
-        responsable_id = None
-
+    id_tecnologia = _safe_int(filtro_tecnologia_id)
+    responsable_id = _safe_uuid(filtro_responsable_id)
+    
     filtros = FiltrosReporte(
         fecha_inicio=start_date,
         fecha_fin=end_date,
@@ -325,14 +336,17 @@ async def get_cards_partial(
     q: Optional[str] = None,
     limit: int = 30,  # Default 30 para simulación
     subtab: Optional[str] = None,
+    filtro_tecnologia_id: Optional[str] = None,
     context = Depends(get_current_user_context),
     service: SimulacionService = Depends(get_simulacion_service),
     conn = Depends(get_db_connection),
     _ = require_module_access("simulacion")
 ):
     """Partial: Tabla de oportunidades con filtros."""
+    f_tecnologia = _safe_int(filtro_tecnologia_id)
+    
     oportunidades = await service.get_oportunidades_list(
-        conn, context, tab=tab, q=q, limit=limit, subtab=subtab
+        conn, context, tab=tab, q=q, limit=limit, subtab=subtab, filtro_tecnologia_id=f_tecnologia
     )
     
     return templates.TemplateResponse("simulacion/partials/cards.html", {
@@ -341,7 +355,9 @@ async def get_cards_partial(
         "current_tab": tab,
         "subtab": subtab,
         "limit": limit,
-        "context": context
+        "context": context,
+        "catalogos": await service.get_catalogos_ui(conn),
+        "filtro_tecnologia_id": f_tecnologia
     })
 
 @router.get("/partials/comentarios/{id_oportunidad}", include_in_schema=False)
