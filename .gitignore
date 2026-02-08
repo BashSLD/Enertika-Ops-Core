@@ -36,3 +36,4 @@ scripts/
 .claude/
 CLAUDE.md
 .claude/settings.json
+.agent/

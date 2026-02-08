@@ -30,3 +30,14 @@ class LevantamientoRead(BaseModel):
     evidencia_docs_url: Optional[str]
 
     model_config = ConfigDict(from_attributes=True)
+
+class AssignmentForm(BaseModel):
+    """Schema para formulario de asignación."""
+    tecnico_asignado_id: Optional[List[UUID]] = Field(default=None)
+    jefe_area_id: Optional[UUID] = Field(default=None)
+    observaciones: Optional[str] = Field(default=None)
+
+class ChangeStatusForm(BaseModel):
+    """Schema para cambio de estado."""
+    nuevo_estado: int = Field(..., ge=8, le=13)
+    observaciones: Optional[str] = Field(default=None)

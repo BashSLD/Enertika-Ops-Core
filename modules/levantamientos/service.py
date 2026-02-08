@@ -281,6 +281,17 @@ class LevantamientoService:
         Asigna técnicos (multiples) y/o jefe de área.
         Usa tb_levantamiento_asignaciones para técnicos.
         """
+        # PERMISOS: Solo Admin, Manager o Admin de Levantamientos pueden asignar
+        is_admin_or_manager = (
+            user_context.get("role") in ["ADMIN", "MANAGER"] or 
+            user_context.get("module_roles", {}).get("levantamientos") == "admin"
+        )
+        
+        if not is_admin_or_manager:
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permisos para asignar responsables. Contacta a un administrador."
+            )
         # Validar levantamiento
         current = await conn.fetchrow("""
             SELECT id_levantamiento, jefe_area_id, id_oportunidad, id_estatus_global
@@ -396,6 +407,25 @@ class LevantamientoService:
         
         if not current:
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+
+        # PERMISOS: Admin/Manager, Editor Module, o TÉCNICO ASIGNADO
+        user_id = user_context.get("user_db_id")
+        user_role = user_context.get("role")
+        mod_role = user_context.get("module_roles", {}).get("levantamientos")
+        
+        is_admin_or_editor = (user_role in ["ADMIN", "MANAGER"] or mod_role in ["admin", "editor"])
+        
+        if not is_admin_or_editor:
+            # Verificar si es técnico asignado
+            from .db_service import get_db_service
+            db_svc = get_db_service()
+            assigned_techs = await db_svc.get_asignaciones_actuales(conn, id_levantamiento)
+            
+            if user_id not in assigned_techs:
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Solo los técnicos asignados o administradores pueden cambiar el estado."
+                )
         
         estado_anterior = current['id_estatus_global']
         
@@ -436,6 +466,42 @@ class LevantamientoService:
         )
         
         logger.info(f"[ESTADO] Levantamiento {id_levantamiento}: {estado_anterior} -> {nuevo_estado}")
+
+    async def validate_status_change_prerequisites(self, conn, id_levantamiento: UUID, nuevo_estado: int):
+        """
+        Valida reglas de negocio antes de cambiar de estado.
+        Lanza HTTPException si no se cumplen.
+        """
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+
+        # Regla 1: Para pasar a "En Proceso" (10), debe tener técnicos asignados
+        if nuevo_estado == 10:
+            has_techs = await db_svc.check_asignaciones(conn, id_levantamiento)
+            if not has_techs:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Debes asignar al menos un ingeniero antes de iniciar el levantamiento."
+                )
+
+            # Regla 2: Para pasar a "En Proceso" (10), debe haber solicitado viáticos
+            has_viaticos = await db_svc.check_viaticos_sent(conn, id_levantamiento)
+            if not has_viaticos:
+                 raise HTTPException(
+                    status_code=400,
+                    detail="Debes enviar la solicitud de viáticos antes de iniciar."
+                )
+
+    async def get_modal_data(self, conn, id_levantamiento: UUID) -> dict:
+        """Obtiene datos estandarizados para los modales."""
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+        
+        data = await db_svc.get_levantamiento_modal_header(conn, id_levantamiento)
+        if not data:
+            raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+        return data
+
     
     # ========================================
     # HISTORIAL

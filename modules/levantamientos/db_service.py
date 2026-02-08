@@ -78,6 +78,54 @@ class LevantamientosDBService:
         """, id_levantamiento)
 
         return dict(row) if row else None
+    
+    async def get_levantamiento_modal_header(self, conn, id_levantamiento: UUID) -> Optional[dict]:
+        """
+        Obtiene datos para header de modales (Assign/Historial).
+        """
+        row = await conn.fetchrow("""
+            SELECT l.*, o.op_id_estandar, o.nombre_proyecto, o.cliente_nombre
+            FROM tb_levantamientos l
+            INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+            WHERE l.id_levantamiento = $1
+        """, id_levantamiento)
+        return dict(row) if row else None
+
+    async def get_asignaciones_actuales(self, conn, id_levantamiento: UUID) -> List[UUID]:
+        """Retorna IDs de técnicos asignados actualmente."""
+        rows = await conn.fetch("""
+            SELECT tecnico_id FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1
+        """, id_levantamiento)
+        return [row['tecnico_id'] for row in rows]
+
+    async def check_asignaciones(self, conn, id_levantamiento: UUID) -> bool:
+        """Verifica si hay técnicos asignados (pivote o legacy)."""
+        has_techs = await conn.fetchval("""
+            SELECT EXISTS(SELECT 1 FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1)
+        """, id_levantamiento)
+
+        if not has_techs:
+            has_techs = await conn.fetchval("""
+                SELECT (tecnico_asignado_id IS NOT NULL) FROM tb_levantamientos WHERE id_levantamiento = $1
+            """, id_levantamiento)
+        
+        return has_techs
+
+    async def check_viaticos_sent(self, conn, id_levantamiento: UUID) -> bool:
+        """Verifica si se ha enviado solicitud de viáticos."""
+        return await conn.fetchval("""
+            SELECT EXISTS(
+                SELECT 1 FROM tb_levantamiento_viaticos_historico
+                WHERE id_levantamiento = $1 AND estatus = 'enviado'
+            )
+        """, id_levantamiento)
+    
+    async def get_id_by_oportunidad(self, conn, id_oportunidad: UUID) -> Optional[UUID]:
+        """Obtiene ID de levantamiento por ID de oportunidad."""
+        return await conn.fetchval("""
+            SELECT id_levantamiento FROM tb_levantamientos WHERE id_oportunidad = $1 LIMIT 1
+        """, id_oportunidad)
+
 
     # ----------------------------------------------------------
     # POSPONER

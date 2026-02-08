@@ -138,100 +138,29 @@ class ComprasService:
     # ========================================
     # CONSULTAS DE COMPROBANTES
     # ========================================
-    
+   
     async def get_comprobantes(
         self,
         conn,
-        fecha_inicio: Optional[date] = None,
-        fecha_fin: Optional[date] = None,
-        estatus: Optional[str] = None,
-        id_zona: Optional[int] = None,
-        id_proyecto: Optional[UUID] = None,
-        id_categoria: Optional[int] = None,
+        filtros: dict,
         page: int = 1,
         per_page: int = 50
     ) -> Tuple[List[dict], int]:
         """
         Obtiene comprobantes con filtros y paginación.
-        
-        Returns:
-            (lista_comprobantes, total_count)
         """
-        # Query base con JOINs
-        base_query = """
-            SELECT 
-                c.id_comprobante,
-                c.fecha_pago,
-                c.beneficiario_orig,
-                c.monto,
-                c.moneda,
-                c.estatus,
-                c.uuid_factura,
-                c.created_at,
-                c.id_proveedor,
-                c.id_zona,
-                c.id_proyecto,
-                c.id_categoria,
-                u.nombre as comprador_nombre,
-                p.razon_social as proveedor_nombre,
-                p.rfc as proveedor_rfc,
-                z.nombre as zona_nombre,
-                pr.proyecto_id_estandar as proyecto_nombre,
-                cat.nombre as categoria_nombre
-            FROM tb_comprobantes_pago c
-            LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
-            LEFT JOIN tb_cat_zonas_compra z ON c.id_zona = z.id
-            LEFT JOIN tb_proyectos_gate pr ON c.id_proyecto = pr.id_proyecto
-            LEFT JOIN tb_cat_categorias_compra cat ON c.id_categoria = cat.id
-            WHERE 1=1
-        """
-        
-        params = []
-        param_idx = 1
-        
-        # Aplicar filtros dinámicamente
-        if fecha_inicio:
-            base_query += f" AND c.fecha_pago >= ${param_idx}"
-            params.append(fecha_inicio)
-            param_idx += 1
-        
-        if fecha_fin:
-            base_query += f" AND c.fecha_pago <= ${param_idx}"
-            params.append(fecha_fin)
-            param_idx += 1
-        
-        if estatus:
-            base_query += f" AND c.estatus = ${param_idx}"
-            params.append(estatus)
-            param_idx += 1
-        
-        if id_zona:
-            base_query += f" AND c.id_zona = ${param_idx}"
-            params.append(id_zona)
-            param_idx += 1
-        
-        if id_proyecto:
-            base_query += f" AND c.id_proyecto = ${param_idx}"
-            params.append(id_proyecto)
-            param_idx += 1
-        
-        if id_categoria:
-            base_query += f" AND c.id_categoria = ${param_idx}"
-            params.append(id_categoria)
-            param_idx += 1
-        
-        # Contar total (sin paginación)
-        count_query = f"SELECT COUNT(*) FROM ({base_query}) sub"
-        total = await conn.fetchval(count_query, *params)
-        
-        # Agregar ordenamiento y paginación
-        base_query += " ORDER BY c.fecha_pago DESC, c.created_at DESC"
-        base_query += f" LIMIT ${param_idx} OFFSET ${param_idx + 1}"
-        params.extend([per_page, (page - 1) * per_page])
-        
-        # Ejecutar query
-        rows = await conn.fetch(base_query, *params)
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+
+        # Obtener total
+        total = await db_svc.get_comprobantes_filtered(
+            conn, filtros, page, per_page, count_only=True
+        )
+
+        # Obtener datos
+        rows = await db_svc.get_comprobantes_filtered(
+            conn, filtros, page, per_page, count_only=False
+        )
         
         # Convertir a diccionarios
         comprobantes = []
@@ -246,38 +175,22 @@ class ComprasService:
     
     async def get_comprobantes_default_view(self, conn) -> Tuple[List[dict], int]:
         """
-        Vista default: TODOS los pendientes (sin filtro de fecha) + Mes Actual.
+        Vista default: TODOS los pendientes (sin filtro de fecha).
         """
         return await self.get_comprobantes(
             conn,
-            fecha_inicio=None,
-            fecha_fin=None,
-            estatus="PENDIENTE"
+            filtros={"estatus": "PENDIENTE"}
         )
     
     async def get_comprobante_by_id(self, conn, id_comprobante: UUID) -> Optional[dict]:
         """
         Obtiene un comprobante específico por ID.
         """
-        row = await conn.fetchrow("""
-            SELECT 
-                c.*,
-                u.nombre as comprador_nombre,
-                p.razon_social as proveedor_nombre,
-                z.nombre as zona_nombre,
-                pr.proyecto_id_estandar as proyecto_nombre,
-                cat.nombre as categoria_nombre
-            FROM tb_comprobantes_pago c
-            LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
-            LEFT JOIN tb_cat_zonas_compra z ON c.id_zona = z.id
-            LEFT JOIN tb_proyectos_gate pr ON c.id_proyecto = pr.id_proyecto
-            LEFT JOIN tb_cat_categorias_compra cat ON c.id_categoria = cat.id
-            WHERE c.id_comprobante = $1
-        """, id_comprobante)
+        from .db_service import get_db_service
+        db_svc = get_db_service()
         
-        if row:
-            comp = dict(row)
+        comp = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+        if comp:
             if comp.get('monto'):
                 comp['monto'] = float(comp['monto'])
             return comp
@@ -291,115 +204,81 @@ class ComprasService:
         self,
         conn,
         id_comprobante: UUID,
-        updates: dict
+        updates: dict,
+        user_context: dict
     ) -> dict:
         """
         Actualiza campos editables de un comprobante.
-        
-        Args:
-            updates: {id_zona, id_proyecto, id_categoria, estatus, id_proveedor}
-            
-            Returns:
-            Comprobante actualizado
         """
-        allowed_fields = ['id_zona', 'id_proyecto', 'id_categoria', 'estatus', 'id_proveedor']
+        from .db_service import get_db_service
+        db_svc = get_db_service()
         
-        set_clauses = []
-        params = []
-        param_idx = 1
+        # PERMISOS: Admin/Manager, Editor Module, o DUEÑO DEL REGISTRO
+        user_id = user_context.get("user_db_id")
+        user_role = user_context.get("role")
+        mod_role = user_context.get("module_roles", {}).get("compras")
         
-        for field in allowed_fields:
-            if field in updates:
-                value = updates[field]
-                # Permitir NULL explícito
-                if value is None or value == "" or value == "null":
-                    set_clauses.append(f"{field} = NULL")
-                else:
-                    set_clauses.append(f"{field} = ${param_idx}")
-                    params.append(value)
-                    param_idx += 1
+        is_admin_or_editor = (user_role in ["ADMIN", "MANAGER"] or mod_role in ["admin", "editor"])
         
-        if not set_clauses:
-            raise HTTPException(status_code=400, detail="No hay campos para actualizar")
+        if not is_admin_or_editor:
+            # Verificar ownership
+            current = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+            if not current:
+                raise HTTPException(status_code=404, detail="Comprobante no encontrado")
+                
+            if current['capturado_por_id'] != user_id:
+                raise HTTPException(
+                    status_code=403, 
+                    detail="Solo puedes editar los comprobantes que tú capturaste."
+                )
         
-        # Agregar updated_at
-        set_clauses.append(f"updated_at = ${param_idx}")
-        params.append(datetime.now())
-        param_idx += 1
+        success = await db_svc.update_comprobante(conn, id_comprobante, updates)
+        if not success:
+             raise HTTPException(status_code=404, detail="Comprobante no encontrado o sin cambios")
         
-        # ID del comprobante
-        params.append(id_comprobante)
-        
-        query = f"""
-            UPDATE tb_comprobantes_pago 
-            SET {', '.join(set_clauses)}
-            WHERE id_comprobante = ${param_idx}
-            RETURNING *
-        """
-        
-        row = await conn.fetchrow(query, *params)
-        if not row:
-            raise HTTPException(status_code=404, detail="Comprobante no encontrado")
-        
-        # Obtener datos completos con JOINs
         return await self.get_comprobante_by_id(conn, id_comprobante)
     
     async def bulk_update_comprobantes(
         self,
         conn,
         ids: List[UUID],
-        updates: dict
+        updates: dict,
+        user_context: dict
     ) -> int:
         """
         Actualización masiva de múltiples comprobantes.
-        
-        Args:
-            ids: Lista de UUIDs a actualizar
-            updates: Campos a actualizar
-            
-        Returns:
-            Número de registros actualizados
         """
         if not ids:
             return 0
             
-        allowed_fields = ['id_zona', 'id_proyecto', 'id_categoria', 'estatus']
+        from .db_service import get_db_service
+        db_svc = get_db_service()
         
-        set_clauses = []
-        params = []
-        param_idx = 1
+        # PERMISOS
+        user_id = user_context.get("user_db_id")
+        user_role = user_context.get("role")
+        mod_role = user_context.get("module_roles", {}).get("compras")
         
-        for field in allowed_fields:
-            if field in updates and updates[field] is not None:
-                set_clauses.append(f"{field} = ${param_idx}")
-                params.append(updates[field])
-                param_idx += 1
+        is_admin_or_editor = (user_role in ["ADMIN", "MANAGER"] or mod_role in ["admin", "editor"])
         
-        if not set_clauses:
-            return 0
+        if not is_admin_or_editor:
+            # Verificar que TODOS los comprobantes sean del usuario
+            # Optimizacion: Consultar solo los que NO son del usuario
+            query = """
+                SELECT COUNT(*) 
+                FROM tb_comprobantes_pago
+                WHERE id_comprobante = ANY($1)
+                AND capturado_por_id != $2
+            """
+            not_owned_count = await conn.fetchval(query, ids, user_id)
+            
+            if not_owned_count > 0:
+                raise HTTPException(
+                    status_code=403,
+                    detail=f"Seleccionaste {not_owned_count} comprobante(s) que no te pertenecen. Solo puedes editar tus propios registros."
+                )
         
-        # Agregar updated_at
-        set_clauses.append(f"updated_at = ${param_idx}")
-        params.append(datetime.now())
-        param_idx += 1
-        
-        # Array de UUIDs
-        params.append(ids)
-        
-        query = f"""
-            UPDATE tb_comprobantes_pago 
-            SET {', '.join(set_clauses)}
-            WHERE id_comprobante = ANY(${param_idx}::uuid[])
-        """
-        
-        result = await conn.execute(query, *params)
-        
-        # Extraer número de filas afectadas (formato: "UPDATE X")
-        try:
-            count = int(result.split()[-1])
-        except (IndexError, ValueError):
-            count = len(ids)
-        
+        count = await db_svc.bulk_update(conn, ids, updates)
         logger.info(f"Bulk update: {count} comprobantes actualizados")
         return count
     
@@ -410,34 +289,24 @@ class ComprasService:
     async def export_to_excel(
         self,
         conn,
-        fecha_inicio: Optional[date] = None,
-        fecha_fin: Optional[date] = None,
-        estatus: Optional[str] = None,
-        id_zona: Optional[int] = None,
-        id_proyecto: Optional[UUID] = None,
-        id_categoria: Optional[int] = None
+        filtros: dict
     ) -> bytes:
         """
         Genera archivo Excel con los comprobantes filtrados.
-        
-        Returns:
-            Bytes del archivo Excel
         """
         from openpyxl import Workbook
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         from openpyxl.utils import get_column_letter
         from io import BytesIO
         
-        # Obtener datos (sin límite de paginación)
+        # Obtener datos (sin límite de paginación logic handled inside get_comprobantes via per_page=0 trick or similar in db_service if implemented, 
+        # but here we reuse get_comprobantes which expects per_page.
+        # Let's adjust get_comprobantes call to request all.
+        
         comprobantes, _ = await self.get_comprobantes(
             conn,
-            fecha_inicio=fecha_inicio,
-            fecha_fin=fecha_fin,
-            estatus=estatus,
-            id_zona=id_zona,
-            id_proyecto=id_proyecto,
-            id_categoria=id_categoria,
-            per_page=100000  # Sin límite práctico
+            filtros=filtros,
+            per_page=100000 
         )
         
         # Crear workbook
@@ -527,42 +396,9 @@ class ComprasService:
         """
         Obtiene todos los catálogos necesarios para dropdowns.
         """
-        zonas = await conn.fetch("""
-            SELECT id, nombre 
-            FROM tb_cat_zonas_compra 
-            WHERE activo = true 
-            ORDER BY orden, nombre
-        """)
-        
-        categorias = await conn.fetch("""
-            SELECT id, nombre 
-            FROM tb_cat_categorias_compra 
-            WHERE activo = true 
-            ORDER BY orden, nombre
-        """)
-        
-        proyectos = await conn.fetch("""
-            SELECT id_proyecto, proyecto_id_estandar as nombre
-            FROM tb_proyectos_gate 
-            WHERE aprobacion_direccion = true
-            ORDER BY proyecto_id_estandar
-        """)
-        
-        # Compradores (usuarios del departamento Compras)
-        compradores = await conn.fetch("""
-            SELECT id_usuario, nombre
-            FROM tb_usuarios
-            WHERE is_active = true
-            AND LOWER(department) = 'compras'
-            ORDER BY nombre
-        """)
-        
-        return {
-            "zonas": [dict(z) for z in zonas],
-            "categorias": [dict(c) for c in categorias],
-            "proyectos": [dict(p) for p in proyectos],
-            "compradores": [dict(c) for c in compradores]
-        }
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+        return await db_svc.get_catalogos_data(conn)
     
     async def get_proveedores_search(
         self, 
@@ -573,22 +409,9 @@ class ComprasService:
         """
         Búsqueda de proveedores por nombre o RFC.
         """
-        search_pattern = f"%{search_term}%"
-        
-        rows = await conn.fetch("""
-            SELECT id_proveedor, rfc, razon_social, nombre_comercial
-            FROM tb_proveedores
-            WHERE activo = true
-            AND (
-                razon_social ILIKE $1
-                OR nombre_comercial ILIKE $1
-                OR rfc ILIKE $1
-            )
-            ORDER BY razon_social
-            LIMIT $2
-        """, search_pattern, limit)
-        
-        return [dict(r) for r in rows]
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+        return await db_svc.search_proveedores(conn, search_term, limit)
     
     # ========================================
     # ESTADÍSTICAS (para dashboard futuro)
@@ -597,6 +420,8 @@ class ComprasService:
     async def get_estadisticas_generales(
         self, 
         conn,
+        filtros: Optional[dict] = None,
+        # Legacy params support for ease of refactor, convert them to dict
         fecha_inicio: Optional[date] = None,
         fecha_fin: Optional[date] = None,
         estatus: Optional[str] = None,
@@ -607,53 +432,21 @@ class ComprasService:
         """
         Obtiene estadísticas generales con filtros dinámicos.
         """
-        # Query base
-        base_query = """
-            SELECT 
-                COUNT(*) as total,
-                COUNT(*) FILTER (WHERE estatus = 'PENDIENTE') as pendientes,
-                COUNT(*) FILTER (WHERE estatus = 'FACTURADO') as facturados,
-                COALESCE(SUM(monto) FILTER (WHERE moneda = 'MXN'), 0) as total_mxn,
-                COALESCE(SUM(monto) FILTER (WHERE moneda = 'USD'), 0) as total_usd
-            FROM tb_comprobantes_pago
-            WHERE 1=1
-        """
+        from .db_service import get_db_service
+        db_svc = get_db_service()
         
-        params = []
-        param_idx = 1
-        
-        # Aplicar filtros
-        if fecha_inicio:
-            base_query += f" AND fecha_pago >= ${param_idx}"
-            params.append(fecha_inicio)
-            param_idx += 1
-        
-        if fecha_fin:
-            base_query += f" AND fecha_pago <= ${param_idx}"
-            params.append(fecha_fin)
-            param_idx += 1
+        # Build filter dict if not provided
+        if filtros is None:
+            filtros = {
+                "fecha_inicio": fecha_inicio,
+                "fecha_fin": fecha_fin,
+                "estatus": estatus,
+                "id_zona": id_zona,
+                "id_proyecto": id_proyecto,
+                "id_categoria": id_categoria
+            }
             
-        if estatus:
-            base_query += f" AND estatus = ${param_idx}"
-            params.append(estatus)
-            param_idx += 1
-            
-        if id_zona:
-            base_query += f" AND id_zona = ${param_idx}"
-            params.append(id_zona)
-            param_idx += 1
-            
-        if id_proyecto:
-            base_query += f" AND id_proyecto = ${param_idx}"
-            params.append(id_proyecto)
-            param_idx += 1
-            
-        if id_categoria:
-            base_query += f" AND id_categoria = ${param_idx}"
-            params.append(id_categoria)
-            param_idx += 1
-            
-        stats = await conn.fetchrow(base_query, *params)
+        stats = await db_svc.get_estadisticas(conn, filtros)
         
         return {
             "total": stats['total'],

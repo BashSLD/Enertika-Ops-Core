@@ -15,6 +15,9 @@ from core.database import get_db_connection
 
 # Service Layer
 from .service import get_service, LevantamientoService
+from .db_service import get_db_service
+from .schemas import AssignmentForm, ChangeStatusForm
+from typing import Annotated
 
 logger = logging.getLogger("Levantamientos.Router")
 
@@ -132,25 +135,15 @@ async def get_assign_modal(
 ):
     """Modal para asignar responsables."""
     # Obtener datos del levantamiento
-    lev_data = await conn.fetchrow("""
-        SELECT l.*, o.op_id_estandar, o.nombre_proyecto, o.cliente_nombre
-        FROM tb_levantamientos l
-        INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
-        WHERE l.id_levantamiento = $1
-    """, id_levantamiento)
-    
-    if not lev_data:
-        raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+    lev_data = await service.get_modal_data(conn, id_levantamiento)
     
     # Obtener listas de usuarios
     usuarios = await service.get_usuarios_para_asignacion(conn)
 
     # Phase 5: Fetch assigned technicians (Multi-select support)
-    current_tech_rows = await conn.fetch("""
-        SELECT tecnico_id FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1
-    """, id_levantamiento)
-    current_tecnico_ids = [row['tecnico_id'] for row in current_tech_rows]
-    
+    db_svc = get_db_service()
+    current_tecnico_ids = await db_svc.get_asignaciones_actuales(conn, id_levantamiento)
+        
     # Fallback legacy: si no hay en tabla pivote, usar el de la tabla principal
     if not current_tecnico_ids and lev_data['tecnico_asignado_id']:
         current_tecnico_ids = [lev_data['tecnico_asignado_id']]
@@ -172,7 +165,7 @@ async def get_assign_modal(
     return templates.TemplateResponse("levantamientos/modals/assign_modal.html", {
         "request": request,
         "id_levantamiento": id_levantamiento,
-        "lev_data": dict(lev_data),
+        "lev_data": lev_data,
         "tecnicos": usuarios['tecnicos'],
         "jefes": usuarios['jefes'],
         "current_tecnico_ids": current_tecnico_ids,
@@ -192,22 +185,14 @@ async def get_historial_modal(
 ):
     """Modal con timeline de cambios de estado."""
     # Obtener datos del levantamiento
-    lev_data = await conn.fetchrow("""
-        SELECT l.*, o.op_id_estandar, o.nombre_proyecto
-        FROM tb_levantamientos l
-        INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
-        WHERE l.id_levantamiento = $1
-    """, id_levantamiento)
-    
-    if not lev_data:
-        raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+    lev_data = await service.get_modal_data(conn, id_levantamiento)
     
     # Obtener historial
     historial = await service.get_historial_estados(conn, id_levantamiento)
     
     return templates.TemplateResponse("levantamientos/modals/historial_modal.html", {
         "request": request,
-        "lev_data": dict(lev_data),
+        "lev_data": lev_data,
         "historial": historial
     })
 
@@ -218,9 +203,7 @@ async def get_historial_modal(
 async def assign_responsables_endpoint(
     request: Request,
     id_levantamiento: UUID,
-    tecnico_asignado_id: Optional[list[UUID]] = Form(None),
-    jefe_area_id: Optional[UUID] = Form(None),
-    observaciones: Optional[str] = Form(None),
+    form: Annotated[AssignmentForm, Form()],
     conn = Depends(get_db_connection),
     service: LevantamientoService = Depends(get_service),
     context = Depends(get_current_user_context),
@@ -234,10 +217,10 @@ async def assign_responsables_endpoint(
         await service.assign_responsables(
             conn=conn,
             id_levantamiento=id_levantamiento,
-            tecnicos_ids=tecnico_asignado_id or [],
-            jefe_id=jefe_area_id,
+            tecnicos_ids=form.tecnico_asignado_id or [],
+            jefe_id=form.jefe_area_id,
             user_context=context,
-            observaciones=observaciones
+            observaciones=form.observaciones
         )
 
         data = await service.get_kanban_data(conn)
@@ -292,8 +275,7 @@ async def assign_responsables_endpoint(
 async def change_status_endpoint(
     request: Request,
     id_levantamiento: UUID,
-    nuevo_estado: int = Form(...),
-    observaciones: Optional[str] = Form(None),
+    form: Annotated[ChangeStatusForm, Form()],
     conn = Depends(get_db_connection),
     service: LevantamientoService = Depends(get_service),
     context = Depends(get_current_user_context),
@@ -303,78 +285,39 @@ async def change_status_endpoint(
     API: Cambia el estado de un levantamiento.
     Registra en historial y notifica automáticamente.
     """
-    # VALIDACION: No iniciar si no hay técnicos asignados
-    if nuevo_estado == 10:  # En Proceso
-        has_techs = await conn.fetchval("""
-            SELECT EXISTS(SELECT 1 FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1)
-        """, id_levantamiento)
-
-        if not has_techs:
-            has_techs = await conn.fetchval("""
-                SELECT (tecnico_asignado_id IS NOT NULL) FROM tb_levantamientos WHERE id_levantamiento = $1
-            """, id_levantamiento)
-
-        if not has_techs:
-            data = await service.get_kanban_data(conn)
-            can_edit = (
-                context.get("role") == "ADMIN"
-                or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
-            )
-            return templates.TemplateResponse("levantamientos/partials/kanban.html", {
-                "request": request,
-                "pendientes": data['pendientes'],
-                "agendados": data['agendados'],
-                "en_proceso": data['en_proceso'],
-                "completados": data['completados'],
-                "entregados": data['entregados'],
-                "pospuestos": data['pospuestos'],
-                "can_edit": can_edit,
-                "user_context": context,
-                "notification": {
-                    "title": "Acción Requerida",
-                    "message": "Debes asignar al menos un ingeniero antes de iniciar el levantamiento.",
-                    "type": "error"
-                }
-            })
-
-        # CHECK 2: Solicitud de Viáticos Enviada
-        has_viaticos_sent = await conn.fetchval("""
-            SELECT EXISTS(
-                SELECT 1 FROM tb_levantamiento_viaticos_historico
-                WHERE id_levantamiento = $1 AND estatus = 'enviado'
-            )
-        """, id_levantamiento)
-
-        if not has_viaticos_sent:
-            data = await service.get_kanban_data(conn)
-            can_edit = (
-                context.get("role") == "ADMIN"
-                or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
-            )
-            return templates.TemplateResponse("levantamientos/partials/kanban.html", {
-                "request": request,
-                "pendientes": data['pendientes'],
-                "agendados": data['agendados'],
-                "en_proceso": data['en_proceso'],
-                "completados": data['completados'],
-                "entregados": data['entregados'],
-                "pospuestos": data['pospuestos'],
-                "can_edit": can_edit,
-                "user_context": context,
-                "notification": {
-                    "title": "Falta Solicitud de Viáticos",
-                    "message": "Debes enviar la solicitud de viáticos antes de iniciar.",
-                    "type": "error"
-                }
-            })
+    # VALIDACION: Reglas de negocio en Service Layer
+    try:
+        await service.validate_status_change_prerequisites(conn, id_levantamiento, form.nuevo_estado)
+    except HTTPException as e:
+         data = await service.get_kanban_data(conn)
+         can_edit = (
+            context.get("role") == "ADMIN"
+            or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
+         )
+         return templates.TemplateResponse("levantamientos/partials/kanban.html", {
+            "request": request,
+            "pendientes": data['pendientes'],
+            "agendados": data['agendados'],
+            "en_proceso": data['en_proceso'],
+            "completados": data['completados'],
+            "entregados": data['entregados'],
+            "pospuestos": data['pospuestos'],
+            "can_edit": can_edit,
+            "user_context": context,
+            "notification": {
+                "title": "Acción Requerida",
+                "message": e.detail,
+                "type": "error"
+            }
+        })
 
     try:
         await service.cambiar_estado(
             conn=conn,
             id_levantamiento=id_levantamiento,
-            nuevo_estado=nuevo_estado,
+            nuevo_estado=form.nuevo_estado,
             user_context=context,
-            observaciones=observaciones
+            observaciones=form.observaciones
         )
 
         # Recargar datos del kanban y retornar HTML actualizado
@@ -435,19 +378,19 @@ async def mover_tarjeta_endpoint(
     API: Cambia estado de un levantamiento usando id_oportunidad.
     Alias de /change-status para acceso por oportunidad.
     """
-    lev_id = await conn.fetchval(
-        "SELECT id_levantamiento FROM tb_levantamientos WHERE id_oportunidad = $1 LIMIT 1",
-        id_oportunidad
-    )
+    db_svc = get_db_service()
+    lev_id = await db_svc.get_id_by_oportunidad(conn, id_oportunidad)
 
     if not lev_id:
         raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
+    # Adaptar a nuevo signature con Pydantic
+    form = ChangeStatusForm(nuevo_estado=status, observaciones=None)
+
     return await change_status_endpoint(
         request=request,
         id_levantamiento=lev_id,
-        nuevo_estado=status,
-        observaciones=None,
+        form=form,
         conn=conn,
         service=service,
         context=context

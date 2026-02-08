@@ -211,16 +211,55 @@ class ProveedorSearchResult(BaseModel):
 # FILTROS DE BÚSQUEDA
 # ========================================
 
-class ComprobanteFiltros(BaseModel):
+class ComprobanteFilter(BaseModel):
     """Filtros para búsqueda de comprobantes."""
     fecha_inicio: Optional[date] = None
     fecha_fin: Optional[date] = None
-    estatus: Optional[EstatusComprobante] = None
+    estatus: Optional[str] = None
     id_zona: Optional[int] = None
     id_proyecto: Optional[UUID] = None
     id_categoria: Optional[int] = None
     page: int = Field(default=1, ge=1)
     per_page: int = Field(default=50, ge=1, le=500)
+
+    @field_validator('estatus')
+    @classmethod
+    def validate_estatus(cls, v):
+        if v == "TODOS" or not v:
+            return None
+        return v
+    
+    @field_validator('id_proyecto', mode='before')
+    @classmethod
+    def validate_uuid_empty(cls, v):
+        if not v or v == "":
+            return None
+        if isinstance(v, str):
+            try:
+                return UUID(v)
+            except ValueError:
+                return None
+        return v
+
+class ComprobanteUpdateForm(BaseModel):
+    """Formulario para actualizar un comprobante."""
+    id_zona: Optional[int] = None
+    id_proyecto: Optional[UUID] = None
+    id_categoria: Optional[int] = None
+    estatus: Optional[EstatusComprobante] = None
+    
+    @field_validator('id_proyecto', mode='before')
+    @classmethod
+    def validate_uuid_empty(cls, v):
+        if not v or v == "":
+            return None
+        if isinstance(v, str):
+            try:
+                return UUID(v)
+            except ValueError:
+                return None
+        return v
+
 
 
 # ========================================

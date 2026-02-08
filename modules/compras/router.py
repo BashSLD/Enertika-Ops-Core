@@ -30,8 +30,11 @@ from core.config import settings
 from .service import ComprasService, get_compras_service
 from .schemas import (
     ComprobanteUpdate, 
-    ComprobanteBulkUpdate
+    ComprobanteBulkUpdate,
+    ComprobanteFilter,
+    ComprobanteUpdateForm
 )
+from typing import Annotated
 
 logger = logging.getLogger("ComprasModule")
 templates = Jinja2Templates(directory="templates")
@@ -201,14 +204,7 @@ async def upload_comprobantes(
 @router.get("/comprobantes", response_class=HTMLResponse)
 async def get_comprobantes_list(
     request: Request,
-    fecha_inicio: Optional[str] = Query(None),
-    fecha_fin: Optional[str] = Query(None),
-    estatus: Optional[str] = Query(None),
-    id_zona: Optional[str] = Query(None),
-    id_proyecto: Optional[str] = Query(None),
-    id_categoria: Optional[str] = Query(None),
-    page: int = Query(1, ge=1),
-    per_page: int = Query(50, ge=1, le=500),
+    filtros: Annotated[ComprobanteFilter, Query()],
     conn = Depends(get_db_connection),
     service: ComprasService = Depends(get_compras_service),
     _ = require_module_access("compras")
@@ -216,70 +212,23 @@ async def get_comprobantes_list(
     """
     Lista comprobantes con filtros (HTMX partial).
     """
-    # Parsing de filtros (Fix 422 errors with empty strings)
-    id_zona_int = int(id_zona) if id_zona and id_zona.strip() else None
-    
-    id_proyecto_uuid = None
-    if id_proyecto and id_proyecto.strip():
-        try:
-            id_proyecto_uuid = UUID(id_proyecto)
-        except ValueError:
-            pass
-            
-            
-    id_categoria_int = int(id_categoria) if id_categoria and id_categoria.strip() else None
-
-    # Parsing de fechas (Fix 422)
-    fecha_inicio_date = None
-    if fecha_inicio and fecha_inicio.strip():
-        try:
-            fecha_inicio_date = date.fromisoformat(fecha_inicio)
-        except ValueError:
-            pass
-            
-    fecha_fin_date = None
-    if fecha_fin and fecha_fin.strip():
-        try:
-            fecha_fin_date = date.fromisoformat(fecha_fin)
-        except ValueError:
-            pass
-    if fecha_inicio and fecha_inicio.strip():
-        try:
-            fecha_inicio_date = date.fromisoformat(fecha_inicio)
-        except ValueError:
-            pass
-            
-    fecha_fin_date = None
-    if fecha_fin and fecha_fin.strip():
-        try:
-            fecha_fin_date = date.fromisoformat(fecha_fin)
-        except ValueError:
-            pass
+    # Convertir filtros a dict para el servicio
+    filtro_dict = filtros.model_dump(exclude_none=True)
 
     comprobantes, total = await service.get_comprobantes(
         conn,
-        fecha_inicio=fecha_inicio_date,
-        fecha_fin=fecha_fin_date,
-        estatus=estatus if estatus and estatus != "TODOS" else None,
-        id_zona=id_zona_int,
-        id_proyecto=id_proyecto_uuid,
-        id_categoria=id_categoria_int,
-        page=page,
-        per_page=per_page
+        filtros=filtro_dict,
+        page=filtros.page,
+        per_page=filtros.per_page
     )
     
-    pages = (total + per_page - 1) // per_page if total > 0 else 1
+    pages = (total + filtros.per_page - 1) // filtros.per_page if total > 0 else 1
     catalogos = await service.get_catalogos(conn)
     
     # Calcular estadísticas filtradas para OOB swap
     estadisticas = await service.get_estadisticas_generales(
         conn,
-        fecha_inicio=fecha_inicio_date,
-        fecha_fin=fecha_fin_date,
-        estatus=estatus if estatus and estatus != "TODOS" else None,
-        id_zona=id_zona_int,
-        id_proyecto=id_proyecto_uuid,
-        id_categoria=id_categoria_int
+        filtros=filtro_dict
     )
     
     # Renderizar tabla
@@ -296,12 +245,12 @@ async def get_comprobantes_list(
             "categorias": catalogos.get("categorias", []),
             "proyectos": catalogos.get("proyectos", []),
             "filtros": {
-                "fecha_inicio": fecha_inicio if fecha_inicio else "",
-                "fecha_fin": fecha_fin if fecha_fin else "",
-                "estatus": estatus or "",
-                "id_zona": id_zona_int,
-                "id_proyecto": str(id_proyecto_uuid) if id_proyecto_uuid else "",
-                "id_categoria": id_categoria_int
+                "fecha_inicio": filtros.fecha_inicio.isoformat() if filtros.fecha_inicio else "",
+                "fecha_fin": filtros.fecha_fin.isoformat() if filtros.fecha_fin else "",
+                "estatus": filtros.estatus or "",
+                "id_zona": filtros.id_zona,
+                "id_proyecto": str(filtros.id_proyecto) if filtros.id_proyecto else "",
+                "id_categoria": filtros.id_categoria
             }
         }
     )
@@ -363,12 +312,10 @@ async def get_comprobante_edit_modal(
 async def update_comprobante(
     request: Request,
     id_comprobante: UUID,
-    id_zona: Optional[int] = Form(None),
-    id_proyecto: Optional[str] = Form(None),
-    id_categoria: Optional[int] = Form(None),
-    estatus: Optional[str] = Form(None),
+    form: Annotated[ComprobanteUpdateForm, Form()],
     conn = Depends(get_db_connection),
     service: ComprasService = Depends(get_compras_service),
+    context = Depends(get_current_user_context),
     _ = require_module_access("compras", "editor")
 ):
     """
@@ -378,25 +325,10 @@ async def update_comprobante(
         HTML de la fila actualizada (HTMX swap)
     """
     # Construir updates
-    updates = {}
-    
-    if id_zona is not None:
-        updates["id_zona"] = id_zona if id_zona > 0 else None
-    
-    if id_proyecto:
-        try:
-            updates["id_proyecto"] = UUID(id_proyecto) if id_proyecto and id_proyecto != "" else None
-        except ValueError:
-            updates["id_proyecto"] = None
-    
-    if id_categoria is not None:
-        updates["id_categoria"] = id_categoria if id_categoria > 0 else None
-    
-    if estatus:
-        updates["estatus"] = estatus
+    updates = form.model_dump(exclude_none=True)
     
     # Actualizar
-    comprobante = await service.update_comprobante(conn, id_comprobante, updates)
+    comprobante = await service.update_comprobante(conn, id_comprobante, updates, user_context=context)
     catalogos = await service.get_catalogos(conn)
     
     return templates.TemplateResponse(
@@ -425,6 +357,7 @@ async def bulk_update_comprobantes(
     estatus: Optional[str] = Form(None),
     conn = Depends(get_db_connection),
     service: ComprasService = Depends(get_compras_service),
+    context = Depends(get_current_user_context),
     _ = require_module_access("compras", "editor")
 ):
     """
@@ -459,7 +392,7 @@ async def bulk_update_comprobantes(
         updates["estatus"] = estatus
     
     # Ejecutar bulk update
-    count = await service.bulk_update_comprobantes(conn, uuid_list, updates)
+    count = await service.bulk_update_comprobantes(conn, uuid_list, updates, user_context=context)
     
     return templates.TemplateResponse(
         "compras/partials/bulk_result.html",
@@ -477,12 +410,7 @@ async def bulk_update_comprobantes(
 @router.get("/export-excel")
 async def export_excel(
     request: Request,
-    fecha_inicio: Optional[str] = Query(None),
-    fecha_fin: Optional[str] = Query(None),
-    estatus: Optional[str] = Query(None),
-    id_zona: Optional[str] = Query(None),
-    id_proyecto: Optional[str] = Query(None),
-    id_categoria: Optional[str] = Query(None),
+    filtros: Annotated[ComprobanteFilter, Query()],
     conn = Depends(get_db_connection),
     service: ComprasService = Depends(get_compras_service),
     _ = require_module_access("compras")
@@ -490,49 +418,10 @@ async def export_excel(
     """
     Exporta comprobantes a Excel con los filtros aplicados.
     """
-    # Parsing de filtros
-    id_zona_int = int(id_zona) if id_zona and id_zona.strip() else None
-    
-    id_proyecto_uuid = None
-    if id_proyecto and id_proyecto.strip():
-        try:
-            id_proyecto_uuid = UUID(id_proyecto)
-        except ValueError:
-            pass
-            
-    id_categoria_int = int(id_categoria) if id_categoria and id_categoria.strip() else None
-
-    # Parsing de fechas
-    fecha_inicio_date = None
-    if fecha_inicio and fecha_inicio.strip():
-        try:
-            fecha_inicio_date = date.fromisoformat(fecha_inicio)
-        except ValueError:
-            pass
-            
-    fecha_fin_date = None
-    if fecha_fin and fecha_fin.strip():
-        try:
-            fecha_fin_date = date.fromisoformat(fecha_fin)
-        except ValueError:
-            pass
-            
-    fecha_fin_date = None
-    if fecha_fin and fecha_fin.strip():
-        try:
-            fecha_fin_date = date.fromisoformat(fecha_fin)
-        except ValueError:
-            pass
-
     # Generar Excel
     excel_bytes = await service.export_to_excel(
         conn,
-        fecha_inicio=fecha_inicio_date,
-        fecha_fin=fecha_fin_date,
-        estatus=estatus if estatus and estatus != "TODOS" else None,
-        id_zona=id_zona_int,
-        id_proyecto=id_proyecto_uuid,
-        id_categoria=id_categoria_int
+        filtros=filtros.model_dump(exclude_none=True)
     )
     
     # Generar nombre de archivo
