@@ -70,15 +70,17 @@ async def get_compras_ui(
     - Si es carga directa (F5/URL): retorna dashboard completo
     """
     catalogos = await service.get_catalogos(conn)
-    
+
     # Vista default (PENDIENTE + mes actual)
+    page = 1
+    per_page = 50
     comprobantes, total = await service.get_comprobantes_default_view(conn)
-    
+
     estadisticas = await service.get_estadisticas_generales(
         conn,
         estatus="PENDIENTE"
     )
-    
+
     pages = (total + per_page - 1) // per_page if total > 0 else 1
     
     template_context = {
