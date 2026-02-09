@@ -545,6 +545,29 @@ class ComercialService:
         # Insertar BESS (Shared Service)
         if datos.detalles_bess:
             await BessService.create_bess_details(conn, new_id, datos.detalles_bess)
+
+        # 6. Insertar Historial Estatus Inicial (Reemplazo de Trigger)
+        # Calculamos la fecha SLA usando la misma lógica que el deadline inicial pero con offset 0
+        # O simplemente usamos el deadline inicial si asumimos que el primer paso consume tiempo?
+        # NO, fecha_cambio_sla es la FECHA DE INICIO del estatus ajustada a horario laboral.
+        # Es decir, si se crea sábado, cuenta desde lunes.
+        
+        config = await self.get_configuracion_global(conn)
+        hora_corte, dias_fin_semana, _ = SLACalculator.parse_config(config)
+        
+        # Ajustar fecha de inicio si es fuera de horario (Lógica SLACalculator.adjust_start_date interna o similar)
+        # Dado que calculate_deadline hace "start + dias", si usamos dias=0 obtenemos el start ajustado.
+        fecha_inicio_sla = SLACalculator.calculate_deadline(fecha_solicitud, hora_corte, 0)
+        
+        from .db_service import QUERY_INSERT_HISTORIAL_ESTATUS
+        await conn.execute(QUERY_INSERT_HISTORIAL_ESTATUS,
+            new_id,             # $1 id_oportunidad
+            None,               # $2 id_estatus_anterior (NULL al inicio)
+            id_status_inicial,  # $3 id_estatus_nuevo
+            fecha_solicitud,    # $4 fecha_cambio_real
+            fecha_inicio_sla,   # $5 fecha_cambio_sla
+            user_context['user_db_id'] # $6 id_responsable
+        )
         
         # ========================================
         # HOOK: Crear levantamiento automáticamente si es tipo LEVANTAMIENTO
@@ -1342,6 +1365,23 @@ class ComercialService:
 
             # Actualizar oportunidad padre a Ganada
             await conn.execute(QUERY_UPDATE_OP_ESTATUS, id_ganada, id_oportunidad)
+            
+            # Insertar Historial (Ganada)
+            # Reutilizamos lógica de SLACalculator
+            config = await self.get_configuracion_global(conn)
+            hora_corte, dias_fin_semana, _ = SLACalculator.parse_config(config)
+            now_mx = await self.get_current_datetime_mx(conn)
+            fecha_inicio_sla = SLACalculator.calculate_deadline(now_mx, hora_corte, 0)
+            
+            from .db_service import QUERY_INSERT_HISTORIAL_ESTATUS
+            await conn.execute(QUERY_INSERT_HISTORIAL_ESTATUS,
+                id_oportunidad,
+                current_status, # Anterior (Entregado)
+                id_ganada,      # Nuevo
+                now_mx,
+                fecha_inicio_sla,
+                user_context['user_db_id']
+            )
         
         logger.info(
             f"Cierre de venta: Oportunidad {id_oportunidad} marcada como Ganada "

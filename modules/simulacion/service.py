@@ -163,6 +163,9 @@ class SimulacionService:
         REGLA DE NEGOCIO:
         - Si se cambia deadline_negociado, DEBE haber motivo
         - Se registra en tb_historial_cambios_deadline
+
+        NOTA: Esta funcionalidad está actualmente INACTIVA en el frontend (no se envía motivo).
+        Se mantiene el código para futura implementación de trazabilidad de cambios.
         """
         user_id = user_context.get("user_db_id")
         user_name = user_context.get("user_name")
@@ -209,7 +212,9 @@ class SimulacionService:
                     detail=f"Bloqueo de Calidad: Existen {sitios_pendientes} sitios activos. Debe cerrar sitios individuales hasta que quede solo uno."
                 )
 
-        # 0.6 Historial de Cambios de Deadline
+        # 0.6 Historial de Cambios de Deadline (FUTURA IMPLEMENTACIÓN)
+        # Actualmente el frontend no envía 'id_motivo_cambio_deadline', por lo que este bloque no se ejecuta.
+        # Se planea activar cuando se requiera justificar cambios de fecha negociada.
         current_deadline_nego = current_data['deadline_negociado']
         if datos.deadline_negociado and datos.deadline_negociado != current_deadline_nego:
             if datos.id_motivo_cambio_deadline:
@@ -242,6 +247,27 @@ class SimulacionService:
             'tiempo_elaboracion_horas': tiempo_elaboracion_horas
         })
         await self.db.update_oportunidad_padre(conn, id_oportunidad, datos_dict)
+
+        # 3.5. Insertar Historial (Si Cambio Estatus)
+        if datos.id_estatus_global != current_data['id_estatus_global']:
+            from modules.comercial.sla_calculator import SLACalculator
+            from .db_service import QUERY_INSERT_HISTORIAL_ESTATUS
+            
+            # Calcular Fecha SLA (Inicio día siguiente si fuera de horario)
+            config = await self.get_configuracion_global(conn)
+            hora_corte, dias_fin_semana, _ = SLACalculator.parse_config(config)
+            now_mx = await self.get_current_datetime_mx(conn)
+            
+            fecha_inicio_sla = SLACalculator.calculate_deadline(now_mx, hora_corte, 0)
+            
+            await conn.execute(QUERY_INSERT_HISTORIAL_ESTATUS,
+                id_oportunidad,
+                current_data['id_estatus_global'],
+                datos.id_estatus_global,
+                now_mx,
+                fecha_inicio_sla,
+                user_context['user_db_id']
+            )
 
         # 4. Manejar Cascada a Sitios y Retrabajos
         await self._handle_site_updates(
@@ -560,6 +586,11 @@ class SimulacionService:
                 )
             
             logger.info(f"Retrabajos marcados para oportunidad {id_oportunidad}. Motivo: {datos.id_motivo_retrabajo}")
+
+        # 3. Sincronizar flag es_retrabajo del padre (Reemplazo de Trigger)
+        # Verifica si algún sitio quedó como retrabajo y actualiza el padre
+        has_retrabajo = await self.db.check_any_retrabajo(conn, id_oportunidad)
+        await self.db.update_es_retrabajo_parent(conn, id_oportunidad, has_retrabajo)
 
     async def _send_update_notifications(
         self, 

@@ -69,27 +69,17 @@ async def get_compras_ui(
     - Si viene desde sidebar (HTMX): retorna solo contenido
     - Si es carga directa (F5/URL): retorna dashboard completo
     """
-    # Obtener catálogos para los filtros
     catalogos = await service.get_catalogos(conn)
     
-    # Obtener comprobantes con vista default (PENDIENTE + mes actual)
+    # Vista default (PENDIENTE + mes actual)
     comprobantes, total = await service.get_comprobantes_default_view(conn)
     
-    # Obtener estadísticas (Global pendientes por defecto)
     estadisticas = await service.get_estadisticas_generales(
         conn,
         estatus="PENDIENTE"
     )
     
-    # Calcular paginación
-    page = 1
-    per_page = 50
     pages = (total + per_page - 1) // per_page if total > 0 else 1
-    
-    # Fechas default para filtros (Vacio para ver global pendientes)
-    # today = date.today()
-    # fecha_inicio_default = today.replace(day=1)
-    # fecha_fin_default = today
     
     template_context = {
         "request": request,
@@ -97,23 +87,19 @@ async def get_compras_ui(
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
         "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
-        # Datos
         "comprobantes": comprobantes,
         "total": total,
         "page": page,
         "per_page": per_page,
         "pages": pages,
-        # Catálogos
         "zonas": catalogos.get("zonas", []),
         "categorias": catalogos.get("categorias", []),
         "proyectos": catalogos.get("proyectos", []),
-        # Filtros aplicados (defaults)
         "filtros": {
             "fecha_inicio": "",
             "fecha_fin": "",
             "estatus": "PENDIENTE"
         },
-        # Estadísticas
         "estadisticas": estadisticas
     }
     
@@ -153,7 +139,6 @@ async def upload_comprobantes(
     if not user_id:
         raise HTTPException(status_code=401, detail="Usuario no identificado")
     
-    # Filtrar solo PDFs
     pdf_files = [f for f in files if f.filename.lower().endswith('.pdf')]
     
     if not pdf_files:
@@ -171,10 +156,8 @@ async def upload_comprobantes(
     
     logger.info(f"Procesando {len(pdf_files)} PDFs por usuario {user_id}")
     
-    # Procesar PDFs
     result = await service.process_and_save_pdfs(conn, pdf_files, user_id)
     
-    # Obtener tabla actualizada
     comprobantes, total = await service.get_comprobantes_default_view(conn)
     catalogos = await service.get_catalogos(conn)
     
@@ -187,7 +170,6 @@ async def upload_comprobantes(
             "insertados": result["insertados"],
             "duplicados": result["duplicados"],
             "errores": result["errores"],
-            # Datos para refrescar tabla
             "comprobantes": comprobantes,
             "total": total,
             "zonas": catalogos.get("zonas", []),
@@ -212,7 +194,6 @@ async def get_comprobantes_list(
     """
     Lista comprobantes con filtros (HTMX partial).
     """
-    # Convertir filtros a dict para el servicio
     filtro_dict = filtros.model_dump(exclude_none=True)
 
     comprobantes, total = await service.get_comprobantes(
@@ -238,8 +219,8 @@ async def get_comprobantes_list(
             "request": request,
             "comprobantes": comprobantes,
             "total": total,
-            "page": page,
-            "per_page": per_page,
+            "page": filtros.page,
+            "per_page": filtros.per_page,
             "pages": pages,
             "zonas": catalogos.get("zonas", []),
             "categorias": catalogos.get("categorias", []),
@@ -261,12 +242,7 @@ async def get_comprobantes_list(
         {"request": request, "estadisticas": estadisticas}
     ).body.decode("utf-8")
     
-    # Injectar OOB en la respuesta
-    # Necesitamos agregar hx-swap-oob="true" al div principal del string renderizado si no lo tiene,
-    # pero es mas seguro agregarlo manualmente o asegurar que el template lo soporte.
-    # Como modificamos estadisticas.html para tener ID, HTMX lo reemplazará si ponemos <div hx-swap-oob="true" id="stats-container">...</div>
-    # Vamos a envolver el contenido en una etiqueta OOB explicita para asegurar
-    
+    # Injectar OOB en la respuesta explícitamente
     oob_content = f'<div id="stats-container" hx-swap-oob="true">{stats_html}</div>'
     
     # Combinar
@@ -324,10 +300,8 @@ async def update_comprobante(
     Returns:
         HTML de la fila actualizada (HTMX swap)
     """
-    # Construir updates
     updates = form.model_dump(exclude_none=True)
     
-    # Actualizar
     comprobante = await service.update_comprobante(conn, id_comprobante, updates, user_context=context)
     catalogos = await service.get_catalogos(conn)
     
@@ -363,7 +337,6 @@ async def bulk_update_comprobantes(
     """
     Actualización masiva de múltiples comprobantes.
     """
-    # Parsear IDs
     try:
         id_list = json.loads(ids)
         uuid_list = [UUID(id_str) for id_str in id_list]
@@ -373,7 +346,6 @@ async def bulk_update_comprobantes(
     if not uuid_list:
         raise HTTPException(status_code=400, detail="No se proporcionaron IDs")
     
-    # Construir updates
     updates = {}
     
     if id_zona is not None and id_zona > 0:
@@ -391,7 +363,6 @@ async def bulk_update_comprobantes(
     if estatus and estatus in ["PENDIENTE", "FACTURADO"]:
         updates["estatus"] = estatus
     
-    # Ejecutar bulk update
     count = await service.bulk_update_comprobantes(conn, uuid_list, updates, user_context=context)
     
     return templates.TemplateResponse(
@@ -418,13 +389,11 @@ async def export_excel(
     """
     Exporta comprobantes a Excel con los filtros aplicados.
     """
-    # Generar Excel
     excel_bytes = await service.export_to_excel(
         conn,
         filtros=filtros.model_dump(exclude_none=True)
     )
     
-    # Generar nombre de archivo
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"comprobantes_pago_{timestamp}.xlsx"
     

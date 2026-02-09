@@ -28,6 +28,15 @@ QUERY_GET_OPORTUNIDADES_LIST = """
     WHERE o.email_enviado = true
 """
 
+QUERY_INSERT_HISTORIAL_ESTATUS = """
+    INSERT INTO tb_historial_estatus (
+        id_oportunidad, id_estatus_anterior, id_estatus_nuevo, 
+        fecha_cambio_real, fecha_cambio_sla, cambiado_por_id
+    ) VALUES (
+        $1, $2, $3, $4, $5, $6
+    )
+"""
+
 QUERY_GET_OPORTUNIDAD_OWNER = "SELECT creado_por_id FROM tb_oportunidades WHERE id_oportunidad = $1"
 QUERY_GET_OPORTUNIDAD_FROM_SITIO = "SELECT id_oportunidad FROM tb_sitios_oportunidad WHERE id_sitio = $1"
 

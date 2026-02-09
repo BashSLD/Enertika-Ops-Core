@@ -67,6 +67,7 @@ def register_nuevos_endpoints(router: APIRouter):
         return templates.TemplateResponse("levantamientos/modals/posponer_modal.html", {
             "request": request,
             "lev_data": lev,
+            "has_active_viaticos": await db_svc.check_viaticos_sent(conn, id_levantamiento)
         })
 
     # ----------------------------------------------------------
@@ -170,6 +171,7 @@ def register_nuevos_endpoints(router: APIRouter):
         request: Request,
         id_levantamiento: UUID,
         motivo_pospone: str = Form(...),
+        devolver_viaticos: Optional[bool] = Form(False),
         conn=Depends(get_db_connection),
         db_svc: LevantamientosDBService = Depends(get_db_service),
         service: LevantamientoService = Depends(get_service),
@@ -206,6 +208,10 @@ def register_nuevos_endpoints(router: APIRouter):
             observaciones=motivo_pospone.strip(),
             metadata={"tipo_cambio": "posponer"}
         )
+
+        # Si se marcó devolver viáticos
+        if devolver_viaticos:
+            await service.registrar_devolucion(conn, id_levantamiento, context)
 
         # Notificar (Background)
         asyncio.create_task(

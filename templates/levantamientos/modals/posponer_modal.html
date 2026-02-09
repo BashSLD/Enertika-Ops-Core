@@ -48,7 +48,27 @@
                 <i class="fas fa-info-circle"></i>
                 El levantamiento pasará a estado "Pospuesto" y podrá reagendarse posteriormente.
             </p>
+            </p>
         </div>
+
+        {% if has_active_viaticos %}
+        <div class="mt-4 p-3 bg-red-900/20 border border-red-700/30 rounded-lg">
+            <label class="flex items-start gap-3 cursor-pointer">
+                <div class="relative flex items-center">
+                    <input type="checkbox" name="devolver_viaticos" value="true"
+                        class="w-5 h-5 rounded border-gray-600 bg-gray-700 text-red-500 focus:ring-red-500/50 focus:ring-offset-0">
+                </div>
+                <div>
+                    <span class="block text-sm font-medium text-red-200">Marcar viáticos como devueltos / Invalidar
+                        solicitud</span>
+                    <span class="block text-xs text-red-300/70 mt-0.5">
+                        Al marcar esta opción, se registrará la devolución y deberás volver a solicitar viáticos para la
+                        nueva fecha.
+                    </span>
+                </div>
+            </label>
+        </div>
+        {% endif %}
 
         <div class="modal-footer mt-6 flex justify-end gap-3 border-t border-gray-700/50 pt-4">
             <button type="button"

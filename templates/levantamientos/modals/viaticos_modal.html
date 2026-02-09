@@ -122,7 +122,7 @@
                 <span id="enviar-loading" class="htmx-indicator text-blue-400 text-sm">
                     <i class="fas fa-spinner fa-spin mr-1"></i> Enviando...
                 </span>
-                <button type="submit" class="btn btn-primary">
+                <button type="submit" class="btn btn-primary bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow-lg transition-all transform hover:scale-105">
                     <i class="fas fa-paper-plane mr-2"></i>
                     Enviar Solicitud
                 </button>
@@ -211,6 +211,16 @@
 
         .btn-success:hover {
             background: linear-gradient(135deg, #059669 0%, #047857 100%);
+        }
+        
+        /* Ensure primary button visibility override */
+        .btn-primary {
+             background-color: #2563eb !important; /* blue-600 */
+             color: white !important;
+             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+        }
+        .btn-primary:hover {
+             background-color: #1d4ed8 !important; /* blue-700 */
         }
 
         /* Tabla de viáticos */

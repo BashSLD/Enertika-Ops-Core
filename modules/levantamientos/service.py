@@ -433,26 +433,27 @@ class LevantamientoService:
             logger.info(f"[ESTADO] Sin cambio para levantamiento {id_levantamiento}")
             return  # Sin cambio
         
-        # Actualizar estado (el trigger registrará en historial)
+        # Actualizar estado (Manual history insertion to replace trigger)
         now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
-        await conn.execute("""
-            UPDATE tb_levantamientos
-            SET id_estatus_global = $1,
-                updated_at = $2,
-                updated_by_id = $3
-            WHERE id_levantamiento = $4
-        """, nuevo_estado, now_mx, user_context['user_db_id'], id_levantamiento)
         
-        # Si hay observaciones, actualizar el último registro de historial
-        if observaciones:
+        async with conn.transaction():
             await conn.execute("""
-                UPDATE tb_levantamientos_historial
-                SET observaciones = $1
-                WHERE id_levantamiento = $2
-                  AND id_estatus_nuevo = $3
-                ORDER BY fecha_transicion DESC
-                LIMIT 1
-            """, observaciones, id_levantamiento, nuevo_estado)
+                UPDATE tb_levantamientos
+                SET id_estatus_global = $1,
+                    updated_at = $2,
+                    updated_by_id = $3
+                WHERE id_levantamiento = $4
+            """, nuevo_estado, now_mx, user_context['user_db_id'], id_levantamiento)
+            
+            # Insertar en Historial (Reemplazo de Trigger)
+            await self._registrar_en_historial(
+                conn=conn,
+                id_levantamiento=id_levantamiento,
+                estatus_anterior=estado_anterior,
+                estatus_nuevo=nuevo_estado,
+                user_context=user_context,
+                observaciones=observaciones or "Cambio de estado manual"
+            )
         
         # Notificar cambio de estado - Fire & Forget para respuesta instantánea
         asyncio.create_task(
@@ -666,6 +667,32 @@ class LevantamientoService:
                     "new_status": new_status_id
                 }
             )
+
+    async def registrar_devolucion(
+        self,
+        conn,
+        id_levantamiento: UUID,
+        user_context: dict
+    ):
+        """
+        Registra la devolución de viáticos y limpia los activos.
+        Llamado cuando se pospone un levantamiento con la opción activada.
+        """
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+
+        # 1. Registrar evento en histórico (Estado 'devuelto')
+        await db_svc.registrar_devolucion_viaticos(
+            conn, 
+            id_levantamiento,
+            user_context['user_db_id'],
+            user_context.get('user_name', 'Usuario')
+        )
+
+        # 2. Limpiar viáticos activos (para que la próxima solicitud empiece de 0)
+        await db_svc.clear_viaticos_activos(conn, id_levantamiento)
+
+        logger.info(f"[VIATICOS] Devolución registrada para levantamiento {id_levantamiento}")
 
     async def _notificar_agendado_impl(
         self,

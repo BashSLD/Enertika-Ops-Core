@@ -116,7 +116,13 @@ class LevantamientosDBService:
         return await conn.fetchval("""
             SELECT EXISTS(
                 SELECT 1 FROM tb_levantamiento_viaticos_historico
-                WHERE id_levantamiento = $1 AND estatus = 'enviado'
+                WHERE id_levantamiento = $1 
+                AND estatus = 'enviado'
+                AND fecha_envio > COALESCE((
+                    SELECT MAX(fecha_envio) 
+                    FROM tb_levantamiento_viaticos_historico 
+                    WHERE id_levantamiento = $1 AND estatus = 'devuelto'
+                ), '2000-01-01'::timestamp)
             )
         """, id_levantamiento)
     
@@ -362,6 +368,50 @@ class LevantamientosDBService:
         )
 
         return dict(row) if row else None
+
+    async def registrar_devolucion_viaticos(
+        self,
+        conn,
+        id_levantamiento: UUID,
+        usuario_id: UUID,
+        usuario_nombre: str
+    ) -> None:
+        """
+        Registra un evento de devolución en el historial.
+        Esto invalida envíos anteriores para efectos de check_viaticos_sent.
+        """
+        await conn.execute("""
+            INSERT INTO tb_levantamiento_viaticos_historico (
+                id_levantamiento,
+                enviado_por_id,
+                enviado_por_nombre,
+                fecha_envio,
+                to_destinatarios,
+                cc_destinatarios,
+                viaticos_snapshot,
+                total_monto,
+                estatus,
+                error_detalle
+            )
+            VALUES ($1, $2, $3, now(), $4, $5, $6::jsonb, $7, $8, $9)
+        """,
+            id_levantamiento,
+            usuario_id,
+            usuario_nombre,
+            [], # No recipients
+            [],
+            json.dumps([]), # Empty snapshot
+            0.0,
+            'devuelto',
+            'Viáticos devueltos por posposición'
+        )
+
+    async def clear_viaticos_activos(self, conn, id_levantamiento: UUID) -> None:
+        """Elimina todos los viáticos activos de un levantamiento."""
+        await conn.execute("""
+            DELETE FROM tb_levantamiento_viaticos
+            WHERE id_levantamiento = $1
+        """, id_levantamiento)
 
 
 # --------------------------------------------------------------

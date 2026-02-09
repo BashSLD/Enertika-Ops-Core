@@ -136,11 +136,11 @@ async def enviar_traspaso(
             "message": str(e),
             "type": "error",
         })
-    except asyncpg.PostgresError:
+    except asyncpg.PostgresError as e:
         logger.exception("Error de BD al enviar traspaso")
         return templates.TemplateResponse("shared/toast.html", {
             "request": request,
-            "message": "Error interno al procesar el traspaso",
+            "message": f"Error de BD: {str(e)}",
             "type": "error",
         })
 
@@ -179,11 +179,11 @@ async def recibir_traspaso(
             "message": str(e),
             "type": "error",
         })
-    except asyncpg.PostgresError:
+    except asyncpg.PostgresError as e:
         logger.exception("Error de BD al aceptar traspaso")
         return templates.TemplateResponse("shared/toast.html", {
             "request": request,
-            "message": "Error interno al procesar la recepcion",
+            "message": f"Error de BD: {str(e)}",
             "type": "error",
         })
 
@@ -226,10 +226,10 @@ async def rechazar_traspaso(
             "message": str(e),
             "type": "error",
         })
-    except asyncpg.PostgresError:
+    except asyncpg.PostgresError as e:
         logger.exception("Error de BD al rechazar traspaso")
         return templates.TemplateResponse("shared/toast.html", {
             "request": request,
-            "message": "Error interno al procesar el rechazo",
+            "message": f"Error de BD: {str(e)}",
             "type": "error",
         })

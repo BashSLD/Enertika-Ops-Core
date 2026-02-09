@@ -100,6 +100,11 @@ class SimulacionDBService:
                                       deadline_anterior: Optional[datetime], deadline_nuevo: datetime,
                                       id_motivo_cambio: int, comentario: Optional[str],
                                       user_id: UUID, user_name: str):
+        """
+        (FUTURA IMPLEMENTACIÓN)
+        Registra el histórico de cambios de fecha.
+        Actualmente no se invoca desde la UI porque falta el selector de motivos.
+        """
         query = """
             INSERT INTO tb_historial_cambios_deadline (
                 id_oportunidad, deadline_anterior, deadline_nuevo,
@@ -239,6 +244,23 @@ class SimulacionDBService:
             WHERE id_sitio = ANY($2)
             AND id_oportunidad = $3
         """, id_motivo_retrabajo, sitios_ids, id_oportunidad)
+
+    async def check_any_retrabajo(self, conn, id_oportunidad: UUID) -> bool:
+        """Verifica si existe AL MENOS UN sitio marcado como retrabajo."""
+        return await conn.fetchval("""
+            SELECT EXISTS(
+                SELECT 1 FROM tb_sitios_oportunidad 
+                WHERE id_oportunidad = $1 AND es_retrabajo = TRUE
+            )
+        """, id_oportunidad)
+
+    async def update_es_retrabajo_parent(self, conn, id_oportunidad: UUID, es_retrabajo: bool):
+        """Sincroniza el flag es_retrabajo del padre."""
+        await conn.execute("""
+            UPDATE tb_oportunidades 
+            SET es_retrabajo = $1 
+            WHERE id_oportunidad = $2
+        """, es_retrabajo, id_oportunidad)
 
     async def get_catalogos_create(self, conn, id_tecnologia: int, id_tipo: int) -> tuple:
         tec = await conn.fetchval("SELECT nombre FROM tb_cat_tecnologias WHERE id = $1", id_tecnologia)
@@ -915,6 +937,15 @@ class SimulacionDBService:
         
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
+
+QUERY_INSERT_HISTORIAL_ESTATUS = """
+    INSERT INTO tb_historial_estatus (
+        id_oportunidad, id_estatus_anterior, id_estatus_nuevo, 
+        fecha_cambio_real, fecha_cambio_sla, cambiado_por_id
+    ) VALUES (
+        $1, $2, $3, $4, $5, $6
+    )
+"""
 
 def get_db_service() -> SimulacionDBService:
     return SimulacionDBService()
