@@ -278,163 +278,6 @@ async def get_analisis_detallado(
         )
 
 
-@router.get("/metricas", include_in_schema=False)
-async def get_metricas_partial(
-    request: Request,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    tech_id: Optional[str] = None,
-    type_id: Optional[str] = None,
-    status_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    conn = Depends(get_db_connection),
-    service: ReportesSimulacionService = Depends(get_reportes_service),
-    _ = require_module_access("simulacion")
-):
-    """
-    Partial HTMX: Tarjetas de métricas generales (KPIs).
-    """
-    filtros = parse_filtros(start_date, end_date, tech_id, type_id, status_id, user_id)
-    metricas = await service.get_metricas_generales(conn, filtros)
-    
-    return templates.TemplateResponse("simulacion/reportes/partials/kpis_cards.html", {
-        "request": request,
-        "metricas": metricas
-    })
-
-
-@router.get("/por-tecnologia", include_in_schema=False)
-async def get_tecnologia_partial(
-    request: Request,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    tech_id: Optional[str] = None,
-    type_id: Optional[str] = None,
-    status_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    conn = Depends(get_db_connection),
-    service: ReportesSimulacionService = Depends(get_reportes_service),
-    _ = require_module_access("simulacion")
-):
-    """
-    Partial HTMX: Tablas de métricas por tecnología.
-    """
-    filtros = parse_filtros(start_date, end_date, tech_id, type_id, status_id, user_id)
-    metricas_tech = await service.get_metricas_por_tecnologia(conn, filtros)
-    
-    return templates.TemplateResponse("simulacion/reportes/partials/tech_tables.html", {
-        "request": request,
-        "tecnologias": metricas_tech
-    })
-
-
-@router.get("/contabilizacion", include_in_schema=False)
-async def get_contabilizacion_partial(
-    request: Request,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    tech_id: Optional[str] = None,
-    type_id: Optional[str] = None,
-    status_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    conn = Depends(get_db_connection),
-    service: ReportesSimulacionService = Depends(get_reportes_service),
-    _ = require_module_access("simulacion")
-):
-    """
-    Partial HTMX: Tabla de contabilización con semáforos.
-    """
-    filtros = parse_filtros(start_date, end_date, tech_id, type_id, status_id, user_id)
-    tabla = await service.get_tabla_contabilizacion(conn, filtros)
-    
-    # Obtener umbrales dinámicos
-    u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno", "SIMULACION")
-    u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso", "SIMULACION")
-    
-    return templates.TemplateResponse("simulacion/reportes/partials/semaforo_table.html", {
-        "request": request,
-        "filas": tabla,
-        "umbral_verde_interno": u_interno.umbral_excelente,
-        "umbral_ambar_interno": u_interno.umbral_bueno,
-        "umbral_verde_compromiso": u_compromiso.umbral_excelente,
-        "umbral_ambar_compromiso": u_compromiso.umbral_bueno,
-    })
-
-
-@router.get("/por-usuario", include_in_schema=False)
-async def get_usuarios_partial(
-    request: Request,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    tech_id: Optional[str] = None,
-    type_id: Optional[str] = None,
-    status_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    conn = Depends(get_db_connection),
-    service: ReportesSimulacionService = Depends(get_reportes_service),
-    _ = require_module_access("simulacion")
-):
-    """
-    Partial HTMX: Detalle de métricas por usuario.
-    """
-    filtros = parse_filtros(start_date, end_date, tech_id, type_id, status_id, user_id)
-    usuarios = await service.get_detalle_por_usuario(conn, filtros)
-    
-    return templates.TemplateResponse("simulacion/reportes/partials/user_detail.html", {
-        "request": request,
-        "usuarios": usuarios
-    })
-
-
-@router.get("/mensual", include_in_schema=False)
-async def get_mensual_partial(
-    request: Request,
-    start_date: Optional[str] = None,
-    end_date: Optional[str] = None,
-    tech_id: Optional[str] = None,
-    type_id: Optional[str] = None,
-    status_id: Optional[str] = None,
-    user_id: Optional[str] = None,
-    conn = Depends(get_db_connection),
-    service: ReportesSimulacionService = Depends(get_reportes_service),
-    _ = require_module_access("simulacion")
-):
-    """
-    Partial HTMX: Resumen mensual (tabla pivot).
-    """
-    filtros = parse_filtros(start_date, end_date, tech_id, type_id, status_id, user_id)
-    resumen = await service.get_resumen_mensual(conn, filtros)
-    
-    # Obtener umbrales dinámicos
-    u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno", "SIMULACION")
-    u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso", "SIMULACION")
-    
-    # Generar lista de meses en el rango
-    meses = []
-    current = filtros.fecha_inicio.replace(day=1)
-    while current <= filtros.fecha_fin:
-        meses.append(current.month)
-        # Avanzar al siguiente mes
-        if current.month == 12:
-            current = current.replace(year=current.year + 1, month=1)
-        else:
-            current = current.replace(month=current.month + 1)
-    
-    meses_nombres = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 
-                     'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
-    
-    return templates.TemplateResponse("simulacion/reportes/partials/monthly_pivot.html", {
-        "request": request,
-        "resumen": resumen,
-        "meses": meses,
-        "meses_nombres": meses_nombres,
-        "umbral_verde_interno": u_interno.umbral_excelente,
-        "umbral_ambar_interno": u_interno.umbral_bueno,
-        "umbral_verde_compromiso": u_compromiso.umbral_excelente,
-        "umbral_ambar_compromiso": u_compromiso.umbral_bueno,
-    })
-
-
 # =============================================================================
 # ENDPOINTS DE DATOS (JSON para Gráficas)
 # =============================================================================
@@ -521,13 +364,13 @@ async def get_metricas_api(
                 "extraordinarias": metricas.extraordinarias,
                 "retrabajadas": metricas.retrabajadas,
                 "licitaciones": metricas.licitaciones,
-                "entregas_a_tiempo": metricas.entregas_a_tiempo,
-                "entregas_tarde": metricas.entregas_tarde,
+                "entregas_a_tiempo_compromiso": metricas.entregas_a_tiempo_compromiso,
+                "entregas_tarde_compromiso": metricas.entregas_tarde_compromiso,
                 "sin_fecha_entrega": metricas.sin_fecha_entrega,
                 "tiempo_promedio_horas": metricas.tiempo_promedio_horas,
                 "tiempo_promedio_dias": metricas.tiempo_promedio_dias,
-                "porcentaje_a_tiempo": metricas.porcentaje_a_tiempo,
-                "porcentaje_tarde": metricas.porcentaje_tarde
+                "porcentaje_a_tiempo_compromiso": metricas.porcentaje_a_tiempo_compromiso,
+                "porcentaje_tarde_compromiso": metricas.porcentaje_tarde_compromiso
             }
         })
     except Exception as e:

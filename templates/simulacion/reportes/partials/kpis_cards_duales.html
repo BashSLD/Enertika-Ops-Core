@@ -1,7 +1,7 @@
 {# templates/simulacion/reportes/partials/kpis_cards_duales.html #}
 {# Chips principales con KPI Interno vs Compromiso #}
 
-<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-4">
+<div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-4">
 
     {# 1. Solicitudes #}
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
@@ -89,7 +89,24 @@
         </div>
     </div>
 
-    {# 5. Retrabajos #}
+    {# 5. Total Sitios #}
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+        <div class="p-2 bg-teal-50 rounded-lg w-fit mb-3">
+            <svg class="w-5 h-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+        </div>
+        <p class="text-2xl font-bold text-teal-600">{{ metricas.total_sitios }}</p>
+        <p class="text-xs text-gray-500">Total Sitios</p>
+        {% if metricas.oportunidades_multisitio > 0 %}
+        <p class="text-[10px] text-gray-400 mt-1">{{ metricas.oportunidades_multisitio }} multisitio (prom. {{ metricas.promedio_sitios_por_oportunidad }} sitios/opp)</p>
+        {% endif %}
+    </div>
+
+    {# 6. Retrabajos #}
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
         <div class="p-2 bg-cyan-50 rounded-lg w-fit mb-3">
             <svg class="w-5 h-5 text-cyan-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -101,7 +118,7 @@
         <p class="text-xs text-gray-500">Retrabajos (Sitios)</p>
     </div>
 
-    {# 6. Sin Fecha #}
+    {# 7. Sin Fecha #}
     <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
         <div class="p-2 bg-slate-100 rounded-lg w-fit mb-3">
             <svg class="w-5 h-5 text-slate-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">

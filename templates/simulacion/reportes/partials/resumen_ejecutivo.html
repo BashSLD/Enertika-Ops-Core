@@ -25,8 +25,12 @@
                 Durante el período del <strong>{{ resumen.fecha_inicio_formatted }}</strong> al
                 <strong>{{ resumen.fecha_fin_formatted }}</strong>, se captaron
                 <strong>{{ resumen.total_solicitudes }} solicitudes</strong>.
-                La capacidad operativa permitió procesar <strong>{{ resumen.total_ofertas }} ofertas</strong>,
+                La capacidad operativa permitió procesar <strong>{{ resumen.total_ofertas }} ofertas</strong>
+                abarcando <strong>{{ resumen.total_sitios_global }} sitios</strong>,
                 con <strong>{{ resumen.en_espera }}</strong> casos en espera al cierre.
+                {% if resumen.oportunidades_multisitio_global > 0 %}
+                <br><span class="text-gray-500 text-xs">{{ resumen.oportunidades_multisitio_global }} oportunidades multisitio en el período.</span>
+                {% endif %}
                 {% if resumen.diferencia_explicacion %}
                 <br><span class="text-gray-500 italic text-xs">({{ resumen.diferencia_explicacion }})</span>
                 {% endif %}
@@ -108,6 +112,7 @@
                             <th class="text-left py-2 px-2 font-semibold">Tecnología</th>
                             <th class="text-center py-2 px-2 font-semibold">Solicitudes</th>
                             <th class="text-center py-2 px-2 font-semibold">Ofertas</th>
+                            <th class="text-center py-2 px-2 font-semibold">Sitios</th>
                             <th class="text-center py-2 px-2 font-semibold">SLA Interno</th>
                             <th class="text-center py-2 px-2 font-semibold">Compromiso</th>
                         </tr>
@@ -127,6 +132,7 @@
                             </td>
                             <td class="py-2 px-2 text-center text-gray-600">{{ tech.solicitudes }}</td>
                             <td class="py-2 px-2 text-center text-gray-600">{{ tech.ofertas }}</td>
+                            <td class="py-2 px-2 text-center text-teal-600">{{ tech.total_sitios }}</td>
                             <td
                                 class="py-2 px-2 text-center {% if tech.pct_interno >= 90 %}text-green-600{% elif tech.pct_interno >= 85 %}text-amber-600{% else %}text-red-600{% endif %}">
                                 {{ tech.pct_interno }}%
@@ -187,7 +193,7 @@
             <div class="font-semibold text-gray-900 mb-2">
                 • {{ usuario.nombre }}:
                 <span class="text-amber-700">
-                    Score {{ "%.1f"|format(usuario.score.score_final * 100) }}/100
+                    Score {{ "%.1f"|format(usuario.score.score_final * 100) }}
                 </span>
                 <span class="text-sm text-gray-600">(ponderado por complejidad)</span>
             </div>
@@ -199,6 +205,15 @@
                         Entregas: <strong>{{ usuario.total_ofertas }}</strong>
                         ({{ usuario.licitaciones }} licitaciones,
                         {{ "%.1f"|format((usuario.licitaciones / usuario.total_ofertas) * 100) }}%)
+                    </span>
+                </div>
+                <div class="flex items-start">
+                    <span class="w-4 mr-2">├─</span>
+                    <span>
+                        Sitios: <strong>{{ usuario.total_sitios }}</strong>
+                        {% if usuario.oportunidades_multisitio > 0 %}
+                        ({{ usuario.oportunidades_multisitio }} multisitio, prom. {{ "%.1f"|format(usuario.promedio_sitios_por_oportunidad) }} sitios/opp)
+                        {% endif %}
                     </span>
                 </div>
                 <div class="flex items-start">
@@ -236,7 +251,7 @@
             <div class="font-semibold text-gray-900 mb-2">
                 • {{ usuario.nombre }}:
                 <span class="text-blue-700">
-                    Score {{ "%.1f"|format(usuario.score.score_final * 100) }}/100
+                    Score {{ "%.1f"|format(usuario.score.score_final * 100) }}
                 </span>
             </div>
 
@@ -247,6 +262,15 @@
                         Entregas: <strong>{{ usuario.total_ofertas }}</strong>
                         ({{ usuario.licitaciones }} licitaciones,
                         {{ "%.1f"|format((usuario.licitaciones / usuario.total_ofertas) * 100) }}%)
+                    </span>
+                </div>
+                <div class="flex items-start">
+                    <span class="w-4 mr-2">├─</span>
+                    <span>
+                        Sitios: <strong>{{ usuario.total_sitios }}</strong>
+                        {% if usuario.oportunidades_multisitio > 0 %}
+                        ({{ usuario.oportunidades_multisitio }} multisitio, prom. {{ "%.1f"|format(usuario.promedio_sitios_por_oportunidad) }} sitios/opp)
+                        {% endif %}
                     </span>
                 </div>
                 <div class="flex items-start">

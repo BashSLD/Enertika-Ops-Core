@@ -132,6 +132,59 @@ class LevantamientosDBService:
             SELECT id_levantamiento FROM tb_levantamientos WHERE id_oportunidad = $1 LIMIT 1
         """, id_oportunidad)
 
+    async def get_detalle_completo(self, conn, id_levantamiento: UUID) -> Optional[dict]:
+        """
+        Obtiene TODOS los detalles para el modal de vista completa.
+        Incluye:
+        - Datos base (get_levantamiento_base)
+        - Lista completa de técnicos asignados
+        - Adjuntos de entrega (tb_documentos_attachments)
+        - Flag de si tiene viáticos
+        """
+        # 1. Datos Base
+        lev = await self.get_levantamiento_base(conn, id_levantamiento)
+        if not lev:
+            return None
+            
+        # 2. Técnicos Asignados (Lista completa con nombres)
+        lev['tecnicos_asignados'] = await self.get_tecnicos_asignados_detalle(conn, id_levantamiento)
+        
+        # 3. Adjuntos de Entrega (Metadata tipo=entrega o asociados directos)
+        # Se busca en tb_documentos_attachments donde id_oportunidad match y metadata indique levantamiento
+        # Ojo: El upload se hizo con id_oportunidad, y metadata={"id_levantamiento": ...}
+        lev['adjuntos'] = await self.get_adjuntos_levantamiento(conn, id_levantamiento)
+        
+        # 4. Check Viáticos (para mostrar botón)
+        lev['tiene_viaticos'] = await conn.fetchval("""
+            SELECT EXISTS(SELECT 1 FROM tb_levantamiento_viaticos WHERE id_levantamiento = $1)
+        """, id_levantamiento)
+        
+        return lev
+
+    async def get_tecnicos_asignados_detalle(self, conn, id_levantamiento: UUID) -> List[dict]:
+        """Retorna lista de diccionarios de técnicos asignados."""
+        rows = await conn.fetch("""
+             SELECT u.id_usuario, u.nombre, u.email
+             FROM tb_levantamiento_asignaciones la
+             JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
+             WHERE la.id_levantamiento = $1
+        """, id_levantamiento)
+        return [dict(r) for r in rows]
+
+    async def get_adjuntos_levantamiento(self, conn, id_levantamiento: UUID) -> List[dict]:
+        """Retorna lista de archivos adjuntos asociados al levantamiento."""
+        # Se filtra por metadata->>'id_levantamiento' que es como se guardó en el router
+        rows = await conn.fetch("""
+            SELECT 
+                id_documento, nombre_archivo, url_sharepoint, 
+                tipo_contenido, tamano_bytes, fecha_subida AS created_at
+            FROM tb_documentos_attachments
+            WHERE metadata->>'id_levantamiento' = $1
+              AND activo = true
+            ORDER BY fecha_subida DESC
+        """, str(id_levantamiento))
+        return [dict(r) for r in rows]
+
 
     # ----------------------------------------------------------
     # POSPONER
@@ -155,22 +208,23 @@ class LevantamientosDBService:
     # REAGENDAR
     # ----------------------------------------------------------
 
-    async def update_reagendar(self, conn, id_levantamiento: UUID, nueva_fecha, user_id: UUID) -> None:
+    async def update_reagendar(self, conn, id_levantamiento: UUID, nueva_fecha, user_id: UUID, is_rescheduling: bool = True) -> None:
         """
-        Actualiza fecha_visita_programada con la nueva fecha,
-        registra fecha_reagenda (now), limpia motivo_pospone,
-        y cambia estado a 9 (Agendado).
+        Actualiza fecha_visita_programada con la nueva fecha.
+        Si is_rescheduling=True, registra fecha_reagenda (now).
+        Si es cita inicial (False), mantiene fecha_reagenda (NULL).
+        Limpia motivo_pospone y cambia estado a 9 (Agendado).
         """
         await conn.execute("""
             UPDATE tb_levantamientos
             SET id_estatus_global       = 9,
                 fecha_visita_programada = $1,
-                fecha_reagenda          = now(),
+                fecha_reagenda          = CASE WHEN $4::boolean THEN now() ELSE fecha_reagenda END,
                 motivo_pospone          = NULL,
                 updated_at              = now(),
                 updated_by_id           = $2
             WHERE id_levantamiento      = $3
-        """, nueva_fecha, user_id, id_levantamiento)
+        """, nueva_fecha, user_id, id_levantamiento, is_rescheduling)
 
     # ----------------------------------------------------------
     # VIATICOS — CRUD

@@ -146,7 +146,7 @@ class ReportePDFGenerator:
         # Fila 1
         self._draw_kpi_card(10, y_cards, "Solicitudes", m.total_solicitudes)
         self._draw_kpi_card(75, y_cards, "Ofertas Generadas", m.total_ofertas, "Entregadas + Perdidas")
-        self._draw_kpi_card(140, y_cards, "Entregas a Tiempo", f"{m.porcentaje_a_tiempo}%", f"{m.entregas_a_tiempo} de {m.entregas_a_tiempo + m.entregas_tarde}", 'green')
+        self._draw_kpi_card(140, y_cards, "Entregas a Tiempo", f"{m.porcentaje_a_tiempo_compromiso}%", f"{m.entregas_a_tiempo_compromiso} de {m.entregas_a_tiempo_compromiso + m.entregas_tarde_compromiso}", 'green')
         self._draw_kpi_card(205, y_cards, "Tiempo Promedio", f"{m.tiempo_promedio_dias} días", "Elaboración", 'primary')
         
         # --- CHARTS ROW ---
@@ -196,9 +196,9 @@ class ReportePDFGenerator:
                 tech.nombre,
                 str(tech.total_solicitudes),
                 str(tech.total_ofertas),
-                str(tech.entregas_a_tiempo),
-                str(tech.entregas_tarde),
-                f"{tech.porcentaje_a_tiempo}%",
+                str(tech.entregas_a_tiempo_compromiso),
+                str(tech.entregas_tarde_compromiso),
+                f"{tech.porcentaje_a_tiempo_compromiso}%",
                 f"{tech.potencia_total_kwp:,.0f}",
                 f"{tech.capacidad_total_kwh:,.0f}"
             ]
@@ -240,10 +240,10 @@ class ReportePDFGenerator:
             data = [
                 row.nombre,
                 str(row.total),
-                str(row.en_plazo),
-                str(row.fuera_plazo),
+                str(row.entregas_a_tiempo_compromiso),
+                str(row.entregas_tarde_compromiso),
                 str(row.sin_fecha),
-                f"{row.porcentaje_en_plazo}%" if not row.es_levantamiento else "N/A"
+                f"{row.porcentaje_a_tiempo_compromiso}%" if not row.es_levantamiento else "N/A"
             ]
             
             for i, txt in enumerate(data):
@@ -255,7 +255,7 @@ class ReportePDFGenerator:
             
             # Dibujar círculo
             if not row.es_levantamiento and row.total > 0:
-                color = COLORS.get(row.semaforo, COLORS['gray'])
+                color = COLORS.get(row.semaforo_compromiso, COLORS['gray'])
                 self.pdf.set_fill_color(*color)
                 # Centrar círculo
                 cx = x_sem + (widths[-1] / 2)
@@ -300,10 +300,10 @@ class ReportePDFGenerator:
             nombre = user.nombre
             m = user.metricas_generales
             total = m.total_solicitudes
-            a_tiempo = m.entregas_a_tiempo
-            tarde = m.entregas_tarde
+            a_tiempo = m.entregas_a_tiempo_compromiso
+            tarde = m.entregas_tarde_compromiso
             sin_fecha = m.sin_fecha_entrega
-            pct = f"{m.porcentaje_a_tiempo}%"
+            pct = f"{m.porcentaje_a_tiempo_compromiso}%"
             # Potencia viene de sumar tecnologías del usuario
             potencia_total = sum(t.potencia_total_kwp for t in user.metricas_por_tecnologia)
             potencia = f"{potencia_total:,.0f} kWp"

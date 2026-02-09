@@ -178,8 +178,13 @@ class MetricasGenerales(KPIMetricsMixin):
     # SEPARACIÓN: Versiones vs Retrabajos
     versiones: int = 0          # parent_id IS NOT NULL
     retrabajos: int = 0         # es_retrabajo=true en sitios
-    
+
     licitaciones: int = 0
+
+    # Conteo de sitios (visibilidad multisitio)
+    total_sitios: int = 0
+    total_sitios_entregados: int = 0
+    oportunidades_multisitio: int = 0
     
     # KPI INTERNO (SLA del Sistema)
     entregas_a_tiempo_interno: int = 0
@@ -189,31 +194,8 @@ class MetricasGenerales(KPIMetricsMixin):
     entregas_a_tiempo_compromiso: int = 0
     entregas_tarde_compromiso: int = 0
     
-    # Compatibilidad legacy (mapea a compromiso)
-    @property
-    def entregas_a_tiempo(self) -> int:
-        return self.entregas_a_tiempo_compromiso
-    
-    @property
-    def entregas_tarde(self) -> int:
-        return self.entregas_tarde_compromiso
-    
     sin_fecha_entrega: int = 0
     tiempo_promedio_horas: Optional[float] = None
-    
-    # Properties para porcentajes KPI Interno (Managed by Mixin)
-    
-    # Properties para porcentajes KPI Compromiso (Managed by Mixin)
-    
-    # Compatibilidad Legacy
-    @property
-    def porcentaje_a_tiempo(self) -> float:
-        return self.porcentaje_a_tiempo_compromiso
-    
-    @property
-    def porcentaje_tarde(self) -> float:
-        return self.porcentaje_tarde_compromiso
-
 
     @property
     def tiempo_promedio_dias(self) -> Optional[float]:
@@ -228,6 +210,13 @@ class MetricasGenerales(KPIMetricsMixin):
         if self.total_solicitudes == 0:
             return 0.0
         return round((self.licitaciones / self.total_solicitudes) * 100, 1)
+
+    @property
+    def promedio_sitios_por_oportunidad(self) -> float:
+        """Promedio de sitios individuales por solicitud."""
+        if self.total_solicitudes == 0:
+            return 0.0
+        return round(self.total_sitios / self.total_solicitudes, 1)
 
 
 @dataclass
@@ -254,32 +243,12 @@ class MetricaTecnologia(KPIMetricsMixin):
     extraordinarias: int = 0
     versiones: int = 0
     retrabajados: int = 0
-    licitaciones: int = 0  # ← Solicitudes que son licitaciones
+    licitaciones: int = 0
     tiempo_promedio_horas: Optional[float] = None
     potencia_total_kwp: float = 0.0
     capacidad_total_kwh: float = 0.0
-    
-    # Compatibilidad legacy
-    @property
-    def entregas_a_tiempo(self) -> int:
-        return self.entregas_a_tiempo_compromiso
-    
-    @property
-    def entregas_tarde(self) -> int:
-        return self.entregas_tarde_compromiso
-    
-    @property
-    def porcentaje_a_tiempo(self) -> float:
-        return self.porcentaje_a_tiempo_compromiso
-        
-    @property
-    def porcentaje_tarde(self) -> float:
-        return self.porcentaje_tarde_compromiso
-    
-    # Properties KPI Interno (Managed by Mixin)
-        
-    # Properties KPI Compromiso (Managed by Mixin)
-    
+    total_sitios: int = 0
+
     @property
     def porcentaje_licitaciones(self) -> float:
         """% de solicitudes que son licitaciones."""
@@ -310,16 +279,7 @@ class FilaContabilizacion(KPIMetricsMixin):
     entregas_a_tiempo_compromiso: int = 0
     entregas_tarde_compromiso: int = 0
     
-    # Compatibilidad Legacy (apunta a compromiso)
-    @property
-    def en_plazo(self) -> int:
-        return self.entregas_a_tiempo_compromiso
-        
-    @property
-    def fuera_plazo(self) -> int:
-        return self.entregas_tarde_compromiso
-
-    # Alias para templates que usan nombres antiguos/alternativos
+    # Alias para templates duales que usan en_plazo_*/fuera_plazo_*
     @property
     def en_plazo_interno(self) -> int:
         return self.entregas_a_tiempo_interno
@@ -362,19 +322,6 @@ class FilaContabilizacion(KPIMetricsMixin):
             return self.umbrales_compromiso.get_label(pct)
         return f"{pct}%"
         
-    # Compatibilidad Legacy
-    @property
-    def porcentaje_en_plazo(self) -> float:
-        return self.porcentaje_a_tiempo_compromiso
-        
-    @property
-    def semaforo(self) -> str:
-        return self.semaforo_compromiso
-        
-    @property
-    def semaforo_label(self) -> str:
-        return self.semaforo_compromiso_label
-    
     @property
     def porcentaje_licitaciones(self) -> float:
         """% de solicitudes que son licitaciones."""
@@ -403,6 +350,12 @@ class ResumenUsuario:
     porcentaje_retrabajos: float = 0.0
     motivo_retrabajo_principal: str = None
 
+    # Conteo de sitios
+    total_sitios: int = 0
+    total_sitios_entregados: int = 0
+    oportunidades_multisitio: int = 0
+    promedio_sitios_por_oportunidad: float = 0.0
+
 
 @dataclass
 class DetalleUsuario:
@@ -428,67 +381,29 @@ class MetricaUsuario(KPIMetricsMixin):
     entregas_tarde_compromiso: int = 0
     entregas_a_tiempo_interno: int = 0
     entregas_tarde_interno: int = 0
-    licitaciones: int = 0  # ← Solicitudes que son licitaciones
-    versiones: int = 0  # ← Oportunidades con parent_id
-    retrabajados: int = 0  # ← Sitios con es_retrabajo=true
-    resumen_texto: str = ""  # ← Texto descriptivo para resumen desplegable
-    tiempo_promedio_por_tipo: Dict[str, float] = field(default_factory=dict)  # ← tipo_solicitud -> horas promedio
-    score: Optional['ScoreUsuario'] = None  # ← Score calculado
-    
-    # Configuración dinámica (Added for Mixin support if needed later, but MetricaUsuario wasn't using it directly for semaphores in code, but properties use it)
-    # Wait, MetricaUsuario didn't have umbrales fields in definition!
-    # But semaforo_interno used self.umbrales_interno in Mixin.
-    # MetricaUsuario needs these fields if it's going to use the Mixin fully.
-    # Let's check original code.
-    
-    # Original code:
-    # @property
-    # def porcentaje_a_tiempo_interno(self) -> float:
-    # ... logic internal only ...
-    
-    # It didn't have semaforo_interno property! It only had percent properties.
-    # My Mixin ADDS semaforo properties. This is fine, extra functionality.
-    # BUT, the Mixin expects self.umbrales_interno to exist.
-    # If MetricaUsuario doesn't have it, accessing semaforo_interno will crash if I don't handle it.
-    
-    # However, looking at the code I'm removing:
-    # It ONLY had percentage properties. It did NOT have semaphores.
-    # So I can just inherit the percentage logic.
-    # But the mixin defines semaphores too.
-    # If I use the mixin, I get semaphores. 
-    # If I access them, I need umbrales.
-    # If I don't access them, I'm fine?
-    
-    # Wait, the Mixin implementation of semaforo_interno:
-    # if self.umbrales_interno:
-    
-    # This implies self has attribute umbrales_interno.
-    # If MetricaUsuario doesn't have it, it will raise AttributeError.
-    
-    # So I MUST add these fields to MetricaUsuario, defaulting to None.
-    
+    licitaciones: int = 0
+    versiones: int = 0
+    retrabajados: int = 0
+    resumen_texto: str = ""
+    tiempo_promedio_por_tipo: Dict[str, float] = field(default_factory=dict)
+    score: Optional['ScoreUsuario'] = None
+
+    # Conteo de sitios
+    total_sitios: int = 0
+    total_sitios_entregados: int = 0
+    oportunidades_multisitio: int = 0
+
+    # Requeridos por KPIMetricsMixin para semáforos
     umbrales_interno: Optional[UmbralesKPI] = None
     umbrales_compromiso: Optional[UmbralesKPI] = None
 
     @property
-    def porcentaje_a_tiempo(self) -> float:
-        """% entregas a tiempo según KPI Compromiso."""
-        return self.porcentaje_a_tiempo_compromiso
-    
-    @property
-    def porcentaje_a_tiempo_compromiso(self) -> float:
-        """% entregas a tiempo según KPI Compromiso (alias)."""
-        return super().porcentaje_a_tiempo_compromiso
+    def promedio_sitios_por_oportunidad(self) -> float:
+        """Promedio de sitios individuales por solicitud."""
+        if self.total_solicitudes == 0:
+            return 0.0
+        return round(self.total_sitios / self.total_solicitudes, 1)
 
-    # Mixin handles: porcentaje_a_tiempo_interno, porcentaje_a_tiempo_compromiso (Wait, I need to check MRO)
-    # The Mixin has porcentaje_a_tiempo_compromiso.
-    # I can just remove the manual definition if it matches.
-    # Original:
-    # return round((self.entregas_a_tiempo_compromiso / total_con_kpi) * 100, 1)
-    # Mixin:
-    # Same logic.
-    
-    # So I can remove them all.
     @property
     def porcentaje_licitaciones(self) -> float:
         """% de solicitudes que son licitaciones."""
@@ -544,11 +459,8 @@ class ScoreUsuario:
         
         self.multiplicador = 1.0 + bonus_licitaciones + bonus_actualizaciones + penalizacion
         
-        # Score Final
-        self.score_final = self.score_base * self.multiplicador
-        
-        # Asegurar rango 0-1
-        self.score_final = max(0.0, min(1.0, self.score_final))
+        # Score Final (sin techo: el multiplicador puede llevar >1.0)
+        self.score_final = max(0.0, self.score_base * self.multiplicador)
         
         return self
 
@@ -706,6 +618,10 @@ class ResumenEjecutivo:
     # Cantidad de meses en el rango (para decidir si mostrar estacionalidad)
     meses_en_rango: int = 0
 
+    # Conteo de sitios global
+    total_sitios_global: int = 0
+    oportunidades_multisitio_global: int = 0
+
 
 
 
@@ -808,7 +724,10 @@ class ReportesSimulacionService:
             entregas_a_tiempo_compromiso=row['entregas_a_tiempo_compromiso'] or 0,
             entregas_tarde_compromiso=row['entregas_tarde_compromiso'] or 0,
             sin_fecha_entrega=row['sin_fecha_entrega'] or 0,
-            tiempo_promedio_horas=row['tiempo_promedio_horas']
+            tiempo_promedio_horas=row['tiempo_promedio_horas'],
+            total_sitios=row['total_sitios'] or 0,
+            total_sitios_entregados=row['total_sitios_entregados'] or 0,
+            oportunidades_multisitio=row['oportunidades_multisitio'] or 0
         )
     
     async def get_motivo_retrabajo_principal(
@@ -822,13 +741,7 @@ class ReportesSimulacionService:
         
         if row:
             return row['motivo'], row['conteo']
-        else:
-            return None, 0
-        
-        if row:
-            return row['motivo'], row['conteo']
-        else:
-            return None, 0
+        return None, 0
     
     async def get_tiempo_promedio_global_usuario(
         self, 
@@ -870,7 +783,8 @@ class ReportesSimulacionService:
                 licitaciones=row['licitaciones'] or 0,
                 tiempo_promedio_horas=float(row['tiempo_promedio_horas']) if row['tiempo_promedio_horas'] else None,
                 potencia_total_kwp=float(row['potencia_total_kwp'] or 0),
-                capacidad_total_kwh=float(row['capacidad_total_kwh'] or 0)
+                capacidad_total_kwh=float(row['capacidad_total_kwh'] or 0),
+                total_sitios=row['total_sitios'] or 0
             )
             for row in rows
         ]
@@ -1050,7 +964,11 @@ class ReportesSimulacionService:
             tiempo_promedio_global_dias=tiempo_promedio_global_dias,
             total_retrabajos=m.retrabajos,
             porcentaje_retrabajos=round((m.retrabajos / m.total_solicitudes) * 100, 1) if m.total_solicitudes > 0 else 0,
-            motivo_retrabajo_principal=motivo_retrabajo_principal
+            motivo_retrabajo_principal=motivo_retrabajo_principal,
+            total_sitios=m.total_sitios,
+            total_sitios_entregados=m.total_sitios_entregados,
+            oportunidades_multisitio=m.oportunidades_multisitio,
+            promedio_sitios_por_oportunidad=m.promedio_sitios_por_oportunidad
         )
     
     async def generar_resumen_ejecutivo(
@@ -1074,8 +992,8 @@ class ReportesSimulacionService:
         # Configurar locale para fechas en español
         try:
             locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
-        except:
-            pass  # Fallback si no está disponible
+        except (locale.Error, ValueError):
+            pass  # Fallback si locale no está disponible en el sistema
         
         # Formatear fechas
         fecha_inicio = filtros.fecha_inicio.strftime("%d de %B de %Y")
@@ -1134,6 +1052,9 @@ class ReportesSimulacionService:
                 licitaciones=usuario.metricas_generales.licitaciones,
                 versiones=usuario.metricas_generales.versiones,
                 retrabajados=usuario.metricas_generales.retrabajos,
+                total_sitios=usuario.metricas_generales.total_sitios,
+                total_sitios_entregados=usuario.metricas_generales.total_sitios_entregados,
+                oportunidades_multisitio=usuario.metricas_generales.oportunidades_multisitio,
             )
             
             # Calcular score
@@ -1188,6 +1109,7 @@ class ReportesSimulacionService:
                         "nombre": tech.nombre,
                         "solicitudes": tech.total_solicitudes,
                         "ofertas": tech.total_ofertas,
+                        "total_sitios": tech.total_sitios,
                         "pct_interno": tech.porcentaje_a_tiempo_interno,
                         "pct_compromiso": tech.porcentaje_a_tiempo_compromiso
                     }
@@ -1293,6 +1215,8 @@ class ReportesSimulacionService:
             mejor_mes=mejor_mes,
             peor_mes=peor_mes,
             meses_en_rango=meses_en_rango,
+            total_sitios_global=metricas.total_sitios,
+            oportunidades_multisitio_global=metricas.oportunidades_multisitio,
         )
     
     async def get_resumen_mensual(self, conn, filtros: FiltrosReporte) -> Dict[str, FilaMensual]:
@@ -1317,8 +1241,6 @@ class ReportesSimulacionService:
             'porcentaje_fuera_plazo_compromiso',
             'entregas_a_tiempo_compromiso',
             'entregas_tarde_compromiso',
-            'porcentaje_en_plazo',  # Legacy - mapea a compromiso
-            'porcentaje_fuera_plazo',
             'tiempo_promedio',
             'en_espera',
             'canceladas',
@@ -1326,7 +1248,8 @@ class ReportesSimulacionService:
             'perdidas',
             'extraordinarias',
             'versiones',
-            'retrabajos'
+            'retrabajos',
+            'total_sitios'
         ]
         
         resultado = {nombre: FilaMensual(metrica=nombre) for nombre in metricas_nombres}
@@ -1359,10 +1282,6 @@ class ReportesSimulacionService:
             resultado['entregas_a_tiempo_compromiso'].valores[mes] = row['entregas_a_tiempo_compromiso'] or 0
             resultado['entregas_tarde_compromiso'].valores[mes] = row['entregas_tarde_compromiso'] or 0
             
-            # Legacy fields
-            resultado['porcentaje_en_plazo'].valores[mes] = pct_compromiso  
-            resultado['porcentaje_fuera_plazo'].valores[mes] = pct_tarde
-            
             resultado['tiempo_promedio'].valores[mes] = round(float(row['tiempo_promedio'] or 0) / 24, 1)  # A días
             resultado['en_espera'].valores[mes] = row['en_espera'] or 0
             resultado['canceladas'].valores[mes] = row['canceladas'] or 0
@@ -1371,10 +1290,11 @@ class ReportesSimulacionService:
             resultado['extraordinarias'].valores[mes] = row['extraordinarias'] or 0
             resultado['versiones'].valores[mes] = row['versiones'] or 0
             resultado['retrabajos'].valores[mes] = row['retrabajos'] or 0
+            resultado['total_sitios'].valores[mes] = row['total_sitios'] or 0
         
         # Calcular totales
         for nombre, fila in resultado.items():
-            if nombre in ['porcentaje_en_plazo', 'porcentaje_en_plazo_interno', 'porcentaje_fuera_plazo_interno', 'porcentaje_en_plazo_compromiso', 'porcentaje_fuera_plazo_compromiso', 'porcentaje_fuera_plazo', 'tiempo_promedio']:
+            if nombre in ['porcentaje_en_plazo_interno', 'porcentaje_fuera_plazo_interno', 'porcentaje_en_plazo_compromiso', 'porcentaje_fuera_plazo_compromiso', 'tiempo_promedio']:
                 # Promedios
                 valores = [v for v in fila.valores.values() if v > 0]
                 fila.total = round(sum(valores) / len(valores), 1) if valores else 0
@@ -1486,12 +1406,12 @@ class ReportesSimulacionService:
             datasets=[
                 {
                     'label': 'A Tiempo',
-                    'data': [metricas.entregas_a_tiempo],
+                    'data': [metricas.entregas_a_tiempo_compromiso],
                     'backgroundColor': '#10B981'
                 },
                 {
                     'label': 'Fuera de Plazo',
-                    'data': [metricas.entregas_tarde],
+                    'data': [metricas.entregas_tarde_compromiso],
                     'backgroundColor': '#EF4444'
                 }
             ],

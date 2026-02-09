@@ -1,0 +1,251 @@
+<!-- Modal: Detalles de Levantamiento (Compartido) -->
+<!-- Uso: Desde módulos Levantamientos, Comercial y Simulación -->
+<!-- Contexto: lev (dict con toda la info) -->
+
+<div id="modal-backdrop-detalle-lev"
+    class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-[9999] animate-fade-in p-4"
+    @click.self="$el.remove()">
+
+    <!-- Modal Container -->
+    <div class="bg-white rounded-xl shadow-2xl overflow-hidden w-full 
+                max-w-[95vw] sm:max-w-[600px] lg:max-w-[700px] 
+                max-h-[90vh] flex flex-col animate-scale-in" @click.stop>
+
+        <!-- HEADER con Gradiente Dinámico -->
+        <div class="px-6 py-4 bg-gradient-to-r flex justify-between items-center transition-all duration-300" :class="{
+                'from-gray-400 to-gray-600': {{ lev.id_estatus_global }} == 8,  /* Pendiente */
+                'from-blue-400 to-blue-600': {{ lev.id_estatus_global }} == 9,  /* Agendado */
+                'from-yellow-400 to-orange-500': {{ lev.id_estatus_global }} == 10, /* En Proceso */
+                'from-purple-400 to-purple-600': {{ lev.id_estatus_global }} == 11, /* Completado */
+                'from-emerald-400 to-emerald-600': {{ lev.id_estatus_global }} == 12, /* Entregado */
+                'from-amber-700 to-orange-800': {{ lev.id_estatus_global }} == 13  /* Pospuesto */
+             }">
+
+            <div class="flex-1">
+                <h3 class="text-lg sm:text-xl font-bold text-white flex items-center gap-2">
+                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    <span>Detalles de Levantamiento</span>
+                </h3>
+
+                <div class="mt-1 flex flex-wrap items-center gap-2">
+                    <span
+                        class="inline-flex items-center px-3 py-1 rounded-lg bg-white/20 backdrop-blur-sm text-white text-xs sm:text-sm font-mono font-bold">
+                        {{ lev.op_id_estandar or 'Sin ID' }}
+                    </span>
+
+                    <span
+                        class="inline-flex items-center px-2 py-0.5 rounded text-xs font-bold uppercase bg-white/20 text-white border border-white/30">
+                        {{ lev.estatus_nombre | replace('LEV_', '') }}
+                    </span>
+                </div>
+            </div>
+
+            <!-- Botón Cerrar -->
+            <button type="button" @click="$el.closest('#modal-backdrop-detalle-lev').remove()"
+                class="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-all duration-200">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <!-- BODY - Contenido Scrolleaable -->
+        <div class="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+
+            <!-- 1. Información del Proyecto -->
+            <div class="bg-gray-50 rounded-lg p-4 border border-gray-200 shadow-sm">
+                <h4
+                    class="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3 flex items-center gap-2 border-b border-gray-200 pb-2">
+                    <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    </svg>
+                    Proyecto
+                </h4>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                    <div class="sm:col-span-2">
+                        <p class="text-xs text-gray-500 uppercase font-semibold">Título del Proyecto</p>
+                        <p class="font-medium text-gray-900 break-words">{{ lev.nombre_proyecto or lev.titulo_proyecto
+                            or 'Sin título' }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 uppercase font-semibold">Cliente</p>
+                        <p class="font-medium text-gray-900">{{ lev.cliente_nombre or 'N/A' }}</p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 uppercase font-semibold">Sitio / Dirección</p>
+                        <p class="font-medium text-gray-900 truncate" title="{{ lev.sitio_direccion }}">
+                            {{ lev.nombre_sitio }} <br>
+                            <span class="text-xs text-gray-500 font-normal">{{ lev.sitio_direccion or 'Sin dirección'
+                                }}</span>
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Información de Agenda -->
+            <div class="bg-blue-50/50 rounded-lg p-4 border border-blue-100 shadow-sm">
+                <h4
+                    class="text-sm font-bold text-blue-800 uppercase tracking-wide mb-3 flex items-center gap-2 border-b border-blue-200 pb-2">
+                    <svg class="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                    </svg>
+                    Agenda
+                </h4>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                    <div>
+                        <p class="text-xs text-blue-600/70 uppercase font-semibold">Fecha Solicitud</p>
+                        <p class="font-bold text-blue-900">
+                            {{ lev.fecha_solicitud.strftime('%d/%m/%Y') if lev.fecha_solicitud else 'N/A' }}
+                        </p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-blue-600/70 uppercase font-semibold">Fecha Programada (Visita)</p>
+                        <p class="font-bold text-blue-900 bg-blue-100 inline-block px-2 py-0.5 rounded">
+                            {{ lev.fecha_visita_programada.strftime('%d/%m/%Y %H:%M') if lev.fecha_visita_programada
+                            else 'Por agendar' }}
+                        </p>
+                        {% if lev.fecha_reagenda %}
+                        <p class="text-xs text-blue-500 mt-1 italic">
+                            (Reagendado el {{ lev.fecha_reagenda.strftime('%d/%m/%Y') }})
+                        </p>
+                        {% endif %}
+                    </div>
+                    {% if lev.id_estatus_global == 13 and lev.motivo_pospone %}
+                    <div class="sm:col-span-2 bg-red-50 p-2 rounded border border-red-100">
+                        <p class="text-xs text-red-600 uppercase font-semibold">Motivo Pospone</p>
+                        <p class="text-red-800 italic">{{ lev.motivo_pospone }}</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- 3. Personal Asignado -->
+            <div class="bg-indigo-50/50 rounded-lg p-4 border border-indigo-100 shadow-sm">
+                <h4
+                    class="text-sm font-bold text-indigo-800 uppercase tracking-wide mb-3 flex items-center gap-2 border-b border-indigo-200 pb-2">
+                    <svg class="w-4 h-4 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
+                    </svg>
+                    Personal Asignado
+                </h4>
+
+                <div class="space-y-3">
+                    <div>
+                        <p class="text-xs text-indigo-600/70 uppercase font-semibold mb-1">Ingenieros</p>
+                        {% if lev.tecnicos_asignados %}
+                        <div class="flex flex-wrap gap-2">
+                            {% for tech in lev.tecnicos_asignados %}
+                            <div
+                                class="flex items-center gap-2 bg-white border border-indigo-100 px-3 py-1.5 rounded-full shadow-sm">
+                                <div
+                                    class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">
+                                    {{ tech.iniciales or tech.nombre[:2] }}
+                                </div>
+                                <span class="text-sm text-gray-700 font-medium">{{ tech.nombre }}</span>
+                            </div>
+                            {% endfor %}
+                        </div>
+                        {% else %}
+                        <p class="text-sm text-gray-400 italic">Sin asignar</p>
+                        {% endif %}
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-4 pt-2 border-t border-indigo-100/50">
+                        <div>
+                            <p class="text-xs text-indigo-600/70 uppercase font-semibold">Jefe de Área</p>
+                            <p class="text-sm text-gray-800">{{ lev.jefe_nombre or 'Sin asignar' }}</p>
+                        </div>
+                        <div>
+                            <p class="text-xs text-indigo-600/70 uppercase font-semibold">Solicitado Por</p>
+                            <p class="text-sm text-gray-800">{{ lev.solicitante_nombre or 'Sistema' }}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. Adjuntos de Entrega (Si existen) -->
+            {% if lev.adjuntos %}
+            <div class="bg-gray-50 rounded-lg p-4 border border-gray-200 shadow-sm">
+                <h4
+                    class="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3 flex items-center gap-2 border-b border-gray-200 pb-2">
+                    <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                    Adjuntos (Evidencia/Entrega)
+                </h4>
+                <ul class="space-y-2">
+                    {% for doc in lev.adjuntos %}
+                    <li
+                        class="flex items-center justify-between bg-white p-2 rounded border border-gray-200 hover:bg-gray-50 transition">
+                        <div class="flex items-center gap-2 overflow-hidden">
+                            <svg class="w-5 h-5 text-gray-400 flex-shrink-0" fill="none" stroke="currentColor"
+                                viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                            </svg>
+                            <span class="text-sm text-gray-700 truncate" title="{{ doc.nombre_archivo }}">{{
+                                doc.nombre_archivo }}</span>
+                            <span class="text-xs text-gray-400">({{ (doc.tamano_bytes / 1024)|round(1) }} KB)</span>
+                        </div>
+                        <a href="{{ doc.url_sharepoint }}" target="_blank"
+                            class="text-blue-600 hover:text-blue-800 text-xs font-bold uppercase flex items-center gap-1">
+                            Ver
+                            <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                            </svg>
+                        </a>
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+            {% endif %}
+
+        </div>
+
+        <!-- FOOTER - Acciones -->
+        <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-between items-center gap-3">
+
+            <!-- Botón Reporte Viáticos (Solo si tiene viáticos) -->
+            <div>
+                <!-- Botón Comentarios -->
+                <button
+                    hx-get="/workflow/modals/comentarios?id_oportunidad={{ lev.id_oportunidad }}&module=levantamientos"
+                    hx-target="body" hx-swap="beforeend"
+                    class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-blue-700 transition-colors mr-2">
+                    <svg class="w-4 h-4 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                    </svg>
+                    Comentarios
+                </button>
+
+                {% if lev.tiene_viaticos %}
+                <a href="/levantamientos/reporte-gastos/{{ lev.id_levantamiento }}" target="_blank"
+                    class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-green-700 transition-colors">
+                    <svg class="w-4 h-4 mr-2 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Reporte de Gastos
+                </a>
+                {% endif %}
+            </div>
+
+            <button type="button" @click="$el.closest('#modal-backdrop-detalle-lev').remove()"
+                class="px-5 py-2 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium shadow-sm transition-all duration-200 focus:outline-none">
+                Cerrar
+            </button>
+        </div>
+
+    </div>
+</div>

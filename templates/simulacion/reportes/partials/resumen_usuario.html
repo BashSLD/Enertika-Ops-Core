@@ -12,6 +12,12 @@
         Obtuvo un <strong>{{ resumen.porcentaje_interno }}%</strong>
         de cumplimiento interno y <strong>{{ resumen.porcentaje_compromiso }}%</strong> de
         cumplimiento con cliente.
+        {% if resumen.total_sitios > 0 %}
+        En total trabajó <strong>{{ resumen.total_sitios }} sitios</strong>
+        ({{ resumen.total_sitios_entregados }} entregados){% if resumen.oportunidades_multisitio > 0 %},
+        con {{ resumen.oportunidades_multisitio }} oportunidades multisitio
+        (prom. {{ resumen.promedio_sitios_por_oportunidad }} sitios/opp){% endif %}.
+        {% endif %}
     </p>
 
 

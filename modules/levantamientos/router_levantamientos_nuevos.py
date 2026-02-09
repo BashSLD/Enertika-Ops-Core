@@ -71,6 +71,31 @@ def register_nuevos_endpoints(router: APIRouter):
         })
 
     # ----------------------------------------------------------
+    
+    @router.get("/modals/detalle/{id_levantamiento}", include_in_schema=False)
+    async def get_detalle_levantamiento_modal(
+        request: Request,
+        id_levantamiento: UUID,
+        conn=Depends(get_db_connection),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
+        context=Depends(get_current_user_context),
+        # Accesible para anyone with viewer access (Shared Modal)
+        _=require_module_access("levantamientos", "viewer"),
+    ):
+        """
+        Renderiza el modal de DETALLE COMPLETO.
+        Accesible desde Comercial y Simulación.
+        """
+        lev = await db_svc.get_detalle_completo(conn, id_levantamiento)
+        if not lev:
+            raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+
+        return templates.TemplateResponse("shared/modals/detalle_levantamiento_modal.html", {
+            "request": request,
+            "lev": lev,
+        })
+
+    # ----------------------------------------------------------
 
     @router.get("/modal/historial/{id_levantamiento}", include_in_schema=False)
     async def get_modal_historial(
@@ -271,7 +296,9 @@ def register_nuevos_endpoints(router: APIRouter):
         estado_anterior = lev["id_estatus_global"]
 
         # UPDATE
-        await db_svc.update_reagendar(conn, id_levantamiento, fecha_obj, context["user_db_id"])
+        # Si estaba en Pendiente (8), es cita inicial => NO es rescheduling
+        is_rescheduling = (estado_anterior != 8)
+        await db_svc.update_reagendar(conn, id_levantamiento, fecha_obj, context["user_db_id"], is_rescheduling=is_rescheduling)
 
         # Historial
         fecha_display = fecha_obj.strftime("%d/%m/%Y %H:%M")

@@ -15,6 +15,7 @@ QUERY_GET_OPORTUNIDADES_LIST = """
         CASE WHEN db.id IS NOT NULL THEN true ELSE false END as tiene_detalles_bess,
         lev_estatus.nombre as status_levantamiento,
         lev.fecha_visita_programada as fecha_programada,
+        lev.id_levantamiento,
         u_tecnico.nombre as tecnico_asignado_nombre
     FROM tb_oportunidades o
     LEFT JOIN tb_cat_estatus_global estatus ON o.id_estatus_global = estatus.id

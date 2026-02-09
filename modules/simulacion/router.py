@@ -917,7 +917,7 @@ async def get_datos_metricas(
     )
     
     # 2. Cuellos de botella
-    cuellos = await metrics_service.get_cuellos_botella(metricas_estatus)
+    cuellos = metrics_service.get_cuellos_botella(metricas_estatus)
     
     # 3. Análisis de ciclos
     ciclos = await metrics_service.get_analisis_ciclos(

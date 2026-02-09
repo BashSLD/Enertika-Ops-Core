@@ -280,6 +280,18 @@
                 <td class="px-4 py-3 text-center font-bold bg-gray-50 text-cyan-600">{{ resumen.retrabajos.total }}</td>
             </tr>
 
+            {# Total Sitios #}
+            <tr class="hover:bg-gray-50 bg-teal-50/50">
+                <td class="px-4 py-3 font-medium text-gray-900 sticky left-0 bg-teal-50/50">
+                    Total Sitios
+                    <span class="block text-xs text-gray-500 font-normal mt-0.5">Sitios trabajados</span>
+                </td>
+                {% for mes in meses %}
+                <td class="px-4 py-3 text-center text-teal-600">{{ resumen.total_sitios.valores.get(mes, 0) }}</td>
+                {% endfor %}
+                <td class="px-4 py-3 text-center font-bold bg-gray-50 text-teal-600">{{ resumen.total_sitios.total }}</td>
+            </tr>
+
         </tbody>
     </table>
 </div>

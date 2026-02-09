@@ -137,6 +137,15 @@
                                     <td class="px-4 py-2 min-w-[300px]">
                                         <div
                                             class="text-sm font-mono text-gray-700 font-bold whitespace-nowrap flex items-center gap-2">
+                                            {% if current_tab == 'levantamientos' and op.id_levantamiento %}
+                                            <button hx-get="/levantamientos/modals/detalle/{{ op.id_levantamiento }}"
+                                                hx-target="body" hx-swap="beforeend"
+                                                hx-indicator="#global-loading-overlay"
+                                                class="hover:text-blue-600 hover:underline focus:outline-none transition-colors font-bold text-blue-700"
+                                                @click.stop="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando Detalles Levantamiento...'">
+                                                {{ op.id_interno_simulacion or 'N/A' }}
+                                            </button>
+                                            {% else %}
                                             <button hx-get="/workflow/modals/detalle/{{ op.id_oportunidad }}"
                                                 hx-target="body" hx-swap="beforeend"
                                                 hx-indicator="#global-loading-overlay" hx-disabled-elt="this"
@@ -144,6 +153,7 @@
                                                 @click.stop="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...'">
                                                 {{ op.id_interno_simulacion or 'N/A' }}
                                             </button>
+                                            {% endif %}
                                             {% if op.prioridad == 'high' %}
                                             <span
                                                 class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 border border-red-200 animate-pulse-subtle shadow-sm shadow-red-200">

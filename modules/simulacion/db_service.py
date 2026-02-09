@@ -412,6 +412,7 @@ class SimulacionDBService:
                 CASE WHEN db.id IS NOT NULL THEN true ELSE false END as tiene_detalles_bess,
                 lev_estatus.nombre as status_levantamiento,
                 lev.fecha_visita_programada as fecha_programada,
+                lev.id_levantamiento,
                 u_tecnico.nombre as tecnico_asignado_nombre
             FROM tb_oportunidades o
             LEFT JOIN tb_cat_estatus_global estatus ON o.id_estatus_global = estatus.id
@@ -541,7 +542,7 @@ class SimulacionDBService:
         where_clause = " AND ".join(conditions)
         return f"WHERE {where_clause}", params
 
-    async def get_report_catalog_ids(self, conn) -> Dict[str, Dict[str, int]]:
+    async def get_report_catalog_ids(self, conn) -> Dict[str, Any]:
         """Obtiene IDs de catálogos para reportes"""
         estatus = await conn.fetch(
             "SELECT id, LOWER(nombre) as nombre FROM tb_cat_estatus_global WHERE activo = true"
@@ -549,41 +550,47 @@ class SimulacionDBService:
         tipos = await conn.fetch(
             "SELECT id, LOWER(codigo_interno) as codigo FROM tb_cat_tipos_solicitud WHERE activo = true"
         )
-        
+        motivos_nv = await conn.fetch(
+            "SELECT id FROM tb_cat_motivos_cierre WHERE es_no_viable = TRUE AND activo = TRUE"
+        )
+
         return {
             "estatus": {row['nombre']: row['id'] for row in estatus},
-            "tipos": {row['codigo']: row['id'] for row in tipos}
+            "tipos": {row['codigo']: row['id'] for row in tipos},
+            "motivos_no_viables": [row['id'] for row in motivos_nv]
         }
 
     async def get_report_metricas_generales_row(self, conn, filters: Dict[str, Any], cats: Dict) -> Optional[Dict[str, Any]]:
         where_clause, params = self._build_report_where_clause(filters)
-        
+
         id_entregado = cats['estatus'].get('entregado')
         id_perdido = cats['estatus'].get('perdido')
         id_cancelado = cats['estatus'].get('cancelado')
-        id_ganada = cats['estatus'].get('ganada')  # FIX: Incluir Ganada en métricas
+        id_ganada = cats['estatus'].get('ganada')
         id_levantamiento = cats['tipos'].get('levantamiento')
         id_pendiente = cats['estatus'].get('pendiente')
         id_en_proceso = cats['estatus'].get('en proceso')
         id_en_revision = cats['estatus'].get('en revisión')
-        
+        ids_no_viables = cats.get('motivos_no_viables', [])
+
         params.extend([
-            id_entregado, id_perdido, id_cancelado, id_ganada, id_levantamiento, 
-            id_pendiente, id_en_proceso, id_en_revision
+            id_entregado, id_perdido, id_cancelado, id_ganada, id_levantamiento,
+            id_pendiente, id_en_proceso, id_en_revision, ids_no_viables
         ])
-        
-        idx_entregado = len(params) - 7
-        idx_perdido = len(params) - 6
-        idx_cancelado = len(params) - 5
-        idx_ganada = len(params) - 4
-        idx_levantamiento = len(params) - 3
-        idx_pendiente = len(params) - 2
-        idx_proceso = len(params) - 1
-        idx_revision = len(params)
-        
+
+        idx_entregado = len(params) - 8
+        idx_perdido = len(params) - 7
+        idx_cancelado = len(params) - 6
+        idx_ganada = len(params) - 5
+        idx_levantamiento = len(params) - 4
+        idx_pendiente = len(params) - 3
+        idx_proceso = len(params) - 2
+        idx_revision = len(params) - 1
+        idx_no_viables = len(params)
+
         query = f"""
             WITH sitios_kpis AS (
-                SELECT 
+                SELECT
                     s.id_oportunidad,
                     s.id_sitio,
                     s.kpi_status_interno,
@@ -596,18 +603,19 @@ class SimulacionDBService:
                     o.id_estatus_global,
                     o.id_motivo_cierre,
                     o.tiempo_elaboracion_horas,
-                    o.fecha_entrega_simulacion
+                    o.fecha_entrega_simulacion,
+                    o.cantidad_sitios
                 FROM tb_sitios_oportunidad s
                 JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
                 JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
                 {where_clause}
             )
-            SELECT 
+            SELECT
                 COUNT(DISTINCT id_oportunidad) as total_solicitudes,
                 COUNT(DISTINCT CASE WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN id_oportunidad END) as total_ofertas,
                 COUNT(DISTINCT CASE WHEN id_estatus_global IN (${idx_pendiente}, ${idx_proceso}, ${idx_revision}) THEN id_oportunidad END) as en_espera,
                 COUNT(DISTINCT CASE WHEN id_estatus_global = ${idx_cancelado} THEN id_oportunidad END) as canceladas,
-                COUNT(DISTINCT CASE WHEN id_estatus_global = ${idx_cancelado} AND id_motivo_cierre BETWEEN 1 AND 8 THEN id_oportunidad END) as no_viables,
+                COUNT(DISTINCT CASE WHEN id_estatus_global = ${idx_cancelado} AND id_motivo_cierre = ANY(${idx_no_viables}::integer[]) THEN id_oportunidad END) as no_viables,
                 COUNT(DISTINCT CASE WHEN clasificacion_solicitud = 'EXTRAORDINARIO' THEN id_oportunidad END) as extraordinarias,
                 COUNT(DISTINCT CASE WHEN parent_id IS NOT NULL THEN id_oportunidad END) as versiones,
                 COUNT(CASE WHEN es_retrabajo = TRUE THEN id_sitio END) as retrabajos,
@@ -617,7 +625,10 @@ class SimulacionDBService:
                 COUNT(CASE WHEN kpi_status_compromiso = 'Entrega a tiempo' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as entregas_a_tiempo_compromiso,
                 COUNT(CASE WHEN kpi_status_compromiso = 'Entrega tarde' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as entregas_tarde_compromiso,
                 COUNT(DISTINCT CASE WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND fecha_entrega_simulacion IS NULL THEN id_oportunidad END) as sin_fecha_entrega,
-                AVG(CASE WHEN tiempo_elaboracion_horas IS NOT NULL AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN tiempo_elaboracion_horas END) as tiempo_promedio_horas
+                AVG(CASE WHEN tiempo_elaboracion_horas IS NOT NULL AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN tiempo_elaboracion_horas END) as tiempo_promedio_horas,
+                COUNT(id_sitio) as total_sitios,
+                COUNT(CASE WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN id_sitio END) as total_sitios_entregados,
+                COUNT(DISTINCT CASE WHEN cantidad_sitios > 1 THEN id_oportunidad END) as oportunidades_multisitio
             FROM sitios_kpis
         """
         row = await conn.fetchrow(query, *params)
@@ -681,8 +692,9 @@ class SimulacionDBService:
         
         query = f"""
             WITH sitios_tech AS (
-                SELECT 
-                    o.id_tecnologia, s.id_oportunidad, s.kpi_status_interno, s.kpi_status_compromiso, s.es_retrabajo,
+                SELECT
+                    o.id_tecnologia, s.id_oportunidad, s.id_sitio,
+                    s.kpi_status_interno, s.kpi_status_compromiso, s.es_retrabajo,
                     o.parent_id, o.clasificacion_solicitud, o.es_licitacion, o.id_estatus_global, o.id_tipo_solicitud,
                     o.tiempo_elaboracion_horas, o.potencia_cierre_fv_kwp, o.capacidad_cierre_bess_kwh
                 FROM tb_sitios_oportunidad s
@@ -690,7 +702,7 @@ class SimulacionDBService:
                 JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
                 {where_clause}
             )
-            SELECT 
+            SELECT
                 t.id as id_tecnologia, t.nombre,
                 COUNT(DISTINCT st.id_oportunidad) as total_solicitudes,
                 COUNT(DISTINCT st.id_oportunidad) FILTER (WHERE st.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada})) as total_ofertas,
@@ -704,7 +716,8 @@ class SimulacionDBService:
                 COUNT(DISTINCT st.id_oportunidad) FILTER (WHERE st.es_licitacion = TRUE) as licitaciones,
                 AVG(st.tiempo_elaboracion_horas) FILTER (WHERE st.tiempo_elaboracion_horas IS NOT NULL) as tiempo_promedio_horas,
                 COALESCE(SUM(DISTINCT st.potencia_cierre_fv_kwp), 0) as potencia_total_kwp,
-                COALESCE(SUM(DISTINCT st.capacidad_cierre_bess_kwh), 0) as capacidad_total_kwh
+                COALESCE(SUM(DISTINCT st.capacidad_cierre_bess_kwh), 0) as capacidad_total_kwh,
+                COUNT(st.id_sitio) as total_sitios
             FROM tb_cat_tecnologias t
             LEFT JOIN sitios_tech st ON st.id_tecnologia = t.id
             WHERE t.activo = true
@@ -807,23 +820,34 @@ class SimulacionDBService:
 
     async def get_report_resumen_mensual(self, conn, filters: Dict[str, Any], cats: Dict) -> List[Dict[str, Any]]:
         where_clause, params = self._build_report_where_clause(filters)
-        
+
         id_entregado = cats['estatus'].get('entregado')
         id_perdido = cats['estatus'].get('perdido')
         id_cancelado = cats['estatus'].get('cancelado')
-        id_ganada = cats['estatus'].get('ganada')  # FIX: Incluir Ganada
+        id_ganada = cats['estatus'].get('ganada')
         id_levantamiento = cats['tipos'].get('levantamiento')
         id_pendiente = cats['estatus'].get('pendiente')
         id_en_proceso = cats['estatus'].get('en proceso')
         id_en_revision = cats['estatus'].get('en revisión')
-        
-        params.extend([id_entregado, id_perdido, id_cancelado, id_ganada, id_levantamiento, id_pendiente, id_en_proceso, id_en_revision])
-        idx_entregado, idx_perdido, idx_cancelado, idx_ganada, idx_levantamiento = len(params)-7, len(params)-6, len(params)-5, len(params)-4, len(params)-3
-        idx_pendiente, idx_proceso, idx_revision = len(params)-2, len(params)-1, len(params)
-        
+        ids_no_viables = cats.get('motivos_no_viables', [])
+
+        params.extend([
+            id_entregado, id_perdido, id_cancelado, id_ganada, id_levantamiento,
+            id_pendiente, id_en_proceso, id_en_revision, ids_no_viables
+        ])
+        idx_entregado = len(params) - 8
+        idx_perdido = len(params) - 7
+        idx_cancelado = len(params) - 6
+        idx_ganada = len(params) - 5
+        idx_levantamiento = len(params) - 4
+        idx_pendiente = len(params) - 3
+        idx_proceso = len(params) - 2
+        idx_revision = len(params) - 1
+        idx_no_viables = len(params)
+
         query = f"""
             WITH sitios_mensual AS (
-                SELECT 
+                SELECT
                     EXTRACT(MONTH FROM o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::int as mes,
                     s.id_oportunidad, s.kpi_status_interno, s.kpi_status_compromiso, s.es_retrabajo,
                     o.parent_id, o.clasificacion_solicitud, o.id_estatus_global, o.id_tipo_solicitud,
@@ -833,7 +857,7 @@ class SimulacionDBService:
                 JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
                 {where_clause}
             )
-            SELECT 
+            SELECT
                 mes,
                 COUNT(DISTINCT id_oportunidad) as solicitudes_recibidas,
                 COUNT(DISTINCT id_oportunidad) FILTER (WHERE id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada})) as ofertas_generadas,
@@ -844,11 +868,12 @@ class SimulacionDBService:
                 AVG(tiempo_elaboracion_horas) FILTER (WHERE tiempo_elaboracion_horas IS NOT NULL) as tiempo_promedio,
                 COUNT(DISTINCT id_oportunidad) FILTER (WHERE id_estatus_global IN (${idx_pendiente}, ${idx_proceso}, ${idx_revision})) as en_espera,
                 COUNT(DISTINCT id_oportunidad) FILTER (WHERE id_estatus_global = ${idx_cancelado}) as canceladas,
-                COUNT(DISTINCT id_oportunidad) FILTER (WHERE id_estatus_global = ${idx_cancelado} AND id_motivo_cierre BETWEEN 1 AND 8) as no_viables,
+                COUNT(DISTINCT id_oportunidad) FILTER (WHERE id_estatus_global = ${idx_cancelado} AND id_motivo_cierre = ANY(${idx_no_viables}::integer[])) as no_viables,
                 COUNT(DISTINCT id_oportunidad) FILTER (WHERE id_estatus_global = ${idx_perdido}) as perdidas,
                 COUNT(DISTINCT id_oportunidad) FILTER (WHERE clasificacion_solicitud = 'EXTRAORDINARIO') as extraordinarias,
                 COUNT(DISTINCT id_oportunidad) FILTER (WHERE parent_id IS NOT NULL) as versiones,
-                COUNT(*) FILTER (WHERE es_retrabajo = TRUE) as retrabajos
+                COUNT(*) FILTER (WHERE es_retrabajo = TRUE) as retrabajos,
+                COUNT(*) as total_sitios
             FROM sitios_mensual
             GROUP BY mes ORDER BY mes
         """

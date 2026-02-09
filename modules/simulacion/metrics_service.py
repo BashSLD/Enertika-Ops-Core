@@ -143,7 +143,7 @@ class MetricsService:
         
         try:
             rows = await conn.fetch(query, *params)
-            
+
             return [
                 MetricaEstatus(
                     estatus_nombre=row['estatus'],
@@ -153,11 +153,11 @@ class MetricsService:
                 )
                 for row in rows
             ]
-        except Exception as e:
-            logger.error(f"Error obteniendo tiempo por estatus: {e}")
-            return []
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de BD obteniendo tiempo por estatus: {e}")
+            raise
     
-    async def get_cuellos_botella(
+    def get_cuellos_botella(
         self,
         metricas_estatus: List[MetricaEstatus]
     ) -> List[MetricaCuelloBotella]:
@@ -240,7 +240,7 @@ class MetricsService:
         
         try:
             rows = await conn.fetch(query, fecha_inicio, fecha_fin)
-            
+
             return [
                 MetricaCiclos(
                     transicion=row['transicion'],
@@ -250,9 +250,9 @@ class MetricsService:
                 )
                 for row in rows
             ]
-        except Exception as e:
-            logger.error(f"Error obteniendo análisis de ciclos: {e}")
-            return []
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de BD obteniendo análisis de ciclos: {e}")
+            raise
 
     async def get_oportunidades_por_estatus(
         self,
@@ -342,9 +342,9 @@ class MetricsService:
             
             return oportunidades
         
-        except Exception as e:
-            logger.error(f"Error obteniendo oportunidades por estatus: {e}")
-            return []
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de BD obteniendo oportunidades por estatus: {e}")
+            raise
 
     async def get_transiciones_par_a_par(
         self,
@@ -422,9 +422,9 @@ class MetricsService:
             
             return transiciones
         
-        except Exception as e:
-            logger.error(f"Error obteniendo transiciones par a par: {e}")
-            return []
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de BD obteniendo transiciones par a par: {e}")
+            raise
 
     async def get_oportunidades_por_transicion(
         self,
@@ -510,9 +510,9 @@ class MetricsService:
             
             return oportunidades
         
-        except Exception as e:
-            logger.error(f"Error obteniendo oportunidades por transición: {e}")
-            return []
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de BD obteniendo oportunidades por transición: {e}")
+            raise
 
 
 # =============================================================================
