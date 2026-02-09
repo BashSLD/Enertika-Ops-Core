@@ -1,86 +1,88 @@
 <div class="h-full flex flex-col animate-fade-in-down">
-    <!-- Module Header -->
+    {# Module Header #}
     <div class="glass-panel p-4 rounded-xl mb-4 flex justify-between items-center border-l-4 border-blue-500">
         <div>
             <h2 class="text-2xl font-light text-gray-800">
-                Módulo <span class="font-bold text-blue-600">Proyectos</span>
+                Modulo <span class="font-bold text-blue-600">Proyectos</span>
             </h2>
-            <p class="text-gray-500 text-sm mt-1">Gestión integral de cartera de proyectos</p>
+            <p class="text-gray-500 text-sm mt-1">Vista global de la cartera de proyectos</p>
         </div>
-        <div class="flex gap-3">
-            <button
-                class="ripple-effect bg-[#123456] hover:bg-[#0E2A47] text-white px-3 py-2 text-sm rounded-lg shadow-lg shadow-blue-900/20 flex items-center gap-2 transition-transform hover:scale-105">
-                <span class="text-lg">📊</span> Dashboard
-            </button>
-            <button
-                class="ripple-effect bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 text-sm rounded-lg shadow-lg shadow-blue-600/30 flex items-center gap-2 transition-transform hover:scale-105">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+        <div class="flex gap-3 items-center">
+            <button onclick="abrirModalCrearProyecto()"
+                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                 </svg>
-                Nuevo Proyecto
+                Crear Proyecto
             </button>
+            {# Filtro por area #}
+            <select name="area" hx-get="/proyectos/partials/proyectos" hx-trigger="change" hx-target="#proyectos-list"
+                hx-include="[name='q'], [name='status']"
+                class="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <option value="">Todas las areas</option>
+                <option value="INGENIERIA" {% if area=='INGENIERIA' %}selected{% endif %}>Ingenieria</option>
+                <option value="CONSTRUCCION" {% if area=='CONSTRUCCION' %}selected{% endif %}>Construccion</option>
+                <option value="OYM" {% if area=='OYM' %}selected{% endif %}>O&M</option>
+            </select>
+            {# Filtro por estatus traspaso #}
+            <select name="status" hx-get="/proyectos/partials/proyectos" hx-trigger="change" hx-target="#proyectos-list"
+                hx-include="[name='q'], [name='area']"
+                class="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <option value="">Todos los estatus</option>
+                <option value="EN_AREA">En area</option>
+                <option value="EN_TRANSITO">En transito</option>
+            </select>
+            {# Busqueda #}
+            <div class="relative">
+                <input type="text" name="q" placeholder="Buscar proyecto..." hx-get="/proyectos/partials/proyectos"
+                    hx-trigger="keyup changed delay:500ms" hx-target="#proyectos-list"
+                    hx-include="[name='area'], [name='status']"
+                    class="pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-56">
+                <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor"
+                    viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+            </div>
         </div>
     </div>
 
-    <!-- KPI Cards Row -->
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-        <!-- Card 1 -->
-        <div
-            class="glass-card p-4 rounded-xl relative overflow-hidden group hover:-translate-y-1 transition-transform duration-300">
-            <div class="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                <svg class="w-16 h-16 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10">
-                    </path>
-                </svg>
-            </div>
-            <h3 class="text-gray-500 text-sm font-medium uppercase tracking-wider">Cartera Total</h3>
-            <div class="text-3xl font-bold text-gray-800 mt-2">24</div>
+    {# KPI Cards #}
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+        <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
+            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Total Proyectos</h3>
+            <div class="text-3xl font-bold text-blue-700 mt-2">{{ kpis.total_proyectos }}</div>
         </div>
-
-        <!-- Card 2 -->
-        <div
-            class="glass-card p-4 rounded-xl relative overflow-hidden group hover:-translate-y-1 transition-transform duration-300">
-            <div class="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                <svg class="w-16 h-16 text-teal-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z">
-                    </path>
-                </svg>
-            </div>
-            <h3 class="text-gray-500 text-sm font-medium uppercase tracking-wider">Presupuesto Ejecutado</h3>
-            <div class="text-3xl font-bold text-gray-800 mt-2">$2.4M</div>
+        <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
+            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">En Ingenieria</h3>
+            <div class="text-3xl font-bold text-purple-700 mt-2">{{ kpis.por_area.get('INGENIERIA', 0) }}</div>
         </div>
-
-        <!-- Card 3 -->
-        <div
-            class="glass-card p-4 rounded-xl relative overflow-hidden group hover:-translate-y-1 transition-transform duration-300">
-            <div class="absolute right-0 top-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                <svg class="w-16 h-16 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z">
-                    </path>
-                </svg>
-            </div>
-            <h3 class="text-gray-500 text-sm font-medium uppercase tracking-wider">Entregas este Mes</h3>
-            <div class="text-3xl font-bold text-gray-800 mt-2">2</div>
+        <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
+            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">En Construccion</h3>
+            <div class="text-3xl font-bold text-amber-700 mt-2">{{ kpis.por_area.get('CONSTRUCCION', 0) }}</div>
+        </div>
+        <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
+            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">En O&M</h3>
+            <div class="text-3xl font-bold text-emerald-700 mt-2">{{ kpis.por_area.get('OYM', 0) }}</div>
         </div>
     </div>
 
-    <!-- Main Content Area -->
-    <div class="glass-panel p-4 rounded-xl flex-1 flex flex-col justify-center items-center text-center">
-        <div class="w-32 h-32 bg-blue-50 rounded-full flex items-center justify-center mb-6 animate-pulse-subtle">
-            <svg class="w-16 h-16 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
-                    d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-            </svg>
+    {# Projects List #}
+    <div class="glass-panel p-4 rounded-xl flex-1">
+        <div id="proyectos-list">
+            {% include "shared/partials/lista_proyectos.html" %}
         </div>
-        <h3 class="text-xl font-medium text-gray-800 mb-2">Panel de Proyectos</h3>
-        <p class="text-gray-500 max-w-md">
-            Módulo actualizado con estilo visual unificado. <br>
-            La gestión de la cartera de proyectos estará disponible aquí.
-        </p>
     </div>
+    <!-- Container para modal de crear proyecto -->
+    <div id="modal-proyecto-container"></div>
 </div>
+
+<script>
+    function abrirModalCrearProyecto() {
+        htmx.ajax('GET', '/projects/modal-crear', {
+            target: '#modal-proyecto-container',
+            swap: 'innerHTML'
+        });
+    }
+</script>

@@ -376,7 +376,7 @@ class SimulacionDBService:
         
         # Query base
         query = """
-            SELECT 
+            SELECT
                 o.id_oportunidad, o.op_id_estandar, o.nombre_proyecto, o.titulo_proyecto, o.cliente_nombre,
                 o.fecha_solicitud, estatus.nombre as status_global, o.id_estatus_global,
                 o.id_interno_simulacion, o.deadline_calculado, o.deadline_negociado,
@@ -387,13 +387,19 @@ class SimulacionDBService:
                 u_creador.nombre as solicitado_por,
                 u_sim.nombre as responsable_simulacion,
                 u_sim.email as responsable_email,
-                CASE WHEN db.id IS NOT NULL THEN true ELSE false END as tiene_detalles_bess
+                CASE WHEN db.id IS NOT NULL THEN true ELSE false END as tiene_detalles_bess,
+                lev_estatus.nombre as status_levantamiento,
+                lev.fecha_visita_programada as fecha_programada,
+                u_tecnico.nombre as tecnico_asignado_nombre
             FROM tb_oportunidades o
             LEFT JOIN tb_cat_estatus_global estatus ON o.id_estatus_global = estatus.id
             LEFT JOIN tb_cat_tipos_solicitud tipo_sol ON o.id_tipo_solicitud = tipo_sol.id
             LEFT JOIN tb_usuarios u_creador ON o.creado_por_id = u_creador.id_usuario
             LEFT JOIN tb_usuarios u_sim ON o.responsable_simulacion_id = u_sim.id_usuario
             LEFT JOIN tb_detalles_bess db ON o.id_oportunidad = db.id_oportunidad
+            LEFT JOIN tb_levantamientos lev ON o.id_oportunidad = lev.id_oportunidad
+            LEFT JOIN tb_cat_estatus_global lev_estatus ON lev.id_estatus_global = lev_estatus.id
+            LEFT JOIN tb_usuarios u_tecnico ON lev.tecnico_asignado_id = u_tecnico.id_usuario
             WHERE o.email_enviado = true
         """
         

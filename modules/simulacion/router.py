@@ -681,124 +681,74 @@ async def update_simulacion(
 @router.put("/sitios/batch-update")
 async def batch_update_sitios(
     request: Request,
-    # Removed schemas.SitiosBatchUpdate strict dependency to avoid 422 before handler
+    datos: SitiosBatchUpdate, # FastAPI Pydantic Injection (Handles JSON automatically)
     service: SimulacionService = Depends(get_simulacion_service),
     db_service: SimulacionDBService = Depends(get_db_service),
     conn = Depends(get_db_connection),
-    _ = require_module_access("simulacion", "editor") # <--- SEGURIDAD
+    context = Depends(get_current_user_context),
+    _ = require_module_access("simulacion", "editor") 
 ):
     """
-    Actualización masiva de sitios.
-    Refactorizado para ser robusto ante fallos de codificación de HTMX/json-enc.
-    Acepta tanto application/json como application/x-www-form-urlencoded.
+    Actualiza múltiples sitios en batch.
+    Refactorizado para usar Pydantic + IDOR Check en Service.
+    Payload esperado: JSON (hx-ext="json-enc" en frontend).
     """
-    import json
-    from urllib.parse import parse_qs
-    
-    # 1. Raw Body Inspection
-    body_bytes = await request.body()
-    body_str = body_bytes.decode('utf-8')
-    content_type = request.headers.get('content-type', '')
-    
-    logger.info(f"[BATCH UPDATE] Header CT: {content_type}")
-    logger.info(f"[BATCH UPDATE] Body len: {len(body_str)}")
-    
-    ids_sitios_raw = []
-    id_estatus_global = None
-    fecha_cierre = None
-    es_retrabajo = False
-    id_motivo_retrabajo = None
-    
-    # 2. Parsing Logic
-    parsed_mode = "UNKNOWN"
-    
     try:
-        # ATTEMPT A: Try JSON (Preferred)
-        data = json.loads(body_str)
-        ids_sitios_raw = data.get("ids_sitios", [])
-        id_estatus_global = data.get("id_estatus_global")
-        fecha_cierre = data.get("fecha_cierre")
-        es_retrabajo = data.get("es_retrabajo", False)
-        id_motivo_retrabajo = data.get("id_motivo_retrabajo")
-        parsed_mode = "JSON"
-    except json.JSONDecodeError:
-        # ATTEMPT B: Fallback to Query String (Form Data)
-        # This handles the case where Header is JSON but Body is FormUrlEncoded
-        q_data = parse_qs(body_str)
-        ids_sitios_raw = q_data.get("ids_sitios", []) # Returns list
-        # parse_qs returns lists for everything
-        stat_list = q_data.get("id_estatus_global", [])
-        if stat_list:
-            id_estatus_global = stat_list[0]
-            
-        date_list = q_data.get("fecha_cierre", [])
-        if date_list:
-            fecha_cierre = date_list[0]
-        
-        # Parsing campos de retrabajo
-        retrabajo_list = q_data.get("es_retrabajo", [])
-        if retrabajo_list:
-            es_retrabajo = retrabajo_list[0].lower() in ['true', '1', 'on']
-        
-        motivo_list = q_data.get("id_motivo_retrabajo", [])
-        if motivo_list and motivo_list[0]:
-            id_motivo_retrabajo = int(motivo_list[0]) if motivo_list[0].isdigit() else None
-            
-        parsed_mode = "FORM_QS"
-
-    logger.info(f"[BATCH UPDATE] Parsed Mode: {parsed_mode}")
-    logger.info(f"[BATCH UPDATE] IDs count: {len(ids_sitios_raw)}, Status: {id_estatus_global}, Retrabajo: {es_retrabajo}")
-
-    try:
-        # 3. Validation & Conversion
-        if not ids_sitios_raw:
+        if not datos.ids_sitios:
              # Retorno vacío seguro si no hubo selección
             return templates.TemplateResponse("simulacion/partials/sitios_list.html", {
                 "request": request, 
                 "sitios": [], 
-                "context": {"role": "viewer"} 
+                "context": context
             })
 
-        # Convert UUIDs
-        ids_sitios = [UUID(str(id_)) for id_ in ids_sitios_raw]
-        
-        # Convert Status
-        if id_estatus_global is None:
-            raise ValueError("Falta id_estatus_global")
-        id_estatus_global = int(id_estatus_global)
-        
-        # Obtener id_oportunidad del primer sitio
-        id_op = await db_service.get_id_oportunidad_from_sitio(conn, ids_sitios[0])
+        # Obtener id_oportunidad del primer sitio (Validación de consistencia)
+        id_op = await db_service.get_id_oportunidad_from_sitio(conn, datos.ids_sitios[0])
         
         if not id_op:
-            raise ValueError("Sitio no encontrado")
+            raise HTTPException(status_code=404, detail="Sitio no encontrado o sin oportunidad asociada")
         
-        # 4. Construir objeto SitiosBatchUpdate
-        datos_batch = SitiosBatchUpdate(
-            ids_sitios=ids_sitios,
-            id_estatus_global=id_estatus_global,
-            fecha_cierre=fecha_cierre,
-            es_retrabajo=es_retrabajo,
-            id_motivo_retrabajo=id_motivo_retrabajo
-        )
-
-        # 5. Execute Service con nueva firma
-        await service.update_sitios_batch(conn, id_op, datos_batch)
+        # Execute Service (Ahora con validación IDOR interna)
+        await service.update_sitios_batch(conn, id_op, datos, context)
         
-        # 6. Response (Refresh Table)
+        # Response (Refresh Table)
         sitios = await service.get_sitios(conn, id_op)
         status_ids = await service._get_status_ids(conn)
         estatus_options = await db_service.get_estatus_simulacion_dropdown(conn, exclude_id=status_ids["ganada"])
         
-        # Calculate effective role again for the re-rendered part
         # Logic to determine effective role for UI
-        # (We already required 'editor' access, so it's at least editor/admin)
-        # But let's be safe and consistent with context
-        # Since we don't have full context object with module_roles easily available unless we trust 'context' var if we added it to depends.
-        # But wait, batch_update_sitios does NOT have 'context' as a dependency in the current signature I saw above?
-        # Let's check signature... It has `_ = require_module_access`.
-        # I should add `context = Depends(get_current_user_context)` to be clean, or construct role manually.
-        # The 'require_module_access' dependency actually returns the context if assigned, but here it is assigned to `_`.
+        effective_role = "viewer"
+        if context.get("role") == "ADMIN":
+             effective_role = "admin"
+        else:
+            effective_role = context.get("module_roles", {}).get("simulacion", "viewer")
+
+        # Validar si la oportunidad está en estado terminal (Bloquear edición visualmente)
+        op = await db_service.get_oportunidad_by_id(conn, id_op)
+        is_locked = False
+        if op and op['id_estatus_global'] in [status_ids.get('entregado'), status_ids.get('cancelado'), status_ids.get('perdido'), status_ids.get('ganada')]:
+             is_locked = True
+            
+        return templates.TemplateResponse("simulacion/partials/sitios_list.html", {
+            "request": request, 
+            "sitios": sitios,
+            "context": context,
+            "current_module_role": effective_role,
+            "estatus_options": [dict(r) for r in estatus_options],
+            "id_oportunidad": id_op,
+            "is_locked": is_locked
+        })
+
+    except HTTPException as e:
+        # Return error as OOB swap or inline message?
+        # For this partial, usually a toast notification is better but we don't have easy toast trigger from here without HX-Trigger header.
+        # Let's return a simple error alert replacing the table for now, or just raise.
+        # Better: HX-Trigger for toast.
+        from fastapi import Response
+        return Response(status_code=e.status_code, headers={"HX-Retarget": "#error-container-if-exists", "HX-Reswap": "none"})
+    except Exception as e:
+        logger.error(f"Error in batch update: {e}")
+        raise HTTPException(status_code=500, detail="Error interno del servidor")# The 'require_module_access' dependency actually returns the context if assigned, but here it is assigned to `_`.
         # Let's see if I can add context to args safely or if it's already there implicitly.
         # Looking at original code: `batch_update_sitios` did NOT have `context` in args.
         # I will inject it.

@@ -1,0 +1,105 @@
+{# Timeline de traspasos de un proyecto - modal o partial #}
+<div id="modal-timeline" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+    x-data="{ open: true }" x-show="open" x-transition @click.self="open = false; $el.remove()">
+    <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" @click.stop>
+        {# Header #}
+        <div class="p-5 border-b border-gray-200">
+            <div class="flex justify-between items-center">
+                <h3 class="text-lg font-bold text-gray-800">Timeline del Proyecto</h3>
+                <button type="button" @click="open = false; $el.closest('#modal-timeline').remove()"
+                    class="text-gray-400 hover:text-gray-600 transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            {% if proyecto %}
+            <p class="text-sm text-gray-600 mt-1">{{ proyecto.proyecto_id_estandar }}</p>
+            <p class="text-xs text-gray-500">{{ proyecto.nombre_proyecto or proyecto.nombre_corto or '' }}</p>
+            {% endif %}
+        </div>
+
+        {# Timeline #}
+        <div class="p-5">
+            {% if historial and historial|length > 0 %}
+            <div class="relative">
+                <div class="absolute left-4 top-0 bottom-0 w-0.5 bg-gray-200"></div>
+
+                {% for item in historial %}
+                {% set status_config = {
+                    'ENVIADO': {'color': 'bg-blue-500', 'icon': 'M14 5l7 7m0 0l-7 7m7-7H3', 'label': 'Enviado'},
+                    'ACEPTADO': {'color': 'bg-green-500', 'icon': 'M5 13l4 4L19 7', 'label': 'Aceptado'},
+                    'RECHAZADO': {'color': 'bg-red-500', 'icon': 'M6 18L18 6M6 6l12 12', 'label': 'Rechazado'},
+                } %}
+                {% set cfg = status_config.get(item.status, {'color': 'bg-gray-400', 'icon': 'M12 8v4m0 4h.01', 'label': item.status}) %}
+
+                <div class="relative flex gap-4 pb-6 last:pb-0">
+                    <div class="flex-shrink-0 w-8 h-8 rounded-full {{ cfg.color }} flex items-center justify-center z-10">
+                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="{{ cfg.icon }}"/>
+                        </svg>
+                    </div>
+                    <div class="flex-1">
+                        <div class="flex items-center gap-2">
+                            <span class="text-sm font-bold text-gray-800">{{ cfg.label }}</span>
+                            <span class="text-xs text-gray-400">{{ item.area_origen }} &rarr; {{ item.area_destino }}</span>
+                        </div>
+
+                        {% if item.status == 'ENVIADO' %}
+                        <p class="text-xs text-gray-600 mt-1">
+                            Por {{ item.enviado_por_nombre or 'N/A' }}
+                            {% if item.fecha_envio %} - {{ item.fecha_envio.strftime('%d/%m/%Y %H:%M') }}{% endif %}
+                        </p>
+                        {% if item.comentario_envio %}
+                        <p class="text-xs text-gray-500 mt-1 italic">"{{ item.comentario_envio }}"</p>
+                        {% endif %}
+
+                        {% elif item.status == 'ACEPTADO' %}
+                        <p class="text-xs text-gray-600 mt-1">
+                            Por {{ item.recibido_por_nombre or 'N/A' }}
+                            {% if item.fecha_recepcion %} - {{ item.fecha_recepcion.strftime('%d/%m/%Y %H:%M') }}{% endif %}
+                        </p>
+
+                        {% elif item.status == 'RECHAZADO' %}
+                        <p class="text-xs text-gray-600 mt-1">
+                            Por {{ item.rechazado_por_nombre or 'N/A' }}
+                            {% if item.fecha_rechazo %} - {{ item.fecha_rechazo.strftime('%d/%m/%Y %H:%M') }}{% endif %}
+                        </p>
+                        {% if item.comentario_rechazo %}
+                        <p class="text-xs text-red-600 mt-1">"{{ item.comentario_rechazo }}"</p>
+                        {% endif %}
+                        {% if item.motivos_rechazo %}
+                        <ul class="mt-1 space-y-0.5">
+                            {% for m in item.motivos_rechazo %}
+                            <li class="text-xs text-red-500 flex items-center gap-1">
+                                <span class="w-1 h-1 rounded-full bg-red-400"></span>
+                                {{ m.motivo }}
+                            </li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="text-center py-8 text-gray-400">
+                <svg class="w-12 h-12 mx-auto mb-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <p class="text-sm">No hay traspasos registrados</p>
+            </div>
+            {% endif %}
+        </div>
+
+        {# Close #}
+        <div class="p-5 border-t border-gray-200 flex justify-end">
+            <button type="button" @click="open = false; $el.closest('#modal-timeline').remove()"
+                class="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition">
+                Cerrar
+            </button>
+        </div>
+    </div>
+</div>

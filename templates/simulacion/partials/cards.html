@@ -138,7 +138,7 @@
                                 </th>
                                 <th scope="col"
                                     class="px-4 py-2 text-center text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap border-b border-gray-200/60">
-                                    Ingeniero Asignado
+                                    {% if current_tab == 'levantamientos' %}Tecnico Asignado{% else %}Ingeniero Asignado{% endif %}
                                 </th>
                                 <th scope="col"
                                     class="px-4 py-2 text-center text-xs font-bold text-gray-500 uppercase tracking-wider whitespace-nowrap w-48 border-b border-gray-200/60">
@@ -297,20 +297,40 @@
                                         {% endif %}
                                     </td>
 
-                                    <!-- COL 3: Ingeniero Asignado (ReadOnly) -->
+                                    <!-- COL 3: Ingeniero/Tecnico Asignado -->
                                     <td class="px-4 py-2 whitespace-nowrap">
-                                        <div class="flex items-center justify-center">
-                                            {% if op.responsable_simulacion %}
-                                            <span
-                                                class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
-                                                <div
-                                                    class="flex-shrink-0 h-5 w-5 rounded-full bg-indigo-200 flex items-center justify-center text-indigo-700 mr-2 border border-indigo-300">
-                                                    {{ op.responsable_simulacion[:1] }}
-                                                </div>
-                                                {{ op.responsable_simulacion }}
-                                            </span>
+                                        <div class="flex flex-col items-center justify-center">
+                                            {% if current_tab == 'levantamientos' %}
+                                                {% if op.tecnico_asignado_nombre %}
+                                                <span
+                                                    class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200 shadow-sm">
+                                                    <div
+                                                        class="flex-shrink-0 h-5 w-5 rounded-full bg-teal-200 flex items-center justify-center text-teal-700 mr-2 border border-teal-300">
+                                                        {{ op.tecnico_asignado_nombre[:1] }}
+                                                    </div>
+                                                    {{ op.tecnico_asignado_nombre }}
+                                                </span>
+                                                {% if op.fecha_programada %}
+                                                <span class="text-xs text-gray-500 mt-1">
+                                                    {{ op.fecha_programada.strftime('%d/%m/%Y') }}
+                                                </span>
+                                                {% endif %}
+                                                {% else %}
+                                                <span class="text-xs text-gray-400 italic">Sin Asignar</span>
+                                                {% endif %}
                                             {% else %}
-                                            <span class="text-xs text-gray-400 italic">Sin Asignar</span>
+                                                {% if op.responsable_simulacion %}
+                                                <span
+                                                    class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-indigo-50 text-indigo-700 border border-indigo-200">
+                                                    <div
+                                                        class="flex-shrink-0 h-5 w-5 rounded-full bg-indigo-200 flex items-center justify-center text-indigo-700 mr-2 border border-indigo-300">
+                                                        {{ op.responsable_simulacion[:1] }}
+                                                    </div>
+                                                    {{ op.responsable_simulacion }}
+                                                </span>
+                                                {% else %}
+                                                <span class="text-xs text-gray-400 italic">Sin Asignar</span>
+                                                {% endif %}
                                             {% endif %}
                                         </div>
                                     </td>
@@ -375,6 +395,38 @@
 
                                     <!-- COL 6: Status -->
                                     <td class="px-4 py-2 whitespace-nowrap text-center">
+                                        {% if current_tab == 'levantamientos' %}
+                                            {% set lev_status = op.status_levantamiento|lower if op.status_levantamiento else 'pendiente' %}
+                                            {% if lev_status == 'pendiente' %}
+                                            <span class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300 shadow-sm">
+                                                Pendiente
+                                            </span>
+                                            {% elif lev_status == 'agendado' %}
+                                            <span class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-blue-100 text-blue-800 border border-blue-300 shadow-sm">
+                                                Agendado
+                                            </span>
+                                            {% elif lev_status == 'en proceso' or lev_status == 'en_proceso' %}
+                                            <span class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-teal-100 text-teal-800 border border-teal-300 shadow-sm">
+                                                En Proceso
+                                            </span>
+                                            {% elif lev_status == 'completado' %}
+                                            <span class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-green-100 text-green-800 border border-green-300 shadow-sm">
+                                                Completado
+                                            </span>
+                                            {% elif lev_status == 'entregado' %}
+                                            <span class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm">
+                                                Entregado
+                                            </span>
+                                            {% elif lev_status == 'pospuesto' %}
+                                            <span class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-gray-100 text-gray-800 border border-gray-300 shadow-sm">
+                                                Pospuesto
+                                            </span>
+                                            {% else %}
+                                            <span class="px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-600">
+                                                {{ op.status_levantamiento or 'Sin levantamiento' }}
+                                            </span>
+                                            {% endif %}
+                                        {% else %}
                                         {% set status = op.status_global|lower if op.status_global else 'pendiente' %}
                                         {% if status == 'pendiente' %}
                                         <span
@@ -441,6 +493,7 @@
                                             📅 {{ op.fecha_entrega_simulacion | time_mx }}
                                         </div>
                                         {% endif %}
+                                        {% endif %}{# end current_tab != levantamientos #}
                                     </td>
                                 </tr>
 

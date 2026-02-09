@@ -27,6 +27,9 @@ pip-delete-this-directory.txt
 temp_uploads/
 MD/
 
+# Tests
+tests/
+
 
 # Documentacion
 docs/

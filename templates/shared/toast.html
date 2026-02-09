@@ -1,4 +1,4 @@
-<div hx-swap-oob="afterbegin:#toast-container">
+<div hx-swap-oob="afterbegin:#global-toast-container">
     <div x-data="{ show: true }" x-show="show" x-transition:enter="transition ease-out duration-300"
         x-transition:enter-start="opacity-0 transform translate-x-8"
         x-transition:enter-end="opacity-100 transform translate-x-0"
@@ -63,3 +63,17 @@
         </div>
     </div>
 </div>
+{% if redirect_url %}
+<script>
+    (function() {
+        var modals = document.querySelectorAll('[id^="modal-"]');
+        modals.forEach(function(m) { m.remove(); });
+        setTimeout(function() {
+            htmx.ajax('GET', '{{ redirect_url }}', {
+                target: '#main-content',
+                swap: 'innerHTML'
+            });
+        }, 800);
+    })();
+</script>
+{% endif %}

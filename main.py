@@ -78,6 +78,10 @@ app.include_router(ingenieria_router.router)
 from modules.oym import router as oym_router
 app.include_router(oym_router.router)
 
+# Traspasos de Proyectos (compartido entre modulos)
+from core.transfers.router import router as transfers_router
+app.include_router(transfers_router)
+
 # Workflow: Comentarios centralizados
 from core.workflow.router import router as workflow_router
 app.include_router(workflow_router)

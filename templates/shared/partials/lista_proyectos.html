@@ -1,0 +1,77 @@
+{# Lista de proyectos reutilizable - incluye pendientes de recepcion #}
+{% from "shared/partials/card_proyecto.html" import render_card %}
+
+{# Seccion: Pendientes de recepcion #}
+{% if pendientes is defined and pendientes|length > 0 %}
+<div class="mb-6">
+    <h3 class="text-sm font-bold text-amber-700 uppercase tracking-wider mb-3 flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+        Pendientes de Recepcion ({{ pendientes|length }})
+    </h3>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {% for pend in pendientes %}
+        <div class="glass-card p-4 rounded-xl border-l-4 border-amber-400 bg-amber-50/50">
+            <div class="flex justify-between items-start">
+                <div class="flex-1">
+                    <span class="text-sm font-mono font-bold text-gray-800">{{ pend.proyecto_id_estandar }}</span>
+                    <p class="text-xs text-gray-600 mt-1">{{ pend.nombre_proyecto or pend.nombre_corto or '' }}</p>
+                    <p class="text-xs text-gray-500 mt-1">
+                        <span class="font-medium">Cliente:</span> {{ pend.cliente_nombre or 'N/A' }}
+                    </p>
+                    <p class="text-xs text-gray-500 mt-1">
+                        <span class="font-medium">Enviado por:</span> {{ pend.enviado_por_nombre or 'N/A' }}
+                        {% if pend.fecha_envio %}
+                        <span class="text-gray-400">- {{ pend.fecha_envio.strftime('%d/%m/%Y') }}</span>
+                        {% endif %}
+                    </p>
+                    {% if pend.comentario_envio %}
+                    <p class="text-xs text-gray-500 mt-1 italic">"{{ pend.comentario_envio }}"</p>
+                    {% endif %}
+                </div>
+                <div class="text-right flex-shrink-0 ml-4">
+                    <div class="text-xs text-amber-600">Dias pendiente</div>
+                    <div class="text-lg font-bold text-amber-700">{{ pend.dias_pendiente or 0 }}</div>
+                </div>
+            </div>
+
+            {% if puede_recibir is defined and puede_recibir %}
+            <div class="mt-3 flex gap-2 justify-end">
+                {% set module_prefix = {'CONSTRUCCION': 'construccion', 'OYM': 'oym'}.get(area, '') %}
+                <button hx-get="/{{ module_prefix }}/modal/rechazar/{{ pend.id_traspaso }}" hx-target="body" hx-swap="beforeend"
+                    class="text-xs px-3 py-1 rounded border border-red-300 text-red-600 hover:bg-red-50 transition font-medium">
+                    Rechazar
+                </button>
+                <button hx-get="/{{ module_prefix }}/modal/recibir/{{ pend.id_traspaso }}" hx-target="body" hx-swap="beforeend"
+                    class="text-xs px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 transition font-medium">
+                    Aceptar
+                </button>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% endif %}
+
+{# Seccion: Proyectos en area #}
+{% if proyectos|length > 0 %}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    {% for p in proyectos %}
+    {{ render_card(
+        p, area,
+        area_destino=area_destino if area_destino is defined else None,
+        puede_enviar=puede_enviar if puede_enviar is defined else False,
+        puede_recibir=puede_recibir if puede_recibir is defined else False,
+        vista_global=vista_global if vista_global is defined else False
+    ) }}
+    {% endfor %}
+</div>
+{% else %}
+<div class="text-center py-12 text-gray-400">
+    <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+    </svg>
+    <p class="text-sm">No hay proyectos en esta area</p>
+</div>
+{% endif %}

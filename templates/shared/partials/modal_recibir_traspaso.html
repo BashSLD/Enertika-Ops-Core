@@ -1,0 +1,53 @@
+{# Modal generico para aceptar/recibir un traspaso #}
+<div id="modal-recibir-traspaso" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+    x-data="{ open: true }" x-show="open" x-transition @click.self="open = false; $el.remove()">
+    <div class="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4" @click.stop>
+        <form hx-post="/transfers/recibir/{{ id_traspaso }}" hx-swap="none">
+            {# Header #}
+            <div class="p-5 border-b border-gray-200">
+                <div class="flex justify-between items-center">
+                    <h3 class="text-lg font-bold text-gray-800">Confirmar Recepcion</h3>
+                    <button type="button" @click="open = false; $el.closest('#modal-recibir-traspaso').remove()"
+                        class="text-gray-400 hover:text-gray-600 transition">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            {# Body #}
+            <div class="p-5">
+                {% if traspaso %}
+                <div class="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+                    <p class="text-sm text-green-800 font-medium">
+                        Proyecto: {{ traspaso.proyecto_id_estandar or 'N/A' }}
+                    </p>
+                    <p class="text-xs text-green-700 mt-1">
+                        Enviado desde {{ traspaso.area_origen }} por {{ traspaso.enviado_por_nombre or 'N/A' }}
+                    </p>
+                    {% if traspaso.comentario_envio %}
+                    <p class="text-xs text-green-600 mt-2 italic">"{{ traspaso.comentario_envio }}"</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <p class="text-sm text-gray-600">
+                    Al aceptar, el proyecto pasara oficialmente a tu area y aparecera en tu lista de proyectos activos.
+                </p>
+            </div>
+
+            {# Actions #}
+            <div class="p-5 border-t border-gray-200 flex gap-3 justify-end">
+                <button type="button" @click="open = false; $el.closest('#modal-recibir-traspaso').remove()"
+                    class="px-4 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition">
+                    Cancelar
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-700 transition font-medium">
+                    Aceptar Traspaso
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

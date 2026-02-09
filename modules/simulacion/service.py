@@ -257,17 +257,39 @@ class SimulacionService:
         self, 
         conn, 
         id_oportunidad: UUID, 
-        datos: SitiosBatchUpdate
+        datos: SitiosBatchUpdate,
+        user_context: dict
     ):
         """
         Actualiza múltiples sitios en batch con KPIs individuales.
         
         RESPONSABILIDADES:
+        - Validar permisos (IDOR Check)
         - Calcular kpi_status_interno y kpi_status_compromiso por sitio
         - Manejar marcado de retrabajo (es_retrabajo, id_motivo_retrabajo)
         - El trigger trg_recalcular_retrabajo_padre se ejecuta automáticamente
         """
         
+        # 0. Validar Existencia y Permisos (IDOR)
+        # Obtenemos datos mínimos para validar dueño
+        current_data = await self.db.get_oportunidad_for_update(conn, id_oportunidad)
+        if not current_data:
+            raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
+            
+        # Check IDOR: Solo Admin/Manager o el Responsable asignado pueden editar
+        user_id = user_context.get("user_db_id")
+        sim_role = user_context.get("module_roles", {}).get("simulacion", "")
+        
+        is_admin = user_context.get("role") in ["ADMIN", "MANAGER"]
+        is_module_admin = sim_role == "admin"
+        is_owner = str(current_data.get("responsable_simulacion_id")) == str(user_id)
+        
+        if not (is_admin or is_module_admin or is_owner):
+            raise HTTPException(
+                status_code=403, 
+                detail="No autorizado. Solo el responsable asignado o un administrador pueden editar esta oportunidad."
+            )
+
         # 1. Obtener deadlines del PADRE (necesarios para KPIs de sitios)
         padre_data = await self.db.get_deadlines_padre(conn, id_oportunidad)
         
@@ -362,6 +384,20 @@ class SimulacionService:
         is_admin_system = (user_context.get("role") == "ADMIN" or sim_role == "admin")
         is_manager_editor = (user_context.get("role") == "MANAGER" and sim_role in ["editor", "admin"])
         can_edit_sensitive = is_admin_system or is_manager_editor
+
+        # 1.5 Validar Permiso Básico de Edición (IDOR Check)
+        # Si NO es Admin/Manager, DEBE ser el dueño (responsable asignado)
+        user_id = user_context.get("user_db_id")
+        is_owner = str(current_data.get("responsable_simulacion_id")) == str(user_id)
+        
+        # Managers también pueden editar cualquier cosa, no solo sensitive
+        can_edit_any = is_admin_system or (user_context.get("role") == "MANAGER")
+        
+        if not (can_edit_any or is_owner):
+             raise HTTPException(
+                status_code=403, 
+                detail="No autorizado. Solo el responsable asignado puede editar esta oportunidad."
+            )
 
         # monto_cierre_usd: siempre preservar de BD (no hay input en el modal)
         datos.monto_cierre_usd = current_data['monto_cierre_usd']
