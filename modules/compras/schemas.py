@@ -222,13 +222,27 @@ class ComprobanteFilter(BaseModel):
     page: int = Field(default=1, ge=1)
     per_page: int = Field(default=50, ge=1, le=500)
 
-    @field_validator('estatus')
+    @field_validator('fecha_inicio', 'fecha_fin', mode='before')
+    @classmethod
+    def validate_empty_date(cls, v):
+        if not v or v == "":
+            return None
+        return v
+
+    @field_validator('estatus', mode='before')
     @classmethod
     def validate_estatus(cls, v):
         if v == "TODOS" or not v:
             return None
         return v
-    
+
+    @field_validator('id_zona', 'id_categoria', mode='before')
+    @classmethod
+    def validate_empty_int(cls, v):
+        if v is None or v == "" or v == "0":
+            return None
+        return v
+
     @field_validator('id_proyecto', mode='before')
     @classmethod
     def validate_uuid_empty(cls, v):
@@ -273,3 +287,112 @@ class EstadisticasMes(BaseModel):
     facturados: int
     total_mxn: float
     total_usd: float
+
+
+# ========================================
+# XML CFDI
+# ========================================
+
+class TipoFactura(str, Enum):
+    """Tipo de factura detectado del XML CFDI."""
+    NORMAL = "NORMAL"
+    ANTICIPO = "ANTICIPO"
+    CIERRE_ANTICIPO = "CIERRE_ANTICIPO"
+
+
+class TipoComprobanteSAT(str, Enum):
+    """Tipos de comprobante segun catalogo SAT."""
+    INGRESO = "I"
+    EGRESO = "E"
+    TRASLADO = "T"
+    PAGO = "P"
+
+
+class CfdiConcepto(BaseModel):
+    """Concepto/item extraido de un CFDI."""
+    descripcion: str
+    cantidad: Decimal
+    valor_unitario: Decimal
+    importe: Decimal
+    unidad: Optional[str] = None
+    clave_prod_serv: Optional[str] = None
+    clave_unidad: Optional[str] = None
+
+
+class CfdiRelacionado(BaseModel):
+    """CFDI relacionado extraido del XML."""
+    uuid: str
+    tipo_relacion: str
+    tipo_relacion_desc: Optional[str] = None
+
+
+class CfdiData(BaseModel):
+    """Datos completos extraidos de un XML CFDI."""
+    archivo: str
+    uuid: str
+    fecha: str
+    total: Decimal
+    subtotal: Optional[Decimal] = None
+    moneda: str = "MXN"
+    metodo_pago: Optional[str] = None
+    forma_pago: Optional[str] = None
+    tipo_comprobante: Optional[str] = None
+
+    # Emisor (proveedor)
+    emisor_rfc: str
+    emisor_nombre: str
+
+    # Receptor
+    receptor_rfc: Optional[str] = None
+    receptor_nombre: Optional[str] = None
+
+    # Conceptos
+    conceptos: List[CfdiConcepto] = []
+
+    # CFDI relacionados
+    relacionados: List[CfdiRelacionado] = []
+
+    # Tipo detectado
+    tipo_factura: TipoFactura = TipoFactura.NORMAL
+
+    @field_validator('total', 'subtotal', mode='before')
+    @classmethod
+    def convert_decimal(cls, v):
+        if v is None:
+            return v
+        if isinstance(v, (int, float, str)):
+            return Decimal(str(v))
+        return v
+
+
+class XmlUploadError(BaseModel):
+    """Detalle de error en carga de XML."""
+    archivo: str
+    error: str
+
+
+class XmlMatchResult(BaseModel):
+    """Resultado de matching de un XML con comprobantes."""
+    cfdi: CfdiData
+    match_type: str  # AUTO_MATCH, MONTO_MATCH, MULTIPLE_MATCH, NO_MATCH
+    candidatos: List[dict] = []
+    comprobante_id: Optional[UUID] = None
+
+
+class XmlUploadResult(BaseModel):
+    """Resultado de la carga de XMLs."""
+    procesados: List[XmlMatchResult] = []
+    duplicados: List[XmlUploadError] = []
+    errores: List[XmlUploadError] = []
+
+    @property
+    def total(self) -> int:
+        return len(self.procesados) + len(self.duplicados) + len(self.errores)
+
+    @property
+    def auto_matched(self) -> int:
+        return sum(1 for r in self.procesados if r.match_type == "AUTO_MATCH")
+
+    @property
+    def pendientes_match(self) -> int:
+        return sum(1 for r in self.procesados if r.match_type != "AUTO_MATCH")

@@ -1,0 +1,19 @@
+<!-- Resultado de confirmacion de match XML -->
+<div class="bg-green-50 border border-green-200 rounded p-3 flex items-center gap-2 animate-fade-in">
+    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+    </svg>
+    <div class="flex-1">
+        <p class="text-sm font-medium text-green-800">
+            Factura vinculada correctamente
+        </p>
+        <p class="text-xs text-green-600">
+            UUID: {{ resultado.uuid_factura[:8] }}...
+            | Tipo: {{ resultado.tipo_factura }}
+            | {{ resultado.conceptos_guardados }} concepto(s)
+            {% if resultado.relacionados_guardados > 0 %}
+            | {{ resultado.relacionados_guardados }} CFDI relacionado(s)
+            {% endif %}
+        </p>
+    </div>
+</div>

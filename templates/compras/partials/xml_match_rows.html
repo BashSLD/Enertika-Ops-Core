@@ -1,0 +1,37 @@
+<!-- Filas de comprobantes candidatos para match manual -->
+{% if candidatos %}
+{% for c in candidatos %}
+<tr class="hover:bg-blue-50 cursor-pointer transition-colors xml-candidato-row"
+    data-id="{{ c.id_comprobante }}"
+    data-beneficiario="{{ c.beneficiario_orig }}"
+    data-monto="{{ c.monto }}"
+    data-moneda="{{ c.moneda }}"
+    onclick="seleccionarCandidato(this)">
+    <td class="px-3 py-2">
+        <input type="radio" name="id_comprobante_sel" value="{{ c.id_comprobante }}"
+            class="text-blue-600 focus:ring-blue-500">
+    </td>
+    <td class="px-3 py-2 text-sm text-gray-800">
+        {{ c.fecha_pago_str or c.fecha_pago }}
+    </td>
+    <td class="px-3 py-2 text-sm text-gray-800 max-w-[200px] truncate" title="{{ c.beneficiario_orig }}">
+        {{ c.beneficiario_orig|truncate(35) }}
+    </td>
+    <td class="px-3 py-2 text-sm text-right font-mono">
+        ${{ "{:,.2f}".format(c.monto) }}
+    </td>
+    <td class="px-3 py-2 text-xs text-gray-500 text-center">
+        {{ c.moneda }}
+    </td>
+</tr>
+{% endfor %}
+{% else %}
+<tr>
+    <td colspan="5" class="px-3 py-6 text-center text-sm text-gray-500">
+        No se encontraron comprobantes pendientes
+        {% if request.query_params.get('q') %}
+        para "{{ request.query_params.get('q') }}"
+        {% endif %}
+    </td>
+</tr>
+{% endif %}

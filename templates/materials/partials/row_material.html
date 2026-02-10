@@ -1,0 +1,111 @@
+<tr id="row-material-{{ m.id }}" class="hover:bg-gray-50 transition-colors">
+    <!-- Proveedor -->
+    <td class="px-3 py-2">
+        <div class="font-medium text-gray-800 truncate max-w-[180px]" title="{{ m.proveedor_nombre }}">
+            {{ m.proveedor_nombre or '-' }}
+        </div>
+        <div class="text-xs text-gray-400">{{ m.proveedor_rfc or '' }}</div>
+    </td>
+
+    <!-- Descripcion proveedor -->
+    <td class="px-3 py-2">
+        <div class="text-gray-700 truncate max-w-[250px]" title="{{ m.descripcion_proveedor }}">
+            {{ m.descripcion_proveedor }}
+        </div>
+        {% if m.unidad %}
+        <div class="text-xs text-gray-400">{{ m.unidad }} {% if m.clave_prod_serv %}| {{ m.clave_prod_serv }}{% endif %}</div>
+        {% endif %}
+    </td>
+
+    <!-- Descripcion interna (editable inline) -->
+    <td class="px-3 py-2" x-data="{ editing: false, value: '{{ m.descripcion_interna|default('', true)|e }}' }">
+        {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
+        <template x-if="!editing">
+            <div class="flex items-center gap-1 group">
+                <span class="text-gray-600 truncate max-w-[180px]" x-text="value || '-'"></span>
+                {% if can_edit %}
+                <button @click="editing = true"
+                    class="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-[#00BABB] transition-opacity"
+                    title="Editar">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                </button>
+                {% endif %}
+            </div>
+        </template>
+        {% if can_edit %}
+        <template x-if="editing">
+            <form hx-patch="/materials/{{ m.id }}" hx-target="#row-material-{{ m.id }}" hx-swap="outerHTML"
+                class="flex items-center gap-1" @htmx:after-request="editing = false">
+                <input type="text" name="descripcion_interna" x-model="value"
+                    class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-[#00BABB] focus:border-transparent"
+                    @keydown.escape="editing = false">
+                <button type="submit" class="text-green-600 hover:text-green-800">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                    </svg>
+                </button>
+                <button type="button" @click="editing = false" class="text-gray-400 hover:text-gray-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </form>
+        </template>
+        {% endif %}
+    </td>
+
+    <!-- Categoria (editable inline) -->
+    <td class="px-3 py-2">
+        {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
+        {% if can_edit %}
+        <select
+            hx-patch="/materials/{{ m.id }}"
+            hx-target="#row-material-{{ m.id }}"
+            hx-swap="outerHTML"
+            name="id_categoria"
+            class="w-full px-2 py-1 text-sm border border-gray-200 rounded bg-white hover:border-[#00BABB] focus:ring-1 focus:ring-[#00BABB] transition-colors">
+            <option value="">Sin categoria</option>
+            {% for cat in categorias %}
+            <option value="{{ cat.id }}" {% if m.id_categoria == cat.id %}selected{% endif %}>
+                {{ cat.nombre }}
+            </option>
+            {% endfor %}
+        </select>
+        {% else %}
+        <span class="text-gray-600">{{ m.categoria_nombre or '-' }}</span>
+        {% endif %}
+    </td>
+
+    <!-- Cantidad -->
+    <td class="px-3 py-2 text-right font-mono text-gray-700">
+        {{ "%.2f"|format(m.cantidad) }}
+    </td>
+
+    <!-- Precio unitario -->
+    <td class="px-3 py-2 text-right font-mono text-gray-700">
+        ${{ "{:,.2f}".format(m.precio_unitario) }}
+    </td>
+
+    <!-- Importe -->
+    <td class="px-3 py-2 text-right font-mono font-medium text-gray-800">
+        ${{ "{:,.2f}".format(m.importe) }}
+    </td>
+
+    <!-- Fecha -->
+    <td class="px-3 py-2 text-gray-600">
+        {{ m.fecha_factura.strftime("%d/%m/%Y") if m.fecha_factura else '-' }}
+    </td>
+
+    <!-- Acciones -->
+    <td class="px-3 py-2 text-center">
+        <button hx-get="/materials/{{ m.id }}/precios" hx-target="#modal-precios-container" hx-swap="innerHTML"
+            class="text-[#00BABB] hover:text-[#009999] transition-colors" title="Analisis de precios">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+        </button>
+    </td>
+</tr>

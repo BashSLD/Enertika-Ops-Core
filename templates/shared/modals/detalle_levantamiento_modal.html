@@ -217,16 +217,26 @@
 
             <!-- Botón Reporte Viáticos (Solo si tiene viáticos) -->
             <div>
-                <!-- Botón Comentarios -->
-                <button
-                    hx-get="/workflow/modals/comentarios?id_oportunidad={{ lev.id_oportunidad }}&module=levantamientos"
-                    hx-target="body" hx-swap="beforeend"
-                    class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-blue-700 transition-colors mr-2">
-                    <svg class="w-4 h-4 mr-2 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <!-- Botón Historial de Cambios -->
+                <button onclick="(function(){
+                        // Cerrar modal de detalles
+                        document.getElementById('modal-backdrop-detalle-lev').remove();
+                        // Cargar historial en sistema global después de un pequeño delay
+                        setTimeout(function(){
+                            htmx.ajax('GET', '/levantamientos/modal/historial/{{ lev.id_levantamiento }}', {
+                                target: '#modal-content',
+                                swap: 'innerHTML'
+                            }).then(function(){
+                                openModal();
+                            });
+                        }, 150);
+                    })()"
+                    class="inline-flex items-center px-4 py-2 bg-white border border-gray-300 rounded-lg shadow-sm text-sm font-medium text-gray-700 hover:bg-gray-50 hover:text-indigo-700 transition-colors mr-2">
+                    <svg class="w-4 h-4 mr-2 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z" />
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    Comentarios
+                    Historial
                 </button>
 
                 {% if lev.tiene_viaticos %}

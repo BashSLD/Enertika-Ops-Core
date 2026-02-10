@@ -190,7 +190,7 @@ async def get_historial_modal(
     # Obtener historial
     historial = await service.get_historial_estados(conn, id_levantamiento)
     
-    return templates.TemplateResponse("levantamientos/modals/historial_modal.html", {
+    return templates.TemplateResponse("shared/modals/historial_levantamiento_modal.html", {
         "request": request,
         "lev_data": lev_data,
         "historial": historial

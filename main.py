@@ -82,6 +82,10 @@ app.include_router(oym_router.router)
 from core.transfers.router import router as transfers_router
 app.include_router(transfers_router)
 
+# Materiales compartido (subfuncion de Compras)
+from core.materials.router import router as materials_router
+app.include_router(materials_router)
+
 # Workflow: Comentarios centralizados
 from core.workflow.router import router as workflow_router
 app.include_router(workflow_router)

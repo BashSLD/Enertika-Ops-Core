@@ -1,0 +1,30 @@
+<!-- Lista de archivos asociados a un comprobante -->
+<div class="flex items-center gap-1">
+    {% for archivo in archivos %}
+    {% set es_xml = archivo.origen_slug == 'factura_xml' or (archivo.metadata and archivo.metadata.get('content_type', '')|string == 'text/xml') %}
+    {% set es_pdf = archivo.origen_slug == 'comprobante_pago' or archivo.nombre_archivo.endswith('.pdf') %}
+    <a href="{{ archivo.url_sharepoint }}" target="_blank" rel="noopener noreferrer"
+        title="{{ archivo.nombre_archivo }}"
+        class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium transition-colors
+            {% if es_xml %}bg-orange-100 text-orange-700 hover:bg-orange-200
+            {% elif es_pdf %}bg-red-100 text-red-700 hover:bg-red-200
+            {% else %}bg-gray-100 text-gray-700 hover:bg-gray-200{% endif %}">
+        {% if es_xml %}
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+        </svg>
+        XML
+        {% elif es_pdf %}
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+        </svg>
+        PDF
+        {% else %}
+        {{ archivo.nombre_archivo|truncate(10) }}
+        {% endif %}
+    </a>
+    {% endfor %}
+    {% if not archivos %}
+    <span class="text-xs text-gray-400">-</span>
+    {% endif %}
+</div>

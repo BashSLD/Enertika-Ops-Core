@@ -1,0 +1,279 @@
+<!-- Modal de Match Manual XML ↔ Comprobante -->
+<div id="xml-match-modal"
+    class="hidden fixed inset-0 z-[60] overflow-y-auto bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+    role="dialog" aria-modal="true">
+
+    <div class="relative w-full max-w-3xl bg-white rounded-xl shadow-2xl max-h-[90vh] flex flex-col">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-[#123456] to-[#00BABB] px-6 py-4 rounded-t-xl shrink-0">
+            <div class="flex items-center justify-between">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                    </svg>
+                    Vincular Factura con Comprobante
+                </h3>
+                <button onclick="cerrarModalMatch()"
+                    class="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-all">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Body (scrollable) -->
+        <div class="flex-1 overflow-y-auto px-6 py-4">
+            <!-- Datos del XML -->
+            <div class="bg-gray-50 rounded-lg p-4 mb-4">
+                <h4 class="text-sm font-semibold text-gray-700 mb-2">Datos de la Factura XML</h4>
+                <div class="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                        <span class="text-gray-500">UUID:</span>
+                        <span id="match-xml-uuid-display" class="font-mono text-xs text-gray-800 ml-1"></span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500">Tipo:</span>
+                        <span id="match-xml-tipo-display" class="ml-1"></span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500">Emisor:</span>
+                        <span id="match-xml-nombre-display" class="font-medium text-gray-800 ml-1"></span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500">RFC:</span>
+                        <span id="match-xml-rfc-display" class="font-mono text-gray-800 ml-1"></span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500">Total:</span>
+                        <span id="match-xml-total-display" class="font-semibold text-gray-800 ml-1"></span>
+                    </div>
+                    <div>
+                        <span class="text-gray-500">Fecha:</span>
+                        <span id="match-xml-fecha-display" class="text-gray-800 ml-1"></span>
+                    </div>
+                </div>
+                <!-- Mostrar CFDI relacionados si existen -->
+                <div id="match-xml-relacionados-section" class="hidden mt-3 pt-3 border-t border-gray-200">
+                    <h5 class="text-xs font-semibold text-purple-700 mb-1">CFDI Relacionados:</h5>
+                    <div id="match-xml-relacionados-list" class="text-xs text-purple-600"></div>
+                </div>
+            </div>
+
+            <!-- Buscador de comprobantes -->
+            <div class="mb-3">
+                <label class="block text-sm font-semibold text-gray-700 mb-2">Selecciona el comprobante de pago:</label>
+                <input type="text" id="match-search-input"
+                    placeholder="Buscar por beneficiario, monto..."
+                    hx-get="/compras/comprobantes-pendientes"
+                    hx-target="#match-candidatos-body"
+                    hx-swap="innerHTML"
+                    hx-trigger="keyup changed delay:300ms, search"
+                    hx-include="this"
+                    name="q"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+            </div>
+
+            <!-- Tabla de candidatos -->
+            <div class="border border-gray-200 rounded-lg overflow-hidden">
+                <table class="w-full text-sm">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-3 py-2 text-left w-8"></th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Fecha</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Beneficiario</th>
+                            <th class="px-3 py-2 text-right text-xs font-medium text-gray-600 uppercase">Monto</th>
+                            <th class="px-3 py-2 text-center text-xs font-medium text-gray-600 uppercase">Mon.</th>
+                        </tr>
+                    </thead>
+                    <tbody id="match-candidatos-body" class="divide-y divide-gray-100">
+                        <tr>
+                            <td colspan="5" class="px-3 py-6 text-center text-sm text-gray-400">
+                                Escribe para buscar comprobantes pendientes...
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Checkbox relacion -->
+            <div class="mt-4">
+                <label class="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                    <input type="checkbox" id="match-guardar-relacion" checked
+                        class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
+                    <span>Guardar relacion beneficiario ↔ proveedor para matches automaticos futuros</span>
+                </label>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="bg-gray-50 px-6 py-3 flex justify-end gap-3 rounded-b-xl border-t shrink-0">
+            <button type="button" onclick="cerrarModalMatch()"
+                class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                Cancelar
+            </button>
+            <button type="button" id="match-confirm-btn" onclick="confirmarMatchManual()" disabled
+                class="px-4 py-2 text-sm font-medium text-white bg-[#00BABB] rounded-lg hover:bg-[#009999] disabled:opacity-50 disabled:cursor-not-allowed">
+                Confirmar Vinculacion
+            </button>
+        </div>
+
+        <!-- Hidden fields para datos del XML -->
+        <input type="hidden" id="match-xml-uuid">
+        <input type="hidden" id="match-xml-rfc">
+        <input type="hidden" id="match-xml-nombre">
+        <input type="hidden" id="match-xml-total">
+        <input type="hidden" id="match-xml-moneda">
+        <input type="hidden" id="match-xml-fecha">
+        <input type="hidden" id="match-xml-tipo">
+        <input type="hidden" id="match-xml-conceptos">
+        <input type="hidden" id="match-xml-relacionados">
+        <input type="hidden" id="match-xml-tipo-comprobante">
+        <input type="hidden" id="match-xml-metodo-pago">
+        <input type="hidden" id="match-xml-forma-pago">
+        <input type="hidden" id="match-selected-comprobante">
+    </div>
+</div>
+
+<script>
+(function () {
+    const TIPO_RELACION_DESCS = {
+        '01': 'Nota de credito', '02': 'Nota de debito',
+        '03': 'Devolucion de mercancia', '04': 'Sustitucion de CFDI previo',
+        '05': 'Traslados de mercancia', '06': 'Factura por traslado previo',
+        '07': 'CFDI por aplicacion de anticipo', '08': 'Factura por pagos en parcialidades',
+        '09': 'Factura por pagos diferidos'
+    };
+
+    // Abrir modal con datos del XML desde data-attributes del boton
+    window.abrirModalMatch = function (btn) {
+        const d = btn.dataset;
+
+        // Llenar campos ocultos
+        document.getElementById('match-xml-uuid').value = d.xmlUuid || '';
+        document.getElementById('match-xml-rfc').value = d.xmlRfc || '';
+        document.getElementById('match-xml-nombre').value = d.xmlNombre || '';
+        document.getElementById('match-xml-total').value = d.xmlTotal || '';
+        document.getElementById('match-xml-moneda').value = d.xmlMoneda || 'MXN';
+        document.getElementById('match-xml-fecha').value = d.xmlFecha || '';
+        document.getElementById('match-xml-tipo').value = d.xmlTipo || 'NORMAL';
+        document.getElementById('match-xml-conceptos').value = d.xmlConceptos || '[]';
+        document.getElementById('match-xml-relacionados').value = d.xmlRelacionados || '[]';
+        document.getElementById('match-xml-tipo-comprobante').value = d.xmlTipoComprobante || '';
+        document.getElementById('match-xml-metodo-pago').value = d.xmlMetodoPago || '';
+        document.getElementById('match-xml-forma-pago').value = d.xmlFormaPago || '';
+        document.getElementById('match-selected-comprobante').value = '';
+
+        // Llenar display
+        const uuid = d.xmlUuid || '';
+        document.getElementById('match-xml-uuid-display').textContent = uuid.length > 16 ? uuid.substring(0, 16) + '...' : uuid;
+        document.getElementById('match-xml-nombre-display').textContent = d.xmlNombre || '';
+        document.getElementById('match-xml-rfc-display').textContent = d.xmlRfc || '';
+
+        const total = parseFloat(d.xmlTotal || 0);
+        const moneda = d.xmlMoneda || 'MXN';
+        document.getElementById('match-xml-total-display').textContent = '$' + total.toLocaleString('es-MX', {minimumFractionDigits: 2}) + ' ' + moneda;
+        document.getElementById('match-xml-fecha-display').textContent = d.xmlFecha || '';
+
+        // Tipo badge
+        const tipo = d.xmlTipo || 'NORMAL';
+        const tipoEl = document.getElementById('match-xml-tipo-display');
+        if (tipo !== 'NORMAL') {
+            tipoEl.innerHTML = '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ' +
+                (tipo === 'ANTICIPO' ? 'bg-amber-100 text-amber-800' : 'bg-purple-100 text-purple-800') +
+                '">' + tipo + '</span>';
+        } else {
+            tipoEl.innerHTML = '<span class="text-gray-600">Normal</span>';
+        }
+
+        // CFDI Relacionados
+        const relSection = document.getElementById('match-xml-relacionados-section');
+        const relList = document.getElementById('match-xml-relacionados-list');
+        try {
+            const rels = JSON.parse(d.xmlRelacionados || '[]');
+            if (rels.length > 0) {
+                relSection.classList.remove('hidden');
+                relList.innerHTML = rels.map(r => {
+                    const desc = r.tipo_relacion_desc || TIPO_RELACION_DESCS[r.tipo_relacion] || 'Tipo ' + r.tipo_relacion;
+                    return '<div>' + desc + ': <span class="font-mono">' + (r.uuid || '').substring(0, 16) + '...</span></div>';
+                }).join('');
+            } else {
+                relSection.classList.add('hidden');
+            }
+        } catch(e) {
+            relSection.classList.add('hidden');
+        }
+
+        // Reset state
+        document.getElementById('match-confirm-btn').disabled = true;
+        document.getElementById('match-guardar-relacion').checked = true;
+        document.getElementById('match-search-input').value = '';
+        document.getElementById('match-candidatos-body').innerHTML =
+            '<tr><td colspan="5" class="px-3 py-6 text-center text-sm text-gray-400">Escribe para buscar comprobantes pendientes...</td></tr>';
+
+        // Trigger initial search with XML total as query
+        const searchInput = document.getElementById('match-search-input');
+        searchInput.value = total.toFixed(2);
+        htmx.trigger(searchInput, 'keyup');
+
+        // Show modal
+        document.getElementById('xml-match-modal').classList.remove('hidden');
+    };
+
+    window.cerrarModalMatch = function () {
+        document.getElementById('xml-match-modal').classList.add('hidden');
+    };
+
+    // Seleccionar candidato desde tabla
+    window.seleccionarCandidato = function (row) {
+        // Deseleccionar todos
+        document.querySelectorAll('.xml-candidato-row').forEach(r => {
+            r.classList.remove('bg-blue-50', 'ring-1', 'ring-blue-300');
+        });
+        // Seleccionar este
+        row.classList.add('bg-blue-50', 'ring-1', 'ring-blue-300');
+        const radio = row.querySelector('input[type="radio"]');
+        if (radio) radio.checked = true;
+
+        document.getElementById('match-selected-comprobante').value = row.dataset.id;
+        document.getElementById('match-confirm-btn').disabled = false;
+    };
+
+    // Confirmar match manual via HTMX
+    window.confirmarMatchManual = function () {
+        const compId = document.getElementById('match-selected-comprobante').value;
+        if (!compId) {
+            alert('Selecciona un comprobante');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('uuid_factura', document.getElementById('match-xml-uuid').value);
+        formData.append('id_comprobante', compId);
+        formData.append('emisor_rfc', document.getElementById('match-xml-rfc').value);
+        formData.append('emisor_nombre', document.getElementById('match-xml-nombre').value);
+        formData.append('total', document.getElementById('match-xml-total').value);
+        formData.append('moneda', document.getElementById('match-xml-moneda').value);
+        formData.append('fecha', document.getElementById('match-xml-fecha').value);
+        formData.append('tipo_factura', document.getElementById('match-xml-tipo').value);
+        formData.append('tipo_comprobante', document.getElementById('match-xml-tipo-comprobante').value);
+        formData.append('metodo_pago', document.getElementById('match-xml-metodo-pago').value);
+        formData.append('forma_pago', document.getElementById('match-xml-forma-pago').value);
+        formData.append('conceptos_json', document.getElementById('match-xml-conceptos').value);
+        formData.append('relacionados_json', document.getElementById('match-xml-relacionados').value);
+        formData.append('guardar_relacion', document.getElementById('match-guardar-relacion').checked ? 'true' : 'false');
+
+        htmx.ajax('POST', '/compras/xml-confirm-match', {
+            values: Object.fromEntries(formData),
+            target: 'body',
+            swap: 'beforeend'
+        }).then(() => {
+            cerrarModalMatch();
+            // Reload tabla
+            const form = document.getElementById('filtros-form');
+            if (form) htmx.trigger(form, 'submit');
+        });
+    };
+})();
+</script>

@@ -1,4 +1,4 @@
-<div class="container mx-auto animate-fade-in-down">
+<div class="animate-fade-in-down px-4">
     <!-- Header -->
     <!-- Header -->
     <div class="glass-panel rounded-xl shadow-lg p-4 border-l-4 border-[#00BABB] mb-4">
@@ -16,7 +16,7 @@
             {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
             <div class="flex flex-wrap gap-3">
                 {% if can_edit %}
-                <!-- Botón Upload -->
+                <!-- Botón Upload PDFs -->
                 <button onclick="document.getElementById('upload-modal').classList.remove('hidden')"
                     class="ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white font-bold py-2 px-3 text-sm rounded-lg shadow-lg shadow-[#00BABB]/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
@@ -25,6 +25,17 @@
                             d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                     </svg>
                     Cargar PDFs
+                </button>
+
+                <!-- Botón Upload XMLs -->
+                <button onclick="document.getElementById('upload-xml-modal').classList.remove('hidden')"
+                    class="ripple-effect bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-3 text-sm rounded-lg shadow-lg shadow-orange-500/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    Cargar XMLs
                 </button>
                 {% endif %}
 
@@ -39,13 +50,23 @@
                     </svg>
                     Exportar Excel
                 </a>
+                <!-- Botón Materiales -->
+                <a href="/materials/ui" hx-get="/materials/ui" hx-target="#main-content" hx-push-url="true"
+                    class="ripple-effect bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                    </svg>
+                    Materiales
+                </a>
+
                 <!-- Botón Crear Proyecto -->
                 <button onclick="abrirModalCrearProyecto()"
                     class="ripple-effect bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                     </svg>
                     Crear Proyecto
                 </button>
@@ -172,8 +193,14 @@
         {% include "compras/partials/tabla_comprobantes.html" %}
     </div>
 
-    <!-- Modal de Upload -->
+    <!-- Modal de Upload PDFs -->
     {% include "compras/partials/modal_upload.html" %}
+
+    <!-- Modal de Upload XMLs -->
+    {% include "compras/partials/modal_upload_xml.html" %}
+
+    <!-- Modal de Match XML ↔ Comprobante -->
+    {% include "compras/partials/xml_match_modal.html" %}
 
     <!-- Container para modal de edición (se carga dinámicamente) -->
     <div id="modal-editar-container"></div>

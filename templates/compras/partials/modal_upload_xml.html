@@ -1,0 +1,202 @@
+<!-- Modal de Upload XMLs CFDI -->
+<div id="upload-xml-modal"
+    class="hidden fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+    aria-labelledby="modal-xml-title" role="dialog" aria-modal="true">
+
+    <div class="relative w-full max-w-2xl bg-white rounded-xl shadow-2xl transform transition-all animate-scale-in">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-orange-500 to-[#123456] px-6 py-4 rounded-t-xl">
+            <div class="flex items-center justify-between">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2" id="modal-xml-title">
+                    <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    Cargar Facturas XML (CFDI)
+                </h3>
+                <button onclick="clearXmlUploadModal()"
+                    class="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-all duration-200">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Body -->
+        <div class="px-6 py-4">
+            <form id="upload-xml-form" hx-post="/compras/upload-xml" hx-encoding="multipart/form-data"
+                hx-target="#xml-upload-result" hx-swap="innerHTML" hx-indicator="#xml-upload-indicator">
+
+                <!-- Drag & Drop Zone -->
+                <div id="xml-drop-zone"
+                    class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-orange-400 transition-colors cursor-pointer"
+                    onclick="document.getElementById('xml-file-input').click()">
+
+                    <input type="file" id="xml-file-input" name="files" accept=".xml" multiple class="hidden"
+                        onchange="handleXmlFileSelect(this)">
+
+                    <div id="xml-drop-placeholder">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-12 w-12 text-gray-400" fill="none"
+                            viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1"
+                                d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                        </svg>
+                        <p class="mt-2 text-sm text-gray-600">
+                            <span class="font-semibold text-orange-500">Arrastra archivos XML</span> o haz clic para seleccionar
+                        </p>
+                        <p class="mt-1 text-xs text-gray-500">
+                            Facturas CFDI 3.3 / 4.0 (archivos .xml)
+                        </p>
+                    </div>
+
+                    <div id="xml-file-preview" class="hidden mt-4 text-left">
+                        <p class="text-sm font-medium text-gray-700 mb-2">Archivos seleccionados:</p>
+                        <ul id="xml-file-list" class="space-y-1 max-h-40 overflow-y-auto"></ul>
+                    </div>
+                </div>
+
+                <!-- Loading indicator -->
+                <div id="xml-upload-indicator" class="htmx-indicator mt-4">
+                    <div class="flex items-center justify-center gap-2 text-orange-500">
+                        <svg class="animate-spin h-5 w-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor"
+                                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                            </path>
+                        </svg>
+                        <span>Procesando facturas XML...</span>
+                    </div>
+                </div>
+
+                <!-- Resultado -->
+                <div id="xml-upload-result" class="mt-4"></div>
+            </form>
+        </div>
+
+        <!-- Footer -->
+        <div class="bg-gray-50 px-6 py-3 flex justify-end gap-3 rounded-b-xl">
+            <button type="button" onclick="clearXmlUploadModal()"
+                class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                Cerrar
+            </button>
+            <button type="submit" form="upload-xml-form" id="xml-upload-submit-btn" disabled
+                class="px-4 py-2 text-sm font-medium text-white bg-orange-500 rounded-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                Procesar XMLs
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+(function () {
+    let xmlStoredFiles = [];
+
+    const xmlDropZone = document.getElementById('xml-drop-zone');
+    const xmlFileInput = document.getElementById('xml-file-input');
+    const xmlFilePreview = document.getElementById('xml-file-preview');
+    const xmlFileList = document.getElementById('xml-file-list');
+    const xmlDropPlaceholder = document.getElementById('xml-drop-placeholder');
+    const xmlUploadBtn = document.getElementById('xml-upload-submit-btn');
+    const xmlModal = document.getElementById('upload-xml-modal');
+    const xmlResultContainer = document.getElementById('xml-upload-result');
+
+    window.handleXmlFileSelect = function (input) {
+        const newFiles = Array.from(input.files || []);
+        if (newFiles.length === 0) return;
+
+        const xmlFiles = newFiles.filter(f => f.name.toLowerCase().endsWith('.xml'));
+        if (xmlFiles.length === 0) {
+            alert('Por favor selecciona archivos XML');
+            if (xmlStoredFiles.length === 0) input.value = '';
+            return;
+        }
+
+        xmlFiles.forEach(file => {
+            const exists = xmlStoredFiles.some(f => f.name === file.name && f.size === file.size);
+            if (!exists) xmlStoredFiles.push(file);
+        });
+
+        updateXmlUI();
+    };
+
+    window.removeXmlFile = function (index) {
+        if (event) event.stopPropagation();
+        xmlStoredFiles.splice(index, 1);
+        updateXmlUI();
+    };
+
+    window.clearXmlUploadModal = function () {
+        xmlStoredFiles = [];
+        if (xmlFileInput) xmlFileInput.value = '';
+        if (xmlResultContainer) xmlResultContainer.innerHTML = '';
+        updateXmlUI();
+        if (xmlModal) xmlModal.classList.add('hidden');
+    };
+
+    function updateXmlUI() {
+        const dt = new DataTransfer();
+        xmlStoredFiles.forEach(file => dt.items.add(file));
+        if (xmlFileInput) xmlFileInput.files = dt.files;
+
+        if (xmlStoredFiles.length === 0) {
+            if (xmlFilePreview) xmlFilePreview.classList.add('hidden');
+            if (xmlDropPlaceholder) xmlDropPlaceholder.classList.remove('hidden');
+            if (xmlUploadBtn) xmlUploadBtn.disabled = true;
+        } else {
+            if (xmlFilePreview) xmlFilePreview.classList.remove('hidden');
+            if (xmlDropPlaceholder) xmlDropPlaceholder.classList.add('hidden');
+            if (xmlUploadBtn) xmlUploadBtn.disabled = false;
+
+            if (xmlFileList) {
+                xmlFileList.innerHTML = '';
+                xmlStoredFiles.forEach((file, index) => {
+                    const li = document.createElement('li');
+                    li.className = 'flex items-center gap-2 text-sm text-gray-600 bg-gray-50 px-2 py-1 rounded group hover:bg-gray-100 transition-colors';
+                    li.innerHTML = `
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                        </svg>
+                        <span class="truncate flex-1">${file.name}</span>
+                        <span class="text-xs text-gray-400 mr-2">${(file.size / 1024).toFixed(1)} KB</span>
+                        <button type="button" onclick="window.removeXmlFile(${index})" class="text-gray-400 hover:text-red-500 p-1 rounded-full hover:bg-red-50" title="Eliminar">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    `;
+                    xmlFileList.appendChild(li);
+                });
+            }
+        }
+    }
+
+    // Drag & Drop
+    if (xmlDropZone) {
+        function preventDefaults(e) { e.preventDefault(); e.stopPropagation(); }
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(ev => {
+            xmlDropZone.addEventListener(ev, preventDefaults, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(ev => {
+            xmlDropZone.addEventListener(ev, () => {
+                xmlDropZone.classList.add('border-orange-400', 'bg-orange-50');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(ev => {
+            xmlDropZone.addEventListener(ev, () => {
+                xmlDropZone.classList.remove('border-orange-400', 'bg-orange-50');
+            });
+        });
+
+        xmlDropZone.addEventListener('drop', (e) => {
+            if (xmlFileInput) {
+                xmlFileInput.files = e.dataTransfer.files;
+                handleXmlFileSelect(xmlFileInput);
+            }
+        });
+    }
+})();
+</script>

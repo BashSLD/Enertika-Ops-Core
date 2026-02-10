@@ -12,13 +12,12 @@ Endpoints:
 
 from fastapi import APIRouter, Depends, Request, Form, File, UploadFile, Query, HTTPException
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, StreamingResponse, Response
+from fastapi.responses import HTMLResponse, Response
 from typing import List, Optional
 from uuid import UUID
 from datetime import date, datetime
 import logging
 import json
-from io import BytesIO
 
 # Core imports
 from core.database import get_db_connection
@@ -29,16 +28,56 @@ from core.config import settings
 # Module imports
 from .service import ComprasService, get_compras_service
 from .schemas import (
-    ComprobanteUpdate, 
+    ComprobanteUpdate,
     ComprobanteBulkUpdate,
     ComprobanteFilter,
-    ComprobanteUpdateForm
+    ComprobanteUpdateForm,
+    CfdiData,
 )
 from typing import Annotated
 
 logger = logging.getLogger("ComprasModule")
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
+
+
+def _serialize_xml_result(result):
+    """Convierte XmlUploadResult a dict serializable para templates Jinja2."""
+    from decimal import Decimal
+
+    def _serialize_cfdi(cfdi):
+        """Convierte CfdiData Pydantic a dict plano."""
+        d = cfdi.model_dump() if hasattr(cfdi, 'model_dump') else dict(cfdi)
+        # Convertir enums a string
+        if 'tipo_factura' in d and hasattr(d['tipo_factura'], 'value'):
+            d['tipo_factura'] = d['tipo_factura'].value
+        # Convertir Decimal a float/str
+        for key in ('total', 'subtotal'):
+            if key in d and isinstance(d[key], Decimal):
+                d[key] = float(d[key])
+        # Convertir conceptos Decimal
+        for c in d.get('conceptos', []):
+            for k in ('cantidad', 'valor_unitario', 'importe'):
+                if k in c and isinstance(c[k], Decimal):
+                    c[k] = float(c[k])
+        return d
+
+    serialized = {
+        'procesados': [],
+        'duplicados': [e.model_dump() if hasattr(e, 'model_dump') else dict(e) for e in result.duplicados],
+        'errores': [e.model_dump() if hasattr(e, 'model_dump') else dict(e) for e in result.errores],
+    }
+
+    for match in result.procesados:
+        item = {
+            'cfdi': _serialize_cfdi(match.cfdi),
+            'match_type': match.match_type,
+            'candidatos': match.candidatos,
+            'comprobante_id': str(match.comprobante_id) if match.comprobante_id else None,
+        }
+        serialized['procesados'].append(item)
+
+    return serialized
 
 # Registrar filtros de timezone
 from core.jinja_filters import register_timezone_filters
@@ -399,11 +438,11 @@ async def export_excel(
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"comprobantes_pago_{timestamp}.xlsx"
     
-    return StreamingResponse(
-        BytesIO(excel_bytes),
+    return Response(
+        content=excel_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
-            "Content-Disposition": f"attachment; filename={filename}"
+            "Content-Disposition": f'attachment; filename="{filename}"'
         }
     )
 
@@ -461,11 +500,259 @@ async def get_estadisticas(
     Obtiene estadísticas del mes actual (HTMX partial).
     """
     stats = await service.get_estadisticas_generales(conn, estatus="PENDIENTE")
-    
+
     return templates.TemplateResponse(
         "compras/partials/estadisticas.html",
         {
             "request": request,
             "estadisticas": stats
+        }
+    )
+
+
+# ========================================
+# CARGA Y PROCESAMIENTO DE XMLs
+# ========================================
+
+@router.post("/upload-xml", response_class=HTMLResponse)
+async def upload_xmls(
+    request: Request,
+    files: List[UploadFile] = File(...),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    service: ComprasService = Depends(get_compras_service),
+    _ = require_module_access("compras", "editor")
+):
+    """
+    Carga y procesa multiples XMLs CFDI.
+
+    Flujo:
+    1. Filtra solo archivos .xml
+    2. Parsea cada XML (UUID, RFC, monto, conceptos, CFDI relacionados)
+    3. Detecta tipo de factura (NORMAL, ANTICIPO, CIERRE_ANTICIPO)
+    4. Busca/crea proveedor por RFC
+    5. Busca coincidencias con comprobantes pendientes (3 niveles)
+    6. Sube XMLs a SharePoint
+    7. Retorna resultado con matches encontrados
+
+    Returns:
+        HTML con resultado de procesamiento y matches pendientes
+    """
+    user_id = context.get("user_db_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Usuario no identificado")
+
+    xml_files = [f for f in files if f.filename and f.filename.lower().endswith('.xml')]
+
+    if not xml_files:
+        return templates.TemplateResponse(
+            "compras/partials/xml_upload_result.html",
+            {
+                "request": request,
+                "result": None,
+                "error_msg": "No se encontraron archivos XML validos",
+            }
+        )
+
+    logger.info("Procesando %d XMLs por usuario %s", len(xml_files), user_id)
+
+    # Procesar XMLs (parseo + matching)
+    result = await service.procesar_xmls(conn, xml_files, user_id)
+
+    # Subir XMLs procesados exitosamente a SharePoint
+    now = datetime.now()
+    subcarpeta = f"compras/facturas_xml/{now.strftime('%Y-%m')}"
+
+    for match_result in result.procesados:
+        # Re-seek al archivo correspondiente para upload
+        for f in xml_files:
+            if f.filename == match_result.cfdi.archivo:
+                try:
+                    await f.seek(0)
+                    sp_result = await service.upload_archivo_sharepoint(
+                        conn, f, subcarpeta,
+                        match_result.comprobante_id,
+                        "factura_xml", user_id,
+                        metadata_extra={
+                            "uuid_factura": match_result.cfdi.uuid,
+                            "emisor_rfc": match_result.cfdi.emisor_rfc,
+                            "tipo_factura": match_result.cfdi.tipo_factura.value
+                            if hasattr(match_result.cfdi.tipo_factura, 'value')
+                            else match_result.cfdi.tipo_factura,
+                        }
+                    )
+                    if sp_result:
+                        match_result.cfdi.archivo = sp_result.get("url_sharepoint", match_result.cfdi.archivo)
+                except Exception as e:
+                    logger.error("Error subiendo XML %s a SharePoint: %s", f.filename, e)
+                break
+
+    # Serializar resultado para Jinja2 (Pydantic -> dict plano)
+    result_data = _serialize_xml_result(result)
+
+    return templates.TemplateResponse(
+        "compras/partials/xml_upload_result.html",
+        {
+            "request": request,
+            "result": result_data,
+            "error_msg": None,
+        }
+    )
+
+
+@router.post("/xml-confirm-match", response_class=HTMLResponse)
+async def confirm_xml_match(
+    request: Request,
+    uuid_factura: str = Form(...),
+    id_comprobante: UUID = Form(...),
+    emisor_rfc: str = Form(...),
+    emisor_nombre: str = Form(...),
+    total: str = Form(...),
+    moneda: str = Form("MXN"),
+    fecha: str = Form(""),
+    tipo_factura: str = Form("NORMAL"),
+    tipo_comprobante: Optional[str] = Form(None),
+    metodo_pago: Optional[str] = Form(None),
+    forma_pago: Optional[str] = Form(None),
+    conceptos_json: str = Form("[]"),
+    relacionados_json: str = Form("[]"),
+    guardar_relacion: bool = Form(True),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    service: ComprasService = Depends(get_compras_service),
+    _ = require_module_access("compras", "editor")
+):
+    """
+    Confirma el match entre un XML y un comprobante de pago.
+
+    Recibe los datos del CFDI via form fields (serializados desde el modal).
+    Actualiza comprobante, guarda relacion beneficiario-proveedor,
+    almacena conceptos en historial y CFDI relacionados.
+
+    Returns:
+        HTML con resultado de confirmacion + toast OOB
+    """
+    user_id = context.get("user_db_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Usuario no identificado")
+
+    # Reconstruir cfdi_data como dict
+    try:
+        conceptos = json.loads(conceptos_json) if conceptos_json else []
+    except json.JSONDecodeError:
+        conceptos = []
+
+    try:
+        relacionados = json.loads(relacionados_json) if relacionados_json else []
+    except json.JSONDecodeError:
+        relacionados = []
+
+    cfdi_data = {
+        "uuid": uuid_factura,
+        "emisor_rfc": emisor_rfc,
+        "emisor_nombre": emisor_nombre,
+        "total": total,
+        "moneda": moneda,
+        "fecha": fecha,
+        "tipo_factura": tipo_factura,
+        "tipo_comprobante": tipo_comprobante,
+        "metodo_pago": metodo_pago,
+        "forma_pago": forma_pago,
+        "conceptos": conceptos,
+        "relacionados": relacionados,
+    }
+
+    try:
+        resultado = await service.confirmar_match_xml(
+            conn, cfdi_data, id_comprobante, user_id,
+            guardar_relacion=guardar_relacion
+        )
+    except ValueError as e:
+        return templates.TemplateResponse(
+            "shared/toast.html",
+            {
+                "request": request,
+                "message": str(e),
+                "type": "error",
+            }
+        )
+
+    # Toast de exito OOB + actualizar tabla
+    toast_html = templates.TemplateResponse(
+        "shared/toast.html",
+        {
+            "request": request,
+            "message": f"Factura {uuid_factura[:8]}... vinculada correctamente ({tipo_factura})",
+            "type": "success",
+        }
+    ).body.decode("utf-8")
+
+    # Resultado de confirmacion con OOB toast
+    result_html = templates.TemplateResponse(
+        "compras/partials/xml_confirm_result.html",
+        {
+            "request": request,
+            "resultado": resultado,
+        }
+    ).body.decode("utf-8")
+
+    return HTMLResponse(content=result_html + toast_html)
+
+
+@router.get("/comprobantes-pendientes", response_class=HTMLResponse)
+async def search_comprobantes_pendientes(
+    request: Request,
+    q: str = Query("", min_length=0),
+    limit: int = Query(20, ge=1, le=100),
+    conn = Depends(get_db_connection),
+    service: ComprasService = Depends(get_compras_service),
+    _ = require_module_access("compras")
+):
+    """
+    Busqueda HTMX de comprobantes pendientes para match manual.
+
+    Usado desde el modal de matching cuando el usuario necesita
+    buscar manualmente un comprobante para vincular con el XML.
+
+    Returns:
+        HTML con filas de comprobantes candidatos
+    """
+    candidatos = await service.buscar_comprobantes_pendientes(
+        conn, q=q if q else None, limit=limit
+    )
+
+    return templates.TemplateResponse(
+        "compras/partials/xml_match_rows.html",
+        {
+            "request": request,
+            "candidatos": candidatos,
+        }
+    )
+
+
+@router.get("/comprobante/{id_comprobante}/archivos", response_class=HTMLResponse)
+async def get_comprobante_archivos(
+    request: Request,
+    id_comprobante: UUID,
+    conn = Depends(get_db_connection),
+    service: ComprasService = Depends(get_compras_service),
+    _ = require_module_access("compras")
+):
+    """
+    Lista los archivos (PDF y XML) asociados a un comprobante.
+
+    Muestra links a SharePoint para descarga directa.
+
+    Returns:
+        HTML con lista de archivos del comprobante
+    """
+    archivos = await service.get_archivos_comprobante(conn, id_comprobante)
+
+    return templates.TemplateResponse(
+        "compras/partials/comprobante_archivos.html",
+        {
+            "request": request,
+            "archivos": archivos,
+            "id_comprobante": id_comprobante,
         }
     )

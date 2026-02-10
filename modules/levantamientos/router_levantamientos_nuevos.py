@@ -107,14 +107,17 @@ def register_nuevos_endpoints(router: APIRouter):
         context=Depends(get_current_user_context),
         _=require_module_access("levantamientos", "viewer"),
     ):
-        """Renderiza el modal de historial con timeline de cambios."""
+        """Renderiza el modal de historial con timeline de cambios.
+        
+        Usa el sistema de modales global (#modal-content).
+        """
         lev = await db_svc.get_levantamiento_base(conn, id_levantamiento)
         if not lev:
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
         historial = await service.get_historial_estados(conn, id_levantamiento)
 
-        return templates.TemplateResponse("levantamientos/modals/historial_modal.html", {
+        return templates.TemplateResponse("shared/modals/historial_levantamiento_modal.html", {
             "request": request,
             "lev_data": lev,
             "historial": historial,

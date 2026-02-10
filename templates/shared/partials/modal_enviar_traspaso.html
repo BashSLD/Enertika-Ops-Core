@@ -1,8 +1,18 @@
 {# Modal generico para enviar traspaso con checklist de documentos #}
 <div id="modal-enviar-traspaso" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-    x-data="{ open: true }" x-show="open" x-transition @click.self="open = false; $el.remove()">
+    x-data="{ open: true, validationFailed: false }" x-show="open" x-transition @click.self="open = false; $el.remove()">
     <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" @click.stop>
-        <form hx-post="/transfers/enviar" hx-swap="none">
+        <form hx-post="/transfers/enviar" hx-swap="none"
+            @submit="
+                validationFailed = false;
+                const obligatorios = $el.querySelectorAll('input[data-obligatorio=true]');
+                const faltantes = [...obligatorios].filter(cb => !cb.checked);
+                if (faltantes.length > 0) {
+                    validationFailed = true;
+                    $event.preventDefault();
+                    return false;
+                }
+            ">
             {# Header #}
             <div class="p-5 border-b border-gray-200">
                 <div class="flex justify-between items-center">
@@ -42,8 +52,9 @@
                     {% for doc in documentos %}
                     <label class="flex items-start gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer transition">
                         <input type="checkbox" name="documentos_verificados" value="{{ doc.id }}"
+                            data-obligatorio="{{ 'true' if doc.es_obligatorio else 'false' }}"
                             class="mt-0.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            {% if doc.es_obligatorio %}required{% endif %}>
+                            @change="validationFailed = false">
                         <div>
                             <span class="text-sm text-gray-800 font-medium">{{ doc.nombre_documento }}</span>
                             {% if doc.es_obligatorio %}
@@ -57,6 +68,12 @@
                     {% endfor %}
                 </div>
                 <p class="text-xs text-gray-400 mt-2">* Documentos obligatorios</p>
+
+                {# Mensaje de validacion #}
+                <p x-show="validationFailed" x-transition
+                    class="mt-2 text-sm text-red-600 font-medium">
+                    Debes verificar todos los documentos obligatorios antes de enviar.
+                </p>
 
                 {# Comentario #}
                 <div class="mt-4">

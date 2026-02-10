@@ -1,0 +1,163 @@
+<div class="animate-fade-in-down px-4">
+    <!-- Header -->
+    <div class="glass-panel rounded-xl shadow-lg p-4 border-l-4 border-[#00BABB] mb-4">
+        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            <div>
+                <h1 class="text-2xl font-light text-[#123456] mb-2">
+                    Catalogo de <span class="font-bold text-[#00BABB]">Materiales</span>
+                </h1>
+                <p class="text-gray-500">
+                    Historial de conceptos extraidos de facturas XML CFDI
+                </p>
+            </div>
+
+            <div class="flex flex-wrap gap-3">
+                <!-- Exportar Excel -->
+                <a id="export-excel-btn" href="/materials/export-excel"
+                    class="ripple-effect bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Exportar Excel
+                </a>
+
+                <!-- Proyectos -->
+                <a href="/proyectos/ui" hx-get="/proyectos/ui" hx-target="#main-content" hx-push-url="true"
+                    class="ripple-effect bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
+                    </svg>
+                    Proyectos
+                </a>
+
+                <!-- Volver atrás (inteligente) -->
+                <button onclick="window.history.back()"
+                    class="ripple-effect bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                    Regresar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Estadisticas -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+        <div class="bg-white rounded-lg shadow p-4 text-center">
+            <p class="text-3xl font-bold text-[#123456]">{{ estadisticas.total }}</p>
+            <p class="text-xs text-gray-500 mt-1">Total Registros</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-4 text-center">
+            <p class="text-3xl font-bold text-[#00BABB]">{{ estadisticas.proveedores_distintos }}</p>
+            <p class="text-xs text-gray-500 mt-1">Proveedores</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-4 text-center">
+            <p class="text-3xl font-bold text-green-600">{{ estadisticas.categorizados }}</p>
+            <p class="text-xs text-gray-500 mt-1">Categorizados</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-4 text-center">
+            <p class="text-3xl font-bold text-orange-500">{{ estadisticas.sin_categoria }}</p>
+            <p class="text-xs text-gray-500 mt-1">Sin Categoria</p>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="bg-white rounded-lg shadow p-4 mb-6">
+        <form id="filtros-materiales" hx-get="/materials/list" hx-target="#tabla-materiales" hx-swap="innerHTML"
+            hx-trigger="submit, change delay:500ms" class="flex flex-wrap gap-4 items-end">
+
+            <div class="flex-1 min-w-[200px]">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Buscar</label>
+                <input type="text" name="q" value="{{ filtros.q|default('', true) }}" placeholder="Descripcion..."
+                    autocomplete="off"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+            </div>
+
+            <div class="flex-1 min-w-[140px]">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Proveedor</label>
+                <select name="id_proveedor" autocomplete="off"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                    <option value="">Todos</option>
+                    {% for prov in proveedores %}
+                    <option value="{{ prov.id_proveedor }}" {% if filtros.id_proveedor==prov.id_proveedor|string
+                        %}selected{% endif %}>
+                        {{ prov.razon_social }} ({{ prov.rfc }})
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="flex-1 min-w-[140px]">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Categoria</label>
+                <select name="id_categoria" autocomplete="off"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                    <option value="">Todas</option>
+                    {% for cat in categorias %}
+                    <option value="{{ cat.id }}" {% if filtros.id_categoria==cat.id %}selected{% endif %}>
+                        {{ cat.nombre }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div class="flex-1 min-w-[130px]">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio</label>
+                <input type="date" name="fecha_inicio" value="{{ filtros.fecha_inicio|default('', true) }}"
+                    autocomplete="off"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+            </div>
+
+            <div class="flex-1 min-w-[130px]">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Fecha Fin</label>
+                <input type="date" name="fecha_fin" value="{{ filtros.fecha_fin|default('', true) }}" autocomplete="off"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+            </div>
+
+            <div class="flex items-center gap-3 pb-1">
+                <button type="submit"
+                    class="bg-[#123456] hover:bg-[#0d2640] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                    Filtrar
+                </button>
+                <a href="#" onclick="limpiarFiltrosMateriales(); return false;"
+                    class="text-sm text-blue-600 hover:text-blue-800 underline decoration-blue-300 hover:decoration-blue-800 transition-colors">
+                    Limpiar
+                </a>
+            </div>
+        </form>
+    </div>
+
+    <!-- Tabla de materiales -->
+    <div id="tabla-materiales">
+        {% include "materials/partials/tabla_materiales.html" %}
+    </div>
+
+    <!-- Container para modal de precios -->
+    <div id="modal-precios-container"></div>
+</div>
+
+<script>
+    function limpiarFiltrosMateriales() {
+        const form = document.getElementById('filtros-materiales');
+        form.querySelector('input[name="q"]').value = '';
+        form.querySelector('select[name="id_proveedor"]').value = '';
+        form.querySelector('select[name="id_categoria"]').value = '';
+        form.querySelector('input[name="fecha_inicio"]').value = '';
+        form.querySelector('input[name="fecha_fin"]').value = '';
+        htmx.trigger(form, 'submit');
+        document.getElementById('export-excel-btn').href = '/materials/export-excel';
+    }
+
+    // Actualizar URL de export Excel cuando cambian filtros
+    document.getElementById('filtros-materiales').addEventListener('change', function () {
+        const formData = new FormData(this);
+        const params = new URLSearchParams(formData);
+        document.getElementById('export-excel-btn').href = '/materials/export-excel?' + params.toString();
+    });
+</script>

@@ -1,0 +1,79 @@
+<!-- Tabla de materiales con paginacion -->
+<div class="bg-white rounded-lg shadow overflow-hidden">
+    {% if materiales %}
+    <div class="overflow-x-auto">
+        <table class="min-w-full divide-y divide-gray-200 text-sm">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Proveedor</th>
+                    <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Descripcion</th>
+                    <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Desc. Interna</th>
+                    <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Categoria</th>
+                    <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">Cantidad</th>
+                    <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">P. Unitario</th>
+                    <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase">Importe</th>
+                    <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
+                    <th class="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase">Acciones</th>
+                </tr>
+            </thead>
+            <tbody class="bg-white divide-y divide-gray-200">
+                {% for m in materiales %}
+                {% include "materials/partials/row_material.html" %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- Paginacion -->
+    <div class="flex items-center justify-between px-4 py-3 border-t border-gray-200 bg-gray-50">
+        <div class="text-sm text-gray-600">
+            Mostrando {{ ((page - 1) * per_page) + 1 }}-{{ [page * per_page, total] | min }} de {{ total }}
+        </div>
+        <div class="flex gap-1">
+            {% if page > 1 %}
+            <button hx-get="/materials/list?page={{ page - 1 }}" hx-target="#tabla-materiales" hx-swap="innerHTML"
+                class="px-3 py-1 bg-white border border-gray-300 rounded text-sm hover:bg-gray-50 transition-colors">
+                Anterior
+            </button>
+            {% endif %}
+
+            {% for p in range(1, pages + 1) %}
+                {% if p == page %}
+                <span class="px-3 py-1 bg-[#00BABB] text-white rounded text-sm">{{ p }}</span>
+                {% elif p <= 3 or p > pages - 2 or (p >= page - 1 and p <= page + 1) %}
+                <button hx-get="/materials/list?page={{ p }}" hx-target="#tabla-materiales" hx-swap="innerHTML"
+                    class="px-3 py-1 bg-white border border-gray-300 rounded text-sm hover:bg-gray-50 transition-colors">
+                    {{ p }}
+                </button>
+                {% elif p == 4 or p == pages - 2 %}
+                <span class="px-2 py-1 text-gray-400">...</span>
+                {% endif %}
+            {% endfor %}
+
+            {% if page < pages %}
+            <button hx-get="/materials/list?page={{ page + 1 }}" hx-target="#tabla-materiales" hx-swap="innerHTML"
+                class="px-3 py-1 bg-white border border-gray-300 rounded text-sm hover:bg-gray-50 transition-colors">
+                Siguiente
+            </button>
+            {% endif %}
+        </div>
+    </div>
+    {% else %}
+    <div class="text-center py-12 text-gray-400">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 mx-auto mb-3 opacity-50" fill="none"
+            viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+        </svg>
+        <p class="text-lg font-medium">No hay materiales registrados</p>
+        <p class="text-sm mt-1">Los materiales se registran automaticamente al procesar facturas XML en Compras</p>
+    </div>
+    {% endif %}
+</div>
+
+<!-- Estadisticas OOB -->
+{% if estadisticas %}
+<div id="stats-materiales" hx-swap-oob="true">
+    <!-- Se podria usar para actualizar stats en header -->
+</div>
+{% endif %}

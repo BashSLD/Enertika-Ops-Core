@@ -1,7 +1,7 @@
 # Archivo: modules/compras/service.py
 """
 Service Layer del Módulo Compras.
-Maneja la lógica de negocio para comprobantes de pago.
+Maneja la lógica de negocio para comprobantes de pago y facturas XML.
 """
 
 from uuid import UUID, uuid4
@@ -10,10 +10,19 @@ from typing import List, Dict, Optional, Tuple, Any
 from fastapi import HTTPException
 from decimal import Decimal
 import logging
+import time
+import json
 
 from .pdf_extractor import process_uploaded_pdf, process_pdf_bytes, ComprobantePDFData
+from .xml_extractor import parse_cfdi_xml, validate_xml_content, process_uploaded_xml
+from .schemas import (
+    CfdiData, TipoFactura, XmlMatchResult, XmlUploadResult, XmlUploadError,
+)
 
 logger = logging.getLogger("ComprasService")
+
+# Tolerancia de matching por monto (pesos/dolares)
+MATCH_TOLERANCIA = Decimal("0.50")
 
 
 class ComprasService:
@@ -455,6 +464,407 @@ class ComprasService:
             "total_mxn": float(stats['total_mxn']),
             "total_usd": float(stats['total_usd'])
         }
+
+
+    # ========================================
+    # CARGA Y PROCESAMIENTO DE XMLs
+    # ========================================
+
+    async def procesar_xmls(
+        self,
+        conn,
+        files: list,
+        user_id: UUID
+    ) -> XmlUploadResult:
+        """
+        Procesa multiples XMLs CFDI: parsea, busca match, prepara resultados.
+        NO confirma match automaticamente — retorna candidatos para UI.
+
+        Args:
+            conn: Conexion a base de datos
+            files: Lista de UploadFile
+            user_id: UUID del usuario
+
+        Returns:
+            XmlUploadResult con procesados, duplicados y errores
+        """
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+
+        result = XmlUploadResult()
+
+        for file in files:
+            filename = file.filename or "sin_nombre.xml"
+
+            # 1. Leer contenido
+            try:
+                content = await file.read()
+                await file.seek(0)
+            except Exception as e:
+                logger.error("Error leyendo XML %s: %s", filename, e)
+                result.errores.append(XmlUploadError(
+                    archivo=filename, error=f"Error al leer archivo: {e}"
+                ))
+                continue
+
+            # 2. Validacion rapida
+            error_msg = validate_xml_content(content, filename)
+            if error_msg:
+                result.errores.append(XmlUploadError(
+                    archivo=filename, error=error_msg
+                ))
+                continue
+
+            # 3. Parsear XML
+            try:
+                cfdi = parse_cfdi_xml(content, filename)
+            except ValueError as e:
+                result.errores.append(XmlUploadError(
+                    archivo=filename, error=str(e)
+                ))
+                continue
+
+            # 4. Verificar UUID duplicado
+            if await db_svc.uuid_factura_exists(conn, cfdi.uuid):
+                result.duplicados.append(XmlUploadError(
+                    archivo=filename,
+                    error=f"UUID {cfdi.uuid[:8]}... ya existe en el sistema"
+                ))
+                continue
+
+            # 5. Buscar/crear proveedor
+            proveedor = await db_svc.get_proveedor_by_rfc(conn, cfdi.emisor_rfc)
+            if not proveedor:
+                proveedor = await db_svc.create_proveedor(
+                    conn, cfdi.emisor_rfc, cfdi.emisor_nombre
+                )
+                logger.info(
+                    "Proveedor creado: RFC=%s, Nombre=%s",
+                    cfdi.emisor_rfc, cfdi.emisor_nombre
+                )
+
+            # 6. Buscar matching con comprobantes
+            match_result = await self._buscar_match(
+                conn, db_svc, cfdi, proveedor
+            )
+
+            result.procesados.append(match_result)
+
+        logger.info(
+            "XMLs procesados: %d OK, %d duplicados, %d errores",
+            len(result.procesados), len(result.duplicados), len(result.errores)
+        )
+        return result
+
+    async def _buscar_match(
+        self, conn, db_svc, cfdi: CfdiData, proveedor: dict
+    ) -> XmlMatchResult:
+        """
+        Busca match para un CFDI parseado en 3 niveles:
+        1. Relacion conocida (beneficiario↔proveedor)
+        2. Solo por monto + moneda
+        3. Sin match
+        """
+        id_proveedor = proveedor['id_proveedor']
+        monto = cfdi.total
+        moneda = cfdi.moneda or "MXN"
+
+        # Nivel 1: buscar por relacion conocida
+        relaciones = await db_svc.get_relaciones_beneficiario(conn, id_proveedor)
+        for rel in relaciones:
+            beneficiario = rel['beneficiario_nombre']
+            candidatos = await db_svc.buscar_comprobantes_match(
+                conn, beneficiario, monto, moneda, MATCH_TOLERANCIA
+            )
+            if len(candidatos) == 1:
+                return XmlMatchResult(
+                    cfdi=cfdi,
+                    match_type="AUTO_MATCH",
+                    candidatos=self._format_candidatos(candidatos),
+                    comprobante_id=candidatos[0]['id_comprobante'],
+                )
+            if candidatos:
+                return XmlMatchResult(
+                    cfdi=cfdi,
+                    match_type="MULTIPLE_MATCH",
+                    candidatos=self._format_candidatos(candidatos),
+                )
+
+        # Nivel 2: buscar solo por monto
+        candidatos = await db_svc.buscar_comprobantes_por_monto(
+            conn, monto, moneda, MATCH_TOLERANCIA
+        )
+        if len(candidatos) == 1:
+            return XmlMatchResult(
+                cfdi=cfdi,
+                match_type="MONTO_MATCH",
+                candidatos=self._format_candidatos(candidatos),
+                comprobante_id=candidatos[0]['id_comprobante'],
+            )
+        if candidatos:
+            return XmlMatchResult(
+                cfdi=cfdi,
+                match_type="MULTIPLE_MATCH",
+                candidatos=self._format_candidatos(candidatos),
+            )
+
+        # Nivel 3: sin match
+        return XmlMatchResult(
+            cfdi=cfdi,
+            match_type="NO_MATCH",
+            candidatos=[],
+        )
+
+    def _format_candidatos(self, rows: List[dict]) -> List[dict]:
+        """Formatea candidatos para la respuesta, convirtiendo Decimal a float."""
+        formatted = []
+        for r in rows:
+            item = dict(r)
+            if 'monto' in item and isinstance(item['monto'], Decimal):
+                item['monto'] = float(item['monto'])
+            if 'fecha_pago' in item and hasattr(item['fecha_pago'], 'strftime'):
+                item['fecha_pago_str'] = item['fecha_pago'].strftime("%d/%m/%Y")
+            formatted.append(item)
+        return formatted
+
+    async def confirmar_match_xml(
+        self,
+        conn,
+        cfdi_data: dict,
+        id_comprobante: UUID,
+        user_id: UUID,
+        guardar_relacion: bool = True
+    ) -> dict:
+        """
+        Confirma el match entre un XML y un comprobante de pago.
+        Actualiza el comprobante, guarda relacion, conceptos y CFDI relacionados.
+
+        Args:
+            conn: Conexion a BD
+            cfdi_data: Datos del CFDI (dict del CfdiData)
+            id_comprobante: UUID del comprobante seleccionado
+            user_id: UUID del usuario
+            guardar_relacion: Si guardar la relacion beneficiario↔proveedor
+
+        Returns:
+            dict con resultado
+        """
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+
+        uuid_factura = cfdi_data['uuid']
+        emisor_rfc = cfdi_data['emisor_rfc']
+        tipo_factura = cfdi_data.get('tipo_factura', 'NORMAL')
+
+        # Verificar UUID duplicado (doble check)
+        if await db_svc.uuid_factura_exists(conn, uuid_factura):
+            raise ValueError(f"UUID {uuid_factura[:8]}... ya existe en el sistema")
+
+        # Obtener/crear proveedor
+        proveedor = await db_svc.get_proveedor_by_rfc(conn, emisor_rfc)
+        if not proveedor:
+            proveedor = await db_svc.create_proveedor(
+                conn, emisor_rfc, cfdi_data['emisor_nombre']
+            )
+        id_proveedor = proveedor['id_proveedor']
+
+        # Obtener comprobante para saber el beneficiario
+        comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+        if not comprobante:
+            raise ValueError("Comprobante no encontrado")
+        if comprobante['estatus'] != 'PENDIENTE':
+            raise ValueError("El comprobante ya no esta pendiente")
+
+        # 1. Actualizar comprobante con datos de la factura
+        await db_svc.confirmar_match(
+            conn, id_comprobante, uuid_factura, id_proveedor, tipo_factura
+        )
+
+        # 2. Guardar relacion beneficiario↔proveedor
+        if guardar_relacion:
+            beneficiario = comprobante['beneficiario_orig']
+            await db_svc.guardar_relacion_beneficiario(
+                conn, beneficiario, id_proveedor, user_id
+            )
+
+        # 3. Guardar conceptos en historial de materiales
+        conceptos = cfdi_data.get('conceptos', [])
+        if conceptos:
+            fecha_str = cfdi_data.get('fecha', '')
+            try:
+                fecha_factura = datetime.fromisoformat(fecha_str).date()
+            except (ValueError, TypeError):
+                fecha_factura = date.today()
+
+            conceptos_dicts = [
+                {
+                    'descripcion': c.get('descripcion', c) if isinstance(c, dict) else c.descripcion,
+                    'cantidad': c.get('cantidad', 0) if isinstance(c, dict) else c.cantidad,
+                    'valor_unitario': c.get('valor_unitario', 0) if isinstance(c, dict) else c.valor_unitario,
+                    'importe': c.get('importe', 0) if isinstance(c, dict) else c.importe,
+                    'unidad': c.get('unidad') if isinstance(c, dict) else c.unidad,
+                    'clave_prod_serv': c.get('clave_prod_serv') if isinstance(c, dict) else c.clave_prod_serv,
+                    'clave_unidad': c.get('clave_unidad') if isinstance(c, dict) else c.clave_unidad,
+                }
+                for c in conceptos
+            ]
+
+            await db_svc.guardar_conceptos_historial(
+                conn, uuid_factura, id_comprobante, id_proveedor,
+                conceptos_dicts, fecha_factura, user_id
+            )
+
+        # 4. Guardar CFDI relacionados
+        relacionados = cfdi_data.get('relacionados', [])
+        if relacionados:
+            rel_dicts = [
+                {
+                    'uuid': r.get('uuid', r) if isinstance(r, dict) else r.uuid,
+                    'tipo_relacion': r.get('tipo_relacion', '') if isinstance(r, dict) else r.tipo_relacion,
+                    'tipo_relacion_desc': r.get('tipo_relacion_desc') if isinstance(r, dict) else r.tipo_relacion_desc,
+                }
+                for r in relacionados
+            ]
+            await db_svc.guardar_cfdi_relacionados(conn, uuid_factura, rel_dicts)
+
+        # 5. Si es CIERRE_ANTICIPO, vincular con anticipo original
+        if tipo_factura == "CIERRE_ANTICIPO" and relacionados:
+            for rel in relacionados:
+                tipo_rel = rel.get('tipo_relacion', '') if isinstance(rel, dict) else rel.tipo_relacion
+                uuid_rel = rel.get('uuid', '') if isinstance(rel, dict) else rel.uuid
+                if tipo_rel == "07":
+                    await db_svc.vincular_cierre_anticipo(
+                        conn, id_comprobante, uuid_rel
+                    )
+
+        logger.info(
+            "Match confirmado: UUID=%s, Comprobante=%s, Proveedor=%s, Tipo=%s",
+            uuid_factura[:8], id_comprobante, emisor_rfc, tipo_factura
+        )
+
+        return {
+            "uuid_factura": uuid_factura,
+            "id_comprobante": str(id_comprobante),
+            "id_proveedor": str(id_proveedor),
+            "tipo_factura": tipo_factura,
+            "conceptos_guardados": len(conceptos),
+            "relacionados_guardados": len(relacionados),
+        }
+
+    async def buscar_comprobantes_pendientes(
+        self, conn, q: Optional[str] = None, limit: int = 20
+    ) -> List[dict]:
+        """Busqueda libre de comprobantes pendientes para match manual."""
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+        rows = await db_svc.buscar_comprobantes_pendientes(conn, q, limit)
+        return self._format_candidatos(rows)
+
+    # ========================================
+    # SHAREPOINT - ARCHIVOS
+    # ========================================
+
+    async def upload_archivo_sharepoint(
+        self, conn, file, subcarpeta: str,
+        id_comprobante: Optional[UUID],
+        origen_slug: str, user_id: UUID,
+        metadata_extra: Optional[dict] = None
+    ) -> Optional[dict]:
+        """
+        Sube un archivo a SharePoint y registra en tb_documentos_attachments.
+        Reutiliza patron de levantamientos.
+
+        Args:
+            conn: Conexion a BD
+            file: UploadFile de FastAPI
+            subcarpeta: Ruta relativa (ej: 'compras/facturas_xml/2026-02')
+            id_comprobante: UUID del comprobante asociado (puede ser None)
+            origen_slug: 'comprobante_pago' o 'factura_xml'
+            user_id: UUID del usuario
+            metadata_extra: Datos adicionales para JSONB
+
+        Returns:
+            dict con url_sharepoint y datos del upload, o None si falla
+        """
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+
+        try:
+            from core.microsoft import MicrosoftAuth
+            from core.integrations.sharepoint import SharePointService
+
+            ms_auth = MicrosoftAuth()
+            app_token = await ms_auth.get_application_token()
+            if not app_token:
+                logger.error("No se pudo obtener token de SharePoint")
+                return None
+
+            sharepoint = SharePointService(access_token=app_token)
+
+            # Construir ruta
+            base_folder = await sharepoint._get_base_folder(conn)
+            folder_path = f"{base_folder}/{subcarpeta}" if base_folder else subcarpeta
+
+            # Nombre unico
+            original_name = file.filename or "archivo"
+            timestamp = int(time.time())
+            file.filename = f"{timestamp}_{original_name}"
+
+            # Validar tamano
+            max_size_row = await conn.fetchval(
+                "SELECT valor FROM tb_configuracion_global WHERE clave = 'MAX_UPLOAD_SIZE_MB'"
+            )
+            max_size_mb = float(max_size_row) if max_size_row else 50.0
+
+            file.file.seek(0, 2)
+            f_size = file.file.tell()
+            file.file.seek(0)
+
+            if f_size / (1024 * 1024) > max_size_mb:
+                logger.warning("Archivo %s excede limite: %d bytes", original_name, f_size)
+                return None
+
+            # Upload
+            upload_result = await sharepoint.upload_file(conn, file, folder_path)
+
+            # Metadata
+            meta = {
+                "nombre_original": original_name,
+                "content_type": getattr(file, 'content_type', 'application/octet-stream'),
+            }
+            if id_comprobante:
+                meta["id_comprobante"] = str(id_comprobante)
+            if metadata_extra:
+                meta.update(metadata_extra)
+
+            # Registrar en BD
+            doc_id = await db_svc.registrar_archivo_sharepoint(
+                conn, id_comprobante, origen_slug,
+                upload_result, user_id, meta
+            )
+
+            logger.info(
+                "Archivo subido a SharePoint: %s -> %s",
+                original_name, upload_result.get('webUrl', '')
+            )
+
+            return {
+                "doc_id": str(doc_id),
+                "url_sharepoint": upload_result.get('webUrl', ''),
+                "nombre": upload_result.get('name', ''),
+            }
+
+        except Exception as e:
+            logger.error("Error subiendo archivo a SharePoint: %s", e, exc_info=True)
+            return None
+
+    async def get_archivos_comprobante(
+        self, conn, id_comprobante: UUID
+    ) -> List[dict]:
+        """Obtiene archivos asociados a un comprobante."""
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+        return await db_svc.get_archivos_comprobante(conn, id_comprobante)
 
 
 def get_compras_service():

@@ -1,0 +1,334 @@
+<!-- Resultado de carga de XMLs CFDI -->
+{% if error_msg %}
+<div class="bg-red-50 border border-red-200 rounded-lg p-4">
+    <div class="flex items-center gap-2 text-red-800">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <span class="font-medium">{{ error_msg }}</span>
+    </div>
+</div>
+{% elif result %}
+
+<div class="space-y-3">
+
+    <!-- ============================================ -->
+    <!-- MATCHES AUTOMATICOS (relacion conocida)      -->
+    <!-- ============================================ -->
+    {% set auto_matches = result.procesados|selectattr("match_type", "equalto", "AUTO_MATCH")|list %}
+    {% if auto_matches %}
+    <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+        <div class="flex items-start gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-green-600 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+            <div class="flex-1">
+                <p class="font-medium text-green-800">{{ auto_matches|length }} factura(s) con match automatico</p>
+                <p class="text-sm text-green-600 mt-1">Relacion beneficiario-proveedor conocida. Confirma para vincular.</p>
+                <div class="mt-2 space-y-2">
+                    {% for match in auto_matches %}
+                    {% set tipo_val = match.cfdi.tipo_factura %}
+                    <div class="bg-white rounded p-3 border border-green-100"
+                        id="xml-result-{{ loop.index }}">
+                        <div class="flex items-center justify-between">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="text-xs font-mono text-gray-500">{{ match.cfdi.uuid[:8] }}...</span>
+                                    {% if tipo_val != 'NORMAL' %}
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                                        {% if tipo_val == 'ANTICIPO' %}bg-amber-100 text-amber-800
+                                        {% else %}bg-purple-100 text-purple-800{% endif %}">
+                                        {{ tipo_val }}
+                                    </span>
+                                    {% endif %}
+                                </div>
+                                <p class="text-sm font-medium text-gray-800 truncate">{{ match.cfdi.emisor_nombre }}</p>
+                                <p class="text-xs text-gray-500">{{ match.cfdi.emisor_rfc }} | ${{ "{:,.2f}".format(match.cfdi.total|float) }} {{ match.cfdi.moneda }}</p>
+                            </div>
+                            <div class="flex items-center gap-2 ml-3 shrink-0">
+                                <form hx-post="/compras/xml-confirm-match" hx-target="#xml-result-{{ loop.index }}" hx-swap="innerHTML">
+                                    <input type="hidden" name="uuid_factura" value="{{ match.cfdi.uuid }}">
+                                    <input type="hidden" name="id_comprobante" value="{{ match.comprobante_id }}">
+                                    <input type="hidden" name="emisor_rfc" value="{{ match.cfdi.emisor_rfc }}">
+                                    <input type="hidden" name="emisor_nombre" value="{{ match.cfdi.emisor_nombre }}">
+                                    <input type="hidden" name="total" value="{{ match.cfdi.total }}">
+                                    <input type="hidden" name="moneda" value="{{ match.cfdi.moneda }}">
+                                    <input type="hidden" name="fecha" value="{{ match.cfdi.fecha }}">
+                                    <input type="hidden" name="tipo_factura" value="{{ tipo_val }}">
+                                    <input type="hidden" name="tipo_comprobante" value="{{ match.cfdi.tipo_comprobante or '' }}">
+                                    <input type="hidden" name="metodo_pago" value="{{ match.cfdi.metodo_pago or '' }}">
+                                    <input type="hidden" name="forma_pago" value="{{ match.cfdi.forma_pago or '' }}">
+                                    <input type="hidden" name="conceptos_json" value="{{ match.cfdi.conceptos|tojson }}">
+                                    <input type="hidden" name="relacionados_json" value="{{ match.cfdi.relacionados|tojson }}">
+                                    <input type="hidden" name="guardar_relacion" value="true">
+                                    <button type="submit"
+                                        class="px-3 py-1.5 text-xs font-medium text-white bg-green-600 hover:bg-green-700 rounded-lg transition-colors">
+                                        Confirmar
+                                    </button>
+                                </form>
+                                <button type="button"
+                                    class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors"
+                                    data-xml-uuid="{{ match.cfdi.uuid }}"
+                                    data-xml-rfc="{{ match.cfdi.emisor_rfc }}"
+                                    data-xml-nombre="{{ match.cfdi.emisor_nombre }}"
+                                    data-xml-total="{{ match.cfdi.total }}"
+                                    data-xml-moneda="{{ match.cfdi.moneda }}"
+                                    data-xml-fecha="{{ match.cfdi.fecha }}"
+                                    data-xml-tipo="{{ tipo_val }}"
+                                    data-xml-conceptos="{{ match.cfdi.conceptos|tojson }}"
+                                    data-xml-relacionados="{{ match.cfdi.relacionados|tojson }}"
+                                    data-xml-tipo-comprobante="{{ match.cfdi.tipo_comprobante or '' }}"
+                                    data-xml-metodo-pago="{{ match.cfdi.metodo_pago or '' }}"
+                                    data-xml-forma-pago="{{ match.cfdi.forma_pago or '' }}"
+                                    onclick="abrirModalMatch(this)">
+                                    Cambiar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ============================================ -->
+    <!-- MATCH POR MONTO (necesita confirmacion)      -->
+    <!-- ============================================ -->
+    {% set monto_matches = result.procesados|selectattr("match_type", "equalto", "MONTO_MATCH")|list %}
+    {% if monto_matches %}
+    <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+        <div class="flex items-start gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-600 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div class="flex-1">
+                <p class="font-medium text-blue-800">{{ monto_matches|length }} factura(s) con coincidencia por monto</p>
+                <p class="text-sm text-blue-600 mt-1">Se encontro un comprobante con monto similar. Confirma la relacion.</p>
+                <div class="mt-2 space-y-2">
+                    {% for match in monto_matches %}
+                    {% set tipo_val = match.cfdi.tipo_factura %}
+                    <div class="bg-white rounded p-3 border border-blue-100"
+                        id="xml-result-monto-{{ loop.index }}">
+                        <div class="flex items-center justify-between">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="text-xs font-mono text-gray-500">{{ match.cfdi.uuid[:8] }}...</span>
+                                    {% if tipo_val != 'NORMAL' %}
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+                                        {% if tipo_val == 'ANTICIPO' %}bg-amber-100 text-amber-800
+                                        {% else %}bg-purple-100 text-purple-800{% endif %}">
+                                        {{ tipo_val }}
+                                    </span>
+                                    {% endif %}
+                                </div>
+                                <p class="text-sm font-medium text-gray-800 truncate">{{ match.cfdi.emisor_nombre }}</p>
+                                <p class="text-xs text-gray-500">{{ match.cfdi.emisor_rfc }} | ${{ "{:,.2f}".format(match.cfdi.total|float) }} {{ match.cfdi.moneda }}</p>
+                                {% if match.candidatos %}
+                                <p class="text-xs text-blue-600 mt-1">
+                                    Candidato: {{ match.candidatos[0].beneficiario_orig|truncate(30) }}
+                                    - ${{ "{:,.2f}".format(match.candidatos[0].monto) }}
+                                </p>
+                                {% endif %}
+                            </div>
+                            <div class="flex items-center gap-2 ml-3 shrink-0">
+                                {% if match.comprobante_id %}
+                                <form hx-post="/compras/xml-confirm-match" hx-target="#xml-result-monto-{{ loop.index }}" hx-swap="innerHTML">
+                                    <input type="hidden" name="uuid_factura" value="{{ match.cfdi.uuid }}">
+                                    <input type="hidden" name="id_comprobante" value="{{ match.comprobante_id }}">
+                                    <input type="hidden" name="emisor_rfc" value="{{ match.cfdi.emisor_rfc }}">
+                                    <input type="hidden" name="emisor_nombre" value="{{ match.cfdi.emisor_nombre }}">
+                                    <input type="hidden" name="total" value="{{ match.cfdi.total }}">
+                                    <input type="hidden" name="moneda" value="{{ match.cfdi.moneda }}">
+                                    <input type="hidden" name="fecha" value="{{ match.cfdi.fecha }}">
+                                    <input type="hidden" name="tipo_factura" value="{{ tipo_val }}">
+                                    <input type="hidden" name="tipo_comprobante" value="{{ match.cfdi.tipo_comprobante or '' }}">
+                                    <input type="hidden" name="metodo_pago" value="{{ match.cfdi.metodo_pago or '' }}">
+                                    <input type="hidden" name="forma_pago" value="{{ match.cfdi.forma_pago or '' }}">
+                                    <input type="hidden" name="conceptos_json" value="{{ match.cfdi.conceptos|tojson }}">
+                                    <input type="hidden" name="relacionados_json" value="{{ match.cfdi.relacionados|tojson }}">
+                                    <input type="hidden" name="guardar_relacion" value="true">
+                                    <button type="submit"
+                                        class="px-3 py-1.5 text-xs font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors">
+                                        Confirmar
+                                    </button>
+                                </form>
+                                {% endif %}
+                                <button type="button"
+                                    class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors"
+                                    data-xml-uuid="{{ match.cfdi.uuid }}"
+                                    data-xml-rfc="{{ match.cfdi.emisor_rfc }}"
+                                    data-xml-nombre="{{ match.cfdi.emisor_nombre }}"
+                                    data-xml-total="{{ match.cfdi.total }}"
+                                    data-xml-moneda="{{ match.cfdi.moneda }}"
+                                    data-xml-fecha="{{ match.cfdi.fecha }}"
+                                    data-xml-tipo="{{ tipo_val }}"
+                                    data-xml-conceptos="{{ match.cfdi.conceptos|tojson }}"
+                                    data-xml-relacionados="{{ match.cfdi.relacionados|tojson }}"
+                                    data-xml-tipo-comprobante="{{ match.cfdi.tipo_comprobante or '' }}"
+                                    data-xml-metodo-pago="{{ match.cfdi.metodo_pago or '' }}"
+                                    data-xml-forma-pago="{{ match.cfdi.forma_pago or '' }}"
+                                    onclick="abrirModalMatch(this)">
+                                    Cambiar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ============================================ -->
+    <!-- MATCHES MULTIPLES                            -->
+    <!-- ============================================ -->
+    {% set multiple_matches = result.procesados|selectattr("match_type", "equalto", "MULTIPLE_MATCH")|list %}
+    {% if multiple_matches %}
+    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <div class="flex items-start gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-yellow-600 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div class="flex-1">
+                <p class="font-medium text-yellow-800">{{ multiple_matches|length }} factura(s) con multiples coincidencias</p>
+                <p class="text-sm text-yellow-600 mt-1">Selecciona el comprobante correcto para cada factura.</p>
+                <div class="mt-2 space-y-2">
+                    {% for match in multiple_matches %}
+                    {% set tipo_val = match.cfdi.tipo_factura %}
+                    <div class="bg-white rounded p-3 border border-yellow-100"
+                        id="xml-result-multi-{{ loop.index }}">
+                        <div class="flex items-center justify-between">
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-gray-800 truncate">{{ match.cfdi.emisor_nombre }}</p>
+                                <p class="text-xs text-gray-500">
+                                    {{ match.cfdi.emisor_rfc }} | ${{ "{:,.2f}".format(match.cfdi.total|float) }} {{ match.cfdi.moneda }}
+                                    | {{ match.candidatos|length }} candidatos
+                                </p>
+                            </div>
+                            <button type="button"
+                                class="px-3 py-1.5 text-xs font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg transition-colors ml-3"
+                                data-xml-uuid="{{ match.cfdi.uuid }}"
+                                data-xml-rfc="{{ match.cfdi.emisor_rfc }}"
+                                data-xml-nombre="{{ match.cfdi.emisor_nombre }}"
+                                data-xml-total="{{ match.cfdi.total }}"
+                                data-xml-moneda="{{ match.cfdi.moneda }}"
+                                data-xml-fecha="{{ match.cfdi.fecha }}"
+                                data-xml-tipo="{{ tipo_val }}"
+                                data-xml-conceptos="{{ match.cfdi.conceptos|tojson }}"
+                                data-xml-relacionados="{{ match.cfdi.relacionados|tojson }}"
+                                data-xml-tipo-comprobante="{{ match.cfdi.tipo_comprobante or '' }}"
+                                data-xml-metodo-pago="{{ match.cfdi.metodo_pago or '' }}"
+                                data-xml-forma-pago="{{ match.cfdi.forma_pago or '' }}"
+                                onclick="abrirModalMatch(this)">
+                                Seleccionar
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ============================================ -->
+    <!-- SIN MATCH                                    -->
+    <!-- ============================================ -->
+    {% set no_matches = result.procesados|selectattr("match_type", "equalto", "NO_MATCH")|list %}
+    {% if no_matches %}
+    <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+        <div class="flex items-start gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-500 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            <div class="flex-1">
+                <p class="font-medium text-gray-800">{{ no_matches|length }} factura(s) sin coincidencia</p>
+                <p class="text-sm text-gray-500 mt-1">Busca manualmente el comprobante de pago correspondiente.</p>
+                <div class="mt-2 space-y-2">
+                    {% for match in no_matches %}
+                    {% set tipo_val = match.cfdi.tipo_factura %}
+                    <div class="bg-white rounded p-3 border border-gray-200"
+                        id="xml-result-none-{{ loop.index }}">
+                        <div class="flex items-center justify-between">
+                            <div class="flex-1 min-w-0">
+                                <p class="text-sm font-medium text-gray-800 truncate">{{ match.cfdi.emisor_nombre }}</p>
+                                <p class="text-xs text-gray-500">{{ match.cfdi.emisor_rfc }} | ${{ "{:,.2f}".format(match.cfdi.total|float) }} {{ match.cfdi.moneda }}</p>
+                            </div>
+                            <button type="button"
+                                class="px-3 py-1.5 text-xs font-medium text-white bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors ml-3"
+                                data-xml-uuid="{{ match.cfdi.uuid }}"
+                                data-xml-rfc="{{ match.cfdi.emisor_rfc }}"
+                                data-xml-nombre="{{ match.cfdi.emisor_nombre }}"
+                                data-xml-total="{{ match.cfdi.total }}"
+                                data-xml-moneda="{{ match.cfdi.moneda }}"
+                                data-xml-fecha="{{ match.cfdi.fecha }}"
+                                data-xml-tipo="{{ tipo_val }}"
+                                data-xml-conceptos="{{ match.cfdi.conceptos|tojson }}"
+                                data-xml-relacionados="{{ match.cfdi.relacionados|tojson }}"
+                                data-xml-tipo-comprobante="{{ match.cfdi.tipo_comprobante or '' }}"
+                                data-xml-metodo-pago="{{ match.cfdi.metodo_pago or '' }}"
+                                data-xml-forma-pago="{{ match.cfdi.forma_pago or '' }}"
+                                onclick="abrirModalMatch(this)">
+                                Buscar
+                            </button>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ============================================ -->
+    <!-- DUPLICADOS                                   -->
+    <!-- ============================================ -->
+    {% if result.duplicados %}
+    <div class="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+        <div class="flex items-start gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-yellow-600 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <div>
+                <p class="font-medium text-yellow-800">{{ result.duplicados|length }} UUID(s) ya existente(s):</p>
+                <ul class="mt-1 text-sm text-yellow-700 space-y-0.5">
+                    {% for dup in result.duplicados %}
+                    <li>{{ dup.archivo|truncate(30) }}: {{ dup.error }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ============================================ -->
+    <!-- ERRORES                                      -->
+    <!-- ============================================ -->
+    {% if result.errores %}
+    <div class="bg-red-50 border border-red-200 rounded-lg p-4">
+        <div class="flex items-start gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-red-600 mt-0.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M10 14l2-2m0 0l2-2m-2 2l-2-2m2 2l2 2m7-2a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <div>
+                <p class="font-medium text-red-800">{{ result.errores|length }} archivo(s) con errores:</p>
+                <ul class="mt-1 text-sm text-red-700 space-y-0.5">
+                    {% for err in result.errores %}
+                    <li>{{ err.archivo|truncate(30) }}: {{ err.error }}</li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endif %}
