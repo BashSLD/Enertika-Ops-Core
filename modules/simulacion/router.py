@@ -654,15 +654,35 @@ async def update_simulacion(
             sitios_retrabajo_ids=sitios_retrabajo_ids
         )
 
-        await service.update_simulacion_padre(conn, id_oportunidad, datos, context)
+
+        # Capture KPI values from service for confetti logic
+        kpi_sla_interno, kpi_compromiso, has_negotiated_deadline = await service.update_simulacion_padre(conn, id_oportunidad, datos, context)
         
         # Las notificaciones ahora se manejan internamente en el servicio (Service Layer Pattern)
+        
+        # Determine if confetti should be shown (SLA compliance logic)
+        # User criteria: Use KPI Compromiso if negotiated deadline exists, otherwise KPI SLA Interno
+        # KPIs will only be calculated if status is "Entregado" or "Perdido", so check for None
+        show_confetti = False
+        if kpi_sla_interno is not None or kpi_compromiso is not None:  # KPIs were calculated (means delivered/perdido)
+            if has_negotiated_deadline:
+                # Has negotiated deadline: check KPI Compromiso
+                show_confetti = (kpi_compromiso == "Entrega a tiempo")
+            else:
+                # No negotiated deadline: check KPI SLA Interno
+                show_confetti = (kpi_sla_interno == "Entrega a tiempo")
+        
+        # Build redirect URL with optional confetti parameter
+        redirect_url = "/simulacion/ui"
+        if show_confetti:
+            redirect_url += "?confetti=1"
+
         
         return templates.TemplateResponse("simulacion/partials/messages/success_redirect.html", {
             "request": request,
             "title": "Actualización Exitosa",
             "message": "La oportunidad se ha actualizado correctamente.",
-            "redirect_url": "/simulacion/ui" 
+            "redirect_url": redirect_url
         })
     except HTTPException as e:
         # UX IMPROVEMENT: Mostrar errores de validación dentro del modal como mensajes inline

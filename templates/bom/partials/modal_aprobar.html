@@ -1,0 +1,122 @@
+{# Modal de aprobacion/rechazo/envio con campo de comentarios #}
+{% set accion_config = {
+    'enviar-revision': {
+        'titulo': 'Enviar a Revision de Ingenieria',
+        'descripcion': 'El BOM sera enviado al responsable de ingenieria para su revision.',
+        'url': '/bom/' ~ bom.id_bom ~ '/enviar-revision',
+        'btn_text': 'Enviar a Revision',
+        'btn_class': 'bg-blue-600 hover:bg-blue-700',
+        'show_resp_ing': true,
+    },
+    'aprobar-ing': {
+        'titulo': 'Aprobar BOM (Ingenieria)',
+        'descripcion': 'Al aprobar, el BOM podra ser enviado a revision de construccion.',
+        'url': '/bom/' ~ bom.id_bom ~ '/aprobar-ing',
+        'btn_text': 'Aprobar',
+        'btn_class': 'bg-green-600 hover:bg-green-700',
+    },
+    'rechazar-ing': {
+        'titulo': 'Rechazar BOM (Ingenieria)',
+        'descripcion': 'El BOM volvera a estado BORRADOR para que el ingeniero lo corrija.',
+        'url': '/bom/' ~ bom.id_bom ~ '/rechazar-ing',
+        'btn_text': 'Rechazar',
+        'btn_class': 'bg-red-600 hover:bg-red-700',
+        'require_comentario': true,
+    },
+    'enviar-const': {
+        'titulo': 'Enviar a Revision de Construccion',
+        'descripcion': 'El BOM sera enviado al coordinador de obra para su revision.',
+        'url': '/bom/' ~ bom.id_bom ~ '/enviar-const',
+        'btn_text': 'Enviar a Construccion',
+        'btn_class': 'bg-blue-600 hover:bg-blue-700',
+        'show_coord_obra': true,
+    },
+    'aprobar-const': {
+        'titulo': 'Aprobar BOM (Construccion)',
+        'descripcion': 'Al aprobar, el BOM quedara en estado final APROBADO. Compras podra gestionar proveedores y entregas.',
+        'url': '/bom/' ~ bom.id_bom ~ '/aprobar-const',
+        'btn_text': 'Aprobar',
+        'btn_class': 'bg-green-600 hover:bg-green-700',
+    },
+    'rechazar-const': {
+        'titulo': 'Rechazar BOM (Construccion)',
+        'descripcion': 'El BOM volvera a estado APROBADO_ING. Se puede reenviar tras correccion.',
+        'url': '/bom/' ~ bom.id_bom ~ '/rechazar-const',
+        'btn_text': 'Rechazar',
+        'btn_class': 'bg-red-600 hover:bg-red-700',
+        'require_comentario': true,
+    },
+    'solicitar-modificacion': {
+        'titulo': 'Solicitar Modificacion',
+        'descripcion': 'Se creara una nueva version del BOM copiando los items actuales. La nueva version iniciara en BORRADOR.',
+        'url': '/bom/' ~ bom.id_bom ~ '/solicitar-modificacion',
+        'btn_text': 'Crear Nueva Version',
+        'btn_class': 'bg-amber-600 hover:bg-amber-700',
+    },
+} %}
+{% set cfg = accion_config.get(accion, {}) %}
+
+<div id="modal-aprobar-bom" class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+    <div class="flex min-h-screen items-center justify-center px-4">
+        <div class="fixed inset-0 bg-black bg-opacity-30" onclick="document.getElementById('modal-aprobar-bom').remove()"></div>
+        <div class="relative bg-white rounded-xl shadow-xl max-w-md w-full p-6 z-10 animate-fade-in-down">
+            <h3 class="text-lg font-bold text-gray-800 mb-2">{{ cfg.titulo }}</h3>
+            <p class="text-sm text-gray-500 mb-4">{{ cfg.descripcion }}</p>
+
+            <form hx-post="{{ cfg.url }}" hx-target="#main-content" hx-swap="innerHTML">
+                <div class="space-y-3">
+                    {% if cfg.get('show_resp_ing') %}
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Responsable de Ingenieria</label>
+                        <select name="responsable_ing" class="w-full rounded-lg border-gray-300 text-sm">
+                            <option value="">-- Mantener actual --</option>
+                            {% for u in catalogos.usuarios_ing %}
+                            <option value="{{ u.id_usuario }}"
+                                {{ 'selected' if bom.responsable_ing and bom.responsable_ing == u.id_usuario }}>
+                                {{ u.nombre }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+
+                    {% if cfg.get('show_coord_obra') %}
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Coordinador de Obra</label>
+                        <select name="coordinador_obra" class="w-full rounded-lg border-gray-300 text-sm">
+                            <option value="">-- Mantener actual --</option>
+                            {% for u in catalogos.usuarios_const %}
+                            <option value="{{ u.id_usuario }}"
+                                {{ 'selected' if bom.coordinador_obra and bom.coordinador_obra == u.id_usuario }}>
+                                {{ u.nombre }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    {% endif %}
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">
+                            Comentarios {{ '(requerido)' if cfg.get('require_comentario') else '(opcional)' }}
+                        </label>
+                        <textarea name="comentarios" rows="3"
+                            class="w-full rounded-lg border-gray-300 text-sm"
+                            placeholder="Agrega un comentario..."
+                            {{ 'required' if cfg.get('require_comentario') }}></textarea>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-2 mt-5">
+                    <button type="button" onclick="document.getElementById('modal-aprobar-bom').remove()"
+                        class="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition">
+                        Cancelar
+                    </button>
+                    <button type="submit"
+                        class="px-4 py-2 text-sm rounded-lg text-white {{ cfg.btn_class }} transition font-medium">
+                        {{ cfg.btn_text }}
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

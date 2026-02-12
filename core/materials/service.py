@@ -43,11 +43,11 @@ class MaterialsService:
 
     async def get_material_precios(
         self, conn, material_id: UUID
-    ) -> Tuple[Optional[dict], List[dict]]:
-        """Obtiene material + analisis de precios por proveedor."""
+    ) -> Tuple[Optional[dict], List[dict], List[dict]]:
+        """Obtiene material + analisis de precios por proveedor + productos con misma clave SAT."""
         material = await self.db.get_material_by_id(conn, material_id)
         if not material:
-            return None, []
+            return None, [], []
 
         precios = await self.db.get_material_precios(
             conn, material['descripcion_proveedor']
@@ -58,7 +58,19 @@ class MaterialsService:
                 if p.get(key) and isinstance(p[key], Decimal):
                     p[key] = float(p[key])
 
-        return material, precios
+        # Productos similares por clave SAT (excluye misma descripcion)
+        precios_sat = []
+        if material.get('clave_prod_serv'):
+            precios_sat = await self.db.get_precios_por_clave_sat(
+                conn, material['clave_prod_serv'],
+                exclude_descripcion=material['descripcion_proveedor']
+            )
+            for p in precios_sat:
+                for key in ('min_precio', 'max_precio', 'avg_precio'):
+                    if p.get(key) and isinstance(p[key], Decimal):
+                        p[key] = float(p[key])
+
+        return material, precios, precios_sat
 
     async def update_material(
         self, conn, material_id: UUID, updates: dict
@@ -81,6 +93,19 @@ class MaterialsService:
     async def get_catalogos(self, conn) -> dict:
         """Obtiene catalogos para dropdowns."""
         return await self.db.get_catalogos(conn)
+
+    async def buscar_materiales_similares(
+        self, conn, query: str, threshold: float = 0.3, limit: int = 20
+    ) -> List[dict]:
+        """Busqueda fuzzy de materiales por descripcion."""
+        rows = await self.db.buscar_similar_materiales(
+            conn, query, threshold, limit
+        )
+        for r in rows:
+            for key in ('precio_unitario', 'importe', 'similitud'):
+                if r.get(key) and isinstance(r[key], Decimal):
+                    r[key] = float(r[key])
+        return rows
 
     async def export_to_excel(self, conn, filtros: dict) -> bytes:
         """Genera archivo Excel con materiales filtrados."""

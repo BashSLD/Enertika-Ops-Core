@@ -6,6 +6,7 @@ from typing import List, Tuple, Optional
 from decimal import Decimal
 from fastapi import HTTPException
 import logging
+import json
 
 logger = logging.getLogger("Compras.DBService")
 
@@ -75,7 +76,12 @@ class ComprasDBService:
                 p.rfc as proveedor_rfc,
                 z.nombre as zona_nombre,
                 pr.proyecto_id_estandar as proyecto_nombre,
-                cat.nombre as categoria_nombre
+                cat.nombre as categoria_nombre,
+                (SELECT COUNT(*) 
+                 FROM tb_documentos_attachments da 
+                 WHERE da.activo = true 
+                 AND da.metadata->>'id_comprobante' = c.id_comprobante::text
+                ) as count_archivos
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
             LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
@@ -234,10 +240,11 @@ class ComprasDBService:
 
     async def get_estadisticas(self, conn, filtros: dict) -> dict:
         base_query = """
-            SELECT 
+            SELECT
                 COUNT(*) as total,
                 COUNT(*) FILTER (WHERE estatus = 'PENDIENTE') as pendientes,
                 COUNT(*) FILTER (WHERE estatus = 'FACTURADO') as facturados,
+                COUNT(*) FILTER (WHERE estatus = 'ANTICIPO') as anticipos,
                 COALESCE(SUM(monto) FILTER (WHERE moneda = 'MXN'), 0) as total_mxn,
                 COALESCE(SUM(monto) FILTER (WHERE moneda = 'USD'), 0) as total_usd
             FROM tb_comprobantes_pago
@@ -338,7 +345,7 @@ class ComprasDBService:
         self, conn, beneficiario: str, monto: Decimal,
         moneda: str, tolerancia: Decimal = Decimal("0.50")
     ) -> List[dict]:
-        """Busca comprobantes pendientes por beneficiario + monto con tolerancia."""
+        """Busca comprobantes pendientes/anticipo por beneficiario + monto con tolerancia."""
         rows = await conn.fetch("""
             SELECT
                 c.id_comprobante, c.fecha_pago, c.beneficiario_orig,
@@ -346,7 +353,7 @@ class ComprasDBService:
                 u.nombre as comprador_nombre
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            WHERE c.estatus = 'PENDIENTE'
+            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO')
             AND c.beneficiario_orig = $1
             AND c.moneda = $2
             AND ABS(c.monto - $3) <= $4
@@ -354,11 +361,14 @@ class ComprasDBService:
         """, beneficiario, moneda, monto, tolerancia)
         return [dict(r) for r in rows]
 
-    async def buscar_comprobantes_por_monto(
-        self, conn, monto: Decimal, moneda: str,
-        tolerancia: Decimal = Decimal("0.50")
+    async def buscar_comprobantes_por_nombres_proveedor(
+        self, conn, nombres: List[str], monto: Decimal,
+        moneda: str, tolerancia: Decimal = Decimal("0.50")
     ) -> List[dict]:
-        """Busca comprobantes pendientes solo por monto + moneda."""
+        """Busca comprobantes pendientes/anticipo donde beneficiario coincide con
+        razon_social o nombre_comercial del proveedor + monto."""
+        if not nombres:
+            return []
         rows = await conn.fetch("""
             SELECT
                 c.id_comprobante, c.fecha_pago, c.beneficiario_orig,
@@ -366,7 +376,27 @@ class ComprasDBService:
                 u.nombre as comprador_nombre
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            WHERE c.estatus = 'PENDIENTE'
+            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO')
+            AND c.beneficiario_orig = ANY($1)
+            AND c.moneda = $2
+            AND ABS(c.monto - $3) <= $4
+            ORDER BY c.fecha_pago DESC
+        """, nombres, moneda, monto, tolerancia)
+        return [dict(r) for r in rows]
+
+    async def buscar_comprobantes_por_monto(
+        self, conn, monto: Decimal, moneda: str,
+        tolerancia: Decimal = Decimal("0.50")
+    ) -> List[dict]:
+        """Busca comprobantes pendientes/anticipo solo por monto + moneda."""
+        rows = await conn.fetch("""
+            SELECT
+                c.id_comprobante, c.fecha_pago, c.beneficiario_orig,
+                c.monto, c.moneda, c.estatus, c.created_at,
+                u.nombre as comprador_nombre
+            FROM tb_comprobantes_pago c
+            LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
+            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO')
             AND c.moneda = $1
             AND ABS(c.monto - $2) <= $3
             ORDER BY c.fecha_pago DESC
@@ -376,13 +406,13 @@ class ComprasDBService:
     async def buscar_comprobantes_pendientes(
         self, conn, q: Optional[str] = None, limit: int = 20
     ) -> List[dict]:
-        """Busqueda libre de comprobantes pendientes (para match manual)."""
+        """Busqueda libre de comprobantes pendientes/anticipo (para match manual)."""
         query = """
             SELECT
                 c.id_comprobante, c.fecha_pago, c.beneficiario_orig,
                 c.monto, c.moneda, c.estatus, c.created_at
             FROM tb_comprobantes_pago c
-            WHERE c.estatus = 'PENDIENTE'
+            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO')
         """
         params = []
         if q:
@@ -406,11 +436,25 @@ class ComprasDBService:
 
     async def confirmar_match(
         self, conn, id_comprobante: UUID, uuid_factura: str,
-        id_proveedor: UUID, tipo_factura: str = "NORMAL"
+        id_proveedor: UUID, tipo_factura: str = "NORMAL",
+        current_estatus: Optional[str] = None
     ):
-        """Actualiza comprobante con datos de la factura XML."""
-        estatus = "ANTICIPO" if tipo_factura == "ANTICIPO" else "FACTURADO"
+        """Actualiza comprobante con datos de la factura XML.
+
+        Logica de estatus:
+        - NOTA_CREDITO: no cambia estatus del comprobante
+        - ANTICIPO: estatus → ANTICIPO
+        - CIERRE_ANTICIPO / NORMAL: estatus → FACTURADO
+        """
         es_anticipo = tipo_factura == "ANTICIPO"
+
+        if tipo_factura == "NOTA_CREDITO":
+            # Nota de credito: no cambiar estatus, solo registrar uuid y proveedor
+            estatus = current_estatus or "FACTURADO"
+        elif tipo_factura == "ANTICIPO":
+            estatus = "ANTICIPO"
+        else:
+            estatus = "FACTURADO"
 
         await conn.execute("""
             UPDATE tb_comprobantes_pago
@@ -443,35 +487,79 @@ class ComprasDBService:
     async def guardar_relacion_beneficiario(
         self, conn, beneficiario: str, id_proveedor: UUID, user_id: UUID
     ):
-        """Guarda o actualiza la relacion beneficiario - proveedor."""
+        """Guarda o actualiza la relacion beneficiario - proveedor.
+
+        Primera vez: confianza='MANUAL'.
+        Si ya existe (match repetido): escala a 'AUTO_CONFIRMADO'.
+        """
         await conn.execute("""
             INSERT INTO tb_beneficiario_proveedor
                 (beneficiario_nombre, id_proveedor, confianza, created_by_id)
             VALUES ($1, $2, 'MANUAL', $3)
-            ON CONFLICT (beneficiario_nombre, id_proveedor) DO NOTHING
+            ON CONFLICT (beneficiario_nombre, id_proveedor) DO UPDATE SET
+                confianza = 'AUTO_CONFIRMADO'
         """, beneficiario, id_proveedor, user_id)
+
+    async def get_categorias_by_claves_sat(self, conn, claves: List[str]) -> dict:
+        """Batch lookup de categorias para multiples claves SAT.
+
+        Busca items previamente categorizados con las mismas claves.
+        Retorna dict {clave_prod_serv: id_categoria}.
+        """
+        if not claves:
+            return {}
+        rows = await conn.fetch("""
+            SELECT DISTINCT ON (clave_prod_serv)
+                clave_prod_serv, id_categoria
+            FROM tb_materiales_historial
+            WHERE clave_prod_serv = ANY($1)
+            AND id_categoria IS NOT NULL
+        """, claves)
+        return {r['clave_prod_serv']: r['id_categoria'] for r in rows}
 
     async def guardar_conceptos_historial(
         self, conn, uuid_factura: str, id_comprobante: Optional[UUID],
         id_proveedor: UUID, conceptos: List[dict],
         fecha_factura: date, user_id: UUID
     ):
-        """Guarda los conceptos/items del XML en tb_materiales_historial."""
+        """Guarda los conceptos/items del XML en tb_materiales_historial.
+
+        Auto-categoriza por clave SAT: si existen items previamente
+        categorizados con la misma clave_prod_serv, asigna la misma categoria.
+        """
+        # Batch: obtener categorias conocidas por clave SAT
+        claves_sat = list(set(
+            c.get('clave_prod_serv') for c in conceptos if c.get('clave_prod_serv')
+        ))
+        cat_map = await self.get_categorias_by_claves_sat(conn, claves_sat) if claves_sat else {}
+
+        auto_cat_count = 0
         for c in conceptos:
+            clave_sat = c.get('clave_prod_serv')
+            id_categoria = cat_map.get(clave_sat) if clave_sat else None
+            if id_categoria:
+                auto_cat_count += 1
+
             await conn.execute("""
                 INSERT INTO tb_materiales_historial (
                     uuid_factura, id_comprobante, id_proveedor,
                     descripcion_proveedor, cantidad, precio_unitario,
                     importe, unidad, clave_prod_serv, clave_unidad,
-                    origen, fecha_factura, created_by_id
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'XML', $11, $12)
+                    id_categoria, origen, fecha_factura, created_by_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                 ON CONFLICT (uuid_factura, descripcion_proveedor, cantidad, precio_unitario)
                 DO NOTHING
             """,
                 uuid_factura, id_comprobante, id_proveedor,
                 c['descripcion'], c['cantidad'], c['valor_unitario'],
-                c['importe'], c.get('unidad'), c.get('clave_prod_serv'),
-                c.get('clave_unidad'), fecha_factura, user_id
+                c['importe'], c.get('unidad'), clave_sat,
+                c.get('clave_unidad'), id_categoria, 'XML', fecha_factura, user_id
+            )
+
+        if auto_cat_count:
+            logger.info(
+                "Auto-categorizado %d/%d conceptos por clave SAT (UUID=%s)",
+                auto_cat_count, len(conceptos), uuid_factura[:8]
             )
 
     async def guardar_cfdi_relacionados(
@@ -520,6 +608,97 @@ class ComprasDBService:
         )
         return doc_id
 
+    async def get_config_valor(self, conn, clave: str) -> str:
+        """
+        Obtiene un valor de configuración de tb_configuracion_global.
+        Retorna el valor limpio o cadena vacía si no existe.
+        """
+        row = await conn.fetchrow("""
+            SELECT valor FROM tb_configuracion_global
+            WHERE clave = $1
+        """, clave)
+        return row['valor'].strip().strip("/") if row and row['valor'] else ""
+
+    async def check_ownership_bulk(self, conn, ids: List[UUID], user_id: UUID) -> int:
+        """
+        Cuenta cuántos comprobantes de la lista NO pertenecen al usuario.
+        Usado para validación de permisos en bulk updates.
+        """
+        count = await conn.fetchval("""
+            SELECT COUNT(*) 
+            FROM tb_comprobantes_pago
+            WHERE id_comprobante = ANY($1)
+            AND capturado_por_id != $2
+        """, ids, user_id)
+        return count or 0
+
+    async def get_email_sender_config(self, conn, departamento: str = 'LEVANTAMIENTOS') -> str:
+        """
+        Obtiene la configuración de email para notificaciones.
+        Primero intenta con el departamento específico, luego con DEFAULT.
+        Retorna el email del remitente o un default.
+        """
+        sender_config = await conn.fetchrow("""
+            SELECT email_remitente FROM tb_correos_notificaciones
+            WHERE departamento = $1 AND activo = true
+            LIMIT 1
+        """, departamento)
+        
+        if not sender_config:
+            sender_config = await conn.fetchrow("""
+                SELECT email_remitente FROM tb_correos_notificaciones
+                WHERE departamento = 'DEFAULT' AND activo = true
+                LIMIT 1
+            """)
+        
+        return sender_config['email_remitente'] if sender_config else 'app-notifications@enertika.mx'
+
+    async def insert_documento_attachment(
+        self, conn, doc_data: dict
+    ) -> UUID:
+        """
+        Inserta un registro en tb_documentos_attachments.
+        
+        Args:
+            doc_data: dict con campos:
+                - nombre_archivo
+                - url_sharepoint
+                - drive_item_id
+                - parent_drive_id
+                - tipo_contenido
+                - tamano_bytes
+                - id_oportunidad (optional)
+                - subido_por_id
+                - origen_slug
+                - metadata (dict)
+        
+        Returns:
+            UUID del documento creado
+        """
+        import json
+        doc_id = uuid4()
+        
+        await conn.execute("""
+            INSERT INTO tb_documentos_attachments (
+                id_documento, nombre_archivo, url_sharepoint, drive_item_id, parent_drive_id,
+                tipo_contenido, tamano_bytes, id_oportunidad, subido_por_id,
+                origen_slug, activo, metadata
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, TRUE, $11::jsonb)
+        """,
+            doc_id,
+            doc_data.get('nombre_archivo', ''),
+            doc_data.get('url_sharepoint', ''),
+            doc_data.get('drive_item_id', ''),
+            doc_data.get('parent_drive_id'),
+            doc_data.get('tipo_contenido', 'application/octet-stream'),
+            doc_data.get('tamano_bytes', 0),
+            doc_data.get('id_oportunidad'),
+            doc_data['subido_por_id'],
+            doc_data.get('origen_slug', 'comprobante_pago'),
+            json.dumps(doc_data.get('metadata', {}))
+        )
+        return doc_id
+
     async def get_archivos_comprobante(self, conn, id_comprobante: UUID) -> List[dict]:
         """Obtiene archivos asociados a un comprobante (PDF y/o XML)."""
         rows = await conn.fetch("""
@@ -533,7 +712,144 @@ class ComprasDBService:
             )
             ORDER BY fecha_subida DESC
         """, str(id_comprobante))
+        
+        # Parsear metadata JSON si es string (fix asyncpg default)
+        results = []
+        for r in rows:
+            d = dict(r)
+            if d.get('metadata') and isinstance(d['metadata'], str):
+                try:
+                    d['metadata'] = json.loads(d['metadata'])
+                except (json.JSONDecodeError, TypeError):
+                    d['metadata'] = {}
+            results.append(d)
+        
+        return results
+
+
+    # ========================================
+    # JUNCTION TABLE: COMPROBANTE ↔ FACTURAS
+    # ========================================
+
+    async def insertar_comprobante_factura(
+        self, conn, id_comprobante: UUID, uuid_factura: str,
+        tipo: str, monto: Optional[Decimal] = None,
+        moneda: str = "MXN", fecha: Optional[date] = None,
+        id_proveedor: Optional[UUID] = None,
+        rfc_emisor: Optional[str] = None,
+        nombre_emisor: Optional[str] = None
+    ):
+        """Inserta registro en junction table. ON CONFLICT DO NOTHING."""
+        await conn.execute("""
+            INSERT INTO tb_comprobante_facturas
+                (id_comprobante, uuid_factura, tipo, monto, moneda,
+                 fecha, id_proveedor, rfc_emisor, nombre_emisor)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            ON CONFLICT (id_comprobante, uuid_factura) DO NOTHING
+        """, id_comprobante, uuid_factura, tipo, monto, moneda,
+            fecha, id_proveedor, rfc_emisor, nombre_emisor)
+
+    async def get_facturas_comprobante(
+        self, conn, id_comprobante: UUID
+    ) -> List[dict]:
+        """Todas las facturas asociadas a un comprobante."""
+        rows = await conn.fetch("""
+            SELECT uuid_factura, tipo, monto, moneda, fecha,
+                   rfc_emisor, nombre_emisor, created_at
+            FROM tb_comprobante_facturas
+            WHERE id_comprobante = $1
+            ORDER BY created_at
+        """, id_comprobante)
         return [dict(r) for r in rows]
+
+    async def get_facturas_for_comprobantes(
+        self, conn, ids: List[UUID]
+    ) -> dict:
+        """Batch fetch de facturas para N comprobantes. Evita N+1 en Excel.
+
+        Returns:
+            dict {id_comprobante: [lista de facturas]}
+        """
+        if not ids:
+            return {}
+        rows = await conn.fetch("""
+            SELECT id_comprobante, uuid_factura, tipo, monto, moneda
+            FROM tb_comprobante_facturas
+            WHERE id_comprobante = ANY($1)
+            ORDER BY id_comprobante, created_at
+        """, ids)
+        result = {}
+        for r in rows:
+            comp_id = r['id_comprobante']
+            if comp_id not in result:
+                result[comp_id] = []
+            result[comp_id].append(dict(r))
+        return result
+
+    async def uuid_factura_exists_in_junction(
+        self, conn, uuid_factura: str
+    ) -> bool:
+        """Verifica si un UUID de factura ya esta en la junction table."""
+        exists = await conn.fetchval(
+            "SELECT 1 FROM tb_comprobante_facturas WHERE uuid_factura = $1",
+            uuid_factura
+        )
+        return bool(exists)
+
+    async def get_cfdi_relacionados_by_comprobante(
+        self, conn, id_comprobante: UUID
+    ) -> List[dict]:
+        """CFDI relacionados de todas las facturas de un comprobante."""
+        rows = await conn.fetch("""
+            SELECT cr.uuid_factura, cr.uuid_relacionado,
+                   cr.tipo_relacion, cr.tipo_relacion_desc
+            FROM tb_comprobante_facturas cf
+            JOIN tb_cfdi_relacionados cr ON cf.uuid_factura = cr.uuid_factura
+            WHERE cf.id_comprobante = $1
+            ORDER BY cr.uuid_factura
+        """, id_comprobante)
+        return [dict(r) for r in rows]
+
+    # ========================================
+    # RELACIONES BENEFICIARIO-PROVEEDOR (VISTA)
+    # ========================================
+
+    async def get_relaciones_all(
+        self, conn, q: Optional[str] = None, limit: int = 100
+    ) -> List[dict]:
+        """Lista todas las relaciones beneficiario-proveedor con datos del proveedor."""
+        query = """
+            SELECT
+                bp.id, bp.beneficiario_nombre, bp.confianza, bp.created_at,
+                p.id_proveedor, p.razon_social, p.rfc, p.nombre_comercial
+            FROM tb_beneficiario_proveedor bp
+            JOIN tb_proveedores p ON bp.id_proveedor = p.id_proveedor
+            WHERE 1=1
+        """
+        params = []
+        param_idx = 1
+
+        if q:
+            query += f""" AND (
+                bp.beneficiario_nombre ILIKE ${param_idx}
+                OR p.razon_social ILIKE ${param_idx}
+                OR p.rfc ILIKE ${param_idx}
+            )"""
+            params.append(f"%{q}%")
+            param_idx += 1
+
+        query += f" ORDER BY bp.created_at DESC LIMIT ${param_idx}"
+        params.append(limit)
+
+        rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
+    async def delete_relacion(self, conn, relacion_id: int) -> bool:
+        """Elimina una relacion beneficiario-proveedor."""
+        result = await conn.execute(
+            "DELETE FROM tb_beneficiario_proveedor WHERE id = $1", relacion_id
+        )
+        return result == "DELETE 1"
 
 
 def get_db_service():

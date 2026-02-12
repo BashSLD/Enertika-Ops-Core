@@ -1,0 +1,141 @@
+<!-- Modal de Relaciones Beneficiario-Proveedor -->
+<div id="relaciones-modal"
+    class="fixed inset-0 z-[60] overflow-y-auto bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+    role="dialog" aria-modal="true"
+    onclick="if(event.target === this) cerrarModalRelaciones()">
+
+    <div class="relative w-full max-w-4xl bg-white rounded-xl shadow-2xl max-h-[90vh] flex flex-col">
+        <!-- Header -->
+        <div class="bg-gradient-to-r from-[#123456] to-[#00BABB] px-6 py-4 rounded-t-xl shrink-0">
+            <div class="flex items-center justify-between">
+                <div>
+                    <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                        </svg>
+                        Relaciones Aprendidas
+                    </h3>
+                    <p class="text-sm text-white/70 mt-0.5">Beneficiario (PDF) ↔ Proveedor (XML/RFC)</p>
+                </div>
+                <button onclick="cerrarModalRelaciones()"
+                    class="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-all">
+                    <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <!-- Buscador -->
+        <div class="px-6 pt-4 pb-2 shrink-0">
+            <input type="text" id="relaciones-search"
+                placeholder="Buscar por beneficiario, proveedor o RFC..."
+                hx-get="/compras/relaciones"
+                hx-target="#relaciones-modal-content"
+                hx-swap="innerHTML"
+                hx-trigger="keyup changed delay:300ms"
+                hx-include="this"
+                name="q"
+                value="{{ q }}"
+                class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+        </div>
+
+        <!-- Contenido (se reemplaza con HTMX al buscar) -->
+        <div id="relaciones-modal-content" class="flex-1 overflow-y-auto px-6 py-2">
+            {% if relaciones %}
+            <div class="text-xs text-gray-400 mb-2">{{ relaciones|length }} relacion(es) encontrada(s)</div>
+            <table class="min-w-full divide-y divide-gray-200 text-sm">
+                <thead class="bg-gray-50 sticky top-0">
+                    <tr>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Beneficiario (PDF)</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Proveedor (XML)</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">RFC</th>
+                        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Confianza</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
+                        {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
+                        {% if can_edit %}
+                        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase w-16">Accion</th>
+                        {% endif %}
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-100">
+                    {% for rel in relaciones %}
+                    <tr id="rel-row-{{ rel.id }}" class="hover:bg-gray-50 transition-colors">
+                        <td class="px-3 py-2">
+                            <div class="font-medium text-gray-800 truncate max-w-[200px]" title="{{ rel.beneficiario_nombre }}">
+                                {{ rel.beneficiario_nombre }}
+                            </div>
+                        </td>
+                        <td class="px-3 py-2">
+                            <div class="text-gray-700 truncate max-w-[180px]" title="{{ rel.razon_social }}">
+                                {{ rel.razon_social }}
+                            </div>
+                            {% if rel.nombre_comercial and rel.nombre_comercial != rel.razon_social %}
+                            <div class="text-xs text-gray-400 truncate" title="{{ rel.nombre_comercial }}">
+                                {{ rel.nombre_comercial }}
+                            </div>
+                            {% endif %}
+                        </td>
+                        <td class="px-3 py-2 font-mono text-xs text-gray-600">{{ rel.rfc }}</td>
+                        <td class="px-3 py-2 text-center">
+                            {% if rel.confianza == 'AUTO_CONFIRMADO' %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-800">
+                                Auto
+                            </span>
+                            {% else %}
+                            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                                Manual
+                            </span>
+                            {% endif %}
+                        </td>
+                        <td class="px-3 py-2 text-gray-500 text-xs">
+                            {{ rel.created_at.strftime("%d/%m/%Y") if rel.created_at else '-' }}
+                        </td>
+                        {% if can_edit %}
+                        <td class="px-3 py-2 text-center">
+                            <button
+                                hx-delete="/compras/relaciones/{{ rel.id }}"
+                                hx-target="#rel-row-{{ rel.id }}"
+                                hx-swap="outerHTML swap:0.3s"
+                                hx-confirm="Eliminar relacion entre '{{ rel.beneficiario_nombre }}' y '{{ rel.razon_social }}'?"
+                                class="text-red-400 hover:text-red-600 transition-colors"
+                                title="Eliminar relacion">
+                                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                            </button>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <div class="text-center py-12 text-gray-400">
+                <svg class="h-10 w-10 mx-auto mb-3 opacity-50" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+                <p class="text-sm">No hay relaciones registradas</p>
+                <p class="text-xs mt-1">Las relaciones se crean automaticamente al vincular facturas XML con comprobantes de pago</p>
+            </div>
+            {% endif %}
+        </div>
+
+        <!-- Footer -->
+        <div class="bg-gray-50 px-6 py-3 flex justify-end rounded-b-xl border-t shrink-0">
+            <button onclick="cerrarModalRelaciones()"
+                class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                Cerrar
+            </button>
+        </div>
+    </div>
+</div>
+
+<script>
+    function cerrarModalRelaciones() {
+        document.getElementById('relaciones-container').innerHTML = '';
+    }
+</script>

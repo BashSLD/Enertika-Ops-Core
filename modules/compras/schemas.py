@@ -20,6 +20,7 @@ class EstatusComprobante(str, Enum):
     """Estados posibles de un comprobante."""
     PENDIENTE = "PENDIENTE"
     FACTURADO = "FACTURADO"
+    ANTICIPO = "ANTICIPO"
 
 
 class MonedaComprobante(str, Enum):
@@ -262,6 +263,13 @@ class ComprobanteUpdateForm(BaseModel):
     id_categoria: Optional[int] = None
     estatus: Optional[EstatusComprobante] = None
     
+    @field_validator('id_zona', 'id_categoria', mode='before')
+    @classmethod
+    def validate_empty_int(cls, v):
+        if v is None or v == "" or v == "0":
+            return None
+        return v
+
     @field_validator('id_proyecto', mode='before')
     @classmethod
     def validate_uuid_empty(cls, v):
@@ -285,8 +293,28 @@ class EstadisticasMes(BaseModel):
     total: int
     pendientes: int
     facturados: int
+    anticipos: int = 0
     total_mxn: float
     total_usd: float
+
+
+# ========================================
+# JUNCTION: COMPROBANTE ↔ FACTURAS
+# ========================================
+
+class ComprobanteFactura(BaseModel):
+    """Registro en junction table tb_comprobante_facturas."""
+    id_comprobante: UUID
+    uuid_factura: str
+    tipo: str = "NORMAL"
+    monto: Optional[Decimal] = None
+    moneda: str = "MXN"
+    fecha: Optional[date] = None
+    id_proveedor: Optional[UUID] = None
+    rfc_emisor: Optional[str] = None
+    nombre_emisor: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 # ========================================
@@ -298,6 +326,7 @@ class TipoFactura(str, Enum):
     NORMAL = "NORMAL"
     ANTICIPO = "ANTICIPO"
     CIERRE_ANTICIPO = "CIERRE_ANTICIPO"
+    NOTA_CREDITO = "NOTA_CREDITO"
 
 
 class TipoComprobanteSAT(str, Enum):
@@ -377,6 +406,7 @@ class XmlMatchResult(BaseModel):
     match_type: str  # AUTO_MATCH, MONTO_MATCH, MULTIPLE_MATCH, NO_MATCH
     candidatos: List[dict] = []
     comprobante_id: Optional[UUID] = None
+    xml_content_b64: Optional[str] = None
 
 
 class XmlUploadResult(BaseModel):

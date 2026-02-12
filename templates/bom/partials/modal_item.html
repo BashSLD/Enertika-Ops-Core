@@ -1,0 +1,179 @@
+{# Modal para editar un item del BOM #}
+<div id="modal-editar-item" class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+    <div class="flex min-h-screen items-center justify-center px-4">
+        <div class="fixed inset-0 bg-black bg-opacity-30" onclick="document.getElementById('modal-editar-item').remove()"></div>
+        <div class="relative bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 z-10 animate-fade-in-down">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-gray-800">Editar Item</h3>
+                <button onclick="document.getElementById('modal-editar-item').remove()"
+                    class="text-gray-400 hover:text-gray-600 transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <form hx-patch="/bom/items/{{ item.id_item }}"
+                hx-target="#item-{{ item.id_item }}" hx-swap="outerHTML"
+                hx-on::after-request="if(event.detail.successful) document.getElementById('modal-editar-item').remove()">
+
+                {% set es_catalogo = item.origen_precio == 'CATALOGO' %}
+                {% set disabled_ing = area_editor != 'ingenieria' and bom.estatus != 'BORRADOR' %}
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {# Campos de Ingenieria #}
+                    <div class="sm:col-span-2">
+                        <div class="text-xs font-bold text-gray-400 uppercase mb-2 border-b pb-1">Ingenieria</div>
+                    </div>
+
+                    {% if es_catalogo %}
+                    <div class="sm:col-span-2">
+                        <div class="flex items-start gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700">
+                            <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <span>Este item proviene del catalogo de materiales. La descripcion, unidad y precio no se pueden modificar para mantener la integridad del analisis de costos.</span>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+                        <select name="id_categoria" class="w-full rounded-lg border-gray-300 text-sm"
+                            {% if disabled_ing %}disabled{% endif %}>
+                            <option value="">-- Sin categoria --</option>
+                            {% for cat in catalogos.categorias %}
+                            <option value="{{ cat.id }}" {{ 'selected' if item.id_categoria == cat.id }}>{{ cat.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Unidad de medida</label>
+                        <input type="text" name="unidad_medida" value="{{ item.unidad_medida or '' }}"
+                            class="w-full rounded-lg border-gray-300 text-sm {{ 'bg-gray-100 text-gray-500' if es_catalogo }}"
+                            {% if disabled_ing or es_catalogo %}disabled{% endif %}>
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Descripcion</label>
+                        <textarea name="descripcion" rows="2"
+                            class="w-full rounded-lg border-gray-300 text-sm {{ 'bg-gray-100 text-gray-500' if es_catalogo }}"
+                            {% if disabled_ing or es_catalogo %}disabled{% endif %}>{{ item.descripcion }}</textarea>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad</label>
+                        <input type="number" name="cantidad" value="{{ item.cantidad }}" step="0.0001"
+                            class="w-full rounded-lg border-gray-300 text-sm"
+                            {% if disabled_ing %}disabled{% endif %}>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Precio Unitario</label>
+                        <input type="number" name="precio_unitario" step="0.01" min="0"
+                            value="{{ item.precio_unitario if item.precio_unitario else '' }}"
+                            class="w-full rounded-lg border-gray-300 text-sm {{ 'bg-gray-100 text-gray-500' if es_catalogo }}"
+                            placeholder="0.00"
+                            {% if disabled_ing or es_catalogo %}disabled{% endif %}>
+                        {% if es_catalogo %}
+                        <span class="text-xs text-blue-500 mt-0.5">Precio fijo de catalogo</span>
+                        {% endif %}
+                    </div>
+
+                    {# Campos de Construccion #}
+                    <div class="sm:col-span-2 mt-2">
+                        <div class="text-xs font-bold text-gray-400 uppercase mb-2 border-b pb-1">Construccion</div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Fecha Requerida</label>
+                        <input type="date" name="fecha_requerida"
+                            value="{{ item.fecha_requerida.isoformat() if item.fecha_requerida else '' }}"
+                            class="w-full rounded-lg border-gray-300 text-sm"
+                            {% if area_editor != 'construccion' and role != 'ADMIN' %}disabled{% endif %}>
+                    </div>
+
+                    <div class="flex items-end pb-2">
+                        <label class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" name="entregado" value="true"
+                                {{ 'checked' if item.entregado }}
+                                class="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                                {% if area_editor != 'construccion' and role != 'ADMIN' %}disabled{% endif %}>
+                            <span class="text-sm text-gray-700">Marcar como entregado</span>
+                        </label>
+                    </div>
+
+                    {# Campos de Compras #}
+                    <div class="sm:col-span-2 mt-2">
+                        <div class="text-xs font-bold text-gray-400 uppercase mb-2 border-b pb-1">Compras</div>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Proveedor</label>
+                        <select name="id_proveedor" class="w-full rounded-lg border-gray-300 text-sm"
+                            {% if area_editor != 'compras' and role != 'ADMIN' %}disabled{% endif %}>
+                            <option value="">-- Sin proveedor --</option>
+                            {% for p in catalogos.proveedores %}
+                            <option value="{{ p.id_proveedor }}" {{ 'selected' if item.id_proveedor and item.id_proveedor == p.id_proveedor }}>
+                                {{ p.nombre_comercial or p.razon_social }} ({{ p.rfc }})
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Tipo Entrega</label>
+                        <select name="tipo_entrega" class="w-full rounded-lg border-gray-300 text-sm"
+                            {% if area_editor != 'compras' and role != 'ADMIN' %}disabled{% endif %}>
+                            <option value="">-- Seleccionar --</option>
+                            {% for te in catalogos.tipos_entrega %}
+                            <option value="{{ te.nombre }}" {{ 'selected' if item.tipo_entrega == te.nombre }}>
+                                {{ te.nombre|replace('_', ' ') }}
+                            </option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Fecha Estimada Entrega</label>
+                        <input type="date" name="fecha_estimada_entrega"
+                            value="{{ item.fecha_estimada_entrega.isoformat() if item.fecha_estimada_entrega else '' }}"
+                            class="w-full rounded-lg border-gray-300 text-sm"
+                            {% if area_editor != 'compras' and role != 'ADMIN' %}disabled{% endif %}>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Fecha Llegada Real</label>
+                        <input type="date" name="fecha_llegada_real"
+                            value="{{ item.fecha_llegada_real.isoformat() if item.fecha_llegada_real else '' }}"
+                            class="w-full rounded-lg border-gray-300 text-sm"
+                            {% if area_editor != 'compras' and role != 'ADMIN' %}disabled{% endif %}>
+                    </div>
+
+                    {# Comentarios (todos) #}
+                    <div class="sm:col-span-2 mt-2">
+                        <div class="text-xs font-bold text-gray-400 uppercase mb-2 border-b pb-1">General</div>
+                    </div>
+
+                    <div class="sm:col-span-2">
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Comentarios</label>
+                        <textarea name="comentarios" rows="2" class="w-full rounded-lg border-gray-300 text-sm"
+                            placeholder="Notas o comentarios...">{{ item.comentarios or '' }}</textarea>
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-2 mt-5">
+                    <button type="button" onclick="document.getElementById('modal-editar-item').remove()"
+                        class="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition">
+                        Cancelar
+                    </button>
+                    <button type="submit"
+                        class="px-4 py-2 text-sm rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition font-medium">
+                        Guardar Cambios
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>

@@ -140,6 +140,45 @@ class MaterialsDBService:
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
 
+    async def get_precios_por_clave_sat(
+        self, conn, clave_prod_serv: str,
+        exclude_descripcion: Optional[str] = None
+    ) -> List[dict]:
+        """Precios agrupados por proveedor+descripcion para misma clave SAT.
+
+        Excluye la descripcion exacta del material actual para no duplicar
+        datos con la comparativa por descripcion.
+        """
+        query = """
+            SELECT
+                p.razon_social as proveedor_nombre,
+                p.rfc as proveedor_rfc,
+                m.descripcion_proveedor,
+                MIN(m.precio_unitario) as min_precio,
+                MAX(m.precio_unitario) as max_precio,
+                AVG(m.precio_unitario) as avg_precio,
+                COUNT(*) as total_compras,
+                MAX(m.fecha_factura) as ultima_compra
+            FROM tb_materiales_historial m
+            JOIN tb_proveedores p ON m.id_proveedor = p.id_proveedor
+            WHERE m.clave_prod_serv = $1
+        """
+        params = [clave_prod_serv]
+        param_idx = 2
+
+        if exclude_descripcion:
+            query += f" AND m.descripcion_proveedor != ${param_idx}"
+            params.append(exclude_descripcion)
+            param_idx += 1
+
+        query += """
+            GROUP BY p.razon_social, p.rfc, m.descripcion_proveedor
+            ORDER BY avg_precio ASC
+        """
+
+        rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
     async def get_material_by_id(self, conn, material_id: UUID) -> Optional[dict]:
         """Obtiene un material por ID con JOINs."""
         row = await conn.fetchrow("""
@@ -250,6 +289,34 @@ class MaterialsDBService:
             "proveedores": [dict(r) for r in proveedores],
             "proyectos": [dict(r) for r in proyectos],
         }
+
+
+    async def buscar_similar_materiales(
+        self, conn, query: str, threshold: float = 0.3, limit: int = 20
+    ) -> List[dict]:
+        """Busqueda fuzzy con pg_trgm similarity() en descripcion_proveedor.
+
+        Requiere extension pg_trgm y indice GIN en descripcion_proveedor.
+        """
+        rows = await conn.fetch("""
+            SELECT
+                m.id,
+                m.descripcion_proveedor,
+                m.precio_unitario,
+                m.importe,
+                m.unidad,
+                m.clave_prod_serv,
+                m.fecha_factura,
+                p.razon_social as proveedor_nombre,
+                p.rfc as proveedor_rfc,
+                similarity(m.descripcion_proveedor, $1) as similitud
+            FROM tb_materiales_historial m
+            LEFT JOIN tb_proveedores p ON m.id_proveedor = p.id_proveedor
+            WHERE similarity(m.descripcion_proveedor, $1) >= $2
+            ORDER BY similitud DESC
+            LIMIT $3
+        """, query, threshold, limit)
+        return [dict(r) for r in rows]
 
 
 def get_materials_db_service():

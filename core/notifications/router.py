@@ -28,61 +28,84 @@ router = APIRouter(
 @router.get("/stream")
 async def stream_notifications(
     request: Request,
-    context = Depends(get_current_user_context),
     service: NotificationsService = Depends(get_notifications_service)
 ):
     """
     Endpoint SSE para streaming de notificaciones en tiempo real.
-    
+
     Patrón: MULTIPLEXER
-    - No abre conexión a BD.
+    - Auth ligera via sesion (NO usa get_current_user_context para evitar
+      retener una conexion del pool durante toda la vida del stream).
     - Se suscribe al Queue en memoria del Service.
     """
-    usuario_id = context['user_db_id']
-    
+    # --- Auth ligera: leer sesion + query rapida (acquire+release) ---
+    user_email = request.session.get("user_email")
+    if not user_email:
+        async def _not_auth():
+            yield {"event": "error", "data": json.dumps({"error": "not_authenticated"}), "retry": 30000}
+        return EventSourceResponse(_not_auth())
+
+    try:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            usuario_id = await conn.fetchval(
+                "SELECT id_usuario FROM tb_usuarios WHERE email = $1", user_email
+            )
+    except Exception as e:
+        logger.error(f"[SSE] Error obteniendo user_db_id: {e}")
+        async def _db_err():
+            yield {"event": "error", "data": json.dumps({"error": "db_unavailable"}), "retry": 15000}
+        return EventSourceResponse(_db_err())
+
+    if not usuario_id:
+        async def _no_user():
+            yield {"event": "error", "data": json.dumps({"error": "user_not_found"}), "retry": 30000}
+        return EventSourceResponse(_no_user())
+
+    # --- Conexion DB ya liberada. A partir de aqui, 0 conexiones retenidas ---
+
     async def event_generator():
         """
         Consume notificaciones del Queue en memoria.
         """
-        # 1. Registrarse y obtener Queue
-        # Si es el primer cliente, el Service activará el LISTEN
-        queue = await service.register_connection(usuario_id)
-        
-        try:
-            logger.info(f"[SSE] Stream iniciado para usuario {usuario_id}")
-
-            # 2. Enviar notificaciones pendientes (al conectar)
-            # Requiere conexión temporal para consulta inicial
-            try:
-                # Usar una conexión del pool solo para esto
-                pool = await get_db_pool()
-                async with pool.acquire() as conn:
-                    pending = await asyncio.wait_for(
-                        service.get_pending_notifications(conn, usuario_id, limit=5),
-                        timeout=5.0
-                    )
-                    
-                    for notif in pending:
-                        yield {
-                            "event": "pending",
-                            "data": json.dumps({
-                                "id": str(notif['id']),
-                                "type": notif['tipo'],
-                                "title": notif['titulo'],
-                                "message": notif['mensaje'],
-                                "oportunidad_id": str(notif['id_oportunidad']) if notif['id_oportunidad'] else None,
-                                "created_at": notif['created_at'].isoformat()
-                            })
-                        }
-            except Exception as e:
-                logger.error(f"[SSE] Error cargando pendientes: {e}")
-            
-            # 3. Loop de eventos (Queue -> SSE)
-            while True:
-                if await request.is_disconnected():
-                    logger.info(f"[SSE] Cliente {usuario_id} desconectado")
+        # 0. Si el broker no esta disponible, esperar con heartbeats hasta que se recupere
+        if not service.is_broker_connected():
+            logger.warning(f"[SSE] Broker no disponible para usuario {usuario_id} - MODO DEGRADADO")
+            max_degraded_checks = 20  # 20 * 15s = 5 min max en modo degradado
+            for _ in range(max_degraded_checks):
+                # Verificar si el broker se recupero
+                if service.is_broker_connected():
+                    logger.info(f"[SSE] Broker recuperado, registrando usuario {usuario_id}")
                     break
-                
+
+                yield {
+                    "event": "heartbeat",
+                    "data": json.dumps({"status": "degraded", "notifications_disabled": True}),
+                    "retry": 15000
+                }
+                try:
+                    await asyncio.sleep(15)
+                except asyncio.CancelledError:
+                    return
+            else:
+                # Timeout de modo degradado: cerrar stream para que el cliente reconecte
+                yield {
+                    "event": "heartbeat",
+                    "data": json.dumps({"status": "degraded_timeout"}),
+                    "retry": 10000
+                }
+                return
+
+        # 1. Registrarse y obtener Queue + conn_id unico
+        queue, conn_id = await service.register_connection(usuario_id)
+
+        try:
+            logger.info(f"[SSE] Stream {conn_id[:8]} iniciado para usuario {usuario_id}")
+
+            # 2. Loop de eventos (Queue -> SSE)
+            # Nota: pendientes se cargan via HTTP (GET /notifications/list) en initNotifications().
+            # No duplicamos con pool.acquire() aqui para evitar consume innecesario del pool.
+            while True:
                 try:
                     # Esperar notificación del Queue
                     notification_data = await asyncio.wait_for(queue.get(), timeout=15.0)
@@ -101,12 +124,12 @@ async def stream_notifications(
                     }
         
         except asyncio.CancelledError:
-            logger.info(f"[SSE] Stream cancelado para {usuario_id}")
+            logger.info(f"[SSE] Stream {conn_id[:8]} cancelado para {usuario_id}")
         except Exception as e:
-            logger.error(f"[SSE] Error en stream: {e}", exc_info=True)
+            logger.error(f"[SSE] Error en stream {conn_id[:8]}: {e}", exc_info=True)
         finally:
-            # 4. Desregistrar (Si es el último, Service cierra LISTEN)
-            await service.unregister_connection(usuario_id)
+            # 4. Desregistrar por conn_id (solo borra ESTE stream, no otros del mismo usuario)
+            await service.unregister_connection(usuario_id, conn_id)
 
     return EventSourceResponse(
         event_generator(),

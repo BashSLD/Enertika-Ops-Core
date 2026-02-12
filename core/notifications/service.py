@@ -8,8 +8,8 @@ Patrón: MULTIPLEXER (Shared Listener)
 - Multiplexa eventos en memoria a Queues individuales.
 - Evita agotamiento de pool de conexiones.
 """
-from typing import Dict, Optional, List
-from uuid import UUID
+from typing import Dict, Optional, List, Tuple
+from uuid import UUID, uuid4
 from asyncio import Queue, create_task
 import logging
 import json
@@ -27,51 +27,96 @@ logger = logging.getLogger("NotificationsService")
 # Conexión dedicada única para escuchar notificaciones de TODOS los usuarios
 _shared_listener_conn: Optional[asyncpg.Connection] = None
 
-# Queues en memoria por usuario
-# Un usuario puede tener múltiples conexiones (ej. varias pestañas) -> Lista de Queues?
-# Simplificación V1: Una Queue por usuario (broadcast a todas sus pestañas es responsabilidad del cliente o navegador)
-# Mejora V2 (implementada): `active_connections` mapea userID -> Queue. 
-# Si el usuario abre 2 pestañas, ambas consumen del mismo stream? No, SSE requiere streams únicos.
-# Solución: `active_connections` debe ser Dict[UUID, List[Queue]] para soportar multisocessión real.
-# Pero para mantener compatibilidad con router actual: Dict[UUID, Queue]. 
-# El router maneja el ciclo de vida de la queue.
-active_connections: Dict[UUID, Queue] = {}
+# Lock para sincronizar acceso a la conexión compartida (asyncpg no es thread/task-safe)
+_listener_lock = asyncio.Lock()
+
+# Queues en memoria por usuario.
+# Estructura: {usuario_id: {conn_id: (queue, callback)}}
+# Cada pestana/reconexion tiene su propio conn_id unico, evitando race conditions
+# donde un unregister del stream viejo borra el registro del stream nuevo.
+active_connections: Dict[UUID, Dict[str, Tuple[Queue, Optional[object]]]] = {}
 
 async def startup_notifications():
     """
-    Inicializa la conexión compartida para el Listener Global.
+    Inicializa la conexion compartida para el Listener Global.
     Se debe llamar en el startup de FastAPI.
+    Lock se adquiere POR INTENTO (no durante todo el loop de reintentos),
+    para no bloquear register/unregister durante backoff.
     """
     global _shared_listener_conn
-    try:
-        if not _shared_listener_conn:
-            logger.info("[SSE-GLOBAL] Iniciando Shared Listener Connection...")
-            # Crear conexión directa fuera del pool - DEBE usar Session Mode (5432)
-            # porque Transaction Mode (6543) NO soporta LISTEN/NOTIFY
-            _shared_listener_conn = await asyncpg.connect(settings.DB_URL_SSE)
-            
-            # Registrar callback global para TODOS los canales de notificaciones
-            # OJO: Postgres LISTEN funciona por canal.
-            # No podemos hacer 'LISTEN *'.
-            # Estrategia: 
-            # 1. Usar un canal GLOBAL 'system_notifications' para eventos globales? No.
-            # 2. La conexión compartida debe hacer LISTEN dinámicamente cuando un usuario se conecta.
-            
-            logger.info("[SSE-GLOBAL] Shared Listener Conectado y listo.")
-    except Exception as e:
-        logger.critical(f"[SSE-GLOBAL] Fallo al iniciar listener: {e}")
+
+    max_retries = 3
+    retry_delay = 2
+
+    for attempt in range(max_retries):
+        # Lock solo para el intento de conexion (milisegundos si falla rapido, max 5s por timeout)
+        async with _listener_lock:
+            # Re-check dentro del lock por si otro task ya conecto
+            if _shared_listener_conn and not _shared_listener_conn.is_closed():
+                return
+
+            try:
+                logger.info(f"[SSE-GLOBAL] Intento {attempt + 1}/{max_retries}: Conectando listener...")
+                _shared_listener_conn = await asyncio.wait_for(
+                    asyncpg.connect(settings.DB_URL_SSE),
+                    timeout=5.0
+                )
+                logger.info("[SSE-GLOBAL] [OK] Shared Listener Conectado y listo.")
+                return
+
+            except asyncio.TimeoutError:
+                logger.warning(f"[SSE-GLOBAL] Timeout conectando listener (intento {attempt + 1})")
+            except Exception as e:
+                logger.warning(f"[SSE-GLOBAL] Error conectando listener (intento {attempt + 1}): {e}")
+
+        # Sleep FUERA del lock — register/unregister pueden operar mientras esperamos
+        if attempt < max_retries - 1:
+            await asyncio.sleep(retry_delay)
+            retry_delay *= 2
+
+    logger.critical("[SSE-GLOBAL] [X] No se pudo iniciar listener. Se reintentara en segundo plano.")
+
+async def monitor_connection_task():
+    """
+    Tarea en segundo plano que vigila la conexion SSE y reconecta si es necesario.
+    Lectura de estado SIN lock (seguro en asyncio single-thread, GIL protege asignacion atomica).
+    """
+    global _shared_listener_conn
+    logger.info("[SSE-MONITOR] Iniciando monitor de conexion...")
+
+    while True:
+        try:
+            # Lectura sin lock: _shared_listener_conn es asignacion atomica en CPython
+            # y is_closed() es lectura simple. No hay riesgo en asyncio single-thread.
+            needs_reconnect = (
+                _shared_listener_conn is None or _shared_listener_conn.is_closed()
+            )
+
+            if needs_reconnect:
+                logger.info("[SSE-MONITOR] Intentando reconexion automatica...")
+                await startup_notifications()
+
+            await asyncio.sleep(60)
+
+        except asyncio.CancelledError:
+            logger.info("[SSE-MONITOR] Monitor detenido")
+            break
+        except Exception as e:
+            logger.error(f"[SSE-MONITOR] Error en loop de monitor: {e}")
+            await asyncio.sleep(60)
 
 async def shutdown_notifications():
     """Cierra la conexión compartida."""
     global _shared_listener_conn
-    if _shared_listener_conn:
-        try:
-            await _shared_listener_conn.close()
-            logger.info("[SSE-GLOBAL] Shared Listener cerrado.")
-        except Exception as e:
-            logger.error(f"[SSE-GLOBAL] Error cerrando listener: {e}")
-        finally:
-            _shared_listener_conn = None
+    async with _listener_lock:
+        if _shared_listener_conn:
+            try:
+                await _shared_listener_conn.close()
+                logger.info("[SSE-GLOBAL] Shared Listener cerrado.")
+            except Exception as e:
+                logger.error(f"[SSE-GLOBAL] Error cerrando listener: {e}")
+            finally:
+                _shared_listener_conn = None
 
 async def _global_pg_listener(connection, pid, channel, payload):
     """
@@ -183,80 +228,99 @@ class NotificationsService:
 
     # ... NUEVA LÓGICA MULTIPLEXER ...
 
-    async def register_connection(self, usuario_id: UUID) -> Queue:
+    async def register_connection(self, usuario_id: UUID) -> Tuple[Queue, str]:
         """
-        Registra cliente SSE.
-        Si es el primero para este usuario, activa el LISTEN en la BD compartida.
+        Registra cliente SSE con ID unico por conexion.
+        Si es el primer stream para este usuario, activa LISTEN en la BD compartida.
+        Retorna (queue, conn_id) — el router debe guardar conn_id para unregister.
         """
         global _shared_listener_conn
-        
+
         queue = Queue()
-        active_connections[usuario_id] = queue
-        
-        # Definir canal
-        channel = f"user_notif_{str(usuario_id).replace('-', '_')}"
-        
-        # Crear closure para capturar el queue específico
-        def _user_listener(conn, pid, chan, payload):
-            try:
-                data = json.loads(payload)
-                # Poner en la queue del usuario (Non-blocking)
-                asyncio.create_task(queue.put(data))
-                logger.debug(f"[SSE-LISTENER] Evento para {usuario_id}")
-            except Exception as e:
-                logger.error(f"[SSE-LISTENER] Error decode: {e}")
+        conn_id = str(uuid4())
 
-        # Activar LISTEN en la conexión compartida
-        if _shared_listener_conn and not _shared_listener_conn.is_closed():
-            try:
-                # Add listener with dedicated callback
-                # OJO: asyncpg permite múltiples listeners en la misma conexión
-                await _shared_listener_conn.add_listener(channel, _user_listener)
-                logger.info(f"[SSE-GLOBAL] LISTEN activo para {channel}")
-                
-                # Guardar referencia al listener para poder removerlo?
-                # active_connections ahora guarda (Queue, callback)?
-                # Simplificación: No guardamos callback.
-                # Al desconectar, removemos listener con el MISMO objeto función?
-                # Problema: Necesitamos la misma instancia de función para removerla.
-                # Solución: Guardar callback en active_connections.
-                active_connections[usuario_id] = (queue, _user_listener)
-                
-            except Exception as e:
-                logger.error(f"[SSE-GLOBAL] Error adding listener: {e}")
-        else:
-             logger.warning("[SSE-GLOBAL] Conexión compartida no disponible")
-             
-        return queue
+        async with _listener_lock:
+            # Validar conexion compartida
+            if not _shared_listener_conn or _shared_listener_conn.is_closed():
+                logger.warning(f"[SSE-GLOBAL] No se puede registrar usuario {usuario_id}: conexion no disponible (Modo Degradado)")
+                return queue, conn_id
 
-    async def unregister_connection(self, usuario_id: UUID):
-        """Elimina cliente y desactivar LISTEN."""
-        global _shared_listener_conn
-        
-        if usuario_id in active_connections:
-            # Recuperar callback
-            data = active_connections[usuario_id]
-            if isinstance(data, tuple):
-                queue, callback = data
-            else:
-                queue = data
-                callback = None
-            
-            # Remover listener de BD
+            is_first = usuario_id not in active_connections or len(active_connections[usuario_id]) == 0
+
+            # Definir canal
             channel = f"user_notif_{str(usuario_id).replace('-', '_')}"
-            if _shared_listener_conn and not _shared_listener_conn.is_closed() and callback:
+
+            # Closure que despacha a TODAS las queues activas del usuario
+            def _user_listener(connection, pid, chan, payload):
                 try:
-                    await _shared_listener_conn.remove_listener(channel, callback)
-                    logger.debug(f"[SSE-GLOBAL] UNLISTEN {channel}")
+                    data = json.loads(payload)
+                    user_conns = active_connections.get(usuario_id, {})
+                    for cid, (q, _) in user_conns.items():
+                        asyncio.create_task(q.put(data))
+                    if user_conns:
+                        logger.debug(f"[SSE-LISTENER] Evento para {usuario_id} ({len(user_conns)} streams)")
                 except Exception as e:
-                     logger.warning(f"[SSE-GLOBAL] Error removing listener: {e}")
-            
-            del active_connections[usuario_id]
-            logger.info(f"[SSE] Usuario desconectado: {usuario_id}")
+                    logger.error(f"[SSE-LISTENER] Error decode: {e}")
+
+            # Solo activar LISTEN si es el primer stream de este usuario
+            callback = None
+            if is_first:
+                try:
+                    await _shared_listener_conn.add_listener(channel, _user_listener)
+                    callback = _user_listener
+                    logger.info(f"[SSE-GLOBAL] LISTEN activo para {channel}")
+                except Exception as e:
+                    logger.error(f"[SSE-GLOBAL] Error adding listener: {e}")
+                    return queue, conn_id
+
+            # Registrar en el diccionario
+            if usuario_id not in active_connections:
+                active_connections[usuario_id] = {}
+            active_connections[usuario_id][conn_id] = (queue, callback)
+
+        return queue, conn_id
+
+    async def unregister_connection(self, usuario_id: UUID, conn_id: str):
+        """
+        Elimina un stream especifico por conn_id.
+        Solo desactiva LISTEN si era el ultimo stream del usuario.
+        """
+        global _shared_listener_conn
+
+        async with _listener_lock:
+            user_conns = active_connections.get(usuario_id)
+            if not user_conns or conn_id not in user_conns:
+                return
+
+            queue, callback = user_conns.pop(conn_id)
+
+            # Si ya no quedan streams para este usuario, limpiar LISTEN
+            if len(user_conns) == 0:
+                del active_connections[usuario_id]
+
+                # Remover listener de BD (usar el callback del primer registro)
+                channel = f"user_notif_{str(usuario_id).replace('-', '_')}"
+                # Buscar cualquier callback no-None entre las entradas (el primero tenia el callback)
+                cb = callback
+                if not cb:
+                    # Buscar en las otras entradas (no deberia llegar aqui, pero por seguridad)
+                    for _, (_, c) in user_conns.items():
+                        if c:
+                            cb = c
+                            break
+                if cb and _shared_listener_conn and not _shared_listener_conn.is_closed():
+                    try:
+                        await _shared_listener_conn.remove_listener(channel, cb)
+                        logger.debug(f"[SSE-GLOBAL] UNLISTEN {channel}")
+                    except Exception as e:
+                        logger.warning(f"[SSE-GLOBAL] Error removing listener: {e}")
+
+            logger.info(f"[SSE] Stream {conn_id[:8]} desconectado para {usuario_id} (quedan {len(active_connections.get(usuario_id, {}))})")
 
     async def broadcast_to_user(self, conn, usuario_id: UUID, notification_data: dict):
         """
-        Envía notificación.
+        Envia notificacion via PostgreSQL NOTIFY.
+        Fallback in-memory si PG falla.
         """
         # 1. PostgreSQL NOTIFY (Universal)
         try:
@@ -265,15 +329,27 @@ class NotificationsService:
             await conn.execute("SELECT pg_notify($1, $2)", channel, payload)
         except Exception as e:
             logger.error(f"[NOTIF] Error broadcasting: {e}")
-            
-            # 2. Fallback in-memory (Solo si falla PG o para tests)
-            if usuario_id in active_connections:
-                data = active_connections[usuario_id]
-                queue = data[0] if isinstance(data, tuple) else data
-                await queue.put(notification_data)
+
+            # 2. Fallback in-memory (Solo si falla PG)
+            user_conns = active_connections.get(usuario_id, {})
+            for cid, (q, _) in user_conns.items():
+                await q.put(notification_data)
 
     def get_active_connections_count(self) -> int:
-        return len(active_connections)
+        """Retorna total de streams SSE activos (suma de todos los usuarios)."""
+        return sum(len(conns) for conns in active_connections.values())
+
+    def is_broker_connected(self) -> bool:
+        """Verifica si la conexión SSE global está activa."""
+        global _shared_listener_conn
+        # Lectura sin lock (atomicidad de variable) es OK para check rapido, 
+        # pero para consistencia usamos lock si hay updates concurrentes.
+        # Sin embargo, si startup/shutdown modifican _shared_listener_conn, 
+        # la lectura podría ver estado intermedio? No en Python (GIL/atomic assignment).
+        # Pero is_closed() es metodo.
+        # Mejor no bloquear lectores frecuentes si no es estricto.
+        # Dejaremos sin lock explicito aqui para performance, asumiendo riesgo bajo.
+        return _shared_listener_conn is not None and not _shared_listener_conn.is_closed()
 
 def get_notifications_service():
     return NotificationsService()

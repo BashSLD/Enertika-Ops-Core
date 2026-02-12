@@ -132,6 +132,8 @@
         <input type="hidden" id="match-xml-tipo-comprobante">
         <input type="hidden" id="match-xml-metodo-pago">
         <input type="hidden" id="match-xml-forma-pago">
+        <input type="hidden" id="match-xml-subtotal">
+        <input type="hidden" id="match-xml-content-b64">
         <input type="hidden" id="match-selected-comprobante">
     </div>
 </div>
@@ -163,6 +165,10 @@
         document.getElementById('match-xml-tipo-comprobante').value = d.xmlTipoComprobante || '';
         document.getElementById('match-xml-metodo-pago').value = d.xmlMetodoPago || '';
         document.getElementById('match-xml-forma-pago').value = d.xmlFormaPago || '';
+        document.getElementById('match-xml-subtotal').value = d.xmlSubtotal || '';
+        // Obtener contenido XML del mapa JS (almacenado en xml_upload_result.html)
+        document.getElementById('match-xml-content-b64').value =
+            (window.__xmlContents && window.__xmlContents[d.xmlUuid]) || '';
         document.getElementById('match-selected-comprobante').value = '';
 
         // Llenar display
@@ -260,8 +266,10 @@
         formData.append('tipo_comprobante', document.getElementById('match-xml-tipo-comprobante').value);
         formData.append('metodo_pago', document.getElementById('match-xml-metodo-pago').value);
         formData.append('forma_pago', document.getElementById('match-xml-forma-pago').value);
+        formData.append('subtotal', document.getElementById('match-xml-subtotal').value);
         formData.append('conceptos_json', document.getElementById('match-xml-conceptos').value);
         formData.append('relacionados_json', document.getElementById('match-xml-relacionados').value);
+        formData.append('xml_content_b64', document.getElementById('match-xml-content-b64').value);
         formData.append('guardar_relacion', document.getElementById('match-guardar-relacion').checked ? 'true' : 'false');
 
         htmx.ajax('POST', '/compras/xml-confirm-match', {

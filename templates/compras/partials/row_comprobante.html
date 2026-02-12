@@ -76,12 +76,52 @@
             <span class="w-2 h-2 mr-1.5 rounded-full bg-yellow-400"></span>
             Pendiente
         </span>
+        {% elif comprobante.estatus == 'ANTICIPO' %}
+        <span
+            class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800">
+            <span class="w-2 h-2 mr-1.5 rounded-full bg-amber-400"></span>
+            Anticipo
+        </span>
         {% else %}
         <span
             class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
             <span class="w-2 h-2 mr-1.5 rounded-full bg-green-400"></span>
             Facturado
         </span>
+        {% endif %}
+        {% if comprobante.tipo_factura and comprobante.tipo_factura != 'NORMAL' %}
+        <span class="block text-xs text-gray-500 mt-0.5">{{ comprobante.tipo_factura }}</span>
+        {% endif %}
+    </td>
+
+    <!-- Adjuntos -->
+    <td class="px-4 py-3 text-center">
+        {% if comprobante.count_archivos and comprobante.count_archivos > 0 %}
+        <button hx-get="/compras/comprobante/{{ comprobante.id_comprobante }}/archivos"
+            hx-target="#popover-{{ comprobante.id_comprobante }}" hx-swap="innerHTML"
+            class="relative text-blue-600 hover:text-blue-800 transition-colors group"
+            title="{{ comprobante.count_archivos }} archivo(s)">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+            {% if comprobante.count_archivos > 1 %}
+            <span
+                class="absolute -top-1 -right-1 bg-blue-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
+                {{ comprobante.count_archivos }}
+            </span>
+            {% endif %}
+        </button>
+        <!-- Popover container -->
+        <div id="popover-{{ comprobante.id_comprobante }}"
+            class="hidden absolute z-10 mt-2 bg-white shadow-lg rounded-lg border border-gray-200"></div>
+        {% else %}
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-300" fill="none" viewBox="0 0 24 24"
+            stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+        </svg>
         {% endif %}
     </td>
 

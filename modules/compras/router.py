@@ -18,6 +18,9 @@ from uuid import UUID
 from datetime import date, datetime
 import logging
 import json
+import base64
+from io import BytesIO
+from starlette.datastructures import Headers
 
 # Core imports
 from core.database import get_db_connection
@@ -74,6 +77,7 @@ def _serialize_xml_result(result):
             'match_type': match.match_type,
             'candidatos': match.candidatos,
             'comprobante_id': str(match.comprobante_id) if match.comprobante_id else None,
+            'xml_content_b64': match.xml_content_b64 or '',
         }
         serialized['procesados'].append(item)
 
@@ -559,35 +563,8 @@ async def upload_xmls(
     # Procesar XMLs (parseo + matching)
     result = await service.procesar_xmls(conn, xml_files, user_id)
 
-    # Subir XMLs procesados exitosamente a SharePoint
-    now = datetime.now()
-    subcarpeta = f"compras/facturas_xml/{now.strftime('%Y-%m')}"
-
-    for match_result in result.procesados:
-        # Re-seek al archivo correspondiente para upload
-        for f in xml_files:
-            if f.filename == match_result.cfdi.archivo:
-                try:
-                    await f.seek(0)
-                    sp_result = await service.upload_archivo_sharepoint(
-                        conn, f, subcarpeta,
-                        match_result.comprobante_id,
-                        "factura_xml", user_id,
-                        metadata_extra={
-                            "uuid_factura": match_result.cfdi.uuid,
-                            "emisor_rfc": match_result.cfdi.emisor_rfc,
-                            "tipo_factura": match_result.cfdi.tipo_factura.value
-                            if hasattr(match_result.cfdi.tipo_factura, 'value')
-                            else match_result.cfdi.tipo_factura,
-                        }
-                    )
-                    if sp_result:
-                        match_result.cfdi.archivo = sp_result.get("url_sharepoint", match_result.cfdi.archivo)
-                except Exception as e:
-                    logger.error("Error subiendo XML %s a SharePoint: %s", f.filename, e)
-                break
-
     # Serializar resultado para Jinja2 (Pydantic -> dict plano)
+    # NOTA: El upload a SharePoint se hace al confirmar el match, no aqui
     result_data = _serialize_xml_result(result)
 
     return templates.TemplateResponse(
@@ -614,8 +591,10 @@ async def confirm_xml_match(
     tipo_comprobante: Optional[str] = Form(None),
     metodo_pago: Optional[str] = Form(None),
     forma_pago: Optional[str] = Form(None),
+    subtotal: Optional[str] = Form(None),
     conceptos_json: str = Form("[]"),
     relacionados_json: str = Form("[]"),
+    xml_content_b64: str = Form(""),
     guardar_relacion: bool = Form(True),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
@@ -639,12 +618,14 @@ async def confirm_xml_match(
     # Reconstruir cfdi_data como dict
     try:
         conceptos = json.loads(conceptos_json) if conceptos_json else []
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.warning("Error parsing conceptos_json: %s (primeros 100 chars: %s)", e, (conceptos_json or "")[:100])
         conceptos = []
 
     try:
         relacionados = json.loads(relacionados_json) if relacionados_json else []
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as e:
+        logger.warning("Error parsing relacionados_json: %s (primeros 100 chars: %s)", e, (relacionados_json or "")[:100])
         relacionados = []
 
     cfdi_data = {
@@ -652,6 +633,7 @@ async def confirm_xml_match(
         "emisor_rfc": emisor_rfc,
         "emisor_nombre": emisor_nombre,
         "total": total,
+        "subtotal": subtotal,
         "moneda": moneda,
         "fecha": fecha,
         "tipo_factura": tipo_factura,
@@ -677,13 +659,47 @@ async def confirm_xml_match(
             }
         )
 
-    # Toast de exito OOB + actualizar tabla
+    # Subir XML a SharePoint DESPUES de confirmar el match
+    sp_url = None
+    if xml_content_b64:
+        try:
+            xml_bytes = base64.b64decode(xml_content_b64)
+            xml_file = UploadFile(
+                filename=f"{uuid_factura[:8]}_factura.xml",
+                file=BytesIO(xml_bytes),
+                headers=Headers({"content-type": "application/xml"}),
+            )
+
+            now = datetime.now()
+            subcarpeta = f"compras/facturas_xml/{now.strftime('%Y-%m')}"
+
+            sp_result = await service.upload_archivo_sharepoint(
+                conn, xml_file, subcarpeta,
+                id_comprobante, "factura_xml", user_id,
+                metadata_extra={
+                    "uuid_factura": uuid_factura,
+                    "emisor_rfc": emisor_rfc,
+                    "tipo_factura": tipo_factura,
+                }
+            )
+            if sp_result:
+                sp_url = sp_result.get("url_sharepoint")
+                logger.info("XML subido a SharePoint: %s", sp_url)
+        except Exception as e:
+            logger.error("Error subiendo XML a SharePoint post-confirm: %s", e)
+
+    # Construir mensaje de exito
+    items_msg = f", {resultado['conceptos_guardados']} items guardados"
+    validacion_msg = ""
+    if not resultado.get('validacion_ok', True):
+        validacion_msg = " (advertencia: validacion de montos difiere)"
+
     toast_html = templates.TemplateResponse(
         "shared/toast.html",
         {
             "request": request,
-            "message": f"Factura {uuid_factura[:8]}... vinculada correctamente ({tipo_factura})",
-            "type": "success",
+            "message": f"Factura {uuid_factura[:8]}... vinculada correctamente ({tipo_factura}{items_msg}{validacion_msg})",
+            "type": "success" if resultado.get('validacion_ok', True) else "warning",
         }
     ).body.decode("utf-8")
 
@@ -726,6 +742,67 @@ async def search_comprobantes_pendientes(
         {
             "request": request,
             "candidatos": candidatos,
+        }
+    )
+
+
+# ========================================
+# RELACIONES BENEFICIARIO-PROVEEDOR
+# ========================================
+
+@router.get("/relaciones", response_class=HTMLResponse)
+async def get_relaciones(
+    request: Request,
+    q: str = Query("", min_length=0),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    service: ComprasService = Depends(get_compras_service),
+    _ = require_module_access("compras")
+):
+    """
+    Vista de relaciones beneficiario-proveedor aprendidas.
+    Permite buscar y gestionar las asociaciones.
+    """
+    relaciones = await service.get_relaciones(conn, q=q if q else None)
+
+    return templates.TemplateResponse(
+        "compras/partials/relaciones_beneficiario.html",
+        {
+            "request": request,
+            "relaciones": relaciones,
+            "q": q,
+            "role": context.get("role"),
+            "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
+        }
+    )
+
+
+@router.delete("/relaciones/{relacion_id}", response_class=HTMLResponse)
+async def delete_relacion(
+    request: Request,
+    relacion_id: int,
+    conn = Depends(get_db_connection),
+    service: ComprasService = Depends(get_compras_service),
+    _ = require_module_access("compras", "editor")
+):
+    """Elimina una relacion beneficiario-proveedor."""
+    success = await service.delete_relacion(conn, relacion_id)
+    if not success:
+        return templates.TemplateResponse(
+            "shared/toast.html",
+            {
+                "request": request,
+                "message": "Relacion no encontrada",
+                "type": "error",
+            }
+        )
+
+    return templates.TemplateResponse(
+        "shared/toast.html",
+        {
+            "request": request,
+            "message": "Relacion eliminada correctamente",
+            "type": "success",
         }
     )
 

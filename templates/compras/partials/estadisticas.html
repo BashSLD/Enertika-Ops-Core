@@ -1,4 +1,4 @@
-<div id="stats-container" class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+<div id="stats-container" class="grid grid-cols-2 md:grid-cols-{{ '6' if estadisticas.anticipos is defined and estadisticas.anticipos > 0 else '5' }} gap-4 mb-6">
     <div class="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
         <p class="text-xs text-gray-500 uppercase">Total Mes</p>
         <p class="text-2xl font-bold text-gray-800">{{ estadisticas.total }}</p>
@@ -7,6 +7,12 @@
         <p class="text-xs text-gray-500 uppercase">Pendientes</p>
         <p class="text-2xl font-bold text-yellow-600">{{ estadisticas.pendientes }}</p>
     </div>
+    {% if estadisticas.anticipos is defined and estadisticas.anticipos > 0 %}
+    <div class="bg-white rounded-lg shadow p-4 border-l-4 border-amber-500">
+        <p class="text-xs text-gray-500 uppercase">Anticipos</p>
+        <p class="text-2xl font-bold text-amber-600">{{ estadisticas.anticipos }}</p>
+    </div>
+    {% endif %}
     <div class="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
         <p class="text-xs text-gray-500 uppercase">Facturados</p>
         <p class="text-2xl font-bold text-green-600">{{ estadisticas.facturados }}</p>

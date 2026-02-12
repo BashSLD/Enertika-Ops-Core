@@ -20,9 +20,11 @@ from .schemas import (
 
 logger = logging.getLogger("ComprasXMLExtractor")
 
-# Claves SAT para deteccion de anticipos
+# Claves SAT para deteccion de anticipos y notas de credito
 CLAVE_ANTICIPO = "84111506"
 TIPO_RELACION_ANTICIPO = "07"
+TIPO_RELACION_NOTA_CREDITO = "01"
+TIPO_RELACION_PARCIALIDADES = "08"
 
 # Descripciones de tipos de relacion SAT
 TIPOS_RELACION_SAT = {
@@ -71,13 +73,21 @@ def _safe_decimal(value, default=None) -> Optional[Decimal]:
 def _detect_tipo_factura(
     conceptos: List[CfdiConcepto],
     relacionados: List[CfdiRelacionado],
+    tipo_comprobante: Optional[str] = None,
 ) -> TipoFactura:
     """
     Detecta el tipo de factura segun reglas SAT:
-    - ANTICIPO: ClaveProdServ=84111506 + descripcion contiene 'anticipo'
+    - NOTA_CREDITO: TipoDeComprobante=E + relacion tipo 01
     - CIERRE_ANTICIPO: tiene CFDI relacionado con tipo_relacion=07
+    - ANTICIPO: ClaveProdServ=84111506 + descripcion contiene 'anticipo'
     - NORMAL: cualquier otro caso
     """
+    # Verificar si es nota de credito (tipo E + relacion tipo 01)
+    if tipo_comprobante == "E":
+        for rel in relacionados:
+            if rel.tipo_relacion == TIPO_RELACION_NOTA_CREDITO:
+                return TipoFactura.NOTA_CREDITO
+
     # Verificar si es cierre de anticipo (tiene relacion tipo 07)
     for rel in relacionados:
         if rel.tipo_relacion == TIPO_RELACION_ANTICIPO:
@@ -195,7 +205,8 @@ def parse_cfdi_xml(content: bytes, filename: str) -> CfdiData:
     relacionados = _extract_relacionados(root)
 
     # Detectar tipo de factura
-    tipo_factura = _detect_tipo_factura(conceptos, relacionados)
+    tipo_comprobante = _get_attr(root, "TipoDeComprobante")
+    tipo_factura = _detect_tipo_factura(conceptos, relacionados, tipo_comprobante)
 
     cfdi = CfdiData(
         archivo=filename,

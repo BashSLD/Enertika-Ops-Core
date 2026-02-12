@@ -292,3 +292,50 @@
             }
         });
     </script>
+
+    <!-- Canvas Confetti Library -->
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+
+    <!-- Confetti Trigger Logic -->
+    <script>
+        (function () {
+            function initSimulacionView() {
+                // Check for confetti parameter in URL
+                const urlParams = new URLSearchParams(window.location.search);
+                const confettiParam = urlParams.get('confetti');
+                const tabParam = urlParams.get('tab') || 'activos';
+
+                // Confetti Logic - Celebration for SLA-compliant delivery
+                if (confettiParam === '1' && typeof confetti === 'function') {
+                    setTimeout(() => {
+                        // Trigger confetti with Simulación branding colors (emerald/teal)
+                        confetti({
+                            particleCount: 200,
+                            spread: 100,
+                            origin: { y: 0.6 },
+                            colors: ['#059669', '#14b8a6', '#10b981', '#0d9488'], // Emerald and teal shades
+                            zIndex: 10000
+                        });
+
+                        // Clean up URL after confetti (remove confetti param, keep tab)
+                        const cleanUrl = window.location.pathname + '?tab=' + tabParam;
+                        window.history.replaceState({}, '', cleanUrl);
+                    }, 500); // 500ms delay for smooth transition
+                }
+            }
+
+            // Initialize on load
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initSimulacionView);
+            } else {
+                initSimulacionView();
+            }
+
+            // Re-initialize after HTMX navigation (for SPA-like behavior)
+            document.body.addEventListener('htmx:afterSettle', function (evt) {
+                if (evt.detail.target.id === 'main-content') {
+                    initSimulacionView();
+                }
+            });
+        })();
+    </script>

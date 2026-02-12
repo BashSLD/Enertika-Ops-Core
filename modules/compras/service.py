@@ -13,6 +13,7 @@ import logging
 import time
 import json
 
+import base64
 from .pdf_extractor import process_uploaded_pdf, process_pdf_bytes, ComprobantePDFData
 from .xml_extractor import parse_cfdi_xml, validate_xml_content, process_uploaded_xml
 from .schemas import (
@@ -82,15 +83,15 @@ class ComprasService:
                 })
                 continue
             
-            # 3. Verificar duplicado
+            # 3. Verificar duplicado using db_service
             fecha_pago_date = data.fecha_pago.date() if isinstance(data.fecha_pago, datetime) else data.fecha_pago
             
-            exists = await conn.fetchval("""
-                SELECT 1 FROM tb_comprobantes_pago 
-                WHERE fecha_pago = $1 
-                AND beneficiario_orig = $2 
-                AND monto = $3
-            """, fecha_pago_date, data.beneficiario, Decimal(str(data.monto)))
+            from .db_service import get_db_service
+            db_svc = get_db_service()
+            
+            exists = await db_svc.check_duplicate_comprobante(
+                conn, fecha_pago_date, data.beneficiario, Decimal(str(data.monto))
+            )
             
             if exists:
                 duplicados.append({
@@ -103,32 +104,39 @@ class ComprasService:
                 logger.info(f"Duplicado detectado: {filename}")
                 continue
             
-            # 4. Insertar en base de datos
+            # 4. Insertar en base de datos using db_service
             try:
-                await conn.execute("""
-                    INSERT INTO tb_comprobantes_pago (
-                        id_comprobante, 
-                        fecha_pago, 
-                        beneficiario_orig,
-                        monto, 
-                        moneda, 
-                        estatus, 
-                        capturado_por_id,
-                        created_at,
-                        updated_at
-                    ) VALUES ($1, $2, $3, $4, $5, 'PENDIENTE', $6, NOW(), NOW())
-                """, 
-                    uuid4(), 
-                    fecha_pago_date, 
-                    data.beneficiario,
-                    Decimal(str(data.monto)), 
-                    data.moneda, 
-                    user_id
-                )
-                
+                comprobante_data = {
+                    'fecha_pago': fecha_pago_date,
+                    'beneficiario': data.beneficiario,
+                    'monto': Decimal(str(data.monto)),
+                    'moneda': data.moneda,
+                    'user_id': user_id
+                }
+                new_id = await db_svc.insert_comprobante(conn, comprobante_data)
+
                 insertados += 1
                 logger.info(f"Comprobante insertado: {filename} - {data.beneficiario} - ${data.monto}")
-                
+
+                # 5. Subir PDF a SharePoint
+                try:
+                    await file.seek(0)
+                    now = datetime.now()
+                    subcarpeta = f"compras/comprobantes_pdf/{now.strftime('%Y-%m')}"
+                    sp_result = await self.upload_archivo_sharepoint(
+                        conn, file, subcarpeta,
+                        new_id, "comprobante_pago", user_id,
+                        metadata_extra={
+                            "beneficiario": data.beneficiario,
+                            "monto": str(data.monto),
+                            "moneda": data.moneda,
+                        }
+                    )
+                    if sp_result:
+                        logger.info("PDF subido a SharePoint: %s", sp_result.get("url_sharepoint"))
+                except Exception as e:
+                    logger.error("Error subiendo PDF %s a SharePoint: %s (comprobante ya guardado en BD)", filename, e)
+
             except Exception as e:
                 logger.error(f"Error insertando comprobante {filename}: {e}")
                 errores.append({
@@ -271,15 +279,8 @@ class ComprasService:
         is_admin_or_editor = (user_role in ["ADMIN", "MANAGER"] or mod_role in ["admin", "editor"])
         
         if not is_admin_or_editor:
-            # Verificar que TODOS los comprobantes sean del usuario
-            # Optimizacion: Consultar solo los que NO son del usuario
-            query = """
-                SELECT COUNT(*) 
-                FROM tb_comprobantes_pago
-                WHERE id_comprobante = ANY($1)
-                AND capturado_por_id != $2
-            """
-            not_owned_count = await conn.fetchval(query, ids, user_id)
+            # Verificar que TODOS los comprobantes sean del usuario using db_service
+            not_owned_count = await db_svc.check_ownership_bulk(conn, ids, user_id)
             
             if not_owned_count > 0:
                 raise HTTPException(
@@ -315,14 +316,20 @@ class ComprasService:
         comprobantes, _ = await self.get_comprobantes(
             conn,
             filtros=filtros,
-            per_page=100000 
+            per_page=100000
         )
-        
+
+        # Batch fetch de facturas junction para todos los comprobantes
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+        comp_ids = [c['id_comprobante'] for c in comprobantes if c.get('id_comprobante')]
+        facturas_map = await db_svc.get_facturas_for_comprobantes(conn, comp_ids)
+
         # Crear workbook
         wb = Workbook()
         ws = wb.active
         ws.title = "Comprobantes de Pago"
-        
+
         # Estilos
         header_font = Font(bold=True, color="FFFFFF")
         header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
@@ -333,7 +340,7 @@ class ComprasService:
             top=Side(style='thin'),
             bottom=Side(style='thin')
         )
-        
+
         # Headers
         headers = [
             "Comprador",
@@ -345,21 +352,28 @@ class ComprasService:
             "Monto",
             "Moneda",
             "Categoría",
-            "UUID Factura"
+            "UUID Factura",
+            "Tipo Factura",
+            "UUIDs Relacionados"
         ]
-        
+
         for col_num, header in enumerate(headers, 1):
             cell = ws.cell(row=1, column=col_num, value=header)
             cell.font = header_font
             cell.fill = header_fill
             cell.alignment = header_alignment
             cell.border = thin_border
-        
+
         # Datos
         for row_num, comp in enumerate(comprobantes, 2):
             # Determinar nombre de proveedor
             proveedor = comp.get('proveedor_nombre') or comp.get('beneficiario_orig', '')
-            
+
+            # Obtener facturas junction para este comprobante
+            comp_facturas = facturas_map.get(comp.get('id_comprobante'), [])
+            tipos_factura = ", ".join(set(f.get('tipo', '') for f in comp_facturas)) if comp_facturas else ""
+            uuids_rel = ", ".join(f.get('uuid_factura', '')[:8] for f in comp_facturas) if comp_facturas else ""
+
             row_data = [
                 comp.get('comprador_nombre', ''),
                 proveedor,
@@ -370,20 +384,22 @@ class ComprasService:
                 comp.get('monto', 0),
                 comp.get('moneda', 'MXN'),
                 comp.get('categoria_nombre', ''),
-                str(comp.get('uuid_factura', '')) if comp.get('uuid_factura') else ''
+                str(comp.get('uuid_factura', '')) if comp.get('uuid_factura') else '',
+                tipos_factura,
+                uuids_rel,
             ]
-            
+
             for col_num, value in enumerate(row_data, 1):
                 cell = ws.cell(row=row_num, column=col_num, value=value)
                 cell.border = thin_border
-                
+
                 # Formato especial para monto
                 if col_num == 7:  # Columna Monto
                     cell.number_format = '#,##0.00'
                     cell.alignment = Alignment(horizontal="right")
-        
+
         # Ajustar anchos de columna
-        column_widths = [20, 35, 30, 15, 15, 15, 15, 10, 20, 40]
+        column_widths = [20, 35, 30, 15, 15, 15, 15, 10, 20, 40, 18, 40]
         for i, width in enumerate(column_widths, 1):
             ws.column_dimensions[get_column_letter(i)].width = width
         
@@ -456,11 +472,12 @@ class ComprasService:
             }
             
         stats = await db_svc.get_estadisticas(conn, filtros)
-        
+
         return {
             "total": stats['total'],
             "pendientes": stats['pendientes'],
             "facturados": stats['facturados'],
+            "anticipos": stats.get('anticipos', 0),
             "total_mxn": float(stats['total_mxn']),
             "total_usd": float(stats['total_usd'])
         }
@@ -524,11 +541,17 @@ class ComprasService:
                 ))
                 continue
 
-            # 4. Verificar UUID duplicado
+            # 4. Verificar UUID duplicado (en comprobantes y junction table)
             if await db_svc.uuid_factura_exists(conn, cfdi.uuid):
                 result.duplicados.append(XmlUploadError(
                     archivo=filename,
                     error=f"UUID {cfdi.uuid[:8]}... ya existe en el sistema"
+                ))
+                continue
+            if await db_svc.uuid_factura_exists_in_junction(conn, cfdi.uuid):
+                result.duplicados.append(XmlUploadError(
+                    archivo=filename,
+                    error=f"UUID {cfdi.uuid[:8]}... ya registrado en facturas"
                 ))
                 continue
 
@@ -547,6 +570,9 @@ class ComprasService:
             match_result = await self._buscar_match(
                 conn, db_svc, cfdi, proveedor
             )
+
+            # 7. Almacenar contenido XML en base64 para upload posterior a SharePoint
+            match_result.xml_content_b64 = base64.b64encode(content).decode('ascii')
 
             result.procesados.append(match_result)
 
@@ -589,6 +615,29 @@ class ComprasService:
                     match_type="MULTIPLE_MATCH",
                     candidatos=self._format_candidatos(candidatos),
                 )
+
+        # Nivel 1.5: buscar por razon_social/nombre_comercial del proveedor
+        nombres_proveedor = [proveedor.get('razon_social', '')]
+        nombre_com = proveedor.get('nombre_comercial')
+        if nombre_com and nombre_com != nombres_proveedor[0]:
+            nombres_proveedor.append(nombre_com)
+
+        candidatos = await db_svc.buscar_comprobantes_por_nombres_proveedor(
+            conn, nombres_proveedor, monto, moneda, MATCH_TOLERANCIA
+        )
+        if len(candidatos) == 1:
+            return XmlMatchResult(
+                cfdi=cfdi,
+                match_type="AUTO_MATCH",
+                candidatos=self._format_candidatos(candidatos),
+                comprobante_id=candidatos[0]['id_comprobante'],
+            )
+        if candidatos:
+            return XmlMatchResult(
+                cfdi=cfdi,
+                match_type="MULTIPLE_MATCH",
+                candidatos=self._format_candidatos(candidatos),
+            )
 
         # Nivel 2: buscar solo por monto
         candidatos = await db_svc.buscar_comprobantes_por_monto(
@@ -656,9 +705,11 @@ class ComprasService:
         emisor_rfc = cfdi_data['emisor_rfc']
         tipo_factura = cfdi_data.get('tipo_factura', 'NORMAL')
 
-        # Verificar UUID duplicado (doble check)
+        # Verificar UUID duplicado (doble check en comprobantes y junction)
         if await db_svc.uuid_factura_exists(conn, uuid_factura):
             raise ValueError(f"UUID {uuid_factura[:8]}... ya existe en el sistema")
+        if await db_svc.uuid_factura_exists_in_junction(conn, uuid_factura):
+            raise ValueError(f"UUID {uuid_factura[:8]}... ya registrado en facturas")
 
         # Obtener/crear proveedor
         proveedor = await db_svc.get_proveedor_by_rfc(conn, emisor_rfc)
@@ -672,20 +723,54 @@ class ComprasService:
         comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
         if not comprobante:
             raise ValueError("Comprobante no encontrado")
-        if comprobante['estatus'] != 'PENDIENTE':
-            raise ValueError("El comprobante ya no esta pendiente")
+
+        current_estatus = comprobante['estatus']
+        # Permitir match en PENDIENTE y ANTICIPO (para multiples anticipos)
+        if current_estatus not in ('PENDIENTE', 'ANTICIPO'):
+            raise ValueError("El comprobante ya no esta disponible para match")
 
         # 1. Actualizar comprobante con datos de la factura
         await db_svc.confirmar_match(
-            conn, id_comprobante, uuid_factura, id_proveedor, tipo_factura
+            conn, id_comprobante, uuid_factura, id_proveedor,
+            tipo_factura, current_estatus
         )
 
-        # 2. Guardar relacion beneficiario↔proveedor
+        # 1b. Insertar en junction table
+        try:
+            fecha_str = cfdi_data.get('fecha', '')
+            fecha_factura = datetime.fromisoformat(fecha_str).date()
+        except (ValueError, TypeError):
+            fecha_factura = None
+
+        await db_svc.insertar_comprobante_factura(
+            conn, id_comprobante, uuid_factura, tipo_factura,
+            monto=Decimal(str(cfdi_data.get('total', 0))),
+            moneda=cfdi_data.get('moneda', 'MXN'),
+            fecha=fecha_factura,
+            id_proveedor=id_proveedor,
+            rfc_emisor=cfdi_data.get('emisor_rfc'),
+            nombre_emisor=cfdi_data.get('emisor_nombre'),
+        )
+
+        # 2. Guardar relaciones beneficiario↔proveedor (bidireccional)
         if guardar_relacion:
             beneficiario = comprobante['beneficiario_orig']
+            # Relacion principal: nombre del beneficiario del PDF
             await db_svc.guardar_relacion_beneficiario(
                 conn, beneficiario, id_proveedor, user_id
             )
+            # Relacion inversa: razon_social del proveedor (XML)
+            razon_social = proveedor.get('razon_social', '')
+            if razon_social and razon_social != beneficiario:
+                await db_svc.guardar_relacion_beneficiario(
+                    conn, razon_social, id_proveedor, user_id
+                )
+            # Relacion adicional: nombre_comercial (si existe y es diferente)
+            nombre_com = proveedor.get('nombre_comercial')
+            if nombre_com and nombre_com != beneficiario and nombre_com != razon_social:
+                await db_svc.guardar_relacion_beneficiario(
+                    conn, nombre_com, id_proveedor, user_id
+                )
 
         # 3. Guardar conceptos en historial de materiales
         conceptos = cfdi_data.get('conceptos', [])
@@ -737,6 +822,32 @@ class ComprasService:
                         conn, id_comprobante, uuid_rel
                     )
 
+        # 6. Validar integridad: suma de conceptos vs subtotal
+        validacion_ok = True
+        subtotal_str = cfdi_data.get('subtotal')
+        if subtotal_str and conceptos:
+            try:
+                subtotal_expected = Decimal(str(subtotal_str))
+                conceptos_sum = sum(
+                    Decimal(str(c.get('importe', 0) if isinstance(c, dict) else c.importe))
+                    for c in conceptos
+                )
+                diff = abs(conceptos_sum - subtotal_expected)
+                if diff > Decimal('0.50'):
+                    validacion_ok = False
+                    logger.warning(
+                        "Validacion conceptos: suma=%s != subtotal=%s (diff=%s) UUID=%s",
+                        conceptos_sum, subtotal_expected, diff, uuid_factura[:8]
+                    )
+                else:
+                    logger.info(
+                        "Validacion conceptos OK: suma=%s ~= subtotal=%s (diff=%s) UUID=%s",
+                        conceptos_sum, subtotal_expected, diff, uuid_factura[:8]
+                    )
+            except (ValueError, TypeError) as e:
+                logger.warning("Error validando conceptos: %s", e)
+                validacion_ok = False
+
         logger.info(
             "Match confirmado: UUID=%s, Comprobante=%s, Proveedor=%s, Tipo=%s",
             uuid_factura[:8], id_comprobante, emisor_rfc, tipo_factura
@@ -749,6 +860,7 @@ class ComprasService:
             "tipo_factura": tipo_factura,
             "conceptos_guardados": len(conceptos),
             "relacionados_guardados": len(relacionados),
+            "validacion_ok": validacion_ok,
         }
 
     async def buscar_comprobantes_pendientes(
@@ -759,6 +871,24 @@ class ComprasService:
         db_svc = get_db_service()
         rows = await db_svc.buscar_comprobantes_pendientes(conn, q, limit)
         return self._format_candidatos(rows)
+
+    # ========================================
+    # RELACIONES BENEFICIARIO-PROVEEDOR
+    # ========================================
+
+    async def get_relaciones(
+        self, conn, q: Optional[str] = None, limit: int = 100
+    ) -> List[dict]:
+        """Lista relaciones beneficiario-proveedor."""
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+        return await db_svc.get_relaciones_all(conn, q=q, limit=limit)
+
+    async def delete_relacion(self, conn, relacion_id: int) -> bool:
+        """Elimina una relacion beneficiario-proveedor."""
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+        return await db_svc.delete_relacion(conn, relacion_id)
 
     # ========================================
     # SHAREPOINT - ARCHIVOS
@@ -801,8 +931,8 @@ class ComprasService:
 
             sharepoint = SharePointService(access_token=app_token)
 
-            # Construir ruta
-            base_folder = await sharepoint._get_base_folder(conn)
+            # Construir ruta - Leer base_folder de configuración using db_service
+            base_folder = await db_svc.get_config_valor(conn, 'SHAREPOINT_BASE_FOLDER')
             folder_path = f"{base_folder}/{subcarpeta}" if base_folder else subcarpeta
 
             # Nombre unico
@@ -810,11 +940,9 @@ class ComprasService:
             timestamp = int(time.time())
             file.filename = f"{timestamp}_{original_name}"
 
-            # Validar tamano
-            max_size_row = await conn.fetchval(
-                "SELECT valor FROM tb_configuracion_global WHERE clave = 'MAX_UPLOAD_SIZE_MB'"
-            )
-            max_size_mb = float(max_size_row) if max_size_row else 50.0
+            # Validar tamano using db_service
+            max_size_str = await db_svc.get_config_valor(conn, 'MAX_UPLOAD_SIZE_MB')
+            max_size_mb = float(max_size_str) if max_size_str else 50.0
 
             file.file.seek(0, 2)
             f_size = file.file.tell()

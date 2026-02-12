@@ -61,6 +61,17 @@
                     Materiales
                 </a>
 
+                <!-- Botón Relaciones -->
+                <button hx-get="/compras/relaciones" hx-target="#relaciones-container" hx-swap="innerHTML"
+                    class="ripple-effect bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                        stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                    </svg>
+                    Relaciones
+                </button>
+
                 <!-- Botón Crear Proyecto -->
                 <button onclick="abrirModalCrearProyecto()"
                     class="ripple-effect bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
@@ -101,6 +112,8 @@
                 <select name="estatus" autocomplete="off"
                     class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
                     <option value="PENDIENTE" {% if filtros.estatus=='PENDIENTE' %}selected{% endif %}>Pendiente
+                    </option>
+                    <option value="ANTICIPO" {% if filtros.estatus=='ANTICIPO' %}selected{% endif %}>Anticipo
                     </option>
                     <option value="FACTURADO" {% if filtros.estatus=='FACTURADO' %}selected{% endif %}>Facturado
                     </option>
@@ -172,6 +185,7 @@
                     class="px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500">
                     <option value="">Cambiar Estatus...</option>
                     <option value="PENDIENTE">Pendiente</option>
+                    <option value="ANTICIPO">Anticipo</option>
                     <option value="FACTURADO">Facturado</option>
                 </select>
 
@@ -207,19 +221,28 @@
 
     <!-- Container para modal de crear proyecto -->
     <div id="modal-proyecto-container"></div>
+
+    <!-- Container para modal de relaciones beneficiario-proveedor -->
+    <div id="relaciones-container"></div>
 </div>
 
 <!-- Scripts -->
 <script>
     // Estado de selección
-    let selectedIds = new Set();
+    // Estado de selección (Global para sobrevivir HTMX swaps)
+    if (!window.selectedIds) {
+        window.selectedIds = new Set();
+    } else {
+        // Opcional: limpiar al recargar si se desea resetear la selección
+        // window.selectedIds.clear(); 
+    }
 
     // Toggle selección individual
     function toggleSelection(checkbox, id) {
         if (checkbox.checked) {
-            selectedIds.add(id);
+            window.selectedIds.add(id);
         } else {
-            selectedIds.delete(id);
+            window.selectedIds.delete(id);
         }
         updateBulkUI();
     }
@@ -231,9 +254,9 @@
             cb.checked = checkbox.checked;
             const id = cb.dataset.id;
             if (checkbox.checked) {
-                selectedIds.add(id);
+                window.selectedIds.add(id);
             } else {
-                selectedIds.delete(id);
+                window.selectedIds.delete(id);
             }
         });
         updateBulkUI();
@@ -244,9 +267,9 @@
         const bulkActions = document.getElementById('bulk-actions');
         const selectedCount = document.getElementById('selected-count');
 
-        if (selectedIds.size > 0) {
+        if (window.selectedIds.size > 0) {
             bulkActions.classList.remove('hidden');
-            selectedCount.textContent = selectedIds.size;
+            selectedCount.textContent = window.selectedIds.size;
         } else {
             bulkActions.classList.add('hidden');
         }
@@ -254,7 +277,7 @@
 
     // Cancelar selección
     function cancelarSeleccion() {
-        selectedIds.clear();
+        window.selectedIds.clear();
         document.querySelectorAll('.row-checkbox').forEach(cb => cb.checked = false);
         document.getElementById('select-all').checked = false;
         updateBulkUI();
@@ -272,7 +295,7 @@
         }
 
         const formData = new FormData();
-        formData.append('ids', JSON.stringify(Array.from(selectedIds)));
+        formData.append('ids', JSON.stringify(Array.from(window.selectedIds)));
         if (zona) formData.append('id_zona', zona);
         if (categoria) formData.append('id_categoria', categoria);
         if (estatus) formData.append('estatus', estatus);

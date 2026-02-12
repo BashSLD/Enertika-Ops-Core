@@ -1,0 +1,57 @@
+{# Resultados de busqueda fuzzy de materiales para BOM #}
+{% if resultados %}
+<div class="max-h-56 overflow-y-auto divide-y divide-gray-100 border rounded-lg bg-white shadow-lg">
+    {% if not query or query|length < 3 %} <div
+        class="px-3 py-1.5 bg-gray-50 text-xs text-gray-400 font-medium sticky top-0">
+        Materiales recientes - escribe para buscar
+</div>
+{% endif %}
+{% for mat in resultados %}
+<button type="button" class="w-full text-left px-3 py-2 hover:bg-blue-50 transition-colors cursor-pointer" @click="
+            descripcion = '{{ mat.descripcion_proveedor|replace("'", "\\'")|e }}';
+            precio = {{ mat.precio_unitario or 0 }};
+            unidad = '{{ (mat.unidad or '')|replace("'", "\\'") }}';
+            origen = 'CATALOGO';
+            materialRef = '{{ mat.id }}';
+            materialSeleccionado = '{{ mat.descripcion_proveedor|truncate(60)|replace("'", "\\'")|e }}';
+            $refs.inputBusqueda.value = '';
+            mostrarResultados = false;
+        ">
+    <div class="flex items-center justify-between">
+        <div class="flex-1 min-w-0">
+            <div class="text-sm text-gray-800 truncate">{{ mat.descripcion_proveedor }}</div>
+            <div class="text-xs text-gray-500 mt-0.5">
+                {% if mat.proveedor_nombre %}{{ mat.proveedor_nombre|truncate(30) }} - {% endif %}
+                {% if mat.unidad %}{{ mat.unidad }}{% endif %}
+                {% if mat.clave_prod_serv %} - SAT: {{ mat.clave_prod_serv }}{% endif %}
+            </div>
+        </div>
+        <div class="flex-shrink-0 ml-3 text-right">
+            <div class="text-sm font-semibold text-green-700">${{ "%.2f"|format(mat.precio_unitario or 0) }}</div>
+            {% if query and query|length >= 3 %}
+            <div class="text-xs text-gray-400">{{ "%.0f"|format((mat.similitud or 0) * 100) }}% sim.</div>
+            {% endif %}
+        </div>
+    </div>
+</button>
+{% endfor %}
+</div>
+{% else %}
+{# Estados vacios #}
+{% if query and query|length >= 3 %}
+<div class="text-center py-4 px-3 text-sm text-gray-500">
+    <p>Sin resultados para "<span class="font-bold">{{ query }}</span>"</p>
+    <p class="text-xs text-gray-400 mt-1">Intenta con otros terminos o usa la entrada manual.</p>
+</div>
+{% elif query %}
+<div class="text-center py-3 px-3 text-xs text-gray-400">
+    Escribe al menos 3 letras para buscar...
+</div>
+{% else %}
+<div class="text-center py-4 px-3 text-sm text-gray-400">
+    <p>No hay materiales recientes.</p>
+    <p class="text-xs mt-1">Escribe para buscar en el historico.</p>
+</div>
+{% endif %}
+{% endif %}
+</div>

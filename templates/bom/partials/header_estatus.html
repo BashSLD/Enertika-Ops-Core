@@ -1,0 +1,111 @@
+{# Header con estatus del BOM + botones de accion del workflow #}
+{% set estatus_config = {
+    'BORRADOR': {'bg': 'bg-gray-100', 'text': 'text-gray-800', 'dot': 'bg-gray-400', 'label': 'Borrador'},
+    'EN_REVISION_ING': {'bg': 'bg-amber-100', 'text': 'text-amber-800', 'dot': 'bg-amber-400', 'label': 'En Revision Ing.'},
+    'APROBADO_ING': {'bg': 'bg-blue-100', 'text': 'text-blue-800', 'dot': 'bg-blue-400', 'label': 'Aprobado Ing.'},
+    'EN_REVISION_CONST': {'bg': 'bg-orange-100', 'text': 'text-orange-800', 'dot': 'bg-orange-400', 'label': 'En Revision Const.'},
+    'APROBADO': {'bg': 'bg-green-100', 'text': 'text-green-800', 'dot': 'bg-green-400', 'label': 'Aprobado'},
+} %}
+{% set cfg = estatus_config.get(bom.estatus, estatus_config['BORRADOR']) %}
+
+<div class="bg-white rounded-xl border p-4 mb-6">
+    <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        {# Info BOM #}
+        <div class="flex items-center gap-4">
+            <div>
+                <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium {{ cfg.bg }} {{ cfg.text }}">
+                    <span class="w-2 h-2 mr-2 rounded-full {{ cfg.dot }}"></span>
+                    {{ cfg.label }}
+                </span>
+            </div>
+            <div class="text-sm text-gray-600 space-y-0.5">
+                <div><span class="font-medium">Version:</span> v{{ bom.version }}</div>
+                <div><span class="font-medium">Elaborado por:</span> {{ bom.elaborado_por_nombre or 'N/A' }}</div>
+                {% if bom.responsable_ing_nombre %}
+                <div><span class="font-medium">Resp. Ing:</span> {{ bom.responsable_ing_nombre }}</div>
+                {% endif %}
+                {% if bom.coordinador_obra_nombre %}
+                <div><span class="font-medium">Coord. Obra:</span> {{ bom.coordinador_obra_nombre }}</div>
+                {% endif %}
+            </div>
+        </div>
+
+        {# Botones de accion segun estatus #}
+        <div class="flex flex-wrap gap-2">
+            {% if bom.estatus == 'BORRADOR' and es_ing_editor %}
+            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/enviar-revision" hx-target="#modal-container" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition">
+                <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
+                </svg>
+                Enviar a Revision Ing.
+            </button>
+            {% endif %}
+
+            {% if bom.estatus == 'EN_REVISION_ING' and es_ing_manager %}
+            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/aprobar-ing" hx-target="#modal-container" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition">
+                Aprobar
+            </button>
+            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/rechazar-ing" hx-target="#modal-container" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-600 hover:bg-red-700 transition">
+                Rechazar
+            </button>
+            {% endif %}
+
+            {% if bom.estatus == 'APROBADO_ING' and es_ing_editor %}
+            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/enviar-const" hx-target="#modal-container" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition">
+                Enviar a Construccion
+            </button>
+            {% endif %}
+
+            {% if bom.estatus == 'EN_REVISION_CONST' and es_const_manager %}
+            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/aprobar-const" hx-target="#modal-container" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition">
+                Aprobar
+            </button>
+            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/rechazar-const" hx-target="#modal-container" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-600 hover:bg-red-700 transition">
+                Rechazar
+            </button>
+            {% endif %}
+
+            {% if bom.estatus == 'APROBADO' and es_ing_manager %}
+            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/solicitar-modificacion" hx-target="#modal-container" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-amber-600 hover:bg-amber-700 transition">
+                Solicitar Modificacion
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    {# Barra de progreso del workflow #}
+    <div class="mt-4 flex items-center gap-1">
+        {% set pasos = ['BORRADOR', 'EN_REVISION_ING', 'APROBADO_ING', 'EN_REVISION_CONST', 'APROBADO'] %}
+        {% set paso_labels = ['Borrador', 'Rev. Ing', 'Aprobado Ing', 'Rev. Const', 'Aprobado'] %}
+        {% set paso_actual = pasos.index(bom.estatus) if bom.estatus in pasos else 0 %}
+
+        {% for paso in pasos %}
+        {% set idx = loop.index0 %}
+        <div class="flex-1 h-2 rounded-full {% if idx < paso_actual %}bg-green-400{% elif idx == paso_actual %}bg-blue-500{% else %}bg-gray-200{% endif %}"></div>
+        {% if not loop.last %}
+        <svg class="w-3 h-3 {% if idx < paso_actual %}text-green-400{% else %}text-gray-300{% endif %}" fill="currentColor" viewBox="0 0 20 20">
+            <path fill-rule="evenodd" d="M7.293 14.707a1 1 0 010-1.414L10.586 10 7.293 6.707a1 1 0 011.414-1.414l4 4a1 1 0 010 1.414l-4 4a1 1 0 01-1.414 0z" clip-rule="evenodd"/>
+        </svg>
+        {% endif %}
+        {% endfor %}
+    </div>
+    <div class="mt-1 flex justify-between text-[10px] text-gray-400 uppercase">
+        {% for label in paso_labels %}
+        <span>{{ label }}</span>
+        {% endfor %}
+    </div>
+
+    {# Notas #}
+    {% if bom.notas %}
+    <div class="mt-3 text-xs text-gray-500 bg-gray-50 rounded-lg p-2">
+        <span class="font-medium">Notas:</span> {{ bom.notas }}
+    </div>
+    {% endif %}
+</div>

@@ -1,0 +1,68 @@
+{# Timeline de aprobaciones del BOM #}
+{% set tipo_config = {
+    'ENVIO_REVISION_ING': {'color': 'blue', 'label': 'Enviado a revision Ing.', 'icon': 'send'},
+    'APROBACION_ING': {'color': 'green', 'label': 'Aprobado por Ing.', 'icon': 'check'},
+    'RECHAZO_ING': {'color': 'red', 'label': 'Rechazado por Ing.', 'icon': 'x'},
+    'ENVIO_REVISION_CONST': {'color': 'blue', 'label': 'Enviado a revision Const.', 'icon': 'send'},
+    'APROBACION_CONST': {'color': 'green', 'label': 'Aprobado por Const.', 'icon': 'check'},
+    'RECHAZO_CONST': {'color': 'red', 'label': 'Rechazado por Const.', 'icon': 'x'},
+    'SOLICITUD_MODIFICACION': {'color': 'amber', 'label': 'Solicitud de modificacion', 'icon': 'edit'},
+    'APROBACION_MODIFICACION': {'color': 'green', 'label': 'Modificacion aprobada', 'icon': 'check'},
+} %}
+
+{% if aprobaciones %}
+<div class="relative">
+    {# Linea vertical #}
+    <div class="absolute left-3 top-0 bottom-0 w-0.5 bg-gray-200"></div>
+
+    <div class="space-y-4">
+        {% for a in aprobaciones %}
+        {% set cfg = tipo_config.get(a.tipo, {'color': 'gray', 'label': a.tipo, 'icon': 'dot'}) %}
+        <div class="relative flex items-start gap-4 pl-8">
+            {# Punto en la linea #}
+            <div class="absolute left-1 top-1.5 w-4 h-4 rounded-full border-2 border-white
+                {% if cfg.color == 'green' %}bg-green-500
+                {% elif cfg.color == 'red' %}bg-red-500
+                {% elif cfg.color == 'blue' %}bg-blue-500
+                {% elif cfg.color == 'amber' %}bg-amber-500
+                {% else %}bg-gray-400{% endif %}">
+            </div>
+
+            <div class="flex-1 bg-white rounded-lg border p-3">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <span class="text-sm font-medium
+                            {% if cfg.color == 'green' %}text-green-700
+                            {% elif cfg.color == 'red' %}text-red-700
+                            {% elif cfg.color == 'blue' %}text-blue-700
+                            {% elif cfg.color == 'amber' %}text-amber-700
+                            {% else %}text-gray-700{% endif %}">
+                            {{ cfg.label }}
+                        </span>
+                        <span class="text-xs text-gray-500 ml-2">v{{ a.version_bom }}</span>
+                    </div>
+                    <div class="text-xs text-gray-400">
+                        {% if a.created_at %}{{ a.created_at.strftime('%d/%m/%Y %H:%M') }}{% endif %}
+                    </div>
+                </div>
+                <div class="text-xs text-gray-500 mt-1">
+                    Por: {{ a.usuario_nombre or 'Sistema' }}
+                </div>
+                {% if a.comentarios %}
+                <div class="text-sm text-gray-700 mt-2 bg-gray-50 rounded p-2 border-l-2
+                    {% if cfg.color == 'red' %}border-red-300
+                    {% elif cfg.color == 'green' %}border-green-300
+                    {% else %}border-blue-300{% endif %}">
+                    {{ a.comentarios }}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+{% else %}
+<div class="text-center py-6 text-sm text-gray-400">
+    No hay acciones de aprobacion registradas.
+</div>
+{% endif %}

@@ -811,45 +811,95 @@
         });
 
         // === NOTIFICATIONS SYSTEM (SSE) ===
-        let notificationSource = null;
-        let unreadCount = 0;
+        var notificationSource = null;
+        var unreadCount = 0;
+        var _sseRetryCount = 0;
+        var _sseRetryTimer = null;
+        var _sseMaxRetries = 10;
 
         function initNotifications() {
-            const timeoutPromise = new Promise((_, reject) =>
-                setTimeout(() => reject(new Error('Timeout')), 2000)
-            );
+            // Carga inicial de conteo y lista (solo la primera vez)
+            if (_sseRetryCount === 0) {
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Timeout')), 2000)
+                );
 
-            Promise.race([
-                fetch('/notifications/count').then(r => r.json()),
-                timeoutPromise
-            ])
-                .then(data => {
-                    unreadCount = data.unread_count;
-                    updateBadges();
-                    loadNotifications();
-                })
-                .catch(() => {
-                    console.warn('[Notifications] Timeout inicial, continuando...');
-                });
-
-            if (typeof (EventSource) !== "undefined") {
-                notificationSource = new EventSource('/notifications/stream');
-
-                notificationSource.addEventListener('notification', function (e) {
-                    const data = JSON.parse(e.data);
-                    // El backend no envía unread_count en el evento, lo incrementamos localmente
-                    unreadCount++;
-                    updateBadges();
-                    prependNotification(data);
-                    showToast(data);
-                });
-
-                notificationSource.onerror = function () {
-                    console.warn('[SSE] Error de conexión, reintentando en 5s...');
-                    notificationSource.close();
-                    setTimeout(initNotifications, 5000);
-                };
+                Promise.race([
+                    fetch('/notifications/count').then(r => r.json()),
+                    timeoutPromise
+                ])
+                    .then(data => {
+                        unreadCount = data.unread_count;
+                        updateBadges();
+                        loadNotifications();
+                    })
+                    .catch(() => {
+                        console.warn('[Notifications] Timeout inicial, continuando...');
+                    });
             }
+
+            _connectSSE();
+        }
+
+        function _connectSSE() {
+            if (typeof (EventSource) === "undefined") return;
+
+            // Cerrar conexion previa si existe
+            if (notificationSource) {
+                try { notificationSource.close(); } catch(_) {}
+                notificationSource = null;
+            }
+
+            notificationSource = new EventSource('/notifications/stream');
+
+            notificationSource.addEventListener('notification', function (e) {
+                const data = JSON.parse(e.data);
+                unreadCount++;
+                updateBadges();
+                prependNotification(data);
+                showToast(data);
+            });
+
+            notificationSource.addEventListener('pending', function (e) {
+                // Pendientes ya se cargan via loadNotifications, ignorar duplicados
+            });
+
+            notificationSource.addEventListener('error', function (e) {
+                // Evento custom del servidor (not_authenticated, db_unavailable, etc.)
+                try {
+                    const data = JSON.parse(e.data);
+                    if (data.error === 'not_authenticated') {
+                        console.warn('[SSE] No autenticado, deshabilitando reconexion');
+                        notificationSource.close();
+                        notificationSource = null;
+                        return;
+                    }
+                } catch(_) {}
+            });
+
+            notificationSource.onopen = function () {
+                // Conexion exitosa: resetear contador de reintentos
+                _sseRetryCount = 0;
+            };
+
+            notificationSource.onerror = function () {
+                notificationSource.close();
+                notificationSource = null;
+
+                if (_sseRetryCount >= _sseMaxRetries) {
+                    console.warn('[SSE] Limite de reintentos alcanzado, deteniendo reconexion');
+                    return;
+                }
+
+                // Backoff exponencial con jitter: 5s, 10s, 20s, 40s... max 60s
+                var delay = Math.min(5000 * Math.pow(2, _sseRetryCount), 60000);
+                delay += Math.random() * 2000; // jitter 0-2s
+                _sseRetryCount++;
+
+                console.warn('[SSE] Reconectando en ' + Math.round(delay/1000) + 's (intento ' + _sseRetryCount + '/' + _sseMaxRetries + ')');
+                clearTimeout(_sseRetryTimer);
+                _sseRetryTimer = setTimeout(_connectSSE, delay);
+            };
         }
 
         function updateBadges() {

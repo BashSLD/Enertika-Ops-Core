@@ -185,6 +185,9 @@ class SimulacionService:
         """
         Actualiza la oportunidad padre y sus sitios asociados.
         Refactorizado para usar métodos auxiliares privados.
+        
+        Returns:
+            tuple: (kpi_sla_interno, kpi_compromiso, has_negotiated_deadline) para lógica de confetti
         """
         # 0. Obtener estado actual y configuración
         status_map = await self._get_status_ids(conn)
@@ -278,6 +281,12 @@ class SimulacionService:
         await self._send_update_notifications(
             conn, id_oportunidad, current_data, datos, user_context
         )
+        
+        # 6. Return KPI data for confetti logic in router
+        # Determine if there was a negotiated deadline (current or new)
+        has_negotiated_deadline = bool(datos.deadline_negociado or current_data['deadline_negociado'])
+        
+        return (kpi_sla_val, kpi_compromiso_val, has_negotiated_deadline)
 
     async def update_sitios_batch(
         self, 

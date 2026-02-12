@@ -1,30 +1,50 @@
-<!-- Lista de archivos asociados a un comprobante -->
-<div class="flex items-center gap-1">
-    {% for archivo in archivos %}
-    {% set es_xml = archivo.origen_slug == 'factura_xml' or (archivo.metadata and archivo.metadata.get('content_type', '')|string == 'text/xml') %}
-    {% set es_pdf = archivo.origen_slug == 'comprobante_pago' or archivo.nombre_archivo.endswith('.pdf') %}
-    <a href="{{ archivo.url_sharepoint }}" target="_blank" rel="noopener noreferrer"
-        title="{{ archivo.nombre_archivo }}"
-        class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium transition-colors
-            {% if es_xml %}bg-orange-100 text-orange-700 hover:bg-orange-200
-            {% elif es_pdf %}bg-red-100 text-red-700 hover:bg-red-200
-            {% else %}bg-gray-100 text-gray-700 hover:bg-gray-200{% endif %}">
-        {% if es_xml %}
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
-        </svg>
-        XML
-        {% elif es_pdf %}
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mr-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-        </svg>
-        PDF
-        {% else %}
-        {{ archivo.nombre_archivo|truncate(10) }}
-        {% endif %}
-    </a>
-    {% endfor %}
-    {% if not archivos %}
-    <span class="text-xs text-gray-400">-</span>
-    {% endif %}
+<!-- Lista de archivos asociados a un comprobante - Versión Popover -->
+{% if archivos|length == 1 %}
+<!-- 1 archivo: Redirigir directamente -->
+{% set archivo = archivos[0] %}
+<script>
+    window.open('{{ archivo.url_sharepoint }}', '_blank');
+</script>
+{% elif archivos|length > 1 %}
+<!-- Múltiples archivos: Mostrar lista en popover -->
+<div class="p-3 min-w-[200px]">
+    <p class="text-xs font-semibold text-gray-600 mb-2">Archivos adjuntos:</p>
+    <div class="space-y-1">
+        {% for archivo in archivos %}
+        {% set es_xml = archivo.origen_slug == 'factura_xml' or (archivo.metadata and
+        archivo.metadata.get('content_type', '')|string == 'text/xml') %}
+        {% set es_pdf = archivo.origen_slug == 'comprobante_pago' or archivo.nombre_archivo.endswith('.pdf') %}
+        <a href="{{ archivo.url_sharepoint }}" target="_blank" rel="noopener noreferrer"
+            title="{{ archivo.nombre_archivo }}" class="flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors
+                    {% if es_xml %}bg-orange-50 hover:bg-orange-100 text-orange-700
+                    {% elif es_pdf %}bg-red-50 hover:bg-red-100 text-red-700
+                    {% else %}bg-gray-50 hover:bg-gray-100 text-gray-700{% endif %}">
+            {% if es_xml %}
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+            </svg>
+            <span class="font-medium">XML</span>
+            {% elif es_pdf %}
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24"
+                stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+            </svg>
+            <span class="font-medium">PDF</span>
+            {% else %}
+            <span class="text-xs truncate">{{ archivo.nombre_archivo }}</span>
+            {% endif %}
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 ml-auto flex-shrink-0" fill="none"
+                viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
+        </a>
+        {% endfor %}
+    </div>
 </div>
+{% else %}
+<div class="p-2 text-xs text-gray-400">Sin archivos</div>
+{% endif %}

@@ -7,7 +7,7 @@ import logging
 
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
-from core.permissions import require_module_access
+from core.permissions import require_module_access, require_manager_access
 from core.config import settings
 
 # Database connection
@@ -207,11 +207,13 @@ async def assign_responsables_endpoint(
     conn = Depends(get_db_connection),
     service: LevantamientoService = Depends(get_service),
     context = Depends(get_current_user_context),
-    _ = require_module_access("levantamientos", "editor"),
+    _ = require_manager_access("levantamientos", "editor"),
 ):
     """
     API: Asigna responsables (múltiples técnicos) a un levantamiento.
     Envía notificaciones automáticas.
+    
+    **PERMISOS REQUERIDOS**: MANAGER+editor, Admin del módulo, o ADMIN global
     """
     try:
         await service.assign_responsables(

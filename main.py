@@ -86,17 +86,26 @@ app.include_router(transfers_router)
 from core.materials.router import router as materials_router
 app.include_router(materials_router)
 
+# BOM - Lista de Materiales (compartido entre modulos)
+from core.bom.router import router as bom_router
+app.include_router(bom_router)
+
 # Workflow: Comentarios centralizados
 from core.workflow.router import router as workflow_router
 app.include_router(workflow_router)
 
 # Notificaciones en Tiempo Real (SSE)
 from core.notifications import router as notifications_router
-from core.notifications.service import startup_notifications, shutdown_notifications
+from core.notifications.service import startup_notifications, shutdown_notifications, monitor_connection_task
 
 # Agregar lifecycle hooks para el multiplexer de notificaciones
 # Se ejecutan al iniciar y cerrar la app
 app.router.on_startup.append(startup_notifications)
+# Registrar monitor en background (wrapper para que sea async)
+async def start_sse_monitor():
+    asyncio.create_task(monitor_connection_task())
+app.router.on_startup.append(start_sse_monitor)
+
 app.router.on_shutdown.append(shutdown_notifications)
 
 app.include_router(notifications_router.router)

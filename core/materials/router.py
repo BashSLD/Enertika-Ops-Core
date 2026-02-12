@@ -14,7 +14,7 @@ import logging
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
-from core.permissions import require_module_access
+from core.permissions import require_module_access, ROLE_HIERARCHY
 from core.config import settings
 from .service import MaterialsService, get_materials_service
 from .schemas import MaterialFilter, MaterialUpdate
@@ -32,6 +32,43 @@ router = APIRouter(
     tags=["Materiales"],
 )
 
+# ========================================
+# PERMISOS COMPARTIDOS
+# ========================================
+
+async def require_materials_view_access(
+    context = Depends(get_current_user_context)
+):
+    """
+    Permite acceso si el usuario tiene rol (viewer o superior)
+    en alguno de los modulos operativos o compras.
+    """
+    # 1. Admin Global
+    if context.get("role") == "ADMIN":
+        return True
+        
+    module_roles = context.get("module_roles", {})
+    
+    # Lista de modulos permitidos (Solicitado por Usuario)
+    ALLOWED_MODULES = ["compras", "ingenieria", "construccion", "oym"]
+    
+    has_access = False
+    for mod in ALLOWED_MODULES:
+        role = module_roles.get(mod)
+        if role:
+            # Validar nivel minimo viewer (que es el mas bajo, asi que cualquiera sirve)
+            # Pero usamos ROLE_HIERARCHY por consistencia
+            if ROLE_HIERARCHY.get(role, 0) >= ROLE_HIERARCHY.get("viewer", 1):
+                has_access = True
+                break
+                
+    if not has_access:
+         raise HTTPException(
+            status_code=403,
+            detail=f"Requiere acceso a uno de: {', '.join(ALLOWED_MODULES)}"
+        )
+    
+    return True
 
 # ========================================
 # UI PRINCIPAL
@@ -43,7 +80,7 @@ async def get_materials_ui(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_module_access("compras"),
+    _=Depends(require_materials_view_access), # Acceso ampliado
 ):
     """Dashboard de materiales. Dual render HTMX."""
     catalogos = await service.get_catalogos(conn)
@@ -91,7 +128,7 @@ async def get_materials_list(
     filtros: Annotated[MaterialFilter, Query()],
     conn=Depends(get_db_connection),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_module_access("compras"),
+    _=Depends(require_materials_view_access),
 ):
     """Tabla filtrada de materiales (partial HTMX)."""
     filtro_dict = filtros.model_dump(exclude_none=True)
@@ -139,10 +176,10 @@ async def get_material_precios(
     material_id: UUID,
     conn=Depends(get_db_connection),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_module_access("compras"),
+    _=Depends(require_materials_view_access),
 ):
     """Modal de analisis de precios por material."""
-    material, precios = await service.get_material_precios(conn, material_id)
+    material, precios, precios_sat = await service.get_material_precios(conn, material_id)
     if not material:
         raise HTTPException(status_code=404, detail="Material no encontrado")
 
@@ -152,6 +189,7 @@ async def get_material_precios(
             "request": request,
             "material": material,
             "precios": precios,
+            "precios_sat": precios_sat,
         }
     )
 
@@ -210,7 +248,7 @@ async def export_materials_excel(
     filtros: Annotated[MaterialFilter, Query()],
     conn=Depends(get_db_connection),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_module_access("compras"),
+    _=Depends(require_materials_view_access),
 ):
     """Exporta materiales a Excel con filtros aplicados."""
     filtro_dict = filtros.model_dump(exclude_none=True)
@@ -232,6 +270,34 @@ async def export_materials_excel(
 
 
 # ========================================
+# BUSQUEDA FUZZY
+# ========================================
+
+@router.get("/similar", response_class=HTMLResponse)
+async def buscar_materiales_similares(
+    request: Request,
+    q: str = Query(..., min_length=3, description="Texto de busqueda"),
+    threshold: float = Query(0.3, ge=0.1, le=1.0),
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=Depends(require_materials_view_access),
+):
+    """Busqueda fuzzy de materiales por descripcion con pg_trgm."""
+    resultados = await service.buscar_materiales_similares(
+        conn, q, threshold=threshold, limit=20
+    )
+
+    return templates.TemplateResponse(
+        "materials/partials/similar_results.html",
+        {
+            "request": request,
+            "resultados": resultados,
+            "query": q,
+        }
+    )
+
+
+# ========================================
 # CATALOGOS
 # ========================================
 
@@ -239,7 +305,7 @@ async def export_materials_excel(
 async def get_catalogos(
     conn=Depends(get_db_connection),
     service: MaterialsService = Depends(get_materials_service),
-    _=require_module_access("compras"),
+    _=Depends(require_materials_view_access),
 ):
     """Catalogos para dropdowns de materiales."""
     return await service.get_catalogos(conn)

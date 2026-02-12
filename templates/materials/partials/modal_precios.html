@@ -1,18 +1,21 @@
 <!-- Modal Analisis de Precios por Material -->
-<div id="modal-precios" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in-down"
+<div id="modal-precios"
+    class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 animate-fade-in-down"
     onclick="if(event.target === this) cerrarModalPrecios()">
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl mx-4 max-h-[85vh] overflow-hidden">
         <!-- Header -->
-        <div class="bg-gradient-to-r from-[#123456] to-[#1a4a7a] text-white px-6 py-4 flex items-center justify-between">
+        <div
+            class="bg-gradient-to-r from-[#123456] to-[#1a4a7a] text-white px-6 py-4 flex items-center justify-between">
             <div>
                 <h3 class="text-lg font-bold">Analisis de Precios</h3>
-                <p class="text-sm text-blue-200 mt-0.5 truncate max-w-[400px]" title="{{ material.descripcion_proveedor }}">
+                <p class="text-sm text-blue-200 mt-0.5 truncate max-w-[400px]"
+                    title="{{ material.descripcion_proveedor }}">
                     {{ material.descripcion_proveedor }}
                 </p>
             </div>
-            <button onclick="cerrarModalPrecios()"
-                class="text-white hover:text-gray-200 transition-colors">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <button onclick="cerrarModalPrecios()" class="text-white hover:text-gray-200 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
             </button>
@@ -31,7 +34,8 @@
                 </div>
                 <div>
                     <span class="text-gray-500">Precio unitario:</span>
-                    <p class="font-medium text-gray-800">${{ "{:,.2f}".format(material.precio_unitario) if material.precio_unitario else '-' }}</p>
+                    <p class="font-medium text-gray-800">${{ "{:,.2f}".format(material.precio_unitario) if
+                        material.precio_unitario else '-' }}</p>
                 </div>
                 <div>
                     <span class="text-gray-500">Unidad:</span>
@@ -59,13 +63,18 @@
                 <tbody class="bg-white divide-y divide-gray-200">
                     {% for p in precios %}
                     <tr class="hover:bg-gray-50">
-                        <td class="px-3 py-2 font-medium text-gray-800 truncate max-w-[180px]">{{ p.proveedor_nombre }}</td>
+                        <td class="px-3 py-2 font-medium text-gray-800 truncate max-w-[180px]">{{ p.proveedor_nombre }}
+                        </td>
                         <td class="px-3 py-2 text-gray-600 font-mono text-xs">{{ p.proveedor_rfc }}</td>
-                        <td class="px-3 py-2 text-right font-mono text-green-600">${{ "{:,.2f}".format(p.min_precio) }}</td>
-                        <td class="px-3 py-2 text-right font-mono font-medium text-gray-800">${{ "{:,.2f}".format(p.avg_precio) }}</td>
-                        <td class="px-3 py-2 text-right font-mono text-red-500">${{ "{:,.2f}".format(p.max_precio) }}</td>
+                        <td class="px-3 py-2 text-right font-mono text-green-600">${{ "{:,.2f}".format(p.min_precio) }}
+                        </td>
+                        <td class="px-3 py-2 text-right font-mono font-medium text-gray-800">${{
+                            "{:,.2f}".format(p.avg_precio) }}</td>
+                        <td class="px-3 py-2 text-right font-mono text-red-500">${{ "{:,.2f}".format(p.max_precio) }}
+                        </td>
                         <td class="px-3 py-2 text-center">
-                            <span class="inline-flex items-center justify-center bg-blue-100 text-blue-800 text-xs font-medium rounded-full px-2.5 py-0.5">
+                            <span
+                                class="inline-flex items-center justify-center bg-blue-100 text-blue-800 text-xs font-medium rounded-full px-2.5 py-0.5">
                                 {{ p.total_compras }}
                             </span>
                         </td>
@@ -89,13 +98,83 @@
             {% endif %}
         </div>
 
-        <!-- Footer -->
-        <div class="px-6 py-3 bg-gray-50 border-t flex justify-end">
-            <button onclick="cerrarModalPrecios()"
-                class="bg-gray-500 hover:bg-gray-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                Cerrar
-            </button>
+        <!-- Busqueda fuzzy de materiales similares -->
+        <div class="px-6 py-4 border-t border-gray-200">
+            <h4 class="text-sm font-semibold text-gray-600 mb-2 flex items-center gap-2">
+                Busqueda por similitud
+                <span class="inline-flex items-center px-2 py-0.5 rounded text-xs bg-teal-100 text-teal-700">
+                    pg_trgm
+                </span>
+            </h4>
+            <div class="flex gap-2 mb-3">
+                <input type="text" id="fuzzy-search-input"
+                    value="{{ material.descripcion_proveedor }}"
+                    placeholder="Buscar materiales similares..."
+                    class="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-teal-500 focus:border-transparent">
+                <button onclick="buscarSimilares()"
+                    class="bg-teal-600 hover:bg-teal-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                    Buscar
+                </button>
+            </div>
+            <div id="fuzzy-results-container"></div>
         </div>
+
+        <!-- Productos similares por clave SAT -->
+        {% if material.clave_prod_serv %}
+        <div class="px-6 py-4 border-t border-gray-200">
+            <h4 class="text-sm font-semibold text-gray-600 mb-1 flex items-center gap-2">
+                Productos similares
+                <span
+                    class="inline-flex items-center px-2 py-0.5 rounded text-xs font-mono bg-purple-100 text-purple-700">
+                    Clave SAT: {{ material.clave_prod_serv }}
+                </span>
+            </h4>
+            <p class="text-xs text-gray-400 mb-3">Otros productos registrados con la misma clasificacion SAT</p>
+
+            {% if precios_sat %}
+            <table class="min-w-full divide-y divide-gray-200 text-sm">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Descripcion</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Proveedor</th>
+                        <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Min</th>
+                        <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Promedio</th>
+                        <th class="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">Max</th>
+                        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase">Compras</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white divide-y divide-gray-200">
+                    {% for p in precios_sat %}
+                    <tr class="hover:bg-purple-50">
+                        <td class="px-3 py-2 text-gray-700 truncate max-w-[200px]"
+                            title="{{ p.descripcion_proveedor }}">
+                            {{ p.descripcion_proveedor }}
+                        </td>
+                        <td class="px-3 py-2">
+                            <div class="font-medium text-gray-800 truncate max-w-[140px]">{{ p.proveedor_nombre }}</div>
+                            <div class="text-xs text-gray-400 font-mono">{{ p.proveedor_rfc }}</div>
+                        </td>
+                        <td class="px-3 py-2 text-right font-mono text-green-600">${{ "{:,.2f}".format(p.min_precio) }}
+                        </td>
+                        <td class="px-3 py-2 text-right font-mono font-medium text-gray-800">${{
+                            "{:,.2f}".format(p.avg_precio) }}</td>
+                        <td class="px-3 py-2 text-right font-mono text-red-500">${{ "{:,.2f}".format(p.max_precio) }}
+                        </td>
+                        <td class="px-3 py-2 text-center">
+                            <span
+                                class="inline-flex items-center justify-center bg-purple-100 text-purple-800 text-xs font-medium rounded-full px-2.5 py-0.5">
+                                {{ p.total_compras }}
+                            </span>
+                        </td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+            {% else %}
+            <p class="text-center text-sm text-gray-400 py-4">No se encontraron otros productos con esta clave SAT</p>
+            {% endif %}
+        </div>
+        {% endif %}
     </div>
 </div>
 
@@ -103,4 +182,22 @@
     function cerrarModalPrecios() {
         document.getElementById('modal-precios-container').innerHTML = '';
     }
+
+    function buscarSimilares() {
+        const query = document.getElementById('fuzzy-search-input').value.trim();
+        if (query.length < 3) return;
+        const encoded = encodeURIComponent(query);
+        htmx.ajax('GET', `/materials/similar?q=${encoded}`, {
+            target: '#fuzzy-results-container',
+            swap: 'innerHTML'
+        });
+    }
+
+    // Permitir buscar con Enter
+    document.getElementById('fuzzy-search-input')?.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            buscarSimilares();
+        }
+    });
 </script>
