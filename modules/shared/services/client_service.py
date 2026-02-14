@@ -3,6 +3,7 @@ import re
 from uuid import UUID, uuid4
 import logging
 from typing import Optional, Tuple
+from modules.shared.utils import sanitize_input_string
 
 logger = logging.getLogger("SharedServices")
 
@@ -52,30 +53,9 @@ class ClientService:
     @staticmethod
     def _sanitize_for_storage(name: str) -> str:
         """
-        Limpia errores de dedo comunes al INICIO y FINAL del nombre.
-        No toca el contenido interno.
-        
-        Elimina: Espacios, puntos, pipes, comas, guiones, guiones bajos, asteriscos.
-        Ejemplos:
-          "EMPRESA|" -> "EMPRESA"
-          ".EMPRESA." -> "EMPRESA"
-          "| EMPRESA |" -> "EMPRESA"
-          "S.A. DE C.V." -> "S.A. DE C.V"
+        Deprecated: Use modules.shared.utils.sanitize_input_string instead.
         """
-        if not name:
-            return ""
-            
-        # Regex para caracteres "sucios" en los extremos
-        # \s = whitespace
-        # \. = dot
-        # \| = pipe
-        # , = comma
-        # \- = dash
-        # _ = underscore
-        # \* = asterisk
-        dirty_pattern = r"^[\s\.|,_*-]+|[\s\.|,_*-]+$"
-        
-        return re.sub(dirty_pattern, "", name).strip().upper()
+        return sanitize_input_string(name).upper()
 
     @staticmethod
     def _calculate_similarity(a: str, b: str) -> float:

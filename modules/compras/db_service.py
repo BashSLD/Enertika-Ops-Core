@@ -222,7 +222,7 @@ class ComprasDBService:
         result = await conn.execute(query, *params)
         try:
             return int(result.split()[-1])
-        except:
+        except (ValueError, IndexError, AttributeError):
             return 0
 
     async def get_catalogos_data(self, conn) -> dict:

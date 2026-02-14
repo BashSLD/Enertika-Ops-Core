@@ -14,8 +14,7 @@ async def get_current_user_context(
     Dependency to get the current logged-in user context.
     Returns a dict with user_name, email, access_token, department, role, etc.
     """
-    # 1. Recuperar sesión (cookie)
-    # access_token = request.session.get("access_token")  <--- ELIMINADO POR ZOMBIE
+    # 1. Recuperar sesion (cookie)
     user_email = request.session.get("user_email")
     user_name = request.session.get("user_name", "Usuario")
     
@@ -137,7 +136,6 @@ async def get_current_user_context(
         "user_email": final_email,  # Alias para compatibilidad con WorkflowService
         "is_admin": (role == 'ADMIN'),
         "role": role,
-        # "access_token": access_token,  <--- ELIMINADO DE RESPUESTA
         "department": final_department,
         "modulo_preferido": modulo_preferido,
         "module_roles": module_roles,  # Nueva: Dict {slug: rol}
@@ -177,7 +175,7 @@ async def get_valid_graph_token(request: Request):
             
             # 4. Lógica de Renovación con MSAL
             now = time.time()
-            margin = 300 
+            margin = settings.TOKEN_REFRESH_MARGIN_SECONDS
             
             if now >= (expires_at - margin):
                 if not refresh_token: return None

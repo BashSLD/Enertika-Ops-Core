@@ -9,6 +9,8 @@ from .config import settings
 logger = logging.getLogger("MicrosoftGraph") 
 
 class MicrosoftAuth:
+    # Singleton pattern: safe in asyncio single-thread event loop.
+    # All coroutines share one instance; no concurrent __new__ calls possible.
     _instance = None
     _http_client = None
 

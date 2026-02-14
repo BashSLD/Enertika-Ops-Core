@@ -97,11 +97,11 @@ class ReportePDFGenerator:
             # Clean up
             try:
                 os.unlink(tmp_path)
-            except:
+            except OSError:
                 pass
                 
         except Exception as e:
-            print(f"Error insertando imagen {chart_key}: {e}")
+            logger.error(f"Error insertando imagen {chart_key}: {e}")
             self.pdf.set_xy(x, y)
             self.pdf.set_font('Arial', '', 8)
             self.pdf.cell(w, 10, f"[Error gráfico: {chart_key}]", border=1, align='C')

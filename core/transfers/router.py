@@ -10,6 +10,7 @@ import logging
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
+from core.permissions import user_has_module_access
 from core.config import settings
 from .service import TransferService, get_transfer_service
 from .schemas import TraspasoEnviar, TraspasoRechazar
@@ -109,8 +110,24 @@ async def enviar_traspaso(
 
     docs_ids = [int(v) for k, v in form.multi_items() if k == "documentos_verificados"]
 
-    user_id = context.get("user_id")
+    user_id = context.get("user_db_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Usuario no autenticado o sesion invalida")
     user_name = context.get("user_name", "Sistema")
+
+    # Validar permisos en area origen
+    slug_origen = {
+        "INGENIERIA": "ingenieria",
+        "CONSTRUCCION": "construccion",
+        "OYM": "oym"
+    }.get(area_origen, "")
+
+    if slug_origen and not user_has_module_access(slug_origen, context, "editor"):
+         raise HTTPException(
+            status_code=403,
+            detail=f"No tienes permisos de editor en {area_origen} para enviar traspasos"
+        )
+
 
     try:
         await service.enviar_traspaso(
@@ -153,8 +170,29 @@ async def recibir_traspaso(
     conn=Depends(get_db_connection),
     service: TransferService = Depends(get_transfer_service),
 ):
-    user_id = context.get("user_id")
+    user_id = context.get("user_db_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Usuario no autenticado")
     user_name = context.get("user_name", "Sistema")
+
+    # Obtener traspaso para saber area destino y validar permisos
+    traspaso_info = await service.db.get_traspaso_by_id(conn, id_traspaso)
+    if not traspaso_info:
+        raise HTTPException(status_code=404, detail="Traspaso no encontrado")
+    
+    area_destino = traspaso_info.get("area_destino", "").upper()
+    slug_destino = {
+        "INGENIERIA": "ingenieria",
+        "CONSTRUCCION": "construccion",
+        "OYM": "oym"
+    }.get(area_destino, "")
+
+    if slug_destino and not user_has_module_access(slug_destino, context, "editor"):
+         raise HTTPException(
+            status_code=403,
+            detail=f"No tienes permisos de editor en {area_destino} para aceptar traspasos"
+        )
+
 
     try:
         traspaso = await service.recibir_traspaso(
@@ -200,8 +238,29 @@ async def rechazar_traspaso(
     comentario = form.get("comentario", "").strip() or None
     motivos_ids = [int(v) for k, v in form.multi_items() if k == "motivos"]
 
-    user_id = context.get("user_id")
+    user_id = context.get("user_db_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Usuario no autenticado")
     user_name = context.get("user_name", "Sistema")
+
+    # Obtener traspaso para saber area destino y validar permisos
+    traspaso_info = await service.db.get_traspaso_by_id(conn, id_traspaso)
+    if not traspaso_info:
+        raise HTTPException(status_code=404, detail="Traspaso no encontrado")
+    
+    area_destino = traspaso_info.get("area_destino", "").upper()
+    slug_destino = {
+        "INGENIERIA": "ingenieria",
+        "CONSTRUCCION": "construccion",
+        "OYM": "oym"
+    }.get(area_destino, "")
+
+    if slug_destino and not user_has_module_access(slug_destino, context, "editor"):
+         raise HTTPException(
+            status_code=403,
+            detail=f"No tienes permisos de editor en {area_destino} para rechazar traspasos"
+        )
+
 
     try:
         traspaso = await service.rechazar_traspaso(

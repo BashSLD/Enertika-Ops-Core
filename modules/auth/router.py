@@ -3,7 +3,10 @@ from fastapi.responses import RedirectResponse
 from core.microsoft import get_ms_auth, MicrosoftAuth
 from core.config import settings
 from core.database import get_db_connection
+import logging
 import time
+
+logger = logging.getLogger("AuthRouter")
 
 router = APIRouter(
     prefix="/auth",
@@ -68,9 +71,8 @@ async def callback(
         return RedirectResponse(url="/")
         
     except Exception as e:
-        import traceback
-        traceback.print_exc()
-        return f"Excepción interna: {str(e)}"
+        logger.exception("Error en callback de autenticacion")
+        return RedirectResponse(url="/auth/login?error=internal")
 
 @router.get("/logout")
 async def logout(request: Request):

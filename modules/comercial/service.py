@@ -12,6 +12,7 @@ from openpyxl import load_workbook
 from .schemas import SitioImportacion, DetalleBessCreate
 from .constants import STATUS_PENDIENTE, DEFAULT_STATUS_ID_PENDIENTE
 import asyncio
+from core.config_service import ConfigService
 from .db_service import (
     QUERY_GET_OPORTUNIDADES_LIST,
     QUERY_INSERT_OPORTUNIDAD,
@@ -75,6 +76,9 @@ from modules.shared.services import IdGeneratorService, ClientService, BessServi
 from .services import DashboardService, NotificationService
 from .sla_calculator import SLACalculator
 from core.config_service import ConfigService
+import logging
+
+logger = logging.getLogger("ComercialModule")
 from core.permissions import user_has_module_access
 
 logger = logging.getLogger("ComercialModule")
@@ -96,6 +100,24 @@ class ComercialService:
         
         # Shared Helpers
         # (Static methods don't need instantiation but we use them directly)
+
+    async def should_show_popup(self, conn, user_email: str) -> bool:
+        """
+        Verifica si el usuario debe ver el popup comercial.
+        Lee la lista de correos desde la configuración global.
+        """
+        if not user_email:
+            return False
+            
+        # Obtener lista de emails (string separado por comas)
+        targets_str = await ConfigService.get_global_config(conn, "COMERCIAL_POPUP_TARGETS", "")
+        
+        if not targets_str:
+            return False
+            
+        # Normalizar y comparar
+        targets = [e.strip().lower() for e in targets_str.split(",") if e.strip()]
+        return user_email.lower() in targets
 
     
     def _handle_legacy_mode(self, search_term: Optional[str]):
@@ -205,8 +227,10 @@ class ComercialService:
         """
         Carga IDs de catálogos para filtros rápidos.
         Usa caché centralizado en ConfigService (30s).
+        NOTA: asyncpg no soporta operaciones concurrentes en la misma conexión,
+        por lo que se deben esperar secuencialmente.
         """
-        # Delegar a ConfigService para gestión centralizada
+        # Ejecución secuencial para evitar "InterfaceError: cannot perform operation: another operation is in progress"
         estatus_map = await ConfigService.get_catalog_map(conn, "tb_cat_estatus_global", "nombre", "id")
         tipos_map = await ConfigService.get_catalog_map(conn, "tb_cat_tipos_solicitud", "codigo_interno", "id")
         
@@ -729,19 +753,21 @@ class ComercialService:
                 
             # Sub-filtro por subtab
             if subtab == 'realizados':
-                # 'Realizado' no existe en DB, usamos 'Entregado'
-                id_entregado = cats['estatus'].get('entregado')
-                if id_entregado:
-                    query += f" AND o.id_estatus_global = ${param_idx}"
-                    params.append(id_entregado)
-                    param_idx += 1
+                # Realizados: Completado (11), Entregado (12)
+                # Se filtra por el estatus del LEVANTAMIENTO (lev.id_estatus_global)
+                ids_realizados = [11, 12]
+                placeholders = ','.join([f'${param_idx + i}' for i in range(len(ids_realizados))])
+                query += f" AND lev.id_estatus_global IN ({placeholders})"
+                params.extend(ids_realizados)
+                param_idx += len(ids_realizados)
+
             else:
-                # Todo lo que NO sea Entregado (Pendiente, Proceso, etc)
-                id_entregado = cats['estatus'].get('entregado')
-                if id_entregado:
-                    query += f" AND o.id_estatus_global != ${param_idx}"
-                    params.append(id_entregado)
-                    param_idx += 1
+                # Solicitados (Default): Pendiente (8), Agendado (9), En Proceso (10), Pospuesto (13)
+                ids_solicitados = [8, 9, 10, 13]
+                placeholders = ','.join([f'${param_idx + i}' for i in range(len(ids_solicitados))])
+                query += f" AND lev.id_estatus_global IN ({placeholders})"
+                params.extend(ids_solicitados)
+                param_idx += len(ids_solicitados)
                     
         elif tab == "ganadas":
             id_ganada = cats['estatus'].get('ganada')

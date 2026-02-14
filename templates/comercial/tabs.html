@@ -79,8 +79,7 @@
         <div class="flex flex-wrap gap-3">
             {% if can_edit %}
             <!-- Botón 1: Nuevo Registro (Todos los editores) -->
-            <button hx-get="/comercial/form" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
-                hx-indicator="#loading-overlay-comercial"
+            <button onclick="handleNewRecordClick()"
                 class="ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white text-sm font-bold py-2 px-3 rounded-lg shadow-lg shadow-[#00BABB]/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
@@ -525,7 +524,7 @@
                 </a>
             </li>
             <li class="me-2">
-                <a href="#" hx-get="/comercial/partials/cards?tab=historial" hx-target="#tab-content"
+                <a href="#" id="tab-historial" hx-get="/comercial/partials/cards?tab=historial" hx-target="#tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=historial" hx-include=".global-filter"
                     onclick="updateTabContext('historial', this)"
                     class="tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
@@ -604,6 +603,8 @@
         <p class="text-gray-500 text-sm">Validando datos y procesando</p>
     </div>
 </div>
+
+{% include "comercial/partials/new_record_modal.html" %}
 
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 <script>

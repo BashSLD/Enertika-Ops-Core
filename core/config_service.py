@@ -1,7 +1,12 @@
 from dataclasses import dataclass
 from typing import Dict, Optional, Any, Tuple
 import asyncpg
+import asyncio
+import re
 import time
+import logging
+
+logger = logging.getLogger("ConfigService")
 
 @dataclass
 class UmbralesKPI:
@@ -37,44 +42,57 @@ class ConfigService:
     
     # Cache con TTL: {key: (timestamp, value)}
     _cache_umbrales: Dict[str, Tuple[float, UmbralesKPI]] = {}
-    _cache_global: Dict[str, Tuple[float, Any]] = {} # Updated to support TTL
+    _cache_global: Dict[str, Tuple[float, Any]] = {}
     _CACHE_TTL = 30.0  # 30 segundos de vida
+    _cache_lock: asyncio.Lock = asyncio.Lock()
+
+    # Regex para validar nombres de tabla y columna (prevenir SQL injection)
+    _VALID_IDENTIFIER = re.compile(r'^[a-z_][a-z0-9_]*$')
 
     @classmethod
     async def get_cached_value(cls, key: str, ttl: float = 30.0) -> Optional[Any]:
-        """Recupera valor del cache si no ha expirado."""
-        if key in cls._cache_global:
-            ts, val = cls._cache_global[key]
-            if time.time() - ts < ttl:
-                return val
-            else:
-                del cls._cache_global[key] # Expired
-        return None
+        """Recupera valor del cache si no ha expirado. Thread-safe via asyncio.Lock."""
+        async with cls._cache_lock:
+            if key in cls._cache_global:
+                ts, val = cls._cache_global[key]
+                if time.time() - ts < ttl:
+                    return val
+                else:
+                    del cls._cache_global[key]
+            return None
 
     @classmethod
     async def set_cached_value(cls, key: str, value: Any):
-        """Guarda valor en cache con timestamp actual."""
-        cls._cache_global[key] = (time.time(), value)
+        """Guarda valor en cache con timestamp actual. Thread-safe via asyncio.Lock."""
+        async with cls._cache_lock:
+            cls._cache_global[key] = (time.time(), value)
 
     @classmethod
     async def get_catalog_map(cls, conn: asyncpg.Connection, table: str, key_col: str = "nombre", val_col: str = "id") -> Dict[str, Any]:
         """
         Obtiene un mapa de catálogo {nombre: id} con cache de 30s.
         Normaliza claves a lowercase para búsquedas case-insensitive.
+        Valida nombres de tabla/columna para prevenir SQL injection.
         """
+        # Validar identificadores para prevenir SQL injection
+        if not cls._VALID_IDENTIFIER.match(table):
+            raise ValueError(f"Nombre de tabla invalido: {table}")
+        if not cls._VALID_IDENTIFIER.match(key_col):
+            raise ValueError(f"Nombre de columna invalido: {key_col}")
+        if not cls._VALID_IDENTIFIER.match(val_col):
+            raise ValueError(f"Nombre de columna invalido: {val_col}")
+
         cache_key = f"CAT_{table}_{key_col}_{val_col}"
         cached = await cls.get_cached_value(cache_key)
         if cached: return cached
-        
-        # Fetch fresh
+
         try:
             rows = await conn.fetch(f"SELECT {key_col}, {val_col} FROM {table}")
             data = {str(row[key_col]).lower(): row[val_col] for row in rows}
             await cls.set_cached_value(cache_key, data)
             return data
-        except Exception as e:
-            # Log error but don't crash
-            print(f"Error loading catalog {table}: {e}")
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error loading catalog {table}: {e}")
             return {}
 
     
@@ -159,7 +177,8 @@ class ConfigService:
             try:
                 u_verde = await cls.get_global_config(conn, "sim_umbral_verde", 90.0, float)
                 u_ambar = await cls.get_global_config(conn, "sim_umbral_ambar", 85.0, float)
-            except:
+            except Exception as e:
+                logger.warning(f"Fallback config umbrales failed: {e}")
                 u_verde = 90.0
                 u_ambar = 85.0
 
@@ -177,11 +196,6 @@ class ConfigService:
         """Invalida el cache de umbrales (llamar al guardar cambios)"""
         cls._cache_umbrales.clear()
         cls._cache_global.clear()
-
-    _cache_global: Dict[str, Tuple[float, Any]] = {} # Redefined above, but just ensuring cleanup if needed.
-    # Actually, we replaced the definition above. Removing the duplicate definition at line 142 if it existed.
-    # In the file, line 142 is `_cache_global: Dict[str, Any] = {}`.
-    # We should remove it or update it. Since I updated the class definition above, I should remove this line.
 
     @classmethod
     async def get_global_config(cls, conn: asyncpg.Connection, clave: str, default: Any, tipo: type = str) -> Any:
@@ -215,5 +229,6 @@ class ConfigService:
 
             await cls.set_cached_value(f"CFG_{clave}", val_typed)
             return val_typed
-        except Exception:
+        except asyncpg.PostgresError as e:
+            logger.warning(f"Error obteniendo config global '{clave}': {e}")
             return default

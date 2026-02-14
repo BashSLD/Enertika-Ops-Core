@@ -38,6 +38,9 @@ class ConfiguracionGlobalUpdate(AdminBaseSchema):
     sim_penalizacion_retrabajos: Optional[float] = Field(-0.15)
     sim_volumen_max: Optional[int] = Field(100)
 
+    # 4. Configuración Comercial (Targeted Popups)
+    comercial_popup_targets: Optional[str] = Field("", description="Lista de emails separados por coma")
+
     @field_validator('dias_fin_semana')
     @classmethod
     def validar_dias(cls, v):

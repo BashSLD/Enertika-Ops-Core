@@ -21,8 +21,8 @@ async def connect_to_db():
             _connection_pool = await asyncpg.create_pool(
                 settings.DB_URL_ASYNC,
                 min_size=2,
-                max_size=20,  # Transaction Mode permite más conexiones virtuales
-                timeout=30,  # seconds
+                max_size=settings.DB_POOL_MAX_SIZE,
+                timeout=settings.DB_POOL_TIMEOUT,
                 statement_cache_size=0,  # OBLIGATORIO para Transaction Mode (6543)
                 max_inactive_connection_lifetime=300  # Cierra conexiones inactivas tras 5 min
             )
@@ -60,13 +60,3 @@ async def get_db_pool():
     if not _connection_pool:
         raise Exception("DB Pool no inicializado.")
     return _connection_pool
-
-
-# Configuración recomendada para PRO (Session Mode - Puerto 5432)
-#_connection_pool = await asyncpg.create_pool(
-#    settings.DB_URL_ASYNC,
-#    min_size=5,    # Mantiene conexiones listas
-#    max_size=20,   # Permite concurrencia real (ajustar según workers de Uvicorn)
-#    timeout=30,
-#    max_inactive_connection_lifetime=300
-#)

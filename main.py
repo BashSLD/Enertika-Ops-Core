@@ -33,7 +33,7 @@ app = FastAPI(title="Enertika Core Ops",on_startup=[connect_to_db],on_shutdown=[
 app.add_middleware(
     SessionMiddleware, 
     secret_key=settings.SECRET_KEY,
-    max_age=86400,  # 24 horas en segundos
+    max_age=settings.SESSION_MAX_AGE,
     same_site="lax",  # Permite cookies en redirects
     # Si DEBUG_MODE es True (Localhost) -> https_only = False (Funciona con HTTP)
     # Si DEBUG_MODE es False (Producción) -> https_only = True (Obliga HTTPS)

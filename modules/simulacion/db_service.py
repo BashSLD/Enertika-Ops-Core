@@ -347,8 +347,12 @@ class SimulacionDBService:
 
     # --- KPIs & Dashboard Stats ---
 
-    async def get_kpi_total_oportunidades(self, conn, where_clause: str) -> int:
-        return await conn.fetchval(f"SELECT count(*) FROM tb_oportunidades {where_clause}")
+    async def get_kpi_total_oportunidades(self, conn, email_enviado: bool = True) -> int:
+        """Cuenta total de oportunidades con filtro parametrizado."""
+        return await conn.fetchval(
+            "SELECT count(*) FROM tb_oportunidades WHERE email_enviado = $1",
+            email_enviado
+        )
 
     async def get_kpi_conteo_estatus(self, conn, status_ids: List[int]) -> int:
         return await conn.fetchval(
@@ -457,15 +461,19 @@ class SimulacionDBService:
                 params.append(id_levantamiento)
             
             if subtab == 'realizados':
-                id_entregado = status_map.get('entregado')
-                if id_entregado:
-                    query += f" AND o.id_estatus_global = ${len(params) + 1}"
-                    params.append(id_entregado)
+                # Realizados: Completado (11), Entregado (12)
+                # Se filtra por el estatus del LEVANTAMIENTO (lev.id_estatus_global), no de la oportunidad
+                ids_realizados = [11, 12]
+                placeholders = ','.join([f'${len(params) + i + 1}' for i in range(len(ids_realizados))])
+                query += f" AND lev.id_estatus_global IN ({placeholders})"
+                params.extend(ids_realizados)
+
             else:
-                id_entregado = status_map.get('entregado')
-                if id_entregado:
-                    query += f" AND o.id_estatus_global != ${len(params) + 1}"
-                    params.append(id_entregado)
+                # Solicitados (Default): Pendiente (8), Agendado (9), En Proceso (10), Pospuesto (13)
+                ids_solicitados = [8, 9, 10, 13]
+                placeholders = ','.join([f'${len(params) + i + 1}' for i in range(len(ids_solicitados))])
+                query += f" AND lev.id_estatus_global IN ({placeholders})"
+                params.extend(ids_solicitados)
                 
         elif tab == "ganadas":
              id_ganada = status_map.get('ganada')

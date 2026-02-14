@@ -356,7 +356,7 @@ async def get_cards_partial(
         "subtab": subtab,
         "limit": limit,
         "context": context,
-        "catalogos": await service.get_catalogos_ui(conn),
+        "catalogos": await service.get_tecnologias_only(conn),
         "filtro_tecnologia_id": f_tecnologia
     })
 
@@ -444,7 +444,7 @@ async def get_bess_partial(
     bess = await service.get_detalles_bess(conn, id_oportunidad)
     
     
-    return templates.TemplateResponse("shared/partials/bess_info.html", {
+    return templates.TemplateResponse("shared/modals/bess_detalle_modal.html", {
         "request": request,
         "bess": bess
     })

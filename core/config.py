@@ -54,4 +54,10 @@ class Settings(BaseSettings):
     # Departamentos que tienen acceso GLOBAL por defecto
     MANAGER_DEPARTMENTS: list = ["Dirección", "Gerencia", "Ventas", "Gerencia General"]
 
+    # --- Constantes operacionales (extraidas de magic numbers) ---
+    SESSION_MAX_AGE: int = int(os.getenv("SESSION_MAX_AGE", "86400"))  # 24h en segundos
+    TOKEN_REFRESH_MARGIN_SECONDS: int = int(os.getenv("TOKEN_REFRESH_MARGIN", "300"))  # 5 min
+    DB_POOL_MAX_SIZE: int = int(os.getenv("DB_POOL_MAX_SIZE", "20"))
+    DB_POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))
+
 settings = Settings()

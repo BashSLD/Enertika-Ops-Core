@@ -51,7 +51,21 @@ def _get_area_editor(context: dict) -> str:
 
 
 def _build_bom_context(request, context, bom, **extra) -> dict:
-    """Construye el contexto comun para templates de BOM."""
+    """Construye el contexto comun para templates de BOM.
+
+    Calcula flags de permisos por area (ingenieria, construccion, compras) a partir
+    del contexto de usuario, y los empaqueta junto con datos del BOM en un dict
+    listo para pasar a TemplateResponse.
+
+    Args:
+        request: FastAPI Request.
+        context: Dict de get_current_user_context (role, module_roles, user_db_id, etc).
+        bom: Dict con los datos del BOM actual.
+        **extra: Claves adicionales que se mezclan al contexto final.
+
+    Returns:
+        dict con request, bom, flags de permisos y cualquier clave extra.
+    """
     area_editor = _get_area_editor(context)
     role = context.get("role")
     module_roles = context.get("module_roles", {})
@@ -82,7 +96,7 @@ def _build_bom_context(request, context, bom, **extra) -> dict:
         "es_const_manager": es_const_manager,
         "es_compras_editor": es_compras_editor,
         "role": role,
-        "user_id": context.get("user_id"),
+        "user_id": context.get("user_db_id"),
         "user_name": context.get("user_name"),
     }
     ctx.update(extra)

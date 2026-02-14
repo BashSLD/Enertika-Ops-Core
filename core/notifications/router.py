@@ -33,10 +33,17 @@ async def stream_notifications(
     """
     Endpoint SSE para streaming de notificaciones en tiempo real.
 
-    Patrón: MULTIPLEXER
+    Patron: MULTIPLEXER
     - Auth ligera via sesion (NO usa get_current_user_context para evitar
       retener una conexion del pool durante toda la vida del stream).
     - Se suscribe al Queue en memoria del Service.
+
+    NOTA ARQUITECTONICA (Auth):
+    Se usa auth via cookie de sesion (user_email) + query rapida en lugar de
+    get_current_user_context porque SSE mantiene la conexion abierta indefinidamente.
+    Usar Depends(get_db_connection) retendria una conexion del pool durante todo el
+    lifetime del stream, agotando el pool bajo carga. La auth ligera acquire+release
+    libera la conexion inmediatamente despues de obtener el user_id.
     """
     # --- Auth ligera: leer sesion + query rapida (acquire+release) ---
     user_email = request.session.get("user_email")

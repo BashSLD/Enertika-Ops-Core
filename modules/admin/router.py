@@ -9,8 +9,6 @@ from core.config import settings
 from .service import AdminService, get_admin_service
 import asyncpg
 
-# Import endpoints separados
-from . import endpoints_correos_notif
 from . import endpoints_correos_notif
 from .schemas import ConfiguracionGlobalUpdate, TecnologiaCreate
 from core.config_service import ConfigService
@@ -65,17 +63,10 @@ async def update_user_role(
     role: str = Form(...),
     context = Depends(get_current_user_context),
     service: AdminService = Depends(get_admin_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
 ):
     """Actualiza el rol de sistema de un usuario (HTMX)."""
-    # Validación: Solo ADMIN/MANAGER pueden cambiar roles
-    if context.get("role") not in ["ADMIN"]:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Acceso Denegado",
-            "message": "No tienes permisos para realizar esta acción."
-        }, status_code=403)
-    
     await service.update_user_role(conn, user_id, role)
     return templates.TemplateResponse("admin/partials/messages/success.html", {
         "request": request,
@@ -93,17 +84,10 @@ async def add_email_rule(
     type: str = Form(...),
     context = Depends(get_current_user_context),
     service: AdminService = Depends(get_admin_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
 ):
     """Agrega una nueva regla de correo."""
-    # Validación: Solo ADMIN/MANAGER
-    if context.get("role") not in ["ADMIN"]:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Acceso Denegado",
-            "message": "No tienes permisos para realizar esta acción."
-        }, status_code=403)
-    
     await service.add_email_rule(conn, modulo, trigger_field, trigger_value, email_to_add, type)
     
     # HTMX detecta este header y recarga la página automáticamente
@@ -115,12 +99,10 @@ async def delete_user(
     user_id: str,
     context = Depends(get_current_user_context),
     service: AdminService = Depends(get_admin_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
 ):
     """Desactiva un usuario (Soft delete)."""
-    # Validación: Solo ADMIN/MANAGER
-    if context.get("role") not in ["ADMIN"]:
-        raise HTTPException(status_code=403, detail="Acceso denegado")    
     user = await service.deactivate_user(conn, user_id)
     
     if not user:
@@ -138,12 +120,10 @@ async def restore_user(
     user_id: str,
     context = Depends(get_current_user_context),
     service: AdminService = Depends(get_admin_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
 ):
     """Reactiva un usuario (Soft delete restore)."""
-    # Validación: Solo ADMIN/MANAGER
-    if context.get("role") not in ["ADMIN"]:
-        raise HTTPException(status_code=403, detail="Acceso denegado")
     user = await service.reactivate_user(conn, user_id)
     
     if not user:
@@ -161,12 +141,10 @@ async def delete_email_rule(
     id: int,
     context = Depends(get_current_user_context),
     service: AdminService = Depends(get_admin_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
 ):
     """Elimina una regla."""
-    # Validación: Solo ADMIN/MANAGER
-    if context.get("role") not in ["ADMIN"]:
-        return Response(status_code=403)
     await service.delete_email_rule(conn, id)
     
     # Retornar template partial con feedback visual
@@ -184,16 +162,10 @@ async def update_email_defaults(
     default_cco: str = Form(""),
     context = Depends(get_current_user_context),
     service: AdminService = Depends(get_admin_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
 ):
-    """Actualiza configuración global de correos (TO, CC, CCO)."""
-    # Validación: Solo ADMIN/MANAGER
-    if context.get("role") not in ["ADMIN"]:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Acceso Denegado",
-            "message": "No tienes permisos para realizar esta acción."
-        }, status_code=403)
+    """Actualiza configuracion global de correos (TO, CC, CCO)."""
     await service.update_email_defaults(conn, default_to, default_cc, default_cco)
     
     return templates.TemplateResponse("admin/partials/messages/success.html", {
@@ -233,8 +205,7 @@ async def get_trigger_options(
         # Renderizar como Input Text libre
         return templates.TemplateResponse("admin/partials/dynamic_trigger_input.html", {"request": request})
 
-from . import endpoints_correos_notif
-from .schemas import ConfiguracionGlobalUpdate, TecnologiaCreate, OrigenAdjuntoCreate
+from .schemas import OrigenAdjuntoCreate
 
 @router.post("/config/global")
 async def update_global_config_endpoint(
@@ -258,6 +229,8 @@ async def update_global_config_endpoint(
     sim_mult_actualizaciones: float = Form(0.10),
     sim_penalizacion_retrabajos: float = Form(-0.15),
     sim_volumen_max: int = Form(100),
+    # Comercial Config
+    comercial_popup_targets: str = Form(""),
     service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
@@ -272,15 +245,7 @@ async def update_global_config_endpoint(
         dias_sla_default: Días de SLA por defecto (1-30)
         dias_fin_semana: Lista de enteros para días de fin de semana
     """
-    # Validación: Solo ADMIN/MANAGER pueden cambiar configuración global
-    if context.get("role") not in ["ADMIN"]:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Acceso Denegado",
-            "message": "No tienes permisos para modificar la configuración global."
-        }, status_code=403)
-    
-    # Obtener días de fin de semana desde form (checkboxes)
+    # Obtener dias de fin de semana desde form (checkboxes)
     form_data = await request.form()
     dias_fin_semana = []
     
@@ -316,7 +281,8 @@ async def update_global_config_endpoint(
             sim_mult_licitaciones=sim_mult_licitaciones,
             sim_mult_actualizaciones=sim_mult_actualizaciones,
             sim_penalizacion_retrabajos=sim_penalizacion_retrabajos,
-            sim_volumen_max=sim_volumen_max
+            sim_volumen_max=sim_volumen_max,
+            comercial_popup_targets=comercial_popup_targets
         )
     except ValueError as e:
         return templates.TemplateResponse("admin/partials/messages/error.html", {
@@ -347,13 +313,6 @@ async def reset_simulation_config_endpoint(
     Restaura los valores por defecto de la configuración de simulación.
     Elimina los registros de tb_configuracion_global para que el sistema use los defaults del código.
     """
-    if context.get("role") not in ["ADMIN"]:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Acceso Denegado",
-            "message": "No tienes permisos para realizar esta acción."
-        }, status_code=403)
-        
     await service.reset_simulation_defaults(conn)
     
     return templates.TemplateResponse("admin/partials/messages/success.html", {
@@ -375,17 +334,10 @@ async def update_user_department(
     department_slug: str = Form(...),
     context = Depends(get_current_user_context),
     service: AdminService = Depends(get_admin_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
 ):
     """Asigna un departamento a un usuario."""
-    # Validación: Solo ADMIN/MANAGER
-    if context.get("role") not in ["ADMIN"]:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Acceso Denegado",
-            "message": "No tienes permisos para realizar esta acción."
-        }, status_code=403)
-    
     try:
         dept_nombre = await service.update_user_department(conn, user_id, department_slug)
         return templates.TemplateResponse("admin/partials/messages/success.html", {
@@ -400,17 +352,10 @@ async def update_user_modules(
     user_id: UUID,
     context = Depends(get_current_user_context),
     service: AdminService = Depends(get_admin_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
 ):
-    """Actualiza los módulos y roles asignados a un usuario."""
-    # Validación: Solo ADMIN/MANAGER
-    if context.get("role") not in ["ADMIN"]:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Acceso Denegado",
-            "message": "No tienes permisos para realizar esta acción."
-        }, status_code=403)
-    
+    """Actualiza los modulos y roles asignados a un usuario."""
     form_data = await request.form()
     
     # Extraer módulos del form data
@@ -434,17 +379,10 @@ async def update_preferred_module(
     modulo_slug: str = Form(...),
     context = Depends(get_current_user_context),
     service: AdminService = Depends(get_admin_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
 ):
-    """Establece el módulo preferido del usuario (a dónde va al login)."""
-    # Validación: Solo ADMIN/MANAGER
-    if context.get("role") not in ["ADMIN"]:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Acceso Denegado",
-            "message": "No tienes permisos para realizar esta acción."
-        }, status_code=403)
-    
+    """Establece el modulo preferido del usuario."""
     await service.update_preferred_module(conn, user_id, modulo_slug if modulo_slug else None)
     
     return templates.TemplateResponse("admin/partials/messages/success.html", {
@@ -468,16 +406,10 @@ async def update_simulation_flag(
     puede_asignarse_simulacion: bool = Form(False),
     context = Depends(get_current_user_context),
     service: AdminService = Depends(get_admin_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
 ):
-    """Actualiza el flag que permite a un usuario ser asignado como responsable de simulación."""
-    if context.get("role") not in ["ADMIN"]:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Acceso Denegado",
-            "message": "No tienes permisos para realizar esta acción."
-        }, status_code=403)
-    
+    """Actualiza el flag que permite a un usuario ser asignado como responsable de simulacion."""
     await service.update_user_simulation_flag(conn, user_id, puede_asignarse_simulacion)
     
     return templates.TemplateResponse("admin/partials/messages/success.html", {
@@ -496,16 +428,9 @@ async def create_tecnologia(
     service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
-    _ = require_module_access("admin")
+    _ = require_module_access("admin", "admin")
 ):
-    """Crea una nueva tecnología en el catálogo."""
-    if context.get("role") not in ["ADMIN"]:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Acceso Denegado",
-            "message": "No tienes permisos para modificar catálogos."
-        }, status_code=403)
-    
+    """Crea una nueva tecnologia en el catalogo."""
     try:
         await service.create_tecnologia(conn, nombre)
         return templates.TemplateResponse("admin/partials/messages/success.html", {
@@ -528,16 +453,9 @@ async def create_tipo_solicitud(
     service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
-    _ = require_module_access("admin")
+    _ = require_module_access("admin", "admin")
 ):
     """Crea un nuevo tipo de solicitud."""
-    if context.get("role") not in ["ADMIN"]:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Acceso Denegado",
-            "message": "No tienes permisos para modificar catálogos."
-        }, status_code=403)
-    
     try:
         await service.create_tipo_solicitud(conn, nombre, codigo_interno)
         return templates.TemplateResponse("admin/partials/messages/success.html", {
@@ -567,16 +485,9 @@ async def create_estatus(
     service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
-    _ = require_module_access("admin")
+    _ = require_module_access("admin", "admin")
 ):
     """Crea un nuevo estatus global con color."""
-    if context.get("role") not in ["ADMIN"]:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Acceso Denegado",
-            "message": "No tienes permisos para modificar catálogos."
-        }, status_code=403)
-    
     try:
         await service.create_estatus(conn, nombre, descripcion, color_hex)
         return templates.TemplateResponse("admin/partials/messages/success.html", {
@@ -606,16 +517,9 @@ async def create_origen_adjunto(
     service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
-    _ = require_module_access("admin")
+    _ = require_module_access("admin", "admin")
 ):
-    """Crea un nuevo origen de adjunto (Catalog)."""
-    if context.get("role") not in ["ADMIN"]:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Acceso Denegado",
-            "message": "No tienes permisos para modificar catálogos."
-        }, status_code=403)
-    
+    """Crea un nuevo origen de adjunto."""
     try:
         await service.create_origen_adjunto(conn, slug, descripcion)
         return templates.TemplateResponse("admin/partials/messages/success.html", {
@@ -637,7 +541,6 @@ async def create_origen_adjunto(
         }, status_code=500)
 
 
-# Include sub-routers
 # Include sub-routers
 router.include_router(endpoints_correos_notif.router, tags=["Admin - Correos Notificaciones"])
 

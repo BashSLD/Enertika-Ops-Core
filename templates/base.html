@@ -510,7 +510,7 @@
                         hx-push-url="true"
                         @click="mobileMenuOpen = false; $store.activeModule.slug = '{{ module.slug }}'"
                         class="module-link flex items-center gap-3 py-3 px-3 rounded-lg transition-all duration-200 overflow-hidden"
-                        :class="$store.activeModule.slug === '{{ module.slug }}' ? 'active' : ''"
+                        :class="[$store.activeModule.slug === '{{ module.slug }}' ? 'active' : '', sidebarOpen ? 'justify-start' : 'justify-center']"
                         x-init="if (window.location.pathname.includes('{{ module.slug }}')) $store.activeModule.slug = '{{ module.slug }}'">
 
                         <span class="module-icon text-lg">{{ module.icon }}</span>
@@ -537,8 +537,9 @@
                         class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
                         {{ module.name }}
                         {% if not has_access %}<span class="ml-1 text-xs text-gray-400">(Bloqueado)</span>{% endif %}
+                        <!-- Flecha del Tooltip (Color ajustado al gradiente dark) -->
                         <div
-                            class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-gray-900">
+                            class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-[#1f2937]">
                         </div>
                     </div>
                 </div>
@@ -549,15 +550,17 @@
                 <div class="my-4 border-t border-blue-900/30"></div>
                 <div class="relative group">
                     <a href="/admin/ui"
-                        class="module-link flex items-center gap-3 py-3 px-3 rounded-lg bg-blue-900/20 hover:bg-blue-800/50 text-yellow-100 border border-transparent hover:border-yellow-500/30 transition-all duration-200 overflow-hidden">
+                        class="module-link flex items-center gap-3 py-3 px-3 rounded-lg bg-blue-900/20 hover:bg-blue-800/50 text-yellow-100 border border-transparent hover:border-yellow-500/30 transition-all duration-200 overflow-hidden"
+                        :class="sidebarOpen ? 'justify-start' : 'justify-center'">
                         <span class="module-icon text-lg">⚙️</span>
                         <span class="font-medium whitespace-nowrap" x-show="sidebarOpen">Admin</span>
                     </a>
                     <div x-show="!sidebarOpen"
                         class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
                         Admin
+                        <!-- Flecha del Tooltip (Color ajustado) -->
                         <div
-                            class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-gray-900">
+                            class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-[#1f2937]">
                         </div>
                     </div>
                 </div>
@@ -569,7 +572,7 @@
                 <div class="relative group">
                     <button @click="$dispatch('open-docs-modal')"
                         class="module-link flex items-center gap-3 py-3 px-3 rounded-lg hover:bg-blue-800/50 transition-all duration-200 overflow-hidden w-full"
-                        title="Ayuda y Documentación">
+                        :class="sidebarOpen ? 'justify-start' : 'justify-center'" title="Ayuda y Documentación">
                         <span class="module-icon text-lg">❓</span>
                         <span class="font-medium whitespace-nowrap" x-show="sidebarOpen">Ayuda</span>
                     </button>
@@ -577,8 +580,9 @@
                     <div x-show="!sidebarOpen"
                         class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
                         Ayuda y Documentación
+                        <!-- Flecha del Tooltip (Color ajustado) -->
                         <div
-                            class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-gray-900">
+                            class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-[#1f2937]">
                         </div>
                     </div>
                 </div>
@@ -742,6 +746,33 @@
             }
         });
 
+        // === SYNC SIDEBAR WITH BROWSER HISTORY ===
+        // Escuchar navegación por historial (Atrás/Adelante)
+        window.addEventListener('popstate', function (event) {
+            syncSidebarWithUrl();
+        });
+
+        // Escuchar navegación inicial o cambios HTMX que empujan al historial
+        document.body.addEventListener('htmx:pushedIntoHistory', function (evt) {
+            syncSidebarWithUrl();
+        });
+
+        function syncSidebarWithUrl() {
+            const path = window.location.pathname;
+            // Buscar slug en la URL (ej. /simulacion/ui -> simulacion)
+            const match = path.match(/^\/([^\/]+)/);
+            if (match && match[1]) {
+                const slug = match[1];
+                // Actualizar store de AlpineJS si existe
+                if (window.Alpine) {
+                    const store = Alpine.store('activeModule');
+                    if (store) {
+                        store.slug = slug;
+                    }
+                }
+            }
+        }
+
         // === CHIPS (Correos) ===
         document.addEventListener('keydown', function (e) {
             if (e.target.classList.contains('chip-input') && ['Enter', 'Tab', ';', ','].includes(e.key)) {
@@ -846,7 +877,7 @@
 
             // Cerrar conexion previa si existe
             if (notificationSource) {
-                try { notificationSource.close(); } catch(_) {}
+                try { notificationSource.close(); } catch (_) { }
                 notificationSource = null;
             }
 
@@ -874,7 +905,7 @@
                         notificationSource = null;
                         return;
                     }
-                } catch(_) {}
+                } catch (_) { }
             });
 
             notificationSource.onopen = function () {
@@ -896,7 +927,7 @@
                 delay += Math.random() * 2000; // jitter 0-2s
                 _sseRetryCount++;
 
-                console.warn('[SSE] Reconectando en ' + Math.round(delay/1000) + 's (intento ' + _sseRetryCount + '/' + _sseMaxRetries + ')');
+                console.warn('[SSE] Reconectando en ' + Math.round(delay / 1000) + 's (intento ' + _sseRetryCount + '/' + _sseMaxRetries + ')');
                 clearTimeout(_sseRetryTimer);
                 _sseRetryTimer = setTimeout(_connectSSE, delay);
             };

@@ -18,6 +18,8 @@ from uuid import UUID
 from datetime import date, datetime
 import logging
 import json
+
+from core.validation import validate_upload_size
 import base64
 from io import BytesIO
 from starlette.datastructures import Headers
@@ -45,7 +47,18 @@ templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 
 
 def _serialize_xml_result(result):
-    """Convierte XmlUploadResult a dict serializable para templates Jinja2."""
+    """Convierte XmlUploadResult a dict serializable para templates Jinja2.
+
+    Transforma Pydantic models (CfdiData, XmlMatchResult, XmlUploadError) a dicts
+    planos, convirtiendo Decimal a float y Enum a string para que Jinja2 pueda
+    renderizarlos sin errores de serialización.
+
+    Args:
+        result: XmlUploadResult con procesados, duplicados y errores.
+
+    Returns:
+        dict con claves 'procesados', 'duplicados', 'errores' como listas de dicts.
+    """
     from decimal import Decimal
 
     def _serialize_cfdi(cfdi):
@@ -185,7 +198,24 @@ async def upload_comprobantes(
         raise HTTPException(status_code=401, detail="Usuario no identificado")
     
     pdf_files = [f for f in files if f.filename.lower().endswith('.pdf')]
-    
+
+    # Validar tamano de cada archivo (max 50MB por PDF)
+    for f in pdf_files:
+        try:
+            await validate_upload_size(f, max_bytes=50 * 1024 * 1024)
+        except ValueError as e:
+            return templates.TemplateResponse(
+                "compras/partials/upload_result.html",
+                {
+                    "request": request,
+                    "success": False,
+                    "message": f"Archivo {f.filename}: {e}",
+                    "insertados": 0,
+                    "duplicados": [],
+                    "errores": []
+                }
+            )
+
     if not pdf_files:
         return templates.TemplateResponse(
             "compras/partials/upload_result.html",
@@ -547,6 +577,20 @@ async def upload_xmls(
         raise HTTPException(status_code=401, detail="Usuario no identificado")
 
     xml_files = [f for f in files if f.filename and f.filename.lower().endswith('.xml')]
+
+    # Validar tamano de cada archivo (max 10MB por XML)
+    for f in xml_files:
+        try:
+            await validate_upload_size(f, max_bytes=10 * 1024 * 1024)
+        except ValueError as e:
+            return templates.TemplateResponse(
+                "compras/partials/xml_upload_result.html",
+                {
+                    "request": request,
+                    "result": None,
+                    "error_msg": f"Archivo {f.filename}: {e}",
+                }
+            )
 
     if not xml_files:
         return templates.TemplateResponse(

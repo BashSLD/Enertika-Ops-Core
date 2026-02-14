@@ -25,7 +25,7 @@
         opacity: 1;
     }
 </style>
-<div class="flex flex-col h-full">
+<div class="flex flex-col h-full relative">
     <!-- Header with Actions -->
     <div class="glass-panel p-4 rounded-xl mb-4 flex justify-between items-center border-l-4 border-emerald-500">
         <div>
@@ -144,7 +144,7 @@
             <li class="me-2">
                 <a href="#" hx-get="/simulacion/partials/graphs" hx-target="#sim-tab-content" hx-swap="innerHTML"
                     hx-push-url="/simulacion/ui?tab=graphs" hx-include=".global-filter"
-                    onclick="updateSimTabContext('graphs', this)"
+                    hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('graphs', this)"
                     class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
@@ -220,6 +220,15 @@
                 <div class="spinner-enertika mx-auto mb-4"></div>
                 <p class="text-emerald-600 font-medium animate-pulse-subtle">Cargando datos...</p>
             </div>
+        </div>
+    </div>
+
+    <!-- Overlay de Carga para Gráficas -->
+    <div id="sim-graphs-loading"
+        class="htmx-indicator absolute inset-0 z-50 flex items-center justify-center bg-white/90 backdrop-blur-sm rounded-xl">
+        <div class="text-center">
+            <div class="spinner-enertika mx-auto mb-4"></div>
+            <p class="text-emerald-600 font-bold text-lg animate-pulse-subtle">Analizando datos...</p>
         </div>
     </div>
 

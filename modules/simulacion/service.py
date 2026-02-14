@@ -33,7 +33,8 @@ class SimulacionService:
         tz_str = await ConfigService.get_global_config(conn, "ZONA_HORARIA_DEFAULT", "America/Mexico_City")
         try:
              tz = ZoneInfo(tz_str)
-        except:
+        except (KeyError, ValueError) as e:
+             logger.warning(f"Zona horaria invalida '{tz_str}', usando default: {e}")
              tz = ZoneInfo("America/Mexico_City")
         return datetime.now(tz)
 
@@ -46,12 +47,23 @@ class SimulacionService:
     
     # --- MÉTODOS PRIVADOS DE RESOLUCIÓN (NO HARDCODING) ---
 
+    # Whitelist de tablas catalogo permitidas para busqueda dinamica
+    _ALLOWED_CATALOG_TABLES = frozenset({
+        "tb_cat_tecnologias",
+        "tb_cat_tipos_solicitud",
+        "tb_cat_estatus_global",
+        "tb_cat_motivos_cierre",
+        "tb_cat_motivos_retrabajo",
+    })
+
     async def _get_catalog_id_by_name(self, conn, table: str, name_value: str) -> int:
-        """Busca ID de catálogo por nombre de forma dinámica."""
+        """Busca ID de catálogo por nombre. Valida tabla contra whitelist."""
+        if table not in self._ALLOWED_CATALOG_TABLES:
+            raise ValueError(f"Tabla no permitida para busqueda de catalogo: {table}")
         query = f"SELECT id FROM {table} WHERE LOWER(nombre) = LOWER($1)"
         id_val = await conn.fetchval(query, name_value)
         if not id_val:
-            logger.error(f"Configuración faltante: No existe '{name_value}' en {table}")
+            logger.error(f"Configuracion faltante: No existe '{name_value}' en {table}")
             raise HTTPException(status_code=500, detail=f"Error Config: Falta '{name_value}' en BD.")
         return id_val
 
@@ -649,11 +661,8 @@ class SimulacionService:
 
     async def get_dashboard_stats(self, conn, user_context: dict) -> dict:
         """Calcula KPIs globales."""
-        # Nota: Ajusta queries para usar email_enviado = true siempre
-        where_base = "WHERE email_enviado = true"
-        
-        # Total Activas
-        total = await self.db.get_kpi_total_oportunidades(conn, where_base)
+        # Total Activas (email_enviado = true)
+        total = await self.db.get_kpi_total_oportunidades(conn, email_enviado=True)
         
         try:
             # 2. Obtener IDs clave dinámicamente
@@ -844,6 +853,16 @@ class SimulacionService:
             "tecnologias": tecnologias,
             "tipos_solicitud": tipos,
             "usuarios": usuarios
+        }
+
+    async def get_tecnologias_only(self, conn) -> dict:
+        """
+        Retorna solo el catálogo de tecnologías para filtros ligeros (ej. HTMX partials).
+        Evita cargar usuarios y tipos de solicitud innecesarios.
+        """
+        tecnologias = await self.db.get_catalog_tecnologias(conn)
+        return {
+            "tecnologias": tecnologias
         }
     
     @staticmethod

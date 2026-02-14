@@ -80,6 +80,9 @@ async def get_comercial_ui(
         
     # Cargar catálogos para filtros globales
     catalogos = await service.get_catalogos_ui(conn)
+    
+    # Verificar si debe mostrar el popup
+    show_popup = await service.should_show_popup(conn, context.get("email"))
         
     return templates.TemplateResponse(template, {
         "request": request,
@@ -87,7 +90,8 @@ async def get_comercial_ui(
         "role": role,
         "module_roles": context.get("module_roles", {}),
         "current_module_role": context.get("module_roles", {}).get("comercial", "viewer"),
-        "catalogos": catalogos
+        "catalogos": catalogos,
+        "show_custom_popup": show_popup
     }, headers={"HX-Title": "Enertika Core Ops | Comercial"})
 
 
@@ -273,7 +277,7 @@ async def get_bess_partial(
     """Retorna los detalles BESS para una oportunidad."""
     bess = await service.get_detalles_bess(conn, id_oportunidad, user_context)
     return templates.TemplateResponse(
-        "shared/partials/bess_info.html",  # Shared component
+        "shared/modals/bess_detalle_modal.html",  # New Modal Wrapper
         {"request": request, "bess": bess}
     )
 

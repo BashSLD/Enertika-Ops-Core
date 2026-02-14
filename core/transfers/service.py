@@ -89,7 +89,7 @@ class TransferService:
                 f"Traspaso no valido: {area_origen} -> {area_destino}"
             )
 
-        # Validar que el proyecto esta en el area correcta
+        # Validar proyecto en area
         proyecto = await self.db.get_proyecto_detalle(conn, id_proyecto)
         if not proyecto:
             raise ValueError("Proyecto no encontrado")
@@ -98,6 +98,10 @@ class TransferService:
             raise ValueError(
                 f"El proyecto no esta en {AREA_LABELS.get(area_origen, area_origen)}"
             )
+
+        # Validar que no exista un traspaso pendiente (Doble submit check)
+        if proyecto.get('ultimo_traspaso_status') == 'ENVIADO':
+            raise ValueError("Ya existe un traspaso pendiente para este proyecto")
 
         # Validar documentos obligatorios
         docs_checklist = await self.db.get_documentos_checklist(

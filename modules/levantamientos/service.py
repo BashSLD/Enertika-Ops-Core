@@ -705,28 +705,7 @@ class LevantamientoService:
         try:
             from core.workflow.notification_service import get_notification_service
             
-            # TODO: Add specific method in notification_service if needed, 
-            # for now using status change or generic message
-            # But user requested "Notificar al capturador cuando se agenda"
-            
-            # Since we don't know if notify_scheduled exists in notification_service,
-            # we'll assume we need to implement it or use a generic one.
-            # Checking existing code, notify_status_change sends emails.
-            # We will use a generic "scheduler" notification if available or create a simple email.
-            
-            # For this implementation I will try to use a custom email via notification service's internal helper if exposed,
-            # or rely on the fact that changing status to 9 (Agendado) already triggers notify_status_change.
-            
-            # WAIT: The router calls update_reagendar which sets status to 9.
-            # And change_status_endpoint calls cambiar_estado which triggers _notificar_cambio_estado_impl.
-            # BUT reagendar_endpoint calls db_svc.update_reagendar directly, limiting the status change trigger.
-            # So we DO need to trigger a notification here.
-            
-            # Let's verify if notification_service has a generic 'send_custom_notification'.
-            # If not, I'll stick to notify_status_change logic but customized.
-            
-            # To be safe and reuse existing logic, I will emulate a status change notification
-            # but with specific context of "Agendado para fecha X".
+            # Emular notificacion de cambio de estatus a "Agendado" con fecha de visita.
             
             notif_service = get_notification_service()
             # We trigger a status change notification to 9 (Agendado) explictly

@@ -6,8 +6,9 @@ y extrae CFDI relacionados para trazabilidad.
 
 Basado en prototipos validados con 663+ XMLs reales.
 """
+from __future__ import annotations
 
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 from decimal import Decimal, InvalidOperation
 from typing import Optional, List
 import logging

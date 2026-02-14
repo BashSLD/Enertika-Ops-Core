@@ -2,6 +2,7 @@ from typing import List, Optional, Any
 from datetime import datetime, date
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator, ConfigDict
+from modules.shared.utils import sanitize_input_string
 
 
 class DetalleBessCreate(BaseModel):
@@ -34,15 +35,29 @@ class OportunidadCreateCompleta(BaseModel):
     @field_validator('prioridad')
     @classmethod
     def validate_prioridad(cls, v: str) -> str:
-        allowed = {'baja', 'normal', 'alta', 'urgente'}
-        if v.lower() not in allowed:
+        normalized = v.lower().strip()
+        
+        # Allow both English and Spanish terms as per DB content and UI requirements
+        allowed = {
+            'baja', 'normal', 'alta', 'urgente',  # Spanish
+            'low', 'medium', 'high', 'urgent'     # English
+        }
+        
+        if normalized not in allowed:
             raise ValueError(f"Prioridad debe ser una de: {', '.join(allowed)}")
-        return v.lower()
+        return normalized
+
+    @field_validator('cliente_nombre')
+    @classmethod
+    def validate_cliente_nombre(cls, v: str) -> str:
+        return sanitize_input_string(v)
 
     @field_validator('nombre_proyecto')
     @classmethod
     def validate_nombre_proyecto(cls, v: str) -> str:
-        return v.strip()
+        # Usa la utilidad compartida para limpiar caracteres "sucios" al inicio/final
+        # Tambien mantiene compatibilidad con la limpieza anterior (.strip()) ya que la utilidad lo hace.
+        return sanitize_input_string(v)
     coordenadas_gps: Optional[str] = None
     google_maps_link: Optional[str] = None
     sharepoint_folder_url: Optional[str] = None
@@ -60,10 +75,6 @@ class OportunidadCreateCompleta(BaseModel):
     fecha_ideal_usuario: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)
-
-
-
-
 
 class SitioOportunidadBase(BaseModel):
     """Campos base para un sitio, usados en la carga Multisitio (Excel)."""
@@ -103,5 +114,3 @@ class SitioImportacion(BaseModel):
         if v is None:
             return None
         return str(v) if not isinstance(v, str) else v
-
-
