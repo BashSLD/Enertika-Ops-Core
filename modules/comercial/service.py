@@ -188,6 +188,37 @@ class ComercialService:
             return ""
 
     @staticmethod
+    def is_originally_multisite(row: dict) -> bool:
+        """
+        Determina si una oportunidad fue concebida como multisitio,
+        incluso si actualmente tiene 1 o 0 sitios activos (por borrado).
+        
+        Heurística:
+        1. Cantidad Sitios > 1 (Obvio)
+        2. Naming Convention del ID Interno ({BASE}_{PROYECTO})
+           El ID de multisitio SIEMPRE sufija el nombre del proyecto.
+           El ID de unisitio NO sufija el nombre del proyecto (usa el BASE generado).
+        """
+        # 1. Chequeo directo de cantidad (Active count)
+        if (row.get('cantidad_sitios') or 0) > 1:
+            return True
+            
+        # 2. Heurística de Nombre (Fallback para cuando borran sitios hasta quedar 1)
+        try:
+            proj_name = (row.get('nombre_proyecto') or "").strip().upper()
+            id_interno = (row.get('id_interno_simulacion') or "").strip().upper()
+            
+            if not proj_name or not id_interno:
+                return False
+                
+            # Si el ID interno termina con _NOMBRE_PROYECTO, es estructura multisitio
+            # (A menos que el nombre del proyecto sea vacío, validado arriba)
+            suffix = f"_{proj_name}"
+            return id_interno.endswith(suffix)
+        except Exception:
+            return False
+
+    @staticmethod
     def build_bess_detail(
         uso_sistema: List[str],
         cargas_criticas: Optional[float],

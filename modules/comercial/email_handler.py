@@ -160,7 +160,7 @@ class EmailHandler:
         """Procesa archivos adjuntos incluyendo Excel multisitio."""
         adjuntos_procesados = []
         
-        if (row.get('cantidad_sitios') or 0) > 1:
+        if service.is_originally_multisite(row):
             excel_attachment = await service.generate_multisite_excel(
                 conn,
                 id_oportunidad,

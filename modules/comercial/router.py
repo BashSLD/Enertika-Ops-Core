@@ -220,12 +220,19 @@ async def get_cards_partial(
         filtro_fecha_inicio=f_inicio,
         filtro_fecha_fin=f_fin
     )
+
+    # Inject persistent multisite flag
+    ops_processed = []
+    for op in items:
+        d = dict(op)
+        d['es_multisitio'] = ComercialService.is_originally_multisite(d)
+        ops_processed.append(d)
     
     return templates.TemplateResponse(
         "comercial/partials/cards.html", 
         {
             "request": request, 
-            "oportunidades": items,
+            "oportunidades": ops_processed,
             "user_token": has_valid_token,
             "current_tab": tab,
             "subtab": subtab,

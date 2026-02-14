@@ -348,10 +348,17 @@ async def get_cards_partial(
     oportunidades = await service.get_oportunidades_list(
         conn, context, tab=tab, q=q, limit=limit, subtab=subtab, filtro_tecnologia_id=f_tecnologia
     )
+
+    # Inject persistent multisite flag
+    ops_processed = []
+    for op in oportunidades:
+        d = dict(op)
+        d['es_multisitio'] = ComercialService.is_originally_multisite(d)
+        ops_processed.append(d)
     
     return templates.TemplateResponse("simulacion/partials/cards.html", {
         "request": request,
-        "oportunidades": oportunidades,
+        "oportunidades": ops_processed,
         "current_tab": tab,
         "subtab": subtab,
         "limit": limit,
@@ -560,7 +567,8 @@ async def get_edit_modal(
     motivos_retrabajo = await db_service.get_motivos_retrabajo(conn)
     
     # Determinar si es multisitio
-    es_multisitio = len(sitios_oportunidad) > 1
+    # Use persistent multisite check (heuristic)
+    es_multisitio = ComercialService.is_originally_multisite(dict(op))
 
     # 4. Definir Permiso de Edición (Manager/Admin)
     # 4. Definir Permiso de Edición (Manager/Admin)

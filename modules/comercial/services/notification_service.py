@@ -14,6 +14,18 @@ class NotificationService:
     def __init__(self):
         self.templates = Jinja2Templates(directory="templates")
 
+    def _is_multisite_heuristic(self, row: dict) -> bool:
+        """Determina si es multisitio incluso si queda 1 solo sitio (Ported from ComercialService)."""
+        if (row.get('cantidad_sitios') or 0) > 1:
+            return True
+        try:
+            proj = (row.get('nombre_proyecto') or "").strip().upper()
+            id_int = (row.get('id_interno_simulacion') or "").strip().upper()
+            if proj and id_int and id_int.endswith(f"_{proj}"):
+                return True
+        except: pass
+        return False
+
     async def get_oportunidad_for_email(self, conn, id_oportunidad: UUID) -> Optional[dict]:
         """Recupera datos básicos de oportunidad."""
         row = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
@@ -121,8 +133,8 @@ class NotificationService:
             "fixed_to": fixed_to,
             "fixed_cc": fixed_cc,
             "bess_objetivos_str": bess_str,
-            "has_multisitio_file": (row['cantidad_sitios'] or 0) > 1,
-            "editable": row.get('es_seguimiento', False) and (row['cantidad_sitios'] or 0) > 1,
+            "has_multisitio_file": self._is_multisite_heuristic(dict(row)),
+            "editable": row.get('es_seguimiento', False) and self._is_multisite_heuristic(dict(row)),
             "is_followup": row.get('es_seguimiento', False)
         }
 
