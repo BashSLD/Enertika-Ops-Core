@@ -886,15 +886,41 @@ async def crear_seguimiento(
     parent_id: UUID,
     tipo_solicitud: str = Form(...), # "OFERTA_FINAL", "ACTUALIZACION"
     prioridad: str = Form(...),
+    force_create: bool = Form(False), # New flag to bypass thread check
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
+    ms_auth = Depends(get_ms_auth),
     user_context = Depends(get_current_user_context),
     _auth = require_module_access("comercial", "editor")
 ):
     """Acción del Historial: Crea seguimiento y salta directo al correo."""
     if not user_context.get("email"): 
         return HTMLResponse(status_code=401)
+    
+    # Valida Token Graph antes de procesar
+    token = await get_valid_graph_token(request)
+    if not token:
+        return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
 
+    # --- THREAD CHECK LOGIC ---
+    if not force_create:
+        # 1. Predecir título exacto
+        expected_title = await service.predict_followup_title(conn, parent_id, tipo_solicitud)
+        
+        # 2. Buscar hilo
+        thread_id = await ms_auth.find_thread_id(token, expected_title)
+        
+        # 3. Si NO existe hilo -> Advertencia
+        if not thread_id:
+            return templates.TemplateResponse("comercial/modals/thread_not_found_warning.html", {
+                "request": request,
+                "expected_title": expected_title,
+                "parent_id": parent_id,
+                "tipo_solicitud": tipo_solicitud,
+                "prioridad": prioridad
+            })
+
+    # --- CREATION LOGIC ---
     new_id = await service.create_followup_oportunidad(
         parent_id, tipo_solicitud, prioridad, conn, 
         user_context['user_db_id'], user_context['user_name']

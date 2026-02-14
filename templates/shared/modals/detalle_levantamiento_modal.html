@@ -210,6 +210,77 @@
             </div>
             {% endif %}
 
+            <!-- Sección: Acciones Comerciales (Solo si source == 'comercial' y Status == Entregado (12)) -->
+            {% if source == 'comercial' and lev.id_estatus_global == 12 %}
+            <div class="bg-blue-50/50 rounded-lg p-5 border border-blue-100 mt-6">
+                <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                    </svg>
+                    Seguimiento Comercial:
+                </h4>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+                    <!-- Solicitar Actualización -->
+                    <form hx-post="/comercial/crear-seguimiento/{{ lev.id_oportunidad }}" hx-target="body"
+                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
+                        class="block w-full">
+                        <input type="hidden" name="tipo_solicitud" value="ACTUALIZACION">
+                        <input type="hidden" name="prioridad" value="high">
+                        <button type="submit"
+                            class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Actualización
+                        </button>
+                    </form>
+
+                    <!-- Solicitar Levantamiento (Solo si no esta activo/pdte) -->
+                    <!-- Nota: Mostramos el botón para permitir re-solicitar si es necesario, o controlar via backend -->
+                    <form hx-post="/comercial/crear-seguimiento/{{ lev.id_oportunidad }}" hx-target="body"
+                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
+                        class="block w-full">
+                        <input type="hidden" name="tipo_solicitud" value="LEVANTAMIENTO">
+                        <input type="hidden" name="prioridad" value="normal">
+                        <button type="submit"
+                            class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Levantamiento
+                        </button>
+                    </form>
+
+                    <!-- Solicitar Oferta Final -->
+                    <form hx-post="/comercial/crear-seguimiento/{{ lev.id_oportunidad }}" hx-target="body"
+                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
+                        class="block w-full">
+                        <input type="hidden" name="tipo_solicitud" value="OFERTA_FINAL">
+                        <input type="hidden" name="prioridad" value="high">
+                        <button type="submit"
+                            class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                            </svg>
+                            Oferta Final
+                        </button>
+                    </form>
+
+                </div>
+            </div>
+
+            <div id="modal-content-placeholder"></div>
+            {% endif %}
+
         </div>
 
         <!-- FOOTER - Acciones -->

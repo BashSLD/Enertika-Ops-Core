@@ -1,0 +1,87 @@
+<div id="modal-backdrop-warning"
+    class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-[10000] backdrop-blur-sm"
+    x-data="{ show: true }" x-show="show" x-transition.opacity>
+
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-lg mx-4 overflow-hidden border border-amber-200"
+        @click.away="show = false; setTimeout(() => $el.remove(), 300)">
+
+        <!-- Header: Warning -->
+        <div class="bg-amber-50 px-6 py-4 border-b border-amber-100 flex items-center gap-3">
+            <div class="p-2 bg-amber-100 rounded-full">
+                <svg class="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+            </div>
+            <div>
+                <h3 class="text-lg font-bold text-amber-800">Hilo de Correo No Encontrado</h3>
+                <p class="text-xs text-amber-600">No se detectó un historial previo para este seguimiento.</p>
+            </div>
+            <button @click="$el.closest('#modal-backdrop-warning').remove()"
+                class="ml-auto text-amber-400 hover:text-amber-600">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <!-- Body -->
+        <div class="p-6 space-y-4">
+            <p class="text-sm text-gray-700 leading-relaxed">
+                El sistema buscó un hilo de correo con el título esperado:
+                <br>
+                <code
+                    class="block mt-2 p-2 bg-gray-100 rounded text-xs font-mono text-gray-600 border border-gray-200 break-words">{{ expected_title }}</code>
+            </p>
+
+            <div class="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                <h4 class="text-blue-800 font-bold text-xs uppercase mb-2 flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Instrucción Importante
+                </h4>
+                <p class="text-sm text-blue-700">
+                    Si requiere continuar con un hilo específico, por favor <strong>cancele esta operación</strong> y
+                    utilice el botón
+                    <span class="font-bold bg-white px-1 rounded border border-blue-200 text-blue-800">Solicitud
+                        Especial</span>
+                    indicando el título exacto del correo.
+                </p>
+            </div>
+
+            <p class="text-xs text-gray-500 mt-4">
+                Si continúa, se creará un <strong>Nuevo Hilo</strong> de correo independiente.
+            </p>
+        </div>
+
+        <!-- Footer -->
+        <div class="bg-gray-50 px-6 py-4 border-t border-gray-100 flex justify-between items-center">
+
+            <!-- Cancelar -->
+            <button @click="$el.closest('#modal-backdrop-warning').remove()"
+                class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+                Cancelar
+            </button>
+
+            <!-- Crear Nuevo (Confirmar) -->
+            <form hx-post="/comercial/crear-seguimiento/{{ parent_id }}" hx-swap="none"
+                hx-indicator="#global-loading-overlay">
+                <input type="hidden" name="tipo_solicitud" value="{{ tipo_solicitud }}">
+                <input type="hidden" name="prioridad" value="{{ prioridad }}">
+                <input type="hidden" name="force_create" value="true">
+
+                <button type="submit"
+                    @click="show = false; document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Creando Nuevo Hilo...';"
+                    class="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold hover:bg-amber-700 shadow-sm transition-colors flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 6v6m0 0v6m0-6h6m-6 0H6" />
+                    </svg>
+                    Crear Nuevo Hilo
+                </button>
+            </form>
+        </div>
+    </div>
+</div>

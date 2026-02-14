@@ -26,16 +26,16 @@
             </div>
             <div class="col-span-2">
                 <span class="text-slate-400">Proyecto:</span>
-                <span class="text-white font-medium ml-2">{{ lev_data.nombre_proyecto or lev_data.titulo_proyecto or 'Sin nombre' }}</span>
+                <span class="text-white font-medium ml-2">{{ lev_data.nombre_proyecto or lev_data.titulo_proyecto or
+                    'Sin nombre' }}</span>
             </div>
         </div>
     </div>
 
     <!-- Formulario -->
-    <form id="form-entrega"
-        hx-post="/levantamientos/entregar/{{ lev_data.id_levantamiento }}"
-        hx-target="#kanban-container" hx-swap="outerHTML"
-        hx-encoding="multipart/form-data"
+    <form id="form-entrega" hx-post="/levantamientos/entregar/{{ lev_data.id_levantamiento }}"
+        hx-target="#kanban-container" hx-swap="outerHTML" hx-encoding="multipart/form-data"
+        hx-indicator="#entrega-loading-indicator" hx-disabled-elt="find button[type='submit']"
         hx-on::after-request="if(event.detail.successful) setTimeout(() => closeModal(), 150)">
 
         <div class="form-group mb-4">
@@ -81,9 +81,14 @@
                 Cancelar
             </button>
             <button type="submit"
-                class="px-5 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-lg shadow-green-600/30 transition-all transform hover:scale-[1.02] flex items-center gap-2 text-sm">
-                <i class="fas fa-clipboard-check text-white"></i>
-                Entregar
+                class="px-5 py-2 bg-green-600 hover:bg-green-700 text-white font-semibold rounded-lg shadow-lg shadow-green-600/30 transition-all transform hover:scale-[1.02] flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                <span id="entrega-btn-content" class="flex items-center gap-2">
+                    <i class="fas fa-clipboard-check text-white"></i>
+                    Entregar
+                </span>
+                <span id="entrega-loading-indicator" class="htmx-indicator flex items-center gap-2">
+                    <i class="fas fa-spinner fa-spin"></i> Entregando...
+                </span>
             </button>
         </div>
     </form>
@@ -164,5 +169,10 @@
         outline: none;
         border-color: #22c55e;
         box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.2);
+    }
+
+    /* Hide button content during request */
+    #form-entrega.htmx-request #entrega-btn-content {
+        display: none;
     }
 </style>

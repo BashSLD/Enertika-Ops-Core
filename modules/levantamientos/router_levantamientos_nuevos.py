@@ -76,6 +76,7 @@ def register_nuevos_endpoints(router: APIRouter):
     async def get_detalle_levantamiento_modal(
         request: Request,
         id_levantamiento: UUID,
+        source: Optional[str] = None, # comercial | simulacion
         conn=Depends(get_db_connection),
         db_svc: LevantamientosDBService = Depends(get_db_service),
         context=Depends(get_current_user_context),
@@ -93,6 +94,7 @@ def register_nuevos_endpoints(router: APIRouter):
         return templates.TemplateResponse("shared/modals/detalle_levantamiento_modal.html", {
             "request": request,
             "lev": lev,
+            "source": source
         })
 
     # ----------------------------------------------------------

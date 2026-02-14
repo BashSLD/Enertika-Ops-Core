@@ -559,9 +559,9 @@
                 <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
 
                     <!-- Solicitar Actualización -->
-                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
-                        hx-target="#modal-content-placeholder" hx-swap="none" hx-indicator="#global-loading-overlay"
-                        x-on:submit="$el.closest('#modal-backdrop-detalle').style.display='none'; document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
+                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}" hx-target="body"
+                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
                         class="block w-full">
                         <input type="hidden" name="tipo_solicitud" value="ACTUALIZACION">
                         <input type="hidden" name="prioridad" value="high">
@@ -578,9 +578,9 @@
                     <!-- Solicitar Levantamiento -->
                     {% if 'LEVANTAMIENTO' not in (op.tipos_solicitud_activos or []) and 'LEVANTAMIENTO' not in
                     (op.tipo_solicitud or '') %}
-                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
-                        hx-target="#modal-content-placeholder" hx-swap="none" hx-indicator="#global-loading-overlay"
-                        x-on:submit="$el.closest('#modal-backdrop-detalle').style.display='none'; document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
+                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}" hx-target="body"
+                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
                         class="block w-full">
                         <input type="hidden" name="tipo_solicitud" value="LEVANTAMIENTO">
                         <input type="hidden" name="prioridad" value="normal">
@@ -596,9 +596,9 @@
                     {% endif %}
 
                     <!-- Solicitar Oferta Final -->
-                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}"
-                        hx-target="#modal-content-placeholder" hx-swap="none" hx-indicator="#global-loading-overlay"
-                        x-on:submit="$el.closest('#modal-backdrop-detalle').style.display='none'; document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
+                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}" hx-target="body"
+                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
                         class="block w-full">
                         <input type="hidden" name="tipo_solicitud" value="OFERTA_FINAL">
                         <input type="hidden" name="prioridad" value="high">

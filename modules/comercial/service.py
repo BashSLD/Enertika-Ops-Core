@@ -1427,6 +1427,18 @@ class ComercialService:
         row = await conn.fetchrow(QUERY_GET_PASO2_DATA, id_oportunidad)
         return dict(row) if row else None
 
+    async def predict_followup_title(self, conn, parent_id: UUID, nuevo_tipo_solicitud: str) -> str:
+        """
+        Retorna el título ACTUAL de la oportunidad padre.
+        Para encontrar el hilo de correo previo, debemos buscar por el título que YA existe (el del padre),
+        no por el título futuro (que tendría el tipo de solicitud nuevo).
+        """
+        titulo_parent = await conn.fetchval(
+            "SELECT titulo_proyecto FROM tb_oportunidades WHERE id_oportunidad = $1", 
+            parent_id
+        )
+        return titulo_parent or ""
+
     def get_next_ui_step(self, cantidad_sitios: int) -> str:
         """Determina el siguiente paso del flujo UI basado en reglas de negocio."""
         # Regla: Unisitio (1) -> Paso 3 (Email)

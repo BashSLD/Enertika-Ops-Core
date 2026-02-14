@@ -192,6 +192,7 @@ class LevantamientoService:
                 WHERE la.id_levantamiento = l.id_levantamiento
             ) techs ON true
         WHERE l.id_estatus_global IN (8, 9, 10, 11, 12, 13)
+          AND o.email_enviado = true
         ORDER BY l.created_at DESC
     """
         rows = await conn.fetch(query)
