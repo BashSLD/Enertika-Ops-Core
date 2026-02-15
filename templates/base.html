@@ -570,7 +570,7 @@
             <!-- AYUDA -->
             <div class="pb-2 border-t border-blue-900/30 mt-2">
                 <div class="relative group">
-                    <button @click="$dispatch('open-docs-modal')"
+                    <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend"
                         class="module-link flex items-center gap-3 py-3 px-3 rounded-lg hover:bg-blue-800/50 transition-all duration-200 overflow-hidden w-full"
                         :class="sidebarOpen ? 'justify-start' : 'justify-center'" title="Ayuda y Documentación">
                         <span class="module-icon text-lg">❓</span>
@@ -1127,7 +1127,8 @@
     <div id="global-toast-container" class="fixed top-5 right-5 z-[10000] pointer-events-none space-y-3"></div>
 
     <!-- Modal de Documentación (Compartido) -->
-    {% include "shared/modals/docs_modal.html" %}
+    <!-- Modal de Documentación (Cargado dinámicamente) -->
+
 
 
     <!-- ========== GLOBAL GENERIC MODAL ========== -->

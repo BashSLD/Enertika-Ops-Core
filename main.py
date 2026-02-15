@@ -58,6 +58,8 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 app.include_router(auth_router.router)
 app.include_router(comercial_router.router)
 app.include_router(admin_router.router)
+from modules.docs import router as docs_router
+app.include_router(docs_router.router)
 
 app.include_router(proyectos_router.router)
 app.include_router(compras_router.router)
