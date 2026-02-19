@@ -120,8 +120,9 @@
         {% endif %}
 
         <form id="form-enviar-solicitud" hx-post="/levantamientos/viaticos/solicitud/{{ lev_data.id_levantamiento }}"
-            hx-target="#historial-envios-container" hx-swap="innerHTML" hx-indicator="#enviar-btn-loading"
-            hx-disabled-elt="find button[type='submit']">
+            hx-target="#historial-envios-container" hx-swap="innerHTML"
+            hx-disabled-elt="find button[type='submit']"
+            hx-on::after-request="if(event.detail.successful) onViaticosEnviados(this)">
 
             <!-- CC Configurados (solo lectura) -->
             {% if cc_configurados %}
@@ -152,7 +153,8 @@
                             this.addTag();
                         }
                     }
-                }">
+                }"
+                @viaticos-enviados.window="tags = []; current = ''">
                 <label class="form-label-sm">CC Adicionales</label>
                 <div class="flex flex-wrap gap-1.5 p-2 min-h-[42px] bg-[rgba(15,23,42,0.8)] border border-[rgba(100,116,139,0.3)] rounded-md focus-within:border-blue-500 transition-colors">
                     <template x-for="tag in tags" :key="tag">
@@ -175,14 +177,18 @@
             </div>
 
             <div class="flex justify-end items-center gap-3">
+                <button type="button" id="btn-reenviar"
+                    class="hidden text-xs text-blue-400 hover:text-blue-300 underline"
+                    onclick="onReenviarViaticos()">
+                    &#x21BB; Reenviar solicitud
+                </button>
                 <button type="submit"
-                    {% if ya_enviado %}disabled{% endif %}
                     class="btn btn-primary bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded shadow-lg transition-all transform hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
                     <span id="enviar-btn-content">
                         <i class="fas fa-paper-plane mr-2"></i>
-                        {% if ya_enviado %}Ya Enviado{% else %}Enviar Solicitud{% endif %}
+                        Enviar Solicitud
                     </span>
-                    <span id="enviar-btn-loading" class="htmx-indicator">
+                    <span id="enviar-btn-loading">
                         <i class="fas fa-spinner fa-spin mr-2"></i> Enviando...
                     </span>
                 </button>
@@ -377,12 +383,27 @@
             display: inline;
         }
 
-        /* Hide button content during request */
-        #form-enviar-solicitud.htmx-request #enviar-btn-content {
-            display: none;
-        }
+        /* Loading indicator: oculto por defecto, visible durante request */
+        #enviar-btn-loading { display: none; }
+        #form-enviar-solicitud.htmx-request #enviar-btn-loading { display: inline; }
+        #form-enviar-solicitud.htmx-request #enviar-btn-content { display: none; }
     </style>
 
     <script>
-        // Alpine.js maneja la sincronización del campo cc_adicionales via :value binding
+        function onViaticosEnviados(form) {
+            window.dispatchEvent(new CustomEvent('viaticos-enviados')); // limpia CC Alpine
+            const btn = form.querySelector('[type=submit]');
+            const content = document.getElementById('enviar-btn-content');
+            btn.disabled = true;
+            content.innerHTML = '<i class="fas fa-check-circle mr-2" style="color:#10b981"></i>Enviado';
+            document.getElementById('btn-reenviar').classList.remove('hidden');
+        }
+
+        function onReenviarViaticos() {
+            const btn = document.querySelector('#form-enviar-solicitud [type=submit]');
+            const content = document.getElementById('enviar-btn-content');
+            btn.disabled = false;
+            content.innerHTML = '<i class="fas fa-paper-plane mr-2"></i>Enviar Solicitud';
+            document.getElementById('btn-reenviar').classList.add('hidden');
+        }
     </script>

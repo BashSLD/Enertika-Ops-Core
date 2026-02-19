@@ -461,16 +461,16 @@ class SimulacionDBService:
                 params.append(id_levantamiento)
             
             if subtab == 'realizados':
-                # Realizados: Completado (11), Entregado (12)
+                # Realizados: Completado (5), Entregado (6) — tb_cat_estatus_levantamiento
                 # Se filtra por el estatus del LEVANTAMIENTO (lev.id_estatus_global), no de la oportunidad
-                ids_realizados = [11, 12]
+                ids_realizados = [5, 6]
                 placeholders = ','.join([f'${len(params) + i + 1}' for i in range(len(ids_realizados))])
                 query += f" AND lev.id_estatus_global IN ({placeholders})"
                 params.extend(ids_realizados)
 
             else:
-                # Solicitados (Default): Pendiente (8), Agendado (9), En Proceso (10), Pospuesto (13)
-                ids_solicitados = [8, 9, 10, 13]
+                # Solicitados (Default): Pendiente (1), Agendado (2), En Proceso (3), Pospuesto (4) — tb_cat_estatus_levantamiento
+                ids_solicitados = [1, 2, 3, 4]
                 placeholders = ','.join([f'${len(params) + i + 1}' for i in range(len(ids_solicitados))])
                 query += f" AND lev.id_estatus_global IN ({placeholders})"
                 params.extend(ids_solicitados)

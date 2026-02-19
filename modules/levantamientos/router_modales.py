@@ -166,6 +166,7 @@ def register_modal_endpoints(router: APIRouter):
             "usuarios": usuarios,
             "cc_configurados": cc_configurados,
             "historial_envios": historial,
+            "id_levantamiento": id_levantamiento,
         })
 
     # ----------------------------------------------------------

@@ -148,7 +148,8 @@ class BomDBService:
     async def get_all_bom_versions(self, conn, id_proyecto: UUID) -> List[dict]:
         """Lista todas las versiones de BOM de un proyecto."""
         rows = await conn.fetch("""
-            SELECT b.id_bom, b.version, b.estatus, b.created_at,
+            SELECT b.id_bom, b.version, b.estatus,
+                   b.created_at AT TIME ZONE 'America/Mexico_City' AS created_at,
                    u.nombre AS elaborado_por_nombre
             FROM tb_bom b
             LEFT JOIN tb_usuarios u ON u.id_usuario = b.elaborado_por
@@ -316,7 +317,10 @@ class BomDBService:
     async def get_historial_by_bom(self, conn, id_bom: UUID) -> List[dict]:
         """Lista historial de cambios de un BOM."""
         rows = await conn.fetch("""
-            SELECT h.*, u.nombre AS realizado_por_nombre
+            SELECT h.id, h.id_bom, h.id_item, h.accion, h.campo_modificado,
+                   h.valor_anterior, h.valor_nuevo, h.version_bom, h.realizado_por,
+                   h.created_at AT TIME ZONE 'America/Mexico_City' AS created_at,
+                   u.nombre AS realizado_por_nombre
             FROM tb_bom_historial h
             LEFT JOIN tb_usuarios u ON u.id_usuario = h.realizado_por
             WHERE h.id_bom = $1
@@ -342,7 +346,9 @@ class BomDBService:
     async def get_aprobaciones_by_bom(self, conn, id_bom: UUID) -> List[dict]:
         """Lista aprobaciones/rechazos de un BOM."""
         rows = await conn.fetch("""
-            SELECT a.*, u.nombre AS usuario_nombre
+            SELECT a.id, a.id_bom, a.tipo, a.version_bom, a.usuario_id, a.comentarios,
+                   a.created_at AT TIME ZONE 'America/Mexico_City' AS created_at,
+                   u.nombre AS usuario_nombre
             FROM tb_bom_aprobaciones a
             LEFT JOIN tb_usuarios u ON u.id_usuario = a.usuario_id
             WHERE a.id_bom = $1
@@ -353,7 +359,8 @@ class BomDBService:
     async def get_ultimo_rechazo(self, conn, id_bom: UUID) -> Optional[dict]:
         """Obtiene el ultimo rechazo/devolucion del BOM."""
         row = await conn.fetchrow("""
-            SELECT a.tipo, a.comentarios, a.created_at,
+            SELECT a.tipo, a.comentarios,
+                   a.created_at AT TIME ZONE 'America/Mexico_City' AS created_at,
                    u.nombre AS rechazado_por
             FROM tb_bom_aprobaciones a
             JOIN tb_usuarios u ON a.usuario_id = u.id_usuario

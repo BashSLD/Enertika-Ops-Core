@@ -67,7 +67,7 @@ class LevantamientoService:
             SELECT id_sitio, nombre_sitio
             FROM tb_sitios_oportunidad
             WHERE id_oportunidad = $1
-            ORDER BY created_at ASC
+            ORDER BY fecha_carga ASC
         """, id_oportunidad)
 
         # Si no hay sitios, crear uno por defecto
@@ -184,10 +184,10 @@ class LevantamientoService:
                    l.id_levantamiento,
                    l.id_oportunidad,
                    l.id_estatus_global,
-                   l.fecha_solicitud,
-                   l.fecha_visita_programada,
-                   l.created_at,
-                   l.updated_at,
+                   l.fecha_solicitud          AT TIME ZONE 'America/Mexico_City' AS fecha_solicitud,
+                   l.fecha_visita_programada  AT TIME ZONE 'America/Mexico_City' AS fecha_visita_programada,
+                   l.created_at               AT TIME ZONE 'America/Mexico_City' AS created_at,
+                   l.updated_at               AT TIME ZONE 'America/Mexico_City' AS updated_at,
                    o.op_id_estandar,
                    o.titulo_proyecto,
                    o.nombre_proyecto,

@@ -315,16 +315,6 @@ def register_operaciones_endpoints(router: APIRouter):
         if not lev:
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
-        ya_enviado = await db_svc.check_viaticos_sent(conn, id_levantamiento)
-        if ya_enviado:
-            logger.warning(f"[VIATICOS] Guard doble envío activado para levantamiento {id_levantamiento}")
-            historial = await db_svc.get_historial_envios(conn, id_levantamiento)
-            return templates.TemplateResponse("levantamientos/partials/historial_envios.html", {
-                "request": request,
-                "historial_envios": historial,
-                "error_message": "Esta solicitud de viáticos ya fue enviada previamente. Si necesitas reenviar, primero pospone el levantamiento para devolver los viáticos.",
-            })
-
         total_monto = sum(v["monto"] for v in viaticos)
 
         to_list = await db_svc.get_to_configurados_viaticos(conn)

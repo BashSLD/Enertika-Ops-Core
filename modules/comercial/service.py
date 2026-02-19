@@ -784,17 +784,17 @@ class ComercialService:
                 
             # Sub-filtro por subtab
             if subtab == 'realizados':
-                # Realizados: Completado (11), Entregado (12)
+                # Realizados: Completado (5), Entregado (6) — tb_cat_estatus_levantamiento
                 # Se filtra por el estatus del LEVANTAMIENTO (lev.id_estatus_global)
-                ids_realizados = [11, 12]
+                ids_realizados = [5, 6]
                 placeholders = ','.join([f'${param_idx + i}' for i in range(len(ids_realizados))])
                 query += f" AND lev.id_estatus_global IN ({placeholders})"
                 params.extend(ids_realizados)
                 param_idx += len(ids_realizados)
 
             else:
-                # Solicitados (Default): Pendiente (8), Agendado (9), En Proceso (10), Pospuesto (13)
-                ids_solicitados = [8, 9, 10, 13]
+                # Solicitados (Default): Pendiente (1), Agendado (2), En Proceso (3), Pospuesto (4) — tb_cat_estatus_levantamiento
+                ids_solicitados = [1, 2, 3, 4]
                 placeholders = ','.join([f'${param_idx + i}' for i in range(len(ids_solicitados))])
                 query += f" AND lev.id_estatus_global IN ({placeholders})"
                 params.extend(ids_solicitados)
@@ -1213,6 +1213,19 @@ class ComercialService:
             # 4. Sincronizar Contador
             new_count = len(records)
             await conn.execute(QUERY_UPDATE_CANTIDAD_SITIOS, new_count, id_oportunidad)
+
+        # HOOK: Si es LEVANTAMIENTO multisite, crear levantamientos para sitios 2..N
+        # El sitio 1 ya tiene levantamiento (fue revivculado por RELINK); crear_desde_oportunidad
+        # detecta cuáles sitios ya tienen levantamiento y solo crea los faltantes.
+        if records and id_tipo_solicitud:
+            tipo_datos = await conn.fetchrow(QUERY_GET_TIPO_SOLICITUD_CODE, id_tipo_solicitud)
+            if tipo_datos and tipo_datos['codigo_interno'] == 'LEVANTAMIENTO':
+                try:
+                    from modules.levantamientos.service import LevantamientoService
+                    lev_service = LevantamientoService()
+                    await lev_service.crear_desde_oportunidad(conn, id_oportunidad, user_context)
+                except Exception as e:
+                    logger.error(f"Error creando levantamientos multisite para oportunidad {id_oportunidad}: {e}")
 
         return len(records)
 
