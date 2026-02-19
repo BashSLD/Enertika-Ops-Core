@@ -97,7 +97,7 @@ async def get_current_user_context(
         if not module_roles and final_department:
             # Obtener slug del departamento
             dept_slug = await conn.fetchval(
-                "SELECT slug FROM tb_departamentos_catalogo WHERE nombre = $1",
+                "SELECT slug FROM tb_cat_departamentos WHERE nombre = $1",
                 final_department
             )
             

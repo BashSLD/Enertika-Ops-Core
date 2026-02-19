@@ -18,13 +18,13 @@ QUERY_GET_OPORTUNIDADES_LIST = """
         lev.id_levantamiento,
         u_tecnico.nombre as tecnico_asignado_nombre
     FROM tb_oportunidades o
-    LEFT JOIN tb_cat_estatus_global estatus ON o.id_estatus_global = estatus.id
+    LEFT JOIN tb_cat_estatus_oportunidades estatus ON o.id_estatus_global = estatus.id
     LEFT JOIN tb_cat_tipos_solicitud tipo_sol ON o.id_tipo_solicitud = tipo_sol.id
     LEFT JOIN tb_usuarios u_creador ON o.creado_por_id = u_creador.id_usuario
     LEFT JOIN tb_usuarios u_sim ON o.responsable_simulacion_id = u_sim.id_usuario
     LEFT JOIN tb_detalles_bess db ON o.id_oportunidad = db.id_oportunidad
     LEFT JOIN tb_levantamientos lev ON o.id_oportunidad = lev.id_oportunidad
-    LEFT JOIN tb_cat_estatus_global lev_estatus ON lev.id_estatus_global = lev_estatus.id
+    LEFT JOIN tb_cat_estatus_levantamiento lev_estatus ON lev.id_estatus_global = lev_estatus.id
     LEFT JOIN tb_usuarios u_tecnico ON lev.tecnico_asignado_id = u_tecnico.id_usuario
     WHERE o.email_enviado = true
 """
@@ -99,7 +99,7 @@ QUERY_CLONE_SITIOS = """
 # Catalog Queries
 QUERY_GET_TECNOLOGIAS = "SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre"
 QUERY_GET_TIPOS_SOLICITUD = "SELECT id, nombre, codigo_interno FROM tb_cat_tipos_solicitud WHERE activo = true ORDER BY nombre"
-QUERY_GET_ESTATUS_GLOBAL = "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND modulo_aplicable IN ('SIMULACION', 'COMERCIAL') ORDER BY nombre"
+QUERY_GET_ESTATUS_GLOBAL = "SELECT id, nombre FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable IN ('SIMULACION', 'COMERCIAL') ORDER BY nombre"
 QUERY_GET_USUARIOS_COMERCIAL = """
     SELECT id_usuario as id, nombre 
     FROM tb_usuarios 

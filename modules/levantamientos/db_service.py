@@ -66,14 +66,15 @@ class LevantamientosDBService:
 
                 -- Estado nombre
                 est.nombre     AS estatus_nombre,
-                est.color_hex  AS estatus_color
+                est.color_hex  AS estatus_color,
+                est.codigo     AS estatus_codigo
             FROM tb_levantamientos l
             INNER JOIN tb_oportunidades      o    ON l.id_oportunidad          = o.id_oportunidad
             LEFT  JOIN tb_sitios_oportunidad s    ON l.id_sitio                = s.id_sitio
             LEFT  JOIN tb_usuarios           u_sol ON l.solicitado_por_id      = u_sol.id_usuario
             LEFT  JOIN tb_usuarios           u_tec ON l.tecnico_asignado_id   = u_tec.id_usuario
             LEFT  JOIN tb_usuarios           u_jefe ON l.jefe_area_id         = u_jefe.id_usuario
-            LEFT  JOIN tb_cat_estatus_global est  ON l.id_estatus_global      = est.id
+            LEFT  JOIN tb_cat_estatus_levantamiento est  ON l.id_estatus_global = est.id
             WHERE l.id_levantamiento = $1
         """, id_levantamiento)
 
@@ -190,41 +191,41 @@ class LevantamientosDBService:
     # POSPONER
     # ----------------------------------------------------------
 
-    async def update_posponer(self, conn, id_levantamiento: UUID, motivo: str, user_id: UUID) -> None:
+    async def update_posponer(self, conn, id_levantamiento: UUID, motivo: str, user_id: UUID, estatus_id: int) -> None:
         """
-        Guarda motivo_pospone y cambia estado a 13 (Pospuesto).
+        Guarda motivo_pospone y cambia estado al estatus Pospuesto.
         El historial lo registra el service via _registrar_en_historial.
         """
         await conn.execute("""
             UPDATE tb_levantamientos
-            SET id_estatus_global    = 13,
+            SET id_estatus_global    = $4,
                 motivo_pospone       = $1,
                 updated_at           = now(),
                 updated_by_id        = $2
             WHERE id_levantamiento   = $3
-        """, motivo, user_id, id_levantamiento)
+        """, motivo, user_id, id_levantamiento, estatus_id)
 
     # ----------------------------------------------------------
     # REAGENDAR
     # ----------------------------------------------------------
 
-    async def update_reagendar(self, conn, id_levantamiento: UUID, nueva_fecha, user_id: UUID, is_rescheduling: bool = True) -> None:
+    async def update_reagendar(self, conn, id_levantamiento: UUID, nueva_fecha, user_id: UUID, estatus_id: int, is_rescheduling: bool = True) -> None:
         """
         Actualiza fecha_visita_programada con la nueva fecha.
         Si is_rescheduling=True, registra fecha_reagenda (now).
         Si es cita inicial (False), mantiene fecha_reagenda (NULL).
-        Limpia motivo_pospone y cambia estado a 9 (Agendado).
+        Limpia motivo_pospone y cambia estado al estatus Agendado.
         """
         await conn.execute("""
             UPDATE tb_levantamientos
-            SET id_estatus_global       = 9,
+            SET id_estatus_global       = $5,
                 fecha_visita_programada = $1,
                 fecha_reagenda          = CASE WHEN $4::boolean THEN now() ELSE fecha_reagenda END,
                 motivo_pospone          = NULL,
                 updated_at              = now(),
                 updated_by_id           = $2
             WHERE id_levantamiento      = $3
-        """, nueva_fecha, user_id, id_levantamiento, is_rescheduling)
+        """, nueva_fecha, user_id, id_levantamiento, is_rescheduling, estatus_id)
 
     # ----------------------------------------------------------
     # VIATICOS — CRUD
@@ -474,6 +475,7 @@ class LevantamientosDBService:
     async def get_lista_activos(
         self,
         conn,
+        ids_activos: List[int],
         q: Optional[str] = None,
         estado: Optional[int] = None,
         tecnico_id: Optional[str] = None,
@@ -481,10 +483,11 @@ class LevantamientosDBService:
         fecha_fin: Optional[str] = None,
     ) -> List[dict]:
         """
-        Lista de levantamientos activos (estados 8, 9, 10, 13) con filtros dinámicos.
+        Lista de levantamientos activos (estados pendiente/agendado/en_proceso/pospuesto) con filtros dinámicos.
+        ids_activos: lista de IDs de estatus que se consideran activos (obtenidos vía get_estatus_map).
         """
-        params = []
-        conditions = ["l.id_estatus_global IN (8, 9, 10, 13)", "o.email_enviado = true"]
+        params: list = [ids_activos]
+        conditions = ["l.id_estatus_global = ANY($1::int[])", "o.email_enviado = true"]
 
         if estado is not None:
             params.append(estado)
@@ -534,7 +537,7 @@ class LevantamientosDBService:
             LEFT  JOIN tb_sitios_oportunidad s   ON l.id_sitio = s.id_sitio
             LEFT  JOIN tb_usuarios u_tec ON l.tecnico_asignado_id = u_tec.id_usuario
             LEFT  JOIN tb_usuarios u_jefe ON l.jefe_area_id = u_jefe.id_usuario
-            LEFT  JOIN tb_cat_estatus_global est ON l.id_estatus_global = est.id
+            LEFT  JOIN tb_cat_estatus_levantamiento est ON l.id_estatus_global = est.id
             LEFT  JOIN LATERAL (
                 SELECT string_agg(u.nombre, ', ') AS nombres
                 FROM tb_levantamiento_asignaciones la
@@ -566,6 +569,7 @@ class LevantamientosDBService:
     async def get_lista_terminados(
         self,
         conn,
+        ids_terminados: List[int],
         q: Optional[str] = None,
         estado: Optional[int] = None,
         tecnico_id: Optional[str] = None,
@@ -573,12 +577,13 @@ class LevantamientosDBService:
         fecha_fin: Optional[str] = None,
     ) -> List[dict]:
         """
-        Lista de levantamientos terminados (estados 11, 12) con filtros dinámicos.
+        Lista de levantamientos terminados (completado/entregado) con filtros dinámicos.
+        ids_terminados: lista de IDs de estatus terminales (obtenidos vía get_estatus_map).
         """
-        params = []
-        conditions = ["l.id_estatus_global IN (11, 12)", "o.email_enviado = true"]
+        params: list = [ids_terminados]
+        conditions = ["l.id_estatus_global = ANY($1::int[])", "o.email_enviado = true"]
 
-        if estado is not None and estado in (11, 12):
+        if estado is not None and estado in ids_terminados:
             params.append(estado)
             conditions.append(f"l.id_estatus_global = ${len(params)}")
 
@@ -626,7 +631,7 @@ class LevantamientosDBService:
             LEFT  JOIN tb_sitios_oportunidad s   ON l.id_sitio = s.id_sitio
             LEFT  JOIN tb_usuarios u_tec ON l.tecnico_asignado_id = u_tec.id_usuario
             LEFT  JOIN tb_usuarios u_jefe ON l.jefe_area_id = u_jefe.id_usuario
-            LEFT  JOIN tb_cat_estatus_global est ON l.id_estatus_global = est.id
+            LEFT  JOIN tb_cat_estatus_levantamiento est ON l.id_estatus_global = est.id
             LEFT  JOIN LATERAL (
                 SELECT string_agg(u.nombre, ', ') AS nombres
                 FROM tb_levantamiento_asignaciones la
@@ -652,6 +657,20 @@ class LevantamientosDBService:
         base_query += " ORDER BY l.updated_at DESC"
 
         rows = await conn.fetch(base_query, *params)
+        return [dict(r) for r in rows]
+
+    async def get_estatus_map(self, conn) -> dict:
+        """Retorna {codigo: id} para todos los estatus activos de levantamientos."""
+        rows = await conn.fetch(
+            "SELECT id, codigo FROM tb_cat_estatus_levantamiento WHERE activo = TRUE"
+        )
+        return {r['codigo']: r['id'] for r in rows}
+
+    async def get_estatus_list(self, conn) -> List[dict]:
+        """Retorna lista de estatus para el template (filtros, etc.)."""
+        rows = await conn.fetch(
+            "SELECT id, nombre, codigo, grupo_kanban FROM tb_cat_estatus_levantamiento WHERE activo = TRUE ORDER BY orden_kanban"
+        )
         return [dict(r) for r in rows]
 
     async def get_usuarios_tecnicos(self, conn) -> List[dict]:

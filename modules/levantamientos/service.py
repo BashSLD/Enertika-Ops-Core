@@ -82,6 +82,11 @@ class LevantamientoService:
         """, id_oportunidad)
         sitios_ya_creados = {r['id_sitio'] for r in sitios_con_lev}
 
+        from .db_service import get_db_service as _get_db
+        _db = _get_db()
+        estatus_map = await _db.get_estatus_map(conn)
+        estatus_pendiente_id = estatus_map['pendiente']
+
         now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
         first_id = None
 
@@ -100,16 +105,16 @@ class LevantamientoService:
                     solicitado_por_id, id_estatus_global,
                     fecha_solicitud, created_at, updated_at,
                     updated_by_id
-                ) VALUES ($1, $2, $3, $4, 8, $5, $5, $5, $4)
+                ) VALUES ($1, $2, $3, $4, $6, $5, $5, $5, $4)
             """, new_id, id_sitio, id_oportunidad, opp['creado_por_id'],
-                opp['fecha_solicitud'] or now_mx)
+                opp['fecha_solicitud'] or now_mx, estatus_pendiente_id)
 
             # Registrar en historial inicial
             await self._registrar_en_historial(
                 conn=conn,
                 id_levantamiento=new_id,
                 estatus_anterior=None,
-                estatus_nuevo=8,  # Pendiente
+                estatus_nuevo=estatus_pendiente_id,
                 user_context=user_context,
                 observaciones="Levantamiento creado automáticamente desde solicitud comercial"
             )
@@ -220,11 +225,16 @@ class LevantamientoService:
                 JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
                 WHERE la.id_levantamiento = l.id_levantamiento
             ) techs ON true
-        WHERE l.id_estatus_global IN (8, 9, 10, 11, 12, 13)
+        WHERE l.id_estatus_global = ANY($1::int[])
           AND o.email_enviado = true
         ORDER BY l.created_at DESC
     """
-        rows = await conn.fetch(query)
+        from .db_service import get_db_service as _get_db_svc
+        _db_svc = _get_db_svc()
+        estatus_map = await _db_svc.get_estatus_map(conn)
+        id_to_codigo = {v: k for k, v in estatus_map.items()}
+        todos_los_ids = list(estatus_map.values())
+        rows = await conn.fetch(query, todos_los_ids)
 
         # Pre-calcular sitio_num y sitio_total para badge multisite
         # Agrupar IDs de levantamientos por oportunidad (en el orden devuelto por la query)
@@ -234,12 +244,12 @@ class LevantamientoService:
 
         # Organizar en columnas del Kanban (6 columnas)
         kanban = {
-            "pendientes": [],        # Estado 8
-            "agendados": [],         # Estado 9
-            "en_proceso": [],        # Estado 10
-            "completados": [],       # Estado 11
-            "entregados": [],        # Estado 12
-            "pospuestos": []         # Estado 13
+            "pendientes": [],        # Estado 1
+            "agendados": [],         # Estado 2
+            "en_proceso": [],        # Estado 3
+            "completados": [],       # Estado 5
+            "entregados": [],        # Estado 6
+            "pospuestos": []         # Estado 4
         }
 
         # Obtener Jefe Default para fallback visual
@@ -267,18 +277,18 @@ class LevantamientoService:
             except ValueError:
                 item['sitio_num'] = 1
 
-            st = item['id_estatus_global']
-            if st == 8:
+            codigo = id_to_codigo.get(item['id_estatus_global'], '')
+            if codigo == 'pendiente':
                 kanban['pendientes'].append(item)
-            elif st == 9:
+            elif codigo == 'agendado':
                 kanban['agendados'].append(item)
-            elif st == 10:
+            elif codigo == 'en_proceso':
                 kanban['en_proceso'].append(item)
-            elif st == 11:
+            elif codigo == 'completado':
                 kanban['completados'].append(item)
-            elif st == 12:
+            elif codigo == 'entregado':
                 kanban['entregados'].append(item)
-            elif st == 13:
+            elif codigo == 'pospuesto':
                 kanban['pospuestos'].append(item)
         
         logger.debug(f"[KANBAN] Datos cargados: {sum(len(v) for v in kanban.values())} levantamientos")
@@ -429,16 +439,18 @@ class LevantamientoService:
         Args:
             conn: Conexión a BD
             id_levantamiento: ID del levantamiento
-            nuevo_estado: Nuevo ID de estatus (8-13)
+            nuevo_estado: Nuevo ID de estatus (1-6)
             user_context: Contexto del usuario
             observaciones: Comentarios sobre el cambio
         """
-        # Validar estado
-        estados_validos = [8, 9, 10, 11, 12, 13]
+        # Validar estado contra catálogo de BD
+        from .db_service import get_db_service as _get_db_cambiar
+        _estatus_map = await _get_db_cambiar().get_estatus_map(conn)
+        estados_validos = list(_estatus_map.values())
         if nuevo_estado not in estados_validos:
             raise HTTPException(
-                status_code=400, 
-                detail=f"Estado inválido: {nuevo_estado}. Debe ser entre 8-13"
+                status_code=400,
+                detail=f"Estado inválido: {nuevo_estado}."
             )
         
         # Obtener estado actual
@@ -518,9 +530,11 @@ class LevantamientoService:
         """
         from .db_service import get_db_service
         db_svc = get_db_service()
+        estatus_map = await db_svc.get_estatus_map(conn)
+        id_en_proceso = estatus_map.get('en_proceso')
 
-        # Regla 1: Para pasar a "En Proceso" (10), debe tener técnicos asignados
-        if nuevo_estado == 10:
+        # Regla 1: Para pasar a "En Proceso", debe tener técnicos asignados
+        if nuevo_estado == id_en_proceso:
             has_techs = await db_svc.check_asignaciones(conn, id_levantamiento)
             if not has_techs:
                 raise HTTPException(
@@ -528,10 +542,10 @@ class LevantamientoService:
                     detail="Debes asignar al menos un ingeniero antes de iniciar el levantamiento."
                 )
 
-            # Regla 2: Para pasar a "En Proceso" (10), debe haber solicitado viáticos
+            # Regla 2: Para pasar a "En Proceso", debe haber solicitado viáticos
             has_viaticos = await db_svc.check_viaticos_sent(conn, id_levantamiento)
             if not has_viaticos:
-                 raise HTTPException(
+                raise HTTPException(
                     status_code=400,
                     detail="Debes enviar la solicitud de viáticos antes de iniciar."
                 )
@@ -597,8 +611,8 @@ class LevantamientoService:
                 e_new.nombre as nombre_estado_nuevo,
                 e_new.color_hex as color_nuevo
             FROM tb_levantamientos_historial h
-            LEFT JOIN tb_cat_estatus_global e_ant ON h.id_estatus_anterior = e_ant.id
-            INNER JOIN tb_cat_estatus_global e_new ON h.id_estatus_nuevo = e_new.id
+            LEFT JOIN tb_cat_estatus_levantamiento e_ant ON h.id_estatus_anterior = e_ant.id
+            INNER JOIN tb_cat_estatus_levantamiento e_new ON h.id_estatus_nuevo = e_new.id
             WHERE h.id_levantamiento = $1
             ORDER BY h.fecha_transicion DESC
         """, id_levantamiento)
@@ -747,16 +761,15 @@ class LevantamientoService:
         """Notificación específica para cuando se agenda una visita."""
         try:
             from core.workflow.notification_service import get_notification_service
-            
-            # Emular notificacion de cambio de estatus a "Agendado" con fecha de visita.
-            
+            from .db_service import get_db_service as _get_db_notif
+            _estatus_map = await _get_db_notif().get_estatus_map(conn)
+
             notif_service = get_notification_service()
-            # We trigger a status change notification to 9 (Agendado) explictly
             await notif_service.notify_status_change(
                 conn=conn,
                 id_oportunidad=id_oportunidad,
-                old_status_id=8, # Assumptions usually from Pendiente
-                new_status_id=9, # Agendado
+                old_status_id=_estatus_map.get('pendiente', 0),
+                new_status_id=_estatus_map.get('agendado', 0),
                 changed_by_ctx=user_context,
                 extra_data={"fecha_visita": str(fecha_visita)}
             )
@@ -775,13 +788,15 @@ class LevantamientoService:
         """Notificación específica para cuando se pospone."""
         try:
             from core.workflow.notification_service import get_notification_service
+            from .db_service import get_db_service as _get_db_notif2
+            _estatus_map2 = await _get_db_notif2().get_estatus_map(conn)
             notif_service = get_notification_service()
-            
+
             await notif_service.notify_status_change(
                 conn=conn,
                 id_oportunidad=id_oportunidad,
-                old_status_id=9, # Assumption
-                new_status_id=13, # Pospuesto
+                old_status_id=_estatus_map2.get('agendado', 0),
+                new_status_id=_estatus_map2.get('pospuesto', 0),
                 changed_by_ctx=user_context,
                 extra_data={"motivo": motivo}
             )

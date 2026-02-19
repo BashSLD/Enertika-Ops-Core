@@ -19,7 +19,7 @@ class LevantamientosAnalyticsDBService:
     async def get_distribucion_estatus(self, conn) -> List[dict]:
         """
         Conteo de levantamientos por estatus para gráfica de dona.
-        Incluye todos los estados activos (8-13).
+        Incluye todos los estados activos del módulo levantamientos.
         """
         rows = await conn.fetch("""
             SELECT
@@ -28,11 +28,11 @@ class LevantamientosAnalyticsDBService:
                 COUNT(*)       AS total
             FROM tb_levantamientos l
             INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
-            INNER JOIN tb_cat_estatus_global est ON l.id_estatus_global = est.id
-            WHERE l.id_estatus_global IN (8, 9, 10, 11, 12, 13)
+            INNER JOIN tb_cat_estatus_levantamiento est ON l.id_estatus_global = est.id
+            WHERE est.activo = TRUE
               AND o.email_enviado = true
             GROUP BY est.id, est.nombre, est.color_hex
-            ORDER BY est.id
+            ORDER BY est.orden_kanban
         """)
         return [dict(r) for r in rows]
 
@@ -48,7 +48,10 @@ class LevantamientosAnalyticsDBService:
             INNER JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
             INNER JOIN tb_levantamientos l ON la.id_levantamiento = l.id_levantamiento
             INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
-            WHERE l.id_estatus_global IN (8, 9, 10, 13)
+            WHERE l.id_estatus_global IN (
+                    SELECT id FROM tb_cat_estatus_levantamiento
+                    WHERE grupo_kanban = 'activo' AND activo = TRUE
+                )
               AND o.email_enviado = true
             GROUP BY u.id_usuario, u.nombre
             ORDER BY total DESC
@@ -86,7 +89,10 @@ class LevantamientosAnalyticsDBService:
                 FROM tb_levantamientos_historial lh
                 INNER JOIN tb_levantamientos l ON lh.id_levantamiento = l.id_levantamiento
                 INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
-                WHERE lh.id_estatus_nuevo IN (11, 12)
+                WHERE lh.id_estatus_nuevo IN (
+                    SELECT id FROM tb_cat_estatus_levantamiento
+                    WHERE grupo_kanban = 'terminado' AND activo = TRUE
+                )
                   AND lh.fecha_transicion >= NOW() - INTERVAL '12 weeks'
                   AND o.email_enviado = true
                 GROUP BY 1
@@ -114,14 +120,14 @@ class LevantamientosAnalyticsDBService:
                 )::numeric, 1) AS avg_horas
             FROM tb_levantamientos l
             INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
-            INNER JOIN tb_cat_estatus_global est ON l.id_estatus_global = est.id
+            INNER JOIN tb_cat_estatus_levantamiento est ON l.id_estatus_global = est.id
             LEFT JOIN LATERAL (
                 SELECT MAX(fecha_transicion) AS ultima_transicion
                 FROM tb_levantamientos_historial
                 WHERE id_levantamiento = l.id_levantamiento
                   AND id_estatus_nuevo = l.id_estatus_global
             ) te ON true
-            WHERE l.id_estatus_global IN (8, 9, 10, 11, 12, 13)
+            WHERE est.activo = TRUE
               AND o.email_enviado = true
             GROUP BY est.id, est.nombre
             ORDER BY est.id
@@ -139,12 +145,16 @@ class LevantamientosAnalyticsDBService:
         total_levantamientos = await conn.fetchval("""
             SELECT COUNT(*) FROM tb_levantamientos l
             INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
-            WHERE l.id_estatus_global IN (8, 9, 10, 11, 12, 13)
+            INNER JOIN tb_cat_estatus_levantamiento est ON l.id_estatus_global = est.id
+            WHERE est.activo = TRUE
               AND o.email_enviado = true
         """)
 
         return {
-            "tiempos_por_estado": [dict(r) for r in tiempos],
+            "tiempos_por_estado": [
+                {**dict(r), "avg_horas": float(r["avg_horas"] or 0)}
+                for r in tiempos
+            ],
             "avg_viaticos": float(avg_viaticos or 0),
             "total_levantamientos": int(total_levantamientos or 0),
         }

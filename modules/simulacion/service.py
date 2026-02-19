@@ -51,7 +51,7 @@ class SimulacionService:
     _ALLOWED_CATALOG_TABLES = frozenset({
         "tb_cat_tecnologias",
         "tb_cat_tipos_solicitud",
-        "tb_cat_estatus_global",
+        "tb_cat_estatus_oportunidades",
         "tb_cat_motivos_cierre",
         "tb_cat_motivos_retrabajo",
     })
@@ -69,7 +69,7 @@ class SimulacionService:
 
     async def _get_status_ids(self, conn) -> dict:
         """Devuelve mapa de IDs críticos usando Cache."""
-        estatus_map = await ConfigService.get_catalog_map(conn, "tb_cat_estatus_global", "nombre", "id")
+        estatus_map = await ConfigService.get_catalog_map(conn, "tb_cat_estatus_oportunidades", "nombre", "id")
         
         # Helper safe lookup
         def get_id(name):

@@ -262,7 +262,7 @@ class ComercialService:
         por lo que se deben esperar secuencialmente.
         """
         # Ejecución secuencial para evitar "InterfaceError: cannot perform operation: another operation is in progress"
-        estatus_map = await ConfigService.get_catalog_map(conn, "tb_cat_estatus_global", "nombre", "id")
+        estatus_map = await ConfigService.get_catalog_map(conn, "tb_cat_estatus_oportunidades", "nombre", "id")
         tipos_map = await ConfigService.get_catalog_map(conn, "tb_cat_tipos_solicitud", "codigo_interno", "id")
         
         return {

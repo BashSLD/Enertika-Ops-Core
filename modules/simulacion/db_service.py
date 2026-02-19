@@ -23,12 +23,12 @@ class SimulacionDBService:
         """Obtiene opciones para el dropdown de estatus global, filtrando por módulo."""
         if exclude_id:
             rows = await conn.fetch(
-                "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND modulo_aplicable = 'SIMULACION' AND id != $1 ORDER BY id",
+                "SELECT id, nombre FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' AND id != $1 ORDER BY id",
                 exclude_id
             )
         else:
             rows = await conn.fetch(
-                "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY id"
+                "SELECT id, nombre FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY id"
             )
         return [dict(r) for r in rows]
 
@@ -222,7 +222,7 @@ class SimulacionDBService:
                 kpi_status_compromiso = $4
             WHERE id_oportunidad = $5
             AND id_estatus_global NOT IN (
-                SELECT id FROM tb_cat_estatus_global 
+                SELECT id FROM tb_cat_estatus_oportunidades 
                 WHERE LOWER(nombre) IN ('entregado', 'cancelado', 'perdido', 'ganada')
             )
         """
@@ -305,7 +305,7 @@ class SimulacionDBService:
             SELECT s.id_sitio, s.nombre_sitio, s.direccion, s.id_estatus_global,
                    e.nombre as nombre_estatus, s.fecha_cierre
             FROM tb_sitios_oportunidad s
-            LEFT JOIN tb_cat_estatus_global e ON s.id_estatus_global = e.id
+            LEFT JOIN tb_cat_estatus_oportunidades e ON s.id_estatus_global = e.id
             WHERE s.id_oportunidad = $1 ORDER BY s.nombre_sitio
         """, id_oportunidad)
         return [dict(r) for r in rows]
@@ -389,7 +389,7 @@ class SimulacionDBService:
         return [dict(r) for r in rows]
 
     async def get_status_map(self, conn) -> Dict[str, int]:
-        rows = await conn.fetch("SELECT id, LOWER(nombre) as nombre FROM tb_cat_estatus_global WHERE activo = true")
+        rows = await conn.fetch("SELECT id, LOWER(nombre) as nombre FROM tb_cat_estatus_oportunidades WHERE activo = true")
         return {r['nombre']: r['id'] for r in rows}
     
     async def get_id_levantamiento(self, conn) -> Optional[int]:
@@ -419,13 +419,13 @@ class SimulacionDBService:
                 lev.id_levantamiento,
                 u_tecnico.nombre as tecnico_asignado_nombre
             FROM tb_oportunidades o
-            LEFT JOIN tb_cat_estatus_global estatus ON o.id_estatus_global = estatus.id
+            LEFT JOIN tb_cat_estatus_oportunidades estatus ON o.id_estatus_global = estatus.id
             LEFT JOIN tb_cat_tipos_solicitud tipo_sol ON o.id_tipo_solicitud = tipo_sol.id
             LEFT JOIN tb_usuarios u_creador ON o.creado_por_id = u_creador.id_usuario
             LEFT JOIN tb_usuarios u_sim ON o.responsable_simulacion_id = u_sim.id_usuario
             LEFT JOIN tb_detalles_bess db ON o.id_oportunidad = db.id_oportunidad
             LEFT JOIN tb_levantamientos lev ON o.id_oportunidad = lev.id_oportunidad
-            LEFT JOIN tb_cat_estatus_global lev_estatus ON lev.id_estatus_global = lev_estatus.id
+            LEFT JOIN tb_cat_estatus_levantamiento lev_estatus ON lev.id_estatus_global = lev_estatus.id
             LEFT JOIN tb_usuarios u_tecnico ON lev.tecnico_asignado_id = u_tecnico.id_usuario
             WHERE o.email_enviado = true
         """
@@ -553,7 +553,7 @@ class SimulacionDBService:
     async def get_report_catalog_ids(self, conn) -> Dict[str, Any]:
         """Obtiene IDs de catálogos para reportes"""
         estatus = await conn.fetch(
-            "SELECT id, LOWER(nombre) as nombre FROM tb_cat_estatus_global WHERE activo = true"
+            "SELECT id, LOWER(nombre) as nombre FROM tb_cat_estatus_oportunidades WHERE activo = true"
         )
         tipos = await conn.fetch(
             "SELECT id, LOWER(codigo_interno) as codigo FROM tb_cat_tipos_solicitud WHERE activo = true"
@@ -615,7 +615,7 @@ class SimulacionDBService:
                     o.cantidad_sitios
                 FROM tb_sitios_oportunidad s
                 JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
-                JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
                 {where_clause}
             )
             SELECT
@@ -652,7 +652,7 @@ class SimulacionDBService:
             SELECT mr.nombre as motivo, COUNT(*) as conteo
             FROM tb_sitios_oportunidad s
             JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
             LEFT JOIN tb_cat_motivos_retrabajo mr ON s.id_motivo_retrabajo = mr.id
             {where_clause}
             AND s.es_retrabajo = TRUE AND s.id_motivo_retrabajo IS NOT NULL
@@ -670,11 +670,11 @@ class SimulacionDBService:
             WITH tiempos AS (
                 SELECT tiempo_elaboracion_horas / 24 as dias
                 FROM tb_oportunidades o
-                JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
                 {where_clause}
                 AND o.tiempo_elaboracion_horas IS NOT NULL
                 AND o.id_estatus_global IN (
-                    SELECT id FROM tb_cat_estatus_global WHERE LOWER(nombre) IN ('entregado', 'perdido')
+                    SELECT id FROM tb_cat_estatus_oportunidades WHERE LOWER(nombre) IN ('entregado', 'perdido')
                 )
                 AND o.id_tipo_solicitud != (
                     SELECT id FROM tb_cat_tipos_solicitud WHERE LOWER(nombre) = 'levantamiento'
@@ -707,7 +707,7 @@ class SimulacionDBService:
                     o.tiempo_elaboracion_horas, o.potencia_cierre_fv_kwp, o.capacidad_cierre_bess_kwh
                 FROM tb_sitios_oportunidad s
                 JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
-                JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
                 {where_clause}
             )
             SELECT
@@ -743,7 +743,7 @@ class SimulacionDBService:
                 m.categoria,
                 COUNT(*) as total
             FROM tb_oportunidades o
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
             JOIN tb_cat_motivos_cierre m ON o.id_motivo_cierre = m.id
             {where_clause}
             AND o.id_motivo_cierre IS NOT NULL
@@ -779,7 +779,7 @@ class SimulacionDBService:
             FROM tb_cat_tipos_solicitud ts
             LEFT JOIN tb_oportunidades o ON ts.id = o.id_tipo_solicitud
             LEFT JOIN tb_sitios_oportunidad s ON o.id_oportunidad = s.id_oportunidad
-            LEFT JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            LEFT JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
             {where_clause}
             GROUP BY ts.id, ts.nombre, ts.codigo_interno HAVING COUNT(DISTINCT o.id_oportunidad) > 0
             ORDER BY ts.id
@@ -793,7 +793,7 @@ class SimulacionDBService:
             SELECT DISTINCT u.id_usuario, u.nombre
             FROM tb_usuarios u
             INNER JOIN tb_oportunidades o ON o.responsable_simulacion_id = u.id_usuario
-            INNER JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            INNER JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
             {where_clause}
             ORDER BY u.nombre
         """
@@ -815,7 +815,7 @@ class SimulacionDBService:
             SELECT ts.nombre as tipo, AVG(o.tiempo_elaboracion_horas) / 24 as dias_promedio
             FROM tb_oportunidades o
             JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
             {where_clause}
             AND o.responsable_simulacion_id = ${idx_user}
             AND o.tiempo_elaboracion_horas IS NOT NULL
@@ -862,7 +862,7 @@ class SimulacionDBService:
                     o.tiempo_elaboracion_horas, o.id_motivo_cierre
                 FROM tb_sitios_oportunidad s
                 JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
-                JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
                 {where_clause}
             )
             SELECT
@@ -897,7 +897,7 @@ class SimulacionDBService:
             "SELECT id, nombre, codigo_interno FROM tb_cat_tipos_solicitud WHERE activo = true ORDER BY nombre"
         )
         estatus = await conn.fetch(
-            "SELECT id, nombre FROM tb_cat_estatus_global WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY id"
+            "SELECT id, nombre FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY id"
         )
         usuarios = await conn.fetch("""
             SELECT id_usuario, nombre 
@@ -924,7 +924,7 @@ class SimulacionDBService:
                 e.color_hex,
                 COUNT(*) as total
             FROM tb_oportunidades o
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
             {where_clause}
             GROUP BY e.id, e.nombre, e.color_hex
             ORDER BY total DESC
@@ -943,7 +943,7 @@ class SimulacionDBService:
                 EXTRACT(MONTH FROM o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::int as mes,
                 COUNT(*) as total
             FROM tb_oportunidades o
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
             {where_clause}
             GROUP BY mes
             ORDER BY mes
@@ -961,7 +961,7 @@ class SimulacionDBService:
                 t.nombre,
                 COUNT(*) as total
             FROM tb_oportunidades o
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
             JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
             {where_clause}
             GROUP BY t.id, t.nombre

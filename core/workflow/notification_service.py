@@ -210,7 +210,9 @@ class NotificationService:
         
         # Obtener nombres de estatus
         status_rows = await conn.fetch(
-            "SELECT id, nombre FROM tb_cat_estatus_global WHERE id = ANY($1::int[])",
+            """SELECT id, nombre FROM tb_cat_estatus_oportunidades WHERE id = ANY($1::int[])
+               UNION ALL
+               SELECT id, nombre FROM tb_cat_estatus_levantamiento WHERE id = ANY($1::int[])""",
             [old_status_id, new_status_id]
         )
         status_map = {s['id']: s['nombre'] for s in status_rows}

@@ -116,7 +116,7 @@ class MetricsService:
                         ORDER BY h1.fecha_cambio_sla
                     ) as fin
                 FROM tb_historial_estatus h1
-                JOIN tb_cat_estatus_global e ON h1.id_estatus_nuevo = e.id
+                JOIN tb_cat_estatus_oportunidades e ON h1.id_estatus_nuevo = e.id
                 JOIN tb_oportunidades o ON h1.id_oportunidad = o.id_oportunidad
                 WHERE {where_clause}
             ),
@@ -221,8 +221,8 @@ class MetricsService:
                     AND h1.id_estatus_nuevo = h2.id_estatus_anterior
                     AND h1.id_estatus_anterior = h2.id_estatus_nuevo
                 )
-                JOIN tb_cat_estatus_global e1 ON h1.id_estatus_nuevo = e1.id
-                JOIN tb_cat_estatus_global e2 ON h2.id_estatus_nuevo = e2.id
+                JOIN tb_cat_estatus_oportunidades e1 ON h1.id_estatus_nuevo = e1.id
+                JOIN tb_cat_estatus_oportunidades e2 ON h2.id_estatus_nuevo = e2.id
                 WHERE h1.fecha_cambio_sla >= $1
                   AND h1.fecha_cambio_sla <= $2
                 GROUP BY h1.id_oportunidad, estatus_a, estatus_b
@@ -288,7 +288,7 @@ class MetricsService:
                         ORDER BY h.fecha_cambio_sla
                     ) as fecha_fin_estatus
                 FROM tb_historial_estatus h
-                JOIN tb_cat_estatus_global e ON h.id_estatus_nuevo = e.id
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
                 WHERE {where_clause}
                 ORDER BY h.id_oportunidad, h.fecha_cambio_sla DESC
             )
@@ -359,7 +359,7 @@ class MetricsService:
         identifica su última transición y agrupa por par de estatus.
         """
         
-        filters = ["o.id_estatus_global NOT IN (SELECT id FROM tb_cat_estatus_global WHERE nombre IN ('Entregado', 'Cancelado', 'Perdido', 'Ganada'))"]
+        filters = ["o.id_estatus_global NOT IN (SELECT id FROM tb_cat_estatus_oportunidades WHERE nombre IN ('Entregado', 'Cancelado', 'Perdido', 'Ganada'))"]
         params: list = []
         
         if user_id:
@@ -393,8 +393,8 @@ class MetricsService:
                     EXTRACT(EPOCH FROM (NOW() - ut.fecha_cambio_sla)) / 86400.0
                 ) as dias_promedio_en_destino
             FROM ultima_transicion ut
-            LEFT JOIN tb_cat_estatus_global e_ant ON ut.id_estatus_anterior = e_ant.id
-            JOIN tb_cat_estatus_global e_nuevo ON ut.id_estatus_nuevo = e_nuevo.id
+            LEFT JOIN tb_cat_estatus_oportunidades e_ant ON ut.id_estatus_anterior = e_ant.id
+            JOIN tb_cat_estatus_oportunidades e_nuevo ON ut.id_estatus_nuevo = e_nuevo.id
             GROUP BY e_ant.nombre, e_nuevo.nombre
             ORDER BY cantidad DESC
         """
@@ -476,8 +476,8 @@ class MetricsService:
                 ) as dias_en_estatus
             FROM ultima_transicion ut
             JOIN tb_oportunidades o ON ut.id_oportunidad = o.id_oportunidad
-            LEFT JOIN tb_cat_estatus_global e_ant ON ut.id_estatus_anterior = e_ant.id
-            JOIN tb_cat_estatus_global e_nuevo ON ut.id_estatus_nuevo = e_nuevo.id
+            LEFT JOIN tb_cat_estatus_oportunidades e_ant ON ut.id_estatus_anterior = e_ant.id
+            JOIN tb_cat_estatus_oportunidades e_nuevo ON ut.id_estatus_nuevo = e_nuevo.id
             LEFT JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
             LEFT JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
             LEFT JOIN tb_usuarios u_sim ON o.responsable_simulacion_id = u_sim.id_usuario

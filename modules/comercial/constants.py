@@ -5,7 +5,7 @@ Centralized constants for the Commercial Module.
 Avoids hardcoded magic numbers and strings.
 """
 
-# Status Keys (Must match 'nombre' or 'codigo_interno' in tb_cat_estatus_global if mapped)
+# Status Keys (Must match 'nombre' or 'codigo_interno' in tb_cat_estatus_oportunidades if mapped)
 # We map these to IDs dynamically in the Service layer.
 STATUS_PENDIENTE = "pendiente"
 STATUS_ENTREGADO = "entregado"

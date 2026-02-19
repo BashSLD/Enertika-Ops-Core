@@ -99,15 +99,17 @@ def register_operaciones_endpoints(router: APIRouter):
         if not lev:
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
+        estatus_map = await db_svc.get_estatus_map(conn)
+        id_pospuesto = estatus_map['pospuesto']
         estado_anterior = lev["id_estatus_global"]
 
-        await db_svc.update_posponer(conn, id_levantamiento, motivo_pospone.strip(), context["user_db_id"])
+        await db_svc.update_posponer(conn, id_levantamiento, motivo_pospone.strip(), context["user_db_id"], id_pospuesto)
 
         await service._registrar_en_historial(
             conn=conn,
             id_levantamiento=id_levantamiento,
             estatus_anterior=estado_anterior,
-            estatus_nuevo=13,
+            estatus_nuevo=id_pospuesto,
             user_context=context,
             observaciones=motivo_pospone.strip(),
             metadata={"tipo_cambio": "posponer"}
@@ -166,10 +168,13 @@ def register_operaciones_endpoints(router: APIRouter):
         if not lev:
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
+        estatus_map_r = await db_svc.get_estatus_map(conn)
+        id_agendado = estatus_map_r['agendado']
+        id_pendiente = estatus_map_r['pendiente']
         estado_anterior = lev["id_estatus_global"]
 
-        is_rescheduling = (estado_anterior != 8)
-        await db_svc.update_reagendar(conn, id_levantamiento, fecha_obj, context["user_db_id"], is_rescheduling=is_rescheduling)
+        is_rescheduling = (estado_anterior != id_pendiente)
+        await db_svc.update_reagendar(conn, id_levantamiento, fecha_obj, context["user_db_id"], id_agendado, is_rescheduling=is_rescheduling)
 
         fecha_display = fecha_obj.strftime("%d/%m/%Y %H:%M")
         obs_text = observaciones or f"Visita reagendada para {fecha_display}"
@@ -177,7 +182,7 @@ def register_operaciones_endpoints(router: APIRouter):
             conn=conn,
             id_levantamiento=id_levantamiento,
             estatus_anterior=estado_anterior,
-            estatus_nuevo=9,
+            estatus_nuevo=id_agendado,
             user_context=context,
             observaciones=obs_text,
             metadata={"tipo_cambio": "reagendar", "nueva_fecha": fecha_obj.isoformat()}
@@ -440,8 +445,10 @@ def register_operaciones_endpoints(router: APIRouter):
         """
         notification = None
         try:
+            _estatus_map_e = await db_svc.get_estatus_map(conn)
+            id_entregado = _estatus_map_e['entregado']
             await service.cambiar_estado(
-                conn, id_levantamiento, 12, context,
+                conn, id_levantamiento, id_entregado, context,
                 observaciones=observaciones.strip() if observaciones else None
             )
 

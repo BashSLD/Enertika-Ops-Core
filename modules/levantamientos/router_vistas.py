@@ -48,20 +48,27 @@ def register_vistas_endpoints(router: APIRouter):
     ):
         """
         Vista lista histórica del módulo levantamientos.
-        Tabs: activos (8,9,10,13) | terminados (11,12)
+        Tabs: activos | terminados.
         Filtros: búsqueda texto, estado, técnico, rango fechas.
         """
+        estatus_map = await db_svc.get_estatus_map(conn)
+        estatus_list = await db_svc.get_estatus_list(conn)
+
         if tab == "terminados":
+            ids_terminados = [v for k, v in estatus_map.items() if k in ('completado', 'entregado')]
             levantamientos = await db_svc.get_lista_terminados(
-                conn, q=q, estado=estado, tecnico_id=tecnico_id,
-                fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
+                conn, ids_terminados=ids_terminados, q=q, estado=estado,
+                tecnico_id=tecnico_id, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
             )
+            estatus_filtro = [e for e in estatus_list if e['grupo_kanban'] == 'terminado']
         else:
             tab = "activos"
+            ids_activos = [v for k, v in estatus_map.items() if k not in ('completado', 'entregado')]
             levantamientos = await db_svc.get_lista_activos(
-                conn, q=q, estado=estado, tecnico_id=tecnico_id,
-                fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
+                conn, ids_activos=ids_activos, q=q, estado=estado,
+                tecnico_id=tecnico_id, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
             )
+            estatus_filtro = [e for e in estatus_list if e['grupo_kanban'] == 'activo']
 
         tecnicos = await db_svc.get_usuarios_tecnicos(conn)
 
@@ -75,6 +82,7 @@ def register_vistas_endpoints(router: APIRouter):
             "tab": tab,
             "levantamientos": levantamientos,
             "tecnicos": tecnicos,
+            "estatus_filtro": estatus_filtro,
             "can_edit": can_edit,
             "filtros": {
                 "q": q or "",

@@ -13,12 +13,12 @@
 
         <!-- HEADER con Gradiente Dinámico -->
         <div class="px-6 py-4 bg-gradient-to-r flex justify-between items-center transition-all duration-300" :class="{
-                'from-gray-400 to-gray-600': {{ lev.id_estatus_global }} == 8,  /* Pendiente */
-                'from-blue-400 to-blue-600': {{ lev.id_estatus_global }} == 9,  /* Agendado */
-                'from-yellow-400 to-orange-500': {{ lev.id_estatus_global }} == 10, /* En Proceso */
-                'from-purple-400 to-purple-600': {{ lev.id_estatus_global }} == 11, /* Completado */
-                'from-emerald-400 to-emerald-600': {{ lev.id_estatus_global }} == 12, /* Entregado */
-                'from-amber-700 to-orange-800': {{ lev.id_estatus_global }} == 13  /* Pospuesto */
+                'from-gray-400 to-gray-600':      '{{ lev.estatus_codigo }}' === 'pendiente',
+                'from-blue-400 to-blue-600':      '{{ lev.estatus_codigo }}' === 'agendado',
+                'from-yellow-400 to-orange-500':  '{{ lev.estatus_codigo }}' === 'en_proceso',
+                'from-purple-400 to-purple-600':  '{{ lev.estatus_codigo }}' === 'completado',
+                'from-emerald-400 to-emerald-600':'{{ lev.estatus_codigo }}' === 'entregado',
+                'from-amber-700 to-orange-800':   '{{ lev.estatus_codigo }}' === 'pospuesto'
              }">
 
             <div class="flex-1">
@@ -117,7 +117,7 @@
                         </p>
                         {% endif %}
                     </div>
-                    {% if lev.id_estatus_global == 13 and lev.motivo_pospone %}
+                    {% if lev.estatus_codigo == 'pospuesto' and lev.motivo_pospone %}
                     <div class="sm:col-span-2 bg-red-50 p-2 rounded border border-red-100">
                         <p class="text-xs text-red-600 uppercase font-semibold">Motivo Pospone</p>
                         <p class="text-red-800 italic">{{ lev.motivo_pospone }}</p>
@@ -210,8 +210,8 @@
             </div>
             {% endif %}
 
-            <!-- Sección: Acciones Comerciales (Solo si source == 'comercial' y Status == Entregado (12)) -->
-            {% if source == 'comercial' and lev.id_estatus_global == 12 %}
+            <!-- Sección: Acciones Comerciales (Solo si source == 'comercial' y Status == Entregado) -->
+            {% if source == 'comercial' and lev.estatus_codigo == 'entregado' %}
             <div class="bg-blue-50/50 rounded-lg p-5 border border-blue-100 mt-6">
                 <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
                     <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -27,7 +27,7 @@ class AdminDBService:
         rows = await conn.fetch("""
             SELECT pm.usuario_id, pm.modulo_slug, pm.rol_modulo, mc.nombre as modulo_nombre
             FROM tb_permisos_modulos pm
-            JOIN tb_modulos_catalogo mc ON pm.modulo_slug = mc.slug
+            JOIN tb_cat_modulos mc ON pm.modulo_slug = mc.slug
             ORDER BY mc.orden
         """)
         return [dict(r) for r in rows]
@@ -41,7 +41,7 @@ class AdminDBService:
         if not slugs:
             return {}
         rows = await conn.fetch(
-            "SELECT slug, nombre FROM tb_modulos_catalogo WHERE slug = ANY($1)",
+            "SELECT slug, nombre FROM tb_cat_modulos WHERE slug = ANY($1)",
             slugs
         )
         return {row['slug']: row['nombre'] for row in rows}
@@ -130,21 +130,21 @@ class AdminDBService:
     async def fetch_departments_catalog(self, conn) -> List[dict]:
         """Obtiene catalogo de departamentos activos."""
         rows = await conn.fetch(
-            "SELECT id, nombre, slug FROM tb_departamentos_catalogo WHERE is_active = true ORDER BY nombre"
+            "SELECT id, nombre, slug FROM tb_cat_departamentos WHERE is_active = true ORDER BY nombre"
         )
         return [dict(r) for r in rows]
 
     async def fetch_department_name_by_slug(self, conn, slug: str) -> Optional[str]:
         """Obtiene el nombre de un departamento por su slug."""
         return await conn.fetchval(
-            "SELECT nombre FROM tb_departamentos_catalogo WHERE slug = $1",
+            "SELECT nombre FROM tb_cat_departamentos WHERE slug = $1",
             slug
         )
 
     async def fetch_modules_catalog(self, conn) -> List[dict]:
         """Obtiene catalogo de modulos activos."""
         rows = await conn.fetch(
-            "SELECT id, nombre, slug, icono FROM tb_modulos_catalogo WHERE is_active = true ORDER BY orden"
+            "SELECT id, nombre, slug, icono FROM tb_cat_modulos WHERE is_active = true ORDER BY orden"
         )
         return [dict(r) for r in rows]
 
@@ -252,7 +252,7 @@ class AdminDBService:
     async def fetch_estatus_options(self, conn) -> List[dict]:
         """Obtiene opciones de estatus global para trigger de reglas."""
         rows = await conn.fetch(
-            "SELECT nombre as label, CAST(id AS TEXT) as value FROM tb_cat_estatus_global WHERE activo = true ORDER BY nombre"
+            "SELECT nombre as label, CAST(id AS TEXT) as value FROM tb_cat_estatus_oportunidades WHERE activo = true ORDER BY nombre"
         )
         return [dict(r) for r in rows]
 
@@ -283,7 +283,7 @@ class AdminDBService:
     async def fetch_catalogo_estatus(self, conn) -> List[dict]:
         """Obtiene catalogo completo de estatus global activos."""
         rows = await conn.fetch(
-            "SELECT id, nombre, descripcion, color_hex, activo FROM tb_cat_estatus_global WHERE activo = true ORDER BY nombre"
+            "SELECT id, nombre, descripcion, color_hex, activo FROM tb_cat_estatus_oportunidades WHERE activo = true ORDER BY nombre"
         )
         return [dict(r) for r in rows]
 
@@ -354,7 +354,7 @@ class AdminDBService:
     async def insert_estatus(self, conn, nombre: str, descripcion: str, color: str) -> None:
         """Inserta un nuevo estatus global."""
         await conn.execute(
-            "INSERT INTO tb_cat_estatus_global (nombre, descripcion, color_hex, activo) VALUES ($1, $2, $3, true)",
+            "INSERT INTO tb_cat_estatus_oportunidades (nombre, descripcion, color_hex, activo) VALUES ($1, $2, $3, true)",
             nombre, descripcion, color
         )
 
@@ -381,7 +381,7 @@ class AdminDBService:
     ALLOWED_TOGGLE_TABLES = frozenset({
         "tb_cat_tecnologias",
         "tb_cat_tipos_solicitud",
-        "tb_cat_estatus_global",
+        "tb_cat_estatus_oportunidades",
         "tb_cat_origenes_adjuntos",
     })
 

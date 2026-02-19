@@ -83,15 +83,11 @@
                 <select name="estado"
                     class="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white">
                     <option value="">Todos</option>
-                    {% if tab == 'activos' %}
-                    <option value="8"  {% if filtros.estado == 8  %}selected{% endif %}>Pendiente</option>
-                    <option value="9"  {% if filtros.estado == 9  %}selected{% endif %}>Agendado</option>
-                    <option value="10" {% if filtros.estado == 10 %}selected{% endif %}>En Proceso</option>
-                    <option value="13" {% if filtros.estado == 13 %}selected{% endif %}>Pospuesto</option>
-                    {% else %}
-                    <option value="11" {% if filtros.estado == 11 %}selected{% endif %}>Completado</option>
-                    <option value="12" {% if filtros.estado == 12 %}selected{% endif %}>Entregado</option>
-                    {% endif %}
+                    {% for est in estatus_filtro %}
+                    <option value="{{ est.id }}" {% if filtros.estado == est.id %}selected{% endif %}>
+                        {{ est.nombre }}
+                    </option>
+                    {% endfor %}
                 </select>
             </div>
 
@@ -179,19 +175,8 @@
 
                     <!-- Estado -->
                     <td class="px-4 py-3">
-                        {% set color_map = {
-                            8: 'orange', 9: 'blue', 10: 'yellow',
-                            11: 'green', 12: 'emerald', 13: 'gray'
-                        } %}
-                        {% set col = color_map.get(lev.id_estatus_global, 'gray') %}
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium
-                            {% if lev.id_estatus_global == 8 %}bg-orange-100 text-orange-700
-                            {% elif lev.id_estatus_global == 9 %}bg-blue-100 text-blue-700
-                            {% elif lev.id_estatus_global == 10 %}bg-yellow-100 text-yellow-700
-                            {% elif lev.id_estatus_global == 11 %}bg-green-100 text-green-700
-                            {% elif lev.id_estatus_global == 12 %}bg-emerald-100 text-emerald-700
-                            {% elif lev.id_estatus_global == 13 %}bg-gray-100 text-gray-600
-                            {% endif %}">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white"
+                              style="background-color: {{ lev.estatus_color or '#6B7280' }};">
                             {{ lev.estatus_nombre or '—' }}
                         </span>
                     </td>

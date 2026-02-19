@@ -226,7 +226,7 @@ class DashboardService:
         q_status = f"""
             SELECT e.nombre as label, count(*) as count
             FROM tb_oportunidades o
-            JOIN tb_cat_estatus_global e ON o.id_estatus_global = e.id
+            JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
             {where_str}
             GROUP BY e.nombre ORDER BY count DESC LIMIT 5
         """

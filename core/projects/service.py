@@ -21,7 +21,7 @@ class ProjectsGateService:
     necesita pasar a las fases de ejecución (Ingeniería, Construcción, O&M).
     """
     
-    # ID del estatus "Ganada" en tb_cat_estatus_global
+    # ID del estatus "Ganada" en tb_cat_estatus_oportunidades
     ESTATUS_GANADA_ID = 7
     
     async def get_oportunidades_ganadas(self, conn) -> List[Dict[str, Any]]:

@@ -391,7 +391,7 @@
 
                         {% if can_edit %}
                         <button hx-post="/levantamientos/change-status/{{ item.id_levantamiento }}"
-                            hx-vals='{"nuevo_estado": 10}' hx-target="#kanban-container" hx-swap="outerHTML"
+                            hx-vals='{"nuevo_estado": 3}' hx-target="#kanban-container" hx-swap="outerHTML"
                             class="bg-yellow-50 text-yellow-600 hover:bg-yellow-100 px-3 py-1.5 rounded text-sm font-semibold transition-colors flex items-center gap-1">
                             <span class="text-lg">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
@@ -562,7 +562,7 @@
 
                             {% if can_edit %}
                             <button hx-post="/levantamientos/change-status/{{ item.id_levantamiento }}"
-                                hx-vals='{"nuevo_estado": 11}' hx-target="#kanban-container" hx-swap="outerHTML"
+                                hx-vals='{"nuevo_estado": 5}' hx-target="#kanban-container" hx-swap="outerHTML"
                                 class="bg-green-50 text-green-600 hover:bg-green-100 px-3 py-1.5 rounded text-sm font-semibold transition-colors flex items-center gap-1">
                                 <span class="text-lg">
                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"

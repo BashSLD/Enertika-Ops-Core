@@ -267,10 +267,10 @@ class TransferService:
             SELECT u.id_usuario, u.nombre, u.email
             FROM tb_permisos_modulos pm
             JOIN tb_usuarios u ON pm.usuario_id = u.id_usuario
-            JOIN tb_modulos_catalogo mc ON pm.modulo_id = mc.id
+            JOIN tb_cat_modulos mc ON pm.modulo_slug = mc.slug
             WHERE mc.slug = $1
-            AND pm.rol IN ('editor', 'admin')
-            AND u.activo = true
+            AND pm.rol_modulo IN ('editor', 'admin')
+            AND u.is_active = true
             AND u.email IS NOT NULL
         """, module_slug)
         return [dict(r) for r in rows]
