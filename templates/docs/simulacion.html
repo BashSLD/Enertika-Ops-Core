@@ -1,0 +1,421 @@
+<!-- Documentación: Simulación -->
+<div x-data="{ activeTab: 'flujo' }" class="bg-white min-h-full">
+
+    <!-- Tabs Navigation -->
+    <div class="border-b border-gray-200 bg-white sticky top-0 z-10 px-6 pt-2">
+        <nav class="flex space-x-6 overflow-x-auto no-scrollbar" aria-label="Tabs">
+            <button @click="activeTab = 'flujo'"
+                :class="activeTab === 'flujo' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                <span>🔄</span> Flujo de Trabajo
+            </button>
+            <button @click="activeTab = 'estados'"
+                :class="activeTab === 'estados' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                <span>📊</span> Estados y Fechas
+            </button>
+            <button @click="activeTab = 'kpis'"
+                :class="activeTab === 'kpis' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                <span>🎯</span> KPIs y Métricas
+            </button>
+            <button @click="activeTab = 'multisitio'"
+                :class="activeTab === 'multisitio' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                <span>🌍</span> Multisitio y Retrabajo
+            </button>
+        </nav>
+    </div>
+
+    <!-- Content Area -->
+    <div class="p-6 md:p-8">
+
+        <!-- TAB: Flujo de Trabajo -->
+        <div x-show="activeTab === 'flujo'" x-transition:enter="transition ease-out duration-300"
+            x-transition:enter-start="opacity-0 translate-y-2" x-transition:enter-end="opacity-100 translate-y-0">
+
+            <h3 class="text-2xl font-bold text-[#123456] mb-6">Flujo de Trabajo: Simulación</h3>
+
+            <div class="relative border-l-2 border-gray-200 ml-4 space-y-10">
+                <!-- Paso 1 -->
+                <div class="relative">
+                    <span
+                        class="absolute -left-[21px] flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 ring-4 ring-white">
+                        <span class="text-blue-600 font-bold">1</span>
+                    </span>
+                    <div class="ml-8">
+                        <h4 class="text-lg font-bold text-gray-800">Recepción y Asignación</h4>
+                        <p class="text-sm text-gray-600 mt-1">La oportunidad llega en estado <span
+                                class="bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded text-xs font-bold">Pendiente</span>.
+                        </p>
+                        <div class="mt-2 bg-blue-50 p-3 rounded-md text-sm text-blue-800">
+                            <strong>Acción:</strong> El Supervisor asigna un responsable y la oportunidad pasa a ser
+                            visible en el tablero del ingeniero.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Paso 2 -->
+                <div class="relative">
+                    <span
+                        class="absolute -left-[21px] flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 ring-4 ring-white">
+                        <span class="text-indigo-600 font-bold">2</span>
+                    </span>
+                    <div class="ml-8">
+                        <h4 class="text-lg font-bold text-gray-800">Análisis y Simulación</h4>
+                        <p class="text-sm text-gray-600 mt-1">El ingeniero trabaja la oportunidad.</p>
+                        <ul class="list-disc list-inside mt-2 text-sm text-gray-600 space-y-1">
+                            <li>Revisión de recibos, análisis energético y datos de levantamiento (si aplica).</li>
+                            <li>Modelado energético (PVsol,PVsyst, Helioscope, etc.).</li>
+                            <li>Generación de propuesta económica.</li>
+                        </ul>
+                        <div class="mt-2 text-xs text-gray-500">
+                            Estado sugerido: <span
+                                class="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded">En
+                                Proceso</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Paso 3 -->
+                <div class="relative">
+                    <span
+                        class="absolute -left-[21px] flex h-10 w-10 items-center justify-center rounded-full bg-purple-100 ring-4 ring-white">
+                        <span class="text-purple-600 font-bold">3</span>
+                    </span>
+                    <div class="ml-8">
+                        <h4 class="text-lg font-bold text-gray-800">Revisión</h4>
+                        <p class="text-sm text-gray-600 mt-1">Se valida la propuesta económica.</p>
+                        <div
+                            class="mt-2 bg-purple-50 p-3 rounded-md text-sm text-purple-800 border-l-4 border-purple-400">
+                            Al cambiar estado a <span class="font-bold">En Revisión</span>, se notifica a dirección para
+                            validación técnica/económica antes de liberar al cliente.
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Paso 4 -->
+                <div class="relative">
+                    <span
+                        class="absolute -left-[21px] flex h-10 w-10 items-center justify-center rounded-full bg-green-100 ring-4 ring-white">
+                        <span class="text-green-600 font-bold">4</span>
+                    </span>
+                    <div class="ml-8">
+                        <h4 class="text-lg font-bold text-gray-800">Entrega</h4>
+                        <p class="text-sm text-gray-600 mt-1">Se finaliza el proceso y se envía la oferta a Comercial.
+                        </p>
+                        <div class="mt-2 grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="bg-green-50 p-3 rounded border border-green-200">
+                                <span class="font-bold text-green-800 block mb-1">✅ Entregado</span>
+                                <p class="text-xs text-green-700">La oferta está lista. Se notifica al comercial.</p>
+                            </div>
+                            <div class="bg-red-50 p-3 rounded border border-red-200">
+                                <span class="font-bold text-red-800 block mb-1">💔 Perdida</span>
+                                <p class="text-xs text-red-700">Técnicamente inviable o rechazada por cliente antes de
+                                    oferta.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <!-- Sección: Comunicación y Adjuntos -->
+            <div class="mt-12 bg-indigo-50 border border-indigo-100 rounded-lg p-6">
+                <h3 class="text-lg font-bold text-[#123456] mb-4 flex items-center gap-2">
+                    <span class="bg-indigo-100 p-1.5 rounded-lg">💬</span> Comunicación Centralizada
+                </h3>
+                <p class="text-sm text-gray-600 mb-4">
+                    Mantén la trazabilidad de cada proyecto usando el sistema de comentarios en lugar de correos
+                    externos.
+                </p>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <!-- Comentarios -->
+                    <div class="bg-white p-4 rounded border border-gray-200 shadow-sm">
+                        <h5 class="font-bold text-sm text-gray-800 mb-2">Notas y Comentarios</h5>
+                        <p class="text-xs text-gray-600 mb-2">
+                            Usa el botón <span
+                                class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-blue-50 text-blue-600 border border-blue-200">💬
+                                Ver/Enviar Comentarios</span>.
+                        </p>
+                        <ul class="list-disc list-inside text-xs text-gray-500 space-y-1">
+                            <li>Notifica automáticamente al comercial responsable.</li>
+                            <li>Registra dudas técnicas, aclaraciones o actualizaciones de estado.</li>
+                            <li>Queda en el historial permanente del proyecto.</li>
+                        </ul>
+                    </div>
+
+                    <!-- Adjuntos -->
+                    <div class="bg-white p-4 rounded border border-gray-200 shadow-sm">
+                        <h5 class="font-bold text-sm text-gray-800 mb-2">Archivos Técnicos</h5>
+                        <p class="text-xs text-gray-600 mb-2">
+                            Sube reportes de simulación, hojas técnicas o memorias de cálculo.
+                        </p>
+                        <ul class="list-disc list-inside text-xs text-gray-500 space-y-1">
+                            <li>Arrastra archivos al modal o usa el clip <span class="font-bold">📎</span>.</li>
+                            <li>Ideal para compartir la <strong>Propuesta Final (PDF)</strong> con Comercial.</li>
+                            <li>Almacenamiento seguro y versionado.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: Estados y Fechas -->
+        <div x-show="activeTab === 'estados'" x-transition:enter="transition ease-out duration-300">
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+
+                <!-- Definiciones de Fechas -->
+                <div>
+                    <h4 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <span>📅</span> Glosario de Fechas
+                    </h4>
+                    <div class="space-y-4">
+                        <div
+                            class="border-l-4 border-blue-500 pl-4 py-1 hover:shadow-lg transition-shadow rounded-r p-2">
+                            <p class="text-sm font-bold text-gray-800">Fecha Solicitud</p>
+                            <p class="text-xs text-gray-600">Cuando Comercial creó el registro en el sistema.</p>
+                        </div>
+                        <div
+                            class="border-l-4 border-orange-500 pl-4 py-1 hover:shadow-lg transition-shadow rounded-r p-2">
+                            <p class="text-sm font-bold text-gray-800">Fecha Requerida</p>
+                            <p class="text-xs text-gray-600">La fecha ideal que Comercial solicitó ("Lo necesito para el
+                                viernes").</p>
+                        </div>
+                        <div
+                            class="border-l-4 border-purple-500 pl-4 py-1 bg-purple-50/50 rounded-r hover:shadow-lg transition-shadow p-2">
+                            <p class="text-sm font-bold text-purple-900">Deadline Calculado (SLA)</p>
+                            <p class="text-xs text-purple-700">
+                                Fecha límite automática basada en reglas de negocio (ej. +3 días hábiles para FV <
+                                    500kW). <br><strong>Es la referencia para tu KPI de eficiencia.</strong>
+                            </p>
+                        </div>
+                        <div
+                            class="border-l-4 border-green-500 pl-4 py-1 hover:shadow-lg transition-shadow rounded-r p-2">
+                            <p class="text-sm font-bold text-gray-800">Deadline Negociado</p>
+                            <p class="text-xs text-gray-600">
+                                Fecha acordada manualmente si el SLA no es posible.
+                                <br><em>Si existe, reemplaza al SLA calculado para medir el cumplimiento con el
+                                    cliente.</em>
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Estados -->
+                <div>
+                    <h4 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <span>🚦</span> Estados del Sistema
+                    </h4>
+                    <div class="grid gap-3">
+                        <div
+                            class="p-3 bg-yellow-50 rounded border border-yellow-200 hover:shadow-lg transition-shadow">
+                            <span class="block font-bold text-yellow-800 text-sm mb-1">Pendiente</span>
+                            <span class="text-xs text-yellow-700">Solicitud recibida, en espera de asignación.</span>
+                        </div>
+                        <div class="p-3 bg-teal-50 rounded border border-teal-200 hover:shadow-lg transition-shadow">
+                            <span class="block font-bold text-teal-800 text-sm mb-1">En Proceso</span>
+                            <span class="text-xs text-teal-700">Ingeniero asignado trabajando en el
+                                diseño/simulación.</span>
+                        </div>
+                        <div
+                            class="p-3 bg-purple-50 rounded border border-purple-200 hover:shadow-lg transition-shadow">
+                            <span class="block font-bold text-purple-800 text-sm mb-1">En Revisión</span>
+                            <span class="text-xs text-purple-700">Validación técnica/económica
+                                (Manager/Dirección).</span>
+                        </div>
+                        <div class="p-3 bg-green-50 rounded border border-green-200 hover:shadow-lg transition-shadow">
+                            <span class="block font-bold text-green-800 text-sm mb-1">Entregado</span>
+                            <span class="text-xs text-green-700">Propuesta terminada y notificada a Comercial.</span>
+                        </div>
+                        <div
+                            class="p-3 bg-emerald-100 rounded border border-emerald-300 hover:shadow-lg transition-shadow">
+                            <span class="block font-bold text-emerald-800 text-sm mb-1">Ganada</span>
+                            <span class="text-xs text-emerald-700">¡Éxito! El cliente aceptó la propuesta.</span>
+                        </div>
+                        <div class="p-3 bg-red-50 rounded border border-red-200 hover:shadow-lg transition-shadow">
+                            <span class="block font-bold text-red-800 text-sm mb-1">Perdida</span>
+                            <span class="text-xs text-red-700">Viable técnicamente pero rechazada por cliente.</span>
+                        </div>
+                        <div class="p-3 bg-gray-50 rounded border border-gray-200 hover:shadow-lg transition-shadow">
+                            <span class="block font-bold text-gray-800 text-sm mb-1">Cancelado</span>
+                            <span class="text-xs text-gray-600">Descartada por inviabilidad técnica o falta de
+                                datos.</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: KPIs -->
+        <div x-show="activeTab === 'kpis'" x-transition:enter="transition ease-out duration-300">
+            <h3 class="text-2xl font-bold text-[#123456] mb-6">Métricas de Desempeño (KPIs)</h3>
+
+            <p class="text-gray-600 mb-8">
+                El sistema evalúa cada oportunidad cerrada (Entregada o Perdida) y asigna dos calificaciones
+                automáticas:
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <!-- KPI Interno -->
+                <div
+                    class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative overflow-hidden group hover:shadow-md transition-shadow">
+                    <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <span class="text-6xl">🏢</span>
+                    </div>
+                    <h4 class="text-lg font-bold text-[#123456] mb-2">1. KPI SLA Interno</h4>
+                    <p class="text-sm text-gray-500 italic mb-4">¿Fuimos eficientes según nuestro estándar?</p>
+
+                    <div class="bg-gray-100 p-4 rounded-lg text-sm space-y-2">
+                        <div class="flex justify-between">
+                            <span>Fórmula:</span>
+                            <span class="font-mono font-bold">Fecha Entrega ≤ Deadline Calculado</span>
+                        </div>
+                        <hr class="border-gray-200">
+                        <p class="text-xs text-gray-600">
+                            Este KPI mide la velocidad pura del equipo de simulación, ignorando acuerdos externos.
+                        </p>
+                    </div>
+                </div>
+
+                <!-- KPI Cliente -->
+                <div
+                    class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 relative overflow-hidden group hover:shadow-md transition-shadow">
+                    <div class="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                        <span class="text-6xl">🤝</span>
+                    </div>
+                    <h4 class="text-lg font-bold text-[#123456] mb-2">2. KPI Compromiso Cliente</h4>
+                    <p class="text-sm text-gray-500 italic mb-4">¿Cumplimos nuestra promesa al cliente?</p>
+
+                    <div class="bg-gray-100 p-4 rounded-lg text-sm space-y-2">
+                        <div class="flex justify-between">
+                            <span>Fórmula:</span>
+                            <span class="font-mono font-bold">Fecha Entrega ≤ Deadline Negociado*</span>
+                        </div>
+                        <hr class="border-gray-200">
+                        <p class="text-xs text-gray-600">
+                            *Si no hay fecha negociada, se usa la calculada. Este es el KPI que ve Gerencia Comercial.
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-8 bg-blue-50 border border-blue-100 p-4 rounded-lg flex gap-4 items-start">
+                <span class="text-2xl">💡</span>
+                <div>
+                    <h5 class="font-bold text-blue-900 text-sm">¿Cómo mejorar mis KPIs?</h5>
+                    <ul class="list-disc list-inside text-sm text-blue-800 mt-1">
+                        <li>Si sabes que no llegarás al SLA automático por carga de trabajo, <strong>negocia una nueva
+                                fecha</strong> con Comercial.</li>
+                        <li>Registra la nueva fecha en el campo "Deadline Negociado" del modal de edición.</li>
+                        <li>Si entregas antes de esa nueva fecha, tu KPI de Compromiso Cliente será positivo (aunque el
+                            Interno salga negativo).</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: Multisitio y Retrabajo -->
+        <div x-show="activeTab === 'multisitio'" x-transition:enter="transition ease-out duration-300">
+
+            <div class="space-y-12">
+                <!-- Multisitio -->
+                <section>
+                    <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <span class="bg-blue-100 p-1.5 rounded-lg text-sm">🌍</span> Gestión Multisitio
+                    </h3>
+                    <div class="bg-white border border-gray-200 rounded-lg p-5">
+                        <p class="text-sm text-gray-600 mb-4">
+                            Para oportunidades con múltiples sitios, es posible actualizar varios sitios
+                            simultaneamente.
+                        </p>
+
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                            <div>
+                                <h5 class="font-bold text-sm text-gray-700 mb-2">Edición en Lote </h5>
+                                <ol class="list-decimal list-inside text-sm text-gray-600 space-y-2">
+                                    <li>Expande la fila de la oportunidad principal para ver el desglose.</li>
+                                    <li>Activa las <strong>casillas de selección</strong> (cuadritos) a la izquierda de
+                                        cada sitio que desees editar.
+                                    </li>
+                                    <li>Automáticamente aparecerá la <strong>Barra de Acciones Masivas</strong>.</li>
+                                    <li>Selecciona el nuevo estatus y haz clic en <strong>Actualizar</strong>.</li>
+                                </ol>
+                            </div>
+                            <div
+                                class="bg-gray-50 p-6 rounded border border-gray-100 flex flex-col items-center justify-center gap-4">
+                                <p class="text-xs text-gray-400 uppercase font-bold tracking-wider mb-2">Vista Previa de
+                                    la Herramienta</p>
+
+                                <!-- Mockup Realista de la Barra -->
+                                <div
+                                    class="w-full max-w-sm p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between shadow-sm transform scale-100">
+                                    <span class="text-sm text-blue-800 font-bold">
+                                        3 sitios seleccionados
+                                    </span>
+                                    <div class="flex space-x-2">
+                                        <select
+                                            class="text-xs border-gray-300 rounded shadow-sm py-1 pl-2 pr-8 text-gray-700 bg-white cursor-not-allowed"
+                                            disabled>
+                                            <option>En Proceso</option>
+                                        </select>
+                                        <button
+                                            class="px-3 py-1 bg-blue-600 text-white text-xs font-bold rounded shadow-sm cursor-not-allowed opacity-90"
+                                            disabled>
+                                            Actualizar
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="text-center mt-2">
+                                    <p class="text-[10px] text-gray-500 italic">
+                                        (Esta barra solo aparece cuando seleccionas al menos un sitio)
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- Retrabajo -->
+                <section>
+                    <h3 class="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+                        <span class="bg-red-100 p-1.5 rounded-lg text-sm">↩️</span> Gestión de Retrabajos
+                    </h3>
+                    <div class="bg-white border border-gray-200 rounded-lg p-5">
+                        <div class="flex gap-4">
+                            <div class="flex-1">
+                                <p class="text-sm text-gray-600 mb-4">
+                                    Un <strong>Retrabajo</strong> ocurre cuando una oportunidad ya entregada regresa a
+                                    Simulación por cambios solicitados (interno o cliente) o errores.
+                                </p>
+                                <h5 class="font-bold text-sm text-gray-700 mb-2">Cómo registrar un retrabajo:</h5>
+                                <ol class="list-decimal list-inside text-sm text-gray-600 space-y-2">
+                                    <li>Abre el modal de edición de la oportunidad.</li>
+                                    <li>Activa la casilla de selección <span class="font-bold text-red-600">"Es
+                                            Retrabajo"</span>.
+                                    </li>
+                                    <li>Selecciona el motivo (Error de Diseño, Cambio de Tarifa, Cambio de Alcance,
+                                        etc.).</li>
+                                    <li>Si es multisitio, selecciona los sitios específicos afectados.</li>
+                                </ol>
+                            </div>
+                            <div class="w-1/3 bg-red-50 p-4 rounded border border-red-100">
+                                <h5 class="font-bold text-red-800 text-sm mb-2">⚠️ Impacto</h5>
+                                <p class="text-xs text-red-700 mb-2">
+                                    Marcar como retrabajo permite excluir el tiempo extra de las métricas de SLA
+                                    originales, o contabilizar la tasa de errores del equipo.
+                                </p>
+                                <p class="text-xs text-red-700">
+                                    <strong>Importante:</strong> Siempre clasifica correctamente el motivo para mejorar
+                                    la calidad.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+        </div>
+
+    </div>
+</div>

@@ -1,0 +1,132 @@
+<!-- Documentación: Proyectos -->
+<div x-data="{ activeTab: 'general' }" class="bg-white min-h-full">
+
+    <!-- Tabs Navigation -->
+    <div class="border-b border-gray-200 bg-white sticky top-0 z-10 px-6 pt-2">
+        <nav class="flex space-x-6 overflow-x-auto no-scrollbar" aria-label="Tabs">
+            <button @click="activeTab = 'general'"
+                :class="activeTab === 'general' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                <span>📊</span> Visión General
+            </button>
+            <button @click="activeTab = 'timeline'"
+                :class="activeTab === 'timeline' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                <span>📅</span> Cronograma
+            </button>
+            <button @click="activeTab = 'indicadores'"
+                :class="activeTab === 'indicadores' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                <span>📈</span> Indicadores
+            </button>
+        </nav>
+    </div>
+
+    <!-- Content Area -->
+    <div class="p-6 md:p-8">
+
+        <!-- TAB: General -->
+        <div x-show="activeTab === 'general'" x-transition:enter="transition ease-out duration-300">
+            <h3 class="text-2xl font-bold text-[#123456] mb-4">Panel de Control de Proyectos</h3>
+            <p class="text-gray-600 mb-8">
+                Este módulo actúa como una "Torre de Control" unificada. Aquí puedes ver el estatus real de todos los
+                proyectos activos, sin importar si están en etapa de Ingeniería, Construcción o Cierre.
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-sm text-center">
+                    <span class="text-3xl mb-2 block">🏗️</span>
+                    <h4 class="font-bold text-gray-800 text-sm">Construcción</h4>
+                    <p class="text-xs text-gray-500">Monitorea avance de obra y generadores.</p>
+                </div>
+                <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-sm text-center">
+                    <span class="text-3xl mb-2 block">📐</span>
+                    <h4 class="font-bold text-gray-800 text-sm">Ingeniería</h4>
+                    <p class="text-xs text-gray-500">Revisa estatus de planos y permisos.</p>
+                </div>
+                <div class="bg-white p-5 rounded-lg border border-gray-200 shadow-sm text-center">
+                    <span class="text-3xl mb-2 block">💰</span>
+                    <h4 class="font-bold text-gray-800 text-sm">Finanzas</h4>
+                    <p class="text-xs text-gray-500">Control de presupuesto y gastos asociados.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: Timeline -->
+        <div x-show="activeTab === 'timeline'" x-transition:enter="transition ease-out duration-300">
+            <h3 class="text-2xl font-bold text-[#123456] mb-6">Historia del Proyecto</h3>
+
+            <div class="bg-gray-50 border border-gray-200 rounded p-4 mb-6">
+                <p class="text-sm text-gray-700">
+                    Al hacer clic en cualquier proyecto de la lista, se despliega un <strong>Timeline</strong> detallado
+                    a la derecha.
+                </p>
+            </div>
+
+            <h4 class="font-bold text-gray-800 mb-4">¿Qué información incluye?</h4>
+            <ul class="space-y-3">
+                <li class="flex gap-3">
+                    <span
+                        class="bg-blue-100 text-blue-600 rounded-full h-6 w-6 flex items-center justify-center text-xs font-bold">1</span>
+                    <div>
+                        <strong class="text-sm text-gray-800">Cambios de Estado:</strong>
+                        <p class="text-xs text-gray-600">Quién cambió el estatus y cuándo (ej. De "En Proceso" a
+                            "Detenido").</p>
+                    </div>
+                </li>
+                <li class="flex gap-3">
+                    <span
+                        class="bg-green-100 text-green-600 rounded-full h-6 w-6 flex items-center justify-center text-xs font-bold">2</span>
+                    <div>
+                        <strong class="text-sm text-gray-800">Comentarios Clave:</strong>
+                        <p class="text-xs text-gray-600">Notas importantes dejadas por los PMs o residentes.</p>
+                    </div>
+                </li>
+                <li class="flex gap-3">
+                    <span
+                        class="bg-purple-100 text-purple-600 rounded-full h-6 w-6 flex items-center justify-center text-xs font-bold">3</span>
+                    <div>
+                        <strong class="text-sm text-gray-800">Evidencias:</strong>
+                        <p class="text-xs text-gray-600">Enlaces a carpetas de Drive o archivos adjuntos relevantes.</p>
+                    </div>
+                </li>
+            </ul>
+        </div>
+
+        <!-- TAB: Indicadores -->
+        <div x-show="activeTab === 'indicadores'" x-transition:enter="transition ease-out duration-300">
+            <h3 class="text-2xl font-bold text-[#123456] mb-6">KPIs y Semáforos</h3>
+
+            <div class="space-y-6">
+                <div>
+                    <h4 class="font-bold text-gray-800 mb-2 border-b pb-1">Semáforos de Salud</h4>
+                    <p class="text-sm text-gray-600 mb-3">Cada proyecto tiene un indicador de color que representa su
+                        salud general:</p>
+                    <div class="flex gap-4">
+                        <div class="flex items-center gap-2">
+                            <span class="h-3 w-3 rounded-full bg-green-500"></span>
+                            <span class="text-sm text-gray-700">En Tiempo</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="h-3 w-3 rounded-full bg-yellow-400"></span>
+                            <span class="text-sm text-gray-700">Riesgo</span>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <span class="h-3 w-3 rounded-full bg-red-500"></span>
+                            <span class="text-sm text-gray-700">Atrasado</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <h4 class="font-bold text-gray-800 mb-2 border-b pb-1">Desviación de Presupuesto</h4>
+                    <p class="text-sm text-gray-600">
+                        Compara lo <strong>Planeado vs Ejecutado</strong>. Si el gasto supera el 90% del presupuesto
+                        pero el avance físico es menor al 90%, se generará una alerta automática.
+                    </p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>

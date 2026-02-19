@@ -32,7 +32,7 @@ tests/
 
 
 # Documentacion
-docs/
+rules/
 DB_SCHEMA_SNAPSHOT.md
 scripts/
 ._UPDATE
