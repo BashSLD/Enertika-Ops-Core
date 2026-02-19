@@ -127,11 +127,14 @@ async def bom_ui(
     items = []
     estadisticas = {}
     versiones = []
+    ultimo_rechazo = None
 
     if bom:
         items = await service.get_items(conn, bom['id_bom'])
         estadisticas = await service.get_estadisticas(conn, bom['id_bom'])
         versiones = await service.db.get_all_bom_versions(conn, id_proyecto)
+        if bom['estatus'] == 'BORRADOR':
+            ultimo_rechazo = await service.get_ultimo_rechazo(conn, bom['id_bom'])
 
     ctx = _build_bom_context(
         request, context, bom,
@@ -141,6 +144,7 @@ async def bom_ui(
         catalogos=catalogos,
         versiones=versiones,
         id_proyecto=id_proyecto,
+        ultimo_rechazo=ultimo_rechazo,
     )
 
     is_htmx = request.headers.get("hx-request")
@@ -326,6 +330,9 @@ async def editar_item(
             campos[key] = Decimal(val) if val else None
         elif key == "id_proveedor":
             campos[key] = UUID(val) if val else None
+        elif key == "cantidad_recibida":
+            from decimal import Decimal as Dec
+            campos[key] = Dec(val) if val and val.strip() else None
         elif key == "entregado":
             campos[key] = val in ("true", "True", "1", "on")
         elif key in ("fecha_requerida", "fecha_llegada_real", "fecha_estimada_entrega"):
@@ -705,6 +712,84 @@ async def rechazar_const(
         return templates.TemplateResponse("shared/toast.html", {
             "request": request,
             "message": "Error interno al rechazar",
+            "type": "error",
+        })
+
+
+@router.post("/{id_bom}/devolver-borrador", include_in_schema=False)
+async def devolver_borrador(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_manager_access("ingenieria"),
+):
+    """Devuelve BOM de APROBADO_ING a BORRADOR para correccion."""
+    form = await request.form()
+    user_id = context.get("user_db_id")
+    comentarios = form.get("comentarios", "").strip() or None
+
+    try:
+        bom = await service.devolver_a_borrador(conn, id_bom, user_id, comentarios)
+
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": "BOM devuelto a borrador para correccion",
+            "type": "warning",
+            "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
+        })
+
+    except ValueError as e:
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": str(e),
+            "type": "error",
+        })
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al devolver BOM a borrador")
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": "Error interno al devolver a borrador",
+            "type": "error",
+        })
+
+
+@router.post("/{id_bom}/cancelar", include_in_schema=False)
+async def cancelar_bom(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_manager_access("ingenieria"),
+):
+    """Cancela un BOM en BORRADOR."""
+    form = await request.form()
+    user_id = context.get("user_db_id")
+    comentarios = form.get("comentarios", "").strip() or None
+
+    try:
+        bom = await service.cancelar_bom(conn, id_bom, user_id, comentarios)
+
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": "BOM cancelado",
+            "type": "warning",
+            "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
+        })
+
+    except ValueError as e:
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": str(e),
+            "type": "error",
+        })
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al cancelar BOM")
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": "Error interno al cancelar el BOM",
             "type": "error",
         })
 

@@ -63,16 +63,19 @@
         {{ item.fecha_llegada_real.strftime('%d/%m/%Y') if item.fecha_llegada_real else '--' }}
     </td>
     <td class="px-3 py-2 text-center">
-        {% if item.entregado %}
-        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100">
-            <svg class="w-4 h-4 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        {% set pct = ((item.cantidad_recibida or 0)|float / item.cantidad|float * 100) if item.cantidad else 0 %}
+        {% if pct >= 100 %}
+        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-green-100" title="Entrega completa">
+            <svg class="w-4 h-4 text-green-600" fill="currentColor" viewBox="0 0 20 20">
+                <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
             </svg>
         </span>
-        {% else %}
-        <span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-gray-100">
-            <span class="w-3 h-3 rounded-full bg-gray-300"></span>
+        {% elif pct > 0 %}
+        <span class="text-xs font-medium text-amber-600" title="{{ item.cantidad_recibida }} de {{ item.cantidad }}">
+            {{ "%.0f"|format(pct) }}%
         </span>
+        {% else %}
+        <span class="text-gray-300">-</span>
         {% endif %}
     </td>
     <td class="px-3 py-2 text-center">

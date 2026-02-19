@@ -15,7 +15,7 @@ logger = logging.getLogger("BOM.Service")
 
 # Campos que puede editar cada area
 CAMPOS_INGENIERIA = {'id_categoria', 'descripcion', 'cantidad', 'unidad_medida', 'precio_unitario', 'origen_precio'}
-CAMPOS_CONSTRUCCION = {'fecha_requerida', 'entregado', 'comentarios'}
+CAMPOS_CONSTRUCCION = {'fecha_requerida', 'entregado', 'comentarios', 'cantidad_recibida'}
 CAMPOS_COMPRAS = {
     'id_proveedor', 'tipo_entrega', 'fecha_estimada_entrega',
     'fecha_llegada_real', 'comentarios'
@@ -44,6 +44,7 @@ CAMPO_LABELS = {
     'entregado': 'Entregado',
     'precio_unitario': 'Precio unitario',
     'origen_precio': 'Origen precio',
+    'cantidad_recibida': 'Cantidad recibida',
 }
 
 
@@ -194,8 +195,21 @@ class BomService:
             if bom_estatus not in ESTATUS_EDITABLE_CONST_COMPRAS:
                 raise ValueError("El BOM no esta en estado editable para construccion")
             campos_filtrados = {k: v for k, v in campos.items() if k in CAMPOS_CONSTRUCCION}
-            # Marcar entregado: registrar timestamp
-            if 'entregado' in campos_filtrados and campos_filtrados['entregado']:
+            # Recepcion parcial: auto-calcular entregado segun cantidad recibida
+            if 'cantidad_recibida' in campos_filtrados:
+                from decimal import Decimal
+                cant_recibida = Decimal(str(campos_filtrados['cantidad_recibida']))
+                cant_total = Decimal(str(item['cantidad']))
+                if cant_recibida < 0:
+                    raise ValueError("La cantidad recibida no puede ser negativa")
+                if cant_recibida >= cant_total:
+                    campos_filtrados['entregado'] = True
+                    campos_filtrados['fecha_entrega_check'] = datetime.now(timezone.utc)
+                else:
+                    campos_filtrados['entregado'] = False
+                    campos_filtrados['fecha_entrega_check'] = None
+            # Marcar entregado manualmente (si no viene cantidad_recibida)
+            elif 'entregado' in campos_filtrados and campos_filtrados['entregado']:
                 campos_filtrados['fecha_entrega_check'] = datetime.now(timezone.utc)
             elif 'entregado' in campos_filtrados and not campos_filtrados['entregado']:
                 campos_filtrados['fecha_entrega_check'] = None
@@ -317,13 +331,17 @@ class BomService:
         comentarios: Optional[str] = None
     ) -> dict:
         """Rechaza BOM por responsable de ingenieria. Vuelve a BORRADOR."""
+        if not comentarios or not comentarios.strip():
+            raise ValueError("El motivo del rechazo es obligatorio")
+
         bom = await self.get_bom(conn, id_bom)
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_ING:
             raise ValueError("El BOM debe estar EN_REVISION_ING para rechazar")
 
         await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.BORRADOR
+            conn, id_bom, EstatusBOM.BORRADOR,
+            fecha_envio_ing=None
         )
 
         await self.db.registrar_aprobacion(
@@ -390,13 +408,17 @@ class BomService:
         comentarios: Optional[str] = None
     ) -> dict:
         """Rechaza BOM por construccion. Vuelve a APROBADO_ING."""
+        if not comentarios or not comentarios.strip():
+            raise ValueError("El motivo del rechazo es obligatorio")
+
         bom = await self.get_bom(conn, id_bom)
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_CONST:
             raise ValueError("El BOM debe estar EN_REVISION_CONST para rechazar")
 
         await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.APROBADO_ING
+            conn, id_bom, EstatusBOM.APROBADO_ING,
+            fecha_envio_const=None
         )
 
         await self.db.registrar_aprobacion(
@@ -406,6 +428,55 @@ class BomService:
 
         logger.info("BOM %s rechazado por const %s: %s", id_bom, user_id, comentarios)
         return await self.db.get_bom_by_id(conn, id_bom)
+
+    async def devolver_a_borrador(
+        self, conn, id_bom: UUID, user_id: UUID,
+        comentarios: Optional[str] = None
+    ) -> dict:
+        """Devuelve BOM de APROBADO_ING a BORRADOR para corregir tras rechazo de construccion."""
+        bom = await self.get_bom(conn, id_bom)
+
+        if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_ING:
+            raise ValueError("Solo se puede devolver a borrador desde APROBADO_ING")
+
+        await self.db.update_bom_estatus(
+            conn, id_bom, EstatusBOM.BORRADOR,
+            fecha_envio_ing=None,
+            fecha_aprobacion_ing=None,
+            fecha_envio_const=None,
+        )
+
+        await self.db.registrar_aprobacion(
+            conn, id_bom, TipoAprobacion.DEVOLUCION_BORRADOR,
+            bom['version'], user_id, comentarios=comentarios
+        )
+
+        logger.info("BOM %s devuelto a borrador por %s", id_bom, user_id)
+        return await self.db.get_bom_by_id(conn, id_bom)
+
+    async def cancelar_bom(
+        self, conn, id_bom: UUID, user_id: UUID,
+        comentarios: Optional[str] = None
+    ) -> dict:
+        """Cancela un BOM en BORRADOR."""
+        bom = await self.get_bom(conn, id_bom)
+
+        if EstatusBOM(bom['estatus']) != EstatusBOM.BORRADOR:
+            raise ValueError("Solo se puede cancelar un BOM en BORRADOR")
+
+        await self.db.update_bom_estatus(conn, id_bom, EstatusBOM.CANCELADO)
+
+        await self.db.registrar_aprobacion(
+            conn, id_bom, TipoAprobacion.CANCELACION,
+            bom['version'], user_id, comentarios=comentarios
+        )
+
+        logger.info("BOM %s cancelado por %s", id_bom, user_id)
+        return await self.db.get_bom_by_id(conn, id_bom)
+
+    async def get_ultimo_rechazo(self, conn, id_bom: UUID) -> Optional[dict]:
+        """Obtiene el ultimo rechazo/devolucion del BOM."""
+        return await self.db.get_ultimo_rechazo(conn, id_bom)
 
     async def solicitar_modificacion(
         self, conn, id_bom: UUID, user_id: UUID,

@@ -17,6 +17,7 @@ class EstatusBOM(str, Enum):
     APROBADO_ING = "APROBADO_ING"
     EN_REVISION_CONST = "EN_REVISION_CONST"
     APROBADO = "APROBADO"
+    CANCELADO = "CANCELADO"
 
 
 class AccionHistorial(str, Enum):
@@ -34,6 +35,8 @@ class TipoAprobacion(str, Enum):
     ENVIO_REVISION_CONST = "ENVIO_REVISION_CONST"
     APROBACION_CONST = "APROBACION_CONST"
     RECHAZO_CONST = "RECHAZO_CONST"
+    DEVOLUCION_BORRADOR = "DEVOLUCION_BORRADOR"
+    CANCELACION = "CANCELACION"
     SOLICITUD_MODIFICACION = "SOLICITUD_MODIFICACION"
     APROBACION_MODIFICACION = "APROBACION_MODIFICACION"
 
@@ -108,6 +111,7 @@ class BomItemUpdate(BaseModel):
     entregado: Optional[bool] = None
     precio_unitario: Optional[Decimal] = None
     origen_precio: Optional[str] = None
+    cantidad_recibida: Optional[Decimal] = None
 
 
 class BomItemRead(BaseModel):
@@ -133,6 +137,7 @@ class BomItemRead(BaseModel):
     origen_precio: Optional[str] = "MANUAL"
     id_material_ref: Optional[UUID] = None
     importe: Optional[Decimal] = None
+    cantidad_recibida: Decimal = Decimal("0")
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

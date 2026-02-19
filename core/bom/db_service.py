@@ -59,7 +59,7 @@ class BomDBService:
                        COUNT(*) FILTER (WHERE activo AND entregado) AS entregados
                 FROM tb_bom_items WHERE id_bom = b.id_bom
             ) items ON TRUE
-            WHERE b.id_proyecto = $1
+            WHERE b.id_proyecto = $1 AND b.estatus != 'CANCELADO'
             ORDER BY b.version DESC
             LIMIT 1
         """, id_proyecto)
@@ -226,7 +226,8 @@ class BomDBService:
             'fecha_requerida', 'fecha_llegada_real', 'id_proveedor',
             'tipo_entrega', 'fecha_estimada_entrega', 'comentarios',
             'entregado', 'fecha_entrega_check', 'orden',
-            'precio_unitario', 'origen_precio', 'id_material_ref'
+            'precio_unitario', 'origen_precio', 'id_material_ref',
+            'cantidad_recibida'
         }
 
         for key, val in campos.items():
@@ -349,10 +350,23 @@ class BomDBService:
         """, id_bom)
         return [dict(r) for r in rows]
 
+    async def get_ultimo_rechazo(self, conn, id_bom: UUID) -> Optional[dict]:
+        """Obtiene el ultimo rechazo/devolucion del BOM."""
+        row = await conn.fetchrow("""
+            SELECT a.tipo, a.comentarios, a.created_at,
+                   u.nombre AS rechazado_por
+            FROM tb_bom_aprobaciones a
+            JOIN tb_usuarios u ON a.usuario_id = u.id_usuario
+            WHERE a.id_bom = $1
+              AND a.tipo IN ('RECHAZO_ING', 'RECHAZO_CONST', 'DEVOLUCION_BORRADOR')
+            ORDER BY a.created_at DESC LIMIT 1
+        """, id_bom)
+        return dict(row) if row else None
+
     # ─── ESTADISTICAS ───────────────────────────────────────
 
     async def get_estadisticas_bom(self, conn, id_bom: UUID) -> dict:
-        """Estadisticas de items del BOM: totales, entregados, pendientes, costos."""
+        """Estadisticas de items del BOM: totales, entregados, pendientes, costos, recepcion."""
         row = await conn.fetchrow("""
             SELECT
                 COUNT(*) FILTER (WHERE activo) AS total_items,
@@ -364,7 +378,11 @@ class BomDBService:
                                  AND fecha_requerida < CURRENT_DATE AND NOT entregado) AS atrasados,
                 COALESCE(SUM(cantidad * COALESCE(precio_unitario, 0))
                     FILTER (WHERE activo), 0) AS costo_total_estimado,
-                COUNT(*) FILTER (WHERE activo AND precio_unitario IS NOT NULL) AS items_con_precio
+                COUNT(*) FILTER (WHERE activo AND precio_unitario IS NOT NULL) AS items_con_precio,
+                COUNT(*) FILTER (WHERE activo AND COALESCE(cantidad_recibida, 0) > 0
+                                 AND COALESCE(cantidad_recibida, 0) < cantidad) AS items_parcialmente_recibidos,
+                COUNT(*) FILTER (WHERE activo AND COALESCE(cantidad_recibida, 0) >= cantidad
+                                 AND cantidad > 0) AS items_completamente_recibidos
             FROM tb_bom_items
             WHERE id_bom = $1
         """, id_bom)

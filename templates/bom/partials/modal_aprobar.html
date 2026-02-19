@@ -53,6 +53,20 @@
         'btn_text': 'Crear Nueva Version',
         'btn_class': 'bg-amber-600 hover:bg-amber-700',
     },
+    'devolver-borrador': {
+        'titulo': 'Devolver BOM a Borrador',
+        'descripcion': 'El BOM volvera a estado BORRADOR para que ingenieria pueda editar los items y corregir observaciones.',
+        'url': '/bom/' ~ bom.id_bom ~ '/devolver-borrador',
+        'btn_text': 'Devolver a Borrador',
+        'btn_class': 'bg-gray-600 hover:bg-gray-700',
+    },
+    'cancelar': {
+        'titulo': 'Cancelar BOM',
+        'descripcion': 'El BOM sera cancelado y no aparecera en la vista principal. Esta accion no se puede deshacer.',
+        'url': '/bom/' ~ bom.id_bom ~ '/cancelar',
+        'btn_text': 'Confirmar Cancelacion',
+        'btn_class': 'bg-red-600 hover:bg-red-700',
+    },
 } %}
 {% set cfg = accion_config.get(accion, {}) %}
 
