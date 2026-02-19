@@ -450,6 +450,17 @@ def register_nuevos_endpoints(router: APIRouter):
         if not lev:
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
+        # Guard de doble envío: verificar si ya existe una solicitud enviada activa
+        ya_enviado = await db_svc.check_viaticos_sent(conn, id_levantamiento)
+        if ya_enviado:
+            logger.warning(f"[VIATICOS] Guard doble envío activado para levantamiento {id_levantamiento}")
+            historial = await db_svc.get_historial_envios(conn, id_levantamiento)
+            return templates.TemplateResponse("levantamientos/partials/historial_envios.html", {
+                "request": request,
+                "historial_envios": historial,
+                "error_message": "Esta solicitud de viáticos ya fue enviada previamente. Si necesitas reenviar, primero pospone el levantamiento para devolver los viáticos.",
+            })
+
         total_monto = sum(v["monto"] for v in viaticos)
 
         # 2. Destinatarios
@@ -866,6 +877,92 @@ def register_nuevos_endpoints(router: APIRouter):
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'}
         )
+
+    # ==============================================================
+    # GET — VISTA LISTA HISTÓRICA (con tabs activos/terminados)
+    # ==============================================================
+
+    @router.get("/partials/lista", include_in_schema=False)
+    async def get_lista_levantamientos(
+        request: Request,
+        tab: str = "activos",
+        q: Optional[str] = None,
+        estado: Optional[int] = None,
+        tecnico_id: Optional[str] = None,
+        fecha_inicio: Optional[str] = None,
+        fecha_fin: Optional[str] = None,
+        conn=Depends(get_db_connection),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos"),
+    ):
+        """
+        Vista lista histórica del módulo levantamientos.
+        Tabs: activos (8,9,10,13) | terminados (11,12)
+        Filtros: búsqueda texto, estado, técnico, rango fechas.
+        """
+        if tab == "terminados":
+            levantamientos = await db_svc.get_lista_terminados(
+                conn, q=q, estado=estado, tecnico_id=tecnico_id,
+                fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
+            )
+        else:
+            tab = "activos"
+            levantamientos = await db_svc.get_lista_activos(
+                conn, q=q, estado=estado, tecnico_id=tecnico_id,
+                fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
+            )
+
+        tecnicos = await db_svc.get_usuarios_tecnicos(conn)
+
+        can_edit = (
+            context.get("role") == "ADMIN"
+            or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
+        )
+
+        return templates.TemplateResponse("levantamientos/partials/lista.html", {
+            "request": request,
+            "tab": tab,
+            "levantamientos": levantamientos,
+            "tecnicos": tecnicos,
+            "can_edit": can_edit,
+            "filtros": {
+                "q": q or "",
+                "estado": estado,
+                "tecnico_id": tecnico_id or "",
+                "fecha_inicio": fecha_inicio or "",
+                "fecha_fin": fecha_fin or "",
+            },
+        })
+
+    # ==============================================================
+    # GET — VISTA GRÁFICAS
+    # ==============================================================
+
+    @router.get("/partials/graficas", include_in_schema=False)
+    async def get_graficas_levantamientos(
+        request: Request,
+        conn=Depends(get_db_connection),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos"),
+    ):
+        """
+        Vista gráficas del módulo levantamientos.
+        4 charts: donut estatus, barras técnicos, línea tendencia semanal, tiempos+costos KPI.
+        """
+        distribucion    = await db_svc.get_distribucion_estatus(conn)
+        carga_tecnicos  = await db_svc.get_carga_tecnicos(conn)
+        tendencia       = await db_svc.get_tendencia_semanal(conn)
+        tiempos_costos  = await db_svc.get_tiempos_y_costos(conn)
+
+        return templates.TemplateResponse("levantamientos/partials/graficas.html", {
+            "request": request,
+            "distribucion": distribucion,
+            "carga_tecnicos": carga_tecnicos,
+            "tendencia": tendencia,
+            "tiempos_costos": tiempos_costos,
+        })
 
     # ==============================================================
     # HELPER interno: renderiza el Kanban completo (outerHTML)

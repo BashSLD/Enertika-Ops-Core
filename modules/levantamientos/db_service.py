@@ -467,6 +467,342 @@ class LevantamientosDBService:
             WHERE id_levantamiento = $1
         """, id_levantamiento)
 
+    # ----------------------------------------------------------
+    # VISTA LISTA — Histórico con tabs activos/terminados
+    # ----------------------------------------------------------
+
+    async def get_lista_activos(
+        self,
+        conn,
+        q: Optional[str] = None,
+        estado: Optional[int] = None,
+        tecnico_id: Optional[str] = None,
+        fecha_inicio: Optional[str] = None,
+        fecha_fin: Optional[str] = None,
+    ) -> List[dict]:
+        """
+        Lista de levantamientos activos (estados 8, 9, 10, 13) con filtros dinámicos.
+        """
+        params = []
+        conditions = ["l.id_estatus_global IN (8, 9, 10, 13)", "o.email_enviado = true"]
+
+        if estado is not None:
+            params.append(estado)
+            conditions.append(f"l.id_estatus_global = ${len(params)}")
+
+        if tecnico_id:
+            try:
+                from uuid import UUID as _UUID
+                tid = _UUID(tecnico_id)
+                params.append(tid)
+                conditions.append(
+                    f"(l.tecnico_asignado_id = ${len(params)} OR EXISTS("
+                    f"SELECT 1 FROM tb_levantamiento_asignaciones la "
+                    f"WHERE la.id_levantamiento = l.id_levantamiento AND la.tecnico_id = ${len(params)}))"
+                )
+            except ValueError:
+                pass
+
+        if fecha_inicio:
+            params.append(fecha_inicio)
+            conditions.append(f"l.fecha_solicitud >= ${len(params)}::date")
+
+        if fecha_fin:
+            params.append(fecha_fin)
+            conditions.append(f"l.fecha_solicitud <= ${len(params)}::date")
+
+        where_clause = " AND ".join(conditions)
+
+        base_query = f"""
+            SELECT
+                l.id_levantamiento,
+                l.id_oportunidad,
+                l.id_estatus_global,
+                l.fecha_solicitud,
+                l.fecha_visita_programada,
+                o.op_id_estandar,
+                o.titulo_proyecto,
+                o.nombre_proyecto,
+                o.cliente_nombre,
+                s.nombre_sitio,
+                est.nombre   AS estatus_nombre,
+                est.color_hex AS estatus_color,
+                COALESCE(techs.nombres, u_tec.nombre) AS tecnico_nombre,
+                u_jefe.nombre AS jefe_nombre
+            FROM tb_levantamientos l
+            INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+            LEFT  JOIN tb_sitios_oportunidad s   ON l.id_sitio = s.id_sitio
+            LEFT  JOIN tb_usuarios u_tec ON l.tecnico_asignado_id = u_tec.id_usuario
+            LEFT  JOIN tb_usuarios u_jefe ON l.jefe_area_id = u_jefe.id_usuario
+            LEFT  JOIN tb_cat_estatus_global est ON l.id_estatus_global = est.id
+            LEFT  JOIN LATERAL (
+                SELECT string_agg(u.nombre, ', ') AS nombres
+                FROM tb_levantamiento_asignaciones la
+                JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
+                WHERE la.id_levantamiento = l.id_levantamiento
+            ) techs ON true
+            WHERE {where_clause}
+        """
+
+        # Filtro de texto (búsqueda en cliente, proyecto, op_id, sitio)
+        if q:
+            params.append(f"%{q.strip()}%")
+            idx = len(params)
+            base_query += f"""
+                AND (
+                    o.cliente_nombre ILIKE ${idx}
+                    OR o.nombre_proyecto ILIKE ${idx}
+                    OR o.titulo_proyecto ILIKE ${idx}
+                    OR o.op_id_estandar ILIKE ${idx}
+                    OR s.nombre_sitio ILIKE ${idx}
+                )
+            """
+
+        base_query += " ORDER BY l.created_at DESC"
+
+        rows = await conn.fetch(base_query, *params)
+        return [dict(r) for r in rows]
+
+    async def get_lista_terminados(
+        self,
+        conn,
+        q: Optional[str] = None,
+        estado: Optional[int] = None,
+        tecnico_id: Optional[str] = None,
+        fecha_inicio: Optional[str] = None,
+        fecha_fin: Optional[str] = None,
+    ) -> List[dict]:
+        """
+        Lista de levantamientos terminados (estados 11, 12) con filtros dinámicos.
+        """
+        params = []
+        conditions = ["l.id_estatus_global IN (11, 12)", "o.email_enviado = true"]
+
+        if estado is not None and estado in (11, 12):
+            params.append(estado)
+            conditions.append(f"l.id_estatus_global = ${len(params)}")
+
+        if tecnico_id:
+            try:
+                from uuid import UUID as _UUID
+                tid = _UUID(tecnico_id)
+                params.append(tid)
+                conditions.append(
+                    f"(l.tecnico_asignado_id = ${len(params)} OR EXISTS("
+                    f"SELECT 1 FROM tb_levantamiento_asignaciones la "
+                    f"WHERE la.id_levantamiento = l.id_levantamiento AND la.tecnico_id = ${len(params)}))"
+                )
+            except ValueError:
+                pass
+
+        if fecha_inicio:
+            params.append(fecha_inicio)
+            conditions.append(f"l.fecha_solicitud >= ${len(params)}::date")
+
+        if fecha_fin:
+            params.append(fecha_fin)
+            conditions.append(f"l.fecha_solicitud <= ${len(params)}::date")
+
+        where_clause = " AND ".join(conditions)
+
+        base_query = f"""
+            SELECT
+                l.id_levantamiento,
+                l.id_oportunidad,
+                l.id_estatus_global,
+                l.fecha_solicitud,
+                l.fecha_visita_programada,
+                o.op_id_estandar,
+                o.titulo_proyecto,
+                o.nombre_proyecto,
+                o.cliente_nombre,
+                s.nombre_sitio,
+                est.nombre   AS estatus_nombre,
+                est.color_hex AS estatus_color,
+                COALESCE(techs.nombres, u_tec.nombre) AS tecnico_nombre,
+                u_jefe.nombre AS jefe_nombre
+            FROM tb_levantamientos l
+            INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+            LEFT  JOIN tb_sitios_oportunidad s   ON l.id_sitio = s.id_sitio
+            LEFT  JOIN tb_usuarios u_tec ON l.tecnico_asignado_id = u_tec.id_usuario
+            LEFT  JOIN tb_usuarios u_jefe ON l.jefe_area_id = u_jefe.id_usuario
+            LEFT  JOIN tb_cat_estatus_global est ON l.id_estatus_global = est.id
+            LEFT  JOIN LATERAL (
+                SELECT string_agg(u.nombre, ', ') AS nombres
+                FROM tb_levantamiento_asignaciones la
+                JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
+                WHERE la.id_levantamiento = l.id_levantamiento
+            ) techs ON true
+            WHERE {where_clause}
+        """
+
+        if q:
+            params.append(f"%{q.strip()}%")
+            idx = len(params)
+            base_query += f"""
+                AND (
+                    o.cliente_nombre ILIKE ${idx}
+                    OR o.nombre_proyecto ILIKE ${idx}
+                    OR o.titulo_proyecto ILIKE ${idx}
+                    OR o.op_id_estandar ILIKE ${idx}
+                    OR s.nombre_sitio ILIKE ${idx}
+                )
+            """
+
+        base_query += " ORDER BY l.updated_at DESC"
+
+        rows = await conn.fetch(base_query, *params)
+        return [dict(r) for r in rows]
+
+    async def get_usuarios_tecnicos(self, conn) -> List[dict]:
+        """Lista de técnicos para el filtro de la vista lista."""
+        rows = await conn.fetch("""
+            SELECT DISTINCT u.id_usuario, u.nombre
+            FROM tb_usuarios u
+            INNER JOIN tb_permisos_modulos pm ON u.id_usuario = pm.usuario_id
+            WHERE pm.modulo_slug = 'levantamientos'
+              AND u.is_active = true
+            ORDER BY u.nombre
+        """)
+        return [dict(r) for r in rows]
+
+    # ----------------------------------------------------------
+    # VISTA GRÁFICAS — 4 queries para charts
+    # ----------------------------------------------------------
+
+    async def get_distribucion_estatus(self, conn) -> List[dict]:
+        """
+        Conteo de levantamientos por estatus para gráfica de dona.
+        Incluye todos los estados activos (8-13).
+        """
+        rows = await conn.fetch("""
+            SELECT
+                est.nombre     AS estatus,
+                est.color_hex  AS color,
+                COUNT(*)       AS total
+            FROM tb_levantamientos l
+            INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+            INNER JOIN tb_cat_estatus_global est ON l.id_estatus_global = est.id
+            WHERE l.id_estatus_global IN (8, 9, 10, 11, 12, 13)
+              AND o.email_enviado = true
+            GROUP BY est.id, est.nombre, est.color_hex
+            ORDER BY est.id
+        """)
+        return [dict(r) for r in rows]
+
+    async def get_carga_tecnicos(self, conn) -> List[dict]:
+        """
+        Conteo de levantamientos activos por técnico asignado para gráfica de barras.
+        """
+        rows = await conn.fetch("""
+            SELECT
+                u.nombre   AS tecnico,
+                COUNT(*)   AS total
+            FROM tb_levantamiento_asignaciones la
+            INNER JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
+            INNER JOIN tb_levantamientos l ON la.id_levantamiento = l.id_levantamiento
+            INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+            WHERE l.id_estatus_global IN (8, 9, 10, 13)
+              AND o.email_enviado = true
+            GROUP BY u.id_usuario, u.nombre
+            ORDER BY total DESC
+            LIMIT 15
+        """)
+        return [dict(r) for r in rows]
+
+    async def get_tendencia_semanal(self, conn) -> List[dict]:
+        """
+        Tendencia semanal de levantamientos creados vs completados/entregados.
+        Últimas 12 semanas.
+        """
+        rows = await conn.fetch("""
+            WITH semanas AS (
+                SELECT generate_series(
+                    date_trunc('week', NOW() AT TIME ZONE 'America/Mexico_City') - INTERVAL '11 weeks',
+                    date_trunc('week', NOW() AT TIME ZONE 'America/Mexico_City'),
+                    INTERVAL '1 week'
+                ) AS semana
+            ),
+            creados AS (
+                SELECT
+                    date_trunc('week', l.created_at AT TIME ZONE 'America/Mexico_City') AS semana,
+                    COUNT(*) AS total
+                FROM tb_levantamientos l
+                INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+                WHERE l.created_at >= NOW() - INTERVAL '12 weeks'
+                  AND o.email_enviado = true
+                GROUP BY 1
+            ),
+            terminados AS (
+                SELECT
+                    date_trunc('week', lh.fecha_transicion AT TIME ZONE 'America/Mexico_City') AS semana,
+                    COUNT(*) AS total
+                FROM tb_levantamientos_historial lh
+                INNER JOIN tb_levantamientos l ON lh.id_levantamiento = l.id_levantamiento
+                INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+                WHERE lh.id_estatus_nuevo IN (11, 12)
+                  AND lh.fecha_transicion >= NOW() - INTERVAL '12 weeks'
+                  AND o.email_enviado = true
+                GROUP BY 1
+            )
+            SELECT
+                to_char(s.semana, 'DD/MM') AS semana_label,
+                COALESCE(c.total, 0)       AS creados,
+                COALESCE(t.total, 0)       AS terminados
+            FROM semanas s
+            LEFT JOIN creados   c ON s.semana = c.semana
+            LEFT JOIN terminados t ON s.semana = t.semana
+            ORDER BY s.semana
+        """)
+        return [dict(r) for r in rows]
+
+    async def get_tiempos_y_costos(self, conn) -> dict:
+        """
+        KPIs: tiempo promedio en cada estado y costo promedio de viáticos.
+        """
+        tiempos = await conn.fetch("""
+            SELECT
+                est.nombre AS estatus,
+                ROUND(AVG(
+                    EXTRACT(EPOCH FROM (NOW() - COALESCE(te.ultima_transicion, l.created_at))) / 3600
+                )::numeric, 1) AS avg_horas
+            FROM tb_levantamientos l
+            INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+            INNER JOIN tb_cat_estatus_global est ON l.id_estatus_global = est.id
+            LEFT JOIN LATERAL (
+                SELECT MAX(fecha_transicion) AS ultima_transicion
+                FROM tb_levantamientos_historial
+                WHERE id_levantamiento = l.id_levantamiento
+                  AND id_estatus_nuevo = l.id_estatus_global
+            ) te ON true
+            WHERE l.id_estatus_global IN (8, 9, 10, 11, 12, 13)
+              AND o.email_enviado = true
+            GROUP BY est.id, est.nombre
+            ORDER BY est.id
+        """)
+
+        avg_viaticos = await conn.fetchval("""
+            SELECT ROUND(COALESCE(AVG(totales.monto_total), 0)::numeric, 2)
+            FROM (
+                SELECT id_levantamiento, SUM(monto) AS monto_total
+                FROM tb_levantamiento_viaticos
+                GROUP BY id_levantamiento
+            ) totales
+        """)
+
+        total_levantamientos = await conn.fetchval("""
+            SELECT COUNT(*) FROM tb_levantamientos l
+            INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+            WHERE l.id_estatus_global IN (8, 9, 10, 11, 12, 13)
+              AND o.email_enviado = true
+        """)
+
+        return {
+            "tiempos_por_estado": [dict(r) for r in tiempos],
+            "avg_viaticos": float(avg_viaticos or 0),
+            "total_levantamientos": int(total_levantamientos or 0),
+        }
+
 
 # --------------------------------------------------------------
 # Helper de inyección (mismo patrón que get_service en service.py)

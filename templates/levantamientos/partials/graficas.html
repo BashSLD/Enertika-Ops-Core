@@ -1,0 +1,282 @@
+<!-- templates/levantamientos/partials/graficas.html -->
+<!-- Vista de gráficas del módulo levantamientos con Chart.js -->
+<!-- Variables: distribucion, carga_tecnicos, tendencia, tiempos_costos -->
+
+<div id="kanban-container" class="flex flex-col h-full">
+    <!-- Header -->
+    <div class="glass-panel p-4 rounded-xl mb-4 flex flex-wrap justify-between items-center border-l-4 border-emerald-500 gap-3">
+        <div>
+            <h2 class="text-2xl font-light text-gray-800">
+                Módulo <span class="font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-green-500">Levantamientos</span>
+                <span class="text-base text-gray-500 font-normal ml-2">— Gráficas</span>
+            </h2>
+            <p class="text-gray-500 text-sm mt-1">Indicadores de desempeño operativo</p>
+        </div>
+        <div class="flex gap-2 flex-wrap">
+            <!-- Ver Lista -->
+            <button hx-get="/levantamientos/partials/lista?tab=activos"
+                hx-target="#kanban-container" hx-swap="outerHTML"
+                class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-3 rounded-lg flex items-center gap-2 transition-all duration-200">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3 10h18M3 14h18M3 6h18M3 18h18" />
+                </svg>
+                Ver Lista
+            </button>
+            <!-- Volver al Kanban -->
+            <button hx-get="/levantamientos/partials/kanban"
+                hx-target="#kanban-container" hx-swap="outerHTML"
+                class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold py-2 px-3 rounded-lg shadow-lg shadow-blue-600/30 flex items-center gap-2 transition-all duration-200">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 17V7m0 10a2 2 0 01-2 2H5a2 2 0 01-2-2V7a2 2 0 012-2h2a2 2 0 012 2m0 10a2 2 0 002 2h2a2 2 0 002-2M9 7a2 2 0 012-2h2a2 2 0 012 2m0 10V7m0 10a2 2 0 002 2h2a2 2 0 002-2V7a2 2 0 00-2-2h-2a2 2 0 00-2 2" />
+                </svg>
+                Kanban
+            </button>
+        </div>
+    </div>
+
+    <!-- KPI rápidos -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <!-- Total levantamientos -->
+        <div class="glass-panel rounded-xl p-4 border-l-4 border-blue-500">
+            <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Total activos</p>
+            <p class="text-3xl font-bold text-gray-800 mt-1">{{ tiempos_costos.total_levantamientos }}</p>
+        </div>
+        <!-- Promedio viáticos -->
+        <div class="glass-panel rounded-xl p-4 border-l-4 border-emerald-500">
+            <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Prom. viáticos</p>
+            <p class="text-3xl font-bold text-gray-800 mt-1">${{ "{:,.0f}".format(tiempos_costos.avg_viaticos) }}</p>
+        </div>
+        <!-- Distribución donut resumen -->
+        {% set en_proceso_count = distribucion | selectattr('estatus', 'search', 'Proceso') | list %}
+        <div class="glass-panel rounded-xl p-4 border-l-4 border-yellow-500">
+            <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Distribución</p>
+            <p class="text-sm font-semibold text-gray-700 mt-1">{{ distribucion|length }} estados</p>
+        </div>
+        <!-- Técnicos activos -->
+        <div class="glass-panel rounded-xl p-4 border-l-4 border-violet-500">
+            <p class="text-xs text-gray-500 uppercase tracking-wide font-medium">Técnicos activos</p>
+            <p class="text-3xl font-bold text-gray-800 mt-1">{{ carga_tecnicos|length }}</p>
+        </div>
+    </div>
+
+    <!-- Grid 2x2 Charts -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 flex-1">
+
+        <!-- Chart 1: Donut — Distribución por Estatus -->
+        <div class="glass-panel rounded-xl p-4 border border-gray-200/60">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-blue-500"></span>
+                Distribución por Estatus
+            </h3>
+            <div class="relative h-56">
+                <canvas id="chart-estatus"></canvas>
+            </div>
+        </div>
+
+        <!-- Chart 2: Bar — Carga por Técnico -->
+        <div class="glass-panel rounded-xl p-4 border border-gray-200/60">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-violet-500"></span>
+                Carga por Técnico (activos)
+            </h3>
+            <div class="relative h-56">
+                <canvas id="chart-tecnicos"></canvas>
+            </div>
+        </div>
+
+        <!-- Chart 3: Line — Tendencia Semanal -->
+        <div class="glass-panel rounded-xl p-4 border border-gray-200/60">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
+                Tendencia Semanal (12 semanas)
+            </h3>
+            <div class="relative h-56">
+                <canvas id="chart-tendencia"></canvas>
+            </div>
+        </div>
+
+        <!-- Chart 4: Bar horizontal — Tiempo promedio por estado -->
+        <div class="glass-panel rounded-xl p-4 border border-gray-200/60">
+            <h3 class="text-sm font-semibold text-gray-700 mb-3 flex items-center gap-2">
+                <span class="w-2.5 h-2.5 rounded-full bg-amber-500"></span>
+                Tiempo Promedio por Estado (horas)
+            </h3>
+            <div class="relative h-56">
+                <canvas id="chart-tiempos"></canvas>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Chart.js desde CDN -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+<script>
+(function () {
+    // Paleta de colores del sistema
+    const COLORS = {
+        blue:    '#3b82f6',
+        indigo:  '#6366f1',
+        violet:  '#8b5cf6',
+        emerald: '#10b981',
+        green:   '#22c55e',
+        amber:   '#f59e0b',
+        orange:  '#f97316',
+        red:     '#ef4444',
+        gray:    '#6b7280',
+        slate:   '#94a3b8',
+    };
+
+    const CHART_DEFAULTS = {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+            legend: {
+                labels: { font: { size: 11 }, boxWidth: 12 }
+            }
+        }
+    };
+
+    // ── Chart 1: Donut — Distribución por Estatus ──────────────
+    const distribData = {{ distribucion | tojson }};
+    if (distribData.length > 0) {
+        const estatusColors = [
+            COLORS.orange, COLORS.blue, COLORS.amber,
+            COLORS.emerald, COLORS.green, COLORS.gray
+        ];
+        new Chart(document.getElementById('chart-estatus'), {
+            type: 'doughnut',
+            data: {
+                labels: distribData.map(d => d.estatus),
+                datasets: [{
+                    data: distribData.map(d => d.total),
+                    backgroundColor: distribData.map((_, i) => estatusColors[i % estatusColors.length]),
+                    borderWidth: 2,
+                    borderColor: '#fff',
+                }]
+            },
+            options: {
+                ...CHART_DEFAULTS,
+                cutout: '65%',
+                plugins: {
+                    ...CHART_DEFAULTS.plugins,
+                    legend: { position: 'right', labels: { font: { size: 11 }, boxWidth: 12, padding: 10 } }
+                }
+            }
+        });
+    } else {
+        document.getElementById('chart-estatus').parentElement.innerHTML =
+            '<p class="text-center text-gray-400 text-sm py-16">Sin datos</p>';
+    }
+
+    // ── Chart 2: Bar — Carga por Técnico ───────────────────────
+    const tecData = {{ carga_tecnicos | tojson }};
+    if (tecData.length > 0) {
+        new Chart(document.getElementById('chart-tecnicos'), {
+            type: 'bar',
+            data: {
+                labels: tecData.map(t => t.tecnico),
+                datasets: [{
+                    label: 'Levantamientos activos',
+                    data: tecData.map(t => t.total),
+                    backgroundColor: COLORS.violet + 'cc',
+                    borderColor: COLORS.violet,
+                    borderWidth: 1,
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                ...CHART_DEFAULTS,
+                indexAxis: 'y',
+                plugins: { ...CHART_DEFAULTS.plugins, legend: { display: false } },
+                scales: {
+                    x: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 } }, grid: { color: '#f1f5f9' } },
+                    y: { ticks: { font: { size: 11 } }, grid: { display: false } }
+                }
+            }
+        });
+    } else {
+        document.getElementById('chart-tecnicos').parentElement.innerHTML =
+            '<p class="text-center text-gray-400 text-sm py-16">Sin técnicos activos</p>';
+    }
+
+    // ── Chart 3: Line — Tendencia Semanal ──────────────────────
+    const tendData = {{ tendencia | tojson }};
+    if (tendData.length > 0) {
+        new Chart(document.getElementById('chart-tendencia'), {
+            type: 'line',
+            data: {
+                labels: tendData.map(t => t.semana_label),
+                datasets: [
+                    {
+                        label: 'Creados',
+                        data: tendData.map(t => t.creados),
+                        borderColor: COLORS.blue,
+                        backgroundColor: COLORS.blue + '20',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                    },
+                    {
+                        label: 'Terminados',
+                        data: tendData.map(t => t.terminados),
+                        borderColor: COLORS.emerald,
+                        backgroundColor: COLORS.emerald + '20',
+                        fill: true,
+                        tension: 0.4,
+                        pointRadius: 3,
+                        pointHoverRadius: 5,
+                    }
+                ]
+            },
+            options: {
+                ...CHART_DEFAULTS,
+                scales: {
+                    x: { ticks: { font: { size: 10 } }, grid: { color: '#f1f5f9' } },
+                    y: { beginAtZero: true, ticks: { stepSize: 1, font: { size: 11 } }, grid: { color: '#f1f5f9' } }
+                }
+            }
+        });
+    } else {
+        document.getElementById('chart-tendencia').parentElement.innerHTML =
+            '<p class="text-center text-gray-400 text-sm py-16">Sin datos de tendencia</p>';
+    }
+
+    // ── Chart 4: Bar — Tiempo promedio por estado ───────────────
+    const tiemposData = {{ tiempos_costos.tiempos_por_estado | tojson }};
+    if (tiemposData.length > 0) {
+        const tiemposColors = [
+            COLORS.orange, COLORS.blue, COLORS.amber,
+            COLORS.emerald, COLORS.green, COLORS.gray
+        ];
+        new Chart(document.getElementById('chart-tiempos'), {
+            type: 'bar',
+            data: {
+                labels: tiemposData.map(t => t.estatus),
+                datasets: [{
+                    label: 'Horas promedio en estado',
+                    data: tiemposData.map(t => parseFloat(t.avg_horas) || 0),
+                    backgroundColor: tiemposData.map((_, i) => tiemposColors[i % tiemposColors.length] + 'cc'),
+                    borderColor: tiemposData.map((_, i) => tiemposColors[i % tiemposColors.length]),
+                    borderWidth: 1,
+                    borderRadius: 4,
+                }]
+            },
+            options: {
+                ...CHART_DEFAULTS,
+                plugins: { ...CHART_DEFAULTS.plugins, legend: { display: false } },
+                scales: {
+                    x: { ticks: { font: { size: 10 } }, grid: { display: false } },
+                    y: { beginAtZero: true, ticks: { font: { size: 11 } }, grid: { color: '#f1f5f9' } }
+                }
+            }
+        });
+    } else {
+        document.getElementById('chart-tiempos').parentElement.innerHTML =
+            '<p class="text-center text-gray-400 text-sm py-16">Sin datos de tiempos</p>';
+    }
+})();
+</script>

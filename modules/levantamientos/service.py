@@ -6,6 +6,7 @@ Implementa toda la lógica de negocio del sistema Kanban.
 from datetime import datetime
 from uuid import UUID, uuid4
 from typing import List, Optional, Dict
+from collections import defaultdict
 import logging
 import asyncio
 from zoneinfo import ZoneInfo
@@ -50,55 +51,83 @@ class LevantamientoService:
             UUID del levantamiento creado
         """
         logger.info(f"[LEVANTAMIENTO] Creando automáticamente para oportunidad {id_oportunidad}")
-        
+
         # Obtener datos de la oportunidad
         opp = await conn.fetchrow("""
-            SELECT o.id_oportunidad, o.titulo_proyecto, o.creado_por_id,
-                   o.fecha_solicitud, s.id_sitio
-            FROM tb_oportunidades o
-            LEFT JOIN LATERAL (
-                SELECT id_sitio 
-                FROM tb_sitios_oportunidad 
-                WHERE id_oportunidad = o.id_oportunidad 
-                LIMIT 1
-            ) s ON true
-            WHERE o.id_oportunidad = $1
+            SELECT id_oportunidad, titulo_proyecto, creado_por_id, fecha_solicitud
+            FROM tb_oportunidades
+            WHERE id_oportunidad = $1
         """, id_oportunidad)
-        
+
         if not opp:
             raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
-        
-        # Si no hay sitio, crear uno por defecto
-        id_sitio = opp['id_sitio']
-        if not id_sitio:
-            id_sitio = await self._crear_sitio_default(conn, id_oportunidad)
-        
-        # Crear levantamiento
-        new_id = uuid4()
+
+        # Obtener TODOS los sitios de la oportunidad (multisite)
+        sitios = await conn.fetch("""
+            SELECT id_sitio, nombre_sitio
+            FROM tb_sitios_oportunidad
+            WHERE id_oportunidad = $1
+            ORDER BY created_at ASC
+        """, id_oportunidad)
+
+        # Si no hay sitios, crear uno por defecto
+        if not sitios:
+            id_sitio_default = await self._crear_sitio_default(conn, id_oportunidad)
+            sitios = [{"id_sitio": id_sitio_default}]
+
+        # Verificar sitios que ya tienen levantamiento (evitar duplicados)
+        sitios_con_lev = await conn.fetch("""
+            SELECT id_sitio FROM tb_levantamientos
+            WHERE id_oportunidad = $1 AND id_sitio IS NOT NULL
+        """, id_oportunidad)
+        sitios_ya_creados = {r['id_sitio'] for r in sitios_con_lev}
+
         now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
-        
-        await conn.execute("""
-            INSERT INTO tb_levantamientos (
-                id_levantamiento, id_sitio, id_oportunidad,
-                solicitado_por_id, id_estatus_global,
-                fecha_solicitud, created_at, updated_at,
-                updated_by_id
-            ) VALUES ($1, $2, $3, $4, 8, $5, $5, $5, $4)
-        """, new_id, id_sitio, id_oportunidad, opp['creado_por_id'], 
-            opp['fecha_solicitud'] or now_mx)
-        
-        # Registrar en historial inicial
-        await self._registrar_en_historial(
-            conn=conn,
-            id_levantamiento=new_id,
-            estatus_anterior=None,
-            estatus_nuevo=8,  # Pendiente
-            user_context=user_context,
-            observaciones="Levantamiento creado automáticamente desde solicitud comercial"
-        )
-        
-        logger.info(f"[LEVANTAMIENTO] {new_id} creado exitosamente")
-        return new_id
+        first_id = None
+
+        for sitio in sitios:
+            id_sitio = sitio['id_sitio']
+
+            if id_sitio in sitios_ya_creados:
+                logger.debug(f"[LEVANTAMIENTO] Sitio {id_sitio} ya tiene levantamiento, omitiendo")
+                continue
+
+            new_id = uuid4()
+
+            await conn.execute("""
+                INSERT INTO tb_levantamientos (
+                    id_levantamiento, id_sitio, id_oportunidad,
+                    solicitado_por_id, id_estatus_global,
+                    fecha_solicitud, created_at, updated_at,
+                    updated_by_id
+                ) VALUES ($1, $2, $3, $4, 8, $5, $5, $5, $4)
+            """, new_id, id_sitio, id_oportunidad, opp['creado_por_id'],
+                opp['fecha_solicitud'] or now_mx)
+
+            # Registrar en historial inicial
+            await self._registrar_en_historial(
+                conn=conn,
+                id_levantamiento=new_id,
+                estatus_anterior=None,
+                estatus_nuevo=8,  # Pendiente
+                user_context=user_context,
+                observaciones="Levantamiento creado automáticamente desde solicitud comercial"
+            )
+
+            if first_id is None:
+                first_id = new_id
+
+            logger.info(f"[LEVANTAMIENTO] {new_id} creado para sitio {id_sitio}")
+
+        if first_id is None:
+            # Todos los sitios ya tenían levantamiento, retornar el existente
+            first_id = await conn.fetchval("""
+                SELECT id_levantamiento FROM tb_levantamientos
+                WHERE id_oportunidad = $1 ORDER BY created_at ASC LIMIT 1
+            """, id_oportunidad)
+
+        logger.info(f"[LEVANTAMIENTO] Creación multisite completada para oportunidad {id_oportunidad}")
+        return first_id
     
     async def _crear_sitio_default(self, conn, id_oportunidad: UUID) -> UUID:
         """Crea un sitio por defecto si la oportunidad no tiene sitios."""
@@ -196,7 +225,13 @@ class LevantamientoService:
         ORDER BY l.created_at DESC
     """
         rows = await conn.fetch(query)
-        
+
+        # Pre-calcular sitio_num y sitio_total para badge multisite
+        # Agrupar IDs de levantamientos por oportunidad (en el orden devuelto por la query)
+        op_to_lev_ids: dict = defaultdict(list)
+        for row in rows:
+            op_to_lev_ids[row['id_oportunidad']].append(row['id_levantamiento'])
+
         # Organizar en columnas del Kanban (6 columnas)
         kanban = {
             "pendientes": [],        # Estado 8
@@ -206,10 +241,10 @@ class LevantamientoService:
             "entregados": [],        # Estado 12
             "pospuestos": []         # Estado 13
         }
-        
+
         # Obtener Jefe Default para fallback visual
         jefe_default = await conn.fetchrow("""
-             SELECT id_usuario, nombre FROM tb_usuarios 
+             SELECT id_usuario, nombre FROM tb_usuarios
              WHERE es_jefe_levantamientos_default = TRUE LIMIT 1
         """)
         jefe_default_nombre = jefe_default['nombre'] if jefe_default else "Sin asignar"
@@ -219,11 +254,18 @@ class LevantamientoService:
             item = dict(row)
             # Calcular tiempo relativo
             item['tiempo_relativo'] = self._format_tiempo_relativo(item.get('segundos_en_estado', 0))
-            
+
             # Fallback Jefe Default (Visual)
             if not item['jefe_nombre'] and jefe_default_nombre:
                 item['jefe_nombre'] = jefe_default_nombre
-                # Opcional: item['jefe_id'] = jefe_default_id
+
+            # Badge multisite: calcular posición dentro del grupo de la oportunidad
+            lev_ids_en_op = op_to_lev_ids[item['id_oportunidad']]
+            item['sitio_total'] = len(lev_ids_en_op)
+            try:
+                item['sitio_num'] = lev_ids_en_op.index(item['id_levantamiento']) + 1
+            except ValueError:
+                item['sitio_num'] = 1
 
             st = item['id_estatus_global']
             if st == 8:
