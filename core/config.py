@@ -6,21 +6,19 @@ load_dotenv()
 
 class Settings(BaseSettings):
     # --- Configuración de Base de Datos ---
+    # Un solo host (Session Pooler IPv4) para ambas conexiones
+    # El puerto determina el modo: 6543=Transaction, 5432=Session
+    DB_HOST: str = os.getenv("DB_HOST", "")
+    DB_USER: str = os.getenv("DB_USER", "")
     DB_PASSWORD: str = os.getenv("DB_PASSWORD", "")
     
-    # Transaction Pooler: queries normales (SELECT, INSERT, UPDATE)
-    # Escalable, comparte conexiones entre usuarios
-    DB_HOST: str = os.getenv("DB_HOST", "")
+    # Transaction Mode (puerto 6543): queries normales - escalable
     DB_PORT: str = os.getenv("DB_PORT", "6543")
-    DB_USER: str = os.getenv("DB_USER", "postgres")
-    DB_URL_ASYNC: str = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/postgres"
+    DB_URL_ASYNC: str = f"postgresql://{os.getenv('DB_USER', '')}:{os.getenv('DB_PASSWORD', '')}@{os.getenv('DB_HOST', '')}:{os.getenv('DB_PORT', '6543')}/postgres"
     
-    # Session Pooler: LISTEN/NOTIFY para notificaciones en tiempo real (SSE)
-    # Mantiene la conexión abierta durante toda la sesión
-    DB_HOST_SSE: str = os.getenv("DB_HOST_SSE", "")
+    # Session Mode (puerto 5432): LISTEN/NOTIFY para notificaciones SSE
     DB_PORT_SSE: str = os.getenv("DB_PORT_SSE", "5432")
-    DB_USER_SSE: str = os.getenv("DB_USER_SSE", "")
-    DB_URL_SSE: str = f"postgresql://{DB_USER_SSE}:{DB_PASSWORD}@{DB_HOST_SSE}:{DB_PORT_SSE}/postgres"
+    DB_URL_SSE: str = f"postgresql://{os.getenv('DB_USER', '')}:{os.getenv('DB_PASSWORD', '')}@{os.getenv('DB_HOST', '')}:{os.getenv('DB_PORT_SSE', '5432')}/postgres"
     
     # NOTA: Transaction Mode (6543) NO soporta LISTEN/NOTIFY ni prepared statements
     # Por eso se usa configuración híbrida: queries en 6543, SSE en 5432
