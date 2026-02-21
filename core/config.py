@@ -5,22 +5,22 @@ from pydantic_settings import BaseSettings
 load_dotenv()
 
 class Settings(BaseSettings):
-    # --- Configuración de Base de Datos (Supabase/Postgres) ---
-    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
-    # Eliminamos SUPABASE_KEY si solo usas asyncpg para SQL directo.
-    
+    # --- Configuración de Base de Datos ---
     DB_PASSWORD: str = os.getenv("DB_PASSWORD", "")
-    DB_USER: str = os.getenv("DB_USER", "postgres")
     
-    
-    # Construcción de URL Async para SQLAlchemy/Asyncpg
-    # Puerto principal: 6543 (Transaction Mode) para queries normales - escalable
+    # Transaction Pooler: queries normales (SELECT, INSERT, UPDATE)
+    # Escalable, comparte conexiones entre usuarios
+    DB_HOST: str = os.getenv("DB_HOST", "")
     DB_PORT: str = os.getenv("DB_PORT", "6543")
-    DB_URL_ASYNC: str = f"postgresql://{DB_USER}:{DB_PASSWORD}@{SUPABASE_URL.replace('https://', '').replace('http://', '')}:{DB_PORT}/postgres"
+    DB_USER: str = os.getenv("DB_USER", "postgres")
+    DB_URL_ASYNC: str = f"postgresql://{DB_USER}:{DB_PASSWORD}@{DB_HOST}:{DB_PORT}/postgres"
     
-    # Puerto SSE: 5432 (Session Mode) para LISTEN/NOTIFY - requerido para notificaciones en tiempo real
+    # Session Pooler: LISTEN/NOTIFY para notificaciones en tiempo real (SSE)
+    # Mantiene la conexión abierta durante toda la sesión
+    DB_HOST_SSE: str = os.getenv("DB_HOST_SSE", "")
     DB_PORT_SSE: str = os.getenv("DB_PORT_SSE", "5432")
-    DB_URL_SSE: str = f"postgresql://{DB_USER}:{DB_PASSWORD}@{SUPABASE_URL.replace('https://', '').replace('http://', '')}:{DB_PORT_SSE}/postgres"
+    DB_USER_SSE: str = os.getenv("DB_USER_SSE", "")
+    DB_URL_SSE: str = f"postgresql://{DB_USER_SSE}:{DB_PASSWORD}@{DB_HOST_SSE}:{DB_PORT_SSE}/postgres"
     
     # NOTA: Transaction Mode (6543) NO soporta LISTEN/NOTIFY ni prepared statements
     # Por eso se usa configuración híbrida: queries en 6543, SSE en 5432
