@@ -310,7 +310,7 @@
                     });
 
                     form.addEventListener('htmx:afterRequest', function (evt) {
-                        if (evt.detail.elt === form && evt.detail.xhr.status >= 400) {
+                        if (evt.detail.elt === form && !evt.detail.successful) {
                             submitBtn.disabled = false;
                             submitBtn.classList.remove('sending');
                             btnText.innerHTML = 'Enviar Correo';
