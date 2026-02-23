@@ -7,14 +7,14 @@
 -- ============================================================
 -- EXTENSIONES
 -- ============================================================
-CREATE EXTENSION IF NOT EXISTS "hypopg";
-CREATE EXTENSION IF NOT EXISTS "index_advisor";
-CREATE EXTENSION IF NOT EXISTS "pg_graphql";
-CREATE EXTENSION IF NOT EXISTS "pg_stat_statements";
-CREATE EXTENSION IF NOT EXISTS "pg_trgm";
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-CREATE EXTENSION IF NOT EXISTS "supabase_vault";
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- NOTA: Extensiones internas de Supabase (hypopg, index_advisor, pg_graphql,
+-- pg_stat_statements, supabase_vault) deben habilitarse manualmente desde el
+-- dashboard de Supabase en: Database → Extensions
+-- Solo se instalan aquí las que la aplicación usa directamente.
+
+CREATE EXTENSION IF NOT EXISTS "pg_trgm";    -- búsqueda de similitud de texto
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";   -- gen_random_uuid() y funciones crypto
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";  -- uuid_generate_v4()
 
 -- ============================================================
 -- SECUENCIAS
@@ -787,8 +787,8 @@ CREATE TABLE IF NOT EXISTS tb_levantamiento_viaticos_historico (
     enviado_por_id UUID NOT NULL,
     enviado_por_nombre TEXT NOT NULL,
     fecha_envio TIMESTAMP WITH TIME ZONE NOT NULL DEFAULT now(),
-    to_destinatarios ARRAY,
-    cc_destinatarios ARRAY,
+    to_destinatarios TEXT[],
+    cc_destinatarios TEXT[],
     viaticos_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
     total_monto NUMERIC(12, 2) NOT NULL,
     estatus VARCHAR(20) NOT NULL DEFAULT 'enviado'::character varying,
@@ -908,104 +908,104 @@ CREATE TABLE IF NOT EXISTS tb_bom_historial (
 -- ============================================================
 -- FOREIGN KEYS
 -- ============================================================
-ALTER TABLE tb_beneficiario_proveedor ADD CONSTRAINT IF NOT EXISTS tb_beneficiario_proveedor_created_by_id_fkey FOREIGN KEY (created_by_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_beneficiario_proveedor ADD CONSTRAINT IF NOT EXISTS tb_beneficiario_proveedor_id_proveedor_fkey FOREIGN KEY (id_proveedor) REFERENCES tb_proveedores(id_proveedor);
-ALTER TABLE tb_bom ADD CONSTRAINT IF NOT EXISTS tb_bom_coordinador_obra_fkey FOREIGN KEY (coordinador_obra) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_bom ADD CONSTRAINT IF NOT EXISTS tb_bom_elaborado_por_fkey FOREIGN KEY (elaborado_por) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_bom ADD CONSTRAINT IF NOT EXISTS tb_bom_id_proyecto_fkey FOREIGN KEY (id_proyecto) REFERENCES tb_proyectos_gate(id_proyecto);
-ALTER TABLE tb_bom ADD CONSTRAINT IF NOT EXISTS tb_bom_jefe_construccion_fkey FOREIGN KEY (jefe_construccion) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_bom ADD CONSTRAINT IF NOT EXISTS tb_bom_responsable_ing_fkey FOREIGN KEY (responsable_ing) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_bom_aprobaciones ADD CONSTRAINT IF NOT EXISTS tb_bom_aprobaciones_id_bom_fkey FOREIGN KEY (id_bom) REFERENCES tb_bom(id_bom) ON DELETE CASCADE;
-ALTER TABLE tb_bom_aprobaciones ADD CONSTRAINT IF NOT EXISTS tb_bom_aprobaciones_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_bom_historial ADD CONSTRAINT IF NOT EXISTS tb_bom_historial_id_bom_fkey FOREIGN KEY (id_bom) REFERENCES tb_bom(id_bom) ON DELETE CASCADE;
-ALTER TABLE tb_bom_historial ADD CONSTRAINT IF NOT EXISTS tb_bom_historial_id_item_fkey FOREIGN KEY (id_item) REFERENCES tb_bom_items(id_item);
-ALTER TABLE tb_bom_historial ADD CONSTRAINT IF NOT EXISTS tb_bom_historial_realizado_por_fkey FOREIGN KEY (realizado_por) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_bom_items ADD CONSTRAINT IF NOT EXISTS tb_bom_items_id_bom_fkey FOREIGN KEY (id_bom) REFERENCES tb_bom(id_bom) ON DELETE CASCADE;
-ALTER TABLE tb_bom_items ADD CONSTRAINT IF NOT EXISTS tb_bom_items_id_categoria_fkey FOREIGN KEY (id_categoria) REFERENCES tb_cat_categorias_compra(id);
-ALTER TABLE tb_bom_items ADD CONSTRAINT IF NOT EXISTS tb_bom_items_id_material_ref_fkey FOREIGN KEY (id_material_ref) REFERENCES tb_materiales_historial(id) ON DELETE SET NULL;
-ALTER TABLE tb_bom_items ADD CONSTRAINT IF NOT EXISTS tb_bom_items_id_proveedor_fkey FOREIGN KEY (id_proveedor) REFERENCES tb_proveedores(id_proveedor);
-ALTER TABLE tb_comentarios_workflow ADD CONSTRAINT IF NOT EXISTS tb_bitacora_simulacion_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad) ON DELETE CASCADE;
-ALTER TABLE tb_comprobante_facturas ADD CONSTRAINT IF NOT EXISTS tb_comprobante_facturas_id_comprobante_fkey FOREIGN KEY (id_comprobante) REFERENCES tb_comprobantes_pago(id_comprobante);
-ALTER TABLE tb_comprobante_facturas ADD CONSTRAINT IF NOT EXISTS tb_comprobante_facturas_id_proveedor_fkey FOREIGN KEY (id_proveedor) REFERENCES tb_proveedores(id_proveedor);
-ALTER TABLE tb_comprobantes_pago ADD CONSTRAINT IF NOT EXISTS tb_comprobantes_pago_capturado_por_id_fkey FOREIGN KEY (capturado_por_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_comprobantes_pago ADD CONSTRAINT IF NOT EXISTS tb_comprobantes_pago_id_categoria_fkey FOREIGN KEY (id_categoria) REFERENCES tb_cat_categorias_compra(id);
-ALTER TABLE tb_comprobantes_pago ADD CONSTRAINT IF NOT EXISTS tb_comprobantes_pago_id_comprobante_anticipo_fkey FOREIGN KEY (id_comprobante_anticipo) REFERENCES tb_comprobantes_pago(id_comprobante);
-ALTER TABLE tb_comprobantes_pago ADD CONSTRAINT IF NOT EXISTS tb_comprobantes_pago_id_proveedor_fkey FOREIGN KEY (id_proveedor) REFERENCES tb_proveedores(id_proveedor);
-ALTER TABLE tb_comprobantes_pago ADD CONSTRAINT IF NOT EXISTS tb_comprobantes_pago_id_proyecto_fkey FOREIGN KEY (id_proyecto) REFERENCES tb_proyectos_gate(id_proyecto);
-ALTER TABLE tb_comprobantes_pago ADD CONSTRAINT IF NOT EXISTS tb_comprobantes_pago_id_zona_fkey FOREIGN KEY (id_zona) REFERENCES tb_cat_zonas_compra(id);
-ALTER TABLE tb_config_umbrales_kpi ADD CONSTRAINT IF NOT EXISTS tb_config_umbrales_kpi_modificado_por_id_fkey FOREIGN KEY (modificado_por_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_control_presupuestal_proyectos ADD CONSTRAINT IF NOT EXISTS tb_compras_tracking_creado_por_id_fkey FOREIGN KEY (creado_por_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_control_presupuestal_proyectos ADD CONSTRAINT IF NOT EXISTS fk_control_presupuestal_proyecto FOREIGN KEY (id_proyecto) REFERENCES tb_proyectos_gate(id_proyecto);
-ALTER TABLE tb_correos_notificaciones ADD CONSTRAINT IF NOT EXISTS tb_correos_notificaciones_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_departamento_modulos ADD CONSTRAINT IF NOT EXISTS tb_departamento_modulos_departamento_slug_fkey FOREIGN KEY (departamento_slug) REFERENCES tb_cat_departamentos(slug);
-ALTER TABLE tb_departamento_modulos ADD CONSTRAINT IF NOT EXISTS tb_departamento_modulos_modulo_slug_fkey FOREIGN KEY (modulo_slug) REFERENCES tb_cat_modulos(slug);
-ALTER TABLE tb_detalles_bess ADD CONSTRAINT IF NOT EXISTS tb_detalles_bess_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad) ON DELETE CASCADE;
-ALTER TABLE tb_documentos_attachments ADD CONSTRAINT IF NOT EXISTS tb_documentos_attachments_id_comentario_fkey FOREIGN KEY (id_comentario) REFERENCES tb_comentarios_workflow(id);
-ALTER TABLE tb_documentos_attachments ADD CONSTRAINT IF NOT EXISTS tb_documentos_attachments_id_levantamiento_fkey FOREIGN KEY (id_levantamiento) REFERENCES tb_levantamientos(id_levantamiento);
-ALTER TABLE tb_documentos_attachments ADD CONSTRAINT IF NOT EXISTS tb_documentos_attachments_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad);
-ALTER TABLE tb_documentos_attachments ADD CONSTRAINT IF NOT EXISTS tb_documentos_attachments_origen_slug_fkey FOREIGN KEY (origen_slug) REFERENCES tb_cat_origenes_adjuntos(slug);
-ALTER TABLE tb_documentos_attachments ADD CONSTRAINT IF NOT EXISTS tb_documentos_attachments_subido_por_id_fkey FOREIGN KEY (subido_por_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_historial_cambios_deadline ADD CONSTRAINT IF NOT EXISTS tb_historial_cambios_deadline_id_motivo_cambio_fkey FOREIGN KEY (id_motivo_cambio) REFERENCES tb_cat_motivos_cambio_deadline(id);
-ALTER TABLE tb_historial_cambios_deadline ADD CONSTRAINT IF NOT EXISTS tb_historial_cambios_deadline_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad) ON DELETE CASCADE;
-ALTER TABLE tb_historial_cambios_deadline ADD CONSTRAINT IF NOT EXISTS tb_historial_cambios_deadline_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_historial_estatus ADD CONSTRAINT IF NOT EXISTS tb_historial_estatus_cambiado_por_id_fkey FOREIGN KEY (cambiado_por_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_historial_estatus ADD CONSTRAINT IF NOT EXISTS tb_historial_estatus_id_estatus_anterior_fkey FOREIGN KEY (id_estatus_anterior) REFERENCES tb_cat_estatus_oportunidades(id);
-ALTER TABLE tb_historial_estatus ADD CONSTRAINT IF NOT EXISTS tb_historial_estatus_id_estatus_nuevo_fkey FOREIGN KEY (id_estatus_nuevo) REFERENCES tb_cat_estatus_oportunidades(id);
-ALTER TABLE tb_historial_estatus ADD CONSTRAINT IF NOT EXISTS tb_historial_estatus_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad) ON DELETE CASCADE;
-ALTER TABLE tb_levantamiento_asignaciones ADD CONSTRAINT IF NOT EXISTS tb_levantamiento_tecnicos_asignado_por_id_fkey FOREIGN KEY (asignado_por_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_levantamiento_asignaciones ADD CONSTRAINT IF NOT EXISTS tb_levantamiento_tecnicos_id_levantamiento_fkey FOREIGN KEY (id_levantamiento) REFERENCES tb_levantamientos(id_levantamiento) ON DELETE CASCADE;
-ALTER TABLE tb_levantamiento_asignaciones ADD CONSTRAINT IF NOT EXISTS tb_levantamiento_tecnicos_tecnico_id_fkey FOREIGN KEY (tecnico_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_levantamiento_viaticos ADD CONSTRAINT IF NOT EXISTS tb_levantamiento_viaticos_created_by_id_fkey FOREIGN KEY (created_by_id) REFERENCES tb_usuarios(id_usuario) ON DELETE SET NULL;
-ALTER TABLE tb_levantamiento_viaticos ADD CONSTRAINT IF NOT EXISTS tb_levantamiento_viaticos_id_levantamiento_fkey FOREIGN KEY (id_levantamiento) REFERENCES tb_levantamientos(id_levantamiento) ON DELETE CASCADE;
-ALTER TABLE tb_levantamiento_viaticos ADD CONSTRAINT IF NOT EXISTS tb_levantamiento_viaticos_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES tb_usuarios(id_usuario) ON DELETE SET NULL;
-ALTER TABLE tb_levantamiento_viaticos_historico ADD CONSTRAINT IF NOT EXISTS tb_levantamiento_viaticos_historico_enviado_por_id_fkey FOREIGN KEY (enviado_por_id) REFERENCES tb_usuarios(id_usuario) ON DELETE SET NULL;
-ALTER TABLE tb_levantamiento_viaticos_historico ADD CONSTRAINT IF NOT EXISTS tb_levantamiento_viaticos_historico_id_levantamiento_fkey FOREIGN KEY (id_levantamiento) REFERENCES tb_levantamientos(id_levantamiento) ON DELETE CASCADE;
-ALTER TABLE tb_levantamientos ADD CONSTRAINT IF NOT EXISTS fk_lev_estatus_levantamiento FOREIGN KEY (id_estatus_global) REFERENCES tb_cat_estatus_levantamiento(id);
-ALTER TABLE tb_levantamientos ADD CONSTRAINT IF NOT EXISTS fk_lev_oportunidad FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad) ON DELETE CASCADE;
-ALTER TABLE tb_levantamientos ADD CONSTRAINT IF NOT EXISTS tb_levantamientos_id_sitio_fkey FOREIGN KEY (id_sitio) REFERENCES tb_sitios_oportunidad(id_sitio);
-ALTER TABLE tb_levantamientos ADD CONSTRAINT IF NOT EXISTS tb_levantamientos_jefe_area_id_fkey FOREIGN KEY (jefe_area_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_levantamientos ADD CONSTRAINT IF NOT EXISTS tb_levantamientos_solicitado_por_id_fkey FOREIGN KEY (solicitado_por_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_levantamientos ADD CONSTRAINT IF NOT EXISTS tb_levantamientos_tecnico_asignado_id_fkey FOREIGN KEY (tecnico_asignado_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_levantamientos ADD CONSTRAINT IF NOT EXISTS fk_lev_updated_by FOREIGN KEY (updated_by_id) REFERENCES tb_usuarios(id_usuario) ON DELETE SET NULL;
-ALTER TABLE tb_levantamientos_historial ADD CONSTRAINT IF NOT EXISTS fk_lev_hist_estatus_anterior FOREIGN KEY (id_estatus_anterior) REFERENCES tb_cat_estatus_levantamiento(id) ON DELETE SET NULL;
-ALTER TABLE tb_levantamientos_historial ADD CONSTRAINT IF NOT EXISTS fk_lev_hist_estatus_nuevo FOREIGN KEY (id_estatus_nuevo) REFERENCES tb_cat_estatus_levantamiento(id) ON DELETE RESTRICT;
-ALTER TABLE tb_levantamientos_historial ADD CONSTRAINT IF NOT EXISTS fk_lev_hist_levantamiento FOREIGN KEY (id_levantamiento) REFERENCES tb_levantamientos(id_levantamiento) ON DELETE CASCADE;
-ALTER TABLE tb_levantamientos_historial ADD CONSTRAINT IF NOT EXISTS fk_lev_hist_usuario FOREIGN KEY (modificado_por_id) REFERENCES tb_usuarios(id_usuario) ON DELETE SET NULL;
-ALTER TABLE tb_materiales_historial ADD CONSTRAINT IF NOT EXISTS tb_materiales_historial_created_by_id_fkey FOREIGN KEY (created_by_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_materiales_historial ADD CONSTRAINT IF NOT EXISTS tb_materiales_historial_id_categoria_fkey FOREIGN KEY (id_categoria) REFERENCES tb_cat_categorias_compra(id);
-ALTER TABLE tb_materiales_historial ADD CONSTRAINT IF NOT EXISTS tb_materiales_historial_id_comprobante_fkey FOREIGN KEY (id_comprobante) REFERENCES tb_comprobantes_pago(id_comprobante);
-ALTER TABLE tb_materiales_historial ADD CONSTRAINT IF NOT EXISTS tb_materiales_historial_id_proveedor_fkey FOREIGN KEY (id_proveedor) REFERENCES tb_proveedores(id_proveedor);
-ALTER TABLE tb_notificaciones ADD CONSTRAINT IF NOT EXISTS fk_notif_oportunidad FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad) ON DELETE CASCADE;
-ALTER TABLE tb_notificaciones ADD CONSTRAINT IF NOT EXISTS fk_notif_usuario FOREIGN KEY (usuario_id) REFERENCES tb_usuarios(id_usuario) ON DELETE CASCADE;
-ALTER TABLE tb_oportunidades ADD CONSTRAINT IF NOT EXISTS tb_oportunidades_cliente_id_fkey FOREIGN KEY (cliente_id) REFERENCES tb_clientes(id);
-ALTER TABLE tb_oportunidades ADD CONSTRAINT IF NOT EXISTS tb_oportunidades_creado_por_id_fkey FOREIGN KEY (creado_por_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_oportunidades ADD CONSTRAINT IF NOT EXISTS tb_oportunidades_entregado_por_id_fkey FOREIGN KEY (entregado_por_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_oportunidades ADD CONSTRAINT IF NOT EXISTS tb_oportunidades_id_estatus_global_fkey FOREIGN KEY (id_estatus_global) REFERENCES tb_cat_estatus_oportunidades(id);
-ALTER TABLE tb_oportunidades ADD CONSTRAINT IF NOT EXISTS tb_oportunidades_id_motivo_cierre_fkey FOREIGN KEY (id_motivo_cierre) REFERENCES tb_cat_motivos_cierre(id);
-ALTER TABLE tb_oportunidades ADD CONSTRAINT IF NOT EXISTS tb_oportunidades_id_motivo_retrabajo_fkey FOREIGN KEY (id_motivo_retrabajo) REFERENCES tb_cat_motivos_retrabajo(id);
-ALTER TABLE tb_oportunidades ADD CONSTRAINT IF NOT EXISTS tb_oportunidades_id_tecnologia_fkey FOREIGN KEY (id_tecnologia) REFERENCES tb_cat_tecnologias(id);
-ALTER TABLE tb_oportunidades ADD CONSTRAINT IF NOT EXISTS tb_oportunidades_id_tipo_solicitud_fkey FOREIGN KEY (id_tipo_solicitud) REFERENCES tb_cat_tipos_solicitud(id);
-ALTER TABLE tb_oportunidades ADD CONSTRAINT IF NOT EXISTS tb_oportunidades_responsable_simulacion_id_fkey FOREIGN KEY (responsable_simulacion_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_oportunidades ADD CONSTRAINT IF NOT EXISTS tb_oportunidades_solicitado_por_id_fkey FOREIGN KEY (solicitado_por_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_permisos_modulos ADD CONSTRAINT IF NOT EXISTS fk_modulo_slug FOREIGN KEY (modulo_slug) REFERENCES tb_cat_modulos(slug);
-ALTER TABLE tb_permisos_modulos ADD CONSTRAINT IF NOT EXISTS tb_permisos_modulos_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES tb_usuarios(id_usuario) ON DELETE CASCADE;
-ALTER TABLE tb_proyectos_gate ADD CONSTRAINT IF NOT EXISTS tb_proyectos_gate_created_by_id_fkey FOREIGN KEY (created_by_id) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_proyectos_gate ADD CONSTRAINT IF NOT EXISTS tb_proyectos_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad);
-ALTER TABLE tb_proyectos_gate ADD CONSTRAINT IF NOT EXISTS tb_proyectos_gate_id_tecnologia_fkey FOREIGN KEY (id_tecnologia) REFERENCES tb_cat_tecnologias(id);
-ALTER TABLE tb_sitios_oportunidad ADD CONSTRAINT IF NOT EXISTS tb_sitios_oportunidad_id_estatus_global_fkey FOREIGN KEY (id_estatus_global) REFERENCES tb_cat_estatus_oportunidades(id);
-ALTER TABLE tb_sitios_oportunidad ADD CONSTRAINT IF NOT EXISTS tb_sitios_oportunidad_id_motivo_retrabajo_fkey FOREIGN KEY (id_motivo_retrabajo) REFERENCES tb_cat_motivos_retrabajo(id);
-ALTER TABLE tb_sitios_oportunidad ADD CONSTRAINT IF NOT EXISTS tb_sitios_oportunidad_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad);
-ALTER TABLE tb_sitios_oportunidad ADD CONSTRAINT IF NOT EXISTS tb_sitios_oportunidad_id_tipo_solicitud_fkey FOREIGN KEY (id_tipo_solicitud) REFERENCES tb_cat_tipos_solicitud(id);
-ALTER TABLE tb_traspaso_documentos ADD CONSTRAINT IF NOT EXISTS tb_traspaso_documentos_id_documento_catalogo_fkey FOREIGN KEY (id_documento_catalogo) REFERENCES tb_cat_documentos_traspaso(id);
-ALTER TABLE tb_traspaso_documentos ADD CONSTRAINT IF NOT EXISTS tb_traspaso_documentos_id_traspaso_fkey FOREIGN KEY (id_traspaso) REFERENCES tb_traspasos_proyecto(id_traspaso) ON DELETE CASCADE;
-ALTER TABLE tb_traspaso_documentos ADD CONSTRAINT IF NOT EXISTS tb_traspaso_documentos_verificado_por_fkey FOREIGN KEY (verificado_por) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_traspaso_rechazos ADD CONSTRAINT IF NOT EXISTS tb_traspaso_rechazos_id_motivo_fkey FOREIGN KEY (id_motivo) REFERENCES tb_cat_motivos_rechazo(id);
-ALTER TABLE tb_traspaso_rechazos ADD CONSTRAINT IF NOT EXISTS tb_traspaso_rechazos_id_traspaso_fkey FOREIGN KEY (id_traspaso) REFERENCES tb_traspasos_proyecto(id_traspaso) ON DELETE CASCADE;
-ALTER TABLE tb_traspasos_proyecto ADD CONSTRAINT IF NOT EXISTS tb_traspasos_proyecto_enviado_por_fkey FOREIGN KEY (enviado_por) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_traspasos_proyecto ADD CONSTRAINT IF NOT EXISTS tb_traspasos_proyecto_id_proyecto_fkey FOREIGN KEY (id_proyecto) REFERENCES tb_proyectos_gate(id_proyecto);
-ALTER TABLE tb_traspasos_proyecto ADD CONSTRAINT IF NOT EXISTS tb_traspasos_proyecto_rechazado_por_fkey FOREIGN KEY (rechazado_por) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_traspasos_proyecto ADD CONSTRAINT IF NOT EXISTS tb_traspasos_proyecto_recibido_por_fkey FOREIGN KEY (recibido_por) REFERENCES tb_usuarios(id_usuario);
-ALTER TABLE tb_usuarios ADD CONSTRAINT IF NOT EXISTS fk_modulo_preferido FOREIGN KEY (modulo_preferido) REFERENCES tb_cat_modulos(slug);
+ALTER TABLE tb_beneficiario_proveedor ADD CONSTRAINT tb_beneficiario_proveedor_created_by_id_fkey FOREIGN KEY (created_by_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_beneficiario_proveedor ADD CONSTRAINT tb_beneficiario_proveedor_id_proveedor_fkey FOREIGN KEY (id_proveedor) REFERENCES tb_proveedores(id_proveedor);
+ALTER TABLE tb_bom ADD CONSTRAINT tb_bom_coordinador_obra_fkey FOREIGN KEY (coordinador_obra) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_bom ADD CONSTRAINT tb_bom_elaborado_por_fkey FOREIGN KEY (elaborado_por) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_bom ADD CONSTRAINT tb_bom_id_proyecto_fkey FOREIGN KEY (id_proyecto) REFERENCES tb_proyectos_gate(id_proyecto);
+ALTER TABLE tb_bom ADD CONSTRAINT tb_bom_jefe_construccion_fkey FOREIGN KEY (jefe_construccion) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_bom ADD CONSTRAINT tb_bom_responsable_ing_fkey FOREIGN KEY (responsable_ing) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_bom_aprobaciones ADD CONSTRAINT tb_bom_aprobaciones_id_bom_fkey FOREIGN KEY (id_bom) REFERENCES tb_bom(id_bom) ON DELETE CASCADE;
+ALTER TABLE tb_bom_aprobaciones ADD CONSTRAINT tb_bom_aprobaciones_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_bom_historial ADD CONSTRAINT tb_bom_historial_id_bom_fkey FOREIGN KEY (id_bom) REFERENCES tb_bom(id_bom) ON DELETE CASCADE;
+ALTER TABLE tb_bom_historial ADD CONSTRAINT tb_bom_historial_id_item_fkey FOREIGN KEY (id_item) REFERENCES tb_bom_items(id_item);
+ALTER TABLE tb_bom_historial ADD CONSTRAINT tb_bom_historial_realizado_por_fkey FOREIGN KEY (realizado_por) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_bom_items ADD CONSTRAINT tb_bom_items_id_bom_fkey FOREIGN KEY (id_bom) REFERENCES tb_bom(id_bom) ON DELETE CASCADE;
+ALTER TABLE tb_bom_items ADD CONSTRAINT tb_bom_items_id_categoria_fkey FOREIGN KEY (id_categoria) REFERENCES tb_cat_categorias_compra(id);
+ALTER TABLE tb_bom_items ADD CONSTRAINT tb_bom_items_id_material_ref_fkey FOREIGN KEY (id_material_ref) REFERENCES tb_materiales_historial(id) ON DELETE SET NULL;
+ALTER TABLE tb_bom_items ADD CONSTRAINT tb_bom_items_id_proveedor_fkey FOREIGN KEY (id_proveedor) REFERENCES tb_proveedores(id_proveedor);
+ALTER TABLE tb_comentarios_workflow ADD CONSTRAINT tb_bitacora_simulacion_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad) ON DELETE CASCADE;
+ALTER TABLE tb_comprobante_facturas ADD CONSTRAINT tb_comprobante_facturas_id_comprobante_fkey FOREIGN KEY (id_comprobante) REFERENCES tb_comprobantes_pago(id_comprobante);
+ALTER TABLE tb_comprobante_facturas ADD CONSTRAINT tb_comprobante_facturas_id_proveedor_fkey FOREIGN KEY (id_proveedor) REFERENCES tb_proveedores(id_proveedor);
+ALTER TABLE tb_comprobantes_pago ADD CONSTRAINT tb_comprobantes_pago_capturado_por_id_fkey FOREIGN KEY (capturado_por_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_comprobantes_pago ADD CONSTRAINT tb_comprobantes_pago_id_categoria_fkey FOREIGN KEY (id_categoria) REFERENCES tb_cat_categorias_compra(id);
+ALTER TABLE tb_comprobantes_pago ADD CONSTRAINT tb_comprobantes_pago_id_comprobante_anticipo_fkey FOREIGN KEY (id_comprobante_anticipo) REFERENCES tb_comprobantes_pago(id_comprobante);
+ALTER TABLE tb_comprobantes_pago ADD CONSTRAINT tb_comprobantes_pago_id_proveedor_fkey FOREIGN KEY (id_proveedor) REFERENCES tb_proveedores(id_proveedor);
+ALTER TABLE tb_comprobantes_pago ADD CONSTRAINT tb_comprobantes_pago_id_proyecto_fkey FOREIGN KEY (id_proyecto) REFERENCES tb_proyectos_gate(id_proyecto);
+ALTER TABLE tb_comprobantes_pago ADD CONSTRAINT tb_comprobantes_pago_id_zona_fkey FOREIGN KEY (id_zona) REFERENCES tb_cat_zonas_compra(id);
+ALTER TABLE tb_config_umbrales_kpi ADD CONSTRAINT tb_config_umbrales_kpi_modificado_por_id_fkey FOREIGN KEY (modificado_por_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_control_presupuestal_proyectos ADD CONSTRAINT tb_compras_tracking_creado_por_id_fkey FOREIGN KEY (creado_por_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_control_presupuestal_proyectos ADD CONSTRAINT fk_control_presupuestal_proyecto FOREIGN KEY (id_proyecto) REFERENCES tb_proyectos_gate(id_proyecto);
+ALTER TABLE tb_correos_notificaciones ADD CONSTRAINT tb_correos_notificaciones_updated_by_fkey FOREIGN KEY (updated_by) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_departamento_modulos ADD CONSTRAINT tb_departamento_modulos_departamento_slug_fkey FOREIGN KEY (departamento_slug) REFERENCES tb_cat_departamentos(slug);
+ALTER TABLE tb_departamento_modulos ADD CONSTRAINT tb_departamento_modulos_modulo_slug_fkey FOREIGN KEY (modulo_slug) REFERENCES tb_cat_modulos(slug);
+ALTER TABLE tb_detalles_bess ADD CONSTRAINT tb_detalles_bess_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad) ON DELETE CASCADE;
+ALTER TABLE tb_documentos_attachments ADD CONSTRAINT tb_documentos_attachments_id_comentario_fkey FOREIGN KEY (id_comentario) REFERENCES tb_comentarios_workflow(id);
+ALTER TABLE tb_documentos_attachments ADD CONSTRAINT tb_documentos_attachments_id_levantamiento_fkey FOREIGN KEY (id_levantamiento) REFERENCES tb_levantamientos(id_levantamiento);
+ALTER TABLE tb_documentos_attachments ADD CONSTRAINT tb_documentos_attachments_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad);
+ALTER TABLE tb_documentos_attachments ADD CONSTRAINT tb_documentos_attachments_origen_slug_fkey FOREIGN KEY (origen_slug) REFERENCES tb_cat_origenes_adjuntos(slug);
+ALTER TABLE tb_documentos_attachments ADD CONSTRAINT tb_documentos_attachments_subido_por_id_fkey FOREIGN KEY (subido_por_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_historial_cambios_deadline ADD CONSTRAINT tb_historial_cambios_deadline_id_motivo_cambio_fkey FOREIGN KEY (id_motivo_cambio) REFERENCES tb_cat_motivos_cambio_deadline(id);
+ALTER TABLE tb_historial_cambios_deadline ADD CONSTRAINT tb_historial_cambios_deadline_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad) ON DELETE CASCADE;
+ALTER TABLE tb_historial_cambios_deadline ADD CONSTRAINT tb_historial_cambios_deadline_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_historial_estatus ADD CONSTRAINT tb_historial_estatus_cambiado_por_id_fkey FOREIGN KEY (cambiado_por_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_historial_estatus ADD CONSTRAINT tb_historial_estatus_id_estatus_anterior_fkey FOREIGN KEY (id_estatus_anterior) REFERENCES tb_cat_estatus_oportunidades(id);
+ALTER TABLE tb_historial_estatus ADD CONSTRAINT tb_historial_estatus_id_estatus_nuevo_fkey FOREIGN KEY (id_estatus_nuevo) REFERENCES tb_cat_estatus_oportunidades(id);
+ALTER TABLE tb_historial_estatus ADD CONSTRAINT tb_historial_estatus_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad) ON DELETE CASCADE;
+ALTER TABLE tb_levantamiento_asignaciones ADD CONSTRAINT tb_levantamiento_tecnicos_asignado_por_id_fkey FOREIGN KEY (asignado_por_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_levantamiento_asignaciones ADD CONSTRAINT tb_levantamiento_tecnicos_id_levantamiento_fkey FOREIGN KEY (id_levantamiento) REFERENCES tb_levantamientos(id_levantamiento) ON DELETE CASCADE;
+ALTER TABLE tb_levantamiento_asignaciones ADD CONSTRAINT tb_levantamiento_tecnicos_tecnico_id_fkey FOREIGN KEY (tecnico_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_levantamiento_viaticos ADD CONSTRAINT tb_levantamiento_viaticos_created_by_id_fkey FOREIGN KEY (created_by_id) REFERENCES tb_usuarios(id_usuario) ON DELETE SET NULL;
+ALTER TABLE tb_levantamiento_viaticos ADD CONSTRAINT tb_levantamiento_viaticos_id_levantamiento_fkey FOREIGN KEY (id_levantamiento) REFERENCES tb_levantamientos(id_levantamiento) ON DELETE CASCADE;
+ALTER TABLE tb_levantamiento_viaticos ADD CONSTRAINT tb_levantamiento_viaticos_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES tb_usuarios(id_usuario) ON DELETE SET NULL;
+ALTER TABLE tb_levantamiento_viaticos_historico ADD CONSTRAINT tb_levantamiento_viaticos_historico_enviado_por_id_fkey FOREIGN KEY (enviado_por_id) REFERENCES tb_usuarios(id_usuario) ON DELETE SET NULL;
+ALTER TABLE tb_levantamiento_viaticos_historico ADD CONSTRAINT tb_levantamiento_viaticos_historico_id_levantamiento_fkey FOREIGN KEY (id_levantamiento) REFERENCES tb_levantamientos(id_levantamiento) ON DELETE CASCADE;
+ALTER TABLE tb_levantamientos ADD CONSTRAINT fk_lev_estatus_levantamiento FOREIGN KEY (id_estatus_global) REFERENCES tb_cat_estatus_levantamiento(id);
+ALTER TABLE tb_levantamientos ADD CONSTRAINT fk_lev_oportunidad FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad) ON DELETE CASCADE;
+ALTER TABLE tb_levantamientos ADD CONSTRAINT tb_levantamientos_id_sitio_fkey FOREIGN KEY (id_sitio) REFERENCES tb_sitios_oportunidad(id_sitio);
+ALTER TABLE tb_levantamientos ADD CONSTRAINT tb_levantamientos_jefe_area_id_fkey FOREIGN KEY (jefe_area_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_levantamientos ADD CONSTRAINT tb_levantamientos_solicitado_por_id_fkey FOREIGN KEY (solicitado_por_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_levantamientos ADD CONSTRAINT tb_levantamientos_tecnico_asignado_id_fkey FOREIGN KEY (tecnico_asignado_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_levantamientos ADD CONSTRAINT fk_lev_updated_by FOREIGN KEY (updated_by_id) REFERENCES tb_usuarios(id_usuario) ON DELETE SET NULL;
+ALTER TABLE tb_levantamientos_historial ADD CONSTRAINT fk_lev_hist_estatus_anterior FOREIGN KEY (id_estatus_anterior) REFERENCES tb_cat_estatus_levantamiento(id) ON DELETE SET NULL;
+ALTER TABLE tb_levantamientos_historial ADD CONSTRAINT fk_lev_hist_estatus_nuevo FOREIGN KEY (id_estatus_nuevo) REFERENCES tb_cat_estatus_levantamiento(id) ON DELETE RESTRICT;
+ALTER TABLE tb_levantamientos_historial ADD CONSTRAINT fk_lev_hist_levantamiento FOREIGN KEY (id_levantamiento) REFERENCES tb_levantamientos(id_levantamiento) ON DELETE CASCADE;
+ALTER TABLE tb_levantamientos_historial ADD CONSTRAINT fk_lev_hist_usuario FOREIGN KEY (modificado_por_id) REFERENCES tb_usuarios(id_usuario) ON DELETE SET NULL;
+ALTER TABLE tb_materiales_historial ADD CONSTRAINT tb_materiales_historial_created_by_id_fkey FOREIGN KEY (created_by_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_materiales_historial ADD CONSTRAINT tb_materiales_historial_id_categoria_fkey FOREIGN KEY (id_categoria) REFERENCES tb_cat_categorias_compra(id);
+ALTER TABLE tb_materiales_historial ADD CONSTRAINT tb_materiales_historial_id_comprobante_fkey FOREIGN KEY (id_comprobante) REFERENCES tb_comprobantes_pago(id_comprobante);
+ALTER TABLE tb_materiales_historial ADD CONSTRAINT tb_materiales_historial_id_proveedor_fkey FOREIGN KEY (id_proveedor) REFERENCES tb_proveedores(id_proveedor);
+ALTER TABLE tb_notificaciones ADD CONSTRAINT fk_notif_oportunidad FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad) ON DELETE CASCADE;
+ALTER TABLE tb_notificaciones ADD CONSTRAINT fk_notif_usuario FOREIGN KEY (usuario_id) REFERENCES tb_usuarios(id_usuario) ON DELETE CASCADE;
+ALTER TABLE tb_oportunidades ADD CONSTRAINT tb_oportunidades_cliente_id_fkey FOREIGN KEY (cliente_id) REFERENCES tb_clientes(id);
+ALTER TABLE tb_oportunidades ADD CONSTRAINT tb_oportunidades_creado_por_id_fkey FOREIGN KEY (creado_por_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_oportunidades ADD CONSTRAINT tb_oportunidades_entregado_por_id_fkey FOREIGN KEY (entregado_por_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_oportunidades ADD CONSTRAINT tb_oportunidades_id_estatus_global_fkey FOREIGN KEY (id_estatus_global) REFERENCES tb_cat_estatus_oportunidades(id);
+ALTER TABLE tb_oportunidades ADD CONSTRAINT tb_oportunidades_id_motivo_cierre_fkey FOREIGN KEY (id_motivo_cierre) REFERENCES tb_cat_motivos_cierre(id);
+ALTER TABLE tb_oportunidades ADD CONSTRAINT tb_oportunidades_id_motivo_retrabajo_fkey FOREIGN KEY (id_motivo_retrabajo) REFERENCES tb_cat_motivos_retrabajo(id);
+ALTER TABLE tb_oportunidades ADD CONSTRAINT tb_oportunidades_id_tecnologia_fkey FOREIGN KEY (id_tecnologia) REFERENCES tb_cat_tecnologias(id);
+ALTER TABLE tb_oportunidades ADD CONSTRAINT tb_oportunidades_id_tipo_solicitud_fkey FOREIGN KEY (id_tipo_solicitud) REFERENCES tb_cat_tipos_solicitud(id);
+ALTER TABLE tb_oportunidades ADD CONSTRAINT tb_oportunidades_responsable_simulacion_id_fkey FOREIGN KEY (responsable_simulacion_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_oportunidades ADD CONSTRAINT tb_oportunidades_solicitado_por_id_fkey FOREIGN KEY (solicitado_por_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_permisos_modulos ADD CONSTRAINT fk_modulo_slug FOREIGN KEY (modulo_slug) REFERENCES tb_cat_modulos(slug);
+ALTER TABLE tb_permisos_modulos ADD CONSTRAINT tb_permisos_modulos_usuario_id_fkey FOREIGN KEY (usuario_id) REFERENCES tb_usuarios(id_usuario) ON DELETE CASCADE;
+ALTER TABLE tb_proyectos_gate ADD CONSTRAINT tb_proyectos_gate_created_by_id_fkey FOREIGN KEY (created_by_id) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_proyectos_gate ADD CONSTRAINT tb_proyectos_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad);
+ALTER TABLE tb_proyectos_gate ADD CONSTRAINT tb_proyectos_gate_id_tecnologia_fkey FOREIGN KEY (id_tecnologia) REFERENCES tb_cat_tecnologias(id);
+ALTER TABLE tb_sitios_oportunidad ADD CONSTRAINT tb_sitios_oportunidad_id_estatus_global_fkey FOREIGN KEY (id_estatus_global) REFERENCES tb_cat_estatus_oportunidades(id);
+ALTER TABLE tb_sitios_oportunidad ADD CONSTRAINT tb_sitios_oportunidad_id_motivo_retrabajo_fkey FOREIGN KEY (id_motivo_retrabajo) REFERENCES tb_cat_motivos_retrabajo(id);
+ALTER TABLE tb_sitios_oportunidad ADD CONSTRAINT tb_sitios_oportunidad_id_oportunidad_fkey FOREIGN KEY (id_oportunidad) REFERENCES tb_oportunidades(id_oportunidad);
+ALTER TABLE tb_sitios_oportunidad ADD CONSTRAINT tb_sitios_oportunidad_id_tipo_solicitud_fkey FOREIGN KEY (id_tipo_solicitud) REFERENCES tb_cat_tipos_solicitud(id);
+ALTER TABLE tb_traspaso_documentos ADD CONSTRAINT tb_traspaso_documentos_id_documento_catalogo_fkey FOREIGN KEY (id_documento_catalogo) REFERENCES tb_cat_documentos_traspaso(id);
+ALTER TABLE tb_traspaso_documentos ADD CONSTRAINT tb_traspaso_documentos_id_traspaso_fkey FOREIGN KEY (id_traspaso) REFERENCES tb_traspasos_proyecto(id_traspaso) ON DELETE CASCADE;
+ALTER TABLE tb_traspaso_documentos ADD CONSTRAINT tb_traspaso_documentos_verificado_por_fkey FOREIGN KEY (verificado_por) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_traspaso_rechazos ADD CONSTRAINT tb_traspaso_rechazos_id_motivo_fkey FOREIGN KEY (id_motivo) REFERENCES tb_cat_motivos_rechazo(id);
+ALTER TABLE tb_traspaso_rechazos ADD CONSTRAINT tb_traspaso_rechazos_id_traspaso_fkey FOREIGN KEY (id_traspaso) REFERENCES tb_traspasos_proyecto(id_traspaso) ON DELETE CASCADE;
+ALTER TABLE tb_traspasos_proyecto ADD CONSTRAINT tb_traspasos_proyecto_enviado_por_fkey FOREIGN KEY (enviado_por) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_traspasos_proyecto ADD CONSTRAINT tb_traspasos_proyecto_id_proyecto_fkey FOREIGN KEY (id_proyecto) REFERENCES tb_proyectos_gate(id_proyecto);
+ALTER TABLE tb_traspasos_proyecto ADD CONSTRAINT tb_traspasos_proyecto_rechazado_por_fkey FOREIGN KEY (rechazado_por) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_traspasos_proyecto ADD CONSTRAINT tb_traspasos_proyecto_recibido_por_fkey FOREIGN KEY (recibido_por) REFERENCES tb_usuarios(id_usuario);
+ALTER TABLE tb_usuarios ADD CONSTRAINT fk_modulo_preferido FOREIGN KEY (modulo_preferido) REFERENCES tb_cat_modulos(slug);
 
 -- ============================================================
 -- ÍNDICES

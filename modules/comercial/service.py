@@ -7,6 +7,7 @@ import asyncpg
 from fastapi import HTTPException
 from zoneinfo import ZoneInfo
 import io
+import re
 
 from openpyxl import load_workbook
 from .schemas import SitioImportacion, DetalleBessCreate
@@ -192,29 +193,23 @@ class ComercialService:
         """
         Determina si una oportunidad fue concebida como multisitio,
         incluso si actualmente tiene 1 o 0 sitios activos (por borrado).
-        
+
         Heurística:
-        1. Cantidad Sitios > 1 (Obvio)
-        2. Naming Convention del ID Interno ({BASE}_{PROYECTO})
-           El ID de multisitio SIEMPRE sufija el nombre del proyecto.
-           El ID de unisitio NO sufija el nombre del proyecto (usa el BASE generado).
+        1. Cantidad Sitios > 1 (directo).
+        2. Patrón de nombre en el ID interno: sufijo _MULTISITIO N
+           Tanto el formulario web (Alpine.js auto-setea nombre_proyecto='Multisitio N')
+           como el script de migración generan este sufijo explícito.
+           Usar un patrón estricto evita falsos positivos en registros donde
+           cliente_nombre == nombre_proyecto (ej: TOPOLINO, 50-ROLL SUSHI).
         """
-        # 1. Chequeo directo de cantidad (Active count)
+        # 1. Chequeo directo de cantidad
         if (row.get('cantidad_sitios') or 0) > 1:
             return True
-            
-        # 2. Heurística de Nombre (Fallback para cuando borran sitios hasta quedar 1)
+
+        # 2. Patrón estricto _MULTISITIO N al final del ID interno
         try:
-            proj_name = (row.get('nombre_proyecto') or "").strip().upper()
-            id_interno = (row.get('id_interno_simulacion') or "").strip().upper()
-            
-            if not proj_name or not id_interno:
-                return False
-                
-            # Si el ID interno termina con _NOMBRE_PROYECTO, es estructura multisitio
-            # (A menos que el nombre del proyecto sea vacío, validado arriba)
-            suffix = f"_{proj_name}"
-            return id_interno.endswith(suffix)
+            id_interno = (row.get('id_interno_simulacion') or "").strip()
+            return bool(re.search(r'_MULTISITIO\s+\d+$', id_interno, re.IGNORECASE))
         except Exception:
             return False
 

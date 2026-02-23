@@ -1,5 +1,6 @@
 import logging
 import json
+import re
 from uuid import UUID
 from typing import List, Optional
 from fastapi.templating import Jinja2Templates
@@ -19,12 +20,10 @@ class NotificationService:
         if (row.get('cantidad_sitios') or 0) > 1:
             return True
         try:
-            proj = (row.get('nombre_proyecto') or "").strip().upper()
-            id_int = (row.get('id_interno_simulacion') or "").strip().upper()
-            if proj and id_int and id_int.endswith(f"_{proj}"):
-                return True
-        except: pass
-        return False
+            id_int = (row.get('id_interno_simulacion') or "").strip()
+            return bool(re.search(r'_MULTISITIO\s+\d+$', id_int, re.IGNORECASE))
+        except Exception:
+            return False
 
     async def get_oportunidad_for_email(self, conn, id_oportunidad: UUID) -> Optional[dict]:
         """Recupera datos básicos de oportunidad."""
