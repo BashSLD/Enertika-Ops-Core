@@ -80,10 +80,13 @@ async def get_comercial_ui(
         
     # Cargar catálogos para filtros globales
     catalogos = await service.get_catalogos_ui(conn)
-    
+
     # Verificar si debe mostrar el popup
     show_popup = await service.should_show_popup(conn, context.get("email"))
-        
+
+    # Conteo de borradores para badge del tab
+    borradores_count = await service.get_borradores_count(conn, context)
+
     return templates.TemplateResponse(template, {
         "request": request,
         "user_name": user_name,
@@ -91,7 +94,8 @@ async def get_comercial_ui(
         "module_roles": context.get("module_roles", {}),
         "current_module_role": context.get("module_roles", {}).get("comercial", "viewer"),
         "catalogos": catalogos,
-        "show_custom_popup": show_popup
+        "show_custom_popup": show_popup,
+        "borradores_count": borradores_count,
     }, headers={"HX-Title": "Enertika Core Ops | Comercial"})
 
 
@@ -708,6 +712,40 @@ async def handle_oportunidad_extraordinaria(
             {"request": request, "detail": "Ocurrió un error inesperado."},
             status_code=500
         )
+
+@router.get("/partials/borradores", response_class=HTMLResponse, include_in_schema=False)
+async def get_borradores_partial(
+    request: Request,
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection),
+    user_context = Depends(get_current_user_context),
+    _ = require_module_access("comercial"),
+):
+    """Retorna la vista parcial de borradores (oportunidades sin enviar <24h)."""
+    borradores = await service.get_borradores(conn, user_context)
+    return templates.TemplateResponse("comercial/partials/borradores.html", {
+        "request": request,
+        "borradores": borradores,
+    })
+
+
+@router.delete("/borrador/{id_oportunidad}", response_class=HTMLResponse)
+async def eliminar_borrador(
+    request: Request,
+    id_oportunidad: UUID,
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection),
+    user_context = Depends(get_current_user_context),
+    _ = require_module_access("comercial", "editor"),
+):
+    """Elimina un borrador y devuelve la lista actualizada en el mismo tab."""
+    await service.cancelar_oportunidad(conn, id_oportunidad, user_context)
+    borradores = await service.get_borradores(conn, user_context)
+    return templates.TemplateResponse("comercial/partials/borradores.html", {
+        "request": request,
+        "borradores": borradores,
+    })
+
 
 @router.delete("/{id_oportunidad}", response_class=HTMLResponse)
 async def cancelar_oportunidad(

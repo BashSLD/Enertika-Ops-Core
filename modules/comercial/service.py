@@ -68,6 +68,11 @@ from .db_service import (
     QUERY_UPDATE_SITIOS_ESTATUS_BY_IDS,
     QUERY_UPDATE_SITIOS_ESTATUS_OTHERS,
     QUERY_UPDATE_SITIOS_ESTATUS_ALL,
+    QUERY_GET_BORRADORES,
+    QUERY_GET_BORRADORES_BY_USER,
+    QUERY_GET_BORRADORES_COUNT,
+    QUERY_GET_BORRADORES_COUNT_BY_USER,
+    QUERY_GET_EXPIRED_BORRADORES_IDS,
 )
 
 # Shared Services
@@ -748,6 +753,12 @@ class ComercialService:
 
         # Filtro por tab (Usa IDs)
         if tab == "historial": # Renombrado en UI a "Solicitudes (Entregadas)"
+            # Levantamientos tienen su propio tab — excluirlos igual que en activos
+            id_lev_historial = cats['tipos'].get('levantamiento')
+            if id_lev_historial:
+                query += f" AND o.id_tipo_solicitud != ${param_idx}"
+                params.append(id_lev_historial)
+                param_idx += 1
             # Subtabs para historial: entregado vs cancelado-perdido
             if not subtab or subtab == 'entregado':
                 # Por defecto: solo Entregado
@@ -1284,6 +1295,48 @@ class ComercialService:
                 status_code=409,
                 detail="No se puede eliminar: La oportunidad ya tiene Proyectos o Registros de Compra asociados."
             )
+
+    async def get_borradores(self, conn, user_context: dict) -> list:
+        """
+        Retorna borradores activos (<24h).
+        Limpia automáticamente los expirados (>=24h) antes de consultar.
+        Rol admin de módulo o ADMIN global: ve todos. Demás: solo los propios.
+        """
+        # Auto-limpieza de expirados (best-effort, transacción por borrador)
+        expired = await conn.fetch(QUERY_GET_EXPIRED_BORRADORES_IDS)
+        for row in expired:
+            op_id = row['id_oportunidad']
+            try:
+                async with conn.transaction():
+                    await conn.execute(QUERY_DELETE_COMENTARIOS_WF, op_id)
+                    await conn.execute(QUERY_DELETE_NOTIFICACIONES, op_id)
+                    await conn.execute(QUERY_DELETE_DOCS, op_id)
+                    await conn.execute(QUERY_DELETE_LEVANTAMIENTOS, op_id)
+                    await conn.execute(QUERY_DELETE_BESS, op_id)
+                    await conn.execute(QUERY_DELETE_SITIOS_OP, op_id)
+                    await conn.execute(QUERY_DELETE_OPORTUNIDAD, op_id)
+            except asyncpg.PostgresError as e:
+                logger.warning(f"[BORRADORES] Error al limpiar borrador expirado {op_id}: {e}")
+
+        # Query según rol
+        if user_has_module_access("comercial", user_context, "admin"):
+            rows = await conn.fetch(QUERY_GET_BORRADORES)
+        else:
+            user_id = user_context.get("user_db_id")
+            rows = await conn.fetch(QUERY_GET_BORRADORES_BY_USER, UUID(str(user_id)))
+
+        return [dict(r) for r in rows]
+
+    async def get_borradores_count(self, conn, user_context: dict) -> int:
+        """Retorna el conteo de borradores activos (<24h) para el badge del tab.
+        Admin de módulo / ADMIN global: total del módulo. Demás: solo los propios.
+        """
+        if user_has_module_access("comercial", user_context, "admin"):
+            count = await conn.fetchval(QUERY_GET_BORRADORES_COUNT)
+        else:
+            user_id = user_context.get("user_db_id")
+            count = await conn.fetchval(QUERY_GET_BORRADORES_COUNT_BY_USER, UUID(str(user_id)))
+        return count or 0
 
     # Helper para inyección de dependencias
     # --- MÉTODO DE NOTIFICACIÓN ---

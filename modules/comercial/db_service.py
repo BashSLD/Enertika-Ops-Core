@@ -223,3 +223,62 @@ QUERY_UPDATE_SITIOS_ESTATUS_ALL = """
     UPDATE tb_sitios_oportunidad SET id_estatus_global = $1
     WHERE id_oportunidad = $2
 """
+
+# Borradores (email_enviado = false, < 24h)
+QUERY_GET_BORRADORES = """
+    SELECT
+        o.id_oportunidad, o.op_id_estandar, o.id_interno_simulacion,
+        o.cliente_nombre, o.nombre_proyecto, o.titulo_proyecto,
+        o.canal_venta, o.cantidad_sitios, o.fecha_creacion,
+        tec.nombre as tipo_tecnologia,
+        tipo_sol.nombre as tipo_solicitud,
+        u.nombre as creado_por_nombre,
+        EXTRACT(EPOCH FROM (o.fecha_creacion + INTERVAL '24 hours' - NOW()))::int
+            AS segundos_restantes
+    FROM tb_oportunidades o
+    LEFT JOIN tb_cat_tecnologias tec ON o.id_tecnologia = tec.id
+    LEFT JOIN tb_cat_tipos_solicitud tipo_sol ON o.id_tipo_solicitud = tipo_sol.id
+    LEFT JOIN tb_usuarios u ON o.creado_por_id = u.id_usuario
+    WHERE o.email_enviado = false
+      AND o.fecha_creacion > NOW() - INTERVAL '24 hours'
+    ORDER BY o.fecha_creacion DESC
+"""
+
+QUERY_GET_BORRADORES_BY_USER = """
+    SELECT
+        o.id_oportunidad, o.op_id_estandar, o.id_interno_simulacion,
+        o.cliente_nombre, o.nombre_proyecto, o.titulo_proyecto,
+        o.canal_venta, o.cantidad_sitios, o.fecha_creacion,
+        tec.nombre as tipo_tecnologia,
+        tipo_sol.nombre as tipo_solicitud,
+        u.nombre as creado_por_nombre,
+        EXTRACT(EPOCH FROM (o.fecha_creacion + INTERVAL '24 hours' - NOW()))::int
+            AS segundos_restantes
+    FROM tb_oportunidades o
+    LEFT JOIN tb_cat_tecnologias tec ON o.id_tecnologia = tec.id
+    LEFT JOIN tb_cat_tipos_solicitud tipo_sol ON o.id_tipo_solicitud = tipo_sol.id
+    LEFT JOIN tb_usuarios u ON o.creado_por_id = u.id_usuario
+    WHERE o.email_enviado = false
+      AND o.fecha_creacion > NOW() - INTERVAL '24 hours'
+      AND o.creado_por_id = $1
+    ORDER BY o.fecha_creacion DESC
+"""
+
+QUERY_GET_BORRADORES_COUNT = """
+    SELECT COUNT(*) FROM tb_oportunidades
+    WHERE email_enviado = false
+      AND fecha_creacion > NOW() - INTERVAL '24 hours'
+"""
+
+QUERY_GET_BORRADORES_COUNT_BY_USER = """
+    SELECT COUNT(*) FROM tb_oportunidades
+    WHERE email_enviado = false
+      AND fecha_creacion > NOW() - INTERVAL '24 hours'
+      AND creado_por_id = $1
+"""
+
+QUERY_GET_EXPIRED_BORRADORES_IDS = """
+    SELECT id_oportunidad FROM tb_oportunidades
+    WHERE email_enviado = false
+      AND fecha_creacion <= NOW() - INTERVAL '24 hours'
+"""

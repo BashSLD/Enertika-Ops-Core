@@ -570,6 +570,26 @@
                     </div>
                 </a>
             </li>
+            <li class="me-2">
+                <a href="#" hx-get="/comercial/partials/borradores" hx-target="#tab-content" hx-swap="innerHTML"
+                    hx-push-url="?tab=borradores" onclick="updateTabContext('borradores', this)"
+                    class="tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                    <div class="flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg"
+                            class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
+                            stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                        </svg>
+                        <span>Borradores</span>
+                        {% if borradores_count > 0 %}
+                        <span class="ml-0.5 bg-amber-500 text-white text-xs font-bold rounded-full px-1.5 py-0.5 leading-none">
+                            {{ borradores_count }}
+                        </span>
+                        {% endif %}
+                    </div>
+                </a>
+            </li>
         </ul>
     </div>
 
@@ -688,7 +708,8 @@
                 if (tabParam) {
                     tabs.forEach(t => {
                         const hxGet = t.getAttribute('hx-get') || '';
-                        if (hxGet.includes(`tab=${tabParam}`)) targetTab = t;
+                        const hxPushUrl = t.getAttribute('hx-push-url') || '';
+                        if (hxGet.includes(`tab=${tabParam}`) || hxPushUrl.includes(`tab=${tabParam}`)) targetTab = t;
                     });
                 }
 
