@@ -147,7 +147,7 @@ def register_modal_endpoints(router: APIRouter):
           - datos del levantamiento
           - lista de viaticos actuales
           - usuarios disponibles (select)
-          - CC configurados desde tb_config_emails
+          - TO y CC configurados desde tb_config_emails
           - historial de envíos previos
         """
         lev = await db_svc.get_levantamiento_base(conn, id_levantamiento)
@@ -156,6 +156,7 @@ def register_modal_endpoints(router: APIRouter):
 
         viaticos        = await db_svc.get_viaticos(conn, id_levantamiento)
         usuarios        = await db_svc.get_usuarios_viaticos(conn)
+        to_configurados = await db_svc.get_to_configurados_viaticos(conn)
         cc_configurados = await db_svc.get_cc_configurados_viaticos(conn)
         historial       = await db_svc.get_historial_envios(conn, id_levantamiento)
 
@@ -164,6 +165,7 @@ def register_modal_endpoints(router: APIRouter):
             "lev_data": lev,
             "viaticos": viaticos,
             "usuarios": usuarios,
+            "to_configurados": to_configurados,
             "cc_configurados": cc_configurados,
             "historial_envios": historial,
             "id_levantamiento": id_levantamiento,

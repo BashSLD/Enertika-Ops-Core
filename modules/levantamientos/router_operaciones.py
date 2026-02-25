@@ -293,6 +293,7 @@ def register_operaciones_endpoints(router: APIRouter):
     async def enviar_solicitud_viaticos_endpoint(
         request: Request,
         id_levantamiento: UUID,
+        to_destinatarios: str = Form(""),
         cc_adicionales: str = Form(""),
         conn=Depends(get_db_connection),
         db_svc: LevantamientosDBService = Depends(get_db_service),
@@ -301,7 +302,7 @@ def register_operaciones_endpoints(router: APIRouter):
     ):
         """
         1. Obtiene viaticos actuales (debe haber al menos 1).
-        2. Construye TO y CC (configurados + manuales).
+        2. Construye TO (del form, con fallback al configurado) y CC.
         3. Renderiza solicitud_viaticos.html como body del correo.
         4. Envía via MicrosoftAuth.
         5. Registra en tb_levantamiento_viaticos_historico con snapshot.
@@ -317,9 +318,12 @@ def register_operaciones_endpoints(router: APIRouter):
 
         total_monto = sum(v["monto"] for v in viaticos)
 
-        to_list = await db_svc.get_to_configurados_viaticos(conn)
-        cc_configurados = await db_svc.get_cc_configurados_viaticos(conn)
+        # TO: usar lo que envió el usuario; si llegó vacío, caer a la configuración de admin
+        to_configurado = await db_svc.get_to_configurados_viaticos(conn)
+        to_del_form = [e.strip() for e in re.split(r'[;,]', to_destinatarios) if e.strip() and "@" in e.strip()]
+        to_list = to_del_form if to_del_form else to_configurado
 
+        cc_configurados = await db_svc.get_cc_configurados_viaticos(conn)
         cc_manuales = [e.strip() for e in re.split(r'[;,]', cc_adicionales) if e.strip() and "@" in e.strip()]
         cc_all = list(set(cc_configurados + cc_manuales) - set(to_list))
 

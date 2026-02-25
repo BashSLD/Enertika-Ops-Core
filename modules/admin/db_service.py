@@ -82,6 +82,13 @@ class AdminDBService:
             value, user_id
         )
 
+    async def update_user_levantamiento_flag(self, conn, user_id: UUID, value: bool) -> None:
+        """Actualiza el flag puede_asignarse_levantamientos del usuario."""
+        await conn.execute(
+            "UPDATE tb_usuarios SET puede_asignarse_levantamientos = $1 WHERE id_usuario = $2",
+            value, user_id
+        )
+
     async def deactivate_user(self, conn, user_id: UUID) -> None:
         """Marca un usuario como inactivo (soft delete)."""
         await conn.execute(

@@ -479,11 +479,18 @@
                 prefSelect.value = currentUserPref;
             }
 
-            // Cargar flag de simulación (reutiliza userRow de línea 431)
+            // Cargar flag de simulación
             if (userRow && userRow.dataset.simulationFlag) {
                 document.getElementById('user-simulation-flag').checked = userRow.dataset.simulationFlag === 'true';
             } else {
                 document.getElementById('user-simulation-flag').checked = false;
+            }
+
+            // Cargar flag de levantamientos
+            if (userRow && userRow.dataset.levantamientoFlag) {
+                document.getElementById('user-levantamiento-flag').checked = userRow.dataset.levantamientoFlag === 'true';
+            } else {
+                document.getElementById('user-levantamiento-flag').checked = false;
             }
 
         } catch (e) {
@@ -523,6 +530,12 @@
             const fdSim = new FormData();
             fdSim.append('puede_asignarse_simulacion', simFlag ? 'true' : 'false');
             await fetch(`/admin/users/${currentUserId}/simulation-flag`, { method: 'POST', body: fdSim });
+
+            // Guardar flag de levantamientos
+            const levFlag = document.getElementById('user-levantamiento-flag').checked;
+            const fdLev = new FormData();
+            fdLev.append('puede_asignarse_levantamientos', levFlag ? 'true' : 'false');
+            await fetch(`/admin/users/${currentUserId}/levantamiento-flag`, { method: 'POST', body: fdLev });
 
             // Mostrar éxito y recargar
             setTimeout(() => location.reload(), 500);
@@ -672,6 +685,19 @@
                             <span class="text-sm font-bold text-gray-700">Puede asignarse a Simulación</span>
                             <span class="text-gray-500 text-xs block">Permitir ser responsable de simulaciones aunque no
                                 esté en el departamento Simulación</span>
+                        </div>
+                    </label>
+                </div>
+
+                <!-- Flag Asignación Levantamientos -->
+                <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" id="user-levantamiento-flag"
+                            class="w-5 h-5 rounded text-amber-500 focus:ring-amber-500">
+                        <div>
+                            <span class="text-sm font-bold text-gray-700">Puede asignarse a Levantamientos</span>
+                            <span class="text-gray-500 text-xs block">Permitir ser asignado como ingeniero o acompañante
+                                en levantamientos de sitio</span>
                         </div>
                     </label>
                 </div>

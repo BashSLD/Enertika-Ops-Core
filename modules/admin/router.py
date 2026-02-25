@@ -411,11 +411,31 @@ async def update_simulation_flag(
 ):
     """Actualiza el flag que permite a un usuario ser asignado como responsable de simulacion."""
     await service.update_user_simulation_flag(conn, user_id, puede_asignarse_simulacion)
-    
+
     return templates.TemplateResponse("admin/partials/messages/success.html", {
-        "request": request, 
-        "title": "OK", 
+        "request": request,
+        "title": "OK",
         "message": f"Flag simulación {'activado' if puede_asignarse_simulacion else 'desactivado'}"
+    })
+
+
+@router.post("/users/{user_id}/levantamiento-flag")
+async def update_levantamiento_flag(
+    request: Request,
+    user_id: UUID,
+    puede_asignarse_levantamientos: bool = Form(False),
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
+):
+    """Actualiza el flag que permite a un usuario ser asignado en levantamientos."""
+    await service.update_user_levantamiento_flag(conn, user_id, puede_asignarse_levantamientos)
+
+    return templates.TemplateResponse("admin/partials/messages/success.html", {
+        "request": request,
+        "title": "OK",
+        "message": f"Flag levantamientos {'activado' if puede_asignarse_levantamientos else 'desactivado'}"
     })
 
 

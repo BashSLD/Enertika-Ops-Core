@@ -264,15 +264,19 @@ class AdminService:
                 except json.JSONDecodeError:
                     logger.error("Error decodificando EVENTOS_SISTEMA de tb_configuracion_global")
                     return [
-                        {"label": "Nuevo Comentario", "value": "NUEVO_COMENTARIO"},
-                        {"label": "Cambio de Estatus", "value": "CAMBIO_ESTATUS"},
-                        {"label": "Asignación", "value": "ASIGNACION"}
+                        {"label": "Solicitud Extraordinaria", "value": "EXTRAORDINARIA"},
+                        {"label": "Nuevo Comentario",         "value": "NUEVO_COMENTARIO"},
+                        {"label": "Cambio de Estatus",        "value": "CAMBIO_ESTATUS"},
+                        {"label": "Asignación",               "value": "ASIGNACION"},
+                        {"label": "Solicitud de Viáticos",    "value": "SOLICITUD_VIATICOS"},
                     ]
             # Si no existe en BD, usar fallback
             return [
-                {"label": "Nuevo Comentario", "value": "NUEVO_COMENTARIO"},
-                {"label": "Cambio de Estatus", "value": "CAMBIO_ESTATUS"},
-                {"label": "Asignación", "value": "ASIGNACION"}
+                {"label": "Solicitud Extraordinaria", "value": "EXTRAORDINARIA"},
+                {"label": "Nuevo Comentario",         "value": "NUEVO_COMENTARIO"},
+                {"label": "Cambio de Estatus",        "value": "CAMBIO_ESTATUS"},
+                {"label": "Asignación",               "value": "ASIGNACION"},
+                {"label": "Solicitud de Viáticos",    "value": "SOLICITUD_VIATICOS"},
             ]
 
         else:
@@ -417,6 +421,18 @@ class AdminService:
         """
         await self.db.update_user_simulation_flag(conn, user_id, value)
         logger.info(f"Flag simulación actualizado para usuario {user_id}: {value}")
+
+    async def update_user_levantamiento_flag(self, conn, user_id: UUID, value: bool) -> None:
+        """
+        Actualiza el flag puede_asignarse_levantamientos del usuario.
+
+        Args:
+            conn: Conexión a la base de datos
+            user_id: ID del usuario
+            value: Nuevo valor del flag
+        """
+        await self.db.update_user_levantamiento_flag(conn, user_id, value)
+        logger.info(f"Flag levantamientos actualizado para usuario {user_id}: {value}")
 
     async def deactivate_user(self, conn, user_id: UUID) -> Dict:
         """

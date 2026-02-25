@@ -322,13 +322,13 @@ class LevantamientosDBService:
 
     async def get_cc_configurados_viaticos(self, conn) -> List[str]:
         """
-        Retorna los emails CC configurados para el evento
-        SOLICITUD_VIATICOS en tb_config_emails.
+        Retorna los emails CC configurados para el evento SOLICITUD_VIATICOS.
+        Incluye reglas del módulo LEVANTAMIENTOS y reglas GLOBAL.
         """
         rows = await conn.fetch("""
             SELECT email_to_add
             FROM tb_config_emails
-            WHERE modulo        = 'LEVANTAMIENTOS'
+            WHERE modulo        IN ('LEVANTAMIENTOS', 'GLOBAL')
               AND trigger_field = 'EVENTO'
               AND trigger_value = 'SOLICITUD_VIATICOS'
               AND type          = 'CC'
@@ -338,13 +338,13 @@ class LevantamientosDBService:
 
     async def get_to_configurados_viaticos(self, conn) -> List[str]:
         """
-        Retorna los emails TO configurados para el evento
-        SOLICITUD_VIATICOS en tb_config_emails.
+        Retorna los emails TO configurados para el evento SOLICITUD_VIATICOS.
+        Incluye reglas del módulo LEVANTAMIENTOS y reglas GLOBAL.
         """
         rows = await conn.fetch("""
             SELECT email_to_add
             FROM tb_config_emails
-            WHERE modulo        = 'LEVANTAMIENTOS'
+            WHERE modulo        IN ('LEVANTAMIENTOS', 'GLOBAL')
               AND trigger_field = 'EVENTO'
               AND trigger_value = 'SOLICITUD_VIATICOS'
               AND type          = 'TO'
@@ -678,9 +678,15 @@ class LevantamientosDBService:
         rows = await conn.fetch("""
             SELECT DISTINCT u.id_usuario, u.nombre
             FROM tb_usuarios u
-            INNER JOIN tb_permisos_modulos pm ON u.id_usuario = pm.usuario_id
-            WHERE pm.modulo_slug = 'levantamientos'
-              AND u.is_active = true
+            WHERE u.is_active = true
+              AND (
+                  u.puede_asignarse_levantamientos = true
+                  OR EXISTS (
+                      SELECT 1 FROM tb_permisos_modulos pm
+                      WHERE pm.usuario_id = u.id_usuario
+                        AND pm.modulo_slug = 'levantamientos'
+                  )
+              )
             ORDER BY u.nombre
         """)
         return [dict(r) for r in rows]

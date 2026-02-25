@@ -971,7 +971,9 @@ class ComercialService:
         nombre_tec = await conn.fetchval(QUERY_GET_TECNOLOGIA_NAME, parent['id_tecnologia'])
         
         # Título completo con el MISMO formato que la creación inicial
-        titulo_new = f"{nombre_tipo}_{parent['cliente_nombre']}_{parent['nombre_proyecto']}_{nombre_tec}_{parent['canal_venta']}".upper()
+        titulo_new = IdGeneratorService.generate_project_title(
+            nombre_tipo, parent['cliente_nombre'], parent['nombre_proyecto'], nombre_tec, parent['canal_venta']
+        )
 
         # Obtener ID dinámico
         cats = await self.get_catalog_ids(conn)

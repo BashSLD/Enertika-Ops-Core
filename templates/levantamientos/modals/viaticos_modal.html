@@ -122,58 +122,123 @@
         <form id="form-enviar-solicitud" hx-post="/levantamientos/viaticos/solicitud/{{ lev_data.id_levantamiento }}"
             hx-target="#historial-envios-container" hx-swap="innerHTML"
             hx-disabled-elt="find button[type='submit']"
-            hx-on::after-request="if(event.detail.successful) onViaticosEnviados(this)">
+            hx-on::after-request="if(event.detail.successful) onViaticosEnviados(this)"
+            data-to-default='{{ to_configurados | tojson }}'
+            x-data="{
+                tagsTo: [],
+                currentTo: '',
+                tagsCc: [],
+                currentCc: '',
+                toError: false,
+                _toDefault: [],
+                init() {
+                    this._toDefault = JSON.parse(this.$el.dataset.toDefault || '[]');
+                    this.tagsTo = this._toDefault.slice();
+                },
+                addTo() {
+                    const email = this.currentTo.trim().replace(/[;,]$/, '');
+                    if (email && email.includes('@') && !this.tagsTo.includes(email)) {
+                        this.tagsTo.push(email);
+                        this.toError = false;
+                    }
+                    this.currentTo = '';
+                },
+                removeTo(t) {
+                    this.tagsTo = this.tagsTo.filter(x => x !== t);
+                    this.toError = this.tagsTo.length === 0;
+                },
+                handleKeyTo(e) {
+                    if (e.key === 'Enter' || e.key === ',' || e.key === ';') {
+                        e.preventDefault();
+                        this.addTo();
+                    }
+                },
+                addCc() {
+                    const email = this.currentCc.trim().replace(/[;,]$/, '');
+                    if (email && email.includes('@') && !this.tagsCc.includes(email)) {
+                        this.tagsCc.push(email);
+                    }
+                    this.currentCc = '';
+                },
+                removeCc(t) { this.tagsCc = this.tagsCc.filter(x => x !== t); },
+                handleKeyCc(e) {
+                    if (e.key === 'Enter' || e.key === ',' || e.key === ';') {
+                        e.preventDefault();
+                        this.addCc();
+                    }
+                },
+                resetForm() {
+                    this.tagsTo = this._toDefault.slice();
+                    this.currentTo = '';
+                    this.tagsCc = [];
+                    this.currentCc = '';
+                    this.toError = false;
+                },
+                submitGuard(e) {
+                    this.addTo();
+                    if (this.tagsTo.length === 0) {
+                        e.preventDefault();
+                        this.toError = true;
+                    }
+                }
+            }"
+            @viaticos-enviados.window="resetForm()"
+            @submit="submitGuard($event)">
+
+            <!-- TO — editable tag-chips pre-poblado con configuración -->
+            <div class="mb-3">
+                <label class="form-label-sm required">Para (TO)</label>
+                <div :class="toError ? 'border-red-500' : 'border-[rgba(100,116,139,0.3)] focus-within:border-blue-500'"
+                    class="flex flex-wrap gap-1.5 p-2 min-h-[42px] bg-[rgba(15,23,42,0.8)] border rounded-md transition-colors">
+                    <template x-for="tag in tagsTo" :key="tag">
+                        <span class="inline-flex items-center gap-1 bg-emerald-900/60 border border-emerald-500/40 text-emerald-200 text-xs px-2 py-0.5 rounded-full">
+                            <span x-text="tag"></span>
+                            <button type="button" @click="removeTo(tag)"
+                                class="text-emerald-300 hover:text-white ml-0.5 leading-none">
+                                &times;
+                            </button>
+                        </span>
+                    </template>
+                    <input type="text" x-model="currentTo"
+                        @keydown="handleKeyTo($event)"
+                        @blur="addTo()"
+                        class="flex-1 min-w-[180px] bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
+                        placeholder="correo@ejemplo.com + Enter" />
+                </div>
+                <p x-show="toError" class="text-red-400 text-xs mt-1">Debes ingresar al menos un destinatario.</p>
+                <p x-show="!toError" class="text-slate-500 text-xs mt-1">Puedes borrar el destinatario por defecto y agregar otro.</p>
+                <input type="hidden" name="to_destinatarios" :value="tagsTo.join(';')" />
+            </div>
 
             <!-- CC Configurados (solo lectura) -->
             {% if cc_configurados %}
             <div class="mb-3">
                 <label class="form-label-sm text-slate-400">CC Configurados:</label>
-                <div class="text-xs text-slate-300">
-                    {{ cc_configurados | join(', ') }}
-                </div>
+                <div class="text-xs text-slate-300">{{ cc_configurados | join(', ') }}</div>
             </div>
             {% endif %}
 
-            <!-- CC Adicionales — tag-chips Alpine.js -->
-            <div class="mb-3"
-                x-data="{
-                    tags: [],
-                    current: '',
-                    addTag() {
-                        const email = this.current.trim().replace(/[;,]$/, '');
-                        if (email && email.includes('@') && !this.tags.includes(email)) {
-                            this.tags.push(email);
-                        }
-                        this.current = '';
-                    },
-                    removeTag(t) { this.tags = this.tags.filter(x => x !== t); },
-                    handleKey(e) {
-                        if (e.key === 'Enter' || e.key === ',' || e.key === ';') {
-                            e.preventDefault();
-                            this.addTag();
-                        }
-                    }
-                }"
-                @viaticos-enviados.window="tags = []; current = ''">
+            <!-- CC Adicionales — tag-chips -->
+            <div class="mb-3">
                 <label class="form-label-sm">CC Adicionales</label>
                 <div class="flex flex-wrap gap-1.5 p-2 min-h-[42px] bg-[rgba(15,23,42,0.8)] border border-[rgba(100,116,139,0.3)] rounded-md focus-within:border-blue-500 transition-colors">
-                    <template x-for="tag in tags" :key="tag">
+                    <template x-for="tag in tagsCc" :key="tag">
                         <span class="inline-flex items-center gap-1 bg-blue-900/60 border border-blue-500/40 text-blue-200 text-xs px-2 py-0.5 rounded-full">
                             <span x-text="tag"></span>
-                            <button type="button" @click="removeTag(tag)"
+                            <button type="button" @click="removeCc(tag)"
                                 class="text-blue-300 hover:text-white ml-0.5 leading-none">
                                 &times;
                             </button>
                         </span>
                     </template>
-                    <input type="text" x-model="current"
-                        @keydown="handleKey($event)"
-                        @blur="addTag()"
+                    <input type="text" x-model="currentCc"
+                        @keydown="handleKeyCc($event)"
+                        @blur="addCc()"
                         class="flex-1 min-w-[180px] bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
                         placeholder="correo@ejemplo.com + Enter" />
                 </div>
                 <p class="text-slate-500 text-xs mt-1">Presiona Enter, coma o punto y coma para agregar un correo.</p>
-                <input type="hidden" name="cc_adicionales" :value="tags.join(';')" />
+                <input type="hidden" name="cc_adicionales" :value="tagsCc.join(';')" />
             </div>
 
             <div class="flex justify-end items-center gap-3">

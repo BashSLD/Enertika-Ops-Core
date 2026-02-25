@@ -819,14 +819,19 @@ class LevantamientoService:
                 'jefes': [...]      # Gerentes o usuarios marcados como jefes
             }
         """
-        # Técnicos: Usuarios con permiso al módulo levantamientos
+        # Técnicos: usuarios con permiso al módulo O con flag explícito de levantamientos
         tecnicos = await conn.fetch("""
             SELECT DISTINCT u.id_usuario, u.nombre, u.email
             FROM tb_usuarios u
-            INNER JOIN tb_permisos_modulos pm ON u.id_usuario = pm.usuario_id
-
-            WHERE pm.modulo_slug = 'levantamientos'
-              AND u.is_active = true
+            WHERE u.is_active = true
+              AND (
+                  u.puede_asignarse_levantamientos = true
+                  OR EXISTS (
+                      SELECT 1 FROM tb_permisos_modulos pm
+                      WHERE pm.usuario_id = u.id_usuario
+                        AND pm.modulo_slug = 'levantamientos'
+                  )
+              )
             ORDER BY u.nombre
         """)
         
