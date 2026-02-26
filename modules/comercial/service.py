@@ -1321,8 +1321,11 @@ class ComercialService:
             except asyncpg.PostgresError as e:
                 logger.warning(f"[BORRADORES] Error al limpiar borrador expirado {op_id}: {e}")
 
-        # Query según rol
-        if user_has_module_access("comercial", user_context, "admin"):
+        # Query según rol: ADMIN global, MANAGER global, o admin de módulo ven todos.
+        _role = user_context.get("role", "USER")
+        _es_admin_o_manager = _role in ("ADMIN", "MANAGER")
+        _es_admin_modulo = user_has_module_access("comercial", user_context, "admin")
+        if _es_admin_o_manager or _es_admin_modulo:
             rows = await conn.fetch(QUERY_GET_BORRADORES)
         else:
             user_id = user_context.get("user_db_id")
@@ -1334,7 +1337,10 @@ class ComercialService:
         """Retorna el conteo de borradores activos (<24h) para el badge del tab.
         Admin de módulo / ADMIN global: total del módulo. Demás: solo los propios.
         """
-        if user_has_module_access("comercial", user_context, "admin"):
+        _role = user_context.get("role", "USER")
+        _es_admin_o_manager = _role in ("ADMIN", "MANAGER")
+        _es_admin_modulo = user_has_module_access("comercial", user_context, "admin")
+        if _es_admin_o_manager or _es_admin_modulo:
             count = await conn.fetchval(QUERY_GET_BORRADORES_COUNT)
         else:
             user_id = user_context.get("user_db_id")

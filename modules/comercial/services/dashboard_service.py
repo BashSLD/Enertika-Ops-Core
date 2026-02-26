@@ -54,8 +54,10 @@ class DashboardService:
         params = []
         conditions = ["o.email_enviado = true"] # Solo activas
         
-        # Roles que pueden ver data de todos: ADMIN del módulo
-        if not user_has_module_access("comercial", user_context, "admin"):
+        # ADMIN global, MANAGER global, o admin de módulo ven data de todos.
+        es_admin_o_manager = role in ("ADMIN", "MANAGER")
+        es_admin_modulo = user_has_module_access("comercial", user_context, "admin")
+        if not (es_admin_o_manager or es_admin_modulo):
             conditions.append(f"o.creado_por_id = ${len(params)+1}")
             params.append(user_id)
         
@@ -149,7 +151,7 @@ class DashboardService:
         # if not filtro_fecha_inicio and not filtro_fecha_fin:
         #      condition_monthly = "AND fecha_solicitud >= NOW() - INTERVAL '6 months'"
         
-        if user_has_module_access("comercial", user_context, "admin"):
+        if es_admin_o_manager or es_admin_modulo:
             q_monthly = f"""
                 SELECT 
                     TO_CHAR((o.fecha_solicitud AT TIME ZONE 'America/Mexico_City'), 'Mon YY') as mes,
