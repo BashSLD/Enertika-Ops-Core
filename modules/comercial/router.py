@@ -195,7 +195,7 @@ async def get_cards_partial(
     user_context: dict = Depends(get_current_user_context),
     _ = require_module_access("comercial")
 ):
-    """Partial: List of Opportunities (Cards/Grid)."""
+    """Partial: List of Opportunities (Cards/Grid)"""
     f_user = _safe_uuid(filtro_usuario_id)
     f_tipo = _safe_int(filtro_tipo_id)
     f_estatus = _safe_int(filtro_estatus_id)
