@@ -1,5 +1,12 @@
-<!-- Variables: lev_data, tecnicos, jefes, current_tecnico_ids (list), current_jefe_id -->
+<!-- Variables: lev_data, responsables, acompaniantes, jefes, current_tecnico_ids (list), current_jefe_id, current_responsable_id (str), can_assign -->
 <div
+    x-data="{ responsableId: '', tecnicoIds: [] }"
+    x-init="
+        responsableId = $el.dataset.currentResponsable || '';
+        try { tecnicoIds = JSON.parse($el.dataset.currentTecnicos || '[]').map(function(id){ return String(id); }); } catch(e) { tecnicoIds = []; }
+    "
+    data-current-responsable="{{ current_responsable_id or '' }}"
+    data-current-tecnicos='{{ current_tecnico_ids | tojson }}'
     class="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] mx-auto overflow-hidden animate-fade-in-up">
 
     <!-- Header -->
@@ -25,6 +32,12 @@
     <!-- Main Form Container -->
     <form hx-post="/levantamientos/assign/{{ id_levantamiento }}" hx-target="#kanban-container" hx-swap="outerHTML"
         hx-on::after-request="if(event.detail.successful) setTimeout(() => closeModal(), 150)" class="flex flex-col flex-1 overflow-hidden">
+
+        <!-- Hidden inputs para submission real (manejados por Alpine) -->
+        <input type="hidden" name="responsable_id" :value="responsableId">
+        <template x-for="id in tecnicoIds" :key="id">
+            <input type="hidden" name="tecnico_asignado_id" :value="id">
+        </template>
 
         <!-- Scrollable Body -->
         <div class="flex-1 overflow-y-auto p-6 bg-slate-50 custom-scrollbar">
@@ -58,7 +71,6 @@
                     <div class="relative">
                         <select name="jefe_area_id" {% if not can_assign %}disabled{% endif %}
                             class="w-full bg-white border border-gray-200 text-gray-700 py-2.5 pl-3 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 appearance-none shadow-sm cursor-pointer hover:border-blue-300 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed">
-                            <!-- Removed Option Sin Asignar -->
                             {% for j in jefes %}
                             <option value="{{ j.id_usuario }}" {% if current_jefe_id and
                                 j.id_usuario|string==current_jefe_id|string %}selected{% endif %}>{{ j.nombre }}
@@ -74,27 +86,76 @@
                     </div>
                 </div>
 
-                <!-- Técnicos (Multi-select) -->
+                <!-- Ingeniero Responsable (Radio) -->
                 <div>
                     <div class="flex justify-between items-center mb-2">
-                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide">Ingeniero(s)
-                            Asignado(s)</label>
-                        <span class="text-xs text-gray-400 font-normal">Selecciona múltiples</span>
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide">Ingeniero
+                            Responsable</label>
+                        <span class="text-xs text-blue-600 font-medium">Principal</span>
+                    </div>
+                    <div
+                        class="max-h-48 overflow-y-auto border border-blue-200 rounded-lg bg-blue-50/30 shadow-inner p-2 space-y-1 custom-scrollbar">
+                        {% if responsables %}
+                        {% for t in responsables %}
+                        <label
+                            class="flex items-center p-2 rounded hover:bg-blue-50 cursor-pointer transition-colors group"
+                            :class="{ 'bg-blue-100 border border-blue-200': responsableId === '{{ t.id_usuario }}' }">
+                            <input type="radio" name="_resp_radio" value="{{ t.id_usuario }}"
+                                {% if not can_assign %}disabled{% endif %}
+                                :checked="responsableId === '{{ t.id_usuario }}'"
+                                @change="
+                                    responsableId = '{{ t.id_usuario }}';
+                                    if (tecnicoIds.indexOf('{{ t.id_usuario }}') === -1) tecnicoIds.push('{{ t.id_usuario }}');
+                                "
+                                class="w-4 h-4 text-blue-600 border-gray-300 focus:ring-blue-500 focus:ring-offset-0 transition-all cursor-pointer disabled:cursor-not-allowed">
+                            <span
+                                class="ml-3 text-sm text-gray-600 group-hover:text-gray-900 transition-all"
+                                :class="{ 'font-semibold text-blue-800': responsableId === '{{ t.id_usuario }}' }">
+                                {{ t.nombre }}
+                            </span>
+                            <span x-show="responsableId === '{{ t.id_usuario }}'"
+                                class="ml-auto text-xs font-bold text-blue-600 bg-blue-100 px-2 py-0.5 rounded-full">
+                                Responsable
+                            </span>
+                        </label>
+                        {% endfor %}
+                        {% else %}
+                        <p class="text-sm text-gray-400 italic p-2">No hay ingenieros con rol editor/admin en el módulo.</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- Acompañantes (Checkboxes — excluye al responsable seleccionado) -->
+                <div>
+                    <div class="flex justify-between items-center mb-2">
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide">Acompañantes</label>
+                        <span class="text-xs text-gray-400 font-normal">Opcional</span>
                     </div>
                     <div
                         class="max-h-48 overflow-y-auto border border-gray-200 rounded-lg bg-white shadow-inner p-2 space-y-1 custom-scrollbar">
-                        {% for t in tecnicos %}
+                        {% if acompaniantes %}
+                        {% for t in acompaniantes %}
                         <label
+                            x-show="responsableId !== '{{ t.id_usuario }}'"
                             class="flex items-center p-2 rounded hover:bg-slate-50 cursor-pointer transition-colors group">
-                            <input type="checkbox" name="tecnico_asignado_id" value="{{ t.id_usuario }}" {% if not
-                                can_assign %}disabled{% endif %}
-                                class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 focus:ring-offset-0 transition-all cursor-pointer disabled:cursor-not-allowed disabled:bg-gray-100"
-                                {% if t.id_usuario in current_tecnico_ids %}checked{% endif %}>
+                            <input type="checkbox" name="_acomp_check" value="{{ t.id_usuario }}"
+                                {% if not can_assign %}disabled{% endif %}
+                                :checked="tecnicoIds.indexOf('{{ t.id_usuario }}') !== -1"
+                                @change="
+                                    var _id = '{{ t.id_usuario }}';
+                                    var _idx = tecnicoIds.indexOf(_id);
+                                    if ($event.target.checked) { if (_idx === -1) tecnicoIds.push(_id); }
+                                    else { if (_idx !== -1) tecnicoIds.splice(_idx, 1); }
+                                "
+                                class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 focus:ring-offset-0 transition-all cursor-pointer disabled:cursor-not-allowed disabled:bg-gray-100">
                             <span
                                 class="ml-3 text-sm text-gray-600 group-hover:text-gray-900 group-hover:font-medium transition-all">{{
                                 t.nombre }}</span>
                         </label>
                         {% endfor %}
+                        {% else %}
+                        <p class="text-sm text-gray-400 italic p-2">No hay acompañantes disponibles.</p>
+                        {% endif %}
                     </div>
                 </div>
 
@@ -117,8 +178,8 @@
                 Cancelar
             </button>
             {% if can_assign %}
-            <button type="submit"
-                class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-lg shadow-blue-600/30 transition-all transform hover:scale-[1.02] flex items-center gap-2 text-sm">
+            <button type="submit" :disabled="responsableId === ''"
+                class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-lg shadow-blue-600/30 transition-all transform hover:scale-[1.02] flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
                 <span>
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
                         class="w-4 h-4 inline-block -mt-0.5">
@@ -136,7 +197,6 @@
 
 
 <style>
-    /* Estilos personalizados para scrollbar */
     .custom-scrollbar::-webkit-scrollbar {
         width: 6px;
     }

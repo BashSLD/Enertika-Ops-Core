@@ -35,6 +35,7 @@ class AssignmentForm(BaseModel):
     """Schema para formulario de asignación."""
     tecnico_asignado_id: Optional[List[UUID]] = Field(default=None)
     jefe_area_id: Optional[UUID] = Field(default=None)
+    responsable_id: Optional[UUID] = Field(default=None)
     observaciones: Optional[str] = Field(default=None)
 
 class ChangeStatusForm(BaseModel):

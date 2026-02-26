@@ -14,6 +14,8 @@ from typing import Optional
 from uuid import UUID
 import logging
 
+import asyncpg
+
 from dataclasses import asdict
 
 from core.database import get_db_connection
@@ -193,6 +195,14 @@ async def get_analisis_detallado(
     metricas_usuarios = await service.get_detalle_por_usuario(conn, filtros)
     resumen_mensual = await service.get_resumen_mensual(conn, filtros)
     
+    # Graficas para canvas PDF ocultos (best-effort)
+    try:
+        graficas_raw = await service.get_datos_graficas(conn, filtros, metricas=metricas)
+        graficas_dict = {k: asdict(v) for k, v in graficas_raw.items()}
+    except Exception as exc:
+        logger.warning("get_datos_graficas fallo en analisis detallado: %s", exc)
+        graficas_dict = {}
+
     # Obtener motivo de retrabajo principal
     motivo_retrabajo = await service.get_motivo_retrabajo_principal(conn, filtros)
     
@@ -250,8 +260,9 @@ async def get_analisis_detallado(
         "umbral_ambar_interno": u_interno.umbral_bueno,
         "umbral_verde_compromiso": u_compromiso.umbral_excelente,
         "umbral_ambar_compromiso": u_compromiso.umbral_bueno,
+        "graficas": graficas_dict,
     }
-    
+
     # Detección HTMX vs carga directa
     if request.headers.get("hx-request"):
         # Determinar qué parcial devolver según el target
@@ -409,68 +420,81 @@ async def get_config_modal(
         "role": context.get("role")
     })
 # =============================================================================
-# GENERACIÓN DE PDF
+# GENERACIÓN DE PDF (WeasyPrint + charts cliente Chart.js)
 # =============================================================================
 
-from pydantic import BaseModel
-from typing import Dict, Any
-from fastapi import Response
-from .pdf_generator import ReportePDFGenerator
+import json as _json
+from fastapi import Form as _Form, Response as _Response
+from core.pdf_service.service import PDFService, get_pdf_service
 
-class PDFGenerationRequest(BaseModel):
-    filtros: dict
-    charts: Dict[str, str]
 
 @router.post("/pdf/generar")
 async def generar_reporte_pdf(
-    datos_pdf: PDFGenerationRequest,
-    conn = Depends(get_db_connection),
+    filtros_json: str = _Form(...),
+    charts_json: str = _Form(default="{}"),
+    conn=Depends(get_db_connection),
     service: ReportesSimulacionService = Depends(get_reportes_service),
-    _ = require_module_access("simulacion")
+    pdf_service: PDFService = Depends(get_pdf_service),
+    _=require_module_access("simulacion"),
 ):
     """
-    Genera el reporte PDF completo con gráficas y tablas.
+    Genera el reporte PDF de simulacion.
+
+    Body (multipart/form-data):
+        filtros_json: JSON con fecha_inicio, fecha_fin, tecnologia, usuario.
+        charts_json:  Dict de data URIs base64 capturados desde Chart.js canvas.
     """
     try:
-        # 1. Parsear filtros desde el JSON recibido
-        filtros_dict = datos_pdf.filtros
-        filtros = parse_filtros(
-            start_date=filtros_dict.get('fecha_inicio'),
-            end_date=filtros_dict.get('fecha_fin'),
-            tech_id=str(filtros_dict.get('tecnologia') or ''),
-            status_id=str(filtros_dict.get('estatus') or ''),
-            user_id=str(filtros_dict.get('usuario') or '')
+        filtros_dict = _json.loads(filtros_json)
+    except _json.JSONDecodeError as exc:
+        return JSONResponse(status_code=400, content={"error": f"filtros_json invalido: {exc}"})
+
+    try:
+        charts = _json.loads(charts_json or "{}")
+    except _json.JSONDecodeError:
+        charts = {}
+
+    filtros = parse_filtros(
+        start_date=filtros_dict.get("fecha_inicio"),
+        end_date=filtros_dict.get("fecha_fin"),
+        tech_id=str(filtros_dict.get("tecnologia") or ""),
+        status_id=str(filtros_dict.get("estatus") or ""),
+        user_id=str(filtros_dict.get("usuario") or ""),
+    )
+
+    try:
+        datos = await service.get_all_report_data(conn, filtros)
+
+        filtros_ctx = {
+            "fecha_inicio": str(filtros.fecha_inicio),
+            "fecha_fin": str(filtros.fecha_fin),
+            "id_tecnologia": filtros.id_tecnologia,
+            "responsable_id": filtros.responsable_id if hasattr(filtros, "responsable_id") else None,
+        }
+
+        pdf_bytes = await pdf_service.generate(
+            "simulacion/reporte_analitica.html",
+            {
+                "filtros": filtros_ctx,
+                "kpis": datos.get("metricas"),
+                "charts": charts,
+                "tablas": datos,
+            },
         )
-        
-        # 2. Obtener todos los datos concentrados
-        datos_reporte = await service.get_all_report_data(conn, filtros)
-        
-        # 3. Generar PDF
-        generator = ReportePDFGenerator(filtros, datos_reporte, datos_pdf.charts)
-        pdf_content = generator.generate()
-        
-        # Asegurar que sea bytes (Starlette no acepta bytearray directamente)
-        if isinstance(pdf_content, bytearray):
-            pdf_bytes = bytes(pdf_content)
-        else:
-            pdf_bytes = pdf_content
-        
-        # 4. Retornar archivo
-        filename = f"Reporte_Simulacion_{filtros.fecha_inicio}_{filtros.fecha_fin}.pdf"
-        
-        return Response(
+
+        filename = pdf_service.generate_filename(
+            "reporte_simulacion",
+            f"{filtros.fecha_inicio}_{filtros.fecha_fin}",
+        )
+        return _Response(
             content=pdf_bytes,
             media_type="application/pdf",
-            headers={
-                "Content-Disposition": f"attachment; filename={filename}"
-            }
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
-        
-    except Exception as e:
-        logger.error(f"Error generando PDF: {str(e)}")
-        import traceback
-        traceback.print_exc()
-        return JSONResponse(
-            status_code=500,
-            content={"success": False, "error": str(e)}
-        )
+
+    except asyncpg.PostgresError as exc:
+        logger.error("DB error generando PDF simulacion: %s", exc)
+        return JSONResponse(status_code=500, content={"success": False, "error": "Error de base de datos"})
+    except ValueError as exc:
+        logger.error("Error generando PDF simulacion: %s", exc)
+        return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})

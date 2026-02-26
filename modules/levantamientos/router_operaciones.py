@@ -139,6 +139,7 @@ def register_operaciones_endpoints(router: APIRouter):
         id_levantamiento: UUID,
         nueva_fecha_visita: str = Form(...),
         observaciones: Optional[str] = Form(None),
+        asumir_responsable: bool = Form(False),
         conn=Depends(get_db_connection),
         db_svc: LevantamientosDBService = Depends(get_db_service),
         service: LevantamientoService = Depends(get_service),
@@ -197,6 +198,31 @@ def register_operaciones_endpoints(router: APIRouter):
             )
         )
 
+        # --- Auto-asignación como responsable (solo si el usuario no es jefe) ---
+        user_db_id = context.get("user_db_id")
+        jefe_area_id = lev.get("jefe_area_id")
+        is_jefe = (jefe_area_id is not None and str(jefe_area_id) == str(user_db_id))
+        auto_asignado = False
+        notif_asignacion = None
+
+        if not is_jefe:
+            try:
+                responsable_actual = await db_svc.get_responsable_asignado(conn, id_levantamiento)
+                if responsable_actual is None:
+                    # Caso A: sin responsable previo → auto-asignar silenciosamente
+                    await db_svc.update_responsable(conn, id_levantamiento, user_db_id, user_db_id)
+                    auto_asignado = True
+                    notif_asignacion = "Has sido asignado como ingeniero responsable."
+                    logger.info(f"[REAGENDAR] Auto-asignación responsable: {user_db_id} en lev {id_levantamiento}")
+                elif asumir_responsable:
+                    # Caso B: hay responsable y el usuario confirmó asumir
+                    await db_svc.update_responsable(conn, id_levantamiento, user_db_id, user_db_id)
+                    auto_asignado = True
+                    notif_asignacion = "Ahora eres el ingeniero responsable de este levantamiento."
+                    logger.info(f"[REAGENDAR] Cambio de responsable confirmado: {user_db_id} en lev {id_levantamiento}")
+            except Exception as e_resp:
+                logger.error(f"[REAGENDAR] Error en auto-asignación responsable para lev {id_levantamiento}: {e_resp}")
+
         has_techs_new = await conn.fetchval("""
             SELECT EXISTS(SELECT 1 FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1)
         """, id_levantamiento)
@@ -209,14 +235,22 @@ def register_operaciones_endpoints(router: APIRouter):
 
         logger.info(f"Reagendar Validation - ID: {id_levantamiento}, HasTechsNew: {has_techs_new}, HasTechsLegacy: {has_techs_legacy}, Final: {has_techs}")
 
-        notification = None
-        if not has_techs:
+        action_label = "Reagendado" if is_rescheduling else "Agendado"
+        if auto_asignado:
+            notification = {
+                "title": action_label,
+                "message": f"Levantamiento {action_label.lower()} para {fecha_display}. {notif_asignacion}",
+                "type": "success"
+            }
+        elif not has_techs:
             logger.info("Triggering Warning Toast: No technicians assigned.")
             notification = {
                 "title": "Asignación Pendiente",
                 "message": "El levantamiento ha sido agendado. Recuerda asignar un ingeniero.",
                 "type": "warning"
             }
+        else:
+            notification = None
 
         return await _render_kanban(request, conn, service, context, notification)
 
@@ -502,7 +536,7 @@ def register_operaciones_endpoints(router: APIRouter):
                                             id_documento, nombre_archivo, url_sharepoint, drive_item_id, parent_drive_id,
                                             tipo_contenido, tamano_bytes, id_oportunidad, subido_por_id,
                                             origen_slug, activo, metadata
-                                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'comentario', TRUE, $10::jsonb)
+                                        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 'lev_entregados', TRUE, $10::jsonb)
                                     """,
                                         doc_id,
                                         upload_result['name'],

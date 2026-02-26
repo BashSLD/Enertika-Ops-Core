@@ -14,16 +14,78 @@
                 <span class="font-medium text-gray-900">Análisis Detallado (KPIs Duales)</span>
             </div>
 
-            <!-- Botón Ayuda -->
-            <button
-                onclick="document.getElementById('modal-explicacion-metricas').classList.remove('hidden'); setTimeout(() => { document.getElementById('modal-explicacion-metricas').classList.remove('opacity-0'); document.querySelector('#modal-explicacion-metricas > div').classList.remove('scale-95'); }, 10);"
-                class="flex items-center gap-2 px-4 py-2 bg-[#123456] text-white rounded-lg hover:bg-[#0d2440] text-sm font-medium transition-colors duration-200">
-                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                ¿Qué significan las métricas?
-            </button>
+            <div class="flex items-center gap-3">
+                <!-- Botón Descargar PDF -->
+                <button id="btn-descargar-pdf-analisis" onclick="descargarPDFAnalisis(this)"
+                    class="flex items-center gap-2 px-4 py-2 bg-[#00BABB] text-white rounded-lg hover:bg-[#009a9b] text-sm font-medium transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span id="btn-pdf-analisis-text">Descargar PDF</span>
+                </button>
+
+                <!-- Botón Ayuda -->
+                <button
+                    onclick="document.getElementById('modal-explicacion-metricas').classList.remove('hidden'); setTimeout(() => { document.getElementById('modal-explicacion-metricas').classList.remove('opacity-0'); document.querySelector('#modal-explicacion-metricas > div').classList.remove('scale-95'); }, 10);"
+                    class="flex items-center gap-2 px-4 py-2 bg-[#123456] text-white rounded-lg hover:bg-[#0d2440] text-sm font-medium transition-colors duration-200">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    ¿Qué significan las métricas?
+                </button>
+            </div>
+
+            <script>
+            async function descargarPDFAnalisis(btn) {
+                const filtros = window._simFiltros || {
+                    fecha_inicio: '{{ filtros_aplicados.fecha_inicio }}',
+                    fecha_fin: '{{ filtros_aplicados.fecha_fin }}',
+                    tecnologia: '{{ filtros_aplicados.tecnologia or "" }}',
+                    usuario: '{{ filtros_aplicados.usuario or "" }}'
+                };
+                const span = document.getElementById('btn-pdf-analisis-text');
+                btn.disabled = true;
+                span.textContent = 'Generando...';
+                try {
+                    // Capturar charts desde los canvas ocultos
+                    const chartsData = {};
+                    if (window._pdfCharts) {
+                        for (const [key, instance] of Object.entries(window._pdfCharts)) {
+                            try { chartsData[key] = instance.toBase64Image('image/png', 1.0); } catch(e) {}
+                        }
+                    }
+
+                    const formData = new FormData();
+                    formData.append('filtros_json', JSON.stringify(filtros));
+                    formData.append('charts_json', JSON.stringify(chartsData));
+                    const response = await fetch('/simulacion/reportes/pdf/generar', {
+                        method: 'POST',
+                        body: formData
+                    });
+                    if (!response.ok) {
+                        const err = await response.json().catch(() => ({}));
+                        throw new Error(err.error || 'Error generando PDF');
+                    }
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `Reporte_Simulacion_${filtros.fecha_inicio}_${filtros.fecha_fin}.pdf`;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+                } catch(e) {
+                    console.error(e);
+                    alert('Error al generar PDF: ' + e.message);
+                } finally {
+                    btn.disabled = false;
+                    span.textContent = 'Descargar PDF';
+                }
+            }
+            </script>
         </div>
     </div>
 

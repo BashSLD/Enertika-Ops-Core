@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <style>
+        @page {
+            size: Letter;
+            margin: 1.2cm 1.5cm 2cm 1.5cm;
+
+            @bottom-center {
+                content: element(footer-running);
+                height: 1.2cm;
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            color: #1E1B18;
+            font-size: 10pt;
+            line-height: 1.4;
+            margin: 0;
+            padding: 0;
+        }
+
+        /* ============ HEADER CORPORATIVO ============ */
+        .pdf-header {
+            background: linear-gradient(135deg, #0A2463 0%, #2D5A9E 55%, #3E92CC 100%);
+            padding: 10px 18px;
+            border-radius: 8px;
+            margin-bottom: 16px;
+            color: white;
+        }
+
+        .pdf-header-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .pdf-header-table td {
+            vertical-align: middle;
+        }
+
+        .pdf-company-name {
+            font-size: 15pt;
+            font-weight: bold;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+        }
+
+        .pdf-company-sub {
+            font-size: 8pt;
+            opacity: 0.85;
+            margin-top: 2px;
+        }
+
+        .pdf-doc-title {
+            font-size: 13pt;
+            font-weight: 300;
+            text-align: right;
+            margin-bottom: 3px;
+        }
+
+        .pdf-doc-date {
+            font-size: 9pt;
+            text-align: right;
+            opacity: 0.9;
+        }
+
+        /* ============ FOOTER RUNNING (paginacion) ============ */
+        #footer-running {
+            position: running(footer-running);
+            font-size: 8pt;
+            color: #777;
+            border-top: 1px solid #ddd;
+            padding-top: 4px;
+            text-align: center;
+        }
+
+        #footer-running .page-num::after {
+            content: counter(page);
+        }
+
+        #footer-running .page-total::after {
+            content: counter(pages);
+        }
+
+        /* ============ UTILIDADES ============ */
+        .section-title {
+            font-size: 12pt;
+            font-weight: bold;
+            color: #0A2463;
+            margin: 16px 0 8px 0;
+            border-bottom: 2px solid #00BABB;
+            padding-bottom: 4px;
+        }
+
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 14px;
+            font-size: 10pt;
+        }
+
+        .data-table th,
+        .data-table td {
+            border: 1px solid #ddd;
+            padding: 7px 11px;
+            vertical-align: top;
+        }
+
+        .data-table th {
+            background-color: #f4f6f9;
+            text-align: left;
+            width: 38%;
+            font-weight: bold;
+            color: #333;
+        }
+
+        .data-table tr:nth-child(even) td {
+            background-color: #fafafa;
+        }
+
+        .text-ok {
+            color: #2E7D32;
+            font-weight: bold;
+        }
+
+        .text-alert {
+            color: #C62828;
+            font-weight: bold;
+        }
+
+        .page-break {
+            page-break-before: always;
+        }
+    </style>
+    {% block extra_styles %}{% endblock %}
+</head>
+<body>
+
+    <!-- Running footer (WeasyPrint lo extrae y coloca en @bottom-center) -->
+    <div id="footer-running">
+        Enertika &mdash; Documento generado automaticamente &nbsp;|&nbsp;
+        Pagina <span class="page-num"></span> de <span class="page-total"></span>
+    </div>
+
+    <!-- HEADER CORPORATIVO -->
+    <div class="pdf-header">
+        <table class="pdf-header-table">
+            <tr>
+                <td>
+                    <div class="pdf-company-name">Enertika</div>
+                    <div class="pdf-company-sub">Soluciones Energeticas</div>
+                </td>
+                <td>
+                    <div class="pdf-doc-title">{% block doc_title %}Reporte{% endblock %}</div>
+                    <div class="pdf-doc-date">{% block doc_date %}{% endblock %}</div>
+                </td>
+            </tr>
+        </table>
+    </div>
+
+    <!-- CONTENIDO -->
+    {% block content %}{% endblock %}
+
+</body>
+</html>

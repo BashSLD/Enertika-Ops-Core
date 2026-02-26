@@ -1,0 +1,157 @@
+{% extends "_base.html" %}
+
+{% block doc_title %}FORMATO DE VISITA A OBRA{% endblock %}
+{% block doc_date %}Fecha de Reporte: {{ data.fecha }}{% endblock %}
+
+{% block extra_styles %}
+<style>
+    .photos-section {
+        page-break-before: always;
+        margin-top: 10px;
+    }
+
+    /* Tres columnas con display:block + inline-block (compatible WeasyPrint) */
+    .photos-grid {
+        display: block;
+        width: 100%;
+        text-align: center;
+    }
+
+    .photo-card {
+        display: inline-block;
+        width: 30%;
+        margin: 1%;
+        background: #fff;
+        padding: 5px;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        vertical-align: top;
+    }
+
+    .photo-img-container {
+        width: 100%;
+        height: 175px;
+        text-align: center;
+        line-height: 173px;
+        background: #f9f9f9;
+        margin-bottom: 5px;
+        overflow: hidden;
+    }
+
+    .photo-img-container img {
+        max-width: 100%;
+        max-height: 100%;
+        width: auto;
+        height: auto;
+        vertical-align: middle;
+        display: inline-block;
+    }
+
+    .photo-label {
+        font-size: 8pt;
+        color: #555;
+        font-weight: bold;
+        text-align: center;
+    }
+
+    .no-photos-notice {
+        text-align: center;
+        color: #999;
+        font-size: 10pt;
+        padding: 30px;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+
+    <!-- TABLA 1: DATOS GENERALES -->
+    <div class="section-title">Datos Generales</div>
+    <table class="data-table">
+        <tr>
+            <th>Nombre de la planta</th>
+            <td>{{ data.nombre_planta }}</td>
+        </tr>
+        <tr>
+            <th>ID de Proyecto</th>
+            <td>{{ data.id_proyecto }}</td>
+        </tr>
+        <tr>
+            <th>Ubicacion</th>
+            <td>{{ data.ubicacion }}</td>
+        </tr>
+        <tr>
+            <th>Responsable interno</th>
+            <td>{{ data.persona_responsable_interna }}</td>
+        </tr>
+        <tr>
+            <th>Responsable de obra</th>
+            <td>{{ data.responsable_obra }}</td>
+        </tr>
+    </table>
+
+    <!-- TABLA 2: DATOS DE LA VISITA -->
+    <div class="section-title">Datos de la Visita</div>
+    <table class="data-table">
+        <tr>
+            <th>No. de Visita</th>
+            <td>{{ data.numero_visita }}</td>
+        </tr>
+        <tr>
+            <th>Horario (Entrada &ndash; Salida)</th>
+            <td>{{ data.hora_entrada }} &ndash; {{ data.hora_salida }} HRS</td>
+        </tr>
+        <tr>
+            <th>Motivo de visita</th>
+            <td>{{ data.motivo_visita }}</td>
+        </tr>
+        <tr>
+            <th>Avances conforme al cronograma</th>
+            <td>
+                {% if data.avances_conforme_cronograma %}
+                    <span class="text-ok">SI</span>
+                {% else %}
+                    <span class="text-alert">NO</span>
+                {% endif %}
+            </td>
+        </tr>
+        {% if not data.avances_conforme_cronograma %}
+        <tr>
+            <th>Razon de no conformidad</th>
+            <td class="text-alert">{{ data.razon_no_conforme }}</td>
+        </tr>
+        {% endif %}
+        {% if data.acuerdos %}
+        <tr>
+            <th>Acuerdos</th>
+            <td>{{ data.acuerdos }}</td>
+        </tr>
+        {% endif %}
+        {% if data.lugar_elaboracion %}
+        <tr>
+            <th>Lugar de elaboracion</th>
+            <td>{{ data.lugar_elaboracion }}</td>
+        </tr>
+        {% endif %}
+    </table>
+
+    <!-- SECCION DE FOTOS (pagina 2) -->
+    <div class="photos-section">
+        <div class="section-title">Evidencia Fotografica ({{ total_images }} foto{{ 's' if total_images != 1 else '' }})</div>
+        {% if images %}
+        <div class="photos-grid">
+            {% for img in images %}
+            <div class="photo-card">
+                <div class="photo-img-container">
+                    <img src="{{ img }}" alt="Evidencia fotografica {{ loop.index }}">
+                </div>
+                <div class="photo-label">FOTO {{ loop.index }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="no-photos-notice">No se adjuntaron fotografias en este reporte.</div>
+        {% endif %}
+    </div>
+
+{% endblock %}

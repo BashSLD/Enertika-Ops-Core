@@ -80,11 +80,12 @@ class SimulacionService:
             return val
 
         return {
-            "pendiente": get_id("Pendiente"),
-            "entregado": get_id("Entregado"),
-            "cancelado": get_id("Cancelado"),
-            "perdido":   get_id("Perdido"),
-            "ganada":    get_id("Ganada")
+            "pendiente":             get_id("Pendiente"),
+            "entregado":             get_id("Entregado"),
+            "cancelado":             get_id("Cancelado"),
+            "perdido":               get_id("Perdido"),
+            "ganada":                get_id("Ganada"),
+            "monitoreo_cotizacion":  get_id("Monitoreo de Cotización"),
         }
 
 

@@ -115,8 +115,9 @@ def register_modal_endpoints(router: APIRouter):
     ):
         """
         Renderiza el modal de reagendar.
-        desde=pendiente  → agendar desde estado 8
-        desde=pospuesto  → reagendar desde estado 13
+        desde=pendiente  → agendar desde estado pendiente
+        desde=pospuesto  → reagendar desde estado pospuesto
+        Incluye responsable_actual e is_jefe para el bloque de confirmación de auto-asignación.
         """
         lev = await db_svc.get_levantamiento_base(conn, id_levantamiento)
         if not lev:
@@ -124,11 +125,18 @@ def register_modal_endpoints(router: APIRouter):
 
         today_str = datetime.now(ZoneInfo("America/Mexico_City")).strftime("%Y-%m-%dT%H:%M")
 
+        responsable_actual = await db_svc.get_responsable_asignado(conn, id_levantamiento)
+        user_db_id = context.get("user_db_id")
+        jefe_area_id = lev.get("jefe_area_id")
+        is_jefe = (jefe_area_id is not None and str(jefe_area_id) == str(user_db_id))
+
         return templates.TemplateResponse("levantamientos/modals/reagendar_modal.html", {
             "request": request,
             "lev_data": lev,
             "desde": desde,
             "today_str": today_str,
+            "responsable_actual": responsable_actual,
+            "is_jefe": is_jefe,
         })
 
     # ----------------------------------------------------------
@@ -155,7 +163,7 @@ def register_modal_endpoints(router: APIRouter):
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
         viaticos        = await db_svc.get_viaticos(conn, id_levantamiento)
-        usuarios        = await db_svc.get_usuarios_viaticos(conn)
+        usuarios        = await db_svc.get_usuarios_viaticos(conn, id_levantamiento)
         to_configurados = await db_svc.get_to_configurados_viaticos(conn)
         cc_configurados = await db_svc.get_cc_configurados_viaticos(conn)
         historial       = await db_svc.get_historial_envios(conn, id_levantamiento)
@@ -182,12 +190,15 @@ def register_modal_endpoints(router: APIRouter):
         context=Depends(get_current_user_context),
         _=require_module_access("levantamientos", "editor"),
     ):
-        """Renderiza el modal de entrega con datos del levantamiento."""
+        """Renderiza el modal de entrega con datos del levantamiento y adjuntos previos."""
         lev = await db_svc.get_levantamiento_base(conn, id_levantamiento)
         if not lev:
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
+        adjuntos_previos = await db_svc.get_adjuntos_levantamiento(conn, id_levantamiento)
+
         return templates.TemplateResponse("levantamientos/modals/entrega_modal.html", {
             "request": request,
             "lev_data": lev,
+            "adjuntos_previos": adjuntos_previos,
         })

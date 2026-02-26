@@ -76,6 +76,18 @@ async def get_proyectos_partial(
     })
 
 
+@router.get("/partials/visita-obra-modal", include_in_schema=False)
+async def get_visita_obra_modal(
+    request: Request,
+    context=Depends(get_current_user_context),
+    _=require_module_access("proyectos"),
+):
+    return templates.TemplateResponse("proyectos/partials/visita_obra_modal.html", {
+        "request": request,
+        "user_name": context.get("user_name"),
+    })
+
+
 @router.get("/partials/timeline/{id_proyecto}", include_in_schema=False)
 async def get_timeline_partial(
     request: Request,

@@ -143,16 +143,20 @@ async def get_assign_modal(
     # Phase 5: Fetch assigned technicians (Multi-select support)
     db_svc = get_db_service()
     current_tecnico_ids = await db_svc.get_asignaciones_actuales(conn, id_levantamiento)
-        
+
     # Fallback legacy: si no hay en tabla pivote, usar el de la tabla principal
     if not current_tecnico_ids and lev_data['tecnico_asignado_id']:
         current_tecnico_ids = [lev_data['tecnico_asignado_id']]
+
+    # Responsable actual
+    responsable_row = await db_svc.get_responsable_asignado(conn, id_levantamiento)
+    current_responsable_id = str(responsable_row['id_usuario']) if responsable_row else ""
 
     # Phase 4: Default Boss Logic
     current_jefe_id = lev_data['jefe_area_id']
     if not current_jefe_id:
         current_jefe_id = await service.get_jefe_default(conn)
-    
+
     # Identificar permisos de edición para el modal
     user_role = context.get("role")
     mod_role = context.get("module_roles", {}).get("levantamientos")
@@ -166,10 +170,12 @@ async def get_assign_modal(
         "request": request,
         "id_levantamiento": id_levantamiento,
         "lev_data": lev_data,
-        "tecnicos": usuarios['tecnicos'],
+        "responsables": usuarios['responsables'],
+        "acompaniantes": usuarios['acompaniantes'],
         "jefes": usuarios['jefes'],
         "current_tecnico_ids": current_tecnico_ids,
         "current_jefe_id": current_jefe_id,
+        "current_responsable_id": current_responsable_id,
         "can_assign": can_assign
     })
 
@@ -222,7 +228,8 @@ async def assign_responsables_endpoint(
             tecnicos_ids=form.tecnico_asignado_id or [],
             jefe_id=form.jefe_area_id,
             user_context=context,
-            observaciones=form.observaciones
+            observaciones=form.observaciones,
+            responsable_id=form.responsable_id,
         )
 
         data = await service.get_kanban_data(conn)

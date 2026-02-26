@@ -1,5 +1,47 @@
 {# templates/simulacion/reportes/analisis_detallado_content.html #}
 
+<script>
+function initPdfCharts() {
+    const dataEl = document.getElementById('sim-graficas-pdf-data');
+    if (!dataEl || typeof Chart === 'undefined') return;
+    let graficas;
+    try { graficas = JSON.parse(dataEl.textContent || '{}'); } catch(e) { return; }
+
+    if (!window._pdfCharts) window._pdfCharts = {};
+    for (const key of Object.keys(window._pdfCharts)) {
+        try { window._pdfCharts[key].destroy(); } catch(e) {}
+    }
+    window._pdfCharts = {};
+
+    const configs = [
+        { key: 'estatus',    canvasId: 'pdf-canvas-estatus',    dataKey: 'estatus_pie' },
+        { key: 'mensual',    canvasId: 'pdf-canvas-mensual',    dataKey: 'mensual_bar' },
+        { key: 'tecnologia', canvasId: 'pdf-canvas-tecnologia', dataKey: 'tecnologia_pie' },
+        { key: 'kpi',        canvasId: 'pdf-canvas-kpi',        dataKey: 'kpi_bar' },
+        { key: 'motivos',    canvasId: 'pdf-canvas-motivos',    dataKey: 'motivos_bar' },
+    ];
+
+    for (const cfg of configs) {
+        const canvas = document.getElementById(cfg.canvasId);
+        const g = graficas[cfg.dataKey];
+        if (!canvas || !g || !Array.isArray(g.labels) || !g.labels.length) continue;
+        try {
+            window._pdfCharts[cfg.key] = new Chart(canvas, {
+                type: g.tipo || 'bar',
+                data: { labels: g.labels, datasets: g.datasets || [] },
+                options: {
+                    animation: { duration: 0 },
+                    responsive: false,
+                    plugins: { legend: { display: true } }
+                }
+            });
+        } catch(e) {
+            console.warn('[PDF Charts] Error inicializando', cfg.key, e);
+        }
+    }
+}
+</script>
+
 <div class="max-w-[1600px] mx-auto px-6 pb-12 space-y-8" x-data="{
         filtros: {
             fecha_inicio: '{{ filtros_aplicados.fecha_inicio }}',
@@ -9,6 +51,12 @@
             estatus: '{{ filtros_aplicados.estatus or '' }}',
             usuario: '{{ filtros_aplicados.usuario or '' }}'
         },
+        init() {
+            window._simFiltros = this.filtros;
+            setTimeout(function() {
+                if (typeof initPdfCharts === 'function') initPdfCharts();
+            }, 100);
+        },
         formatDateRange() {
             if(!this.filtros.fecha_inicio || !this.filtros.fecha_fin) return '';
             const f1 = new Date(this.filtros.fecha_inicio + 'T00:00:00');
@@ -17,6 +65,7 @@
             return `${f1.toLocaleDateString('es-MX', opts)} - ${f2.toLocaleDateString('es-MX', opts)}`;
         },
         aplicarFiltros() {
+            window._simFiltros = this.filtros;
             let url = `/simulacion/reportes/analisis-detallado?`;
             url += `start_date=${this.filtros.fecha_inicio}`;
             url += `&end_date=${this.filtros.fecha_fin}`;
@@ -24,9 +73,9 @@
             if(this.filtros.tipo) url += `&type_id=${this.filtros.tipo}`;
             if(this.filtros.estatus) url += `&status_id=${this.filtros.estatus}`;
             if(this.filtros.usuario) url += `&user_id=${this.filtros.usuario}`;
-            
+
             htmx.ajax('GET', url, {
-                target: '#report-content', 
+                target: '#report-content',
                 indicator: '#loading-overlay-analisis'
             });
         },
@@ -252,6 +301,16 @@
     </script>
 
 </div>
+
+{# Canvases ocultos para captura de charts en PDF (Chart.js toBase64Image) #}
+<div id="pdf-charts-container" style="position:absolute;left:-9999px;top:-9999px;width:1px;height:1px;overflow:hidden" aria-hidden="true">
+    <canvas id="pdf-canvas-estatus" width="600" height="350"></canvas>
+    <canvas id="pdf-canvas-mensual" width="800" height="350"></canvas>
+    <canvas id="pdf-canvas-tecnologia" width="600" height="350"></canvas>
+    <canvas id="pdf-canvas-kpi" width="800" height="350"></canvas>
+    <canvas id="pdf-canvas-motivos" width="800" height="350"></canvas>
+</div>
+<script id="sim-graficas-pdf-data" type="application/json">{{ graficas | tojson | safe }}</script>
 
 {# MODALS - Fuera del contenedor principal para evitar conflicto con backdrop-blur #}
 {% include "simulacion/reportes/modals/explicacion_metricas.html" %}

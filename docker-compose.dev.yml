@@ -1,0 +1,16 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8001:8000"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      DEBUG_MODE: "True"
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4

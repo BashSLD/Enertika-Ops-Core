@@ -58,4 +58,9 @@ class Settings(BaseSettings):
     DB_POOL_MAX_SIZE: int = int(os.getenv("DB_POOL_MAX_SIZE", "20"))
     DB_POOL_TIMEOUT: int = int(os.getenv("DB_POOL_TIMEOUT", "30"))
 
+    # --- PDF Generation ---
+    PDF_MAX_IMAGE_WIDTH: int = int(os.getenv("PDF_MAX_IMAGE_WIDTH", "800"))
+    PDF_IMAGE_QUALITY: int = int(os.getenv("PDF_IMAGE_QUALITY", "85"))
+    PDF_MAX_UPLOAD_SIZE_MB: int = int(os.getenv("PDF_MAX_UPLOAD_SIZE_MB", "50"))
+
 settings = Settings()

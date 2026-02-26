@@ -163,14 +163,26 @@ class LevantamientosDBService:
         return lev
 
     async def get_tecnicos_asignados_detalle(self, conn, id_levantamiento: UUID) -> List[dict]:
-        """Retorna lista de diccionarios de técnicos asignados."""
+        """Retorna lista de diccionarios de técnicos asignados, responsable primero."""
         rows = await conn.fetch("""
-             SELECT u.id_usuario, u.nombre, u.email
+             SELECT u.id_usuario, u.nombre, u.email, la.es_responsable
              FROM tb_levantamiento_asignaciones la
              JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
              WHERE la.id_levantamiento = $1
+             ORDER BY la.es_responsable DESC, u.nombre ASC
         """, id_levantamiento)
         return [dict(r) for r in rows]
+
+    async def get_responsable_asignado(self, conn, id_levantamiento: UUID) -> Optional[dict]:
+        """Retorna {id_usuario, nombre} del técnico marcado como responsable, o None."""
+        row = await conn.fetchrow("""
+            SELECT u.id_usuario, u.nombre
+            FROM tb_levantamiento_asignaciones la
+            JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
+            WHERE la.id_levantamiento = $1 AND la.es_responsable = true
+            LIMIT 1
+        """, id_levantamiento)
+        return dict(row) if row else None
 
     async def get_adjuntos_levantamiento(self, conn, id_levantamiento: UUID) -> List[dict]:
         """Retorna lista de archivos adjuntos asociados al levantamiento."""
@@ -302,12 +314,27 @@ class LevantamientosDBService:
     # VIATICOS — USUARIOS disponibles para el select
     # ----------------------------------------------------------
 
-    async def get_usuarios_viaticos(self, conn) -> List[dict]:
+    async def get_usuarios_viaticos(self, conn, id_levantamiento: Optional[UUID] = None) -> List[dict]:
         """
-        Lista de usuarios activos que pueden ser asignados como
-        beneficiarios de un viatico. Mismo patrón que el select
-        del modal.
+        Lista de usuarios para el selector de viáticos.
+        Si se pasa id_levantamiento, filtra a los técnicos asignados al levantamiento
+        más el jefe_area_id. Fallback a todos los usuarios activos si no hay asignados.
         """
+        if id_levantamiento is not None:
+            rows = await conn.fetch("""
+                SELECT DISTINCT u.id_usuario, u.nombre, u.email
+                FROM tb_usuarios u
+                WHERE u.id_usuario IN (
+                    SELECT tecnico_id FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1
+                    UNION
+                    SELECT jefe_area_id FROM tb_levantamientos
+                    WHERE id_levantamiento = $1 AND jefe_area_id IS NOT NULL
+                ) AND u.is_active = true
+                ORDER BY u.nombre ASC
+            """, id_levantamiento)
+            if rows:
+                return [dict(r) for r in rows]
+            # Fallback: sin asignaciones aún → todos los activos
         rows = await conn.fetch("""
             SELECT id_usuario, nombre, email
             FROM tb_usuarios
@@ -315,6 +342,33 @@ class LevantamientosDBService:
             ORDER BY nombre ASC
         """)
         return [dict(r) for r in rows]
+
+    async def update_responsable(
+        self,
+        conn,
+        id_levantamiento: UUID,
+        nuevo_responsable_id: UUID,
+        asignado_por_id: UUID
+    ) -> None:
+        """
+        Actualiza el responsable del levantamiento:
+        1. Quita es_responsable del anterior.
+        2. Upsert del nuevo responsable con es_responsable=true.
+        Requiere UNIQUE constraint en (id_levantamiento, tecnico_id).
+        """
+        await conn.execute("""
+            UPDATE tb_levantamiento_asignaciones
+            SET es_responsable = false
+            WHERE id_levantamiento = $1 AND es_responsable = true
+        """, id_levantamiento)
+
+        await conn.execute("""
+            INSERT INTO tb_levantamiento_asignaciones
+                (id_levantamiento, tecnico_id, asignado_por_id, es_responsable)
+            VALUES ($1, $2, $3, true)
+            ON CONFLICT (id_levantamiento, tecnico_id)
+            DO UPDATE SET es_responsable = true, asignado_por_id = $3
+        """, id_levantamiento, nuevo_responsable_id, asignado_por_id)
 
     # ----------------------------------------------------------
     # VIATICOS — CC configurados desde tb_config_emails

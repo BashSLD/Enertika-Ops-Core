@@ -144,12 +144,15 @@
                         <div class="flex flex-wrap gap-2">
                             {% for tech in lev.tecnicos_asignados %}
                             <div
-                                class="flex items-center gap-2 bg-white border border-indigo-100 px-3 py-1.5 rounded-full shadow-sm">
+                                class="flex items-center gap-2 bg-white border px-3 py-1.5 rounded-full shadow-sm {% if tech.es_responsable %}border-blue-300{% else %}border-indigo-100{% endif %}">
                                 <div
-                                    class="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold">
-                                    {{ tech.iniciales or tech.nombre[:2] }}
+                                    class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold {% if tech.es_responsable %}bg-blue-600 text-white{% else %}bg-indigo-100 text-indigo-700{% endif %}">
+                                    {{ tech.nombre[:2] }}
                                 </div>
                                 <span class="text-sm text-gray-700 font-medium">{{ tech.nombre }}</span>
+                                {% if tech.es_responsable %}
+                                <span class="text-xs font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded">Responsable</span>
+                                {% endif %}
                             </div>
                             {% endfor %}
                         </div>

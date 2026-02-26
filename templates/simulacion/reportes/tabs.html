@@ -96,23 +96,18 @@
     async generarPDF() {
         this.isGeneratingPdf = true;
         try {
-            const chartImages = {};
-            if (this.charts.estatus) chartImages.estatus = this.charts.estatus.toBase64Image();
-            if (this.charts.mensual) chartImages.mensual = this.charts.mensual.toBase64Image();
-            if (this.charts.tecnologia) chartImages.tecnologia = this.charts.tecnologia.toBase64Image();
-            if (this.charts.kpi) chartImages.kpi = this.charts.kpi.toBase64Image();
-            if (this.charts.motivos) chartImages.motivos = this.charts.motivos.toBase64Image();
+            const formData = new FormData();
+            formData.append('filtros_json', JSON.stringify(this.filtros));
 
             const response = await fetch('/simulacion/reportes/pdf/generar', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    filtros: this.filtros,
-                    charts: chartImages
-                })
+                body: formData
             });
 
-            if (!response.ok) throw new Error('Error generando PDF');
+            if (!response.ok) {
+                const err = await response.json().catch(() => ({}));
+                throw new Error(err.error || 'Error generando PDF');
+            }
 
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
@@ -122,6 +117,7 @@
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
+            window.URL.revokeObjectURL(url);
         } catch (e) {
             console.error(e);
             alert('Error al generar el PDF: ' + e.message);

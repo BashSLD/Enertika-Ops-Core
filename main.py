@@ -92,6 +92,10 @@ app.include_router(materials_router)
 from core.bom.router import router as bom_router
 app.include_router(bom_router)
 
+# PDF Service (reportes compartidos entre modulos)
+from core.pdf_service.router import router as pdf_router
+app.include_router(pdf_router)
+
 # Workflow: Comentarios centralizados
 from core.workflow.router import router as workflow_router
 app.include_router(workflow_router)

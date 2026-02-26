@@ -328,7 +328,8 @@ class LevantamientoService:
         tecnicos_ids: List[UUID],
         jefe_id: Optional[UUID],
         user_context: dict,
-        observaciones: Optional[str] = None
+        observaciones: Optional[str] = None,
+        responsable_id: Optional[UUID] = None
     ):
         """
         Asigna técnicos (multiples) y/o jefe de área.
@@ -376,16 +377,25 @@ class LevantamientoService:
             SELECT tecnico_id FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1
         """, id_levantamiento)
         old_tech_ids = [r['tecnico_id'] for r in old_tech_rows]
-        
+
+        # Auto-responsable: si hay un solo técnico y no se indicó responsable explícito
+        unique_techs = list(set(tecnicos_ids))
+        if responsable_id is None and len(unique_techs) == 1:
+            responsable_id = unique_techs[0]
+
         # Borrar asignaciones existentes
         await conn.execute("DELETE FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1", id_levantamiento)
-        
-        # Insertar nuevas
+
+        # Insertar nuevas con flag es_responsable
         if tecnicos_ids:
-            records = [(id_levantamiento, tid, user_context['user_db_id']) for tid in set(tecnicos_ids)]
+            records = [
+                (id_levantamiento, tid, user_context['user_db_id'], tid == responsable_id)
+                for tid in unique_techs
+            ]
             await conn.executemany("""
-                INSERT INTO tb_levantamiento_asignaciones (id_levantamiento, tecnico_id, asignado_por_id)
-                VALUES ($1, $2, $3)
+                INSERT INTO tb_levantamiento_asignaciones
+                    (id_levantamiento, tecnico_id, asignado_por_id, es_responsable)
+                VALUES ($1, $2, $3, $4)
             """, records)
 
         # 3. Registrar Historial
@@ -819,8 +829,21 @@ class LevantamientoService:
                 'jefes': [...]      # Gerentes o usuarios marcados como jefes
             }
         """
-        # Técnicos: usuarios con permiso al módulo O con flag explícito de levantamientos
-        tecnicos = await conn.fetch("""
+        # Responsables: solo editor/admin del módulo levantamientos
+        # Son quienes gestionan activamente el levantamiento (pueden cambiar estados, etc.)
+        responsables = await conn.fetch("""
+            SELECT DISTINCT u.id_usuario, u.nombre, u.email
+            FROM tb_usuarios u
+            JOIN tb_permisos_modulos pm ON pm.usuario_id = u.id_usuario
+            WHERE u.is_active = true
+              AND pm.modulo_slug = 'levantamientos'
+              AND pm.rol IN ('editor', 'admin')
+            ORDER BY u.nombre
+        """)
+
+        # Acompañantes: flag explícito O cualquier permiso en el módulo
+        # Incluye personas de otras áreas que suelen acompañar levantamientos
+        acompaniantes = await conn.fetch("""
             SELECT DISTINCT u.id_usuario, u.nombre, u.email
             FROM tb_usuarios u
             WHERE u.is_active = true
@@ -834,7 +857,7 @@ class LevantamientoService:
               )
             ORDER BY u.nombre
         """)
-        
+
         # Jefes: Solo usuarios marcados como jefe default
         jefes = await conn.fetch("""
             SELECT id_usuario, nombre, email, rol_sistema
@@ -844,9 +867,10 @@ class LevantamientoService:
             ORDER BY nombre
             LIMIT 1
         """)
-        
+
         return {
-            'tecnicos': [dict(t) for t in tecnicos],
+            'responsables': [dict(t) for t in responsables],
+            'acompaniantes': [dict(t) for t in acompaniantes],
             'jefes': [dict(j) for j in jefes]
         }
 
