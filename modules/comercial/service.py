@@ -850,10 +850,11 @@ class ComercialService:
             params.append(f"%{q}%")
             param_idx += 1
 
-        # Filtro de seguridad (solo ADMIN, MANAGER ven todo)
-        # Filtro de seguridad:
-        # Si NO es admin del módulo (ni global), solo ve sus propias oportunidades
-        if not user_has_module_access("comercial", user_context, "admin"):
+        # Filtro de seguridad: ADMIN global, MANAGER global, o admin de módulo ven todo.
+        # El resto (USER con editor/viewer) solo ve sus propias oportunidades.
+        es_admin_o_manager = role in ("ADMIN", "MANAGER")
+        es_admin_modulo = user_has_module_access("comercial", user_context, "admin")
+        if not (es_admin_o_manager or es_admin_modulo):
             query += f" AND o.creado_por_id = ${param_idx}"
             params.append(user_id)
             param_idx += 1
