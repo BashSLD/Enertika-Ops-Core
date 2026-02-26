@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, time as dt_time, timezone
+from datetime import datetime, timedelta, time as dt_time
 from uuid import UUID, uuid4
 from typing import List, Optional, Tuple, Dict
 import json
@@ -91,9 +91,9 @@ class SimulacionService:
 
     @staticmethod
     def _as_aware(dt: datetime) -> datetime:
-        """Convierte un datetime naive a UTC-aware. Si ya tiene tzinfo, lo devuelve sin cambios."""
+        """Convierte un datetime naive a Mexico City-aware. Si ya tiene tzinfo, lo devuelve sin cambios."""
         if dt is not None and dt.tzinfo is None:
-            return dt.replace(tzinfo=timezone.utc)
+            return dt.replace(tzinfo=ZoneInfo("America/Mexico_City"))
         return dt
 
     def calcular_kpis_entrega(self, fecha_entrega: datetime, deadline_original: datetime, deadline_negociado: datetime = None) -> tuple:
