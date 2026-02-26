@@ -1,14 +1,14 @@
 [phases.setup]
 nixPkgs = [
   "glib",
-  "gobject-introspection",
   "pango",
   "cairo",
   "gdk-pixbuf",
-  "libffi",
   "fontconfig",
   "freetype",
   "harfbuzz",
-  "liberation_ttf",
+]
+aptPkgs = [
   "shared-mime-info",
+  "fonts-liberation",
 ]
