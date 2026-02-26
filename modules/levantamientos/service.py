@@ -837,7 +837,7 @@ class LevantamientoService:
             JOIN tb_permisos_modulos pm ON pm.usuario_id = u.id_usuario
             WHERE u.is_active = true
               AND pm.modulo_slug = 'levantamientos'
-              AND pm.rol IN ('editor', 'admin')
+              AND pm.rol_modulo IN ('editor', 'admin')
             ORDER BY u.nombre
         """)
 
