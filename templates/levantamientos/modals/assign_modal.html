@@ -142,10 +142,9 @@
                                 {% if not can_assign %}disabled{% endif %}
                                 :checked="tecnicoIds.indexOf('{{ t.id_usuario }}') !== -1"
                                 @change="
-                                    var _id = '{{ t.id_usuario }}';
-                                    var _idx = tecnicoIds.indexOf(_id);
-                                    if ($event.target.checked) { if (_idx === -1) tecnicoIds.push(_id); }
-                                    else { if (_idx !== -1) tecnicoIds.splice(_idx, 1); }
+                                    $event.target.checked
+                                        ? (tecnicoIds.indexOf('{{ t.id_usuario }}') === -1 && tecnicoIds.push('{{ t.id_usuario }}'))
+                                        : (tecnicoIds.indexOf('{{ t.id_usuario }}') !== -1 && tecnicoIds.splice(tecnicoIds.indexOf('{{ t.id_usuario }}'), 1))
                                 "
                                 class="w-4 h-4 text-blue-600 rounded border-gray-300 focus:ring-blue-500 focus:ring-offset-0 transition-all cursor-pointer disabled:cursor-not-allowed disabled:bg-gray-100">
                             <span
