@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, time as dt_time
+from datetime import datetime, timedelta, time as dt_time, timezone
 from uuid import UUID, uuid4
 from typing import List, Optional, Tuple, Dict
 import json
@@ -89,17 +89,28 @@ class SimulacionService:
         }
 
 
+    @staticmethod
+    def _as_aware(dt: datetime) -> datetime:
+        """Convierte un datetime naive a UTC-aware. Si ya tiene tzinfo, lo devuelve sin cambios."""
+        if dt is not None and dt.tzinfo is None:
+            return dt.replace(tzinfo=timezone.utc)
+        return dt
+
     def calcular_kpis_entrega(self, fecha_entrega: datetime, deadline_original: datetime, deadline_negociado: datetime = None) -> tuple:
         """
         Calcula DOS indicadores de cumplimiento:
         1. KPI SLA Interno: Fecha Real vs Deadline Original (Sistema)
         2. KPI Compromiso: Fecha Real vs Deadline Negociado (Cliente/Acuerdo)
-        
+
         Returns:
             (kpi_sla_interno, kpi_compromiso)
         """
         if not fecha_entrega or not deadline_original:
             return None, None
+
+        fecha_entrega = self._as_aware(fecha_entrega)
+        deadline_original = self._as_aware(deadline_original)
+        deadline_negociado = self._as_aware(deadline_negociado)
 
         # --- 1. KPI SLA Interno ---
         # Regla: Comparar contra lo que el sistema calculó originalmente
@@ -134,14 +145,18 @@ class SimulacionService:
         """
         if not fecha_cierre_sitio or not deadline_calculado_padre:
             return None, None
-        
+
+        fecha_cierre_sitio = self._as_aware(fecha_cierre_sitio)
+        deadline_calculado_padre = self._as_aware(deadline_calculado_padre)
+        deadline_negociado_padre = self._as_aware(deadline_negociado_padre)
+
         # KPI Interno: vs deadline calculado (SLA del sistema)
         kpi_interno = (
-            "Entrega a tiempo" 
-            if fecha_cierre_sitio <= deadline_calculado_padre 
+            "Entrega a tiempo"
+            if fecha_cierre_sitio <= deadline_calculado_padre
             else "Entrega tarde"
         )
-        
+
         # KPI Compromiso: vs deadline negociado o calculado
         deadline_compromiso = deadline_negociado_padre or deadline_calculado_padre
         kpi_compromiso = (
@@ -547,10 +562,9 @@ class SimulacionService:
                 ts_deadline_nego
             )
 
-            # Cálculo de Tiempo Real 
+            # Cálculo de Tiempo Real
             if current_data['fecha_solicitud']:
-                # Asegurar timezone awarenss
-                delta = fecha_fin_real - current_data['fecha_solicitud']
+                delta = self._as_aware(fecha_fin_real) - self._as_aware(current_data['fecha_solicitud'])
                 tiempo_elaboracion_horas = round(delta.total_seconds() / 3600, 2)
                 
         return kpi_sla_val, kpi_compromiso_val, tiempo_elaboracion_horas
