@@ -128,6 +128,24 @@
             </div>
         </div>
 
+        <!-- Link Carpeta SharePoint (Reubicado del Paso 1) -->
+        <div class="bg-gray-50 p-4 rounded-md border border-gray-200 mb-4">
+            <label class="block text-sm font-medium text-gray-700 mb-1">📂 Link Carpeta SharePoint / Documentos
+                (Opcional)</label>
+            <div class="flex rounded-md shadow-sm">
+                <span
+                    class="inline-flex items-center px-3 rounded-l-md border border-r-0 border-gray-300 bg-gray-50 text-gray-500 text-sm">
+                    🔗
+                </span>
+                <input type="url" name="sharepoint_folder_url" value="{{ op.sharepoint_folder_url or '' }}"
+                    class="flex-1 min-w-0 block w-full px-3 py-2 rounded-none rounded-r-md bg-white border-gray-300 focus:border-[#00BABB] focus:ring-[#00BABB] sm:text-sm border"
+                    placeholder="https://enertika.sharepoint.com/...">
+            </div>
+            <p class="text-xs text-gray-500 mt-1">
+                💡 SharePoint, Google Drive, Dropbox u otro enlace de documentos.
+            </p>
+        </div>
+
         <div class="bg-gray-50 p-4 rounded-md border border-gray-200">
             {% if has_multisitio_file %}
 
@@ -270,10 +288,10 @@
             // Safety Wrapper para evitar que el sidebar se rompa si Quill falla
             try {
                 // Cargar CSS de Quill
-                if (!document.querySelector('link[href*="quill.snow.css"]')) {
+                if (!document.querySelector('link[href*="quill.snow"]')) {
                     var css = document.createElement('link');
                     css.rel = 'stylesheet';
-                    css.href = 'https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.snow.min.css';
+                    css.href = '/static/vendor/quill/quill.snow.min.css';
                     document.head.appendChild(css);
                 }
 
@@ -346,9 +364,9 @@
 
                 // Carga de Librería JS
                 if (typeof Quill !== 'undefined') { window.initQuillSafe(); }
-                else if (!document.querySelector('script[src*="quill.js"]')) {
+                else if (!document.querySelector('script[src*="quill"]')) {
                     var script = document.createElement('script');
-                    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/quill/1.3.7/quill.min.js';
+                    script.src = '/static/vendor/quill/quill.min.js';
                     script.onload = function () { window.initQuillSafe(); };
                     script.onerror = function () {
                         console.error("Failed to load Quill CDN");

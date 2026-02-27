@@ -165,20 +165,38 @@ class LevantamientoService:
         # Query optimizada con Common Table Expressions (CTEs)
         query = """
             WITH comentarios_count AS (
-                -- Contar comentarios por oportunidad (una sola pasada)
-                SELECT id_oportunidad, COUNT(*) as total_comentarios
-                FROM tb_comentarios_workflow
-                GROUP BY id_oportunidad
+                -- Contar comentarios por cadena completa (padre + hermanos)
+                SELECT o.id_oportunidad, COUNT(cw.id) as total_comentarios
+                FROM tb_oportunidades o
+                LEFT JOIN tb_comentarios_workflow cw ON cw.id_oportunidad IN (
+                    -- La propia oportunidad
+                    SELECT o.id_oportunidad
+                    UNION
+                    -- Sus hijos (si es padre)
+                    SELECT child.id_oportunidad FROM tb_oportunidades child WHERE child.parent_id = o.id_oportunidad
+                    UNION
+                    -- Su padre (si es hijo)
+                    SELECT o.parent_id WHERE o.parent_id IS NOT NULL
+                    UNION
+                    -- Sus hermanos (si es hijo)
+                    SELECT sib.id_oportunidad FROM tb_oportunidades sib 
+                    WHERE sib.parent_id = o.parent_id AND o.parent_id IS NOT NULL
+                )
+                GROUP BY o.id_oportunidad
             ),
             tiempo_en_estado AS (
                 -- Calcular tiempo en estado actual (una sola pasada)
-                SELECT 
+                SELECT
                     lh.id_levantamiento,
                     MAX(lh.fecha_transicion) as ultima_transicion
                 FROM tb_levantamientos_historial lh
                 INNER JOIN tb_levantamientos l ON lh.id_levantamiento = l.id_levantamiento
                 WHERE lh.id_estatus_nuevo = l.id_estatus_global
                 GROUP BY lh.id_levantamiento
+            ),
+            asignaciones_check AS (
+                -- Levantamientos que ya tienen al menos una asignacion en la tabla pivote
+                SELECT DISTINCT id_levantamiento FROM tb_levantamiento_asignaciones
             )
             SELECT
                    l.id_levantamiento,
@@ -208,7 +226,13 @@ class LevantamientoService:
                    -- Tiempo en estado desde CTE
                    EXTRACT(EPOCH FROM (
                        NOW() - COALESCE(te.ultima_transicion, l.created_at)
-                   )) as segundos_en_estado
+                   )) as segundos_en_estado,
+                   -- Flag "es_nuevo": creado < 48h, sin asignacion pivot ni legacy
+                   CASE WHEN
+                       l.created_at > NOW() - INTERVAL '48 hours'
+                       AND a_check.id_levantamiento IS NULL
+                       AND l.tecnico_asignado_id IS NULL
+                   THEN true ELSE false END AS es_nuevo
             FROM tb_levantamientos l
             INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
             LEFT JOIN tb_sitios_oportunidad s ON l.id_sitio = s.id_sitio
@@ -218,6 +242,7 @@ class LevantamientoService:
             -- JOIN con CTEs para optimización
             LEFT JOIN comentarios_count cc ON l.id_oportunidad = cc.id_oportunidad
             LEFT JOIN tiempo_en_estado te ON l.id_levantamiento = te.id_levantamiento
+            LEFT JOIN asignaciones_check a_check ON l.id_levantamiento = a_check.id_levantamiento
             -- LATERAL JOIN for Multiple Technicians
             LEFT JOIN LATERAL (
                 SELECT string_agg(u.nombre, ', ') as nombres

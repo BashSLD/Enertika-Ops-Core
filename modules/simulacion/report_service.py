@@ -1315,7 +1315,8 @@ class ReportesSimulacionService:
             'tecnologias': await self.get_metricas_por_tecnologia(conn, filtros),
             'contabilizacion': await self.get_tabla_contabilizacion(conn, filtros),
             'usuarios': await self.get_detalle_por_usuario(conn, filtros),
-            'mensual': await self.get_resumen_mensual(conn, filtros)
+            'mensual': await self.get_resumen_mensual(conn, filtros),
+            'motivos_cierre': await self.db.get_chart_motivos_cierre(conn, asdict(filtros)),
         }
 
     async def get_datos_graficas(self, conn, filtros: FiltrosReporte, metricas: Optional[MetricasGenerales] = None) -> Dict[str, DatosGrafica]:

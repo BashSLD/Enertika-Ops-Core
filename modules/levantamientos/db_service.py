@@ -9,6 +9,7 @@ from uuid import UUID
 from typing import List, Optional
 import logging
 import json
+from core.email_rules import EmailRulesService
 
 logger = logging.getLogger("Levantamientos.DBService")
 
@@ -379,32 +380,18 @@ class LevantamientosDBService:
         Retorna los emails CC configurados para el evento SOLICITUD_VIATICOS.
         Incluye reglas del módulo LEVANTAMIENTOS y reglas GLOBAL.
         """
-        rows = await conn.fetch("""
-            SELECT email_to_add
-            FROM tb_config_emails
-            WHERE modulo        IN ('LEVANTAMIENTOS', 'GLOBAL')
-              AND trigger_field = 'EVENTO'
-              AND trigger_value = 'SOLICITUD_VIATICOS'
-              AND type          = 'CC'
-            ORDER BY email_to_add
-        """)
-        return [r['email_to_add'] for r in rows]
+        svc = EmailRulesService()
+        emails = await svc.get_emails_by_event(conn, 'LEVANTAMIENTOS', 'SOLICITUD_VIATICOS')
+        return emails['cc']
 
     async def get_to_configurados_viaticos(self, conn) -> List[str]:
         """
         Retorna los emails TO configurados para el evento SOLICITUD_VIATICOS.
         Incluye reglas del módulo LEVANTAMIENTOS y reglas GLOBAL.
         """
-        rows = await conn.fetch("""
-            SELECT email_to_add
-            FROM tb_config_emails
-            WHERE modulo        IN ('LEVANTAMIENTOS', 'GLOBAL')
-              AND trigger_field = 'EVENTO'
-              AND trigger_value = 'SOLICITUD_VIATICOS'
-              AND type          = 'TO'
-            ORDER BY email_to_add
-        """)
-        return [r['email_to_add'] for r in rows]
+        svc = EmailRulesService()
+        emails = await svc.get_emails_by_event(conn, 'LEVANTAMIENTOS', 'SOLICITUD_VIATICOS')
+        return emails['to']
 
     # ----------------------------------------------------------
     # VIATICOS — HISTORIAL de envíos (tabla historico)

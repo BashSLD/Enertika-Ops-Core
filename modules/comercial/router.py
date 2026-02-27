@@ -306,6 +306,7 @@ async def notificar_oportunidad(
     prioridad: str = Form("normal"),  # Prioridad del email
     fecha_ideal_usuario: Optional[date] = Form(None),  # Nueva fecha ideal (seguimientos)
     legacy_search_term: Optional[str] = Form(None),  # Capturar término legacy
+    sharepoint_folder_url: Optional[str] = Form(None),  # Reubicado del Paso 1
     archivos_extra: List[UploadFile] = File(default=[]),
     service: ComercialService = Depends(get_comercial_service),
     ms_auth = Depends(get_ms_auth),
@@ -315,6 +316,13 @@ async def notificar_oportunidad(
     _auth = require_module_access("comercial", "editor")
 ):
     """Envía el correo de notificación usando el token de la sesión."""
+    
+    # Actualizar sharepoint_folder_url si se proporcionó (reubicado del Paso 1)
+    if sharepoint_folder_url and sharepoint_folder_url.strip():
+        await conn.execute(
+            "UPDATE tb_oportunidades SET sharepoint_folder_url = $1 WHERE id_oportunidad = $2",
+            sharepoint_folder_url.strip(), id_oportunidad
+        )
     
     # Actualizar fecha_ideal_usuario si se proporcionó (para seguimientos)
     if fecha_ideal_usuario:
@@ -433,8 +441,6 @@ async def handle_oportunidad_creation(
     direccion_obra: str = Form(...),
     coordenadas_gps: Optional[str] = Form(None),
     google_maps_link: Optional[str] = Form(None),
-
-    sharepoint_folder_url: Optional[str] = Form(None),
     
     # --- Campo Licitación (Flag Transversal) ---
     es_licitacion: bool = Form(False),
@@ -487,7 +493,7 @@ async def handle_oportunidad_creation(
         direccion_obra=direccion_obra,
         coordenadas_gps=coordenadas_gps,
         google_maps_link=google_maps_link,
-        sharepoint_folder_url=sharepoint_folder_url,
+        sharepoint_folder_url=None,  # Se captura en Paso 3 (email_form)
         fecha_manual_str=fecha_manual,
         detalles_bess=detalles_bess,
         es_licitacion=es_licitacion,
@@ -588,7 +594,6 @@ async def handle_oportunidad_extraordinaria(
     direccion_obra: str = Form(...),
     coordenadas_gps: Optional[str] = Form(None),
     google_maps_link: Optional[str] = Form(None),
-    sharepoint_folder_url: Optional[str] = Form(None),
     
     # --- Nuevos Campos v2 ---
     es_licitacion: bool = Form(False),
@@ -646,7 +651,7 @@ async def handle_oportunidad_extraordinaria(
             direccion_obra=direccion_obra,
             coordenadas_gps=coordenadas_gps,
             google_maps_link=google_maps_link,
-            sharepoint_folder_url=sharepoint_folder_url,
+            sharepoint_folder_url=None,  # Se captura en Paso 3 (email_form)
             fecha_manual_str=fecha_manual,
             detalles_bess=detalles_bess,
             es_licitacion=es_licitacion,

@@ -217,16 +217,36 @@ class WorkflowService:
         """
         Obtiene historial unificado de comentarios para el Muro.
         Agrupa adjuntos por comentario.
+        Resuelve la cadena completa padre↔hijos para trazabilidad.
         """
         query = """
+            WITH cadena AS (
+                -- Caso 1: La oportunidad actual ES el padre → incluirse + sus hijos
+                SELECT id_oportunidad FROM tb_oportunidades WHERE id_oportunidad = $1
+                UNION
+                SELECT id_oportunidad FROM tb_oportunidades WHERE parent_id = $1
+                UNION
+                -- Caso 2: La oportunidad actual ES un hijo → incluir padre + hermanos
+                SELECT parent_id FROM tb_oportunidades 
+                WHERE id_oportunidad = $1 AND parent_id IS NOT NULL
+                UNION
+                SELECT id_oportunidad FROM tb_oportunidades 
+                WHERE parent_id = (
+                    SELECT parent_id FROM tb_oportunidades WHERE id_oportunidad = $1
+                ) AND parent_id IS NOT NULL
+            )
             SELECT 
                 c.id, c.usuario_nombre, c.usuario_email, c.comentario, 
                 c.departamento_origen, c.modulo_origen, c.fecha_comentario,
+                c.id_oportunidad as comentario_oportunidad_id,
+                op.op_id_estandar as comentario_op_estandar,
                 d.nombre_archivo as adjunto_nombre,
                 d.url_sharepoint as adjunto_url
             FROM tb_comentarios_workflow c
             LEFT JOIN tb_documentos_attachments d ON c.id = d.id_comentario
-            WHERE c.id_oportunidad = $1 AND (d.id_documento IS NULL OR d.activo = TRUE)
+            LEFT JOIN tb_oportunidades op ON c.id_oportunidad = op.id_oportunidad
+            WHERE c.id_oportunidad IN (SELECT id_oportunidad FROM cadena)
+              AND (d.id_documento IS NULL OR d.activo = TRUE)
             ORDER BY c.fecha_comentario DESC
         """
         if limit:
@@ -249,6 +269,7 @@ class WorkflowService:
                     "departamento_origen": r['departamento_origen'],
                     "modulo_origen": r['modulo_origen'],
                     "fecha_comentario": r['fecha_comentario'],
+                    "comentario_op_estandar": r['comentario_op_estandar'],
                     "adjuntos": []
                 }
                 order.append(cid)
@@ -259,8 +280,6 @@ class WorkflowService:
                     "url": r['adjunto_url']
                 })
         
-        return [grouped[cid] for cid in order]
-
         return [grouped[cid] for cid in order]
 
     async def get_detalle_oportunidad(self, conn, id_oportunidad: UUID) -> Optional[dict]:

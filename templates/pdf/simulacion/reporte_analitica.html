@@ -1,573 +1,855 @@
 <!DOCTYPE html>
 <html lang="es">
-<head>
-<meta charset="UTF-8">
-<style>
 
-/* ====================================================
+<head>
+    <meta charset="UTF-8">
+    <style>
+        /* ====================================================
    PAGE SETUP
 ==================================================== */
-@page {
-    size: Letter;
-    margin: 1.6cm 1.5cm 2.2cm 1.5cm;
+        @page {
+            size: Letter;
+            margin: 1.6cm 1.5cm 2.2cm 1.5cm;
 
-    @bottom-left {
-        content: "ENERTIKA \2014  Reporte Analitico de Simulacion";
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        font-size: 6.5pt;
-        color: #94a3b8;
-        border-top: 1px solid #e2e8f0;
-        padding-top: 4px;
-        vertical-align: top;
-    }
-    @bottom-right {
-        content: "Pagina " counter(page) " de " counter(pages);
-        font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-        font-size: 6.5pt;
-        color: #94a3b8;
-        border-top: 1px solid #e2e8f0;
-        padding-top: 4px;
-        vertical-align: top;
-        text-align: right;
-    }
-}
+            @bottom-left {
+                content: "ENERTIKA \2014  Reporte Analitico de Simulacion";
+                font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+                font-size: 6.5pt;
+                color: #94a3b8;
+                border-top: 1px solid #e2e8f0;
+                padding-top: 4px;
+                vertical-align: top;
+            }
 
-@page :first {
-    margin: 0;
-    @bottom-left  { content: none; }
-    @bottom-right { content: none; }
-}
+            @bottom-right {
+                content: "Pagina " counter(page) " de " counter(pages);
+                font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+                font-size: 6.5pt;
+                color: #94a3b8;
+                border-top: 1px solid #e2e8f0;
+                padding-top: 4px;
+                vertical-align: top;
+                text-align: right;
+            }
+        }
 
-/* ====================================================
+        @page :first {
+            margin: 0;
+
+            @bottom-left {
+                content: none;
+            }
+
+            @bottom-right {
+                content: none;
+            }
+        }
+
+        /* ====================================================
    RESET / BASE
 ==================================================== */
-* { box-sizing: border-box; margin: 0; padding: 0; }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
 
-body {
-    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-    color: #1e293b;
-    font-size: 9pt;
-    line-height: 1.4;
-}
+        body {
+            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+            color: #1e293b;
+            font-size: 9pt;
+            line-height: 1.4;
+        }
 
-/* ====================================================
+        /* ====================================================
    PORTADA
 ==================================================== */
-.cover {
-    width: 100%;
-    height: 27.94cm;
-    background: linear-gradient(155deg, #07174a 0%, #0A2463 30%, #0f3285 60%, #185a99 100%);
-    display: block;
-    page-break-after: always;
-    position: relative;
-    overflow: hidden;
-}
-.deco-a {
-    position: absolute; top: -3.5cm; right: -3.5cm;
-    width: 13cm; height: 13cm; border-radius: 50%;
-    border: 1.5px solid rgba(255,255,255,0.07);
-    background: rgba(255,255,255,0.03);
-}
-.deco-b {
-    position: absolute; top: 0.5cm; right: 0.5cm;
-    width: 8cm; height: 8cm; border-radius: 50%;
-    border: 1.5px solid rgba(0,186,187,0.15);
-    background: rgba(0,186,187,0.05);
-}
-.deco-c {
-    position: absolute; bottom: 2cm; left: -3cm;
-    width: 11cm; height: 11cm; border-radius: 50%;
-    border: 1.5px solid rgba(255,255,255,0.05);
-}
-.deco-d {
-    position: absolute; bottom: -2cm; right: 2cm;
-    width: 7cm; height: 7cm; border-radius: 50%;
-    border: 1.5px solid rgba(0,186,187,0.1);
-}
-.cover-inner {
-    position: absolute;
-    top: 0; left: 0; right: 0; bottom: 0;
-    padding: 3.5cm 3cm 3cm 3cm;
-}
-.cover-eyebrow {
-    font-size: 8pt; font-weight: 400;
-    color: rgba(255,255,255,0.55);
-    letter-spacing: 3px; text-transform: uppercase;
-    margin-bottom: 0.7cm;
-}
-.cover-accent-line {
-    width: 1.5cm; height: 3px;
-    background: #00BABB; margin-bottom: 1cm;
-}
-.cover-title {
-    font-size: 34pt; font-weight: 800;
-    color: #ffffff; line-height: 1.05;
-    letter-spacing: -0.5px; margin-bottom: 0.25cm;
-}
-.cover-title-sub {
-    font-size: 16pt; font-weight: 300;
-    color: rgba(255,255,255,0.6); margin-bottom: 3cm;
-}
-.cover-divider {
-    border: none;
-    border-top: 1px solid rgba(255,255,255,0.12);
-    margin-bottom: 0.7cm;
-}
-.cover-meta-grid { width: 100%; border-collapse: collapse; }
-.cover-meta-grid td { vertical-align: top; padding-right: 1.5cm; }
-.cover-meta-label {
-    display: block; font-size: 7pt; font-weight: 400;
-    color: rgba(255,255,255,0.45);
-    letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 3px;
-}
-.cover-meta-value { font-size: 11pt; font-weight: 500; color: #ffffff; }
-.cover-meta-value.teal { color: #00BABB; }
-.cover-bar {
-    position: absolute; bottom: 0; left: 0; right: 0;
-    height: 4px;
-    background: linear-gradient(90deg, #00BABB, #00e5e6 50%, #00BABB);
-}
+        .cover {
+            width: 100%;
+            height: 27.94cm;
+            background: linear-gradient(155deg, #07174a 0%, #0A2463 30%, #0f3285 60%, #185a99 100%);
+            display: block;
+            page-break-after: always;
+            position: relative;
+            overflow: hidden;
+        }
 
-/* ====================================================
+        .deco-a {
+            position: absolute;
+            top: -3.5cm;
+            right: -3.5cm;
+            width: 13cm;
+            height: 13cm;
+            border-radius: 50%;
+            border: 1.5px solid rgba(255, 255, 255, 0.07);
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .deco-b {
+            position: absolute;
+            top: 0.5cm;
+            right: 0.5cm;
+            width: 8cm;
+            height: 8cm;
+            border-radius: 50%;
+            border: 1.5px solid rgba(0, 186, 187, 0.15);
+            background: rgba(0, 186, 187, 0.05);
+        }
+
+        .deco-c {
+            position: absolute;
+            bottom: 2cm;
+            left: -3cm;
+            width: 11cm;
+            height: 11cm;
+            border-radius: 50%;
+            border: 1.5px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .deco-d {
+            position: absolute;
+            bottom: -2cm;
+            right: 2cm;
+            width: 7cm;
+            height: 7cm;
+            border-radius: 50%;
+            border: 1.5px solid rgba(0, 186, 187, 0.1);
+        }
+
+        .cover-inner {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            padding: 3.5cm 3cm 3cm 3cm;
+        }
+
+        .cover-eyebrow {
+            font-size: 8pt;
+            font-weight: 400;
+            color: rgba(255, 255, 255, 0.55);
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            margin-bottom: 0.7cm;
+        }
+
+        .cover-accent-line {
+            width: 1.5cm;
+            height: 3px;
+            background: #00BABB;
+            margin-bottom: 1cm;
+        }
+
+        .cover-title {
+            font-size: 34pt;
+            font-weight: 800;
+            color: #ffffff;
+            line-height: 1.05;
+            letter-spacing: -0.5px;
+            margin-bottom: 0.25cm;
+        }
+
+        .cover-title-sub {
+            font-size: 16pt;
+            font-weight: 300;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 3cm;
+        }
+
+        .cover-divider {
+            border: none;
+            border-top: 1px solid rgba(255, 255, 255, 0.12);
+            margin-bottom: 0.7cm;
+        }
+
+        .cover-meta-grid {
+            width: 100%;
+            border-collapse: collapse;
+        }
+
+        .cover-meta-grid td {
+            vertical-align: top;
+            padding-right: 1.5cm;
+        }
+
+        .cover-meta-label {
+            display: block;
+            font-size: 7pt;
+            font-weight: 400;
+            color: rgba(255, 255, 255, 0.45);
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
+            margin-bottom: 3px;
+        }
+
+        .cover-meta-value {
+            font-size: 11pt;
+            font-weight: 500;
+            color: #ffffff;
+        }
+
+        .cover-meta-value.teal {
+            color: #00BABB;
+        }
+
+        .cover-bar {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #00BABB, #00e5e6 50%, #00BABB);
+        }
+
+        /* ====================================================
    UTILIDADES
 ==================================================== */
-.page-break { page-break-before: always; }
+        .page-break {
+            page-break-before: always;
+        }
 
-.section-title {
-    font-size: 11pt; font-weight: 700; color: #0A2463;
-    padding-left: 10px; border-left: 4px solid #00BABB;
-    margin-bottom: 12px; line-height: 1.2;
-}
+        .section-title {
+            font-size: 11pt;
+            font-weight: 700;
+            color: #0A2463;
+            padding-left: 10px;
+            border-left: 4px solid #00BABB;
+            margin-bottom: 12px;
+            line-height: 1.2;
+        }
 
-.section-label {
-    font-size: 7.5pt; font-weight: 700; color: #64748b;
-    text-transform: uppercase; letter-spacing: 0.5px;
-    margin-bottom: 8px;
-}
+        .section-label {
+            font-size: 7.5pt;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 8px;
+        }
 
-.mb-14 { margin-bottom: 14px; }
-.mb-18 { margin-bottom: 18px; }
-.mb-10 { margin-bottom: 10px; }
+        .mb-14 {
+            margin-bottom: 14px;
+        }
 
-/* ====================================================
+        .mb-18 {
+            margin-bottom: 18px;
+        }
+
+        .mb-10 {
+            margin-bottom: 10px;
+        }
+
+        /* ====================================================
    FILTROS STRIP
 ==================================================== */
-.filtros {
-    background: #f0f9ff;
-    border-left: 3px solid #00BABB;
-    padding: 7px 12px; font-size: 8pt; color: #475569;
-    margin-bottom: 14px;
-}
-.filtros strong { color: #0A2463; }
+        .filtros {
+            background: #f0f9ff;
+            border-left: 3px solid #00BABB;
+            padding: 7px 12px;
+            font-size: 8pt;
+            color: #475569;
+            margin-bottom: 14px;
+        }
 
-/* ====================================================
+        .filtros strong {
+            color: #0A2463;
+        }
+
+        /* ====================================================
    KPI CARDS
 ==================================================== */
-.kpi-grid {
-    width: 100%; border-collapse: separate;
-    border-spacing: 8px 0; margin-bottom: 14px;
-}
-.kpi-card {
-    width: 25%; background: #ffffff;
-    border: 1px solid #e2e8f0;
-    border-top-style: solid; border-top-width: 4px; border-top-color: #0A2463;
-    padding: 14px 10px 12px; text-align: center; vertical-align: middle;
-}
-.kpi-card.k-teal  { border-top-color: #00BABB; }
-.kpi-card.k-green { border-top-color: #16a34a; }
-.kpi-card.k-amber { border-top-color: #d97706; }
+        .kpi-grid {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 8px 0;
+            margin-bottom: 14px;
+        }
 
-.kv { font-size: 26pt; font-weight: 800; line-height: 1; margin-bottom: 6px; color: #0f172a; }
-.kv.k-teal  { color: #00BABB; }
-.kv.k-green { color: #16a34a; }
-.kv.k-amber { color: #d97706; }
-.kl { font-size: 7pt; color: #64748b; text-transform: uppercase; letter-spacing: 0.5px; }
+        .kpi-card {
+            width: 25%;
+            background: #ffffff;
+            border: 1px solid #e2e8f0;
+            border-top-style: solid;
+            border-top-width: 4px;
+            border-top-color: #0A2463;
+            padding: 14px 10px 12px;
+            text-align: center;
+            vertical-align: middle;
+        }
 
-/* ====================================================
+        .kpi-card.k-teal {
+            border-top-color: #00BABB;
+        }
+
+        .kpi-card.k-green {
+            border-top-color: #16a34a;
+        }
+
+        .kpi-card.k-amber {
+            border-top-color: #d97706;
+        }
+
+        .kv {
+            font-size: 26pt;
+            font-weight: 800;
+            line-height: 1;
+            margin-bottom: 6px;
+            color: #0f172a;
+        }
+
+        .kv.k-teal {
+            color: #00BABB;
+        }
+
+        .kv.k-green {
+            color: #16a34a;
+        }
+
+        .kv.k-amber {
+            color: #d97706;
+        }
+
+        .kl {
+            font-size: 7pt;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* ====================================================
    METRICAS SECUNDARIAS
 ==================================================== */
-.sec-metrics {
-    width: 100%; border-collapse: collapse;
-    font-size: 8.5pt; margin-bottom: 16px;
-}
-.sec-metrics td { padding: 7px 11px; border: 1px solid #e2e8f0; }
-.sec-metrics .ml { background: #f8fafc; color: #475569; width: 30%; font-weight: 500; }
-.sec-metrics .mv { color: #0A2463; font-weight: 700; font-size: 10pt; text-align: center; width: 20%; }
+        .sec-metrics {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8.5pt;
+            margin-bottom: 16px;
+        }
 
-/* ====================================================
+        .sec-metrics td {
+            padding: 7px 11px;
+            border: 1px solid #e2e8f0;
+        }
+
+        .sec-metrics .ml {
+            background: #f8fafc;
+            color: #475569;
+            width: 30%;
+            font-weight: 500;
+        }
+
+        .sec-metrics .mv {
+            color: #0A2463;
+            font-weight: 700;
+            font-size: 10pt;
+            text-align: center;
+            width: 20%;
+        }
+
+        /* ====================================================
    GRAFICAS — tabla para WeasyPrint (no flexbox)
 ==================================================== */
-.chart-pair {
-    width: 100%; border-collapse: collapse; margin-bottom: 0;
-}
-.chart-pair td {
-    width: 50%; vertical-align: top;
-    padding: 12px 14px; background: #f8fafc; border: 1px solid #e2e8f0;
-}
-.chart-pair td + td { border-left: none; }
-.chart-pair td img { width: 100%; height: auto; display: block; }
+        .chart-pair {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 0;
+        }
 
-.chart-full {
-    background: #f8fafc; border: 1px solid #e2e8f0;
-    padding: 12px 16px; margin-bottom: 0; text-align: center;
-}
-.chart-full img { width: 78%; height: auto; display: block; margin: 0 auto; }
+        .chart-pair td {
+            width: 50%;
+            vertical-align: top;
+            padding: 12px 14px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+        }
 
-.chart-title {
-    font-size: 7.5pt; font-weight: 700; color: #374151;
-    text-transform: uppercase; letter-spacing: 0.5px;
-    border-bottom: 1px solid #e5e7eb;
-    padding-bottom: 5px; margin-bottom: 10px;
-}
+        .chart-pair td+td {
+            border-left: none;
+        }
 
-/* ====================================================
+        .chart-pair td img {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+
+        .chart-full {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            padding: 12px 16px;
+            margin-bottom: 0;
+            text-align: center;
+        }
+
+        .chart-full img {
+            width: 78%;
+            height: auto;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .chart-title {
+            font-size: 7.5pt;
+            font-weight: 700;
+            color: #374151;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-bottom: 1px solid #e5e7eb;
+            padding-bottom: 5px;
+            margin-bottom: 10px;
+        }
+
+        /* ====================================================
    TABLAS DE DATOS
 ==================================================== */
-.dt {
-    width: 100%; border-collapse: collapse;
-    font-size: 8pt; margin-bottom: 0;
-}
-.dt thead th {
-    background: #0A2463; color: #ffffff;
-    padding: 8px 9px; text-align: center;
-    font-weight: 600; font-size: 7.5pt; letter-spacing: 0.2px;
-}
-.dt thead th.tl { text-align: left; }
-.dt tbody td {
-    padding: 7px 9px; text-align: center;
-    border-bottom: 1px solid #e2e8f0; color: #334155;
-}
-.dt tbody td.tl { text-align: left; font-weight: 500; color: #1e293b; }
-.dt tbody tr:nth-child(even) td { background: #f8fafc; }
-.dt tbody tr:last-child td { border-bottom: 2px solid #0A2463; }
+        .dt {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 8pt;
+            margin-bottom: 0;
+        }
 
-/* Tabla mensual — fuente mas pequena para 14 columnas */
-.dt-mensual { font-size: 7.5pt; }
-.dt-mensual thead th { padding: 7px 5px; font-size: 7pt; }
-.dt-mensual tbody td { padding: 6px 5px; }
+        .dt thead th {
+            background: #0A2463;
+            color: #ffffff;
+            padding: 8px 9px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 7.5pt;
+            letter-spacing: 0.2px;
+        }
 
-/* Semaforo de porcentajes */
-.p-g { color: #16a34a; font-weight: 700; }
-.p-a { color: #d97706; font-weight: 700; }
-.p-r { color: #dc2626; font-weight: 700; }
+        .dt thead th.tl {
+            text-align: left;
+        }
 
-/* Puntos de semaforo en tabla contabilizacion */
-.sem-green { color: #16a34a; font-weight: 700; }
-.sem-amber { color: #d97706; font-weight: 700; }
-.sem-red   { color: #dc2626; font-weight: 700; }
-.sem-gray  { color: #94a3b8; }
+        .dt tbody td {
+            padding: 7px 9px;
+            text-align: center;
+            border-bottom: 1px solid #e2e8f0;
+            color: #334155;
+        }
 
-/* Divisor visual entre secciones de una misma pagina */
-.section-divider {
-    border: none; border-top: 1px solid #e2e8f0;
-    margin: 16px 0;
-}
+        .dt tbody td.tl {
+            text-align: left;
+            font-weight: 500;
+            color: #1e293b;
+        }
 
-</style>
+        .dt tbody tr:nth-child(even) td {
+            background: #f8fafc;
+        }
+
+        .dt tbody tr:last-child td {
+            border-bottom: 2px solid #0A2463;
+        }
+
+        /* Tabla mensual — fuente mas pequena para 14 columnas */
+        .dt-mensual {
+            font-size: 7.5pt;
+        }
+
+        .dt-mensual thead th {
+            padding: 7px 5px;
+            font-size: 7pt;
+        }
+
+        .dt-mensual tbody td {
+            padding: 6px 5px;
+        }
+
+        /* Semaforo de porcentajes */
+        .p-g {
+            color: #16a34a;
+            font-weight: 700;
+        }
+
+        .p-a {
+            color: #d97706;
+            font-weight: 700;
+        }
+
+        .p-r {
+            color: #dc2626;
+            font-weight: 700;
+        }
+
+        /* Puntos de semaforo en tabla contabilizacion */
+        .sem-green {
+            color: #16a34a;
+            font-weight: 700;
+        }
+
+        .sem-amber {
+            color: #d97706;
+            font-weight: 700;
+        }
+
+        .sem-red {
+            color: #dc2626;
+            font-weight: 700;
+        }
+
+        .sem-gray {
+            color: #94a3b8;
+        }
+
+        /* Divisor visual entre secciones de una misma pagina */
+        .section-divider {
+            border: none;
+            border-top: 1px solid #e2e8f0;
+            margin: 16px 0;
+        }
+    </style>
 </head>
+
 <body>
 
-<!-- ========================================================
+    <!-- ========================================================
      PORTADA
 ======================================================== -->
-<div class="cover">
-    <div class="deco-a"></div>
-    <div class="deco-b"></div>
-    <div class="deco-c"></div>
-    <div class="deco-d"></div>
-    <div class="cover-inner">
-        <div class="cover-eyebrow">Enertika &nbsp;&bull;&nbsp; Soluciones Energeticas</div>
-        <div class="cover-accent-line"></div>
-        <div class="cover-title">Reporte<br>Analitico</div>
-        <div class="cover-title-sub">Modulo de Simulacion de Proyectos</div>
-        <hr class="cover-divider">
-        <table class="cover-meta-grid">
-            <tr>
-                <td>
-                    <span class="cover-meta-label">Periodo analizado</span>
-                    <span class="cover-meta-value teal">{{ filtros.fecha_inicio }} &ndash; {{ filtros.fecha_fin }}</span>
-                </td>
-                <td>
-                    {% if filtros.id_tecnologia %}
-                    <span class="cover-meta-label">Tecnologia</span>
-                    <span class="cover-meta-value">{{ filtros.id_tecnologia }}</span>
-                    {% endif %}
-                </td>
-                <td>
-                    {% if filtros.responsable_id %}
-                    <span class="cover-meta-label">Usuario</span>
-                    <span class="cover-meta-value">{{ filtros.responsable_id }}</span>
-                    {% endif %}
-                </td>
-            </tr>
-        </table>
+    <div class="cover">
+        <div class="deco-a"></div>
+        <div class="deco-b"></div>
+        <div class="deco-c"></div>
+        <div class="deco-d"></div>
+        <div class="cover-inner">
+            <div class="cover-eyebrow">Enertika &nbsp;&bull;&nbsp; Energia para el Futuro</div>
+            <div class="cover-accent-line"></div>
+            <div class="cover-title">Reporte<br>Analitico</div>
+            <div class="cover-title-sub">Modulo de Simulacion de Proyectos</div>
+            <hr class="cover-divider">
+            <table class="cover-meta-grid">
+                <tr>
+                    <td>
+                        <span class="cover-meta-label">Periodo analizado</span>
+                        <span class="cover-meta-value teal">{{ filtros.fecha_inicio }} &ndash; {{ filtros.fecha_fin
+                            }}</span>
+                    </td>
+                    <td>
+                        {% if generado_por %}
+                        <span class="cover-meta-label">Generado por</span>
+                        <span class="cover-meta-value">{{ generado_por }}</span>
+                        {% endif %}
+                    </td>
+                </tr>
+            </table>
+        </div>
+        <div class="cover-bar"></div>
     </div>
-    <div class="cover-bar"></div>
-</div>
 
 
-<!-- ========================================================
+    <!-- ========================================================
      PAGINA 2 — KPIs + GRAFICAS DISTRIBUCION
 ======================================================== -->
-{% set m = kpis %}
+    {% set m = kpis %}
 
-{% if filtros.id_tecnologia or filtros.responsable_id %}
-<div class="filtros">
-    Filtros &mdash;
-    {% if filtros.id_tecnologia %}Tecnologia: <strong>{{ filtros.id_tecnologia }}</strong>{% endif %}
-    {% if filtros.responsable_id %}{% if filtros.id_tecnologia %} &middot; {% endif %}Usuario: <strong>{{ filtros.responsable_id }}</strong>{% endif %}
-</div>
-{% endif %}
+    {% if filtros.id_tecnologia or filtros.responsable_id %}
+    <div class="filtros">
+        Filtros &mdash;
+        {% if filtros.id_tecnologia %}Tecnologia: <strong>{{ filtros.id_tecnologia }}</strong>{% endif %}
+        {% if filtros.responsable_id %}{% if filtros.id_tecnologia %} &middot; {% endif %}Usuario: <strong>{{
+            filtros.responsable_id }}</strong>{% endif %}
+    </div>
+    {% endif %}
 
-<div class="section-title">Resumen Ejecutivo</div>
+    <div class="section-title">Resumen Ejecutivo</div>
 
-<table class="kpi-grid">
-    <tr>
-        <td class="kpi-card">
-            <div class="kv">{{ m.total_solicitudes }}</div>
-            <div class="kl">Total Solicitudes</div>
-        </td>
-        <td class="kpi-card k-teal">
-            <div class="kv k-teal">{{ m.total_ofertas }}</div>
-            <div class="kl">Ofertas Entregadas</div>
-        </td>
-        <td class="kpi-card k-green">
-            <div class="kv k-green">{{ m.porcentaje_a_tiempo_interno }}%</div>
-            <div class="kl">Cumpl. Interno</div>
-        </td>
-        <td class="kpi-card k-amber">
-            <div class="kv k-amber">{{ m.en_espera }}</div>
-            <div class="kl">En Espera</div>
-        </td>
-    </tr>
-</table>
+    <table class="kpi-grid">
+        <tr>
+            <td class="kpi-card">
+                <div class="kv">{{ m.total_solicitudes }}</div>
+                <div class="kl">Total Solicitudes</div>
+            </td>
+            <td class="kpi-card k-teal">
+                <div class="kv k-teal">{{ m.total_ofertas }}</div>
+                <div class="kl">Ofertas Entregadas</div>
+            </td>
+            <td class="kpi-card k-green">
+                <div class="kv k-green">{{ m.porcentaje_a_tiempo_interno }}%</div>
+                <div class="kl">Cumpl. Interno</div>
+            </td>
+            <td class="kpi-card k-amber">
+                <div class="kv k-amber">{{ m.en_espera }}</div>
+                <div class="kl">En Espera</div>
+            </td>
+        </tr>
+    </table>
 
-<table class="sec-metrics mb-14">
-    <tr>
-        <td class="ml">Entregas a tiempo — plazo comprometido</td>
-        <td class="mv">{{ m.entregas_a_tiempo_compromiso }}</td>
-        <td class="ml">% Cumplimiento comprometido</td>
-        <td class="mv">{{ m.porcentaje_a_tiempo_compromiso }}%</td>
-    </tr>
-    <tr>
-        <td class="ml">Entregas a tiempo — plazo interno</td>
-        <td class="mv">{{ m.entregas_a_tiempo_interno }}</td>
-        <td class="ml">Sin entregar</td>
-        <td class="mv">{{ m.total_solicitudes - m.total_ofertas }}</td>
-    </tr>
-</table>
+    <table class="sec-metrics mb-14">
+        <tr>
+            <td class="ml">Entregas a tiempo — plazo comprometido</td>
+            <td class="mv">{{ m.entregas_a_tiempo_compromiso }}</td>
+            <td class="ml">% Cumplimiento comprometido</td>
+            <td class="mv">{{ m.porcentaje_a_tiempo_compromiso }}%</td>
+        </tr>
+        <tr>
+            <td class="ml">Entregas a tiempo — plazo interno</td>
+            <td class="mv">{{ m.entregas_a_tiempo_interno }}</td>
+            <td class="ml">Sin entregar</td>
+            <td class="mv">{{ m.total_solicitudes - m.total_ofertas }}</td>
+        </tr>
+    </table>
 
-{# Graficas: Estatus + Tendencia mensual en la misma pagina #}
-{% if charts.estatus or charts.mensual %}
-<hr class="section-divider">
-<div class="section-label mb-10">Distribucion y Tendencia Mensual</div>
-<table class="chart-pair">
-    <tr>
-        {% if charts.estatus %}
-        <td>
-            <div class="chart-title">Distribucion por Estatus</div>
-            <img src="{{ charts.estatus }}" alt="">
-        </td>
-        {% endif %}
-        {% if charts.mensual %}
-        <td>
-            <div class="chart-title">Solicitudes por Mes</div>
-            <img src="{{ charts.mensual }}" alt="">
-        </td>
-        {% endif %}
-    </tr>
-</table>
-{% endif %}
+    {# Graficas: Estatus + Tendencia mensual en la misma pagina #}
+    {% if charts.estatus or charts.mensual %}
+    <hr class="section-divider">
+    <div class="section-label mb-10">Distribucion y Tendencia Mensual</div>
+    <table class="chart-pair">
+        <tr>
+            {% if charts.estatus %}
+            <td>
+                <div class="chart-title">Distribucion por Estatus</div>
+                <img src="{{ charts.estatus }}" alt="">
+            </td>
+            {% endif %}
+            {% if charts.mensual %}
+            <td>
+                <div class="chart-title">Solicitudes por Mes</div>
+                <img src="{{ charts.mensual }}" alt="">
+            </td>
+            {% endif %}
+        </tr>
+    </table>
+    {% endif %}
 
 
-<!-- ========================================================
+    <!-- ========================================================
      PAGINA 3 — CONTABILIZACION + TENDENCIA MENSUAL
 ======================================================== -->
-<div class="page-break"></div>
-<div class="section-title">Contabilizacion por Tipo de Solicitud</div>
+    <div class="page-break"></div>
+    <div class="section-title">Contabilizacion por Tipo de Solicitud</div>
 
-{% if tablas.contabilizacion %}
-<table class="dt mb-18">
-    <thead>
-        <tr>
-            <th class="tl">Tipo de Solicitud</th>
-            <th>Total</th>
-            <th>En Plazo Int.</th>
-            <th>% Int.</th>
-            <th>En Plazo Comp.</th>
-            <th>% Comp.</th>
-            <th>Sin Fecha</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for f in tablas.contabilizacion %}
-        <tr>
-            <td class="tl">{{ f.nombre }}</td>
-            <td>{{ f.total }}</td>
-            {% if f.es_levantamiento %}
+    {% if tablas.contabilizacion %}
+    <table class="dt mb-18">
+        <thead>
+            <tr>
+                <th class="tl">Tipo de Solicitud</th>
+                <th>Total</th>
+                <th>En Plazo Int.</th>
+                <th>% Int.</th>
+                <th>En Plazo Comp.</th>
+                <th>% Comp.</th>
+                <th>Sin Fecha</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for f in tablas.contabilizacion %}
+            <tr>
+                <td class="tl">{{ f.nombre }}</td>
+                <td>{{ f.total }}</td>
+                {% if f.es_levantamiento %}
                 <td colspan="4" style="color:#94a3b8;font-style:italic;font-size:8pt;">No aplica KPI</td>
-            {% else %}
+                {% else %}
                 <td>{{ f.entregas_a_tiempo_interno }}</td>
                 <td class="sem-{{ f.semaforo_interno }}">{{ f.porcentaje_a_tiempo_interno }}%</td>
                 <td>{{ f.entregas_a_tiempo_compromiso }}</td>
                 <td class="sem-{{ f.semaforo_compromiso }}">{{ f.porcentaje_a_tiempo_compromiso }}%</td>
-            {% endif %}
-            <td>{{ f.sin_fecha if f.sin_fecha else '—' }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<p style="font-size:8.5pt;color:#94a3b8;font-style:italic;margin-bottom:18px;">Sin datos para este periodo.</p>
-{% endif %}
+                {% endif %}
+                <td>{{ f.sin_fecha if f.sin_fecha else '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="font-size:8.5pt;color:#94a3b8;font-style:italic;margin-bottom:18px;">Sin datos para este periodo.</p>
+    {% endif %}
 
-{# Tabla de tendencia mensual #}
-{% if tablas.mensual %}
-<hr class="section-divider">
-<div class="section-title" style="margin-top:4px;">Tendencia Mensual</div>
+    {# Tabla de tendencia mensual #}
+    {% if tablas.mensual %}
+    <hr class="section-divider">
+    <div class="section-title" style="margin-top:4px;">Tendencia Mensual</div>
 
-{% set meses_abr = {1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic'} %}
-{% set meses_list = [1,2,3,4,5,6,7,8,9,10,11,12] %}
+    {% set meses_abr =
+    {1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic'} %}
+    {% set meses_list = [1,2,3,4,5,6,7,8,9,10,11,12] %}
 
-{# Metricas a mostrar: (etiqueta, clave en tablas.mensual) #}
-{% set filas_key = [
+    {# Metricas a mostrar: (etiqueta, clave en tablas.mensual) #}
+    {% set filas_key = [
     ('Solicitudes recibidas', 'solicitudes_recibidas'),
-    ('Ofertas generadas',     'ofertas_generadas'),
-    ('% Cumpl. interno',      'porcentaje_en_plazo_interno'),
-    ('En espera',             'en_espera'),
-    ('Canceladas',            'canceladas'),
-    ('Perdidas',              'perdidas'),
-] %}
+    ('Ofertas generadas', 'ofertas_generadas'),
+    ('% Cumpl. interno', 'porcentaje_en_plazo_interno'),
+    ('En espera', 'en_espera'),
+    ('Canceladas', 'canceladas'),
+    ('Perdidas', 'perdidas'),
+    ] %}
 
-<table class="dt dt-mensual">
-    <thead>
-        <tr>
-            <th class="tl" style="width:18%;">Metrica</th>
-            {% for mes in meses_list %}
-            <th>{{ meses_abr[mes] }}</th>
+    <table class="dt dt-mensual">
+        <thead>
+            <tr>
+                <th class="tl" style="width:18%;">Metrica</th>
+                {% for mes in meses_list %}
+                <th>{{ meses_abr[mes] }}</th>
+                {% endfor %}
+                <th>Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for etiqueta, clave in filas_key %}
+            {% set fila = tablas.mensual.get(clave) %}
+            {% if fila %}
+            <tr>
+                <td class="tl">{{ etiqueta }}</td>
+                {% for mes in meses_list %}
+                {% set val = fila.valores.get(mes) %}
+                <td>{% if not val or val == 0 %}—{% else %}{{ val }}{% endif %}</td>
+                {% endfor %}
+                <td><strong>{{ fila.total if fila.total else '—' }}</strong></td>
+            </tr>
+            {% endif %}
             {% endfor %}
-            <th>Total</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for etiqueta, clave in filas_key %}
-        {% set fila = tablas.mensual.get(clave) %}
-        {% if fila %}
-        <tr>
-            <td class="tl">{{ etiqueta }}</td>
-            {% for mes in meses_list %}
-            {% set val = fila.valores.get(mes) %}
-            <td>{% if not val or val == 0 %}—{% else %}{{ val }}{% endif %}</td>
+        </tbody>
+    </table>
+    {% endif %}
+
+    {# Seccion de Solicitudes Canceladas/Perdidas y Motivos de Cierre #}
+    {% if tablas.motivos_cierre %}
+    <hr class="section-divider">
+    <div class="section-title" style="margin-top:4px;">Solicitudes Canceladas / Perdidas — Motivos de Cierre</div>
+
+    <table class="dt mb-14">
+        <thead>
+            <tr>
+                <th class="tl" style="width:45%;">Motivo</th>
+                <th style="width:25%;">Categoria</th>
+                <th style="width:15%;">Cantidad</th>
+                <th style="width:15%;">% del Total</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% set total_motivos = tablas.motivos_cierre | sum(attribute='total') %}
+            {% for mc in tablas.motivos_cierre %}
+            <tr>
+                <td class="tl">{{ mc.motivo }}</td>
+                <td>{{ mc.categoria }}</td>
+                <td>{{ mc.total }}</td>
+                <td>{{ (mc.total / total_motivos * 100) | round(1) if total_motivos > 0 else 0 }}%</td>
+            </tr>
             {% endfor %}
-            <td><strong>{{ fila.total if fila.total else '—' }}</strong></td>
-        </tr>
-        {% endif %}
-        {% endfor %}
-    </tbody>
-</table>
-{% endif %}
+        </tbody>
+    </table>
+    {% else %}
+    <hr class="section-divider">
+    <div class="section-title" style="margin-top:4px;">Solicitudes Canceladas / Perdidas — Motivos de Cierre</div>
+    <p style="font-size:8.5pt;color:#94a3b8;font-style:italic;margin-bottom:18px;">Sin solicitudes canceladas o perdidas
+        con motivo de cierre en este periodo.</p>
+    {% endif %}
 
 
-<!-- ========================================================
+    <!-- ========================================================
      PAGINA 4 — TECNOLOGIA + GRAFICAS USUARIOS
 ======================================================== -->
-<div class="page-break"></div>
-<div class="section-title">Analisis por Tecnologia</div>
+    <div class="page-break"></div>
+    <div class="section-title">Analisis por Tecnologia</div>
 
-{% if tablas.tecnologias %}
-<table class="dt mb-14">
-    <thead>
-        <tr>
-            <th class="tl">Tecnologia</th>
-            <th>Solicitudes</th>
-            <th>Ofertas</th>
-            <th>A Tiempo Int.</th>
-            <th>A Tiempo Comp.</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for t in tablas.tecnologias %}
-        <tr>
-            <td class="tl">{{ t.nombre }}</td>
-            <td>{{ t.total_solicitudes }}</td>
-            <td>{{ t.total_ofertas }}</td>
-            <td>{{ t.entregas_a_tiempo_interno }}</td>
-            <td>{{ t.entregas_a_tiempo_compromiso }}</td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% endif %}
+    {% if tablas.tecnologias %}
+    <table class="dt mb-14">
+        <thead>
+            <tr>
+                <th class="tl">Tecnologia</th>
+                <th>Solicitudes</th>
+                <th>Ofertas</th>
+                <th>A Tiempo Int.</th>
+                <th>A Tiempo Comp.</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for t in tablas.tecnologias %}
+            <tr>
+                <td class="tl">{{ t.nombre }}</td>
+                <td>{{ t.total_solicitudes }}</td>
+                <td>{{ t.total_ofertas }}</td>
+                <td>{{ t.entregas_a_tiempo_interno }}</td>
+                <td>{{ t.entregas_a_tiempo_compromiso }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
 
-{% if charts.tecnologia %}
-<div class="chart-full mb-14">
-    <div class="chart-title" style="text-align:left;">Distribucion de Solicitudes por Tecnologia</div>
-    <img src="{{ charts.tecnologia }}" alt="">
-</div>
-{% endif %}
-
-{# Graficas de usuarios y motivos en la misma pagina, debajo de tecnologia #}
-{% if charts.kpi or charts.motivos %}
-<hr class="section-divider">
-<div class="section-label mb-10">Desempeno por Usuario y Motivos de Cierre</div>
-<table class="chart-pair">
-    <tr>
-        {% if charts.kpi %}
-        <td>
-            <div class="chart-title">Cumplimiento por Usuario</div>
-            <img src="{{ charts.kpi }}" alt="">
-        </td>
-        {% endif %}
-        {% if charts.motivos %}
-        <td>
-            <div class="chart-title">Motivos de Cierre</div>
-            <img src="{{ charts.motivos }}" alt="">
-        </td>
-        {% endif %}
-    </tr>
-</table>
-{% endif %}
+    {% if charts.tecnologia %}
+    <div class="chart-full mb-14">
+        <div class="chart-title" style="text-align:left;">Distribucion de Solicitudes por Tecnologia</div>
+        <img src="{{ charts.tecnologia }}" alt="">
+    </div>
+    {% endif %}
 
 
-<!-- ========================================================
+
+
+    <!-- ========================================================
      PAGINA 5 — RESUMEN POR USUARIO
 ======================================================== -->
-{% if tablas.usuarios %}
-<div class="page-break"></div>
-<div class="section-title">Resumen por Usuario</div>
+    {% if tablas.usuarios %}
+    <div class="page-break"></div>
+    <div class="section-title">Resumen por Usuario</div>
 
-<table class="dt">
-    <thead>
-        <tr>
-            <th class="tl">Usuario</th>
-            <th>Solicitudes</th>
-            <th>Ofertas</th>
-            <th>A Tiempo Int.</th>
-            <th>% Int.</th>
-            <th>A Tiempo Comp.</th>
-            <th>% Comp.</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% for u in tablas.usuarios %}
-        {% set mg = u.metricas_generales %}
-        <tr>
-            <td class="tl">{{ u.nombre }}</td>
-            <td>{{ mg.total_solicitudes }}</td>
-            <td>{{ mg.total_ofertas }}</td>
-            <td>{{ mg.entregas_a_tiempo_interno }}</td>
-            <td class="{% if mg.porcentaje_a_tiempo_interno >= 80 %}p-g{% elif mg.porcentaje_a_tiempo_interno >= 60 %}p-a{% else %}p-r{% endif %}">
-                {{ mg.porcentaje_a_tiempo_interno }}%
-            </td>
-            <td>{{ mg.entregas_a_tiempo_compromiso }}</td>
-            <td class="{% if mg.porcentaje_a_tiempo_compromiso >= 80 %}p-g{% elif mg.porcentaje_a_tiempo_compromiso >= 60 %}p-a{% else %}p-r{% endif %}">
-                {{ mg.porcentaje_a_tiempo_compromiso }}%
-            </td>
-        </tr>
-        {% endfor %}
-    </tbody>
-</table>
-{% endif %}
+    <table class="dt">
+        <thead>
+            <tr>
+                <th class="tl">Usuario</th>
+                <th>Solicitudes</th>
+                <th>Ofertas</th>
+                <th>Licit.</th>
+                <th>A Tiempo Int.</th>
+                <th>% Int.</th>
+                <th>A Tiempo Comp.</th>
+                <th>% Comp.</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for u in tablas.usuarios %}
+            {% set mg = u.metricas_generales %}
+            <tr>
+                <td class="tl">{{ u.nombre }}</td>
+                <td>{{ mg.total_solicitudes }}</td>
+                <td>{{ mg.total_ofertas }}</td>
+                <td>{{ mg.licitaciones }}</td>
+                <td>{{ mg.entregas_a_tiempo_interno }}</td>
+                <td
+                    class="{% if mg.porcentaje_a_tiempo_interno >= 80 %}p-g{% elif mg.porcentaje_a_tiempo_interno >= 60 %}p-a{% else %}p-r{% endif %}">
+                    {{ mg.porcentaje_a_tiempo_interno }}%
+                </td>
+                <td>{{ mg.entregas_a_tiempo_compromiso }}</td>
+                <td
+                    class="{% if mg.porcentaje_a_tiempo_compromiso >= 80 %}p-g{% elif mg.porcentaje_a_tiempo_compromiso >= 60 %}p-a{% else %}p-r{% endif %}">
+                    {{ mg.porcentaje_a_tiempo_compromiso }}%
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+
+    {# Resumen en texto por usuario #}
+    {% for u in tablas.usuarios %}
+    {% if u.resumen_datos %}
+    {% set r = u.resumen_datos %}
+    <div
+        style="margin-top:12px;padding:8px 12px;background:#f8fafc;border:1px solid #e2e8f0;border-left:3px solid #0A2463;font-size:8pt;color:#334155;line-height:1.5;">
+        <strong style="color:#0A2463;">{{ u.nombre }}</strong> &mdash;
+        {{ r.total_ofertas }} ofertas
+        {% if r.tecnologia_principal %}, principalmente en {{ r.tecnologia_principal.nombre }} ({{
+        r.tecnologia_principal.solicitudes }} solicitudes){% endif %}.
+        Cumplimiento interno <strong>{{ r.porcentaje_interno }}%</strong>,
+        compromiso con cliente <strong>{{ r.porcentaje_compromiso }}%</strong>.
+        {{ r.licitaciones }} licitaciones ({{ r.porcentaje_licitaciones }}%),
+        {{ r.extraordinarias }} extraordinarias,
+        {{ r.versiones }} actualizaciones.
+        {% if r.total_sitios > 0 %}
+        Total sitios: {{ r.total_sitios }} ({{ r.total_sitios_entregados }} entregados){% if r.oportunidades_multisitio
+        > 0 %}, {{ r.oportunidades_multisitio }} multisitio{% endif %}.
+        {% endif %}
+        {% if r.total_retrabajos > 0 %}
+        <span style="color:#c2410c;">{{ r.total_retrabajos }} retrabajos ({{ r.porcentaje_retrabajos }}%){% if
+            r.motivo_retrabajo_principal %}, motivo principal: &ldquo;{{ r.motivo_retrabajo_principal }}&rdquo;{% endif
+            %}.</span>
+        {% endif %}
+    </div>
+    {% endif %}
+    {% endfor %}
+    {% endif %}
 
 </body>
+
 </html>

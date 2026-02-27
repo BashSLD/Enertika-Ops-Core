@@ -12,6 +12,13 @@
             <span class="text-[10px] text-gray-500">
                 {{ comentario.fecha_comentario | time_mx }}
             </span>
+            {% if comentario.comentario_op_estandar %}
+            <span
+                class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-gray-100 text-gray-500 border border-gray-200"
+                title="Registro origen">
+                {{ comentario.comentario_op_estandar }}
+            </span>
+            {% endif %}
         </div>
 
         {# Badge de módulo/departamento origen #}
@@ -100,6 +107,13 @@
                 <span class="text-[10px] text-gray-500">
                     {{ comentario.fecha_comentario | time_mx }}
                 </span>
+                {% if comentario.comentario_op_estandar %}
+                <span
+                    class="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-gray-100 text-gray-500 border border-gray-200"
+                    title="Registro origen">
+                    {{ comentario.comentario_op_estandar }}
+                </span>
+                {% endif %}
             </div>
 
             {# Badge de módulo/departamento origen #}

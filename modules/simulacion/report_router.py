@@ -433,6 +433,7 @@ async def generar_reporte_pdf(
     filtros_json: str = _Form(...),
     charts_json: str = _Form(default="{}"),
     conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
     service: ReportesSimulacionService = Depends(get_reportes_service),
     pdf_service: PDFService = Depends(get_pdf_service),
     _=require_module_access("simulacion"),
@@ -479,6 +480,7 @@ async def generar_reporte_pdf(
                 "kpis": datos.get("metricas"),
                 "charts": charts,
                 "tablas": datos,
+                "generado_por": context.get("user_name", ""),
             },
         )
 

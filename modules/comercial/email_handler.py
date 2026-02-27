@@ -5,7 +5,6 @@ import logging
 from fastapi import Request, UploadFile, HTTPException
 from fastapi.templating import Jinja2Templates
 from core.security import get_valid_graph_token
-from .file_utils import validate_file_size
 
 logger = logging.getLogger("ComercialModule")
 templates = Jinja2Templates(directory="templates")
@@ -13,7 +12,7 @@ templates = Jinja2Templates(directory="templates")
 class EmailHandler:
     """Maneja el envío de correos del módulo comercial."""
     
-    MAX_FILE_SIZE = 10 * 1024 * 1024
+    MAX_TOTAL_FILE_SIZE = 35 * 1024 * 1024  # 35 MB (límite total de adjuntos)
     
     async def procesar_y_enviar_notificacion(
         self,
@@ -172,26 +171,35 @@ class EmailHandler:
         
         for archivo in archivos_extra:
             if archivo.filename:
-                try:
-                    # Validar tamaño y leer contenido en una sola operación
-                    _, file_size, contenido = validate_file_size(archivo, max_size_mb=10, read_content=True)
-                except HTTPException:
-                    # La función ya maneja el logging
-                    error_response = templates.TemplateResponse(
-                        "comercial/partials/toasts/toast_error.html",
-                        {
-                            "request": request,
-                            "title": "Archivo muy grande",
-                            "message": "El archivo excede el tamaño máximo permitido de 10MB."
-                        }
-                    )
-                    return {"success": False, "error_response": error_response}
+                contenido = await archivo.read()
+                await archivo.seek(0)
                 
                 adjuntos_procesados.append({
                     "name": archivo.filename,
                     "content_bytes": contenido,
                     "contentType": archivo.content_type
                 })
+        
+        # Validar tamaño total de todos los adjuntos (35 MB máximo)
+        total_size = sum(len(a["content_bytes"]) for a in adjuntos_procesados)
+        if total_size > self.MAX_TOTAL_FILE_SIZE:
+            total_mb = total_size / (1024 * 1024)
+            logger.warning(
+                f"Adjuntos rechazados: total {total_mb:.1f}MB excede "
+                f"límite de {self.MAX_TOTAL_FILE_SIZE // (1024 * 1024)}MB"
+            )
+            return {
+                "success": False,
+                "error_response": templates.TemplateResponse(
+                    "comercial/partials/toasts/toast_error.html",
+                    {
+                        "request": request,
+                        "title": "Adjuntos exceden límite",
+                        "message": f"El tamaño total de adjuntos ({total_mb:.1f}MB) "
+                                   f"excede el máximo permitido de 35MB."
+                    }
+                )
+            }
         
         return {"success": True, "attachments": adjuntos_procesados}
     

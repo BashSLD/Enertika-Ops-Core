@@ -27,7 +27,8 @@
 </style>
 <div class="flex flex-col h-full relative">
     <!-- Header with Actions -->
-    <div class="glass-panel p-4 rounded-xl mb-4 flex justify-between items-center border-l-4 border-emerald-500">
+    <div
+        class="glass-panel p-4 rounded-xl mb-4 flex flex-wrap gap-3 justify-between items-center border-l-4 border-emerald-500">
         <div>
             <h2 class="text-2xl font-light text-gray-800">
                 Módulo <span class="font-bold text-emerald-600">Simulación</span>
@@ -38,7 +39,7 @@
         {% set is_admin_or_manager = (role == 'ADMIN') or (role == 'MANAGER') %}
         {% set can_view_metrics = is_admin_or_manager and (current_module_role in ['editor', 'admin']) %}
 
-        <div class="flex gap-3">
+        <div class="flex flex-wrap gap-3">
 
             {% if can_view_metrics %}
             <!-- Botón: Métricas Operativas (Admin y Manager) -->

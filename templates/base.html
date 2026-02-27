@@ -994,7 +994,10 @@
                     </button>
                 </div>
             `;
-            item.onclick = () => markAsRead(n.id, item);
+            item.onclick = (e) => {
+                if (e.target.closest('button[onclick]')) return; // Skip if clicking delete button
+                navigateToNotification(n, item);
+            };
             container.prepend(item);
         }
 
@@ -1014,6 +1017,51 @@
                         console.error("Error marking read");
                     }
                 });
+        }
+
+        function navigateToNotification(n, itemElement) {
+            // 1. Mark as read
+            markAsRead(n.id, itemElement);
+
+            // 2. Close dropdown (Alpine x-data)
+            document.querySelectorAll('[x-data]').forEach(el => {
+                if (el.__x && el.__x.$data && el.__x.$data.open !== undefined) {
+                    el.__x.$data.open = false;
+                }
+            });
+
+            // 3. Navigate if oportunidad_id exists
+            if (!n.oportunidad_id) return;
+
+            fetch(`/notifications/resolve/${n.oportunidad_id}`)
+                .then(r => r.json())
+                .then(target => {
+                    // Update sidebar active module
+                    if (window.Alpine) {
+                        const store = Alpine.store('activeModule');
+                        if (store) store.slug = target.module;
+                    }
+
+                    // Navigate to module UI, then open detail modal
+                    htmx.ajax('GET', target.url, {
+                        target: '#main-content',
+                        swap: 'innerHTML'
+                    }).then(() => {
+                        // Small delay to let the module UI render
+                        setTimeout(() => {
+                            htmx.ajax('GET', target.detail_url, {
+                                target: '#modal-content',
+                                swap: 'innerHTML'
+                            }).then(() => {
+                                if (typeof openModal === 'function') openModal();
+                            });
+                        }, 500);
+                    });
+
+                    // Push URL to history
+                    window.history.pushState({}, '', target.url);
+                })
+                .catch(err => console.error('[Notifications] Error navigating:', err));
         }
 
         function deleteNotification(id, event) {

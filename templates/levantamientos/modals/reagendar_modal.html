@@ -15,7 +15,7 @@
 <div class="modal-body">
     <!-- Info del levantamiento -->
     <div class="bg-slate-800/50 rounded-lg p-4 mb-4 border border-slate-700">
-        <div class="grid grid-cols-2 gap-4 text-sm">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
                 <span class="text-slate-400">OP-ID:</span>
                 <span class="text-white font-medium ml-2">{{ lev_data.op_id_estandar }}</span>
@@ -33,7 +33,8 @@
             <div class="col-span-2">
                 <span class="text-slate-400">Fecha anterior:</span>
                 <span class="text-amber-400 font-medium ml-2">
-                    {{ lev_data.fecha_visita_programada.strftime('%d/%m/%Y %H:%M') if lev_data.fecha_visita_programada else
+                    {{ lev_data.fecha_visita_programada.strftime('%d/%m/%Y %H:%M') if lev_data.fecha_visita_programada
+                    else
                     'Sin fecha' }}
                 </span>
             </div>

@@ -170,6 +170,43 @@ async def mark_notification_as_read(
     return {"status": "ok"}
 
 
+@router.get("/resolve/{oportunidad_id}")
+async def resolve_notification_target(
+    oportunidad_id: UUID,
+    context = Depends(get_current_user_context),
+    conn = Depends(get_db_connection)
+):
+    """
+    Determina a qué módulo/sección pertenece una oportunidad.
+    Usado por el frontend para navegar al hacer click en una notificación.
+    
+    Lógica:
+    - Si existe un registro en tb_levantamientos → levantamientos
+    - Si no → simulacion (kanban de ofertas)
+    
+    Returns:
+        {module, url, detail_url}
+    """
+    # Check if it's a levantamiento
+    lev_id = await conn.fetchval(
+        "SELECT id_levantamiento FROM tb_levantamientos WHERE id_oportunidad = $1 LIMIT 1",
+        oportunidad_id
+    )
+    
+    if lev_id:
+        return {
+            "module": "levantamientos",
+            "url": "/levantamientos/ui",
+            "detail_url": f"/levantamientos/modals/detalle/{lev_id}"
+        }
+    
+    return {
+        "module": "simulacion",
+        "url": "/simulacion/ui",
+        "detail_url": f"/simulacion/modals/detalle/{oportunidad_id}"
+    }
+
+
 @router.delete("/all")
 async def delete_all_notifications(
     context = Depends(get_current_user_context),

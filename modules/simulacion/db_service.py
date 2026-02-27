@@ -316,14 +316,29 @@ class SimulacionDBService:
 
     async def get_comentarios_workflow(self, conn, id_oportunidad: UUID) -> List[Dict[str, Any]]:
         rows = await conn.fetch("""
+            WITH cadena AS (
+                SELECT id_oportunidad FROM tb_oportunidades WHERE id_oportunidad = $1
+                UNION
+                SELECT id_oportunidad FROM tb_oportunidades WHERE parent_id = $1
+                UNION
+                SELECT parent_id FROM tb_oportunidades 
+                WHERE id_oportunidad = $1 AND parent_id IS NOT NULL
+                UNION
+                SELECT id_oportunidad FROM tb_oportunidades 
+                WHERE parent_id = (
+                    SELECT parent_id FROM tb_oportunidades WHERE id_oportunidad = $1
+                ) AND parent_id IS NOT NULL
+            )
             SELECT 
-                comentario,
-                usuario_nombre,
-                modulo_origen,
-                fecha_comentario AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City' as fecha_comentario
-            FROM tb_comentarios_workflow
-            WHERE id_oportunidad = $1
-            ORDER BY fecha_comentario DESC
+                cw.comentario,
+                cw.usuario_nombre,
+                cw.modulo_origen,
+                cw.fecha_comentario AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City' as fecha_comentario,
+                op.op_id_estandar as comentario_op_estandar
+            FROM tb_comentarios_workflow cw
+            LEFT JOIN tb_oportunidades op ON cw.id_oportunidad = op.id_oportunidad
+            WHERE cw.id_oportunidad IN (SELECT id_oportunidad FROM cadena)
+            ORDER BY cw.fecha_comentario DESC
         """, id_oportunidad)
         return [dict(r) for r in rows]
 

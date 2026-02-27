@@ -1,6 +1,7 @@
 <div id="kanban-container" class="flex flex-col h-full">
     <!-- Header Premium -->
-    <div class="glass-panel p-4 rounded-xl mb-4 flex justify-between items-center border-l-4 border-blue-500">
+    <div
+        class="glass-panel p-4 rounded-xl mb-4 flex flex-wrap gap-3 justify-between items-center border-l-4 border-blue-500">
         <div>
             <h2 class="text-2xl font-light text-gray-800">
                 Módulo <span
@@ -10,20 +11,21 @@
         </div>
         <div class="flex gap-2 flex-wrap">
             <!-- Ver Gráficas -->
-            <button hx-get="/levantamientos/partials/graficas"
-                hx-target="#kanban-container" hx-swap="outerHTML"
+            <button hx-get="/levantamientos/partials/graficas" hx-target="#kanban-container" hx-swap="outerHTML"
                 class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold py-2 px-3 rounded-lg flex items-center gap-2 transition-all duration-200">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
                 Gráficas
             </button>
             <!-- Ver Lista -->
-            <button hx-get="/levantamientos/partials/lista?tab=activos"
-                hx-target="#kanban-container" hx-swap="outerHTML"
+            <button hx-get="/levantamientos/partials/lista?tab=activos" hx-target="#kanban-container"
+                hx-swap="outerHTML"
                 class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-3 rounded-lg flex items-center gap-2 transition-all duration-200">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M3 10h18M3 14h18M3 6h18M3 18h18" />
                 </svg>
@@ -48,7 +50,7 @@
 
         <!-- Column 1: PENDIENTES -->
         <div class="flex flex-col glass-panel rounded-xl shadow-sm h-full border-t-4 border-orange-400"
-            x-data="{ open: false }">
+            x-data="{ open: true }">
             <div class="p-4 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
                 @click="open = !open">
                 <h3 class="font-bold text-gray-700 flex justify-between items-center">
@@ -71,7 +73,7 @@
                 {% if pendientes %}
                 {% set latest = pendientes[0] %}
                 <div
-                    class="relative bg-white p-3 rounded shadow-sm border {{ 'border-red-400' if latest.prioridad|lower == 'high' else 'border-gray-200' }} opacity-90 group-hover:opacity-100 transition-all transform group-hover:scale-[1.02]">
+                    class="relative bg-white p-3 rounded shadow-sm border {% if latest.prioridad|lower == 'high' %}border-red-400{% elif latest.es_nuevo %}border-amber-400{% else %}border-gray-200{% endif %} opacity-90 group-hover:opacity-100 transition-all transform group-hover:scale-[1.02]">
                     <!-- Stack effect -->
                     <div
                         class="absolute -bottom-1 left-1 right-1 h-2 bg-gray-50 rounded-b-lg -z-10 border border-t-0 border-gray-200">
@@ -92,6 +94,12 @@
                                 class="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
                             <span class="relative inline-flex rounded-full h-2 w-2 bg-red-500"></span>
                         </span>
+                        {% elif latest.es_nuevo %}
+                        <span class="ml-2 flex h-2 w-2 relative">
+                            <span
+                                class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                        </span>
                         {% endif %}
                     </div>
                 </div>
@@ -108,13 +116,21 @@
             <div class="p-2 flex-1 overflow-y-auto space-y-3" x-show="open" x-transition>
                 {% for item in pendientes %}
                 <div
-                    class="bg-white p-3 rounded shadow-sm border {{ 'border-red-400 shadow-[0_0_10px_rgba(239,68,68,0.5)]' if item.prioridad|lower == 'high' else 'border-gray-200' }} hover:shadow-md transition-shadow relative">
-                    <!-- Priority -->
-                    <div class="absolute top-2 right-2">
-                        <span
-                            class="text-xs font-bold {{ 'text-red-600' if item.prioridad|lower == 'high' else 'text-gray-400' }}">
-                            {{ item.prioridad|title }}
+                    class="bg-white p-3 rounded shadow-sm border {% if item.prioridad|lower == 'high' %}border-red-400 shadow-[0_0_10px_rgba(239,68,68,0.5)]{% elif item.es_nuevo %}border-amber-400 shadow-[0_0_10px_rgba(245,158,11,0.35)]{% else %}border-gray-200{% endif %} hover:shadow-md transition-shadow relative">
+                    <!-- Priority / Nuevo badge -->
+                    <div class="absolute top-2 right-2 flex items-center gap-1.5">
+                        {% if item.es_nuevo %}
+                        <span class="flex h-2 w-2 relative">
+                            <span
+                                class="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                            <span class="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
                         </span>
+                        <span class="text-xs font-bold text-amber-500">Nuevo</span>
+                        {% elif item.prioridad|lower == 'high' %}
+                        <span class="text-xs font-bold text-red-600">{{ item.prioridad|title }}</span>
+                        {% else %}
+                        <span class="text-xs font-bold text-gray-400">{{ item.prioridad|title }}</span>
+                        {% endif %}
                     </div>
 
                     <div class="mb-2">
@@ -123,8 +139,11 @@
                             item.titulo_proyecto }}</h4>
                         {% if item.sitio_total > 1 %}
                         <div class="flex items-center gap-1.5 mt-1">
-                            <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio {{ item.sitio_num }}/{{ item.sitio_total }}</span>
-                            {% if item.nombre_sitio %}<span class="text-xs text-gray-400 truncate">{{ item.nombre_sitio }}</span>{% endif %}
+                            <span
+                                class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio
+                                {{ item.sitio_num }}/{{ item.sitio_total }}</span>
+                            {% if item.nombre_sitio %}<span class="text-xs text-gray-400 truncate">{{ item.nombre_sitio
+                                }}</span>{% endif %}
                         </div>
                         {% endif %}
                         <div class="flex justify-between items-center mt-1">
@@ -290,8 +309,10 @@
                         {{ item.nombre_proyecto or item.titulo_proyecto }}</h4>
                     {% if item.sitio_total > 1 %}
                     <div class="flex items-center gap-1.5 mt-1">
-                        <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio {{ item.sitio_num }}/{{ item.sitio_total }}</span>
-                        {% if item.nombre_sitio %}<span class="text-xs text-gray-400 truncate">{{ item.nombre_sitio }}</span>{% endif %}
+                        <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio
+                            {{ item.sitio_num }}/{{ item.sitio_total }}</span>
+                        {% if item.nombre_sitio %}<span class="text-xs text-gray-400 truncate">{{ item.nombre_sitio
+                            }}</span>{% endif %}
                     </div>
                     {% endif %}
 
@@ -483,8 +504,10 @@
                         {{ item.nombre_proyecto or item.titulo_proyecto }}</h4>
                     {% if item.sitio_total > 1 %}
                     <div class="flex items-center gap-1.5 mt-1">
-                        <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio {{ item.sitio_num }}/{{ item.sitio_total }}</span>
-                        {% if item.nombre_sitio %}<span class="text-xs text-gray-400 truncate">{{ item.nombre_sitio }}</span>{% endif %}
+                        <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio
+                            {{ item.sitio_num }}/{{ item.sitio_total }}</span>
+                        {% if item.nombre_sitio %}<span class="text-xs text-gray-400 truncate">{{ item.nombre_sitio
+                            }}</span>{% endif %}
                     </div>
                     {% endif %}
 
@@ -500,6 +523,16 @@
 
                         <div class="mt-3 pt-2 border-t border-gray-100 flex justify-between items-center">
                             <div class="flex gap-1">
+                                <button hx-get="/levantamientos/modal/assign/{{ item.id_levantamiento }}"
+                                    hx-target="#modal-content" hx-swap="innerHTML" onclick="openModal()"
+                                    class="text-gray-500 hover:text-blue-600 hover:bg-blue-50 px-1.5 py-1.5 rounded-full transition-all"
+                                    title="Reasignar Responsables">
+                                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                        stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                                        <path stroke-linecap="round" stroke-linejoin="round"
+                                            d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM3.75 13.5v.75c0 2.123.895 4.118 2.368 5.638a2.122 2.122 0 01.356-.357 6.138 6.138 0 005.35-7.795 3.375 3.375 0 01-1.359 1.498 7.489 7.489 0 01-3.329.808H6.375z" />
+                                    </svg>
+                                </button>
                                 <button hx-get="/levantamientos/modal/historial/{{ item.id_levantamiento }}"
                                     hx-target="#modal-content" hx-swap="innerHTML" onclick="openModal()"
                                     class="text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 px-1.5 py-1.5 rounded-full transition-all"
@@ -660,8 +693,10 @@
                     </h4>
                     {% if item.sitio_total > 1 %}
                     <div class="flex items-center gap-1.5 mt-1">
-                        <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio {{ item.sitio_num }}/{{ item.sitio_total }}</span>
-                        {% if item.nombre_sitio %}<span class="text-xs text-gray-400 truncate">{{ item.nombre_sitio }}</span>{% endif %}
+                        <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio
+                            {{ item.sitio_num }}/{{ item.sitio_total }}</span>
+                        {% if item.nombre_sitio %}<span class="text-xs text-gray-400 truncate">{{ item.nombre_sitio
+                            }}</span>{% endif %}
                     </div>
                     {% endif %}
 
@@ -796,8 +831,10 @@
                     </div>
                     {% if item.sitio_total > 1 %}
                     <div class="flex items-center gap-1.5 mt-1">
-                        <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio {{ item.sitio_num }}/{{ item.sitio_total }}</span>
-                        {% if item.nombre_sitio %}<span class="text-xs text-gray-400 truncate">{{ item.nombre_sitio }}</span>{% endif %}
+                        <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio
+                            {{ item.sitio_num }}/{{ item.sitio_total }}</span>
+                        {% if item.nombre_sitio %}<span class="text-xs text-gray-400 truncate">{{ item.nombre_sitio
+                            }}</span>{% endif %}
                     </div>
                     {% endif %}
                     <p class="text-xs text-gray-400 mt-0.5">{{ item.op_id_estandar }}</p>
@@ -918,13 +955,25 @@
                     </h4>
                     {% if item.sitio_total > 1 %}
                     <div class="flex items-center gap-1.5 mt-1">
-                        <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio {{ item.sitio_num }}/{{ item.sitio_total }}</span>
-                        {% if item.nombre_sitio %}<span class="text-xs text-gray-400 truncate">{{ item.nombre_sitio }}</span>{% endif %}
+                        <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio
+                            {{ item.sitio_num }}/{{ item.sitio_total }}</span>
+                        {% if item.nombre_sitio %}<span class="text-xs text-gray-400 truncate">{{ item.nombre_sitio
+                            }}</span>{% endif %}
                     </div>
                     {% endif %}
 
                     <div class="mt-3 pt-2 border-t border-gray-100 flex justify-between items-center">
                         <div class="flex gap-1">
+                            <button hx-get="/levantamientos/modal/assign/{{ item.id_levantamiento }}"
+                                hx-target="#modal-content" hx-swap="innerHTML" onclick="openModal()"
+                                class="text-gray-500 hover:text-blue-600 hover:bg-blue-50 px-1.5 py-1.5 rounded-full transition-all"
+                                title="Reasignar Responsables">
+                                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                                    stroke-width="1.5" stroke="currentColor" class="w-5 h-5">
+                                    <path stroke-linecap="round" stroke-linejoin="round"
+                                        d="M19 7.5v3m0 0v3m0-3h3m-3 0h-3m-2.25-4.125a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zM3.75 13.5v.75c0 2.123.895 4.118 2.368 5.638a2.122 2.122 0 01.356-.357 6.138 6.138 0 005.35-7.795 3.375 3.375 0 01-1.359 1.498 7.489 7.489 0 01-3.329.808H6.375z" />
+                                </svg>
+                            </button>
                             <button hx-get="/levantamientos/modal/historial/{{ item.id_levantamiento }}"
                                 hx-target="#modal-content" hx-swap="innerHTML" onclick="openModal()"
                                 class="text-gray-500 hover:text-indigo-600 hover:bg-indigo-50 px-1.5 py-1.5 rounded-full transition-all"

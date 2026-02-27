@@ -4,6 +4,7 @@ import re
 from uuid import UUID
 from typing import List, Optional
 from fastapi.templating import Jinja2Templates
+from core.email_rules import EmailRulesService
 
 logger = logging.getLogger("ComercialServices")
 
@@ -14,6 +15,7 @@ class NotificationService:
 
     def __init__(self):
         self.templates = Jinja2Templates(directory="templates")
+        self.email_rules = EmailRulesService()
 
     def _is_multisite_heuristic(self, row: dict) -> bool:
         """Determina si es multisitio incluso si queda 1 solo sitio (Ported from ComercialService)."""
@@ -88,33 +90,12 @@ class NotificationService:
         fixed_to = [d.strip() for d in def_to if d.strip()] 
         fixed_cc = [d.strip() for d in def_cc if d.strip()]
 
-        # Reglas
-        rules = await conn.fetch("SELECT * FROM tb_config_emails WHERE modulo = 'COMERCIAL'")
-        FIELD_MAPPING = {
-            "Tecnología": "id_tecnologia",
-            "Tipo Solicitud": "id_tipo_solicitud",
-            "Estatus": "id_estatus_global",
-            "Cliente": "cliente_nombre"
-        }
-
-        for rule in rules:
-            field = rule['trigger_field']
-            val_trigger = str(rule['trigger_value']).strip().upper()
-            db_key = FIELD_MAPPING.get(field, field)
-            val_actual = row.get(db_key)
-            
-            match = False
-            if field == "Cliente":
-                if val_trigger in str(val_actual or "").upper(): match = True
-            else:
-                if str(val_actual or "") == val_trigger: match = True
-            
-            if match:
-                email = rule['email_to_add']
-                if rule['type'] == 'TO':
-                    if email not in fixed_to: fixed_to.append(email)
-                else:
-                    if email not in fixed_cc: fixed_cc.append(email)
+        # Reglas dinámicas (centralizadas, incluye GLOBAL)
+        rule_emails = await self.email_rules.get_emails_by_record(conn, 'COMERCIAL', dict(row))
+        for email in rule_emails['to']:
+            if email not in fixed_to: fixed_to.append(email)
+        for email in rule_emails['cc']:
+            if email not in fixed_cc: fixed_cc.append(email)
 
         # BESS Objetivos
         bess_str = ""
@@ -154,13 +135,9 @@ class NotificationService:
 
     async def enviar_notificacion_extraordinaria(self, conn, ms_auth, token: str, id_oportunidad: UUID, base_url: str, user_email: str):
         """Envía notificación extraordinaria."""
-        EVENTO_EXTRAORDINARIA = "EXTRAORDINARIA"
-        reglas = await conn.fetch("""
-            SELECT email_to_add, type FROM tb_config_emails 
-            WHERE modulo = 'COMERCIAL' AND trigger_field = 'EVENTO' AND trigger_value = $1
-        """, EVENTO_EXTRAORDINARIA)
+        reglas_emails = await self.email_rules.get_emails_by_event(conn, 'COMERCIAL', 'EXTRAORDINARIA')
         
-        if not reglas: return
+        if not reglas_emails['to'] and not reglas_emails['cc']: return
 
         op_data = await conn.fetchrow("""
             SELECT o.op_id_estandar, o.cliente_nombre, o.solicitado_por,
@@ -170,8 +147,8 @@ class NotificationService:
         
         if not op_data: return
 
-        recipients = [r['email_to_add'] for r in reglas if r['type'] == 'TO']
-        cc_list = [r['email_to_add'] for r in reglas if r['type'] == 'CC']
+        recipients = reglas_emails['to']
+        cc_list = reglas_emails['cc']
         
         template = self.templates.get_template("comercial/emails/notification_extraordinaria.html")
         html_body = template.render({"op": op_data, "dashboard_url": f"{base_url}/comercial/ui"})
