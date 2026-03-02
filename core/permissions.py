@@ -113,6 +113,37 @@ def user_has_module_access(module_slug: str, context: dict, min_role: str = "vie
     return user_role_level >= min_role_level
 
 
+def require_any_module_access(module_slugs: list[str], min_role: str = "viewer") -> Callable:
+    """
+    Dependency factory para recursos compartidos entre módulos (lógica OR).
+    Permite acceso si el usuario tiene min_role en AL MENOS UNO de los módulos indicados.
+
+    Útil para modales o endpoints accesibles desde múltiples módulos
+    (ej: modal de detalle de levantamiento abierto desde comercial o simulacion).
+
+    Args:
+        module_slugs: Lista de slugs de módulo (ej: ["levantamientos", "comercial"])
+        min_role: Rol mínimo requerido en al menos uno de los módulos
+
+    Raises:
+        HTTPException 403: Si el usuario no tiene el rol mínimo en ninguno de los módulos
+    """
+    async def _validate(context=Depends(get_current_user_context)):
+        if context.get("role") == "ADMIN":
+            return True
+
+        for slug in module_slugs:
+            if user_has_module_access(slug, context, min_role):
+                return True
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"No tienes acceso a ninguno de los módulos requeridos: {module_slugs}. Contacta al administrador."
+        )
+
+    return Depends(_validate)
+
+
 def require_role(allowed_roles: list[str]) -> Callable:
     """
     Valida que el usuario tenga uno de los roles globales permitidos.

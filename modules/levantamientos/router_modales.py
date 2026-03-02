@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, Request, HTTPException
 from fastapi.templating import Jinja2Templates
 
 from core.security import get_current_user_context
-from core.permissions import require_module_access
+from core.permissions import require_module_access, require_any_module_access
 from core.database import get_db_connection
 
 from .service import get_service, LevantamientoService
@@ -60,7 +60,7 @@ def register_modal_endpoints(router: APIRouter):
         conn=Depends(get_db_connection),
         db_svc: LevantamientosDBService = Depends(get_db_service),
         context=Depends(get_current_user_context),
-        _=require_module_access("levantamientos", "viewer"),
+        _=require_any_module_access(["levantamientos", "comercial", "simulacion"], "viewer"),
     ):
         """
         Renderiza el modal de DETALLE COMPLETO.
