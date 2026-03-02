@@ -645,7 +645,7 @@ class SimulacionDBService:
                 {where_clause}
             )
             SELECT
-                COUNT(CASE WHEN id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as total_solicitudes,
+                COUNT(DISTINCT CASE WHEN id_tipo_solicitud != ${idx_levantamiento} THEN id_oportunidad END) as total_solicitudes,
                 COUNT(CASE WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as total_ofertas,
                 COUNT(DISTINCT CASE WHEN id_estatus_global IN (${idx_pendiente}, ${idx_proceso}, ${idx_revision}) THEN id_oportunidad END) as en_espera,
                 COUNT(DISTINCT CASE WHEN id_estatus_global = ${idx_cancelado} THEN id_oportunidad END) as canceladas,
@@ -738,7 +738,7 @@ class SimulacionDBService:
             )
             SELECT
                 t.id as id_tecnologia, t.nombre,
-                COUNT(CASE WHEN st.id_tipo_solicitud != ${idx_levantamiento} THEN st.id_sitio END) as total_solicitudes,
+                COUNT(DISTINCT CASE WHEN st.id_tipo_solicitud != ${idx_levantamiento} THEN st.id_oportunidad END) as total_solicitudes,
                 COUNT(CASE WHEN st.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND st.id_tipo_solicitud != ${idx_levantamiento} THEN st.id_sitio END) as total_ofertas,
                 COUNT(*) FILTER (WHERE st.kpi_status_interno = 'Entrega a tiempo' AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND st.id_tipo_solicitud != ${idx_levantamiento}) as entregas_a_tiempo_interno,
                 COUNT(*) FILTER (WHERE st.kpi_status_interno = 'Entrega tarde' AND st.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND st.id_tipo_solicitud != ${idx_levantamiento}) as entregas_tarde_interno,

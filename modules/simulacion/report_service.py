@@ -496,7 +496,7 @@ def calcular_score_usuario(usuario: MetricaUsuario, config: 'ConfiguracionScore'
     # Componente 3: Ratios de complejidad
     ratio_licitaciones = usuario.licitaciones / usuario.total_solicitudes if usuario.total_solicitudes > 0 else 0.0
     ratio_actualizaciones = usuario.versiones / usuario.total_solicitudes if usuario.total_solicitudes > 0 else 0.0
-    ratio_retrabajos = usuario.retrabajados / usuario.total_solicitudes if usuario.total_solicitudes > 0 else 0.0
+    ratio_retrabajos = usuario.retrabajados / usuario.total_sitios if usuario.total_sitios > 0 else 0.0
     
     # Categorizar usuario
     categoria = categorizar_usuario(usuario.total_ofertas, ratio_licitaciones, cfg)
@@ -963,7 +963,7 @@ class ReportesSimulacionService:
             # Campos adicionales de retrabajos
             tiempo_promedio_global_dias=tiempo_promedio_global_dias,
             total_retrabajos=m.retrabajos,
-            porcentaje_retrabajos=round((m.retrabajos / m.total_solicitudes) * 100, 1) if m.total_solicitudes > 0 else 0,
+            porcentaje_retrabajos=round((m.retrabajos / m.total_sitios) * 100, 1) if m.total_sitios > 0 else 0,
             motivo_retrabajo_principal=motivo_retrabajo_principal,
             total_sitios=m.total_sitios,
             total_sitios_entregados=m.total_sitios_entregados,
@@ -1001,13 +1001,13 @@ class ReportesSimulacionService:
         
         # Top 3 tipos
         top_tipos = []
-        if filas_tipo and metricas.total_solicitudes > 0:
+        if filas_tipo and metricas.total_sitios > 0:
             top_tipos_sorted = sorted(filas_tipo, key=lambda x: x.total, reverse=True)[:3]
             top_tipos = [
                 {
                     "nombre": t.nombre,
                     "total": t.total,
-                    "porcentaje": round((t.total / metricas.total_solicitudes) * 100, 1) if metricas.total_solicitudes > 0 else 0
+                    "porcentaje": round((t.total / metricas.total_sitios) * 100, 1) if metricas.total_sitios > 0 else 0
                 }
                 for t in top_tipos_sorted
             ]
@@ -1197,7 +1197,7 @@ class ReportesSimulacionService:
             porcentaje_versiones=round((metricas.versiones / metricas.total_solicitudes) * 100, 1) if metricas.total_solicitudes > 0 else 0,
             # Retrabajos
             total_retrabajos=metricas.retrabajos,
-            porcentaje_retrabajos=round((metricas.retrabajos / metricas.total_solicitudes) * 100, 1) if metricas.total_solicitudes > 0 else 0,
+            porcentaje_retrabajos=round((metricas.retrabajos / metricas.total_sitios) * 100, 1) if metricas.total_sitios > 0 else 0,
             motivo_retrabajo_principal=motivo_retrabajo_principal[0],
             conteo_motivo_principal=motivo_retrabajo_principal[1],
             categorias_usuarios=categorias,

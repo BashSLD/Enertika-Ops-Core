@@ -37,7 +37,7 @@ class Settings(BaseSettings):
     GRAPH_TENANT_ID: str = os.getenv("TENANT_ID")
     
     # CORRECCIÓN CRÍTICA: Puerto 8000 y ruta completa al callback
-    REDIRECT_URI: str = os.getenv("REDIRECT_URI", "http://localhost:8000/auth/callback")
+    REDIRECT_URI: str = os.getenv("REDIRECT_URI", "http://localhost:8001/auth/callback")
     
     AUTHORITY_URL: str = f"https://login.microsoftonline.com/{GRAPH_TENANT_ID}"
     GRAPH_SCOPES: str = "email User.Read Mail.Send Mail.ReadWrite Files.ReadWrite.All Sites.Read.All"
@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     SHAREPOINT_DRIVE_ID: str = os.getenv("SHAREPOINT_DRIVE_ID", "")
     
     # --- URL Base de la Aplicación (para emails y links externos) ---
-    APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:8000")
+    APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:8001")
 
     # --- Configuración de Permisos (RBAC) ---
     # Departamentos que tienen acceso GLOBAL por defecto
