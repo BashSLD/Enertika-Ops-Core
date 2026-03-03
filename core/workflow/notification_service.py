@@ -246,6 +246,130 @@ class NotificationService:
             id_oportunidad=id_oportunidad
         )
     
+    async def notify_cancellation(
+        self,
+        conn,
+        id_levantamiento: UUID,
+        id_oportunidad: UUID,
+        cancelado_por_ctx: dict,
+        motivo: Optional[str] = None,
+    ):
+        """
+        Notifica la cancelación de un levantamiento.
+        TO: jefe de área + quien solicitó el levantamiento
+        CC: tb_config_emails con trigger_value='CAMBIO_ESTATUS'
+        """
+        try:
+            # Jefe de área y solicitante del levantamiento
+            destinatarios = await conn.fetch("""
+                SELECT u.nombre, u.email, 'jefe' AS rol
+                FROM tb_levantamientos l
+                JOIN tb_usuarios u ON l.jefe_area_id = u.id_usuario
+                WHERE l.id_levantamiento = $1 AND l.jefe_area_id IS NOT NULL
+                UNION
+                SELECT u.nombre, u.email, 'solicitante' AS rol
+                FROM tb_levantamientos l
+                JOIN tb_usuarios u ON l.solicitado_por_id = u.id_usuario
+                WHERE l.id_levantamiento = $1
+            """, id_levantamiento)
+
+            to_emails = {r['email'] for r in destinatarios if r['email']}
+
+            if not to_emails:
+                logger.warning(f"[NOTIFY] Sin destinatarios para cancelacion lev {id_levantamiento}")
+                return
+
+            cc_emails = await self._get_cc_emails(conn, 'CAMBIO_ESTATUS')
+            opp = await self._get_opportunity(conn, id_oportunidad)
+
+            html = self._render_template('shared/emails/workflow/cancelacion.html', {
+                'oportunidad': opp,
+                'cancelado_por': cancelado_por_ctx.get('user_name', 'Usuario'),
+                'motivo': motivo,
+                'base_url': settings.APP_BASE_URL,
+            })
+
+            subject = f"Levantamiento Cancelado: {opp['op_id_estandar']} - {opp['cliente_nombre']}"
+            sender_config = await self._get_notification_sender(conn, 'DEFAULT')
+            await self._send_email(to_emails, cc_emails, subject, html, sender_config['email'])
+
+            logger.info(f"[NOTIFY] Cancelacion notificada para lev {id_levantamiento}")
+
+        except asyncpg.PostgresError as e:
+            logger.error(f"[NOTIFY] Error BD en notificacion cancelacion {id_levantamiento}: {e}", exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error(f"[NOTIFY] Error red/Graph API en notificacion cancelacion {id_levantamiento}: {e}", exc_info=True)
+        except KeyError as e:
+            logger.error(f"[NOTIFY] Error datos faltantes en notificacion cancelacion {id_levantamiento}: campo {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"[NOTIFY] Error inesperado en notificacion cancelacion {id_levantamiento}: {e}", exc_info=True)
+
+    async def notify_reassignment_request(
+        self,
+        conn,
+        id_levantamiento: UUID,
+        id_oportunidad: UUID,
+        solicitado_por_ctx: dict,
+        motivo: Optional[str] = None,
+    ):
+        """
+        Notifica solicitud de reasignación de levantamiento.
+        TO: quien asignó al responsable + quien solicitó el levantamiento
+        CC: tb_config_emails con trigger_value='ASIGNACION'
+        """
+        try:
+            # Quien asignó (asignado_por_id del responsable actual)
+            asignador = await conn.fetchrow("""
+                SELECT u.nombre, u.email
+                FROM tb_levantamiento_asignaciones la
+                JOIN tb_usuarios u ON la.asignado_por_id = u.id_usuario
+                WHERE la.id_levantamiento = $1 AND la.es_responsable = true
+                LIMIT 1
+            """, id_levantamiento)
+
+            # Quien solicitó el levantamiento
+            solicitante = await conn.fetchrow("""
+                SELECT u.nombre, u.email
+                FROM tb_levantamientos l
+                JOIN tb_usuarios u ON l.solicitado_por_id = u.id_usuario
+                WHERE l.id_levantamiento = $1
+            """, id_levantamiento)
+
+            to_emails = set()
+            if asignador and asignador['email']:
+                to_emails.add(asignador['email'])
+            if solicitante and solicitante['email']:
+                to_emails.add(solicitante['email'])
+
+            if not to_emails:
+                logger.warning(f"[NOTIFY] Sin destinatarios para solicitud reasignacion lev {id_levantamiento}")
+                return
+
+            cc_emails = await self._get_cc_emails(conn, 'ASIGNACION')
+            opp = await self._get_opportunity(conn, id_oportunidad)
+
+            html = self._render_template('shared/emails/workflow/solicitud_reasignacion.html', {
+                'oportunidad': opp,
+                'solicitado_por': solicitado_por_ctx.get('user_name', 'Usuario'),
+                'motivo': motivo,
+                'base_url': settings.APP_BASE_URL,
+            })
+
+            subject = f"Solicitud de Reasignacion: {opp['op_id_estandar']} - {opp['cliente_nombre']}"
+            sender_config = await self._get_notification_sender(conn, 'DEFAULT')
+            await self._send_email(to_emails, cc_emails, subject, html, sender_config['email'])
+
+            logger.info(f"[NOTIFY] Solicitud reasignacion notificada para lev {id_levantamiento}")
+
+        except asyncpg.PostgresError as e:
+            logger.error(f"[NOTIFY] Error BD en solicitud reasignacion {id_levantamiento}: {e}", exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error(f"[NOTIFY] Error red/Graph API en solicitud reasignacion {id_levantamiento}: {e}", exc_info=True)
+        except KeyError as e:
+            logger.error(f"[NOTIFY] Error datos faltantes en solicitud reasignacion {id_levantamiento}: campo {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"[NOTIFY] Error inesperado en solicitud reasignacion {id_levantamiento}: {e}", exc_info=True)
+
     # ===== MÉTODOS PRIVADOS =====
     
     async def _get_opportunity(self, conn, id_oportunidad: UUID) -> dict:

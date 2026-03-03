@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Levantamiento Cancelado</title>
+</head>
+
+<body
+    style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4; color: #333333;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0"
+                    style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+
+                    <!-- Header Rojo -->
+                    <tr>
+                        <td
+                            style="background-color: #dc2626; background: linear-gradient(135deg, #991b1b 0%, #dc2626 100%); padding: 30px 40px; text-align: center;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">
+                                Levantamiento Cancelado
+                            </h1>
+                            <p style="margin: 10px 0 0 0; color: #fecaca; font-size: 14px;">
+                                El levantamiento y la oportunidad asociada han sido cancelados
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Contenido -->
+                    <tr>
+                        <td style="padding: 40px;">
+
+                            <p style="margin: 0 0 25px 0; color: #333333; font-size: 15px; line-height: 1.6;">
+                                Se ha cancelado el siguiente levantamiento de sitio:
+                            </p>
+
+                            <!-- Card de Oportunidad -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #fff5f5; border-left: 4px solid #dc2626; border-radius: 4px; margin-bottom: 25px;">
+                                <tr>
+                                    <td style="padding: 20px;">
+                                        <div style="margin-bottom: 15px;">
+                                            <span
+                                                style="display: inline-block; background-color: #dc2626; color: #ffffff; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                                                {{ oportunidad.op_id_estandar }}
+                                            </span>
+                                        </div>
+                                        <table width="100%" cellpadding="8" cellspacing="0">
+                                            <tr>
+                                                <td width="140"
+                                                    style="color: #7f1d1d; font-weight: 600; font-size: 14px; vertical-align: top;">
+                                                    Cliente:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px;">
+                                                    {{ oportunidad.cliente_nombre }}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    style="color: #7f1d1d; font-weight: 600; font-size: 14px; vertical-align: top;">
+                                                    Proyecto:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px;">
+                                                    {{ oportunidad.nombre_proyecto or 'Sin nombre de proyecto' }}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    style="color: #7f1d1d; font-weight: 600; font-size: 14px; vertical-align: top;">
+                                                    Cancelado por:
+                                                </td>
+                                                <td style="color: #666666; font-size: 14px;">
+                                                    {{ cancelado_por }}
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Motivo -->
+                            {% if motivo %}
+                            <div
+                                style="background-color: #fff1f2; border: 1px solid #fecdd3; border-radius: 6px; padding: 16px; margin-bottom: 30px;">
+                                <p
+                                    style="margin: 0 0 8px 0; color: #9f1239; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">
+                                    Motivo de cancelacion:
+                                </p>
+                                <p style="margin: 0; color: #374151; font-size: 14px; line-height: 1.6;">
+                                    {{ motivo }}
+                                </p>
+                            </div>
+                            {% endif %}
+
+                            <!-- Impacto -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #fef2f2; border-radius: 6px; margin-bottom: 30px;">
+                                <tr>
+                                    <td style="padding: 16px 20px;">
+                                        <p style="margin: 0 0 8px 0; color: #9f1239; font-weight: 600; font-size: 13px;">
+                                            Acciones realizadas automaticamente:
+                                        </p>
+                                        <ul style="margin: 0; padding-left: 20px; color: #666666; font-size: 13px; line-height: 1.8;">
+                                            <li>La oportunidad comercial fue marcada como cancelada</li>
+                                            <li>Los viaticos activos fueron eliminados</li>
+                                            <li>El historial fue actualizado</li>
+                                        </ul>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- CTA -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="margin: 20px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{{ base_url }}/levantamientos/partials/lista?tab=cancelados"
+                                            style="display: inline-block; background-color: #dc2626; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-size: 15px; font-weight: 600; box-shadow: 0 2px 4px rgba(220,38,38,0.3);">
+                                            Ver Levantamientos Cancelados
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p
+                                style="margin: 20px 0 0 0; color: #666666; font-size: 13px; line-height: 1.6; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+                                Si crees que esto fue un error o deseas retomar el levantamiento, contacta a un administrador del sistema.
+                            </p>
+
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td
+                            style="background-color: #f8f9fa; padding: 25px 40px; text-align: center; border-top: 1px solid #e0e0e0;">
+                            <p style="margin: 0 0 5px 0; color: #dc2626; font-weight: 700; font-size: 16px;">
+                                Enertika Core Ops
+                            </p>
+                            <p style="margin: 0; color: #999999; font-size: 12px;">
+                                Sistema de Gestión de Operaciones
+                            </p>
+                            <p style="margin: 15px 0 0 0; color: #cccccc; font-size: 11px;">
+                                Este es un correo automatico. Por favor no responder.
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

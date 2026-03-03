@@ -258,7 +258,9 @@ class LevantamientoService:
         _db_svc = _get_db_svc()
         estatus_map = await _db_svc.get_estatus_map(conn)
         id_to_codigo = {v: k for k, v in estatus_map.items()}
-        todos_los_ids = list(estatus_map.values())
+        # Excluir "cancelado" del Kanban — se muestra solo en vista lista
+        cancelado_id = estatus_map.get('cancelado')
+        todos_los_ids = [id for id in estatus_map.values() if id != cancelado_id]
         rows = await conn.fetch(query, todos_los_ids)
 
         # Pre-calcular sitio_num y sitio_total para badge multisite
@@ -403,10 +405,19 @@ class LevantamientoService:
         """, id_levantamiento)
         old_tech_ids = [r['tecnico_id'] for r in old_tech_rows]
 
+        # Detectar si cambia el responsable (para limpiar viáticos)
+        old_responsable_row = await conn.fetchrow("""
+            SELECT tecnico_id FROM tb_levantamiento_asignaciones
+            WHERE id_levantamiento = $1 AND es_responsable = true
+        """, id_levantamiento)
+        old_responsable_id = old_responsable_row['tecnico_id'] if old_responsable_row else None
+
         # Auto-responsable: si hay un solo técnico y no se indicó responsable explícito
         unique_techs = list(set(tecnicos_ids))
         if responsable_id is None and len(unique_techs) == 1:
             responsable_id = unique_techs[0]
+
+        responsable_cambio = (responsable_id is not None and old_responsable_id != responsable_id)
 
         # Borrar asignaciones existentes
         await conn.execute("DELETE FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1", id_levantamiento)
@@ -422,6 +433,18 @@ class LevantamientoService:
                     (id_levantamiento, tecnico_id, asignado_por_id, es_responsable)
                 VALUES ($1, $2, $3, $4)
             """, records)
+
+        # Limpiar viáticos activos si el responsable cambió
+        if responsable_cambio:
+            from .db_service import get_db_service as _get_db
+            _db = _get_db()
+            tiene_viaticos = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM tb_levantamiento_viaticos WHERE id_levantamiento = $1)",
+                id_levantamiento
+            )
+            if tiene_viaticos:
+                await _db.clear_viaticos_activos(conn, id_levantamiento)
+                logger.info(f"[VIATICOS] Limpiados por cambio de responsable en levantamiento {id_levantamiento}")
 
         # 3. Registrar Historial
         obs_text = observaciones or "Asignación de responsables actualizada"
@@ -813,6 +836,28 @@ class LevantamientoService:
         except Exception as e:
             logger.error(f"[NOTIFICACIÓN] Error al notificar agenda: {e}", exc_info=True)
 
+    async def _notificar_solicitud_reasignacion_impl(
+        self,
+        conn,
+        id_levantamiento: UUID,
+        id_oportunidad: UUID,
+        motivo: str,
+        user_context: dict
+    ):
+        """Notifica solicitud de reasignación a quien asignó al responsable + quien solicitó el levantamiento."""
+        try:
+            from core.workflow.notification_service import get_notification_service
+            notif = get_notification_service()
+            await notif.notify_reassignment_request(
+                conn=conn,
+                id_levantamiento=id_levantamiento,
+                id_oportunidad=id_oportunidad,
+                solicitado_por_ctx=user_context,
+                motivo=motivo,
+            )
+        except Exception as e:
+            logger.error(f"[NOTIFICACION] Error solicitud reasignacion: {e}", exc_info=True)
+
     async def _notificar_pospuesto_impl(
         self,
         conn,
@@ -898,6 +943,172 @@ class LevantamientoService:
             'acompaniantes': [dict(t) for t in acompaniantes],
             'jefes': [dict(j) for j in jefes]
         }
+
+
+    # ========================================
+    # CANCELAR / REACTIVAR
+    # ========================================
+
+    async def cancelar_levantamiento(
+        self,
+        conn,
+        id_levantamiento: UUID,
+        motivo: str,
+        user_context: dict,
+    ):
+        """
+        Cancela un levantamiento:
+        1. Cambia estado a 'cancelado'
+        2. Cancela la oportunidad asociada en tb_oportunidades
+        3. Limpia viáticos activos
+        4. Registra en historial
+        5. Fire & Forget: notificación a jefe de área + solicitante
+        """
+        from .db_service import get_db_service as _get_db
+        _db = _get_db()
+        estatus_map = await _db.get_estatus_map(conn)
+        id_cancelado = estatus_map.get('cancelado')
+        if not id_cancelado:
+            raise HTTPException(status_code=500, detail="Estado 'cancelado' no configurado en catalogo")
+
+        lev = await conn.fetchrow("""
+            SELECT id_levantamiento, id_oportunidad, id_estatus_global, jefe_area_id, solicitado_por_id
+            FROM tb_levantamientos
+            WHERE id_levantamiento = $1
+        """, id_levantamiento)
+        if not lev:
+            raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+
+        if lev['id_estatus_global'] == id_cancelado:
+            raise HTTPException(status_code=400, detail="El levantamiento ya esta cancelado")
+
+        now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
+
+        async with conn.transaction():
+            # 1. Cancelar levantamiento (reutilizamos motivo_pospone para guardar el motivo)
+            await conn.execute("""
+                UPDATE tb_levantamientos
+                SET id_estatus_global = $1,
+                    motivo_pospone    = $2,
+                    updated_at        = $3,
+                    updated_by_id     = $4
+                WHERE id_levantamiento = $5
+            """, id_cancelado, motivo, now_mx, user_context['user_db_id'], id_levantamiento)
+
+            # 2. Cancelar oportunidad asociada
+            id_cancelado_opp = await conn.fetchval("""
+                SELECT id FROM tb_cat_estatus_oportunidades
+                WHERE LOWER(nombre) LIKE '%cancelad%' AND activo = true
+                LIMIT 1
+            """)
+            if id_cancelado_opp:
+                await conn.execute("""
+                    UPDATE tb_oportunidades
+                    SET id_estatus_global = $1,
+                        updated_at        = $2
+                    WHERE id_oportunidad = $3
+                """, id_cancelado_opp, now_mx, lev['id_oportunidad'])
+            else:
+                logger.warning(f"[CANCELAR] No se encontro estado 'cancelado' en tb_cat_estatus_oportunidades para opp {lev['id_oportunidad']}")
+
+            # 3. Limpiar viáticos activos
+            await _db.clear_viaticos_activos(conn, id_levantamiento)
+
+            # 4. Historial
+            await self._registrar_en_historial(
+                conn=conn,
+                id_levantamiento=id_levantamiento,
+                estatus_anterior=lev['id_estatus_global'],
+                estatus_nuevo=id_cancelado,
+                user_context=user_context,
+                observaciones=motivo,
+                metadata={"tipo_cambio": "cancelacion"}
+            )
+
+        # 5. Notificación Fire & Forget
+        asyncio.create_task(
+            self._execute_notification_background(
+                self._notificar_cancelacion_impl,
+                id_levantamiento=id_levantamiento,
+                id_oportunidad=lev['id_oportunidad'],
+                motivo=motivo,
+                user_context=user_context,
+            )
+        )
+
+        logger.info(f"[CANCELAR] Levantamiento {id_levantamiento} cancelado por {user_context['user_name']}")
+
+    async def reactivar_levantamiento(
+        self,
+        conn,
+        id_levantamiento: UUID,
+        user_context: dict,
+    ):
+        """
+        Reactiva un levantamiento cancelado, devolviéndolo a 'pendiente'.
+        La oportunidad queda en estado cancelado — el equipo comercial decide qué hacer.
+        """
+        from .db_service import get_db_service as _get_db
+        _db = _get_db()
+        estatus_map = await _db.get_estatus_map(conn)
+        id_cancelado = estatus_map.get('cancelado')
+        id_pendiente = estatus_map.get('pendiente')
+
+        lev = await conn.fetchrow("""
+            SELECT id_levantamiento, id_estatus_global
+            FROM tb_levantamientos
+            WHERE id_levantamiento = $1
+        """, id_levantamiento)
+        if not lev:
+            raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+
+        if lev['id_estatus_global'] != id_cancelado:
+            raise HTTPException(status_code=400, detail="Solo se pueden reactivar levantamientos cancelados")
+
+        now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
+
+        await conn.execute("""
+            UPDATE tb_levantamientos
+            SET id_estatus_global = $1,
+                motivo_pospone    = NULL,
+                updated_at        = $2,
+                updated_by_id     = $3
+            WHERE id_levantamiento = $4
+        """, id_pendiente, now_mx, user_context['user_db_id'], id_levantamiento)
+
+        await self._registrar_en_historial(
+            conn=conn,
+            id_levantamiento=id_levantamiento,
+            estatus_anterior=id_cancelado,
+            estatus_nuevo=id_pendiente,
+            user_context=user_context,
+            observaciones="Levantamiento reactivado manualmente",
+            metadata={"tipo_cambio": "reactivacion"}
+        )
+
+        logger.info(f"[REACTIVAR] Levantamiento {id_levantamiento} reactivado por {user_context['user_name']}")
+
+    async def _notificar_cancelacion_impl(
+        self,
+        conn,
+        id_levantamiento: UUID,
+        id_oportunidad: UUID,
+        motivo: str,
+        user_context: dict,
+    ):
+        """Notifica la cancelación del levantamiento al jefe de área + quien solicitó."""
+        try:
+            from core.workflow.notification_service import get_notification_service
+            notif = get_notification_service()
+            await notif.notify_cancellation(
+                conn=conn,
+                id_levantamiento=id_levantamiento,
+                id_oportunidad=id_oportunidad,
+                cancelado_por_ctx=user_context,
+                motivo=motivo,
+            )
+        except Exception as e:
+            logger.error(f"[NOTIFICACION] Error notificando cancelacion lev {id_levantamiento}: {e}", exc_info=True)
 
 
 def get_service():

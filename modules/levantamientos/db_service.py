@@ -700,6 +700,97 @@ class LevantamientosDBService:
         rows = await conn.fetch(base_query, *params)
         return [dict(r) for r in rows]
 
+    async def get_lista_cancelados(
+        self,
+        conn,
+        id_cancelado: int,
+        q: Optional[str] = None,
+        tecnico_id: Optional[str] = None,
+        fecha_inicio: Optional[str] = None,
+        fecha_fin: Optional[str] = None,
+    ) -> List[dict]:
+        """
+        Lista de levantamientos cancelados con filtros dinámicos.
+        Incluye motivo_pospone (reutilizado como motivo_cancelacion).
+        """
+        params: list = [id_cancelado]
+        conditions = ["l.id_estatus_global = $1", "o.email_enviado = true"]
+
+        if tecnico_id:
+            try:
+                from uuid import UUID as _UUID
+                tid = _UUID(tecnico_id)
+                params.append(tid)
+                conditions.append(
+                    f"(l.tecnico_asignado_id = ${len(params)} OR EXISTS("
+                    f"SELECT 1 FROM tb_levantamiento_asignaciones la "
+                    f"WHERE la.id_levantamiento = l.id_levantamiento AND la.tecnico_id = ${len(params)}))"
+                )
+            except ValueError:
+                pass
+
+        if fecha_inicio:
+            params.append(fecha_inicio)
+            conditions.append(f"l.updated_at >= ${len(params)}::date")
+
+        if fecha_fin:
+            params.append(fecha_fin)
+            conditions.append(f"l.updated_at <= ${len(params)}::date")
+
+        where_clause = " AND ".join(conditions)
+
+        base_query = f"""
+            SELECT
+                l.id_levantamiento,
+                l.id_oportunidad,
+                l.id_estatus_global,
+                l.fecha_solicitud         AT TIME ZONE 'America/Mexico_City' AS fecha_solicitud,
+                l.updated_at              AT TIME ZONE 'America/Mexico_City' AS fecha_cancelacion,
+                l.motivo_pospone          AS motivo_cancelacion,
+                o.op_id_estandar,
+                o.titulo_proyecto,
+                o.nombre_proyecto,
+                o.cliente_nombre,
+                s.nombre_sitio,
+                est.nombre   AS estatus_nombre,
+                est.color_hex AS estatus_color,
+                COALESCE(techs.nombres, u_tec.nombre) AS tecnico_nombre,
+                u_jefe.nombre AS jefe_nombre,
+                u_sol.nombre  AS solicitado_por_nombre
+            FROM tb_levantamientos l
+            INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+            LEFT  JOIN tb_sitios_oportunidad s   ON l.id_sitio = s.id_sitio
+            LEFT  JOIN tb_usuarios u_tec ON l.tecnico_asignado_id = u_tec.id_usuario
+            LEFT  JOIN tb_usuarios u_jefe ON l.jefe_area_id = u_jefe.id_usuario
+            LEFT  JOIN tb_usuarios u_sol ON l.solicitado_por_id = u_sol.id_usuario
+            LEFT  JOIN tb_cat_estatus_levantamiento est ON l.id_estatus_global = est.id
+            LEFT  JOIN LATERAL (
+                SELECT string_agg(u.nombre, ', ') AS nombres
+                FROM tb_levantamiento_asignaciones la
+                JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
+                WHERE la.id_levantamiento = l.id_levantamiento
+            ) techs ON true
+            WHERE {where_clause}
+        """
+
+        if q:
+            params.append(f"%{q.strip()}%")
+            idx = len(params)
+            base_query += f"""
+                AND (
+                    o.cliente_nombre ILIKE ${idx}
+                    OR o.nombre_proyecto ILIKE ${idx}
+                    OR o.titulo_proyecto ILIKE ${idx}
+                    OR o.op_id_estandar ILIKE ${idx}
+                    OR s.nombre_sitio ILIKE ${idx}
+                )
+            """
+
+        base_query += " ORDER BY l.updated_at DESC"
+
+        rows = await conn.fetch(base_query, *params)
+        return [dict(r) for r in rows]
+
     async def get_estatus_map(self, conn) -> dict:
         """Retorna {codigo: id} para todos los estatus activos de levantamientos."""
         rows = await conn.fetch(
@@ -730,6 +821,29 @@ class LevantamientosDBService:
               )
             ORDER BY u.nombre
         """)
+        return [dict(r) for r in rows]
+
+    # ----------------------------------------------------------
+    # VISITAS DE CAMPO — indicador en modal viaticos individuales
+    # ----------------------------------------------------------
+
+    async def get_visitas_campo_for_lev(self, conn, id_levantamiento: UUID) -> List[dict]:
+        """
+        Retorna visitas de campo que contienen este levantamiento.
+        Usado por el modal de viáticos individuales para mostrar el indicador
+        de que el levantamiento pertenece a una Visita de Campo.
+        """
+        rows = await conn.fetch("""
+            SELECT
+                v.id_visita,
+                v.nombre,
+                v.fecha_inicio AT TIME ZONE 'America/Mexico_City' AS fecha_inicio,
+                v.fecha_fin    AT TIME ZONE 'America/Mexico_City' AS fecha_fin
+            FROM tb_visita_campo_levantamientos vcl
+            JOIN tb_visitas_campo v ON vcl.id_visita = v.id_visita
+            WHERE vcl.id_levantamiento = $1
+            ORDER BY v.fecha_inicio DESC
+        """, id_levantamiento)
         return [dict(r) for r in rows]
 
 

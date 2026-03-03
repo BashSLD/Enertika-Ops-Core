@@ -166,6 +166,13 @@ async def get_assign_modal(
         (user_role == "MANAGER" and mod_role in ["editor", "admin"])
     )
 
+    # Verificar si el usuario actual es el responsable asignado
+    user_db_id = context.get("user_db_id")
+    is_responsable_actual = (
+        bool(current_responsable_id) and
+        str(user_db_id) == str(current_responsable_id)
+    )
+
     return templates.TemplateResponse("levantamientos/modals/assign_modal.html", {
         "request": request,
         "id_levantamiento": id_levantamiento,
@@ -176,7 +183,8 @@ async def get_assign_modal(
         "current_tecnico_ids": current_tecnico_ids,
         "current_jefe_id": current_jefe_id,
         "current_responsable_id": current_responsable_id,
-        "can_assign": can_assign
+        "can_assign": can_assign,
+        "is_responsable_actual": is_responsable_actual,
     })
 
 

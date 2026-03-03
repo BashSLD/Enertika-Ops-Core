@@ -54,6 +54,15 @@ def register_vistas_endpoints(router: APIRouter):
         estatus_map = await db_svc.get_estatus_map(conn)
         estatus_list = await db_svc.get_estatus_list(conn)
 
+        user_role = context.get("role")
+        mod_role = context.get("module_roles", {}).get("levantamientos")
+        can_edit = (user_role == "ADMIN" or mod_role in ["editor", "admin"])
+        can_manage = (
+            user_role == "ADMIN" or
+            mod_role == "admin" or
+            (user_role == "MANAGER" and mod_role in ["editor", "admin"])
+        )
+
         if tab == "terminados":
             ids_terminados = [v for k, v in estatus_map.items() if k in ('completado', 'entregado')]
             levantamientos = await db_svc.get_lista_terminados(
@@ -61,9 +70,25 @@ def register_vistas_endpoints(router: APIRouter):
                 tecnico_id=tecnico_id, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
             )
             estatus_filtro = [e for e in estatus_list if e['grupo_kanban'] == 'terminado']
+        elif tab == "cancelados":
+            id_cancelado = estatus_map.get('cancelado')
+            if not id_cancelado:
+                tab = "activos"
+                ids_activos = [v for k, v in estatus_map.items() if k not in ('completado', 'entregado', 'cancelado')]
+                levantamientos = await db_svc.get_lista_activos(
+                    conn, ids_activos=ids_activos, q=q, estado=estado,
+                    tecnico_id=tecnico_id, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
+                )
+                estatus_filtro = [e for e in estatus_list if e['grupo_kanban'] == 'activo']
+            else:
+                levantamientos = await db_svc.get_lista_cancelados(
+                    conn, id_cancelado=id_cancelado, q=q,
+                    tecnico_id=tecnico_id, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
+                )
+                estatus_filtro = []
         else:
             tab = "activos"
-            ids_activos = [v for k, v in estatus_map.items() if k not in ('completado', 'entregado')]
+            ids_activos = [v for k, v in estatus_map.items() if k not in ('completado', 'entregado', 'cancelado')]
             levantamientos = await db_svc.get_lista_activos(
                 conn, ids_activos=ids_activos, q=q, estado=estado,
                 tecnico_id=tecnico_id, fecha_inicio=fecha_inicio, fecha_fin=fecha_fin
@@ -72,11 +97,6 @@ def register_vistas_endpoints(router: APIRouter):
 
         tecnicos = await db_svc.get_usuarios_tecnicos(conn)
 
-        can_edit = (
-            context.get("role") == "ADMIN"
-            or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
-        )
-
         return templates.TemplateResponse("levantamientos/partials/lista.html", {
             "request": request,
             "tab": tab,
@@ -84,6 +104,7 @@ def register_vistas_endpoints(router: APIRouter):
             "tecnicos": tecnicos,
             "estatus_filtro": estatus_filtro,
             "can_edit": can_edit,
+            "can_manage": can_manage,
             "filtros": {
                 "q": q or "",
                 "estado": estado,
@@ -91,6 +112,7 @@ def register_vistas_endpoints(router: APIRouter):
                 "fecha_inicio": fecha_inicio or "",
                 "fecha_fin": fecha_fin or "",
             },
+            "notification": None,
         })
 
     # ==============================================================

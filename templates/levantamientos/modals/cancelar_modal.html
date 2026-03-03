@@ -1,0 +1,88 @@
+<!-- Variables: lev_data, id_levantamiento -->
+<div class="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh] mx-auto overflow-hidden animate-fade-in-up">
+
+    <!-- Header -->
+    <div class="bg-gradient-to-r from-red-600 to-rose-600 p-4 flex-none flex justify-between items-center text-white relative overflow-hidden">
+        <div class="absolute inset-0 bg-white/10 opacity-30 pattern-grid"></div>
+        <h3 class="text-lg font-bold z-10 flex items-center gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-6 h-6">
+                <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd" />
+            </svg>
+            Cancelar Levantamiento
+        </h3>
+        <button onclick="closeModal()"
+            class="text-white/80 hover:text-white transition-colors z-10 rounded-full p-1 hover:bg-white/20">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
+        </button>
+    </div>
+
+    <!-- Form -->
+    <form
+        hx-post="/levantamientos/cancelar/{{ id_levantamiento }}"
+        hx-target="#kanban-container"
+        hx-swap="outerHTML"
+        hx-on::after-request="if(event.detail.successful) closeModal()"
+        class="flex flex-col flex-1 overflow-hidden">
+
+        <!-- Scrollable Body -->
+        <div class="flex-1 overflow-y-auto p-6 bg-slate-50">
+
+            <!-- Advertencia -->
+            <div class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 mb-5 flex gap-3">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5">
+                    <path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd" />
+                </svg>
+                <div class="text-xs text-red-700 leading-relaxed">
+                    <p class="font-semibold mb-1">Esta accion cancela todo</p>
+                    <ul class="space-y-0.5 list-disc list-inside text-red-600">
+                        <li>El levantamiento quedara cancelado definitivamente</li>
+                        <li>La oportunidad comercial asociada tambien se cancelara</li>
+                        <li>Los viaticos activos seran eliminados</li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Info del levantamiento -->
+            <div class="bg-red-50/40 rounded-xl p-3 mb-5 border border-red-100">
+                <h4 class="font-semibold text-red-900 text-sm mb-1">{{ lev_data.nombre_proyecto or lev_data.titulo_proyecto }}</h4>
+                <div class="flex items-center gap-3 text-xs text-red-700/70">
+                    <span>{{ lev_data.cliente_nombre }}</span>
+                    <span class="text-red-200">|</span>
+                    <span>{{ lev_data.op_id_estandar }}</span>
+                </div>
+            </div>
+
+            <!-- Motivo -->
+            <div>
+                <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
+                    Motivo de cancelación <span class="text-red-500">*</span>
+                </label>
+                <textarea
+                    name="motivo"
+                    rows="4"
+                    required
+                    minlength="10"
+                    placeholder="Describe el motivo por el que se cancela este levantamiento..."
+                    class="w-full bg-white border border-gray-200 text-gray-700 rounded-lg p-3 focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:border-red-500 shadow-sm resize-none text-sm placeholder-gray-300"></textarea>
+                <p class="text-xs text-gray-400 mt-1">Minimo 10 caracteres. Este motivo quedara registrado en el historial.</p>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div class="p-4 bg-white border-t border-gray-100 flex justify-end gap-3 flex-none shadow-[0_-4px_6px_-1px_rgba(0,0,0,0.05)] z-20">
+            <button type="button" onclick="closeModal()"
+                class="px-4 py-2 bg-white text-gray-600 font-medium rounded-lg border border-gray-200 hover:bg-gray-50 hover:text-gray-800 transition-colors shadow-sm text-sm">
+                Cancelar
+            </button>
+            <button type="submit"
+                class="px-5 py-2 bg-red-600 hover:bg-red-700 text-white font-semibold rounded-lg shadow-lg shadow-red-600/30 transition-all transform hover:scale-[1.02] flex items-center gap-2 text-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
+                    <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.28 7.22a.75.75 0 00-1.06 1.06L8.94 10l-1.72 1.72a.75.75 0 101.06 1.06L10 11.06l1.72 1.72a.75.75 0 101.06-1.06L11.06 10l1.72-1.72a.75.75 0 00-1.06-1.06L10 8.94 8.28 7.22z" clip-rule="evenodd" />
+                </svg>
+                Confirmar Cancelacion
+            </button>
+        </div>
+    </form>
+</div>

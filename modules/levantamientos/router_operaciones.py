@@ -28,6 +28,11 @@ from core.microsoft import MicrosoftAuth
 
 from .service import get_service, LevantamientoService
 from .db_service import get_db_service, LevantamientosDBService
+from .db_service_visitas import (
+    get_visitas_db_service,
+    VisitasCampoDBService,
+    calcular_prorrateo,
+)
 
 logger = logging.getLogger("Levantamientos.Router.Operaciones")
 
@@ -579,6 +584,178 @@ def register_operaciones_endpoints(router: APIRouter):
         return await _render_kanban(request, conn, service, context, notification)
 
     # ==============================================================
+    # POST — CANCELAR LEVANTAMIENTO
+    # ==============================================================
+
+    @router.post("/cancelar/{id_levantamiento}")
+    async def cancelar_levantamiento_endpoint(
+        request: Request,
+        id_levantamiento: UUID,
+        motivo: str = Form(...),
+        conn=Depends(get_db_connection),
+        service: LevantamientoService = Depends(get_service),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Cancela un levantamiento y su oportunidad asociada.
+        Limpia viáticos, registra historial y notifica a jefe + solicitante.
+        Solo ADMIN, Admin del módulo o MANAGER+editor pueden cancelar.
+        """
+        user_role = context.get("role")
+        mod_role = context.get("module_roles", {}).get("levantamientos")
+        can_cancel = (
+            user_role == "ADMIN" or
+            mod_role == "admin" or
+            (user_role == "MANAGER" and mod_role in ["editor", "admin"])
+        )
+        if not can_cancel:
+            raise HTTPException(status_code=403, detail="No tienes permisos para cancelar levantamientos")
+
+        if not motivo or len(motivo.strip()) < 10:
+            raise HTTPException(status_code=400, detail="El motivo debe tener al menos 10 caracteres")
+
+        await service.cancelar_levantamiento(
+            conn=conn,
+            id_levantamiento=id_levantamiento,
+            motivo=motivo.strip(),
+            user_context=context,
+        )
+
+        estatus_map = await db_svc.get_estatus_map(conn)
+        id_cancelado = estatus_map.get('cancelado')
+        ids_activos = [v for k, v in estatus_map.items() if k not in ('completado', 'entregado', 'cancelado')]
+        levantamientos = await db_svc.get_lista_activos(conn, ids_activos=ids_activos)
+        estatus_list = await db_svc.get_estatus_list(conn)
+        tecnicos = await db_svc.get_usuarios_tecnicos(conn)
+        can_edit = (
+            user_role == "ADMIN"
+            or mod_role in ["editor", "admin"]
+        )
+        return templates.TemplateResponse("levantamientos/partials/lista.html", {
+            "request": request,
+            "tab": "activos",
+            "levantamientos": levantamientos,
+            "tecnicos": tecnicos,
+            "estatus_filtro": [e for e in estatus_list if e['grupo_kanban'] == 'activo'],
+            "can_edit": can_edit,
+            "can_manage": can_cancel,
+            "filtros": {"q": "", "estado": None, "tecnico_id": "", "fecha_inicio": "", "fecha_fin": ""},
+            "notification": {
+                "title": "Levantamiento Cancelado",
+                "message": "El levantamiento y su oportunidad han sido cancelados.",
+                "type": "success",
+            },
+        })
+
+    # ==============================================================
+    # POST — REACTIVAR LEVANTAMIENTO
+    # ==============================================================
+
+    @router.post("/reactivar/{id_levantamiento}")
+    async def reactivar_levantamiento_endpoint(
+        request: Request,
+        id_levantamiento: UUID,
+        conn=Depends(get_db_connection),
+        service: LevantamientoService = Depends(get_service),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Reactiva un levantamiento cancelado, volviéndolo a estado Pendiente.
+        La oportunidad permanece cancelada; el equipo comercial decide qué hacer con ella.
+        """
+        user_role = context.get("role")
+        mod_role = context.get("module_roles", {}).get("levantamientos")
+        can_manage = (
+            user_role == "ADMIN" or
+            mod_role == "admin" or
+            (user_role == "MANAGER" and mod_role in ["editor", "admin"])
+        )
+        if not can_manage:
+            raise HTTPException(status_code=403, detail="No tienes permisos para reactivar levantamientos")
+
+        await service.reactivar_levantamiento(
+            conn=conn,
+            id_levantamiento=id_levantamiento,
+            user_context=context,
+        )
+
+        estatus_map = await db_svc.get_estatus_map(conn)
+        id_cancelado = estatus_map.get('cancelado')
+        cancelados = await db_svc.get_lista_cancelados(conn, id_cancelado=id_cancelado)
+        estatus_list = await db_svc.get_estatus_list(conn)
+        tecnicos = await db_svc.get_usuarios_tecnicos(conn)
+        can_edit = (user_role == "ADMIN" or mod_role in ["editor", "admin"])
+        return templates.TemplateResponse("levantamientos/partials/lista.html", {
+            "request": request,
+            "tab": "cancelados",
+            "levantamientos": cancelados,
+            "tecnicos": tecnicos,
+            "estatus_filtro": [],
+            "can_edit": can_edit,
+            "can_manage": can_manage,
+            "filtros": {"q": "", "estado": None, "tecnico_id": "", "fecha_inicio": "", "fecha_fin": ""},
+            "notification": {
+                "title": "Levantamiento Reactivado",
+                "message": "El levantamiento volvio a estado Pendiente. Recuerda actualizar la oportunidad desde Comercial.",
+                "type": "success",
+            },
+        })
+
+    # ==============================================================
+    # POST — SOLICITAR REASIGNACION
+    # ==============================================================
+
+    @router.post("/solicitar-reasignacion/{id_levantamiento}")
+    async def solicitar_reasignacion_endpoint(
+        request: Request,
+        id_levantamiento: UUID,
+        motivo: str = Form(...),
+        conn=Depends(get_db_connection),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
+        service: LevantamientoService = Depends(get_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos"),
+    ):
+        """
+        Solicita la reasignación de un levantamiento.
+        Solo puede ser ejecutado por el ingeniero responsable actual.
+        Envía notificación a quien asignó + quien solicitó el levantamiento.
+        No modifica el estado del levantamiento.
+        """
+        if not motivo or len(motivo.strip()) < 10:
+            raise HTTPException(status_code=400, detail="El motivo debe tener al menos 10 caracteres")
+
+        responsable = await db_svc.get_responsable_asignado(conn, id_levantamiento)
+        user_db_id = context.get("user_db_id")
+        if not responsable or str(responsable['id_usuario']) != str(user_db_id):
+            raise HTTPException(status_code=403, detail="Solo el ingeniero responsable puede solicitar reasignacion")
+
+        lev = await db_svc.get_levantamiento_base(conn, id_levantamiento)
+        if not lev:
+            raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+
+        asyncio.create_task(
+            service._execute_notification_background(
+                service._notificar_solicitud_reasignacion_impl,
+                id_levantamiento=id_levantamiento,
+                id_oportunidad=lev['id_oportunidad'],
+                motivo=motivo.strip(),
+                user_context=context,
+            )
+        )
+
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "title": "Solicitud Enviada",
+            "message": "El equipo responsable sera notificado para gestionar la reasignacion.",
+            "type": "success",
+        })
+
+    # ==============================================================
     # GET — REPORTE EXCEL DE GASTOS (VIATICOS)
     # ==============================================================
 
@@ -720,3 +897,292 @@ def register_operaciones_endpoints(router: APIRouter):
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'}
         )
+
+    # ==============================================================
+    # VISITAS DE CAMPO — Endpoints POST/DELETE
+    # ==============================================================
+
+    @router.post("/visitas-campo", include_in_schema=False)
+    async def crear_visita_campo(
+        request: Request,
+        nombre: Optional[str] = Form(None),
+        fecha_inicio: str = Form(...),
+        fecha_fin: str = Form(...),
+        levantamiento_ids: List[UUID] = Form(...),
+        conn=Depends(get_db_connection),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Crea una nueva Visita de Campo con sus levantamientos vinculados.
+        Retorna el modal en modo 'gestionar' con la visita recién creada.
+        """
+        if not levantamiento_ids:
+            raise HTTPException(status_code=400, detail="Debes seleccionar al menos un levantamiento.")
+
+        try:
+            fecha_inicio_dt = datetime.fromisoformat(fecha_inicio).replace(tzinfo=ZoneInfo("America/Mexico_City"))
+            fecha_fin_dt = datetime.fromisoformat(fecha_fin).replace(tzinfo=ZoneInfo("America/Mexico_City"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha/hora invalido.")
+
+        if fecha_fin_dt <= fecha_inicio_dt:
+            raise HTTPException(status_code=400, detail="La fecha de fin debe ser posterior a la de inicio.")
+
+        visita = await visitas_db_svc.create_visita(
+            conn,
+            nombre=nombre.strip() if nombre else None,
+            fecha_inicio=fecha_inicio_dt,
+            fecha_fin=fecha_fin_dt,
+            levantamiento_ids=levantamiento_ids,
+            creado_por_id=context["user_db_id"],
+        )
+
+        id_visita = visita["id_visita"]
+        levantamientos_visita = await visitas_db_svc.get_levantamientos_en_visita(conn, id_visita)
+        visita_completa = await visitas_db_svc.get_visita(conn, id_visita)
+        usuarios = await visitas_db_svc.get_usuarios_para_visita(conn, id_visita)
+        to_configurados = await db_svc.get_to_configurados_viaticos(conn)
+        cc_configurados = await db_svc.get_cc_configurados_viaticos(conn)
+
+        return templates.TemplateResponse("levantamientos/modals/visita_campo_modal.html", {
+            "request": request,
+            "step": "gestionar",
+            "visita": visita_completa,
+            "levantamientos_visita": levantamientos_visita,
+            "viaticos": [],
+            "usuarios": usuarios,
+            "historial_envios": [],
+            "to_configurados": to_configurados,
+            "cc_configurados": cc_configurados,
+            "prorrateo": {},
+            "total_viaticos": 0.0,
+            "levantamientos_disponibles": [],
+            "preseleccionado": None,
+        })
+
+    # ----------------------------------------------------------
+
+    @router.post("/visitas-campo/{id_visita}/viaticos", include_in_schema=False)
+    async def crear_viatico_visita(
+        request: Request,
+        id_visita: UUID,
+        usuario_id: UUID = Form(...),
+        concepto: str = Form(...),
+        monto: float = Form(...),
+        conn=Depends(get_db_connection),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Agrega un viático a la visita de campo.
+        Retorna la tabla de viáticos actualizada + prorrateo OOB.
+        """
+        if not concepto or not concepto.strip():
+            raise HTTPException(status_code=400, detail="El concepto es obligatorio.")
+        if monto <= 0:
+            raise HTTPException(status_code=400, detail="El monto debe ser mayor a 0.")
+
+        visita = await visitas_db_svc.get_visita(conn, id_visita)
+        if not visita:
+            raise HTTPException(status_code=404, detail="Visita de campo no encontrada.")
+
+        await visitas_db_svc.create_viatico_visita(
+            conn, id_visita, usuario_id, concepto.strip(), monto, context["user_db_id"]
+        )
+
+        viaticos = await visitas_db_svc.get_viaticos_visita(conn, id_visita)
+        levantamientos_visita = await visitas_db_svc.get_levantamientos_en_visita(conn, id_visita)
+        total_viaticos = float(sum(v["monto"] for v in viaticos))
+        prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
+
+        return templates.TemplateResponse("levantamientos/partials/tabla_visita_campo_viaticos.html", {
+            "request": request,
+            "viaticos": viaticos,
+            "id_visita": id_visita,
+            "levantamientos_visita": levantamientos_visita,
+            "prorrateo": prorrateo,
+            "total_viaticos": total_viaticos,
+        })
+
+    # ----------------------------------------------------------
+
+    @router.delete("/visitas-campo/{id_visita}/viaticos/{id_viatico}", include_in_schema=False)
+    async def eliminar_viatico_visita(
+        request: Request,
+        id_visita: UUID,
+        id_viatico: UUID,
+        conn=Depends(get_db_connection),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Elimina un viático de la visita.
+        Retorna la tabla y prorrateo actualizados.
+        """
+        eliminado = await visitas_db_svc.delete_viatico_visita(conn, id_visita, id_viatico)
+        if not eliminado:
+            raise HTTPException(status_code=404, detail="Viatico no encontrado.")
+
+        viaticos = await visitas_db_svc.get_viaticos_visita(conn, id_visita)
+        levantamientos_visita = await visitas_db_svc.get_levantamientos_en_visita(conn, id_visita)
+        total_viaticos = float(sum(v["monto"] for v in viaticos))
+        prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
+
+        return templates.TemplateResponse("levantamientos/partials/tabla_visita_campo_viaticos.html", {
+            "request": request,
+            "viaticos": viaticos,
+            "id_visita": id_visita,
+            "levantamientos_visita": levantamientos_visita,
+            "prorrateo": prorrateo,
+            "total_viaticos": total_viaticos,
+        })
+
+    # ----------------------------------------------------------
+
+    @router.post("/visitas-campo/{id_visita}/enviar", include_in_schema=False)
+    async def enviar_solicitud_visita_campo(
+        request: Request,
+        id_visita: UUID,
+        to_destinatarios: str = Form(""),
+        cc_adicionales: str = Form(""),
+        conn=Depends(get_db_connection),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Envía correo con prorrateo de viáticos de la visita de campo.
+        1. Obtiene viáticos y levantamientos.
+        2. Calcula prorrateo.
+        3. Renderiza email template.
+        4. Envía via MicrosoftAuth.
+        5. Registra en historial.
+        6. Retorna partial historial actualizado.
+        """
+        viaticos = await visitas_db_svc.get_viaticos_visita(conn, id_visita)
+        if not viaticos:
+            raise HTTPException(status_code=400, detail="No hay viaticos registrados en la visita.")
+
+        visita = await visitas_db_svc.get_visita(conn, id_visita)
+        if not visita:
+            raise HTTPException(status_code=404, detail="Visita de campo no encontrada.")
+
+        levantamientos_visita = await visitas_db_svc.get_levantamientos_en_visita(conn, id_visita)
+        total_monto = float(sum(v["monto"] for v in viaticos))
+        prorrateo = calcular_prorrateo(total_monto, levantamientos_visita)
+
+        # Construir TO y CC
+        to_configurado = await db_svc.get_to_configurados_viaticos(conn)
+        to_del_form = [e.strip() for e in re.split(r'[;,]', to_destinatarios) if e.strip() and "@" in e.strip()]
+        to_list = to_del_form if to_del_form else to_configurado
+
+        cc_configurados = await db_svc.get_cc_configurados_viaticos(conn)
+        cc_manuales = [e.strip() for e in re.split(r'[;,]', cc_adicionales) if e.strip() and "@" in e.strip()]
+        cc_all = list(set(cc_configurados + cc_manuales) - set(to_list))
+
+        if not to_list:
+            raise HTTPException(status_code=500, detail="No hay destinatarios TO configurados.")
+
+        now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
+        fecha_envio_str = now_mx.strftime("%d/%m/%Y %H:%M")
+
+        email_template = templates.get_template("levantamientos/emails/solicitud_viaticos_visita.html")
+        html_body = email_template.render(
+            visita=visita,
+            levantamientos=levantamientos_visita,
+            viaticos=viaticos,
+            prorrateo=prorrateo,
+            total_monto=total_monto,
+            enviado_por=context.get("user_name", "Sistema"),
+            fecha_envio=fecha_envio_str,
+        )
+
+        nombre_visita = visita.get("nombre") or f"Visita {fecha_envio_str}"
+        subject = f"Solicitud de Viaticos — Visita de Campo: {nombre_visita}"
+
+        sender_config = await conn.fetchrow("""
+            SELECT email_remitente FROM tb_correos_notificaciones
+            WHERE departamento = 'LEVANTAMIENTOS' AND activo = true
+            LIMIT 1
+        """)
+        if not sender_config:
+            sender_config = await conn.fetchrow("""
+                SELECT email_remitente FROM tb_correos_notificaciones
+                WHERE departamento = 'DEFAULT' AND activo = true
+                LIMIT 1
+            """)
+        sender_email = sender_config['email_remitente'] if sender_config else 'app-notifications@enertika.mx'
+
+        estatus_envio = "enviado"
+        error_detalle = None
+
+        try:
+            ms_auth = MicrosoftAuth()
+            app_token = await ms_auth.get_application_token()
+            if not app_token:
+                raise Exception("No se pudo obtener token de aplicacion de Microsoft Graph.")
+
+            success, msg = await ms_auth.send_email_with_attachments(
+                access_token=app_token,
+                from_email=sender_email,
+                subject=subject,
+                body=html_body,
+                recipients=to_list,
+                cc_recipients=cc_all if cc_all else None,
+                importance="normal",
+            )
+
+            if not success:
+                estatus_envio = "error"
+                error_detalle = msg
+                logger.error(f"[VISITA_CAMPO] Error envio correo visita {id_visita}: {msg}")
+            else:
+                logger.info(f"[VISITA_CAMPO] Correo enviado visita {id_visita}")
+
+        except Exception as exc:
+            estatus_envio = "error"
+            error_detalle = str(exc)
+            logger.error(f"[VISITA_CAMPO] Excepcion envio correo visita {id_visita}: {exc}")
+
+        snapshot = {
+            "levantamientos": [
+                {
+                    "id_levantamiento": str(lev["id_levantamiento"]),
+                    "op_id_estandar": lev["op_id_estandar"],
+                    "nombre_proyecto": lev["nombre_proyecto"] or lev["titulo_proyecto"],
+                    "cliente_nombre": lev["cliente_nombre"],
+                }
+                for lev in levantamientos_visita
+            ],
+            "viaticos": [
+                {"usuario_nombre": v["usuario_nombre"], "concepto": v["concepto"], "monto": float(v["monto"])}
+                for v in viaticos
+            ],
+            "prorrateo": prorrateo,
+        }
+
+        await visitas_db_svc.insert_envio_visita(
+            conn=conn,
+            id_visita=id_visita,
+            enviado_por_id=context["user_db_id"],
+            enviado_por_nombre=context.get("user_name", "Sistema"),
+            to_destinatarios=to_list,
+            cc_destinatarios=cc_all,
+            snapshot=snapshot,
+            total_monto=total_monto,
+            estatus=estatus_envio,
+            error_detalle=error_detalle,
+        )
+
+        historial_envios = await visitas_db_svc.get_envios_visita(conn, id_visita)
+
+        return templates.TemplateResponse("levantamientos/partials/historial_envios_visita.html", {
+            "request": request,
+            "historial_envios": historial_envios,
+        })
