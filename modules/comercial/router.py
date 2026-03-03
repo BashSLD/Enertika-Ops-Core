@@ -812,14 +812,20 @@ async def get_paso3_email_form(
     """Formulario final de envío de correo."""
     if not await get_valid_graph_token(request):
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
-    
-    
-    # Delegar TODA la lógica de preparación de datos y reglas al Service
-    data = await service.get_data_for_email_form(conn, id_oportunidad, context)
-    if not data: return HTMLResponse("Oportunidad no encontrada", 404)
-    
+
+    try:
+        # Delegar TODA la lógica de preparación de datos y reglas al Service
+        data = await service.get_data_for_email_form(conn, id_oportunidad, context)
+        if not data: return HTMLResponse("Oportunidad no encontrada", 404)
+    except ValueError as e:
+        return templates.TemplateResponse(
+            "comercial/error_message.html",
+            {"request": request, "detail": str(e)},
+            status_code=200
+        )
+
     template = "comercial/email_form.html" if request.headers.get("hx-request") else "comercial/email_full.html"
-    
+
     return templates.TemplateResponse(template, {
         "request": request,
         **data, # Desempaquetar dict del servicio

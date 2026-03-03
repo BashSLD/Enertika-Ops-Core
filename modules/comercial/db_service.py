@@ -23,7 +23,13 @@ QUERY_GET_OPORTUNIDADES_LIST = """
     LEFT JOIN tb_usuarios u_creador ON o.creado_por_id = u_creador.id_usuario
     LEFT JOIN tb_usuarios u_sim ON o.responsable_simulacion_id = u_sim.id_usuario
     LEFT JOIN tb_detalles_bess db ON o.id_oportunidad = db.id_oportunidad
-    LEFT JOIN tb_levantamientos lev ON o.id_oportunidad = lev.id_oportunidad
+    LEFT JOIN (
+        SELECT DISTINCT ON (l.id_oportunidad)
+            l.id_oportunidad, l.id_levantamiento, l.id_estatus_global,
+            l.fecha_visita_programada, l.tecnico_asignado_id
+        FROM tb_levantamientos l
+        ORDER BY l.id_oportunidad, l.id_estatus_global ASC
+    ) lev ON o.id_oportunidad = lev.id_oportunidad
     LEFT JOIN tb_cat_estatus_levantamiento lev_estatus ON lev.id_estatus_global = lev_estatus.id
     LEFT JOIN tb_usuarios u_tecnico ON lev.tecnico_asignado_id = u_tecnico.id_usuario
     WHERE o.email_enviado = true
@@ -186,6 +192,25 @@ QUERY_UPDATE_EMAIL_ENVIADO = "UPDATE tb_oportunidades SET email_enviado = TRUE W
 QUERY_UPDATE_PRIORIDAD = "UPDATE tb_oportunidades SET prioridad = $1 WHERE id_oportunidad = $2"
 QUERY_UPDATE_OPORTUNIDAD_OWNER = "UPDATE tb_oportunidades SET creado_por_id = $1 WHERE id_oportunidad = $2"
 
+# Publicar borrador: marca como enviado y fija fecha/SLA al momento real del envío
+QUERY_PUBLISH_BORRADOR = """
+    UPDATE tb_oportunidades
+    SET email_enviado    = TRUE,
+        fecha_solicitud  = $2,
+        es_fuera_horario = $3,
+        deadline_calculado = $4
+    WHERE id_oportunidad = $1
+"""
+
+# Corrige las fechas del registro inicial de historial (id_estatus_anterior IS NULL)
+QUERY_UPDATE_HISTORIAL_INICIAL_FECHAS = """
+    UPDATE tb_historial_estatus
+    SET fecha_cambio_real = $2,
+        fecha_cambio_sla  = $3
+    WHERE id_oportunidad = $1
+      AND id_estatus_anterior IS NULL
+"""
+
 # Deletions
 QUERY_DELETE_OPORTUNIDAD = "DELETE FROM tb_oportunidades WHERE id_oportunidad = $1"
 # (Others are simple deletes, usually inline is acceptable if simple, but better in consts)
@@ -296,4 +321,19 @@ QUERY_GET_EXPIRED_BORRADORES_IDS = """
     SELECT id_oportunidad FROM tb_oportunidades
     WHERE email_enviado = false
       AND fecha_creacion <= NOW() - INTERVAL '24 hours'
+"""
+
+QUERY_CHECK_BORRADOR_VIGENTE = """
+    SELECT email_enviado,
+           fecha_creacion > NOW() - INTERVAL '24 hours' AS vigente
+    FROM tb_oportunidades
+    WHERE id_oportunidad = $1
+"""
+
+QUERY_REFRESH_BORRADOR_FECHA = """
+    UPDATE tb_oportunidades
+    SET fecha_creacion = NOW()
+    WHERE id_oportunidad = $1
+      AND email_enviado = FALSE
+      AND fecha_creacion > NOW() - INTERVAL '24 hours'
 """

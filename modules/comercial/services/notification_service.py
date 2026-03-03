@@ -32,10 +32,6 @@ class NotificationService:
         row = await conn.fetchrow("SELECT * FROM tb_oportunidades WHERE id_oportunidad = $1", id_oportunidad)
         return dict(row) if row else None
 
-    async def update_email_status(self, conn, id_oportunidad: UUID):
-        """Marca email como enviado."""
-        await conn.execute("UPDATE tb_oportunidades SET email_enviado = TRUE WHERE id_oportunidad = $1", id_oportunidad)
-
     async def get_parent_titulo(self, conn, parent_id: UUID) -> Optional[str]:
         return await conn.fetchval("SELECT titulo_proyecto FROM tb_oportunidades WHERE id_oportunidad = $1", parent_id)
 

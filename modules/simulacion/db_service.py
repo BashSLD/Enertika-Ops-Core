@@ -439,7 +439,13 @@ class SimulacionDBService:
             LEFT JOIN tb_usuarios u_creador ON o.creado_por_id = u_creador.id_usuario
             LEFT JOIN tb_usuarios u_sim ON o.responsable_simulacion_id = u_sim.id_usuario
             LEFT JOIN tb_detalles_bess db ON o.id_oportunidad = db.id_oportunidad
-            LEFT JOIN tb_levantamientos lev ON o.id_oportunidad = lev.id_oportunidad
+            LEFT JOIN (
+                SELECT DISTINCT ON (l.id_oportunidad)
+                    l.id_oportunidad, l.id_levantamiento, l.id_estatus_global,
+                    l.fecha_visita_programada, l.tecnico_asignado_id
+                FROM tb_levantamientos l
+                ORDER BY l.id_oportunidad, l.id_estatus_global ASC
+            ) lev ON o.id_oportunidad = lev.id_oportunidad
             LEFT JOIN tb_cat_estatus_levantamiento lev_estatus ON lev.id_estatus_global = lev_estatus.id
             LEFT JOIN tb_usuarios u_tecnico ON lev.tecnico_asignado_id = u_tecnico.id_usuario
             WHERE o.email_enviado = true
@@ -653,7 +659,7 @@ class SimulacionDBService:
                 COUNT(DISTINCT CASE WHEN clasificacion_solicitud = 'EXTRAORDINARIO' THEN id_oportunidad END) as extraordinarias,
                 COUNT(DISTINCT CASE WHEN parent_id IS NOT NULL THEN id_oportunidad END) as versiones,
                 COUNT(CASE WHEN es_retrabajo = TRUE THEN id_sitio END) as retrabajos,
-                COUNT(DISTINCT CASE WHEN es_licitacion = TRUE THEN id_oportunidad END) as licitaciones,
+                COUNT(DISTINCT CASE WHEN es_licitacion = TRUE THEN COALESCE(parent_id, id_oportunidad) END) as licitaciones,
                 COUNT(CASE WHEN kpi_status_interno = 'Entrega a tiempo' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as entregas_a_tiempo_interno,
                 COUNT(CASE WHEN kpi_status_interno = 'Entrega tarde' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as entregas_tarde_interno,
                 COUNT(CASE WHEN kpi_status_compromiso = 'Entrega a tiempo' AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as entregas_a_tiempo_compromiso,
@@ -747,7 +753,7 @@ class SimulacionDBService:
                 COUNT(DISTINCT st.id_oportunidad) FILTER (WHERE st.clasificacion_solicitud = 'EXTRAORDINARIO') as extraordinarias,
                 COUNT(DISTINCT st.id_oportunidad) FILTER (WHERE st.parent_id IS NOT NULL) as versiones,
                 COUNT(*) FILTER (WHERE st.es_retrabajo = TRUE) as retrabajos,
-                COUNT(DISTINCT st.id_oportunidad) FILTER (WHERE st.es_licitacion = TRUE) as licitaciones,
+                COUNT(DISTINCT COALESCE(st.parent_id, st.id_oportunidad)) FILTER (WHERE st.es_licitacion = TRUE) as licitaciones,
                 AVG(st.tiempo_elaboracion_horas) FILTER (WHERE st.tiempo_elaboracion_horas IS NOT NULL) as tiempo_promedio_horas,
                 COALESCE(SUM(DISTINCT st.potencia_cierre_fv_kwp), 0) as potencia_total_kwp,
                 COALESCE(SUM(DISTINCT st.capacidad_cierre_bess_kwh), 0) as capacidad_total_kwh,
@@ -800,7 +806,7 @@ class SimulacionDBService:
                 COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega a tiempo' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN s.id_sitio END) as entregas_a_tiempo_compromiso,
                 COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega tarde' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN s.id_sitio END) as entregas_tarde_compromiso,
                 COUNT(DISTINCT CASE WHEN o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND o.fecha_entrega_simulacion IS NULL THEN o.id_oportunidad END) as sin_fecha,
-                COUNT(DISTINCT CASE WHEN o.es_licitacion = TRUE THEN o.id_oportunidad END) as licitaciones,
+                COUNT(DISTINCT CASE WHEN o.es_licitacion = TRUE THEN COALESCE(o.parent_id, o.id_oportunidad) END) as licitaciones,
                 (ts.id = ${idx_levantamiento}) as es_levantamiento
             FROM tb_cat_tipos_solicitud ts
             LEFT JOIN tb_oportunidades o ON ts.id = o.id_tipo_solicitud

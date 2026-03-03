@@ -73,6 +73,10 @@ from .db_service import (
     QUERY_GET_BORRADORES_COUNT,
     QUERY_GET_BORRADORES_COUNT_BY_USER,
     QUERY_GET_EXPIRED_BORRADORES_IDS,
+    QUERY_CHECK_BORRADOR_VIGENTE,
+    QUERY_REFRESH_BORRADOR_FECHA,
+    QUERY_PUBLISH_BORRADOR,
+    QUERY_UPDATE_HISTORIAL_INICIAL_FECHAS,
 )
 
 # Shared Services
@@ -872,7 +876,17 @@ class ComercialService:
 
     async def update_email_status(self, conn, id_oportunidad: UUID, user_context: dict):
         await self.verify_ownership(conn, id_oportunidad, user_context)
-        await self.notification_service.update_email_status(conn, id_oportunidad)
+
+        fecha_envio = await self.get_current_datetime_mx(conn)
+        config = await self.get_configuracion_global(conn)
+        hora_corte, dias_fin_semana, dias_sla = SLACalculator.parse_config(config)
+
+        es_fuera_horario = SLACalculator.is_out_of_hours(fecha_envio, hora_corte, dias_fin_semana)
+        deadline = SLACalculator.calculate_deadline(fecha_envio, hora_corte, dias_sla)
+        fecha_inicio_sla = SLACalculator.calculate_deadline(fecha_envio, hora_corte, 0)
+
+        await conn.execute(QUERY_PUBLISH_BORRADOR, id_oportunidad, fecha_envio, es_fuera_horario, deadline)
+        await conn.execute(QUERY_UPDATE_HISTORIAL_INICIAL_FECHAS, id_oportunidad, fecha_envio, fecha_inicio_sla)
     
     async def update_oportunidad_prioridad(
         self, 
@@ -1093,6 +1107,11 @@ class ComercialService:
     
     async def get_data_for_email_form(self, conn, id_oportunidad: UUID, user_context: dict) -> dict:
         await self.verify_ownership(conn, id_oportunidad, user_context)
+        row = await conn.fetchrow(QUERY_CHECK_BORRADOR_VIGENTE, id_oportunidad)
+        if row and not row["email_enviado"]:
+            if not row["vigente"]:
+                raise ValueError("Este borrador ha expirado y ya no esta disponible.")
+            await conn.execute(QUERY_REFRESH_BORRADOR_FECHA, id_oportunidad)
         return await self.notification_service.get_data_for_email_form(conn, id_oportunidad)
 
     async def get_email_recipients_context(self, conn, recipients_str: str, fixed_to: List[str], fixed_cc: List[str], extra_cc: str) -> dict:

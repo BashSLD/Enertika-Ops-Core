@@ -42,3 +42,4 @@ scripts/
 CLAUDE.md
 .claude/settings.json
 .agent/
+.mcp.json
