@@ -1,0 +1,457 @@
+<!-- templates/levantamientos/modals/visita_campo_modal.html -->
+<!-- Modal de Visita de Campo: modo 'crear' y modo 'gestionar' -->
+<!-- Variables: step, visita, levantamientos_disponibles, preseleccionado,
+     levantamientos_visita, viaticos, usuarios, historial_envios,
+     to_configurados, cc_configurados, prorrateo, total_viaticos -->
+
+<div class="modal-header">
+    <h3 class="modal-title">
+        <i class="fas fa-route text-emerald-500"></i>
+        {% if step == 'crear' %}
+            Planificar Visita de Campo
+        {% else %}
+            Visita de Campo{% if visita and visita.nombre %}: {{ visita.nombre }}{% endif %}
+        {% endif %}
+    </h3>
+    <button type="button" class="modal-close" onclick="closeModal()">
+        <i class="fas fa-times"></i>
+    </button>
+</div>
+
+<div class="modal-body" style="max-height: 80vh; overflow-y: auto;">
+
+    {% if step == 'crear' %}
+    <!-- ====================================================== -->
+    <!-- MODO CREAR                                              -->
+    <!-- ====================================================== -->
+    <form hx-post="/levantamientos/visitas-campo"
+          hx-target="#modal-content"
+          hx-swap="innerHTML"
+          x-data="{
+              busqueda: '',
+              seleccionados: [],
+              init() {
+                  {% if preseleccionado %}
+                  this.seleccionados = ['{{ preseleccionado }}'];
+                  {% endif %}
+              },
+              toggleLev(id) {
+                  const idx = this.seleccionados.indexOf(id);
+                  if (idx >= 0) {
+                      this.seleccionados.splice(idx, 1);
+                  } else {
+                      this.seleccionados.push(id);
+                  }
+              },
+              isSelected(id) {
+                  return this.seleccionados.includes(id);
+              },
+              filtrados() {
+                  if (!this.busqueda.trim()) return this.$el.querySelectorAll('[data-lev-id]');
+                  const q = this.busqueda.toLowerCase();
+                  return Array.from(this.$el.querySelectorAll('[data-lev-id]')).filter(el =>
+                      el.dataset.texto && el.dataset.texto.toLowerCase().includes(q)
+                  );
+              }
+          }">
+
+        <!-- Nombre (opcional) -->
+        <div class="mb-4">
+            <label class="vc-label">Nombre de la visita <span class="text-slate-500 text-xs">(opcional)</span></label>
+            <input type="text" name="nombre" class="vc-input"
+                   placeholder="Ej: Gira Jalisco Enero 2026" />
+        </div>
+
+        <!-- Período -->
+        <div class="grid grid-cols-2 gap-3 mb-4">
+            <div>
+                <label class="vc-label required">Fecha / hora inicio</label>
+                <input type="datetime-local" name="fecha_inicio" class="vc-input" required />
+            </div>
+            <div>
+                <label class="vc-label required">Fecha / hora fin</label>
+                <input type="datetime-local" name="fecha_fin" class="vc-input" required />
+            </div>
+        </div>
+
+        <!-- Buscador de levantamientos -->
+        <div class="mb-2">
+            <label class="vc-label required">Levantamientos a incluir</label>
+            <input type="text" x-model="busqueda" class="vc-input mb-2"
+                   placeholder="Buscar por OP-ID, cliente, proyecto, sitio..." />
+        </div>
+
+        <!-- Lista multi-check -->
+        <div class="vc-lev-list mb-4">
+            {% if levantamientos_disponibles %}
+                {% for lev in levantamientos_disponibles %}
+                <label
+                    data-lev-id="{{ lev.id_levantamiento }}"
+                    data-texto="{{ lev.op_id_estandar }} {{ lev.cliente_nombre }} {{ lev.nombre_proyecto or lev.titulo_proyecto }} {{ lev.nombre_sitio or '' }}"
+                    x-show="!busqueda.trim() || $el.dataset.texto.toLowerCase().includes(busqueda.toLowerCase())"
+                    :class="isSelected('{{ lev.id_levantamiento }}') ? 'vc-lev-item selected' : 'vc-lev-item'"
+                    @click.prevent="toggleLev('{{ lev.id_levantamiento }}')"
+                    style="cursor:pointer; display:flex; align-items:flex-start; gap:0.5rem;">
+                    <!-- checkbox oculto para el submit del form -->
+                    <input type="checkbox" name="levantamiento_ids"
+                           value="{{ lev.id_levantamiento }}"
+                           :checked="isSelected('{{ lev.id_levantamiento }}')"
+                           style="display:none" />
+                    <span class="vc-check" :class="isSelected('{{ lev.id_levantamiento }}') ? 'checked' : ''">
+                        <i class="fas fa-check" x-show="isSelected('{{ lev.id_levantamiento }}')" style="font-size:10px;"></i>
+                    </span>
+                    <span class="flex-1">
+                        <span class="text-white font-mono text-sm">{{ lev.op_id_estandar }}</span>
+                        {% if lev.nombre_sitio %}
+                        <span class="text-slate-400 text-xs ml-1">| {{ lev.nombre_sitio }}</span>
+                        {% endif %}
+                        <br>
+                        <span class="text-slate-400 text-xs">
+                            {{ lev.cliente_nombre }}
+                            {% if lev.nombre_proyecto or lev.titulo_proyecto %}
+                            — {{ lev.nombre_proyecto or lev.titulo_proyecto }}
+                            {% endif %}
+                        </span>
+                        <span class="vc-badge ml-1" style="background:{{ lev.estatus_color or '#475569' }}20; color:{{ lev.estatus_color or '#94a3b8' }}; border:1px solid {{ lev.estatus_color or '#475569' }}40;">
+                            {{ lev.estatus_nombre or '' }}
+                        </span>
+                    </span>
+                </label>
+                {% endfor %}
+            {% else %}
+            <div class="text-slate-500 text-sm text-center p-4">No hay levantamientos disponibles.</div>
+            {% endif %}
+        </div>
+
+        <!-- Contador seleccionados -->
+        <p class="text-xs text-emerald-400 mb-4">
+            <span x-text="seleccionados.length"></span> levantamiento(s) seleccionado(s)
+        </p>
+
+        <div class="flex justify-end gap-2">
+            <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal()">Cancelar</button>
+            <button type="submit" class="btn btn-primary btn-sm"
+                    :disabled="seleccionados.length === 0">
+                <i class="fas fa-arrow-right mr-1"></i> Crear Visita
+            </button>
+        </div>
+    </form>
+
+    {% else %}
+    <!-- ====================================================== -->
+    <!-- MODO GESTIONAR                                          -->
+    <!-- ====================================================== -->
+
+    <!-- Info de la visita -->
+    <div class="vc-info-panel mb-4">
+        <div class="grid grid-cols-2 gap-2 text-sm">
+            <div>
+                <span class="text-slate-400">Inicio:</span>
+                <span class="text-white ml-1 font-medium">
+                    {{ visita.fecha_inicio.strftime('%d/%m/%Y %H:%M') if visita.fecha_inicio else '—' }}
+                </span>
+            </div>
+            <div>
+                <span class="text-slate-400">Fin:</span>
+                <span class="text-white ml-1 font-medium">
+                    {{ visita.fecha_fin.strftime('%d/%m/%Y %H:%M') if visita.fecha_fin else '—' }}
+                </span>
+            </div>
+            <div class="col-span-2">
+                <span class="text-slate-400">Levantamientos:</span>
+                <span class="text-white ml-1 font-medium">{{ visita.num_levantamientos }}</span>
+                <span class="text-slate-500 text-xs ml-2">
+                    {% for lev in levantamientos_visita %}
+                        {{ lev.op_id_estandar }}{% if not loop.last %}, {% endif %}
+                    {% endfor %}
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ========== VIÁTICOS ========== -->
+    <div class="vc-section mb-4">
+        <h4 class="vc-section-title">
+            <i class="fas fa-money-bill-wave text-emerald-400"></i>
+            Viáticos del Viaje
+        </h4>
+
+        <!-- Formulario agregar viático -->
+        <form hx-post="/levantamientos/visitas-campo/{{ visita.id_visita }}/viaticos"
+              hx-target="#vc-tabla-viaticos-container"
+              hx-swap="innerHTML"
+              hx-on::after-request="if(event.detail.successful) this.reset()">
+            <div class="grid grid-cols-12 gap-2 mb-3">
+                <div class="col-span-4">
+                    <label class="vc-label required">Usuario</label>
+                    <select name="usuario_id" class="vc-input" required>
+                        <option value="">Seleccionar...</option>
+                        {% for u in usuarios %}
+                        <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col-span-4">
+                    <label class="vc-label required">Concepto</label>
+                    <input type="text" name="concepto" class="vc-input"
+                           placeholder="Ej: Hospedaje, Transporte..." required />
+                </div>
+                <div class="col-span-2">
+                    <label class="vc-label required">Monto</label>
+                    <input type="number" name="monto" class="vc-input"
+                           step="0.01" min="0.01" placeholder="0.00" required />
+                </div>
+                <div class="col-span-2 flex items-end">
+                    <button type="submit" class="btn btn-success btn-sm w-full">
+                        <i class="fas fa-plus"></i> Agregar
+                    </button>
+                </div>
+            </div>
+        </form>
+
+        <!-- Tabla de viáticos (HTMX target) -->
+        <div id="vc-tabla-viaticos-container">
+            {% include "levantamientos/partials/tabla_visita_campo_viaticos.html" %}
+        </div>
+    </div>
+
+    <!-- ========== PRORRATEO ========== -->
+    <div class="vc-section mb-4" id="vc-prorrateo-container">
+        {% include "levantamientos/partials/visita_campo_prorrateo.html" %}
+    </div>
+
+    <!-- ========== ENVIAR CORREO ========== -->
+    {% set ultimo_envio = historial_envios[0] if historial_envios else none %}
+    {% set ya_enviado = ultimo_envio is not none and ultimo_envio.estatus == 'enviado' %}
+    <div class="vc-section mb-4"
+         x-data="{
+             tagsTo: [],
+             currentTo: '',
+             tagsCc: [],
+             currentCc: '',
+             toError: false,
+             _toDefault: [],
+             init() {
+                 this._toDefault = JSON.parse(this.$el.dataset.toDefault || '[]');
+                 this.tagsTo = this._toDefault.slice();
+             },
+             addTo() {
+                 const email = this.currentTo.trim().replace(/[;,]$/, '');
+                 if (email && email.includes('@') && !this.tagsTo.includes(email)) {
+                     this.tagsTo.push(email);
+                     this.toError = false;
+                 }
+                 this.currentTo = '';
+             },
+             removeTo(t) {
+                 this.tagsTo = this.tagsTo.filter(x => x !== t);
+                 this.toError = this.tagsTo.length === 0;
+             },
+             handleKeyTo(e) {
+                 if (e.key === 'Enter' || e.key === ',' || e.key === ';') {
+                     e.preventDefault();
+                     this.addTo();
+                 }
+             },
+             addCc() {
+                 const email = this.currentCc.trim().replace(/[;,]$/, '');
+                 if (email && email.includes('@') && !this.tagsCc.includes(email)) {
+                     this.tagsCc.push(email);
+                 }
+                 this.currentCc = '';
+             },
+             removeCc(t) { this.tagsCc = this.tagsCc.filter(x => x !== t); },
+             handleKeyCc(e) {
+                 if (e.key === 'Enter' || e.key === ',' || e.key === ';') {
+                     e.preventDefault();
+                     this.addCc();
+                 }
+             },
+             submitGuard(e) {
+                 this.addTo();
+                 if (this.tagsTo.length === 0) {
+                     e.preventDefault();
+                     this.toError = true;
+                 }
+             }
+         }"
+         data-to-default='{{ to_configurados | tojson }}'>
+        <h4 class="vc-section-title">
+            <i class="fas fa-envelope text-amber-400"></i>
+            Enviar Solicitud por Correo
+        </h4>
+
+        {% if ya_enviado %}
+        <div class="flex items-start gap-3 p-3 bg-amber-900/30 border border-amber-500/50 rounded-lg mb-3">
+            <i class="fas fa-exclamation-triangle text-amber-400 mt-0.5"></i>
+            <div>
+                <p class="text-amber-300 font-semibold text-sm">Solicitud ya enviada</p>
+                <p class="text-amber-400 text-xs mt-0.5">
+                    Enviada el {{ ultimo_envio.fecha_envio.strftime('%d/%m/%Y a las %H:%M') }}
+                    por {{ ultimo_envio.enviado_por_nombre or 'el sistema' }}.
+                </p>
+            </div>
+        </div>
+        {% endif %}
+
+        <form hx-post="/levantamientos/visitas-campo/{{ visita.id_visita }}/enviar"
+              hx-target="#vc-historial-container"
+              hx-swap="innerHTML"
+              hx-disabled-elt="find button[type='submit']"
+              @submit="submitGuard($event)">
+
+            <!-- TO -->
+            <div class="mb-3">
+                <label class="vc-label required">Para (TO)</label>
+                <div :class="toError ? 'border-red-500' : 'border-slate-600 focus-within:border-blue-500'"
+                     class="flex flex-wrap gap-1.5 p-2 min-h-[42px] bg-slate-900/80 border rounded-md transition-colors">
+                    <template x-for="tag in tagsTo" :key="tag">
+                        <span class="inline-flex items-center gap-1 bg-emerald-900/60 border border-emerald-500/40 text-emerald-200 text-xs px-2 py-0.5 rounded-full">
+                            <span x-text="tag"></span>
+                            <button type="button" @click="removeTo(tag)" class="text-emerald-300 hover:text-white">&times;</button>
+                        </span>
+                    </template>
+                    <input type="text" x-model="currentTo" @keydown="handleKeyTo($event)" @blur="addTo()"
+                           class="flex-1 min-w-[160px] bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
+                           placeholder="correo@ejemplo.com + Enter" />
+                </div>
+                <p x-show="toError" class="text-red-400 text-xs mt-1">Debes ingresar al menos un destinatario.</p>
+                <input type="hidden" name="to_destinatarios" :value="tagsTo.join(';')" />
+            </div>
+
+            <!-- CC configurados (lectura) -->
+            {% if cc_configurados %}
+            <div class="mb-2">
+                <label class="vc-label text-slate-400">CC Configurados:</label>
+                <div class="text-xs text-slate-300">{{ cc_configurados | join(', ') }}</div>
+            </div>
+            {% endif %}
+
+            <!-- CC adicionales -->
+            <div class="mb-3">
+                <label class="vc-label">CC Adicionales</label>
+                <div class="flex flex-wrap gap-1.5 p-2 min-h-[42px] bg-slate-900/80 border border-slate-600 rounded-md focus-within:border-blue-500 transition-colors">
+                    <template x-for="tag in tagsCc" :key="tag">
+                        <span class="inline-flex items-center gap-1 bg-blue-900/60 border border-blue-500/40 text-blue-200 text-xs px-2 py-0.5 rounded-full">
+                            <span x-text="tag"></span>
+                            <button type="button" @click="removeCc(tag)" class="text-blue-300 hover:text-white">&times;</button>
+                        </span>
+                    </template>
+                    <input type="text" x-model="currentCc" @keydown="handleKeyCc($event)" @blur="addCc()"
+                           class="flex-1 min-w-[160px] bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
+                           placeholder="correo@ejemplo.com + Enter" />
+                </div>
+                <input type="hidden" name="cc_adicionales" :value="tagsCc.join(';')" />
+            </div>
+
+            <div class="flex justify-end">
+                <button type="submit" class="btn btn-primary btn-sm">
+                    <i class="fas fa-paper-plane mr-1"></i> Enviar Solicitud
+                </button>
+            </div>
+        </form>
+    </div>
+
+    <!-- ========== HISTORIAL ========== -->
+    <div class="vc-section">
+        <h4 class="vc-section-title">
+            <i class="fas fa-history text-purple-400"></i>
+            Historial de Envíos
+        </h4>
+        <div id="vc-historial-container">
+            {% include "levantamientos/partials/historial_envios_visita.html" %}
+        </div>
+    </div>
+
+    {% endif %}{# end if step #}
+
+</div><!-- /modal-body -->
+
+<div class="modal-footer">
+    <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal()">Cerrar</button>
+</div>
+
+<style>
+.vc-label {
+    display: block;
+    font-size: 0.75rem;
+    color: #94a3b8;
+    margin-bottom: 0.25rem;
+}
+.vc-label.required::after { content: " *"; color: #f87171; }
+
+.vc-input {
+    width: 100%;
+    background: rgba(15, 23, 42, 0.8);
+    border: 1px solid rgba(100, 116, 139, 0.3);
+    border-radius: 0.375rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    color: white;
+}
+.vc-input:focus { outline: none; border-color: #3b82f6; }
+
+.vc-section {
+    background: rgba(30, 41, 59, 0.5);
+    border: 1px solid rgba(100, 116, 139, 0.2);
+    border-radius: 0.5rem;
+    padding: 1rem;
+}
+.vc-section-title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #e2e8f0;
+    margin-bottom: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+.vc-info-panel {
+    background: rgba(15, 23, 42, 0.5);
+    border: 1px solid rgba(100, 116, 139, 0.2);
+    border-radius: 0.5rem;
+    padding: 0.875rem;
+}
+.vc-lev-list {
+    max-height: 280px;
+    overflow-y: auto;
+    border: 1px solid rgba(100, 116, 139, 0.2);
+    border-radius: 0.5rem;
+    padding: 0.25rem;
+}
+.vc-lev-item {
+    padding: 0.5rem 0.625rem;
+    border-radius: 0.375rem;
+    border: 1px solid transparent;
+    margin-bottom: 0.25rem;
+    transition: all 0.15s;
+}
+.vc-lev-item:hover { background: rgba(71, 85, 105, 0.3); }
+.vc-lev-item.selected {
+    background: rgba(16, 185, 129, 0.12);
+    border-color: rgba(16, 185, 129, 0.4);
+}
+.vc-check {
+    width: 16px;
+    height: 16px;
+    border: 2px solid #475569;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    margin-top: 2px;
+    color: white;
+}
+.vc-check.checked {
+    background: #10b981;
+    border-color: #10b981;
+}
+.vc-badge {
+    display: inline-block;
+    font-size: 0.65rem;
+    padding: 1px 5px;
+    border-radius: 9999px;
+    font-weight: 500;
+}
+</style>

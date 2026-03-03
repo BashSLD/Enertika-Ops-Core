@@ -1,0 +1,51 @@
+<!-- templates/levantamientos/partials/visita_campo_prorrateo.html -->
+<!-- Tabla de prorrateo calculada en el servidor -->
+<!-- Variables: levantamientos_visita (list), prorrateo (dict {str(id): monto}), total_viaticos -->
+
+{% if levantamientos_visita and total_viaticos and total_viaticos > 0 %}
+<h4 class="vc-section-title">
+    <i class="fas fa-divide text-cyan-400"></i>
+    Prorrateo por Levantamiento
+    <span class="text-xs text-slate-500 font-normal ml-1">(división igual)</span>
+</h4>
+<table style="width:100%; font-size:0.8rem; border-collapse:collapse;">
+    <thead>
+        <tr>
+            <th style="text-align:left; padding:0.375rem 0.5rem; color:#94a3b8; border-bottom:1px solid rgba(100,116,139,0.3);">OP-ID</th>
+            <th style="text-align:left; padding:0.375rem 0.5rem; color:#94a3b8; border-bottom:1px solid rgba(100,116,139,0.3);">Proyecto</th>
+            <th style="text-align:right; padding:0.375rem 0.5rem; color:#94a3b8; border-bottom:1px solid rgba(100,116,139,0.3);">Corresponde</th>
+        </tr>
+    </thead>
+    <tbody>
+        {% for lev in levantamientos_visita %}
+        {% set monto_lev = prorrateo.get(lev.id_levantamiento | string, 0) %}
+        <tr>
+            <td style="padding:0.375rem 0.5rem; color:#e2e8f0; font-family:monospace; border-bottom:1px solid rgba(100,116,139,0.1);">
+                {{ lev.op_id_estandar }}
+            </td>
+            <td style="padding:0.375rem 0.5rem; color:#94a3b8; border-bottom:1px solid rgba(100,116,139,0.1);">
+                {{ lev.nombre_proyecto or lev.titulo_proyecto or '—' }}
+                {% if lev.nombre_sitio %}
+                <span class="text-slate-500">| {{ lev.nombre_sitio }}</span>
+                {% endif %}
+            </td>
+            <td style="padding:0.375rem 0.5rem; text-align:right; color:#10b981; font-family:monospace; font-weight:600; border-bottom:1px solid rgba(100,116,139,0.1);">
+                ${{ "%.2f"|format(monto_lev) }}
+            </td>
+        </tr>
+        {% endfor %}
+    </tbody>
+    <tfoot>
+        <tr>
+            <td colspan="2" style="padding:0.375rem 0.5rem; text-align:right; color:#64748b; font-size:0.75rem;">Total viaje:</td>
+            <td style="padding:0.375rem 0.5rem; text-align:right; color:#10b981; font-family:monospace; font-weight:700;">
+                ${{ "%.2f"|format(total_viaticos) }}
+            </td>
+        </tr>
+    </tfoot>
+</table>
+{% elif levantamientos_visita %}
+<p class="text-slate-500 text-sm text-center py-2">
+    Agrega viáticos para ver el prorrateo.
+</p>
+{% endif %}

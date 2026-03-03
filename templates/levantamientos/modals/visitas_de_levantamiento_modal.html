@@ -1,0 +1,59 @@
+<!-- templates/levantamientos/modals/visitas_de_levantamiento_modal.html -->
+<!-- Lista de visitas de campo que contienen un levantamiento -->
+<!-- Variables: id_levantamiento, visitas (list[dict]) -->
+
+<div class="modal-header">
+    <h3 class="modal-title">
+        <i class="fas fa-route text-blue-400"></i>
+        Visitas de Campo — Levantamiento
+    </h3>
+    <button type="button" class="modal-close" onclick="closeModal()">
+        <i class="fas fa-times"></i>
+    </button>
+</div>
+
+<div class="modal-body">
+    <p class="text-slate-400 text-sm mb-4">
+        Este levantamiento forma parte de <strong class="text-white">{{ visitas | length }}</strong>
+        visita(s) de campo. Selecciona una para gestionarla.
+    </p>
+
+    <div class="space-y-2">
+        {% for v in visitas %}
+        <div class="flex items-center justify-between p-3 bg-slate-800/50 border border-slate-700 rounded-lg hover:border-blue-500/50 transition-colors">
+            <div>
+                <p class="text-white font-medium text-sm">
+                    {% if v.nombre %}{{ v.nombre }}{% else %}Visita del {{ v.fecha_inicio.strftime('%d/%m/%Y') if v.fecha_inicio else '—' }}{% endif %}
+                </p>
+                <p class="text-slate-400 text-xs mt-0.5">
+                    {{ v.fecha_inicio.strftime('%d/%m/%Y %H:%M') if v.fecha_inicio else '—' }}
+                    &rarr;
+                    {{ v.fecha_fin.strftime('%d/%m/%Y %H:%M') if v.fecha_fin else '—' }}
+                </p>
+                <p class="text-slate-500 text-xs mt-0.5">
+                    {{ v.num_levantamientos }} levantamiento(s) &bull;
+                    Total viáticos: ${{ "%.2f"|format(v.total_viaticos) }}
+                </p>
+            </div>
+            <button
+                hx-get="/levantamientos/modal/visita-campo/{{ v.id_visita }}"
+                hx-target="#modal-content"
+                hx-swap="innerHTML"
+                class="btn btn-sm btn-outline-blue flex-shrink-0 ml-3">
+                <i class="fas fa-external-link-alt mr-1"></i> Abrir
+            </button>
+        </div>
+        {% endfor %}
+    </div>
+
+    <div class="mt-4 pt-4 border-t border-slate-700 flex justify-between items-center">
+        <button
+            hx-get="/levantamientos/modal/visita-campo/nueva?id_levantamiento={{ id_levantamiento }}"
+            hx-target="#modal-content"
+            hx-swap="innerHTML"
+            class="btn btn-sm btn-outline-emerald">
+            <i class="fas fa-plus mr-1"></i> Nueva Visita con este Levantamiento
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal()">Cerrar</button>
+    </div>
+</div>

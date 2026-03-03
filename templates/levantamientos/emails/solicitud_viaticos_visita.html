@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="color-scheme" content="light">
+    <title>Solicitud de Viáticos — Visita de Campo</title>
+</head>
+<body style="margin:0; padding:0; font-family:'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color:#f4f4f4;">
+    <table role="presentation" style="width:100%; border-collapse:collapse;">
+        <tr>
+            <td align="center" style="padding:40px 0;">
+                <table role="presentation" style="width:600px; border-collapse:collapse; background-color:#ffffff; border-radius:8px; box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+
+                    <!-- Header -->
+                    <tr>
+                        <td style="background:linear-gradient(135deg,#123456 0%,#00BABB 100%); padding:30px 40px; text-align:center; border-radius:8px 8px 0 0;">
+                            <h1 style="margin:0; color:#ffffff; font-size:26px; font-weight:600;">
+                                Solicitud de Viaticos — Visita de Campo
+                            </h1>
+                            <p style="margin:10px 0 0 0; color:#E0F7F7; font-size:14px;">
+                                Modulo de Levantamientos — Enertika Ops
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Body -->
+                    <tr>
+                        <td style="padding:30px 40px;">
+
+                            <!-- Info de la visita -->
+                            <table role="presentation" style="width:100%; margin-bottom:25px; background-color:#f8fafc; border-radius:6px; border:1px solid #e2e8f0;">
+                                <tr>
+                                    <td style="padding:20px;">
+                                        <table role="presentation" style="width:100%;">
+                                            {% if visita.nombre %}
+                                            <tr>
+                                                <td style="padding:5px 0;">
+                                                    <span style="color:#64748b; font-size:13px;">Visita:</span>
+                                                    <span style="color:#1e293b; font-weight:600; margin-left:10px;">{{ visita.nombre }}</span>
+                                                </td>
+                                            </tr>
+                                            {% endif %}
+                                            <tr>
+                                                <td style="padding:5px 0;">
+                                                    <span style="color:#64748b; font-size:13px;">Periodo:</span>
+                                                    <span style="color:#1e293b; font-weight:600; margin-left:10px;">
+                                                        {{ visita.fecha_inicio.strftime('%d/%m/%Y %H:%M') if visita.fecha_inicio else '—' }}
+                                                        &rarr;
+                                                        {{ visita.fecha_fin.strftime('%d/%m/%Y %H:%M') if visita.fecha_fin else '—' }}
+                                                    </span>
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding:5px 0;">
+                                                    <span style="color:#64748b; font-size:13px;">Levantamientos:</span>
+                                                    <span style="color:#1e293b; font-weight:600; margin-left:10px;">{{ levantamientos | length }}</span>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Levantamientos incluidos -->
+                            <h3 style="margin:0 0 12px 0; color:#1e293b; font-size:15px; font-weight:600;">
+                                Levantamientos de Sitio Visitados
+                            </h3>
+                            <table role="presentation" style="width:100%; border-collapse:collapse; margin-bottom:25px;">
+                                <thead>
+                                    <tr style="background-color:#f1f5f9;">
+                                        <th style="padding:10px 12px; text-align:left; font-size:12px; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0;">OP-ID</th>
+                                        <th style="padding:10px 12px; text-align:left; font-size:12px; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0;">Proyecto / Sitio</th>
+                                        <th style="padding:10px 12px; text-align:left; font-size:12px; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0;">Cliente</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for lev in levantamientos %}
+                                    <tr>
+                                        <td style="padding:10px 12px; font-size:13px; color:#334155; border-bottom:1px solid #e2e8f0; font-family:monospace; font-weight:600;">
+                                            {{ lev.op_id_estandar }}
+                                        </td>
+                                        <td style="padding:10px 12px; font-size:13px; color:#334155; border-bottom:1px solid #e2e8f0;">
+                                            {{ lev.nombre_proyecto or lev.titulo_proyecto or '—' }}
+                                            {% if lev.nombre_sitio %}
+                                            <br><span style="color:#64748b; font-size:12px;">{{ lev.nombre_sitio }}</span>
+                                            {% endif %}
+                                        </td>
+                                        <td style="padding:10px 12px; font-size:13px; color:#334155; border-bottom:1px solid #e2e8f0;">
+                                            {{ lev.cliente_nombre }}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+
+                            <!-- Viáticos del viaje -->
+                            <h3 style="margin:0 0 12px 0; color:#1e293b; font-size:15px; font-weight:600;">
+                                Viaticos del Viaje
+                            </h3>
+                            <table role="presentation" style="width:100%; border-collapse:collapse; margin-bottom:25px;">
+                                <thead>
+                                    <tr style="background-color:#f1f5f9;">
+                                        <th style="padding:10px 12px; text-align:left; font-size:12px; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0;">Usuario</th>
+                                        <th style="padding:10px 12px; text-align:left; font-size:12px; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0;">Concepto</th>
+                                        <th style="padding:10px 12px; text-align:right; font-size:12px; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0;">Monto</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for v in viaticos %}
+                                    <tr>
+                                        <td style="padding:10px 12px; font-size:13px; color:#334155; border-bottom:1px solid #e2e8f0;">{{ v.usuario_nombre }}</td>
+                                        <td style="padding:10px 12px; font-size:13px; color:#334155; border-bottom:1px solid #e2e8f0;">{{ v.concepto }}</td>
+                                        <td style="padding:10px 12px; font-size:13px; color:#334155; border-bottom:1px solid #e2e8f0; text-align:right; font-family:monospace;">${{ "%.2f"|format(v.monto) }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                                <tfoot>
+                                    <tr style="background-color:#ecfdf5;">
+                                        <td colspan="2" style="padding:10px 12px; font-size:13px; color:#059669; font-weight:600; text-align:right;">TOTAL VIAJE:</td>
+                                        <td style="padding:10px 12px; font-size:15px; color:#059669; font-weight:700; text-align:right; font-family:monospace;">${{ "%.2f"|format(total_monto) }}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+
+                            <!-- Prorrateo por levantamiento -->
+                            <h3 style="margin:0 0 12px 0; color:#1e293b; font-size:15px; font-weight:600;">
+                                Prorrateo por Levantamiento
+                                <span style="font-size:12px; color:#64748b; font-weight:400;">(division igual)</span>
+                            </h3>
+                            <table role="presentation" style="width:100%; border-collapse:collapse; margin-bottom:25px;">
+                                <thead>
+                                    <tr style="background-color:#f1f5f9;">
+                                        <th style="padding:10px 12px; text-align:left; font-size:12px; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0;">OP-ID</th>
+                                        <th style="padding:10px 12px; text-align:left; font-size:12px; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0;">Proyecto</th>
+                                        <th style="padding:10px 12px; text-align:right; font-size:12px; color:#64748b; font-weight:600; border-bottom:2px solid #e2e8f0;">Corresponde</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for lev in levantamientos %}
+                                    {% set monto_lev = prorrateo.get(lev.id_levantamiento | string, 0) %}
+                                    <tr>
+                                        <td style="padding:10px 12px; font-size:13px; color:#334155; border-bottom:1px solid #e2e8f0; font-family:monospace; font-weight:600;">{{ lev.op_id_estandar }}</td>
+                                        <td style="padding:10px 12px; font-size:13px; color:#334155; border-bottom:1px solid #e2e8f0;">{{ lev.nombre_proyecto or lev.titulo_proyecto or '—' }}</td>
+                                        <td style="padding:10px 12px; font-size:13px; color:#059669; border-bottom:1px solid #e2e8f0; text-align:right; font-family:monospace; font-weight:600;">${{ "%.2f"|format(monto_lev) }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+
+                            <!-- Firma -->
+                            <table role="presentation" style="width:100%; border-top:1px solid #e2e8f0; padding-top:20px;">
+                                <tr>
+                                    <td style="padding-top:20px;">
+                                        <p style="margin:0; color:#64748b; font-size:13px;">
+                                            Solicitud enviada por: <strong style="color:#334155;">{{ enviado_por }}</strong>
+                                        </p>
+                                        <p style="margin:5px 0 0 0; color:#64748b; font-size:13px;">
+                                            Fecha de envio: <strong style="color:#334155;">{{ fecha_envio }}</strong>
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color:#f8fafc; padding:20px 40px; border-radius:0 0 8px 8px; border-top:1px solid #e2e8f0;">
+                            <p style="margin:0; color:#94a3b8; font-size:12px; text-align:center;">
+                                Este correo fue generado automaticamente desde <strong>Enertika Ops</strong>.<br>
+                                Por favor, no responda directamente a este mensaje.
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

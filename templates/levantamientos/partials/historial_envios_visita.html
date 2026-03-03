@@ -1,0 +1,38 @@
+<!-- templates/levantamientos/partials/historial_envios_visita.html -->
+<!-- Historial de envíos de una Visita de Campo -->
+<!-- Variable: historial_envios (list[dict]) -->
+
+{% if historial_envios %}
+<div class="space-y-1">
+    {% for h in historial_envios %}
+    <div class="historial-envio-item">
+        <div class="flex justify-between items-start">
+            <span class="fecha-env">
+                {{ h.fecha_envio.strftime('%d/%m/%Y %H:%M') if h.fecha_envio else '—' }}
+            </span>
+            <span class="{{ 'estatus-ok' if h.estatus == 'enviado' else 'estatus-err' }}">
+                {% if h.estatus == 'enviado' %}
+                <i class="fas fa-check-circle"></i> Enviado
+                {% else %}
+                <i class="fas fa-times-circle"></i> Error
+                {% endif %}
+            </span>
+        </div>
+        <div class="detalle">
+            Por: <strong style="color:#e2e8f0;">{{ h.enviado_por_nombre or '—' }}</strong>
+            &bull; Total: <strong style="color:#10b981;">${{ "%.2f"|format(h.total_monto) }}</strong>
+        </div>
+        {% if h.to_destinatarios %}
+        <div class="detalle">
+            TO: {{ h.to_destinatarios | join(', ') if h.to_destinatarios is iterable else h.to_destinatarios }}
+        </div>
+        {% endif %}
+        {% if h.estatus == 'error' and h.error_detalle %}
+        <div class="detalle" style="color:#f87171;">{{ h.error_detalle }}</div>
+        {% endif %}
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div class="empty-viat">No hay envíos registrados para esta visita.</div>
+{% endif %}
