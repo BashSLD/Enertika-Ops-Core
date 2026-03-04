@@ -138,6 +138,40 @@ class SimulacionDBService:
         """
         return await conn.fetchval(query, id_oportunidad, terminal_status_ids)
 
+    async def insert_simulaciones_adicionales(
+        self, conn, id_oportunidad: UUID, sims: list,
+        kpi_interno: Optional[str], kpi_compromiso: Optional[str], fecha_entrega
+    ):
+        """Inserta las simulaciones adicionales capturadas al momento del cierre."""
+        for idx, sim in enumerate(sims):
+            await conn.execute("""
+                INSERT INTO tb_simulaciones_adicionales
+                    (id_oportunidad, numero, potencia_cierre_fv_kwp, capacidad_cierre_bess_kwh,
+                     monto_cierre_usd, kpi_status_interno, kpi_status_compromiso, fecha_entrega)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                ON CONFLICT (id_oportunidad, numero) DO NOTHING
+            """,
+                id_oportunidad,
+                idx + 2,  # numero: la principal es siempre #1
+                sim.potencia_cierre_fv_kwp,
+                sim.capacidad_cierre_bess_kwh,
+                sim.monto_cierre_usd,
+                kpi_interno,
+                kpi_compromiso,
+                fecha_entrega
+            )
+
+    async def get_simulaciones_adicionales(self, conn, id_oportunidad: UUID) -> list:
+        """Retorna las simulaciones adicionales registradas para una oportunidad, ordenadas por numero."""
+        rows = await conn.fetch("""
+            SELECT id, numero, potencia_cierre_fv_kwp, capacidad_cierre_bess_kwh,
+                   monto_cierre_usd, kpi_status_interno, kpi_status_compromiso, fecha_entrega
+            FROM tb_simulaciones_adicionales
+            WHERE id_oportunidad = $1
+            ORDER BY numero
+        """, id_oportunidad)
+        return [dict(r) for r in rows]
+
     async def update_oportunidad_padre(self, conn, id_oportunidad: UUID, datos: Dict[str, Any]):
         query = """
             UPDATE tb_oportunidades SET
@@ -630,6 +664,7 @@ class SimulacionDBService:
 
         query = f"""
             WITH sitios_kpis AS (
+                -- Tickets principales: cada sitio
                 SELECT
                     s.id_oportunidad,
                     s.id_sitio,
@@ -647,6 +682,29 @@ class SimulacionDBService:
                     o.cantidad_sitios
                 FROM tb_sitios_oportunidad s
                 JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
+                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
+                {where_clause}
+
+                UNION ALL
+
+                -- Tickets adicionales: cada simulación extra (cada una cuenta como oferta independiente)
+                SELECT
+                    sa.id_oportunidad,
+                    sa.id AS id_sitio,
+                    sa.kpi_status_interno,
+                    sa.kpi_status_compromiso,
+                    false AS es_retrabajo,
+                    o.parent_id,
+                    o.clasificacion_solicitud,
+                    o.es_licitacion,
+                    o.id_tipo_solicitud,
+                    o.id_estatus_global,
+                    o.id_motivo_cierre,
+                    NULL AS tiempo_elaboracion_horas,
+                    sa.fecha_entrega AS fecha_entrega_simulacion,
+                    o.cantidad_sitios
+                FROM tb_simulaciones_adicionales sa
+                JOIN tb_oportunidades o ON sa.id_oportunidad = o.id_oportunidad
                 JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
                 {where_clause}
             )
@@ -732,6 +790,7 @@ class SimulacionDBService:
         
         query = f"""
             WITH sitios_tech AS (
+                -- Tickets principales: cada sitio
                 SELECT
                     o.id_tecnologia, s.id_oportunidad, s.id_sitio,
                     s.kpi_status_interno, s.kpi_status_compromiso, s.es_retrabajo,
@@ -739,6 +798,19 @@ class SimulacionDBService:
                     o.tiempo_elaboracion_horas, o.potencia_cierre_fv_kwp, o.capacidad_cierre_bess_kwh
                 FROM tb_sitios_oportunidad s
                 JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
+                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
+                {where_clause}
+
+                UNION ALL
+
+                -- Tickets adicionales: cada simulación extra
+                SELECT
+                    o.id_tecnologia, sa.id_oportunidad, sa.id AS id_sitio,
+                    sa.kpi_status_interno, sa.kpi_status_compromiso, false AS es_retrabajo,
+                    o.parent_id, o.clasificacion_solicitud, o.es_licitacion, o.id_estatus_global, o.id_tipo_solicitud,
+                    NULL AS tiempo_elaboracion_horas, sa.potencia_cierre_fv_kwp, sa.capacidad_cierre_bess_kwh
+                FROM tb_simulaciones_adicionales sa
+                JOIN tb_oportunidades o ON sa.id_oportunidad = o.id_oportunidad
                 JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
                 {where_clause}
             )
@@ -887,6 +959,7 @@ class SimulacionDBService:
 
         query = f"""
             WITH sitios_mensual AS (
+                -- Tickets principales: cada sitio
                 SELECT
                     EXTRACT(MONTH FROM o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::int as mes,
                     s.id_oportunidad, s.kpi_status_interno, s.kpi_status_compromiso, s.es_retrabajo,
@@ -894,6 +967,19 @@ class SimulacionDBService:
                     o.tiempo_elaboracion_horas, o.id_motivo_cierre
                 FROM tb_sitios_oportunidad s
                 JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
+                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
+                {where_clause}
+
+                UNION ALL
+
+                -- Tickets adicionales: cada simulación extra (agrupada en el mes de la solicitud original)
+                SELECT
+                    EXTRACT(MONTH FROM o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::int as mes,
+                    sa.id_oportunidad, sa.kpi_status_interno, sa.kpi_status_compromiso, false AS es_retrabajo,
+                    o.parent_id, o.clasificacion_solicitud, o.id_estatus_global, o.id_tipo_solicitud,
+                    NULL AS tiempo_elaboracion_horas, o.id_motivo_cierre
+                FROM tb_simulaciones_adicionales sa
+                JOIN tb_oportunidades o ON sa.id_oportunidad = o.id_oportunidad
                 JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
                 {where_clause}
             )

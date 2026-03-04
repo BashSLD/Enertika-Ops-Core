@@ -207,7 +207,7 @@ class NotificationsService:
         )
         return int(result.split()[-1])
     
-    async def create_notification(self, conn, usuario_id: UUID, tipo: str, titulo: str, mensaje: str, id_oportunidad: Optional[UUID] = None) -> dict:
+    async def create_notification(self, conn, usuario_id: UUID, tipo: str, titulo: str, mensaje: str, id_oportunidad: Optional[UUID] = None, modulo_origen: Optional[str] = None) -> dict:
         query = """
             INSERT INTO tb_notificaciones (usuario_id, tipo, titulo, mensaje, id_oportunidad)
             VALUES ($1, $2, $3, $4, $5)
@@ -221,6 +221,7 @@ class NotificationsService:
             "title": titulo,
             "message": mensaje,
             "oportunidad_id": str(id_oportunidad) if id_oportunidad else None,
+            "modulo_origen": modulo_origen or "simulacion",
             "created_at": row['created_at'].isoformat()
         }
         

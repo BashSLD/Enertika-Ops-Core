@@ -38,12 +38,14 @@ class LevantamientosDBService:
                 l.id_oportunidad,
                 l.id_sitio,
                 l.id_estatus_global,
-                l.fecha_solicitud        AT TIME ZONE 'America/Mexico_City' AS fecha_solicitud,
-                l.fecha_visita_programada AT TIME ZONE 'America/Mexico_City' AS fecha_visita_programada,
+                l.solicitado_por_id,
+                l.fecha_solicitud             AT TIME ZONE 'America/Mexico_City' AS fecha_solicitud,
+                l.fecha_visita_programada     AT TIME ZONE 'America/Mexico_City' AS fecha_visita_programada,
+                l.fecha_ideal_solicitante     AT TIME ZONE 'America/Mexico_City' AS fecha_ideal_solicitante,
                 l.motivo_pospone,
-                l.fecha_reagenda         AT TIME ZONE 'America/Mexico_City' AS fecha_reagenda,
-                l.created_at             AT TIME ZONE 'America/Mexico_City' AS created_at,
-                l.updated_at             AT TIME ZONE 'America/Mexico_City' AS updated_at,
+                l.fecha_reagenda              AT TIME ZONE 'America/Mexico_City' AS fecha_reagenda,
+                l.created_at                  AT TIME ZONE 'America/Mexico_City' AS created_at,
+                l.updated_at                  AT TIME ZONE 'America/Mexico_City' AS updated_at,
 
                 -- Oportunidad
                 o.op_id_estandar,
@@ -133,6 +135,15 @@ class LevantamientosDBService:
         return await conn.fetchval("""
             SELECT id_levantamiento FROM tb_levantamientos WHERE id_oportunidad = $1 LIMIT 1
         """, id_oportunidad)
+
+    async def update_fecha_ideal_solicitante(self, conn, id_levantamiento: UUID, fecha_ideal) -> None:
+        """Actualiza la fecha ideal del solicitante en el levantamiento."""
+        await conn.execute("""
+            UPDATE tb_levantamientos
+               SET fecha_ideal_solicitante = $1,
+                   updated_at              = NOW()
+             WHERE id_levantamiento = $2
+        """, fecha_ideal, id_levantamiento)
 
     async def get_detalle_completo(self, conn, id_levantamiento: UUID) -> Optional[dict]:
         """

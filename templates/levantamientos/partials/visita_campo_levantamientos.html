@@ -21,6 +21,12 @@
                 <span class="text-slate-500">| {{ lev.nombre_sitio }}</span>
                 {% endif %}
                 <span class="text-slate-500">— {{ lev.cliente_nombre }}</span>
+                {% if lev.fecha_visita_individual %}
+                <span class="text-blue-400 ml-1" title="Fecha de visita individual">
+                    <i class="fas fa-calendar-day" style="font-size:9px;"></i>
+                    {{ lev.fecha_visita_individual.strftime('%d/%m/%Y %H:%M') }}
+                </span>
+                {% endif %}
             </div>
             {% endfor %}
         </div>
@@ -28,11 +34,9 @@
 
     <!-- Boton Agregar Sitios -->
     <div class="mt-2">
-        <button type="button"
-                hx-get="/levantamientos/modal/visita-campo/{{ _vid }}/agregar"
-                hx-target="#vc-agregar-lev-container"
-                hx-swap="innerHTML"
-                class="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors">
+        <button type="button" hx-get="/levantamientos/modal/visita-campo/{{ _vid }}/agregar"
+            hx-target="#vc-agregar-lev-container" hx-swap="innerHTML"
+            class="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors">
             <i class="fas fa-plus-circle"></i> Agregar Sitios
         </button>
         <div id="vc-agregar-lev-container" class="mt-2"></div>

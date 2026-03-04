@@ -232,6 +232,42 @@ def register_modal_endpoints(router: APIRouter):
 
     # ----------------------------------------------------------
 
+    @router.get("/modal/fecha-ideal/{id_levantamiento}", include_in_schema=False)
+    async def get_modal_fecha_ideal(
+        request: Request,
+        id_levantamiento: UUID,
+        conn=Depends(get_db_connection),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "viewer"),
+    ):
+        """Renderiza el modal informativo de la fecha ideal del solicitante (solo lectura)."""
+        lev = await db_svc.get_levantamiento_base(conn, id_levantamiento)
+        if not lev:
+            raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+
+        # Pre-formatear fecha y hora en zona México para evitar problemas de Jinja2
+        fecha_str = ""
+        hora_str = ""
+        fecha_raw = lev.get("fecha_ideal_solicitante")
+        if fecha_raw:
+            from zoneinfo import ZoneInfo
+            if fecha_raw.tzinfo is None:
+                fecha_raw = fecha_raw.replace(tzinfo=ZoneInfo("UTC"))
+            fecha_mx = fecha_raw.astimezone(ZoneInfo("America/Mexico_City"))
+            fecha_str = fecha_mx.strftime("%d/%m/%Y")
+            if fecha_mx.hour or fecha_mx.minute:
+                hora_str = fecha_mx.strftime("%H:%M")
+
+        return templates.TemplateResponse("levantamientos/modals/fecha_ideal_modal.html", {
+            "request": request,
+            "lev_data": lev,
+            "fecha_str": fecha_str,
+            "hora_str": hora_str,
+        })
+
+    # ----------------------------------------------------------
+
     @router.get("/modal/solicitar-reasignacion/{id_levantamiento}", include_in_schema=False)
     async def get_modal_solicitar_reasignacion(
         request: Request,

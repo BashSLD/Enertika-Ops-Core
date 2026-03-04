@@ -59,6 +59,7 @@ class NotificationService:
                 tec.nombre as tipo_tecnologia,
                 tipo_sol.nombre as tipo_solicitud,
                 tipo_sol.es_seguimiento,
+                tipo_sol.codigo_interno as tipo_solicitud_codigo,
                 db.uso_sistema_json,
                 db.cargas_criticas_kw,
                 db.tiene_motores,

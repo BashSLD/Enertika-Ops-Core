@@ -202,10 +202,12 @@ class LevantamientoService:
                    l.id_levantamiento,
                    l.id_oportunidad,
                    l.id_estatus_global,
-                   l.fecha_solicitud          AT TIME ZONE 'America/Mexico_City' AS fecha_solicitud,
-                   l.fecha_visita_programada  AT TIME ZONE 'America/Mexico_City' AS fecha_visita_programada,
-                   l.created_at               AT TIME ZONE 'America/Mexico_City' AS created_at,
-                   l.updated_at               AT TIME ZONE 'America/Mexico_City' AS updated_at,
+                   l.solicitado_por_id,
+                   l.fecha_solicitud             AT TIME ZONE 'America/Mexico_City' AS fecha_solicitud,
+                   l.fecha_visita_programada     AT TIME ZONE 'America/Mexico_City' AS fecha_visita_programada,
+                   l.fecha_ideal_solicitante     AT TIME ZONE 'America/Mexico_City' AS fecha_ideal_solicitante,
+                   l.created_at                  AT TIME ZONE 'America/Mexico_City' AS created_at,
+                   l.updated_at                  AT TIME ZONE 'America/Mexico_City' AS updated_at,
                    o.op_id_estandar,
                    o.titulo_proyecto,
                    o.nombre_proyecto,
@@ -766,7 +768,8 @@ class LevantamientoService:
                 id_oportunidad=id_oportunidad,
                 old_status_id=old_status_id,
                 new_status_id=new_status_id,
-                changed_by_ctx=user_context
+                changed_by_ctx=user_context,
+                modulo_origen='levantamientos'
             )
             logger.info(
                 f"[NOTIFICACIÓN] Cambio de estado notificado exitosamente: "
@@ -829,7 +832,8 @@ class LevantamientoService:
                 old_status_id=_estatus_map.get('pendiente', 0),
                 new_status_id=_estatus_map.get('agendado', 0),
                 changed_by_ctx=user_context,
-                extra_data={"fecha_visita": str(fecha_visita)}
+                extra_data={"fecha_visita": str(fecha_visita)},
+                modulo_origen='levantamientos'
             )
             logger.info(f"[NOTIFICACIÓN] Visita agendada notificada para oportunidad {id_oportunidad}")
             
@@ -878,7 +882,8 @@ class LevantamientoService:
                 old_status_id=_estatus_map2.get('agendado', 0),
                 new_status_id=_estatus_map2.get('pospuesto', 0),
                 changed_by_ctx=user_context,
-                extra_data={"motivo": motivo}
+                extra_data={"motivo": motivo},
+                modulo_origen='levantamientos'
             )
             logger.info(f"[NOTIFICACIÓN] Posposición notificada para oportunidad {id_oportunidad}")
             

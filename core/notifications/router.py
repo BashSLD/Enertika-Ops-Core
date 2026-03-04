@@ -5,6 +5,7 @@ Maneja HTTP/SSE requests, delega lógica al Service Layer.
 
 Patrón recomendado por GUIA_MAESTRA: Router delgado, Service robusto.
 """
+from typing import Optional
 from fastapi import APIRouter, Depends, Request
 from sse_starlette.sse import EventSourceResponse
 from uuid import UUID
@@ -173,6 +174,8 @@ async def mark_notification_as_read(
 @router.get("/resolve/{oportunidad_id}")
 async def resolve_notification_target(
     oportunidad_id: UUID,
+    tipo: Optional[str] = None,
+    modulo_origen: Optional[str] = None,
     context = Depends(get_current_user_context),
     conn = Depends(get_db_connection)
 ):
@@ -180,14 +183,40 @@ async def resolve_notification_target(
     Determina a qué módulo/sección pertenece una oportunidad.
     Usado por el frontend para navegar al hacer click en una notificación.
     
-    Lógica:
-    - Si existe un registro en tb_levantamientos → levantamientos
-    - Si no → simulacion (kanban de ofertas)
+    Lógica de resolución (en orden de prioridad):
+    1. Si se pasa modulo_origen → usa ese módulo directamente
+    2. Si no → fallback a DB check (levantamientos si existe registro, simulacion si no)
+    
+    Args:
+        tipo: Tipo de notificación (legacy, informativo)
+        modulo_origen: Módulo que generó la notificación ('simulacion', 'levantamientos')
     
     Returns:
         {module, url, detail_url}
     """
-    # Check if it's a levantamiento
+    # 1. Si tenemos modulo_origen explícito (notificaciones nuevas con SSE data)
+    if modulo_origen == 'levantamientos':
+        lev_id = await conn.fetchval(
+            "SELECT id_levantamiento FROM tb_levantamientos WHERE id_oportunidad = $1 LIMIT 1",
+            oportunidad_id
+        )
+        if lev_id:
+            return {
+                "module": "levantamientos",
+                "url": "/levantamientos/ui",
+                "detail_url": f"/levantamientos/modals/detalle/{lev_id}"
+            }
+    
+    if modulo_origen and modulo_origen != 'levantamientos':
+        # Cualquier otro módulo (simulacion, comercial, etc.) → modal detalle oportunidad
+        return {
+            "module": "simulacion",
+            "url": "/simulacion/ui",
+            "detail_url": f"/workflow/modals/detalle/{oportunidad_id}"
+        }
+    
+    # 2. Fallback: sin modulo_origen (notificaciones antiguas cargadas via HTTP list)
+    # Heurística por DB: si tiene levantamiento → ir a levantamientos, si no → simulacion
     lev_id = await conn.fetchval(
         "SELECT id_levantamiento FROM tb_levantamientos WHERE id_oportunidad = $1 LIMIT 1",
         oportunidad_id
@@ -203,7 +232,7 @@ async def resolve_notification_target(
     return {
         "module": "simulacion",
         "url": "/simulacion/ui",
-        "detail_url": f"/simulacion/modals/detalle/{oportunidad_id}"
+        "detail_url": f"/workflow/modals/detalle/{oportunidad_id}"
     }
 
 

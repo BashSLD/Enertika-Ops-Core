@@ -1023,17 +1023,28 @@
             // 1. Mark as read
             markAsRead(n.id, itemElement);
 
-            // 2. Close dropdown (Alpine x-data)
-            document.querySelectorAll('[x-data]').forEach(el => {
-                if (el.__x && el.__x.$data && el.__x.$data.open !== undefined) {
-                    el.__x.$data.open = false;
-                }
-            });
+            // 2. Close dropdown (Alpine)
+            const dropdownEl = document.querySelector('[x-data]');
+            if (dropdownEl && dropdownEl._x_dataStack) {
+                const data = dropdownEl._x_dataStack[0];
+                if (data && data.open !== undefined) data.open = false;
+            }
+            // Also try Alpine.store if notifications use a store
+            if (window.Alpine) {
+                try {
+                    const store = Alpine.store('notifications');
+                    if (store && store.open !== undefined) store.open = false;
+                } catch (_) { }
+            }
 
             // 3. Navigate if oportunidad_id exists
             if (!n.oportunidad_id) return;
 
-            fetch(`/notifications/resolve/${n.oportunidad_id}`)
+            const params = new URLSearchParams({
+                tipo: n.type || '',
+                modulo_origen: n.modulo_origen || ''
+            });
+            fetch(`/notifications/resolve/${n.oportunidad_id}?${params}`)
                 .then(r => r.json())
                 .then(target => {
                     // Update sidebar active module
@@ -1049,11 +1060,11 @@
                     }).then(() => {
                         // Small delay to let the module UI render
                         setTimeout(() => {
+                            // Detail modals are self-contained overlays (fixed inset-0),
+                            // append to body just like normal HTMX buttons do (hx-target="body" hx-swap="beforeend")
                             htmx.ajax('GET', target.detail_url, {
-                                target: '#modal-content',
-                                swap: 'innerHTML'
-                            }).then(() => {
-                                if (typeof openModal === 'function') openModal();
+                                target: 'body',
+                                swap: 'beforeend'
                             });
                         }, 500);
                     });

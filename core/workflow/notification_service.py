@@ -164,7 +164,8 @@ class NotificationService:
             tipo='ASIGNACION',
             titulo=f'Asignacion: {opp["op_id_estandar"]}',
             mensaje=f'Te han asignado la oportunidad de {opp["cliente_nombre"]}',
-            id_oportunidad=id_oportunidad
+            id_oportunidad=id_oportunidad,
+            modulo_origen=modulo_nombre if modulo_nombre else 'simulacion'
         )
     
     async def notify_status_change(
@@ -174,7 +175,8 @@ class NotificationService:
         old_status_id: int,
         new_status_id: int,
         changed_by_ctx: dict,
-        extra_data: Optional[dict] = None
+        extra_data: Optional[dict] = None,
+        modulo_origen: str = "simulacion"
     ):
         """
         Notifica cambio de estatus de oportunidad.
@@ -243,7 +245,8 @@ class NotificationService:
             tipo='CAMBIO_ESTATUS',
             titulo=f'Cambio de estatus: {opp["op_id_estandar"]}',
             mensaje=f'{opp["cliente_nombre"]} cambio de {status_map.get(old_status_id)} a {status_map.get(new_status_id)}',
-            id_oportunidad=id_oportunidad
+            id_oportunidad=id_oportunidad,
+            modulo_origen=modulo_origen
         )
     
     async def notify_cancellation(
@@ -522,7 +525,8 @@ class NotificationService:
         tipo: str,
         titulo: str,
         mensaje: str,
-        id_oportunidad: UUID
+        id_oportunidad: UUID,
+        modulo_origen: str = "simulacion"
     ):
         """
         Guarda notificación en BD y la envía via SSE si usuario conectado.
@@ -534,6 +538,7 @@ class NotificationService:
             titulo: Título de la notificación
             mensaje: Mensaje de la notificación
             id_oportunidad: ID de la oportunidad relacionada
+            modulo_origen: Módulo que generó la notificación ('simulacion', 'levantamientos')
         """
         # Enmascarar PII para logs
         email_parts = recipient_email.split('@')
@@ -563,7 +568,8 @@ class NotificationService:
             tipo=tipo,
             titulo=titulo,
             mensaje=mensaje,
-            id_oportunidad=id_oportunidad
+            id_oportunidad=id_oportunidad,
+            modulo_origen=modulo_origen
         )
         
         # Broadcast via SSE si está conectado

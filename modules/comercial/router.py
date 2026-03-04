@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Request, Depends, HTTPException, Form, UploadFile, File, status, Response
 from fastapi.templating import Jinja2Templates
-from datetime import date
+from datetime import date, time, datetime
 from fastapi.responses import HTMLResponse, StreamingResponse, JSONResponse
 from uuid import UUID, uuid4
 from typing import Optional, List
@@ -305,6 +305,7 @@ async def notificar_oportunidad(
     auto_message: str = Form(...),  # Mensaje automático
     prioridad: str = Form("normal"),  # Prioridad del email
     fecha_ideal_usuario: Optional[date] = Form(None),  # Nueva fecha ideal (seguimientos)
+    hora_ideal_usuario: Optional[time] = Form(None),   # Hora ideal (solo LEVANTAMIENTO)
     legacy_search_term: Optional[str] = Form(None),  # Capturar término legacy
     sharepoint_folder_url: Optional[str] = Form(None),  # Reubicado del Paso 1
     archivos_extra: List[UploadFile] = File(default=[]),
@@ -330,7 +331,26 @@ async def notificar_oportunidad(
             "UPDATE tb_oportunidades SET fecha_ideal_usuario = $1 WHERE id_oportunidad = $2",
             fecha_ideal_usuario, id_oportunidad
         )
-    
+
+        # Para LEVANTAMIENTO: guardar fecha+hora en tb_levantamientos.fecha_ideal_solicitante
+        tipo_codigo = await conn.fetchval("""
+            SELECT ts.codigo_interno
+              FROM tb_oportunidades o
+              JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
+             WHERE o.id_oportunidad = $1
+        """, id_oportunidad)
+        if tipo_codigo == 'LEVANTAMIENTO':
+            if hora_ideal_usuario:
+                fecha_ideal_dt = datetime.combine(fecha_ideal_usuario, hora_ideal_usuario)
+            else:
+                fecha_ideal_dt = datetime.combine(fecha_ideal_usuario, time(0, 0))
+            await conn.execute("""
+                UPDATE tb_levantamientos
+                   SET fecha_ideal_solicitante = $1 AT TIME ZONE 'America/Mexico_City',
+                       updated_at              = NOW()
+                 WHERE id_oportunidad = $2
+            """, fecha_ideal_dt, id_oportunidad)
+
     # Preparar datos del formulario
     form_data = {
         "recipients_str": recipients_str,

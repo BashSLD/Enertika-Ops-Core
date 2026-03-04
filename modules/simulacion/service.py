@@ -305,6 +305,18 @@ class SimulacionService:
             conn, id_oportunidad, current_data, datos, status_map, total_sitios, sitios_pendientes
         )
 
+        # 4.5. Guardar simulaciones adicionales (solo en cierre Entregado/Perdido)
+        es_cierre_kpi = datos.id_estatus_global in [status_map["entregado"], status_map["perdido"]]
+        if es_cierre_kpi and datos.simulaciones_adicionales:
+            await self.db.insert_simulaciones_adicionales(
+                conn,
+                id_oportunidad,
+                datos.simulaciones_adicionales,
+                kpi_sla_val,
+                kpi_compromiso_val,
+                datos.fecha_entrega_simulacion
+            )
+
         # 5. Enviar Notificaciones
         await self._send_update_notifications(
             conn, id_oportunidad, current_data, datos, user_context

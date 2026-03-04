@@ -66,6 +66,21 @@ class OportunidadCreateCompleta(BaseModel):
 
 # --- Update Schemas (Lógica de Negocio V2 - NUEVO) ---
 
+class SimulacionAdicionalItem(BaseModel):
+    """Datos de una simulación adicional capturada al momento del cierre."""
+    potencia_cierre_fv_kwp: Optional[Decimal] = Field(None, ge=0)
+    capacidad_cierre_bess_kwh: Optional[Decimal] = Field(None, ge=0)
+    monto_cierre_usd: Optional[Decimal] = Field(None, ge=0)
+
+    @field_validator('potencia_cierre_fv_kwp', 'capacidad_cierre_bess_kwh', 'monto_cierre_usd', mode='before')
+    def empty_string_to_none(cls, v):
+        if v == "":
+            return None
+        return v
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class SimulacionUpdate(BaseModel):
     """
     Schema maestro para actualizar la Oportunidad desde Simulación.
@@ -95,10 +110,13 @@ class SimulacionUpdate(BaseModel):
     id_motivo_cambio_deadline: Optional[int] = None
     comentario_cambio_deadline: Optional[str] = None
     
-    # NUEVOS: Campos para retrabajo al cerrar como ENTREGADO
+    # Campos para retrabajo al cerrar como ENTREGADO
     es_retrabajo: Optional[bool] = False
     id_motivo_retrabajo: Optional[int] = None
     sitios_retrabajo_ids: Optional[List[UUID]] = None  # Sitios específicos a marcar (multi-sitio)
+
+    # Simulaciones adicionales realizadas para esta oportunidad
+    simulaciones_adicionales: Optional[List[SimulacionAdicionalItem]] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

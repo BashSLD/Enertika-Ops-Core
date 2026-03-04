@@ -47,7 +47,7 @@ def _safe_uuid(val: Optional[str]) -> Optional[UUID]:
     except ValueError:
         return None
 
-from .schemas import OportunidadCreateCompleta, DetalleBessCreate, SimulacionUpdate, SitiosBatchUpdate
+from .schemas import OportunidadCreateCompleta, DetalleBessCreate, SimulacionUpdate, SitiosBatchUpdate, SimulacionAdicionalItem
 
 # Import Workflow Service (Centralizado)
 from core.workflow.service import get_workflow_service
@@ -593,22 +593,25 @@ async def get_edit_modal(
     # BESS puro (ID 2): potencia FV no obligatoria
     is_bess_only = op['id_tecnologia'] == 2
 
+    # Simulaciones adicionales existentes (read-only si ya están registradas)
+    simulaciones_adicionales = await db_service.get_simulaciones_adicionales(conn, id_oportunidad)
+
     return templates.TemplateResponse("simulacion/modals/update_oportunidades.html", {
         "request": request,
         "op": dict(op),
         "responsables": responsables,
         "estatus_global": [dict(r) for r in estatus_global],
         "motivos_cierre": [dict(r) for r in motivos_cierre],
-        "status_ids": status_ids, # <--- Clave para AlpineJS
-        "can_manage": can_manage,  # <--- Clave para ocultar/mostrar botones
-        "can_edit_sensitive": can_edit_sensitive, # <--- Clave para bloquear campos sensibles
-        "context": context,  # <--- Para checks de permisos en comentarios
-        # NUEVOS para retrabajo
+        "status_ids": status_ids,
+        "can_manage": can_manage,
+        "can_edit_sensitive": can_edit_sensitive,
+        "context": context,
         "sitios_oportunidad": [dict(r) for r in sitios_oportunidad],
         "motivos_retrabajo": [dict(r) for r in motivos_retrabajo],
         "es_multisitio": es_multisitio,
         "is_bess_related": is_bess_related,
-        "is_bess_only": is_bess_only
+        "is_bess_only": is_bess_only,
+        "simulaciones_adicionales": simulaciones_adicionales
     })
 
 @router.put("/update/{id_oportunidad}")
@@ -625,10 +628,11 @@ async def update_simulacion(
     monto_cierre_usd: Optional[Decimal] = Form(None),
     potencia_cierre_fv_kwp: Optional[Decimal] = Form(None),
     capacidad_cierre_bess_kwh: Optional[Decimal] = Form(None),
-    # NUEVOS: Campos de retrabajo
+    # Campos de retrabajo
     es_retrabajo: Optional[bool] = Form(False),
     id_motivo_retrabajo: Optional[int] = Form(None),
-    sitios_retrabajo: Optional[str] = Form(None),  # JSON string de UUIDs
+    sitios_retrabajo: Optional[str] = Form(None),          # JSON string de UUIDs
+    simulaciones_adicionales_json: Optional[str] = Form(None),  # JSON string de SimulacionAdicionalItem
     
     service: SimulacionService = Depends(get_simulacion_service),
     conn = Depends(get_db_connection),
@@ -647,7 +651,16 @@ async def update_simulacion(
                 sitios_retrabajo_ids = [UUID(s) for s in json.loads(sitios_retrabajo)]
             except (json.JSONDecodeError, ValueError):
                 pass
-        
+
+        # Parsear simulaciones_adicionales si viene como JSON
+        sims_adicionales = []
+        if simulaciones_adicionales_json:
+            try:
+                raw_sims = json.loads(simulaciones_adicionales_json)
+                sims_adicionales = [SimulacionAdicionalItem(**item) for item in raw_sims if isinstance(item, dict)]
+            except (json.JSONDecodeError, ValueError):
+                pass
+
         # Reconstruir modelo Pydantic manually
         datos = SimulacionUpdate(
             id_estatus_global=id_estatus_global,
@@ -659,10 +672,10 @@ async def update_simulacion(
             monto_cierre_usd=monto_cierre_usd,
             potencia_cierre_fv_kwp=potencia_cierre_fv_kwp,
             capacidad_cierre_bess_kwh=capacidad_cierre_bess_kwh,
-            # NUEVOS
             es_retrabajo=es_retrabajo,
             id_motivo_retrabajo=id_motivo_retrabajo,
-            sitios_retrabajo_ids=sitios_retrabajo_ids
+            sitios_retrabajo_ids=sitios_retrabajo_ids,
+            simulaciones_adicionales=sims_adicionales
         )
 
 

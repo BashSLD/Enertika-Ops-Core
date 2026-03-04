@@ -14,7 +14,7 @@ import time
 from io import BytesIO
 from typing import List, Optional
 from uuid import UUID, uuid4
-from datetime import datetime
+from datetime import datetime, date as date_type, time as time_type
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
@@ -213,14 +213,8 @@ def register_operaciones_endpoints(router: APIRouter):
         if not is_jefe:
             try:
                 responsable_actual = await db_svc.get_responsable_asignado(conn, id_levantamiento)
-                if responsable_actual is None:
-                    # Caso A: sin responsable previo → auto-asignar silenciosamente
-                    await db_svc.update_responsable(conn, id_levantamiento, user_db_id, user_db_id)
-                    auto_asignado = True
-                    notif_asignacion = "Has sido asignado como ingeniero responsable."
-                    logger.info(f"[REAGENDAR] Auto-asignación responsable: {user_db_id} en lev {id_levantamiento}")
-                elif asumir_responsable:
-                    # Caso B: hay responsable y el usuario confirmó asumir
+                if asumir_responsable:
+                    # Solo si el usuario confirmó explícitamente asumir la responsabilidad
                     await db_svc.update_responsable(conn, id_levantamiento, user_db_id, user_db_id)
                     auto_asignado = True
                     notif_asignacion = "Ahora eres el ingeniero responsable de este levantamiento."
@@ -917,6 +911,7 @@ def register_operaciones_endpoints(router: APIRouter):
     ):
         """
         Crea una nueva Visita de Campo con sus levantamientos vinculados.
+        Soporta fechas individuales por levantamiento y viáticos iniciales.
         Retorna el modal en modo 'gestionar' con la visita recién creada.
         """
         if not levantamiento_ids:
@@ -931,6 +926,19 @@ def register_operaciones_endpoints(router: APIRouter):
         if fecha_fin_dt <= fecha_inicio_dt:
             raise HTTPException(status_code=400, detail="La fecha de fin debe ser posterior a la de inicio.")
 
+        # Extraer fechas individuales por levantamiento del form
+        form_data = await request.form()
+        fechas_individuales = {}
+        for lev_id in levantamiento_ids:
+            fecha_key = f"fecha_lev_{lev_id}"
+            fecha_val = form_data.get(fecha_key, "")
+            if fecha_val:
+                try:
+                    dt = datetime.fromisoformat(str(fecha_val)).replace(tzinfo=ZoneInfo("America/Mexico_City"))
+                    fechas_individuales[str(lev_id)] = dt
+                except ValueError:
+                    pass  # Skip invalid dates
+
         visita = await visitas_db_svc.create_visita(
             conn,
             nombre=nombre.strip() if nombre else None,
@@ -938,27 +946,68 @@ def register_operaciones_endpoints(router: APIRouter):
             fecha_fin=fecha_fin_dt,
             levantamiento_ids=levantamiento_ids,
             creado_por_id=context["user_db_id"],
+            fechas_individuales=fechas_individuales if fechas_individuales else None,
         )
 
         id_visita = visita["id_visita"]
+
+        # Sincronizar levantamientos como "Agendado" si tienen fecha individual
+        if fechas_individuales:
+            await visitas_db_svc.sync_levantamientos_agendado(
+                conn, levantamiento_ids, fechas_individuales, context["user_db_id"]
+            )
+
+        # Extraer viáticos iniciales del form (arrays paralelos)
+        viatico_conceptos = form_data.getlist("viatico_concepto")
+        viatico_montos = form_data.getlist("viatico_monto")
+        viatico_usuario_ids = form_data.getlist("viatico_usuario_id")
+
+        viaticos_creados = []
+        for i, concepto in enumerate(viatico_conceptos):
+            if not concepto or not concepto.strip():
+                continue
+            try:
+                monto = float(viatico_montos[i]) if i < len(viatico_montos) else 0.0
+            except (ValueError, IndexError):
+                continue
+            if monto <= 0:
+                continue
+            usuario_id = None
+            if i < len(viatico_usuario_ids) and viatico_usuario_ids[i]:
+                try:
+                    usuario_id = UUID(viatico_usuario_ids[i])
+                except ValueError:
+                    pass
+            v = await visitas_db_svc.create_viatico_visita(
+                conn, id_visita, usuario_id, concepto.strip(), monto, context["user_db_id"]
+            )
+            if v:
+                viaticos_creados.append(v)
+
         levantamientos_visita = await visitas_db_svc.get_levantamientos_en_visita(conn, id_visita)
         visita_completa = await visitas_db_svc.get_visita(conn, id_visita)
         usuarios = await visitas_db_svc.get_usuarios_para_visita(conn, id_visita)
+        viaticos = await visitas_db_svc.get_viaticos_visita(conn, id_visita)
         to_configurados = await db_svc.get_to_configurados_viaticos(conn)
         cc_configurados = await db_svc.get_cc_configurados_viaticos(conn)
+
+        # Calcular prorrateo
+        from .db_service_visitas import calcular_prorrateo
+        total_viaticos = sum(v.get("monto", 0) for v in viaticos)
+        prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita) if total_viaticos > 0 else {}
 
         return templates.TemplateResponse("levantamientos/modals/visita_campo_modal.html", {
             "request": request,
             "step": "gestionar",
             "visita": visita_completa,
             "levantamientos_visita": levantamientos_visita,
-            "viaticos": [],
+            "viaticos": viaticos,
             "usuarios": usuarios,
             "historial_envios": [],
             "to_configurados": to_configurados,
             "cc_configurados": cc_configurados,
-            "prorrateo": {},
-            "total_viaticos": 0.0,
+            "prorrateo": prorrateo,
+            "total_viaticos": total_viaticos,
             "levantamientos_disponibles": [],
             "preseleccionado": None,
         })
@@ -1301,3 +1350,48 @@ def register_operaciones_endpoints(router: APIRouter):
             "request": request,
             "historial_envios": historial_envios,
         })
+
+    # ==============================================================
+    # POST — FECHA IDEAL DEL SOLICITANTE
+    # ==============================================================
+
+    @router.post("/operaciones/fecha-ideal/{id_levantamiento}", include_in_schema=False)
+    async def actualizar_fecha_ideal_endpoint(
+        request: Request,
+        id_levantamiento: UUID,
+        fecha_ideal: date_type = Form(...),
+        hora_ideal: Optional[time_type] = Form(None),
+        conn=Depends(get_db_connection),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
+        service: LevantamientoService = Depends(get_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "viewer"),
+    ):
+        """
+        Actualiza la fecha ideal del solicitante en el levantamiento.
+        Permitido para: el propio solicitante o usuarios con rol editor+ en el módulo.
+        """
+        lev = await db_svc.get_levantamiento_base(conn, id_levantamiento)
+        if not lev:
+            raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
+
+        # Validar permisos: solicitante propio O editor+
+        user_db_id = context.get("user_db_id")
+        user_role = context.get("role")
+        module_role = context.get("module_roles", {}).get("levantamientos")
+        is_solicitante = str(lev.get("solicitado_por_id", "")) == str(user_db_id)
+        can_edit = (
+            user_role == "ADMIN"
+            or module_role in ["editor", "admin"]
+            or is_solicitante
+        )
+        if not can_edit:
+            raise HTTPException(status_code=403, detail="No tienes permiso para modificar la fecha ideal.")
+
+        # Combinar fecha + hora
+        hora = hora_ideal if hora_ideal else time_type(0, 0)
+        fecha_ideal_dt = datetime.combine(fecha_ideal, hora)
+
+        await db_svc.update_fecha_ideal_solicitante(conn, id_levantamiento, fecha_ideal_dt)
+
+        return await _render_kanban(request, conn, service, context)

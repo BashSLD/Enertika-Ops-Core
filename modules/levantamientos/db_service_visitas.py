@@ -7,7 +7,8 @@
 
 import json
 import logging
-from typing import List, Optional
+from datetime import datetime
+from typing import Dict, List, Optional
 from uuid import UUID
 
 logger = logging.getLogger("Levantamientos.VisitasCampoDBService")
@@ -32,9 +33,12 @@ class VisitasCampoDBService:
         fecha_fin,
         levantamiento_ids: List[UUID],
         creado_por_id: UUID,
+        fechas_individuales: Optional[Dict[str, datetime]] = None,
     ) -> dict:
         """
         INSERT en tb_visitas_campo y luego INSERT batch en el pivot.
+        fechas_individuales: {str(id_levantamiento): datetime} para asignar
+        fecha individual por levantamiento.
         Retorna el registro completo de la visita recién creada.
         """
         row = await conn.fetchrow("""
@@ -45,13 +49,18 @@ class VisitasCampoDBService:
 
         id_visita = row["id_visita"]
 
-        # Batch insert de levantamientos en el pivot
+        # Batch insert de levantamientos en el pivot con fecha individual opcional
         if levantamiento_ids:
+            fechas = fechas_individuales or {}
             await conn.executemany("""
-                INSERT INTO tb_visita_campo_levantamientos (id_visita, id_levantamiento)
-                VALUES ($1, $2)
+                INSERT INTO tb_visita_campo_levantamientos
+                    (id_visita, id_levantamiento, fecha_visita)
+                VALUES ($1, $2, $3)
                 ON CONFLICT (id_visita, id_levantamiento) DO NOTHING
-            """, [(id_visita, lev_id) for lev_id in levantamiento_ids])
+            """, [
+                (id_visita, lev_id, fechas.get(str(lev_id)))
+                for lev_id in levantamiento_ids
+            ])
 
         return dict(row)
 
@@ -96,6 +105,7 @@ class VisitasCampoDBService:
                 l.id_levantamiento,
                 l.id_oportunidad,
                 l.fecha_visita_programada AT TIME ZONE 'America/Mexico_City' AS fecha_visita_programada,
+                vcl.fecha_visita          AT TIME ZONE 'America/Mexico_City' AS fecha_visita_individual,
                 o.op_id_estandar,
                 o.nombre_proyecto,
                 o.titulo_proyecto,
@@ -124,7 +134,7 @@ class VisitasCampoDBService:
                 WHERE la.id_levantamiento = l.id_levantamiento
             ) techs ON true
             WHERE vcl.id_visita = $1
-            ORDER BY o.op_id_estandar, s.nombre_sitio
+            ORDER BY vcl.fecha_visita NULLS LAST, o.op_id_estandar, s.nombre_sitio
         """, id_visita)
         return [dict(r) for r in rows]
 
@@ -467,6 +477,48 @@ class VisitasCampoDBService:
             ON CONFLICT (id_visita, id_levantamiento) DO NOTHING
         """, [(id_visita, lev_id) for lev_id in levantamiento_ids])
         return len(levantamiento_ids)
+
+    async def sync_levantamientos_agendado(
+        self, conn, levantamiento_ids: List[UUID],
+        fechas_individuales: Dict[str, datetime],
+        user_id: UUID,
+    ) -> int:
+        """
+        Sincroniza los levantamientos con fechas individuales:
+        - Actualiza fecha_visita_programada
+        - Cambia estado a 'Agendado'
+        Solo afecta levantamientos que tienen fecha asignada.
+        Retorna cantidad de levantamientos actualizados.
+        """
+        if not fechas_individuales:
+            return 0
+
+        # Obtener id del estatus 'Agendado'
+        id_agendado = await conn.fetchval("""
+            SELECT id FROM tb_cat_estatus_levantamiento WHERE codigo = 'agendado'
+        """)
+        if not id_agendado:
+            logger.warning("[SYNC] No se encontró estatus 'agendado' en catálogo")
+            return 0
+
+        count = 0
+        for lev_id in levantamiento_ids:
+            fecha = fechas_individuales.get(str(lev_id))
+            if not fecha:
+                continue
+            await conn.execute("""
+                UPDATE tb_levantamientos
+                SET fecha_visita_programada = $1,
+                    id_estatus_global = $2,
+                    updated_at = NOW()
+                WHERE id_levantamiento = $3
+                  AND id_estatus_global != $2
+            """, fecha, id_agendado, lev_id)
+            count += 1
+
+        if count:
+            logger.info(f"[SYNC] {count} levantamientos sincronizados como agendados")
+        return count
 
 
 # ----------------------------------------------------------
