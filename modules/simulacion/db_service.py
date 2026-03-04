@@ -870,22 +870,42 @@ class SimulacionDBService:
         idx_entregado, idx_perdido, idx_ganada, idx_levantamiento = len(params)-3, len(params)-2, len(params)-1, len(params)
 
         query = f"""
+            WITH sitios_contab AS (
+                -- Tickets principales: cada sitio
+                SELECT
+                    o.id_tipo_solicitud, s.id_sitio, s.kpi_status_interno, s.kpi_status_compromiso,
+                    o.id_estatus_global, o.id_oportunidad, o.fecha_entrega_simulacion,
+                    o.es_licitacion, o.parent_id
+                FROM tb_sitios_oportunidad s
+                JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
+                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
+                {where_clause}
+
+                UNION ALL
+
+                -- Tickets adicionales: cada simulación extra cuenta como oferta independiente
+                SELECT
+                    o.id_tipo_solicitud, sa.id AS id_sitio, sa.kpi_status_interno, sa.kpi_status_compromiso,
+                    o.id_estatus_global, o.id_oportunidad, sa.fecha_entrega AS fecha_entrega_simulacion,
+                    o.es_licitacion, o.parent_id
+                FROM tb_simulaciones_adicionales sa
+                JOIN tb_oportunidades o ON sa.id_oportunidad = o.id_oportunidad
+                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
+                {where_clause}
+            )
             SELECT 
                 ts.id as id_tipo_solicitud, ts.nombre, ts.codigo_interno,
-                COUNT(s.id_sitio) as total,
-                COUNT(CASE WHEN s.kpi_status_interno = 'Entrega a tiempo' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN s.id_sitio END) as entregas_a_tiempo_interno,
-                COUNT(CASE WHEN s.kpi_status_interno = 'Entrega tarde' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN s.id_sitio END) as entregas_tarde_interno,
-                COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega a tiempo' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN s.id_sitio END) as entregas_a_tiempo_compromiso,
-                COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega tarde' AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN s.id_sitio END) as entregas_tarde_compromiso,
-                COUNT(DISTINCT CASE WHEN o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND o.fecha_entrega_simulacion IS NULL THEN o.id_oportunidad END) as sin_fecha,
-                COUNT(DISTINCT CASE WHEN o.es_licitacion = TRUE THEN COALESCE(o.parent_id, o.id_oportunidad) END) as licitaciones,
+                COUNT(sc.id_sitio) as total,
+                COUNT(CASE WHEN sc.kpi_status_interno = 'Entrega a tiempo' AND sc.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN sc.id_sitio END) as entregas_a_tiempo_interno,
+                COUNT(CASE WHEN sc.kpi_status_interno = 'Entrega tarde' AND sc.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN sc.id_sitio END) as entregas_tarde_interno,
+                COUNT(CASE WHEN sc.kpi_status_compromiso = 'Entrega a tiempo' AND sc.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN sc.id_sitio END) as entregas_a_tiempo_compromiso,
+                COUNT(CASE WHEN sc.kpi_status_compromiso = 'Entrega tarde' AND sc.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN sc.id_sitio END) as entregas_tarde_compromiso,
+                COUNT(DISTINCT CASE WHEN sc.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND sc.fecha_entrega_simulacion IS NULL THEN sc.id_oportunidad END) as sin_fecha,
+                COUNT(DISTINCT CASE WHEN sc.es_licitacion = TRUE THEN COALESCE(sc.parent_id, sc.id_oportunidad) END) as licitaciones,
                 (ts.id = ${idx_levantamiento}) as es_levantamiento
             FROM tb_cat_tipos_solicitud ts
-            LEFT JOIN tb_oportunidades o ON ts.id = o.id_tipo_solicitud
-            LEFT JOIN tb_sitios_oportunidad s ON o.id_oportunidad = s.id_oportunidad
-            LEFT JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
-            {where_clause}
-            GROUP BY ts.id, ts.nombre, ts.codigo_interno HAVING COUNT(DISTINCT o.id_oportunidad) > 0
+            LEFT JOIN sitios_contab sc ON ts.id = sc.id_tipo_solicitud
+            GROUP BY ts.id, ts.nombre, ts.codigo_interno HAVING COUNT(sc.id_sitio) > 0
             ORDER BY ts.id
         """
         rows = await conn.fetch(query, *params)
