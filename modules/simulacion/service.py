@@ -462,8 +462,9 @@ class SimulacionService:
                 detail="No autorizado. Solo el responsable asignado puede editar esta oportunidad."
             )
 
-        # monto_cierre_usd: siempre preservar de BD (no hay input en el modal)
-        datos.monto_cierre_usd = current_data['monto_cierre_usd']
+        # monto_cierre_usd: preservar de BD si no viene en el form (campo opcional)
+        if datos.monto_cierre_usd is None:
+            datos.monto_cierre_usd = current_data['monto_cierre_usd']
 
         # Si no tiene permisos sensibles, restaurar campos protegidos
         if not can_edit_sensitive:
@@ -507,8 +508,10 @@ class SimulacionService:
                     # Since I am adding 'total_sitios', I should add 'id_oportunidad' too to be clean.
                     pass
                 
-                if datos.potencia_cierre_fv_kwp is None:
-                     raise HTTPException(
+                # BESS puro (id_tecnologia == 2): potencia FV no es obligatoria
+                is_bess_only = current_data.get('id_tecnologia') == 2
+                if not is_bess_only and datos.potencia_cierre_fv_kwp is None:
+                    raise HTTPException(
                         status_code=400,
                         detail="Para marcar como Entregado, capture Potencia FV (KWp)."
                     )

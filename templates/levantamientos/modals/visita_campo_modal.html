@@ -142,30 +142,11 @@
     <!-- MODO GESTIONAR                                          -->
     <!-- ====================================================== -->
 
-    <!-- Info de la visita -->
+    <!-- Info de la visita: periodo (editable) + levantamientos (swappable) -->
     <div class="vc-info-panel mb-4">
-        <div class="grid grid-cols-2 gap-2 text-sm">
-            <div>
-                <span class="text-slate-400">Inicio:</span>
-                <span class="text-white ml-1 font-medium">
-                    {{ visita.fecha_inicio.strftime('%d/%m/%Y %H:%M') if visita.fecha_inicio else '—' }}
-                </span>
-            </div>
-            <div>
-                <span class="text-slate-400">Fin:</span>
-                <span class="text-white ml-1 font-medium">
-                    {{ visita.fecha_fin.strftime('%d/%m/%Y %H:%M') if visita.fecha_fin else '—' }}
-                </span>
-            </div>
-            <div class="col-span-2">
-                <span class="text-slate-400">Levantamientos:</span>
-                <span class="text-white ml-1 font-medium">{{ visita.num_levantamientos }}</span>
-                <span class="text-slate-500 text-xs ml-2">
-                    {% for lev in levantamientos_visita %}
-                        {{ lev.op_id_estandar }}{% if not loop.last %}, {% endif %}
-                    {% endfor %}
-                </span>
-            </div>
+        {% include "levantamientos/partials/visita_campo_periodo.html" %}
+        <div class="mt-3 border-t border-slate-700/40 pt-3">
+            {% include "levantamientos/partials/visita_campo_levantamientos.html" %}
         </div>
     </div>
 
@@ -183,9 +164,9 @@
               hx-on::after-request="if(event.detail.successful) this.reset()">
             <div class="grid grid-cols-12 gap-2 mb-3">
                 <div class="col-span-4">
-                    <label class="vc-label required">Usuario</label>
-                    <select name="usuario_id" class="vc-input" required>
-                        <option value="">Seleccionar...</option>
+                    <label class="vc-label">Usuario <span class="text-slate-500 text-xs">(opcional)</span></label>
+                    <select name="usuario_id" class="vc-input">
+                        <option value="">Sin asignar</option>
                         {% for u in usuarios %}
                         <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
                         {% endfor %}
@@ -367,8 +348,52 @@
 
 </div><!-- /modal-body -->
 
-<div class="modal-footer">
+<div class="modal-footer" {% if step == 'gestionar' and visita %}x-data="{ confirmandoEliminar: false }"{% endif %}>
+
+    {% if step == 'gestionar' and visita %}
+
+    <!-- Panel de confirmacion de eliminacion -->
+    <div x-show="confirmandoEliminar" class="w-full">
+        {% if historial_envios | length > 0 %}
+        <p class="text-amber-300 text-xs mb-2">
+            <i class="fas fa-exclamation-triangle mr-1"></i>
+            Esta visita tiene {{ historial_envios | length }} envio(s) de correo registrados. El historial se eliminara permanentemente.
+        </p>
+        {% else %}
+        <p class="text-slate-300 text-xs mb-2">Confirmar la eliminacion de esta visita y todos sus viaticos.</p>
+        {% endif %}
+        <div class="flex gap-2">
+            <button type="button"
+                    @click="confirmandoEliminar = false"
+                    class="btn btn-secondary btn-sm" style="font-size:0.75rem; padding:0.25rem 0.75rem;">
+                Cancelar
+            </button>
+            <button type="button"
+                    hx-delete="/levantamientos/visitas-campo/{{ visita.id_visita }}"
+                    hx-swap="none"
+                    hx-on::after-request="if(event.detail.successful) closeModal()"
+                    class="btn btn-sm"
+                    style="font-size:0.75rem; padding:0.25rem 0.75rem; background:#dc2626; color:white; border:1px solid #b91c1c;">
+                <i class="fas fa-trash mr-1"></i> Confirmar Eliminacion
+            </button>
+        </div>
+    </div>
+
+    <!-- Botones normales del footer -->
+    <div x-show="!confirmandoEliminar" class="flex justify-between w-full">
+        <button type="button"
+                @click="confirmandoEliminar = true"
+                class="btn btn-sm"
+                style="font-size:0.75rem; padding:0.25rem 0.75rem; color:#f87171; background:transparent; border:1px solid rgba(239,68,68,0.3);">
+            <i class="fas fa-trash-alt mr-1"></i> Eliminar Visita
+        </button>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal()">Cerrar</button>
+    </div>
+
+    {% else %}
     <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal()">Cerrar</button>
+    {% endif %}
+
 </div>
 
 <style>

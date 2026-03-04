@@ -1,0 +1,63 @@
+<!-- templates/levantamientos/partials/visita_campo_periodo.html -->
+<!-- Bloque editable del periodo (fecha inicio/fin) de la visita. -->
+<!-- Variables: visita -->
+<!-- Retornado por POST /visitas-campo/{id}/periodo -->
+<!-- hx-target="#vc-periodo-container" hx-swap="outerHTML" -->
+
+<div id="vc-periodo-container" x-data="{ editandoPeriodo: false }">
+
+    <!-- Vista lectura -->
+    <div x-show="!editandoPeriodo" class="grid grid-cols-2 gap-2 text-sm">
+        <div>
+            <span class="text-slate-400">Inicio:</span>
+            <span class="text-white ml-1 font-medium">
+                {{ visita.fecha_inicio.strftime('%d/%m/%Y %H:%M') if visita.fecha_inicio else '—' }}
+            </span>
+        </div>
+        <div class="flex items-center gap-1 flex-wrap">
+            <span class="text-slate-400">Fin:</span>
+            <span class="text-white ml-1 font-medium">
+                {{ visita.fecha_fin.strftime('%d/%m/%Y %H:%M') if visita.fecha_fin else '—' }}
+            </span>
+            <button type="button"
+                    @click="editandoPeriodo = true"
+                    class="ml-2 text-slate-500 hover:text-blue-400 transition-colors"
+                    title="Editar periodo">
+                <i class="fas fa-pencil-alt" style="font-size:0.65rem;"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Vista edicion -->
+    <div x-show="editandoPeriodo">
+        <form hx-post="/levantamientos/visitas-campo/{{ visita.id_visita }}/periodo"
+              hx-target="#vc-periodo-container"
+              hx-swap="outerHTML">
+            <div class="grid grid-cols-2 gap-2 mb-2">
+                <div>
+                    <label class="vc-label required">Inicio</label>
+                    <input type="datetime-local" name="fecha_inicio" class="vc-input"
+                           value="{{ visita.fecha_inicio.strftime('%Y-%m-%dT%H:%M') if visita.fecha_inicio else '' }}"
+                           required />
+                </div>
+                <div>
+                    <label class="vc-label required">Fin</label>
+                    <input type="datetime-local" name="fecha_fin" class="vc-input"
+                           value="{{ visita.fecha_fin.strftime('%Y-%m-%dT%H:%M') if visita.fecha_fin else '' }}"
+                           required />
+                </div>
+            </div>
+            <div class="flex gap-2">
+                <button type="submit" class="btn btn-primary btn-sm" style="font-size:0.75rem; padding:0.25rem 0.75rem;">
+                    <i class="fas fa-save mr-1"></i> Guardar
+                </button>
+                <button type="button"
+                        @click="editandoPeriodo = false"
+                        class="btn btn-secondary btn-sm" style="font-size:0.75rem; padding:0.25rem 0.75rem;">
+                    Cancelar
+                </button>
+            </div>
+        </form>
+    </div>
+
+</div>

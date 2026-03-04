@@ -1,0 +1,48 @@
+<!-- templates/levantamientos/partials/visita_campo_levantamientos.html -->
+<!-- Lista swappable de levantamientos de la visita + boton agregar sitios. -->
+<!-- Variables: levantamientos_visita, id_visita o visita.id_visita, [oob_prorrateo, prorrateo, total_viaticos] -->
+<!-- Retornado por POST /visitas-campo/{id}/levantamientos -->
+<!-- hx-target="#vc-lev-visita-container" hx-swap="outerHTML" -->
+
+<!-- id_visita disponible directamente desde POST o via visita.id_visita cuando es include -->
+{% set _vid = id_visita if id_visita is defined else visita.id_visita %}
+
+<div id="vc-lev-visita-container">
+
+    <!-- Lista de levantamientos actuales -->
+    <div class="col-span-2">
+        <span class="text-slate-400 text-xs">Levantamientos:</span>
+        <span class="text-white ml-1 font-medium text-sm">{{ levantamientos_visita | length }}</span>
+        <div class="mt-1 space-y-0.5">
+            {% for lev in levantamientos_visita %}
+            <div class="flex items-center gap-1.5 text-xs">
+                <span class="font-mono text-slate-300">{{ lev.op_id_estandar }}</span>
+                {% if lev.nombre_sitio %}
+                <span class="text-slate-500">| {{ lev.nombre_sitio }}</span>
+                {% endif %}
+                <span class="text-slate-500">— {{ lev.cliente_nombre }}</span>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <!-- Boton Agregar Sitios -->
+    <div class="mt-2">
+        <button type="button"
+                hx-get="/levantamientos/modal/visita-campo/{{ _vid }}/agregar"
+                hx-target="#vc-agregar-lev-container"
+                hx-swap="innerHTML"
+                class="text-xs text-emerald-400 hover:text-emerald-300 flex items-center gap-1 transition-colors">
+            <i class="fas fa-plus-circle"></i> Agregar Sitios
+        </button>
+        <div id="vc-agregar-lev-container" class="mt-2"></div>
+    </div>
+
+    <!-- OOB prorrateo — solo cuando este partial es respuesta HTMX del POST -->
+    {% if oob_prorrateo is defined %}
+    <div id="vc-prorrateo-container" hx-swap-oob="innerHTML">
+        {% include "levantamientos/partials/visita_campo_prorrateo.html" %}
+    </div>
+    {% endif %}
+
+</div>

@@ -116,11 +116,11 @@ class SimulacionDBService:
 
     async def get_oportunidad_for_update(self, conn, id_oportunidad: UUID) -> Optional[Dict[str, Any]]:
         return await conn.fetchrow("""
-            SELECT 
+            SELECT
                 id_oportunidad, id_interno_simulacion, responsable_simulacion_id, deadline_negociado,
                 monto_cierre_usd, potencia_cierre_fv_kwp, capacidad_cierre_bess_kwh,
-                id_estatus_global, deadline_calculado, fecha_solicitud
-            FROM tb_oportunidades 
+                id_estatus_global, deadline_calculado, fecha_solicitud, id_tecnologia
+            FROM tb_oportunidades
             WHERE id_oportunidad = $1
         """, id_oportunidad)
 

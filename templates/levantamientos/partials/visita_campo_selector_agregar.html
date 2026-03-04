@@ -1,0 +1,96 @@
+<!-- templates/levantamientos/partials/visita_campo_selector_agregar.html -->
+<!-- Selector multi-check para agregar levantamientos a una visita existente. -->
+<!-- Variables: id_visita, levantamientos_disponibles -->
+<!-- Cargado via GET /modal/visita-campo/{id}/agregar -->
+<!-- Submit: POST /visitas-campo/{id}/levantamientos -->
+
+<div class="border-t border-slate-700/40 pt-2 mt-1"
+     x-data="{ seleccionados: [], busqueda: '' }">
+
+    {% if levantamientos_disponibles %}
+
+    <p class="text-xs text-slate-400 mb-2">Selecciona los levantamientos a agregar:</p>
+
+    <input type="text"
+           x-model="busqueda"
+           class="vc-input mb-2"
+           style="font-size:0.8rem; padding:0.35rem 0.6rem;"
+           placeholder="Buscar por OP-ID, cliente, proyecto..." />
+
+    <form hx-post="/levantamientos/visitas-campo/{{ id_visita }}/levantamientos"
+          hx-target="#vc-lev-visita-container"
+          hx-swap="outerHTML">
+
+        <div class="vc-lev-list mb-2" style="max-height:180px;">
+            {% for lev in levantamientos_disponibles %}
+            <label
+                data-lev-id="{{ lev.id_levantamiento }}"
+                data-texto="{{ lev.op_id_estandar }} {{ lev.cliente_nombre }} {{ lev.nombre_proyecto or lev.titulo_proyecto or '' }} {{ lev.nombre_sitio or '' }}"
+                x-show="!busqueda.trim() || $el.dataset.texto.toLowerCase().includes(busqueda.toLowerCase())"
+                :class="seleccionados.includes('{{ lev.id_levantamiento }}') ? 'vc-lev-item selected' : 'vc-lev-item'"
+                @click.prevent="
+                    const id = '{{ lev.id_levantamiento }}';
+                    const idx = seleccionados.indexOf(id);
+                    idx >= 0 ? seleccionados.splice(idx, 1) : seleccionados.push(id);
+                "
+                style="cursor:pointer; display:flex; align-items:flex-start; gap:0.5rem;">
+                <input type="checkbox"
+                       name="levantamiento_ids"
+                       value="{{ lev.id_levantamiento }}"
+                       :checked="seleccionados.includes('{{ lev.id_levantamiento }}')"
+                       style="display:none" />
+                <span class="vc-check" :class="seleccionados.includes('{{ lev.id_levantamiento }}') ? 'checked' : ''">
+                    <i class="fas fa-check"
+                       x-show="seleccionados.includes('{{ lev.id_levantamiento }}')"
+                       style="font-size:10px;"></i>
+                </span>
+                <span class="flex-1">
+                    <span class="text-white font-mono" style="font-size:0.78rem;">{{ lev.op_id_estandar }}</span>
+                    {% if lev.nombre_sitio %}
+                    <span class="text-slate-400 text-xs ml-1">| {{ lev.nombre_sitio }}</span>
+                    {% endif %}
+                    <br>
+                    <span class="text-slate-500 text-xs">{{ lev.cliente_nombre }}</span>
+                    <span class="vc-badge ml-1"
+                          style="background:{{ lev.estatus_color or '#475569' }}20; color:{{ lev.estatus_color or '#94a3b8' }}; border:1px solid {{ lev.estatus_color or '#475569' }}40;">
+                        {{ lev.estatus_nombre or '' }}
+                    </span>
+                </span>
+            </label>
+            {% endfor %}
+        </div>
+
+        <div class="flex items-center gap-2">
+            <button type="submit"
+                    class="btn btn-success btn-sm"
+                    style="font-size:0.75rem; padding:0.25rem 0.75rem;"
+                    :disabled="seleccionados.length === 0">
+                <i class="fas fa-plus mr-1"></i>
+                Agregar (<span x-text="seleccionados.length"></span>)
+            </button>
+            <button type="button"
+                    onclick="document.getElementById('vc-agregar-lev-container').innerHTML = ''"
+                    class="btn btn-secondary btn-sm"
+                    style="font-size:0.75rem; padding:0.25rem 0.75rem;">
+                Cancelar
+            </button>
+        </div>
+
+    </form>
+
+    {% else %}
+
+    <p class="text-slate-500 text-sm text-center py-2">
+        No hay levantamientos disponibles para agregar.<br>
+        <span class="text-xs text-slate-600">Solo se muestran levantamientos activos no incluidos en esta visita.</span>
+    </p>
+    <button type="button"
+            onclick="document.getElementById('vc-agregar-lev-container').innerHTML = ''"
+            class="btn btn-secondary btn-sm mt-1"
+            style="font-size:0.75rem; padding:0.25rem 0.75rem;">
+        Cerrar
+    </button>
+
+    {% endif %}
+
+</div>

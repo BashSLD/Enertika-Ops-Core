@@ -969,7 +969,7 @@ def register_operaciones_endpoints(router: APIRouter):
     async def crear_viatico_visita(
         request: Request,
         id_visita: UUID,
-        usuario_id: UUID = Form(...),
+        usuario_id: Optional[UUID] = Form(None),
         concepto: str = Form(...),
         monto: float = Form(...),
         conn=Depends(get_db_connection),
@@ -1038,6 +1038,121 @@ def register_operaciones_endpoints(router: APIRouter):
             "viaticos": viaticos,
             "id_visita": id_visita,
             "levantamientos_visita": levantamientos_visita,
+            "prorrateo": prorrateo,
+            "total_viaticos": total_viaticos,
+        })
+
+    # ----------------------------------------------------------
+
+    @router.delete("/visitas-campo/{id_visita}", include_in_schema=False)
+    async def eliminar_visita_campo(
+        request: Request,
+        id_visita: UUID,
+        conn=Depends(get_db_connection),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Elimina una Visita de Campo completa (CASCADE en viáticos, pivot y envíos).
+        Retorna toast OOB. El frontend cierra el modal via hx-on::after-request.
+        """
+        visita = await visitas_db_svc.get_visita(conn, id_visita)
+        if not visita:
+            raise HTTPException(status_code=404, detail="Visita de campo no encontrada.")
+
+        eliminada = await visitas_db_svc.delete_visita(conn, id_visita)
+        if not eliminada:
+            raise HTTPException(status_code=500, detail="No se pudo eliminar la visita.")
+
+        logger.info(f"[VISITA_CAMPO] Visita {id_visita} eliminada por {context.get('user_name')}")
+
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "title": "Visita Eliminada",
+            "message": "La visita de campo ha sido eliminada correctamente.",
+            "type": "success",
+        })
+
+    # ----------------------------------------------------------
+
+    @router.post("/visitas-campo/{id_visita}/periodo", include_in_schema=False)
+    async def actualizar_periodo_visita(
+        request: Request,
+        id_visita: UUID,
+        fecha_inicio: str = Form(...),
+        fecha_fin: str = Form(...),
+        conn=Depends(get_db_connection),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Actualiza las fechas de inicio y fin de una visita existente.
+        Retorna el bloque de info de período actualizado + toast OOB.
+        """
+        visita = await visitas_db_svc.get_visita(conn, id_visita)
+        if not visita:
+            raise HTTPException(status_code=404, detail="Visita de campo no encontrada.")
+
+        try:
+            fecha_inicio_dt = datetime.fromisoformat(fecha_inicio).replace(tzinfo=ZoneInfo("America/Mexico_City"))
+            fecha_fin_dt = datetime.fromisoformat(fecha_fin).replace(tzinfo=ZoneInfo("America/Mexico_City"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Formato de fecha/hora invalido.")
+
+        if fecha_fin_dt <= fecha_inicio_dt:
+            raise HTTPException(status_code=400, detail="La fecha de fin debe ser posterior a la de inicio.")
+
+        actualizada = await visitas_db_svc.update_periodo_visita(
+            conn, id_visita, fecha_inicio_dt, fecha_fin_dt
+        )
+        if not actualizada:
+            raise HTTPException(status_code=500, detail="No se pudo actualizar el periodo.")
+
+        visita_actualizada = await visitas_db_svc.get_visita(conn, id_visita)
+
+        return templates.TemplateResponse("levantamientos/partials/visita_campo_periodo.html", {
+            "request": request,
+            "visita": visita_actualizada,
+            "can_edit": True,
+        })
+
+    # ----------------------------------------------------------
+
+    @router.post("/visitas-campo/{id_visita}/levantamientos", include_in_schema=False)
+    async def agregar_levantamientos_visita(
+        request: Request,
+        id_visita: UUID,
+        levantamiento_ids: List[UUID] = Form(...),
+        conn=Depends(get_db_connection),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Agrega nuevos levantamientos a una visita existente.
+        Retorna la lista actualizada de levantamientos + prorrateo OOB.
+        """
+        if not levantamiento_ids:
+            raise HTTPException(status_code=400, detail="Debes seleccionar al menos un levantamiento.")
+
+        visita = await visitas_db_svc.get_visita(conn, id_visita)
+        if not visita:
+            raise HTTPException(status_code=404, detail="Visita de campo no encontrada.")
+
+        await visitas_db_svc.add_levantamientos_to_visita(conn, id_visita, levantamiento_ids)
+
+        levantamientos_visita = await visitas_db_svc.get_levantamientos_en_visita(conn, id_visita)
+        viaticos = await visitas_db_svc.get_viaticos_visita(conn, id_visita)
+        total_viaticos = float(sum(v["monto"] for v in viaticos))
+        prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
+
+        return templates.TemplateResponse("levantamientos/partials/visita_campo_levantamientos.html", {
+            "request": request,
+            "levantamientos_visita": levantamientos_visita,
+            "id_visita": id_visita,
+            "oob_prorrateo": True,
             "prorrateo": prorrateo,
             "total_viaticos": total_viaticos,
         })

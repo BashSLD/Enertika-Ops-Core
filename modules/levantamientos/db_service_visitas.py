@@ -162,7 +162,7 @@ class VisitasCampoDBService:
         Filtra por búsqueda de texto en op_id_estandar, cliente, proyecto o nombre_sitio.
         """
         params: list = []
-        where_conditions = ["o.email_enviado = true"]
+        where_conditions = ["o.email_enviado = true", "est.es_estatus_final = FALSE"]
 
         if search:
             params.append(f"%{search.strip()}%")
@@ -209,7 +209,7 @@ class VisitasCampoDBService:
         self,
         conn,
         id_visita: UUID,
-        usuario_id: UUID,
+        usuario_id: Optional[UUID],
         concepto: str,
         monto: float,
         created_by_id: UUID,
@@ -288,16 +288,6 @@ class VisitasCampoDBService:
             ORDER BY u.nombre ASC
         """, id_visita)
 
-        if rows:
-            return [dict(r) for r in rows]
-
-        # Fallback: sin asignaciones → todos los activos
-        rows = await conn.fetch("""
-            SELECT id_usuario, nombre, email
-            FROM tb_usuarios
-            WHERE is_active = true
-            ORDER BY nombre ASC
-        """)
         return [dict(r) for r in rows]
 
     # ----------------------------------------------------------
@@ -364,6 +354,119 @@ class VisitasCampoDBService:
             ORDER BY fecha_envio DESC
         """, id_visita)
         return [dict(r) for r in rows]
+
+    # ----------------------------------------------------------
+    # ELIMINAR VISITA (cambio 3)
+    # ----------------------------------------------------------
+
+    async def delete_visita(self, conn, id_visita: UUID) -> bool:
+        """
+        Elimina la visita y todo lo relacionado por CASCADE:
+        tb_visita_campo_levantamientos, tb_visita_campo_viaticos,
+        tb_visita_campo_envios.
+        Retorna True si existia y se borro.
+        """
+        status = await conn.execute("""
+            DELETE FROM tb_visitas_campo WHERE id_visita = $1
+        """, id_visita)
+        return status == "DELETE 1"
+
+    # ----------------------------------------------------------
+    # EDITAR PERIODO (cambio 4)
+    # ----------------------------------------------------------
+
+    async def update_periodo_visita(
+        self, conn, id_visita: UUID, fecha_inicio, fecha_fin
+    ) -> bool:
+        """
+        Actualiza fecha_inicio y fecha_fin de la visita.
+        Retorna True si la visita existia y se actualizo.
+        """
+        status = await conn.execute("""
+            UPDATE tb_visitas_campo
+            SET fecha_inicio = $2,
+                fecha_fin    = $3,
+                updated_at   = NOW()
+            WHERE id_visita = $1
+        """, id_visita, fecha_inicio, fecha_fin)
+        return status == "UPDATE 1"
+
+    # ----------------------------------------------------------
+    # AGREGAR LEVANTAMIENTOS A VISITA EXISTENTE (cambio 2)
+    # ----------------------------------------------------------
+
+    async def get_levantamientos_disponibles_para_agregar(
+        self, conn, id_visita: UUID, search: Optional[str] = None
+    ) -> List[dict]:
+        """
+        Igual que get_levantamientos_disponibles() pero excluye los
+        levantamientos que ya estan vinculados a esta visita.
+        Tambien excluye estatus finales (completado, entregado, cancelado).
+        """
+        params: list = [id_visita]
+        where_conditions = [
+            "o.email_enviado = true",
+            "est.es_estatus_final = FALSE",
+            """l.id_levantamiento NOT IN (
+                SELECT id_levantamiento
+                FROM tb_visita_campo_levantamientos
+                WHERE id_visita = $1
+            )""",
+        ]
+
+        if search:
+            params.append(f"%{search.strip()}%")
+            idx = len(params)
+            where_conditions.append(f"""(
+                o.op_id_estandar ILIKE ${idx}
+                OR o.cliente_nombre ILIKE ${idx}
+                OR o.nombre_proyecto ILIKE ${idx}
+                OR s.nombre_sitio ILIKE ${idx}
+            )""")
+
+        where_clause = " AND ".join(where_conditions)
+
+        query = f"""
+            SELECT
+                l.id_levantamiento,
+                o.op_id_estandar,
+                o.nombre_proyecto,
+                o.titulo_proyecto,
+                o.cliente_nombre,
+                s.nombre_sitio,
+                est.nombre    AS estatus_nombre,
+                est.color_hex AS estatus_color,
+                est.codigo    AS estatus_codigo
+            FROM tb_levantamientos l
+            JOIN tb_oportunidades o
+                ON l.id_oportunidad = o.id_oportunidad
+            LEFT JOIN tb_sitios_oportunidad s
+                ON l.id_sitio = s.id_sitio
+            LEFT JOIN tb_cat_estatus_levantamiento est
+                ON l.id_estatus_global = est.id
+            WHERE {where_clause}
+            ORDER BY o.op_id_estandar, s.nombre_sitio
+            LIMIT 200
+        """
+        rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
+    async def add_levantamientos_to_visita(
+        self, conn, id_visita: UUID, levantamiento_ids: List[UUID]
+    ) -> int:
+        """
+        Agrega nuevos levantamientos a una visita existente.
+        Usa ON CONFLICT DO NOTHING para evitar duplicados.
+        Retorna el numero de filas insertadas.
+        """
+        if not levantamiento_ids:
+            return 0
+        await conn.executemany("""
+            INSERT INTO tb_visita_campo_levantamientos (id_visita, id_levantamiento)
+            VALUES ($1, $2)
+            ON CONFLICT (id_visita, id_levantamiento) DO NOTHING
+        """, [(id_visita, lev_id) for lev_id in levantamiento_ids])
+        return len(levantamiento_ids)
 
 
 # ----------------------------------------------------------

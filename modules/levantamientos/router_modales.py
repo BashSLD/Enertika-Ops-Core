@@ -340,6 +340,34 @@ def register_modal_endpoints(router: APIRouter):
 
     # ----------------------------------------------------------
 
+    @router.get("/modal/visita-campo/{id_visita}/agregar", include_in_schema=False)
+    async def get_modal_agregar_levantamientos(
+        request: Request,
+        id_visita: UUID,
+        conn=Depends(get_db_connection),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Carga el selector de levantamientos disponibles para agregar a la visita.
+        Excluye los ya vinculados y los de estatus final.
+        Se inyecta en #vc-agregar-lev-container dentro del modal gestionar.
+        """
+        disponibles = await visitas_db_svc.get_levantamientos_disponibles_para_agregar(
+            conn, id_visita
+        )
+        return templates.TemplateResponse(
+            "levantamientos/partials/visita_campo_selector_agregar.html",
+            {
+                "request": request,
+                "id_visita": id_visita,
+                "levantamientos_disponibles": disponibles,
+            },
+        )
+
+    # ----------------------------------------------------------
+
     @router.get("/modal/visita-campo-lev/{id_levantamiento}", include_in_schema=False)
     async def get_modal_visitas_de_levantamiento(
         request: Request,

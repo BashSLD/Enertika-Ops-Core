@@ -590,6 +590,8 @@ async def get_edit_modal(
 
     # Determinar si es tecnología BESS (ID 2) o FV+BESS (ID 3)
     is_bess_related = op['id_tecnologia'] in [2, 3]
+    # BESS puro (ID 2): potencia FV no obligatoria
+    is_bess_only = op['id_tecnologia'] == 2
 
     return templates.TemplateResponse("simulacion/modals/update_oportunidades.html", {
         "request": request,
@@ -605,7 +607,8 @@ async def get_edit_modal(
         "sitios_oportunidad": [dict(r) for r in sitios_oportunidad],
         "motivos_retrabajo": [dict(r) for r in motivos_retrabajo],
         "es_multisitio": es_multisitio,
-        "is_bess_related": is_bess_related
+        "is_bess_related": is_bess_related,
+        "is_bess_only": is_bess_only
     })
 
 @router.put("/update/{id_oportunidad}")
