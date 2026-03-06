@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+
+{% block title %}Enertika Core Ops | Agregar Sitios{% endblock %}
+
+{% block content %}
+<div class="max-w-4xl mx-auto">
+    {% with
+        is_conversion=true,
+        conversion_tipo_solicitud=tipo_solicitud,
+        conversion_prioridad=prioridad
+    %}
+    {% include "comercial/multisitio_form.html" %}
+    {% endwith %}
+</div>
+{% endblock %}

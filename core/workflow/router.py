@@ -3,7 +3,7 @@ Router Centralizado de Comentarios
 Endpoints compartidos por todos los módulos para gestión de comentarios
 """
 
-from fastapi import APIRouter, Request, Depends, Form, HTTPException, File, UploadFile
+from fastapi import APIRouter, Request, Depends, Form, HTTPException, File, UploadFile, Query
 from fastapi.templating import Jinja2Templates
 import logging
 import json
@@ -172,6 +172,7 @@ async def create_comentario_workflow(
 async def get_detalle_oportunidad_modal(
     request: Request,
     id_oportunidad: UUID,
+    source_module: str = Query(default="comercial"),
     workflow_service = Depends(get_workflow_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context)
@@ -225,6 +226,7 @@ async def get_detalle_oportunidad_modal(
         "op": op,
         "can_edit_comercial": can_edit_comercial,
         "can_close_sale": can_close_sale,
-        "sitios": sitios  # Lista de sitios para cierre de venta
+        "sitios": sitios,
+        "show_solicitar_actions": source_module == "comercial",
     })
 

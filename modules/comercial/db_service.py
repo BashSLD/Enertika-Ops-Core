@@ -84,7 +84,9 @@ QUERY_INSERT_FOLLOWUP = """
         fecha_solicitud,       -- $23 (now_mx)
         email_enviado,
         es_licitacion,         -- HEREDADO
-        fecha_ideal_usuario
+        fecha_ideal_usuario,
+        conversion_pendiente,  -- $26
+        sitios_json_pendiente  -- $27
     ) VALUES (
         $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 
         $22,  -- ID Estatus (Ya no es 1 fijo)
@@ -92,7 +94,9 @@ QUERY_INSERT_FOLLOWUP = """
         $23,  -- Fecha Solicitud (Ya no es NOW())
         FALSE,
         $24,   -- es_licitacion
-        $25    -- fecha_ideal_usuario (heredada o default)
+        $25,   -- fecha_ideal_usuario (heredada o default)
+        $26,   -- conversion_pendiente
+        $27    -- sitios_json_pendiente
     ) RETURNING id_oportunidad
 """
 
@@ -180,7 +184,7 @@ QUERY_INSERT_SITIO_BULK = """
     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 """
 QUERY_DELETE_SITIO = "DELETE FROM tb_sitios_oportunidad WHERE id_sitio = $1"
-QUERY_GET_SITIOS_SIMPLE = "SELECT * FROM tb_sitios_oportunidad WHERE id_oportunidad = $1 ORDER BY id_sitio"
+QUERY_GET_SITIOS_SIMPLE = "SELECT * FROM tb_sitios_oportunidad WHERE id_oportunidad = $1 ORDER BY fecha_carga ASC"
 
 QUERY_INSERT_SITIO_UNICO = """
     INSERT INTO tb_sitios_oportunidad (id_sitio, id_oportunidad, nombre_sitio, direccion, google_maps_link, id_tipo_solicitud, id_estatus_global)
@@ -247,6 +251,33 @@ QUERY_DELETE_SITIOS_BY_IDS = "DELETE FROM tb_sitios_oportunidad WHERE id_sitio =
 QUERY_RELINK_LEVANTAMIENTOS = "UPDATE tb_levantamientos SET id_sitio = $1 WHERE id_oportunidad = $2"
 QUERY_UPDATE_CANTIDAD_SITIOS = "UPDATE tb_oportunidades SET cantidad_sitios = $1 WHERE id_oportunidad = $2"
 QUERY_COUNT_SITIOS_BY_OP = "SELECT count(*) FROM tb_sitios_oportunidad WHERE id_oportunidad = $1"
+
+# Conversión unisitio → multisitio
+QUERY_RENAME_ORIGINAL_SITE = """
+    UPDATE tb_sitios_oportunidad
+    SET nombre_sitio = 'Sitio 1'
+    WHERE id_oportunidad = $1
+      AND (nombre_sitio IS NULL OR TRIM(nombre_sitio) = '')
+"""
+QUERY_INCREMENT_CANTIDAD_SITIOS = """
+    UPDATE tb_oportunidades
+    SET cantidad_sitios = cantidad_sitios + $1
+    WHERE id_oportunidad = $2
+"""
+
+# Conversión diferida: leer y limpiar datos pendientes
+QUERY_GET_CONVERSION_PENDIENTE = """
+    SELECT conversion_pendiente, sitios_json_pendiente, parent_id
+    FROM tb_oportunidades
+    WHERE id_oportunidad = $1
+"""
+
+QUERY_CLEAR_CONVERSION_PENDIENTE = """
+    UPDATE tb_oportunidades
+    SET conversion_pendiente = FALSE,
+        sitios_json_pendiente = NULL
+    WHERE id_oportunidad = $1
+"""
 
 # Status Updates (cierre de venta)
 QUERY_GET_OP_ESTATUS = "SELECT id_estatus_global FROM tb_oportunidades WHERE id_oportunidad = $1"

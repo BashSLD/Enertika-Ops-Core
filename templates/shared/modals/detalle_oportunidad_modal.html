@@ -460,6 +460,117 @@
                 </div>
             </div>
 
+            <!-- Sección: Acciones Solicitud (Requiere Editor Comercial) -->
+            <!-- Visible solo en estatus: Entregado, Perdido, Cancelado -->
+            {% if can_edit_comercial and show_solicitar_actions and op.status_global|lower in ['entregado', 'perdido', 'cancelado'] %}
+            <div class="bg-blue-50 rounded-lg p-5 border border-blue-100 border-l-4 border-l-[#00BABB] shadow-sm">
+                <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                    </svg>
+                    Solicitar:
+                </h4>
+
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+                    <!-- Solicitar Actualización -->
+                    {% if op.es_multisitio %}
+                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}" hx-target="body"
+                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
+                        class="block w-full">
+                        <input type="hidden" name="tipo_solicitud" value="ACTUALIZACION">
+                        <input type="hidden" name="prioridad" value="high">
+                        <button type="submit"
+                            class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                            </svg>
+                            Actualización
+                        </button>
+                    </form>
+                    {% else %}
+                    <button type="button"
+                        hx-get="/comercial/modal/confirmar-seguimiento/{{ op.id_oportunidad }}?tipo_solicitud=ACTUALIZACION&prioridad=high"
+                        hx-target="body" hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Actualización
+                    </button>
+                    {% endif %}
+
+                    <!-- Solicitar Levantamiento -->
+                    {% if 'LEVANTAMIENTO' not in (op.tipos_solicitud_activos or []) and 'LEVANTAMIENTO' not in
+                    (op.tipo_solicitud or '') %}
+                    {% if op.es_multisitio %}
+                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}" hx-target="body"
+                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
+                        class="block w-full">
+                        <input type="hidden" name="tipo_solicitud" value="LEVANTAMIENTO">
+                        <input type="hidden" name="prioridad" value="normal">
+                        <button type="submit"
+                            class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                            </svg>
+                            Levantamiento
+                        </button>
+                    </form>
+                    {% else %}
+                    <button type="button"
+                        hx-get="/comercial/modal/confirmar-seguimiento/{{ op.id_oportunidad }}?tipo_solicitud=LEVANTAMIENTO&prioridad=normal"
+                        hx-target="body" hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        Levantamiento
+                    </button>
+                    {% endif %}
+                    {% endif %}
+
+                    <!-- Solicitar Oferta Final -->
+                    {% if op.es_multisitio %}
+                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}" hx-target="body"
+                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
+                        class="block w-full">
+                        <input type="hidden" name="tipo_solicitud" value="OFERTA_FINAL">
+                        <input type="hidden" name="prioridad" value="high">
+                        <button type="submit"
+                            class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                            </svg>
+                            Oferta Final
+                        </button>
+                    </form>
+                    {% else %}
+                    <button type="button"
+                        hx-get="/comercial/modal/confirmar-seguimiento/{{ op.id_oportunidad }}?tipo_solicitud=OFERTA_FINAL&prioridad=high"
+                        hx-target="body" hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                        </svg>
+                        Oferta Final
+                    </button>
+                    {% endif %}
+
+                </div>
+            </div>
+            {% endif %}
+
             <!-- Sección: Información Adicional (Opcional - Si existe) -->
             {% if op.fecha_solicitud or op.fecha_ideal_usuario or op.deadline_calculado or op.deadline_negociado or
             op.fecha_entrega_simulacion or op.cantidad_sitios %}
@@ -544,74 +655,57 @@
             </div>
             {% endif %}
 
-            <!-- Sección: Acciones Solicitud (Requiere Editor Comercial) -->
-            <!-- Visible solo en estatus: Entregado, Perdido, Cancelado -->
-            {% if can_edit_comercial and op.status_global|lower in ['entregado', 'perdida', 'perdido', 'cancelado'] %}
-            <div class="bg-blue-50/50 rounded-lg p-5 border border-blue-100">
+            <!-- Sección: Ubicación (Opcional - Si existe) -->
+            {% if op.direccion_obra or op.coordenadas_gps or op.google_maps_link %}
+            <div class="bg-blue-50 rounded-lg p-5 border border-blue-100 shadow-sm">
                 <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
-                    <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
+                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
                     </svg>
-                    Solicitar:
+                    Ubicación
                 </h4>
-
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-
-                    <!-- Solicitar Actualización -->
-                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}" hx-target="body"
-                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
-                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
-                        class="block w-full">
-                        <input type="hidden" name="tipo_solicitud" value="ACTUALIZACION">
-                        <input type="hidden" name="prioridad" value="high">
-                        <button type="submit"
-                            class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                            </svg>
-                            Actualización
-                        </button>
-                    </form>
-
-                    <!-- Solicitar Levantamiento -->
-                    {% if 'LEVANTAMIENTO' not in (op.tipos_solicitud_activos or []) and 'LEVANTAMIENTO' not in
-                    (op.tipo_solicitud or '') %}
-                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}" hx-target="body"
-                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
-                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
-                        class="block w-full">
-                        <input type="hidden" name="tipo_solicitud" value="LEVANTAMIENTO">
-                        <input type="hidden" name="prioridad" value="normal">
-                        <button type="submit"
-                            class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                            </svg>
-                            Levantamiento
-                        </button>
-                    </form>
+                <div class="grid grid-cols-1 gap-3 text-sm">
+                    {% if op.direccion_obra %}
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Dirección</label>
+                        <p class="text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200">{{ op.direccion_obra }}</p>
+                    </div>
                     {% endif %}
-
-                    <!-- Solicitar Oferta Final -->
-                    <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}" hx-target="body"
-                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
-                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
-                        class="block w-full">
-                        <input type="hidden" name="tipo_solicitud" value="OFERTA_FINAL">
-                        <input type="hidden" name="prioridad" value="high">
-                        <button type="submit"
-                            class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
+                    {% if op.coordenadas_gps %}
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Coordenadas GPS</label>
+                        <p class="text-gray-800 font-mono bg-white px-3 py-2 rounded-md border border-gray-200">{{ op.coordenadas_gps }}</p>
+                    </div>
+                    {% endif %}
+                    {% if op.google_maps_link %}
+                    {% if op.google_maps_link.startswith('http://') or op.google_maps_link.startswith('https://') %}
+                        {% set maps_href = op.google_maps_link %}
+                    {% elif '.' in op.google_maps_link and ' ' not in op.google_maps_link %}
+                        {% set maps_href = 'https://' + op.google_maps_link %}
+                    {% else %}
+                        {% set maps_href = None %}
+                    {% endif %}
+                    {% if maps_href %}
+                    <div>
+                        <a href="{{ maps_href }}" target="_blank" rel="noopener noreferrer"
+                            class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-blue-200 rounded-lg text-blue-600 hover:bg-blue-100 font-medium text-sm transition-colors shadow-sm">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
                             </svg>
-                            Oferta Final
-                        </button>
-                    </form>
-
+                            Ver en Google Maps
+                        </a>
+                    </div>
+                    {% else %}
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Google Maps</label>
+                        <p class="text-gray-500 text-xs bg-white px-3 py-2 rounded-md border border-gray-200">{{ op.google_maps_link }}</p>
+                    </div>
+                    {% endif %}
+                    {% endif %}
                 </div>
             </div>
             {% endif %}

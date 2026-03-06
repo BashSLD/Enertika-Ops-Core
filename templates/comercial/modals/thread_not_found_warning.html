@@ -71,6 +71,10 @@
                 <input type="hidden" name="tipo_solicitud" value="{{ tipo_solicitud }}">
                 <input type="hidden" name="prioridad" value="{{ prioridad }}">
                 <input type="hidden" name="force_create" value="true">
+                {% if convertir_multisitio %}
+                <input type="hidden" name="convertir_multisitio" value="true">
+                <input type="hidden" name="sitios_json_conversion" value='{{ sitios_json_conversion | safe }}'>
+                {% endif %}
 
                 <button type="submit"
                     @click="show = false; document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Creando Nuevo Hilo...';"

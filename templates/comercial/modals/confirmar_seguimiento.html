@@ -1,0 +1,99 @@
+{% set tipo_labels = {
+'ACTUALIZACION': 'Actualización',
+'LEVANTAMIENTO': 'Levantamiento',
+'OFERTA_FINAL': 'Oferta Final'
+} %}
+{% set tipo_label = tipo_labels.get(tipo_solicitud, tipo_solicitud) %}
+
+<div id="modal-confirmar-seguimiento"
+    class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-[10001] backdrop-blur-sm"
+    x-data="{ expandido: false }" x-init="$nextTick(() => $el.querySelector('[autofocus]')?.focus())">
+
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden border border-gray-200"
+        @click.away="$el.closest('#modal-confirmar-seguimiento').remove()">
+
+        <!-- Header -->
+        <div class="bg-[#123456] px-6 py-4 flex items-center gap-3">
+            <div>
+                <h3 class="text-base font-bold text-white">Solicitar {{ tipo_label }}</h3>
+                <p class="text-xs text-blue-200 font-mono mt-0.5">{{ id_interno }} &mdash; {{ nombre_cliente }}</p>
+            </div>
+            <button @click="$el.closest('#modal-confirmar-seguimiento').remove()"
+                class="ml-auto text-blue-200 hover:text-white transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        <!-- Body -->
+        <div class="p-6 space-y-4">
+
+            <!-- Toggle multisitio -->
+            <button type="button" @click="expandido = !expandido"
+                class="w-full flex items-center justify-between px-4 py-3 rounded-lg border transition-colors" :class="expandido
+                    ? 'bg-amber-50 border-amber-300 text-amber-800'
+                    : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'">
+                <span class="flex items-center gap-2 text-sm font-medium">
+                    <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Da click aquí si necesitas agregar más sitios a este proyecto
+                </span>
+                <svg class="w-4 h-4 transition-transform flex-shrink-0" :class="expandido ? 'rotate-180' : ''"
+                    fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                </svg>
+            </button>
+
+            <!-- Aviso expandido -->
+            <div x-show="expandido" x-transition
+                class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800 space-y-1">
+                <p class="font-semibold">Se abrirá una pantalla para cargar el listado de sitios en Excel.</p>
+                <p class="text-amber-700">El sitio actual se conservará automáticamente como "Sitio 1".</p>
+            </div>
+
+        </div>
+
+        <!-- Footer -->
+        <div class="bg-gray-50 px-6 py-4 border-t border-gray-100 flex justify-between items-center gap-3">
+
+            <button @click="$el.closest('#modal-confirmar-seguimiento').remove()"
+                class="px-4 py-2 bg-white text-gray-700 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors">
+                Cancelar
+            </button>
+
+            <div class="flex items-center gap-2">
+                <!-- Flujo normal (sin conversión) -->
+                <form x-show="!expandido" hx-post="/comercial/crear-seguimiento/{{ id_oportunidad }}" hx-swap="none"
+                    hx-indicator="#global-loading-overlay">
+                    <input type="hidden" name="tipo_solicitud" value="{{ tipo_solicitud }}">
+                    <input type="hidden" name="prioridad" value="{{ prioridad }}">
+                    <button type="submit"
+                        @click="$el.closest('#modal-confirmar-seguimiento').remove(); document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Creando solicitud...';"
+                        class="px-4 py-2 bg-[#123456] text-white rounded-lg text-sm font-bold hover:bg-[#1a4a7a] shadow-sm transition-colors flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                        </svg>
+                        Solicitar
+                    </button>
+                </form>
+
+                <!-- Flujo conversión: navegar al Paso 2 de conversión -->
+                <a x-show="expandido"
+                    :href="'/comercial/paso2-conversion/{{ id_oportunidad }}?tipo_solicitud={{ tipo_solicitud }}&prioridad={{ prioridad }}'"
+                    @click="$el.closest('#modal-confirmar-seguimiento').remove()"
+                    class="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold hover:bg-amber-700 shadow-sm transition-colors flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 7l5 5m0 0l-5 5m5-5H6" />
+                    </svg>
+                    Continuar a carga de sitios
+                </a>
+            </div>
+
+        </div>
+    </div>
+</div>

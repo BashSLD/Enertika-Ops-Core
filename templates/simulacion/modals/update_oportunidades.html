@@ -91,8 +91,8 @@
                 // Validación 2: Estatus Entregado requiere potencia (FV), excepto BESS puro
                 if (this.status == this.entregado_id) {
                     if (!this.isBessOnly) {
-                        const potencia = parseFloat(this.potencia);
-                        if (isNaN(potencia) || potencia <= 0) {
+                        const potencia = this.potencia === '' ? NaN : parseFloat(this.potencia);
+                        if (isNaN(potencia) || potencia < 0) {
                             this.errors.potencia = 'La potencia FV (KWp) es requerida para estatus Entregado';
                             valid = false;
                         }
@@ -100,8 +100,8 @@
 
                     // Capacidad BESS requerida si es tecnología BESS (puro o híbrido)
                     if (this.isBess) {
-                        const bessCap = parseFloat(this.bess);
-                        if (isNaN(bessCap) || bessCap <= 0) {
+                        const bessCap = this.bess === '' ? NaN : parseFloat(this.bess);
+                        if (isNaN(bessCap) || bessCap < 0) {
                             this.errors.bess = 'La capacidad BESS es requerida';
                             valid = false;
                         }
@@ -121,15 +121,15 @@
                     this.simsAdicionales.forEach((sim, i) => {
                         const num = i + 2;
                         if (!this.isBessOnly) {
-                            const pot = parseFloat(sim.potencia);
-                            if (isNaN(pot) || pot <= 0) {
+                            const pot = sim.potencia === '' ? NaN : parseFloat(sim.potencia);
+                            if (isNaN(pot) || pot < 0) {
                                 this.errors[`sim_potencia_${i}`] = `Sim #${num}: Potencia FV (KWp) requerida`;
                                 valid = false;
                             }
                         }
                         if (this.isBess) {
-                            const bss = parseFloat(sim.bess);
-                            if (isNaN(bss) || bss <= 0) {
+                            const bss = sim.bess === '' ? NaN : parseFloat(sim.bess);
+                            if (isNaN(bss) || bss < 0) {
                                 this.errors[`sim_bess_${i}`] = `Sim #${num}: BESS (KWh) requerido`;
                                 valid = false;
                             }
@@ -341,7 +341,7 @@
                                             class="text-gray-400 font-normal normal-case">(opcional)</span>
                                     </label>
                                     <input type="number" step="0.0001" name="potencia_cierre_fv_kwp"
-                                        id="potencia_cierre" value="{{ op.potencia_cierre_fv_kwp or '' }}"
+                                        id="potencia_cierre" value="{{ op.potencia_cierre_fv_kwp if op.potencia_cierre_fv_kwp is not none else '' }}"
                                         x-model="potencia" {% if not can_manage %}disabled{% endif %}
                                         onkeydown="return !['e', 'E', '+', '-'].includes(event.key)"
                                         class="w-full border-green-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
@@ -354,7 +354,7 @@
                                         BESS (KWh) <span x-show="isBess" class="text-red-500">*</span>
                                     </label>
                                     <input type="number" step="0.0001" name="capacidad_cierre_bess_kwh"
-                                        value="{{ op.capacidad_cierre_bess_kwh or '' }}" x-model="bess" {% if not
+                                        value="{{ op.capacidad_cierre_bess_kwh if op.capacidad_cierre_bess_kwh is not none else '' }}" x-model="bess" {% if not
                                         can_manage %}disabled{% endif %}
                                         onkeydown="return !['e', 'E', '+', '-'].includes(event.key)"
                                         class="w-full border-green-300 rounded-md focus:ring-green-500 focus:border-green-500 disabled:bg-gray-100"
@@ -370,7 +370,7 @@
                                         <span
                                             class="absolute inset-y-0 left-0 pl-3 flex items-center text-gray-500 text-sm font-medium">$</span>
                                         <input type="number" step="0.01" name="monto_cierre_usd"
-                                            value="{{ op.monto_cierre_usd or '' }}" x-model="monto" {% if not can_manage
+                                            value="{{ op.monto_cierre_usd if op.monto_cierre_usd is not none else '' }}" x-model="monto" {% if not can_manage
                                             %}disabled{% endif %}
                                             onkeydown="return !['e', 'E', '+', '-'].includes(event.key)"
                                             placeholder="0.00"

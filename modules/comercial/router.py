@@ -865,6 +865,9 @@ async def upload_preview_endpoint(
     id_oportunidad: str = Form(...),
     file: UploadFile = File(...),
     extraordinaria: int = Form(0),
+    is_conversion: bool = Form(False),
+    tipo_solicitud_conv: str = Form(None),
+    prioridad_conv: str = Form(None),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
     user_context = Depends(get_current_user_context),
@@ -874,13 +877,13 @@ async def upload_preview_endpoint(
     try:
         # Validación de tamaño usando utilidad centralizada
         validate_file_size(file, max_size_mb=10)
-        
+
         contents = await file.read()
         uuid_op = UUID(id_oportunidad)
-        
-        # Delegar Lógica Compleja al Service
-        result = await service.preview_site_upload(conn, contents, uuid_op, user_context)
-        
+
+        # Delegar Lógica Compleja al Service (skip_quantity_check en modo conversión)
+        result = await service.preview_site_upload(conn, contents, uuid_op, user_context, skip_quantity_check=is_conversion)
+
         return templates.TemplateResponse("comercial/partials/upload_preview.html", {
             "request": request,
             "columns": result["columns"],
@@ -888,7 +891,10 @@ async def upload_preview_endpoint(
             "total_rows": result["total_rows"],
             "json_data": result["json_data"],
             "op_id": id_oportunidad,
-            "extraordinaria": extraordinaria
+            "extraordinaria": extraordinaria,
+            "is_conversion": is_conversion,
+            "tipo_solicitud_conv": tipo_solicitud_conv,
+            "prioridad_conv": prioridad_conv,
         })
     except HTTPException as he:
         return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {"request": request, "title": "Error", "message": he.detail})
@@ -928,6 +934,55 @@ async def upload_confirm_endpoint(
     except HTTPException as he:
         return HTMLResponse(f"<div class='text-red-500'>Error: {he.detail}</div>", 400)
 
+@router.get("/modal/confirmar-seguimiento/{id_oportunidad}", response_class=HTMLResponse, include_in_schema=False)
+async def get_modal_confirmar_seguimiento(
+    request: Request,
+    id_oportunidad: UUID,
+    tipo_solicitud: str,
+    prioridad: str = "high",
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection),
+    _auth = require_module_access("comercial", "editor")
+):
+    """Modal de confirmación de seguimiento para oportunidades unisitio."""
+    row = await service.get_paso2_data(conn, id_oportunidad)
+    if not row:
+        return HTMLResponse("Oportunidad no encontrada", 404)
+    return templates.TemplateResponse("comercial/modals/confirmar_seguimiento.html", {
+        "request": request,
+        "id_oportunidad": id_oportunidad,
+        "tipo_solicitud": tipo_solicitud,
+        "prioridad": prioridad,
+        "nombre_cliente": row['cliente_nombre'],
+        "id_interno": row['id_interno_simulacion'],
+    })
+
+
+@router.get("/paso2-conversion/{id_oportunidad}", include_in_schema=False)
+async def get_paso2_conversion(
+    request: Request,
+    id_oportunidad: UUID,
+    tipo_solicitud: str,
+    prioridad: str = "high",
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection),
+    _auth = require_module_access("comercial", "editor")
+):
+    """Página de carga de sitios para conversión unisitio → multisitio."""
+    row = await service.get_paso2_data(conn, id_oportunidad)
+    if not row:
+        return HTMLResponse("Oportunidad no encontrada", 404)
+    return templates.TemplateResponse("comercial/paso2_conversion.html", {
+        "request": request,
+        "oportunidad_id": id_oportunidad,
+        "nombre_cliente": row['cliente_nombre'],
+        "id_interno": row['id_interno_simulacion'],
+        "titulo_proyecto": row['titulo_proyecto'],
+        "tipo_solicitud": tipo_solicitud,
+        "prioridad": prioridad,
+    })
+
+
 @router.get("/paso2/{id_oportunidad}", include_in_schema=False)
 async def get_paso_2_form(
     request: Request,
@@ -960,9 +1015,11 @@ async def get_paso_2_form(
 async def crear_seguimiento(
     request: Request,
     parent_id: UUID,
-    tipo_solicitud: str = Form(...), # "OFERTA_FINAL", "ACTUALIZACION"
+    tipo_solicitud: str = Form(...),
     prioridad: str = Form(...),
-    force_create: bool = Form(False), # New flag to bypass thread check
+    force_create: bool = Form(False),
+    convertir_multisitio: bool = Form(False),
+    sitios_json_conversion: str = Form(None),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
     ms_auth = Depends(get_ms_auth),
@@ -982,27 +1039,29 @@ async def crear_seguimiento(
     if not force_create:
         # 1. Predecir título exacto
         expected_title = await service.predict_followup_title(conn, parent_id, tipo_solicitud)
-        
+
         # 2. Buscar hilo
         thread_id = await ms_auth.find_thread_id(token, expected_title)
-        
-        # 3. Si NO existe hilo -> Advertencia
+
+        # 3. Si NO existe hilo -> Advertencia (preserva datos de conversión)
         if not thread_id:
             return templates.TemplateResponse("comercial/modals/thread_not_found_warning.html", {
                 "request": request,
                 "expected_title": expected_title,
                 "parent_id": parent_id,
                 "tipo_solicitud": tipo_solicitud,
-                "prioridad": prioridad
+                "prioridad": prioridad,
+                "convertir_multisitio": convertir_multisitio,
+                "sitios_json_conversion": sitios_json_conversion or "",
             })
 
-    # --- CREATION LOGIC ---
+    # --- CREACIÓN con conversión diferida (se ejecuta al enviar correo) ---
     new_id = await service.create_followup_oportunidad(
-        parent_id, tipo_solicitud, prioridad, conn, 
-        user_context['user_db_id'], user_context['user_name']
+        parent_id, tipo_solicitud, prioridad, conn,
+        user_context['user_db_id'], user_context['user_name'],
+        sitios_json_pendiente=sitios_json_conversion if convertir_multisitio else None
     )
-    
-    # Salto directo al Paso 3 (El usuario ya no carga Excel)
+
     return HTMLResponse(headers={"HX-Location": f"/comercial/paso3/{new_id}"})
 
 @router.delete("/sitios/{id_sitio}", response_class=HTMLResponse)

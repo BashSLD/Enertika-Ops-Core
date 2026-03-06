@@ -253,7 +253,7 @@
                                                 {{ op.id_interno_simulacion or 'N/A' }}
                                             </button>
                                             {% else %}
-                                            <button hx-get="/workflow/modals/detalle/{{ op.id_oportunidad }}"
+                                            <button hx-get="/workflow/modals/detalle/{{ op.id_oportunidad }}?source_module=simulacion"
                                                 hx-target="body" hx-swap="beforeend"
                                                 hx-indicator="#global-loading-overlay" hx-disabled-elt="this"
                                                 class="hover:text-[#00BABB] hover:underline focus:outline-none transition-colors"

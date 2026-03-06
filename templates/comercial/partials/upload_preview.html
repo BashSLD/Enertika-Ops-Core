@@ -58,6 +58,26 @@
             Cancelar / Reintentar
         </button>
 
+        {% if is_conversion %}
+        {# Conversión: crear seguimiento + agregar sitios en un solo POST #}
+        <form hx-post="/comercial/crear-seguimiento/{{ op_id }}"
+            hx-swap="none"
+            hx-indicator="#global-loading-overlay">
+            <input type="hidden" name="tipo_solicitud" value="{{ tipo_solicitud_conv }}">
+            <input type="hidden" name="prioridad" value="{{ prioridad_conv }}">
+            <input type="hidden" name="convertir_multisitio" value="true">
+            <input type="hidden" name="sitios_json_conversion" value='{{ json_data | safe }}'>
+            <button type="submit"
+                class="px-4 py-2 text-sm font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-amber-500 shadow-md transition-transform hover:scale-105 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                </svg>
+                Confirmar y Solicitar
+            </button>
+        </form>
+        {% else %}
+        {# Flujo normal: solo confirmar sitios #}
         <form hx-post="/comercial/upload-confirm" hx-target="#upload-result" hx-swap="innerHTML"
             hx-indicator="#global-loading-overlay">
             <input type="hidden" name="sitios_json" value='{{ json_data | safe }}'>
@@ -72,6 +92,7 @@
                 Confirmar Carga
             </button>
         </form>
+        {% endif %}
     </div>
 
     <div id="upload-result"></div>

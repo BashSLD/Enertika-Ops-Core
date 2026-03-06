@@ -43,9 +43,9 @@ class SimulacionDBService:
     async def get_sitios_by_oportunidad(self, conn, id_oportunidad: UUID) -> List[Dict[str, Any]]:
         query = """
         SELECT id_sitio, nombre_sitio, direccion, es_retrabajo, id_estatus_global
-        FROM tb_sitios_oportunidad 
-        WHERE id_oportunidad = $1 
-        ORDER BY nombre_sitio
+        FROM tb_sitios_oportunidad
+        WHERE id_oportunidad = $1
+        ORDER BY fecha_carga ASC
         """
         rows = await conn.fetch(query, id_oportunidad)
         return [dict(r) for r in rows]
@@ -340,7 +340,7 @@ class SimulacionDBService:
                    e.nombre as nombre_estatus, s.fecha_cierre
             FROM tb_sitios_oportunidad s
             LEFT JOIN tb_cat_estatus_oportunidades e ON s.id_estatus_global = e.id
-            WHERE s.id_oportunidad = $1 ORDER BY s.nombre_sitio
+            WHERE s.id_oportunidad = $1 ORDER BY s.fecha_carga ASC
         """, id_oportunidad)
         return [dict(r) for r in rows]
 

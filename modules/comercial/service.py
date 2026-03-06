@@ -77,6 +77,10 @@ from .db_service import (
     QUERY_REFRESH_BORRADOR_FECHA,
     QUERY_PUBLISH_BORRADOR,
     QUERY_UPDATE_HISTORIAL_INICIAL_FECHAS,
+    QUERY_RENAME_ORIGINAL_SITE,
+    QUERY_INCREMENT_CANTIDAD_SITIOS,
+    QUERY_GET_CONVERSION_PENDIENTE,
+    QUERY_CLEAR_CONVERSION_PENDIENTE,
 )
 
 # Shared Services
@@ -885,8 +889,65 @@ class ComercialService:
         deadline = SLACalculator.calculate_deadline(fecha_envio, hora_corte, dias_sla)
         fecha_inicio_sla = SLACalculator.calculate_deadline(fecha_envio, hora_corte, 0)
 
+        # --- HOOK: Conversión diferida unisitio → multisitio ---
+        # IMPORTANTE: el error en la conversión NO debe bloquear el publish.
+        # El correo ya fue enviado antes de llegar aquí — si la conversión falla,
+        # conversion_pendiente=True queda como señal de estado inconsistente recuperable.
+        conv_row = await conn.fetchrow(QUERY_GET_CONVERSION_PENDIENTE, id_oportunidad)
+        if conv_row and conv_row['conversion_pendiente'] and conv_row['sitios_json_pendiente'] and conv_row['parent_id']:
+            parent_id = conv_row['parent_id']
+            sitios_json = conv_row['sitios_json_pendiente']
+            logger.info(f"Ejecutando conversión diferida para follow-up {id_oportunidad} sobre parent {parent_id}")
+            try:
+                async with conn.transaction():
+                    # 1. Agregar sitios al parent
+                    count = await self.append_sites_to_parent(conn, parent_id, sitios_json, user_context)
+                    # 2. Agregar los mismos sitios al follow-up actual
+                    if count > 0:
+                        await self._append_sites_to_followup(conn, id_oportunidad, sitios_json)
+                    # 3. Limpiar datos pendientes
+                    await conn.execute(QUERY_CLEAR_CONVERSION_PENDIENTE, id_oportunidad)
+            except Exception as e:
+                # No re-raise: el correo ya salió, el publish debe continuar.
+                # conversion_pendiente permanece True como señal de recuperación manual.
+                logger.error(
+                    f"Conversión diferida falló para follow-up {id_oportunidad} "
+                    f"(parent {parent_id}). El correo fue enviado pero la conversión "
+                    f"no se completó. Requiere revisión manual. Error: {e}",
+                    exc_info=True
+                )
+
         await conn.execute(QUERY_PUBLISH_BORRADOR, id_oportunidad, fecha_envio, es_fuera_horario, deadline)
         await conn.execute(QUERY_UPDATE_HISTORIAL_INICIAL_FECHAS, id_oportunidad, fecha_envio, fecha_inicio_sla)
+
+    async def _append_sites_to_followup(self, conn, followup_id: UUID, sitios_json: str):
+        """Inserta sitios del JSON de conversión directamente en el follow-up."""
+        try:
+            raw_data = json.loads(sitios_json)
+        except json.JSONDecodeError:
+            logger.error(f"JSON corrupto en conversión diferida para {followup_id}")
+            return
+
+        records = []
+        for item in raw_data:
+            try:
+                sitio = SitioImportacion(**item)
+                records.append((
+                    uuid4(), followup_id, sitio.nombre_sitio, sitio.direccion,
+                    sitio.tipo_tarifa, sitio.google_maps_link, sitio.numero_servicio, sitio.comentarios
+                ))
+            except Exception as e:
+                logger.warning(f"Saltando fila inválida en conversión diferida: {e}")
+                continue
+
+        if records:
+            id_tipo_solicitud = await conn.fetchval(QUERY_GET_TIPO_SOLICITUD_FROM_OP, followup_id)
+            cats = await self.get_catalog_ids(conn)
+            id_status_inicial = cats['estatus'].get(STATUS_PENDIENTE) or DEFAULT_STATUS_ID_PENDIENTE
+            records_with_extras = [r + (id_status_inicial, id_tipo_solicitud) for r in records]
+            await conn.executemany(QUERY_INSERT_SITIO_BULK, records_with_extras)
+            # Actualizar contador del follow-up
+            await conn.execute(QUERY_INCREMENT_CANTIDAD_SITIOS, len(records), followup_id)
     
     async def update_oportunidad_prioridad(
         self, 
@@ -952,8 +1013,8 @@ class ComercialService:
         )
         return has_token or False
 
-    async def create_followup_oportunidad(self, parent_id: UUID, nuevo_tipo_solicitud: str, prioridad: str, conn, user_id: UUID, user_name: str) -> UUID:
-        """Crea seguimiento clonando padre + sitios."""
+    async def create_followup_oportunidad(self, parent_id: UUID, nuevo_tipo_solicitud: str, prioridad: str, conn, user_id: UUID, user_name: str, sitios_json_pendiente: str = None) -> UUID:
+        """Crea seguimiento clonando padre + sitios. Si sitios_json_pendiente se provee, guarda conversión diferida."""
         
         # Fuente de verdad temporal (Corrección Zona Horaria)
         # Obtenemos la hora con timezone de México. Asyncpg la convertirá a UTC al guardar.
@@ -1008,7 +1069,9 @@ class ComercialService:
             id_status_inicial,  # Parámetro $22
             now_mx,             # Parámetro $23
             parent['es_licitacion'], # Parámetro $24 (Herencia)
-            (now_mx.date() + timedelta(days=7)) # Parámetro $25 (Default +7 dias para seguimiento)
+            (now_mx.date() + timedelta(days=7)), # Parámetro $25 (Default +7 dias para seguimiento)
+            bool(sitios_json_pendiente),  # Parámetro $26 (conversion_pendiente)
+            sitios_json_pendiente          # Parámetro $27 (sitios_json_pendiente)
         )
 
         # Clonar sitios (Heredan id_tipo_solicitud del NUEVO tipo)
@@ -1117,7 +1180,7 @@ class ComercialService:
     async def get_email_recipients_context(self, conn, recipients_str: str, fixed_to: List[str], fixed_cc: List[str], extra_cc: str) -> dict:
         return await self.notification_service.get_email_recipients_context(conn, recipients_str, fixed_to, fixed_cc, extra_cc)
 
-    async def preview_site_upload(self, conn, file_contents: bytes, id_oportunidad: UUID, user_context: dict) -> dict:
+    async def preview_site_upload(self, conn, file_contents: bytes, id_oportunidad: UUID, user_context: dict, skip_quantity_check: bool = False) -> dict:
         """
         Procesa el Excel en memoria y valida estructura/cantidad.
         Retorna dict con datos para previsualización o raises HTTPException.
@@ -1135,7 +1198,7 @@ class ComercialService:
             raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
 
         # Función auxiliar para ejecutar en thread pool
-        def _process_excel_sync(contents: bytes, expected_qty: int):
+        def _process_excel_sync(contents: bytes, expected_qty: int, skip_qty_check: bool):
             try:
                 # load_workbook es bloqueante
                 wb = load_workbook(filename=io.BytesIO(contents), data_only=True)
@@ -1159,8 +1222,27 @@ class ComercialService:
                 if missing:
                     raise ValueError(f"Faltan columnas: {', '.join(missing)}")
 
-                if len(full_data_list) != expected_qty:
+                if not skip_qty_check and len(full_data_list) != expected_qty:
                     raise ValueError(f"Cantidad incorrecta. Esperados: {expected_qty}, Encontrados: {len(full_data_list)}")
+
+                # Validaciones solo para flujo de conversion
+                if skip_qty_check:
+                    if len(full_data_list) == 0:
+                        raise ValueError("El archivo no contiene sitios. Agrega al menos un sitio antes de continuar.")
+
+                    filas_invalidas = []
+                    for idx, row_data in enumerate(full_data_list, start=2):  # fila 1 = encabezado
+                        nombre = str(row_data.get("NOMBRE", "")).strip()
+                        direccion = str(row_data.get("DIRECCION", "")).strip()
+                        if not nombre or not direccion:
+                            filas_invalidas.append(idx)
+                    if filas_invalidas:
+                        filas_str = ", ".join(str(f) for f in filas_invalidas[:5])
+                        suffix = f" y {len(filas_invalidas) - 5} mas" if len(filas_invalidas) > 5 else ""
+                        raise ValueError(
+                            f"Las filas {filas_str}{suffix} no tienen Nombre o Direccion. "
+                            f"Corrige el archivo e intentalo de nuevo."
+                        )
 
                 return {
                     "columns": headers,
@@ -1179,7 +1261,8 @@ class ComercialService:
                 None, 
                 _process_excel_sync, 
                 file_contents, 
-                expected_qty
+                expected_qty,
+                skip_quantity_check
             )
             return result
         except ValueError as ve:
@@ -1269,6 +1352,55 @@ class ComercialService:
             if id_oportunidad:
                 real_count = await conn.fetchval(QUERY_COUNT_SITIOS_BY_OP, id_oportunidad)
                 await conn.execute(QUERY_UPDATE_CANTIDAD_SITIOS, real_count, id_oportunidad)
+
+    async def append_sites_to_parent(self, conn, parent_id: UUID, sitios_json: str, user_context: dict) -> int:
+        """
+        Agrega sitios nuevos a una oportunidad unisitio convirtiéndola en multisitio.
+        NO borra los sitios existentes. Renombra el original a 'Sitio 1' si no tiene nombre.
+        """
+        await self.verify_ownership(conn, parent_id, user_context)
+        try:
+            raw_data = json.loads(sitios_json)
+        except json.JSONDecodeError:
+            raise HTTPException(status_code=400, detail="JSON de sitios corrupto")
+
+        records = []
+        for item in raw_data:
+            try:
+                sitio = SitioImportacion(**item)
+                records.append((
+                    uuid4(), parent_id, sitio.nombre_sitio, sitio.direccion,
+                    sitio.tipo_tarifa, sitio.google_maps_link, sitio.numero_servicio, sitio.comentarios
+                ))
+            except Exception as e:
+                logger.warning(f"Saltando fila inválida en conversión: {e}")
+                continue
+
+        if not records:
+            raise HTTPException(status_code=400, detail="No se encontraron sitios válidos en el archivo")
+
+        # Guardia de idempotencia: evitar doble conversión por retry/double-click
+        current_count = await conn.fetchval(QUERY_GET_CANTIDAD_SITIOS, parent_id)
+        if (current_count or 0) > 1:
+            logger.warning(f"Oportunidad {parent_id} ya es multisitio (sitios={current_count}). Saltando conversión.")
+            return 0
+
+        async with conn.transaction():
+            id_tipo_solicitud = await conn.fetchval(QUERY_GET_TIPO_SOLICITUD_FROM_OP, parent_id)
+            cats = await self.get_catalog_ids(conn)
+            id_status_inicial = cats['estatus'].get(STATUS_PENDIENTE) or DEFAULT_STATUS_ID_PENDIENTE
+
+            # Renombrar sitio original si no tiene nombre
+            await conn.execute(QUERY_RENAME_ORIGINAL_SITE, parent_id)
+
+            # Insertar nuevos sitios (APPEND, sin borrar existentes)
+            records_with_extras = [r + (id_status_inicial, id_tipo_solicitud) for r in records]
+            await conn.executemany(QUERY_INSERT_SITIO_BULK, records_with_extras)
+
+            # Incrementar contador (no reemplazar)
+            await conn.execute(QUERY_INCREMENT_CANTIDAD_SITIOS, len(records), parent_id)
+
+        return len(records)
 
     # --- MÉTODOS DE LIMPIEZA ---
 
