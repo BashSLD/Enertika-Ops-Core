@@ -196,21 +196,8 @@
                         {% endif %}
                     </div>
                     {% else %}
-                    <div class="flex items-center justify-between mt-2">
+                    <div class="mt-2">
                         <span class="text-[10px] text-gray-300 italic">Sin fecha req.</span>
-                        {% set _is_sol = user_context and user_context.user_db_id and item.solicitado_por_id and
-                        user_context.user_db_id|string == item.solicitado_por_id|string %}
-                        {% if can_edit or _is_sol %}
-                        <button hx-get="/levantamientos/modal/fecha-ideal/{{ item.id_levantamiento }}"
-                            hx-target="#modal-content" hx-swap="innerHTML" onclick="openModal()"
-                            class="text-gray-300 hover:text-purple-500 transition-colors"
-                            title="Definir fecha requerida">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M12 4v16m8-8H4" />
-                            </svg>
-                        </button>
-                        {% endif %}
                     </div>
                     {% endif %}
 
@@ -422,21 +409,8 @@
                         {% endif %}
                     </div>
                     {% else %}
-                    <div class="flex items-center justify-between mt-2">
+                    <div class="mt-2">
                         <span class="text-[10px] text-gray-300 italic">Sin fecha req.</span>
-                        {% set _is_sol = user_context and user_context.user_db_id and item.solicitado_por_id and
-                        user_context.user_db_id|string == item.solicitado_por_id|string %}
-                        {% if can_edit or _is_sol %}
-                        <button hx-get="/levantamientos/modal/fecha-ideal/{{ item.id_levantamiento }}"
-                            hx-target="#modal-content" hx-swap="innerHTML" onclick="openModal()"
-                            class="text-gray-300 hover:text-purple-500 transition-colors"
-                            title="Definir fecha requerida">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M12 4v16m8-8H4" />
-                            </svg>
-                        </button>
-                        {% endif %}
                     </div>
                     {% endif %}
 
@@ -651,21 +625,8 @@
                             {% endif %}
                         </div>
                         {% else %}
-                        <div class="flex items-center justify-between mt-2">
+                        <div class="mt-2">
                             <span class="text-[10px] text-gray-300 italic">Sin fecha req.</span>
-                            {% set _is_sol = user_context and user_context.user_db_id and item.solicitado_por_id and
-                            user_context.user_db_id|string == item.solicitado_por_id|string %}
-                            {% if can_edit or _is_sol %}
-                            <button hx-get="/levantamientos/modal/fecha-ideal/{{ item.id_levantamiento }}"
-                                hx-target="#modal-content" hx-swap="innerHTML" onclick="openModal()"
-                                class="text-gray-300 hover:text-purple-500 transition-colors"
-                                title="Definir fecha requerida">
-                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M12 4v16m8-8H4" />
-                                </svg>
-                            </button>
-                            {% endif %}
                         </div>
                         {% endif %}
 
@@ -876,21 +837,8 @@
                         {% endif %}
                     </div>
                     {% else %}
-                    <div class="flex items-center justify-between mt-2">
+                    <div class="mt-2">
                         <span class="text-[10px] text-gray-300 italic">Sin fecha req.</span>
-                        {% set _is_sol = user_context and user_context.user_db_id and item.solicitado_por_id and
-                        user_context.user_db_id|string == item.solicitado_por_id|string %}
-                        {% if can_edit or _is_sol %}
-                        <button hx-get="/levantamientos/modal/fecha-ideal/{{ item.id_levantamiento }}"
-                            hx-target="#modal-content" hx-swap="innerHTML" onclick="openModal()"
-                            class="text-gray-300 hover:text-purple-500 transition-colors"
-                            title="Definir fecha requerida">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M12 4v16m8-8H4" />
-                            </svg>
-                        </button>
-                        {% endif %}
                     </div>
                     {% endif %}
 
@@ -1061,28 +1009,15 @@
                         {% endif %}
                     </div>
                     {% else %}
-                    <div class="flex items-center justify-between mt-2">
+                    <div class="mt-2">
                         <span class="text-[10px] text-gray-300 italic">Sin fecha req.</span>
-                        {% set _is_sol = user_context and user_context.user_db_id and item.solicitado_por_id and
-                        user_context.user_db_id|string == item.solicitado_por_id|string %}
-                        {% if can_edit or _is_sol %}
-                        <button hx-get="/levantamientos/modal/fecha-ideal/{{ item.id_levantamiento }}"
-                            hx-target="#modal-content" hx-swap="innerHTML" onclick="openModal()"
-                            class="text-gray-300 hover:text-purple-500 transition-colors"
-                            title="Definir fecha requerida">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M12 4v16m8-8H4" />
-                            </svg>
-                        </button>
-                        {% endif %}
                     </div>
                     {% endif %}
 
                     <div class="mt-3 pt-2 border-t border-gray-100 flex justify-start gap-1">
                         <!-- Ver Detalles / Adjuntos -->
                         <button hx-get="/levantamientos/modals/detalle/{{ item.id_levantamiento }}"
-                            hx-target="#modal-content" hx-swap="innerHTML" onclick="openModal()"
+                            hx-target="body" hx-swap="beforeend"
                             class="text-gray-500 hover:text-blue-600 hover:bg-blue-50 px-1.5 py-1.5 rounded-full transition-all"
                             title="Ver adjuntos y detalles">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
@@ -1230,21 +1165,8 @@
                         {% endif %}
                     </div>
                     {% else %}
-                    <div class="flex items-center justify-between mt-2">
+                    <div class="mt-2">
                         <span class="text-[10px] text-gray-300 italic">Sin fecha req.</span>
-                        {% set _is_sol = user_context and user_context.user_db_id and item.solicitado_por_id and
-                        user_context.user_db_id|string == item.solicitado_por_id|string %}
-                        {% if can_edit or _is_sol %}
-                        <button hx-get="/levantamientos/modal/fecha-ideal/{{ item.id_levantamiento }}"
-                            hx-target="#modal-content" hx-swap="innerHTML" onclick="openModal()"
-                            class="text-gray-300 hover:text-purple-500 transition-colors"
-                            title="Definir fecha requerida">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M12 4v16m8-8H4" />
-                            </svg>
-                        </button>
-                        {% endif %}
                     </div>
                     {% endif %}
 

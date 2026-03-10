@@ -337,7 +337,8 @@ class SimulacionDBService:
     async def get_sitios_list(self, conn, id_oportunidad: UUID) -> List[Dict[str, Any]]:
         rows = await conn.fetch("""
             SELECT s.id_sitio, s.nombre_sitio, s.direccion, s.id_estatus_global,
-                   e.nombre as nombre_estatus, s.fecha_cierre
+                   e.nombre as nombre_estatus, s.fecha_cierre, s.es_retrabajo,
+                   s.google_maps_link
             FROM tb_sitios_oportunidad s
             LEFT JOIN tb_cat_estatus_oportunidades e ON s.id_estatus_global = e.id
             WHERE s.id_oportunidad = $1 ORDER BY s.fecha_carga ASC

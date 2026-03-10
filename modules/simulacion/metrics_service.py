@@ -57,6 +57,9 @@ class MetricaTransicion:
     es_retroceso: bool
 
 
+# Estatus que representan fin de ciclo — no deben aparecer como cuellos de botella
+ESTATUS_TERMINALES = {"Entregado", "Cancelado", "Perdido", "Ganada"}
+
 # Orden del flujo "feliz" para detectar retrocesos
 ORDEN_FLUJO = {
     "Pendiente": 1,
@@ -169,9 +172,15 @@ class MetricsService:
         
         if not metricas_estatus:
             return []
-        
-        # Calcular percentiles
-        tiempos = [m.tiempo_promedio_dias for m in metricas_estatus]
+
+        # Excluir estatus terminales (fin de ciclo, no son cuellos de botella)
+        metricas_activas = [m for m in metricas_estatus if m.estatus_nombre not in ESTATUS_TERMINALES]
+
+        if not metricas_activas:
+            return []
+
+        # Calcular percentiles solo sobre estatus activos
+        tiempos = [m.tiempo_promedio_dias for m in metricas_activas]
         
         if len(tiempos) >= 4:
             sorted_tiempos = sorted(tiempos)
@@ -180,7 +189,7 @@ class MetricsService:
             p75 = max(tiempos) if tiempos else 0
         
         cuellos = []
-        for metrica in metricas_estatus:
+        for metrica in metricas_activas:
             # Criterio: >75% percentil Y >20% del tiempo total
             if metrica.tiempo_promedio_dias >= p75 and metrica.porcentaje_tiempo_total > 20:
                 impacto = "Alto"
@@ -201,15 +210,22 @@ class MetricsService:
         self,
         conn: asyncpg.Connection,
         fecha_inicio: date,
-        fecha_fin: date
+        fecha_fin: date,
+        tipo_solicitud_id: int = None
     ) -> List[MetricaCiclos]:
         """
         Analiza ciclos de retrabajo (ej: En Proceso ↔ En Revisión).
         """
-        
-        query = """
+
+        params: list = [fecha_inicio, fecha_fin]
+        tipo_filter = ""
+        if tipo_solicitud_id:
+            params.append(tipo_solicitud_id)
+            tipo_filter = f"AND o.id_tipo_solicitud = ${len(params)}"
+
+        query = f"""
             WITH cambios_ida_vuelta AS (
-                SELECT 
+                SELECT
                     h1.id_oportunidad,
                     e1.nombre as estatus_a,
                     e2.nombre as estatus_b,
@@ -223,11 +239,13 @@ class MetricsService:
                 )
                 JOIN tb_cat_estatus_oportunidades e1 ON h1.id_estatus_nuevo = e1.id
                 JOIN tb_cat_estatus_oportunidades e2 ON h2.id_estatus_nuevo = e2.id
+                JOIN tb_oportunidades o ON h1.id_oportunidad = o.id_oportunidad
                 WHERE h1.fecha_cambio_sla >= $1
                   AND h1.fecha_cambio_sla <= $2
+                  {tipo_filter}
                 GROUP BY h1.id_oportunidad, estatus_a, estatus_b
             )
-            SELECT 
+            SELECT
                 estatus_a || ' ↔ ' || estatus_b as transicion,
                 AVG(veces) as promedio_ciclos,
                 MAX(veces) as maximo_ciclos,
@@ -237,9 +255,9 @@ class MetricsService:
             GROUP BY estatus_a, estatus_b
             ORDER BY promedio_ciclos DESC
         """
-        
+
         try:
-            rows = await conn.fetch(query, fecha_inicio, fecha_fin)
+            rows = await conn.fetch(query, *params)
 
             return [
                 MetricaCiclos(
@@ -269,30 +287,41 @@ class MetricsService:
             Lista de oportunidades con información completa para análisis
         """
         
-        filters = ["h.fecha_cambio_sla >= $1", "h.fecha_cambio_sla <= $2", "e.nombre = $3"]
-        params = [fecha_inicio, fecha_fin, estatus_nombre]
-        
+        params: list = [fecha_inicio, fecha_fin, estatus_nombre]
+        user_filter = ""
         if user_id:
-            filters.append(f"o.responsable_simulacion_id = ${len(params) + 1}")
             params.append(user_id)
-        
-        where_clause = " AND ".join(filters)
-        
+            user_filter = f"AND o.responsable_simulacion_id = ${len(params)}"
+
         query = f"""
-            WITH oportunidades_estatus AS (
-                SELECT DISTINCT ON (h.id_oportunidad)
+            WITH todas_transiciones AS (
+                -- Calcula LEAD sobre TODAS las filas antes de filtrar por oportunidad
+                SELECT
                     h.id_oportunidad,
                     h.fecha_cambio_sla as fecha_inicio_estatus,
                     LEAD(h.fecha_cambio_sla) OVER (
-                        PARTITION BY h.id_oportunidad 
+                        PARTITION BY h.id_oportunidad
                         ORDER BY h.fecha_cambio_sla
                     ) as fecha_fin_estatus
                 FROM tb_historial_estatus h
                 JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
-                WHERE {where_clause}
-                ORDER BY h.id_oportunidad, h.fecha_cambio_sla DESC
+                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
+                WHERE e.nombre = $3
+                  AND h.fecha_cambio_sla >= $1
+                  AND h.fecha_cambio_sla <= $2
+                  {user_filter}
+            ),
+            peor_caso AS (
+                -- Por oportunidad, tomar la visita de mayor duración
+                SELECT DISTINCT ON (id_oportunidad)
+                    id_oportunidad,
+                    fecha_inicio_estatus,
+                    fecha_fin_estatus
+                FROM todas_transiciones
+                ORDER BY id_oportunidad,
+                         (COALESCE(fecha_fin_estatus, NOW()) - fecha_inicio_estatus) DESC
             )
-            SELECT 
+            SELECT
                 o.id_oportunidad,
                 o.op_id_estandar,
                 o.cliente_nombre,
@@ -303,16 +332,14 @@ class MetricsService:
                 o.clasificacion_solicitud as clasificacion,
                 u_sim.nombre as responsable_simulacion,
                 u_sol.nombre as solicitado_por,
-                oe.fecha_inicio_estatus,
-                oe.fecha_fin_estatus,
                 COALESCE(
                     EXTRACT(EPOCH FROM (
-                        COALESCE(oe.fecha_fin_estatus, NOW()) - oe.fecha_inicio_estatus
+                        COALESCE(pc.fecha_fin_estatus, NOW()) - pc.fecha_inicio_estatus
                     )) / 86400.0,
                     0
                 ) as dias_en_estatus
-            FROM oportunidades_estatus oe
-            JOIN tb_oportunidades o ON oe.id_oportunidad = o.id_oportunidad
+            FROM peor_caso pc
+            JOIN tb_oportunidades o ON pc.id_oportunidad = o.id_oportunidad
             LEFT JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
             LEFT JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
             LEFT JOIN tb_usuarios u_sim ON o.responsable_simulacion_id = u_sim.id_usuario

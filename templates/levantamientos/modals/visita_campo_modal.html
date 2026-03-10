@@ -97,7 +97,7 @@
                 x-show="!busqueda.trim() || $el.dataset.texto.toLowerCase().includes(busqueda.toLowerCase())"
                 :class="isSelected('{{ lev.id_levantamiento }}') ? 'vc-lev-item selected' : 'vc-lev-item'"
                 @click.prevent="toggleLev('{{ lev.id_levantamiento }}')"
-                style="cursor:pointer; display:flex; align-items:flex-start; gap:0.5rem;">
+                style="cursor:pointer;">
                 <!-- checkbox oculto para el submit del form -->
                 <input type="checkbox" name="levantamiento_ids" value="{{ lev.id_levantamiento }}"
                     :checked="isSelected('{{ lev.id_levantamiento }}')" style="display:none" />
@@ -520,6 +520,9 @@
     }
 
     .vc-lev-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
         padding: 0.5rem 0.625rem;
         border-radius: 0.375rem;
         border: 1px solid transparent;
@@ -532,8 +535,8 @@
     }
 
     .vc-lev-item.selected {
-        background: #ecfdf5;
-        border-color: #10b981;
+        background: rgba(16, 185, 129, 0.12);
+        border-color: rgba(16, 185, 129, 0.4);
     }
 
     .vc-check {

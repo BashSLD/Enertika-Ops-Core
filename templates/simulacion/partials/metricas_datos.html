@@ -53,7 +53,6 @@
     <p class="text-gray-500 text-center py-8">No hay datos para el período seleccionado</p>
     {% endif %}
 </div>
-</div>
 
 <!-- Sección 2: Transiciones Actuales del Pipeline -->
 {% if transiciones %}
@@ -170,7 +169,7 @@
 
             <!-- Botón para ver detalle -->
             <button type="button" @click="open = !open"
-                hx-get="/simulacion/api/metricas-operativas/detalle-estatus?estatus={{ cuello.estatus_lento }}&fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}"
+                hx-get="/simulacion/api/metricas-operativas/detalle-estatus?estatus={{ cuello.estatus_lento | urlencode }}&fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}"
                 hx-target="#detalle-{{ loop.index }}" hx-swap="innerHTML" hx-trigger="click once"
                 class="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 transition-colors">
                 <svg class="w-4 h-4 transform transition-transform" :class="{ 'rotate-180': open }" fill="none"

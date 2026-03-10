@@ -965,7 +965,7 @@ async def get_datos_metricas(
     
     # 3. Análisis de ciclos
     ciclos = await metrics_service.get_analisis_ciclos(
-        conn, start.date(), end.date()
+        conn, start.date(), end.date(), tipo_solicitud_id=tipo_int
     )
     
     # 4. Transiciones par a par (estado actual del pipeline)
