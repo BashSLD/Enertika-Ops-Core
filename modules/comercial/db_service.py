@@ -52,23 +52,43 @@ QUERY_INSERT_OPORTUNIDAD = """
         id_oportunidad, op_id_estandar, id_interno_simulacion,
         titulo_proyecto, nombre_proyecto, cliente_nombre, cliente_id, canal_venta,
         id_tecnologia, id_tipo_solicitud, id_estatus_global,
-        cantidad_sitios, prioridad, 
+        cantidad_sitios, prioridad,
         direccion_obra, coordenadas_gps, google_maps_link, sharepoint_folder_url,
         creado_por_id, fecha_solicitud,
         es_fuera_horario, deadline_calculado,
         solicitado_por, es_carga_manual,
         clasificacion_solicitud, solicitado_por_id, es_licitacion,
-        fecha_ideal_usuario
+        fecha_ideal_usuario,
+        parent_id
     ) VALUES (
         $1, $2, $3, $4, $5, $6, $26, $7,
-        $8, $9, $22, 
-        $10, $11, $12, $13, $14, $15, 
-        $16, $17, 
+        $8, $9, $22,
+        $10, $11, $12, $13, $14, $15,
+        $16, $17,
         $18, $19,
         $20, $21,
         $23, $24, $25,
-        $27
+        $27,
+        $28
     )
+"""
+
+QUERY_BUSCAR_OPORTUNIDADES_PARA_RELACIONAR = """
+    SELECT
+        id_oportunidad,
+        titulo_proyecto,
+        op_id_estandar,
+        fecha_solicitud AT TIME ZONE 'America/Mexico_City' AS fecha_solicitud
+    FROM tb_oportunidades
+    WHERE email_enviado = true
+    AND parent_id IS NULL
+    AND (
+        titulo_proyecto ILIKE $1
+        OR cliente_nombre ILIKE $1
+        OR op_id_estandar ILIKE $1
+    )
+    ORDER BY fecha_solicitud DESC
+    LIMIT 10
 """
 
 QUERY_INSERT_FOLLOWUP = """
@@ -367,4 +387,19 @@ QUERY_REFRESH_BORRADOR_FECHA = """
     WHERE id_oportunidad = $1
       AND email_enviado = FALSE
       AND fecha_creacion > NOW() - INTERVAL '24 hours'
+"""
+
+# Notificación Oportunidad Ganada
+QUERY_UPDATE_NOTIFICACION_GANADA_AT = """
+    UPDATE tb_oportunidades
+    SET notificacion_ganada_at = NOW() AT TIME ZONE 'America/Mexico_City'
+    WHERE id_oportunidad = $1
+"""
+
+QUERY_GET_PROYECTO_FOR_OPORTUNIDAD = """
+    SELECT id_proyecto FROM tb_proyectos_gate WHERE id_oportunidad = $1 LIMIT 1
+"""
+
+QUERY_GET_NOTIFICACION_GANADA_AT = """
+    SELECT notificacion_ganada_at FROM tb_oportunidades WHERE id_oportunidad = $1
 """

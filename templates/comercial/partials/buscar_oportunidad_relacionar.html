@@ -1,0 +1,19 @@
+{% if resultados %}
+<div class="space-y-1">
+    {% for op in resultados %}
+    <div class="px-3 py-3 rounded-lg border border-gray-200 cursor-pointer hover:bg-purple-50 hover:border-purple-300 bg-white transition-colors"
+        data-op-id="{{ op.id_oportunidad }}"
+        data-op-texto="{{ op.titulo_proyecto }} — {{ op.op_id_estandar }} ({{ op.fecha_solicitud.strftime('%d/%m/%Y %H:%M') }})"
+        onclick="window.dispatchEvent(new CustomEvent('op-seleccionada', { detail: { id: this.dataset.opId, texto: this.dataset.opTexto } }))">
+        <p class="text-sm font-semibold text-gray-800 leading-tight">{{ op.titulo_proyecto }}</p>
+        <p class="text-xs text-gray-500 mt-0.5">
+            <span class="font-mono">{{ op.op_id_estandar }}</span>
+            &bull;
+            {{ op.fecha_solicitud.strftime('%d/%m/%Y %H:%M') }}
+        </p>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<p class="text-xs text-gray-400 text-center mt-6 italic">Sin resultados para esa busqueda.</p>
+{% endif %}

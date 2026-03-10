@@ -21,6 +21,7 @@ from .schemas import OportunidadCreateCompleta, DetalleBessCreate
 from .service import ComercialService, get_comercial_service
 from .email_handler import EmailHandler, get_email_handler
 from .file_utils import validate_file_size
+from .db_service import QUERY_GET_NOTIFICACION_GANADA_AT, QUERY_GET_PROYECTO_FOR_OPORTUNIDAD, QUERY_BUSCAR_OPORTUNIDADES_PARA_RELACIONAR
 
 from core.workflow.service import get_workflow_service
 
@@ -557,6 +558,27 @@ async def handle_oportunidad_creation(
         logger.error(f"Error creando oportunidad: {e}", exc_info=True)
         return HTMLResponse("<div class='bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-4' role='alert'><p class='font-bold'>Error del Sistema</p><p>Ocurrió un error inesperado.</p></div>", status_code=500)
 
+# ===== BÚSQUEDA DE OPORTUNIDADES PARA RELACIONAR (HTMX) =====
+@router.get("/buscar-para-relacionar", response_class=HTMLResponse, include_in_schema=False)
+async def buscar_oportunidades_para_relacionar(
+    request: Request,
+    q: str = "",
+    conn = Depends(get_db_connection),
+    _ = require_manager_access("comercial")
+):
+    if not q or len(q.strip()) < 2:
+        return HTMLResponse("")
+
+    patron = f"%{q.strip()}%"
+    filas = await conn.fetch(QUERY_BUSCAR_OPORTUNIDADES_PARA_RELACIONAR, patron)
+    resultados = [dict(r) for r in filas]
+
+    return templates.TemplateResponse(
+        "comercial/partials/buscar_oportunidad_relacionar.html",
+        {"request": request, "resultados": resultados}
+    )
+
+
 # ===== FORMULARIO EXTRAORDINARIO (ADMIN/MANAGER ONLY) =====
 @router.get("/form-extraordinario", include_in_schema=False)
 async def get_comercial_form_extraordinario(
@@ -622,6 +644,9 @@ async def handle_oportunidad_extraordinaria(
     # --- Campo Fecha Manual (OBLIGATORIO en extraordinarias) ---
     fecha_manual: str = Form(...),
     fecha_ideal_usuario: Optional[date] = Form(None),
+
+    # --- Relacionar con oportunidad existente (OPCIONAL) ---
+    parent_id: Optional[UUID] = Form(None),
     
     # --- Campos BESS (Opcionales) ---
     bess_uso_sistema: List[str] = Form([]),
@@ -646,6 +671,15 @@ async def handle_oportunidad_extraordinaria(
         token = await get_valid_graph_token(request)
         if not token:
              return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
+
+        # Validar que parent_id sea raíz del hilo (sin padre propio)
+        if parent_id:
+            es_raiz = await conn.fetchval(
+                "SELECT parent_id IS NULL FROM tb_oportunidades WHERE id_oportunidad = $1",
+                parent_id
+            )
+            if not es_raiz:
+                raise ValueError("La oportunidad seleccionada no es un registro raiz. Solo se puede vincular al origen del hilo.")
 
          # Construir objeto BESS (Delegado al Service)
         detalles_bess = ComercialService.build_bess_detail(
@@ -677,7 +711,8 @@ async def handle_oportunidad_extraordinaria(
             es_licitacion=es_licitacion,
             solicitado_por_id=solicitado_por_id,
             fecha_ideal_usuario=fecha_ideal_usuario,
-            clasificacion_solicitud="EXTRAORDINARIO"
+            clasificacion_solicitud="EXTRAORDINARIO",
+            parent_id=parent_id
         )
 
         # Ejecutar Transacción en Servicio
@@ -1123,4 +1158,74 @@ async def cierre_venta(
         return templates.TemplateResponse(
             "comercial/partials/toasts/toast_error.html",
             {"request": request, "title": "Error", "message": "Ocurrió un error al procesar el cierre de venta."}
+        )
+
+
+# ----------------------------------------
+# Endpoint: Reenviar Notificación Oportunidad Ganada
+# ----------------------------------------
+
+@router.post("/reenviar-notificacion-ganada/{id_oportunidad}")
+async def reenviar_notificacion_ganada(
+    request: Request,
+    id_oportunidad: UUID,
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection),
+    user_context = Depends(get_current_user_context),
+    _ = require_module_access("comercial", "editor")
+):
+    """
+    Reenvía la notificación de oportunidad ganada.
+
+    Solo disponible si la oportunidad está en estado Ganada y no tiene proyecto creado.
+    Actualiza notificacion_ganada_at tras el envío.
+    """
+    try:
+        await service.reenviar_notificacion_ganada(conn, id_oportunidad, user_context)
+
+        notificacion_ganada_at = await conn.fetchval(QUERY_GET_NOTIFICACION_GANADA_AT, id_oportunidad)
+        tiene_proyecto = bool(await conn.fetchrow(QUERY_GET_PROYECTO_FOR_OPORTUNIDAD, id_oportunidad))
+
+        return templates.TemplateResponse(
+            "shared/modals/partials/boton_reenvio_notificacion.html",
+            {
+                "request": request,
+                "id_oportunidad": id_oportunidad,
+                "notificacion_ganada_at": notificacion_ganada_at,
+                "tiene_proyecto": tiene_proyecto,
+                "toast": {"type": "success", "title": "Enviado", "message": "Recordatorio reenviado correctamente."},
+            }
+        )
+
+    except ValueError as ve:
+        return templates.TemplateResponse(
+            "shared/toast.html",
+            {
+                "request": request,
+                "type": "error",
+                "title": "No permitido",
+                "message": str(ve),
+            }
+        )
+    except asyncpg.PostgresError as e:
+        logger.error(f"Error BD en reenvio notificacion ganada {id_oportunidad}: {e}", exc_info=True)
+        return templates.TemplateResponse(
+            "shared/toast.html",
+            {
+                "request": request,
+                "type": "error",
+                "title": "Error",
+                "message": "Error de base de datos al reenviar la notificación.",
+            }
+        )
+    except Exception as e:
+        logger.error(f"Error en reenvio notificacion ganada {id_oportunidad}: {e}", exc_info=True)
+        return templates.TemplateResponse(
+            "shared/toast.html",
+            {
+                "request": request,
+                "type": "error",
+                "title": "Error",
+                "message": "Ocurrió un error al reenviar el recordatorio.",
+            }
         )

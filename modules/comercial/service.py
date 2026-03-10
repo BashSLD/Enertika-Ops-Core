@@ -81,6 +81,9 @@ from .db_service import (
     QUERY_INCREMENT_CANTIDAD_SITIOS,
     QUERY_GET_CONVERSION_PENDIENTE,
     QUERY_CLEAR_CONVERSION_PENDIENTE,
+    QUERY_UPDATE_NOTIFICACION_GANADA_AT,
+    QUERY_GET_PROYECTO_FOR_OPORTUNIDAD,
+    QUERY_GET_NOTIFICACION_GANADA_AT,
 )
 
 # Shared Services
@@ -90,6 +93,7 @@ from modules.shared.services import IdGeneratorService, ClientService, BessServi
 from .services import DashboardService, NotificationService
 from .sla_calculator import SLACalculator
 from core.config_service import ConfigService
+from core.workflow.notification_service import get_notification_service as get_workflow_notification_service
 import logging
 
 logger = logging.getLogger("ComercialModule")
@@ -111,7 +115,8 @@ class ComercialService:
     ):
         self.dashboard_service = dashboard_service or DashboardService()
         self.notification_service = notification_service or NotificationService()
-        
+        self.workflow_notif_service = get_workflow_notification_service()
+
         # Shared Helpers
         # (Static methods don't need instantiation but we use them directly)
 
@@ -601,8 +606,9 @@ class ComercialService:
             datos.clasificacion_solicitud, # $23: clasificacion_solicitud
             datos.solicitado_por_id,       # $24: solicitado_por_id
             datos.es_licitacion,           # $25: es_licitacion
-            final_cliente_id,        # $26: cliente_id
-            datos.fecha_ideal_usuario # $27: fecha_ideal_usuario
+            final_cliente_id,              # $26: cliente_id
+            datos.fecha_ideal_usuario,     # $27: fecha_ideal_usuario
+            datos.parent_id                # $28: parent_id (opcional, solo extraordinario)
         )
 
         # Insertar BESS (Shared Service)
@@ -1021,8 +1027,18 @@ class ComercialService:
         now_mx = await self.get_current_datetime_mx(conn)
 
         parent = await conn.fetchrow(QUERY_GET_OPORTUNIDAD_FULL, parent_id)
-        if not parent: 
+        if not parent:
             raise HTTPException(status_code=404, detail="Oportunidad original no encontrada")
+
+        # Resolver raíz del hilo: si el registro clickeado ya tiene padre, usar ese padre.
+        # Garantiza que todos los seguimientos sean hijos directos de la raíz, independiente
+        # de desde qué registro del hilo el usuario haya clickeado "Solicitar Actualización".
+        effective_parent_id = parent['parent_id'] if parent['parent_id'] else parent_id
+        if effective_parent_id != parent_id:
+            logger.info(f"Seguimiento solicitado desde hijo {parent_id}. Resolviendo a raíz {effective_parent_id}.")
+            parent = await conn.fetchrow(QUERY_GET_OPORTUNIDAD_FULL, effective_parent_id)
+            if not parent:
+                raise HTTPException(status_code=404, detail="Oportunidad raíz del hilo no encontrada")
 
         # Convertir string de tipo_solicitud a ID
         # El parámetro nuevo_tipo_solicitud viene como "OFERTA_FINAL", "ACTUALIZACION", etc.
@@ -1060,7 +1076,7 @@ class ComercialService:
 
         query_insert = QUERY_INSERT_FOLLOWUP
         await conn.fetchval(query_insert,
-            new_uuid, user_id, parent_id,
+            new_uuid, user_id, effective_parent_id,
             titulo_new, parent['nombre_proyecto'], parent['cliente_nombre'], parent['cliente_id'],
             parent['canal_venta'], user_name,
             parent['id_tecnologia'], id_tipo_solicitud, parent['cantidad_sitios'], prioridad,
@@ -1077,7 +1093,7 @@ class ComercialService:
         # Clonar sitios (Heredan id_tipo_solicitud del NUEVO tipo)
         # Fix: Usar el mismo status inicial (pendiente) para los sitios clonados
         query_clone = QUERY_CLONE_SITIOS
-        await conn.execute(query_clone, new_uuid, parent_id, id_tipo_solicitud, id_status_inicial)
+        await conn.execute(query_clone, new_uuid, effective_parent_id, id_tipo_solicitud, id_status_inicial)
         
         # ========================================
         # HOOK: Crear levantamiento automáticamente si es tipo LEVANTAMIENTO
@@ -1666,13 +1682,60 @@ class ComercialService:
             f"por {user_context.get('user_name')}. "
             f"Sitios ganados: {sitios_ganados_count}, perdidos: {sitios_perdidos_count}"
         )
-        
+
+        # Enviar notificación email (no bloquear si falla)
+        try:
+            await self.workflow_notif_service.notify_opportunity_won(
+                conn=conn,
+                id_oportunidad=id_oportunidad,
+                won_by_ctx=user_context,
+            )
+            await conn.execute(QUERY_UPDATE_NOTIFICACION_GANADA_AT, id_oportunidad)
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error BD al registrar notificacion ganada {id_oportunidad}: {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"Error enviando notificacion ganada {id_oportunidad}: {e}", exc_info=True)
+
         return {
             "success": True,
             "id_oportunidad": str(id_oportunidad),
             "sitios_ganados": sitios_ganados_count,
             "sitios_perdidos": sitios_perdidos_count
         }
+
+    async def reenviar_notificacion_ganada(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        user_context: dict
+    ) -> None:
+        """
+        Reenvía la notificación de oportunidad ganada.
+
+        Raises:
+            ValueError: Si la oportunidad no está en estado Ganada o ya tiene proyecto.
+        """
+        cats = await self.get_catalog_ids(conn)
+        estatus_map = cats.get("estatus", {})
+        id_ganada = estatus_map.get("ganada")
+
+        if not id_ganada:
+            raise ValueError("Error de configuración: falta estatus 'ganada' en catálogo")
+
+        current_status = await conn.fetchval(QUERY_GET_OP_ESTATUS, id_oportunidad)
+        if current_status != id_ganada:
+            raise ValueError("La oportunidad no está en estado Ganada")
+
+        proyecto_row = await conn.fetchrow(QUERY_GET_PROYECTO_FOR_OPORTUNIDAD, id_oportunidad)
+        if proyecto_row:
+            raise ValueError("No se puede reenviar: el proyecto ya fue creado")
+
+        await self.workflow_notif_service.notify_opportunity_won(
+            conn=conn,
+            id_oportunidad=id_oportunidad,
+            won_by_ctx=user_context,
+        )
+        await conn.execute(QUERY_UPDATE_NOTIFICACION_GANADA_AT, id_oportunidad)
 
     async def get_paso2_data(self, conn, id_oportunidad: UUID) -> Optional[dict]:
         """Recupera datos mínimos para renderizar el formulario de Paso 2."""

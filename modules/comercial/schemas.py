@@ -74,6 +74,9 @@ class OportunidadCreateCompleta(BaseModel):
     es_licitacion: bool = False
     fecha_ideal_usuario: Optional[date] = None
 
+    # Relación con oportunidad padre (solo para captura extraordinaria)
+    parent_id: Optional[UUID] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 class SitioOportunidadBase(BaseModel):
