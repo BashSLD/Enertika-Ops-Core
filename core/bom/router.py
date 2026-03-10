@@ -98,6 +98,8 @@ def _build_bom_context(request, context, bom, **extra) -> dict:
         "role": role,
         "user_id": context.get("user_db_id"),
         "user_name": context.get("user_name"),
+        "es_aprobador_final": extra.get("es_aprobador_final", False),
+        "es_rol_bom": extra.get("es_rol_bom", False),
     }
     ctx.update(extra)
     return ctx
@@ -129,12 +131,20 @@ async def bom_ui(
     versiones = []
     ultimo_rechazo = None
 
+    es_aprobador_final = False
+    es_rol_bom = False
+
     if bom:
         items = await service.get_items(conn, bom['id_bom'])
         estadisticas = await service.get_estadisticas(conn, bom['id_bom'])
         versiones = await service.db.get_all_bom_versions(conn, id_proyecto)
         if bom['estatus'] == 'BORRADOR':
             ultimo_rechazo = await service.get_ultimo_rechazo(conn, bom['id_bom'])
+        aprobador_final_id = await service.get_aprobador_final_id(conn)
+        user_id_ctx = context.get("user_db_id")
+        if aprobador_final_id and str(user_id_ctx) == str(aprobador_final_id):
+            es_aprobador_final = True
+        es_rol_bom = await service.es_bom_role(conn, bom, user_id_ctx)
 
     ctx = _build_bom_context(
         request, context, bom,
@@ -145,6 +155,8 @@ async def bom_ui(
         versiones=versiones,
         id_proyecto=id_proyecto,
         ultimo_rechazo=ultimo_rechazo,
+        es_aprobador_final=es_aprobador_final,
+        es_rol_bom=es_rol_bom,
     )
 
     is_htmx = request.headers.get("hx-request")
@@ -243,7 +255,7 @@ async def agregar_item(
     if area_editor not in ("ingenieria", "construccion"):
         return templates.TemplateResponse("shared/toast.html", {
             "request": request,
-            "message": "No tienes permisos para agregar items",
+            "message": "Solo Ingenieria y Construccion pueden agregar items al BOM. Compras solo puede editar proveedor y precio de items existentes.",
             "type": "error",
         })
 
@@ -347,13 +359,22 @@ async def editar_item(
         elif key in ("descripcion", "unidad_medida", "tipo_entrega", "comentarios"):
             campos[key] = val.strip() if val else None
 
+    # Extract grupo_ids before passing campos to editar_item (not a regular item field)
+    grupo_ids_raw = form.getlist("grupo_ids")
+
     try:
-        await service.editar_item(
-            conn, id_item, user_id, area_editor, **campos
-        )
+        if campos:
+            await service.editar_item(
+                conn, id_item, user_id, area_editor, **campos
+            )
+
+        # Update grupos (empty list = remove all groups)
+        grupo_ids = [int(g) for g in grupo_ids_raw if g]
+        await service.set_item_grupos(conn, id_item, user_id, grupo_ids)
 
         # Retornar fila actualizada
         item = await service.get_item(conn, id_item)
+        item['grupos'] = await service.db.get_grupos_por_item(conn, id_item)
         bom = await service.get_bom(conn, item['id_bom'])
 
         ctx = _build_bom_context(request, context, bom, item=item)
@@ -603,7 +624,7 @@ async def enviar_const(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria", "editor"),
+    _=require_manager_access("ingenieria"),
 ):
     """Envia BOM aprobado por ing a revision de construccion."""
     form = await request.form()
@@ -903,6 +924,227 @@ async def get_modal_aprobar(
         "accion": accion,
         "catalogos": catalogos,
     })
+
+
+# ========================================
+# GRUPOS DE ITEM
+# ========================================
+
+@router.post("/items/{id_item}/grupos", include_in_schema=False)
+async def set_item_grupos(
+    request: Request,
+    id_item: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria"),
+):
+    """Asigna grupos BOM (AC/DC/CM/OC/TE) a un item."""
+    form = await request.form()
+    user_id = context.get("user_db_id")
+    grupo_ids_raw = form.getlist("grupo_ids")
+
+    try:
+        grupo_ids = [int(g) for g in grupo_ids_raw if g]
+        await service.set_item_grupos(conn, id_item, user_id, grupo_ids)
+
+        item = await service.get_item(conn, id_item)
+        item['grupos'] = await service.db.get_grupos_por_item(conn, id_item)
+        bom = await service.get_bom(conn, item['id_bom'])
+        ctx = _build_bom_context(request, context, bom, item=item)
+        return templates.TemplateResponse("bom/partials/row_item.html", ctx)
+
+    except ValueError as e:
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": str(e), "type": "error"
+        })
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al asignar grupos BOM")
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": "Error interno al asignar grupos", "type": "error"
+        })
+
+
+# ========================================
+# SUPLENCIAS
+# ========================================
+
+@router.get("/suplencia/modal", include_in_schema=False)
+async def get_modal_suplencia(
+    request: Request,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria"),
+):
+    """Modal para configurar suplente del usuario actual."""
+    user_id = context.get("user_db_id")
+    suplencia_activa = await service.get_suplencia_activa(conn, user_id)
+    usuarios = await service.db.get_usuarios_por_area(conn, 'ingenieria', solo_jefes=False)
+    const_usuarios = await service.db.get_usuarios_por_area(conn, 'construccion', solo_jefes=False)
+    todos_usuarios = {str(u['id_usuario']): u for u in usuarios + const_usuarios}
+    return templates.TemplateResponse("bom/partials/modal_suplencia.html", {
+        "request": request,
+        "suplencia_activa": suplencia_activa,
+        "usuarios": list(todos_usuarios.values()),
+        "user_id": user_id,
+    })
+
+
+@router.post("/suplencia", include_in_schema=False)
+async def configurar_suplencia(
+    request: Request,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria"),
+):
+    """Configura suplente para el usuario actual."""
+    form = await request.form()
+    user_id = context.get("user_db_id")
+    suplente_id_raw = form.get("suplente_id", "").strip()
+    fecha_fin_raw = form.get("fecha_fin", "").strip()
+
+    try:
+        from uuid import UUID as _UUID
+        from datetime import date as date_type
+        suplente_id = _UUID(suplente_id_raw)
+        fecha_fin = date_type.fromisoformat(fecha_fin_raw)
+        await service.configurar_suplente(conn, user_id, suplente_id, fecha_fin)
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": "Suplencia configurada exitosamente",
+            "type": "success",
+        })
+    except ValueError as e:
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": str(e), "type": "error"
+        })
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al configurar suplencia")
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": "Error interno al configurar suplencia", "type": "error"
+        })
+
+
+@router.delete("/suplencia", include_in_schema=False)
+async def eliminar_suplencia(
+    request: Request,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria"),
+):
+    """Elimina la suplencia activa del usuario actual."""
+    user_id = context.get("user_db_id")
+    try:
+        await service.eliminar_suplencia(conn, user_id)
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": "Suplencia eliminada", "type": "success"
+        })
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al eliminar suplencia")
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": "Error interno al eliminar suplencia", "type": "error"
+        })
+
+
+# ========================================
+# WORKFLOW APROBADOR FINAL
+# ========================================
+
+@router.post("/{id_bom}/enviar-final", include_in_schema=False)
+async def enviar_revision_final(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_manager_access("construccion"),
+):
+    """Envia BOM aprobado por construccion al aprobador final."""
+    user_id = context.get("user_db_id")
+    try:
+        bom = await service.enviar_revision_final(conn, id_bom, user_id)
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": "BOM enviado al aprobador final",
+            "type": "success",
+            "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
+        })
+    except ValueError as e:
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": str(e), "type": "error"
+        })
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al enviar BOM a revision final")
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": "Error interno", "type": "error"
+        })
+
+
+@router.post("/{id_bom}/aprobar-final", include_in_schema=False)
+async def aprobar_final(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria"),
+):
+    """Aprobacion final del BOM."""
+    form = await request.form()
+    user_id = context.get("user_db_id")
+    comentarios = form.get("comentarios", "").strip() or None
+    try:
+        bom = await service.aprobar_final(conn, id_bom, user_id, comentarios)
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": "BOM aprobado de forma definitiva",
+            "type": "success",
+            "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
+        })
+    except ValueError as e:
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": str(e), "type": "error"
+        })
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD en aprobacion final BOM")
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": "Error interno", "type": "error"
+        })
+
+
+@router.post("/{id_bom}/rechazar-final", include_in_schema=False)
+async def rechazar_final(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria"),
+):
+    """Rechazo por aprobador final. Vuelve a APROBADO."""
+    form = await request.form()
+    user_id = context.get("user_db_id")
+    comentarios = form.get("comentarios", "").strip() or None
+    try:
+        bom = await service.rechazar_final(conn, id_bom, user_id, comentarios)
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": "BOM devuelto a construccion para revision.",
+            "type": "warning",
+            "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
+        })
+    except ValueError as e:
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": str(e), "type": "error"
+        })
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD en rechazo final BOM")
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": "Error interno", "type": "error"
+        })
 
 
 # ========================================

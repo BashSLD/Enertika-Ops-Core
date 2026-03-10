@@ -18,6 +18,8 @@ class EstatusBOM(str, Enum):
     EN_REVISION_CONST = "EN_REVISION_CONST"
     APROBADO = "APROBADO"
     CANCELADO = "CANCELADO"
+    EN_REVISION_FINAL = "EN_REVISION_FINAL"
+    APROBADO_FINAL = "APROBADO_FINAL"
 
 
 class AccionHistorial(str, Enum):
@@ -39,6 +41,9 @@ class TipoAprobacion(str, Enum):
     CANCELACION = "CANCELACION"
     SOLICITUD_MODIFICACION = "SOLICITUD_MODIFICACION"
     APROBACION_MODIFICACION = "APROBACION_MODIFICACION"
+    ENVIO_REVISION_FINAL = "ENVIO_REVISION_FINAL"
+    APROBACION_FINAL = "APROBACION_FINAL"
+    RECHAZO_FINAL = "RECHAZO_FINAL"
 
 
 class TipoEntrega(str, Enum):
@@ -66,6 +71,8 @@ class BomRead(BaseModel):
     elaborado_por_nombre: Optional[str] = None
     responsable_ing: Optional[UUID] = None
     responsable_ing_nombre: Optional[str] = None
+    jefe_construccion: Optional[UUID] = None
+    jefe_construccion_nombre: Optional[str] = None
     coordinador_obra: Optional[UUID] = None
     coordinador_obra_nombre: Optional[str] = None
     fecha_envio_ing: Optional[datetime] = None
@@ -138,6 +145,7 @@ class BomItemRead(BaseModel):
     id_material_ref: Optional[UUID] = None
     importe: Optional[Decimal] = None
     cantidad_recibida: Decimal = Decimal("0")
+    grupos: List[str] = []
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
@@ -184,3 +192,27 @@ class TipoEntregaCatalogo(BaseModel):
     nombre: str
     activo: bool = True
     orden: int = 0
+
+
+class GrupoBomRead(BaseModel):
+    id: int
+    codigo: str
+    nombre: str
+    orden: int = 0
+    activo: bool = True
+
+
+class SuplenciaCreate(BaseModel):
+    suplente_id: UUID
+    fecha_fin: date
+
+
+class SuplenciaRead(BaseModel):
+    id: int
+    titular_id: UUID
+    suplente_id: UUID
+    suplente_nombre: Optional[str] = None
+    fecha_fin: date
+    activo: bool = True
+    created_at: Optional[datetime] = None
+    model_config = {"from_attributes": True}

@@ -5,7 +5,7 @@ Logica de negocio, workflow de aprobaciones, versionado y exportacion Excel.
 
 import logging
 from uuid import UUID
-from typing import Optional
+from typing import Optional, List, Set
 from datetime import datetime, timezone
 
 from core.bom.db_service import BomDBService
@@ -28,6 +28,9 @@ ESTATUS_EDITABLE_ING = {EstatusBOM.BORRADOR}
 ESTATUS_EDITABLE_CONST_COMPRAS = {
     EstatusBOM.APROBADO_ING, EstatusBOM.EN_REVISION_CONST, EstatusBOM.APROBADO
 }
+
+# Estados en los que NO se puede editar de ninguna forma
+ESTATUS_BLOQUEADOS = {EstatusBOM.CANCELADO, EstatusBOM.APROBADO_FINAL}
 
 # Labels para historial
 CAMPO_LABELS = {
@@ -130,7 +133,21 @@ class BomService:
         area_editor: str = 'ingenieria'
     ) -> dict:
         """Agrega un item al BOM. Permite edicion segun area y estado."""
-        bom = await self._validar_edicion_items(conn, id_bom, area_editor)
+        bom = await self.get_bom(conn, id_bom)
+        estatus = EstatusBOM(bom['estatus'])
+        if estatus in ESTATUS_BLOQUEADOS:
+            raise ValueError(f"El BOM esta en estado {estatus} y no permite modificaciones")
+
+        es_rol_bom = await self.es_bom_role(conn, bom, user_id)
+        if not es_rol_bom:
+            # Fallback: permisos originales por area_editor
+            await self._validar_edicion_items(conn, id_bom, area_editor)
+
+        from decimal import Decimal as _D
+        if _D(str(cantidad)) <= 0:
+            raise ValueError("La cantidad debe ser mayor a cero")
+        if precio_unitario is not None and _D(str(precio_unitario)) < 0:
+            raise ValueError("El precio unitario no puede ser negativo")
 
         orden = await self.db.get_next_orden(conn, id_bom)
 
@@ -182,9 +199,13 @@ class BomService:
         # Validar que campos correspondan al area del editor
         campos_filtrados = {}
         if area_editor == 'ingenieria':
-            if bom_estatus not in ESTATUS_EDITABLE_ING:
+            if bom_estatus not in (ESTATUS_EDITABLE_ING | {EstatusBOM.EN_REVISION_ING}):
                 raise ValueError("El BOM no esta en estado editable para ingenieria")
             campos_filtrados = {k: v for k, v in campos.items() if k in CAMPOS_INGENIERIA}
+            if 'precio_unitario' in campos_filtrados and campos_filtrados['precio_unitario'] is not None:
+                from decimal import Decimal as _D
+                if _D(str(campos_filtrados['precio_unitario'])) < 0:
+                    raise ValueError("El precio unitario no puede ser negativo")
             # Items de catalogo: remover campos protegidos
             if es_catalogo:
                 campos_filtrados = {
@@ -202,6 +223,8 @@ class BomService:
                 cant_total = Decimal(str(item['cantidad']))
                 if cant_recibida < 0:
                     raise ValueError("La cantidad recibida no puede ser negativa")
+                if cant_recibida > cant_total:
+                    raise ValueError("La cantidad recibida no puede exceder la cantidad total del item")
                 if cant_recibida >= cant_total:
                     campos_filtrados['entregado'] = True
                     campos_filtrados['fecha_entrega_check'] = datetime.now(timezone.utc)
@@ -243,7 +266,14 @@ class BomService:
         if not item:
             raise ValueError("Item no encontrado")
 
-        await self._validar_edicion_items(conn, item['id_bom'], area_editor)
+        bom = await self.get_bom(conn, item['id_bom'])
+        estatus = EstatusBOM(bom['estatus'])
+        if estatus in ESTATUS_BLOQUEADOS:
+            raise ValueError(f"El BOM esta en estado {estatus} y no permite modificaciones")
+
+        es_rol_bom = await self.es_bom_role(conn, bom, user_id)
+        if not es_rol_bom:
+            await self._validar_edicion_items(conn, item['id_bom'], area_editor)
 
         deleted = await self.db.soft_delete_item(conn, id_item)
 
@@ -258,8 +288,14 @@ class BomService:
         return deleted
 
     async def get_items(self, conn, id_bom: UUID) -> list:
-        """Lista items activos del BOM."""
-        return await self.db.get_items_by_bom(conn, id_bom)
+        """Lista items activos del BOM, enriched with grupos."""
+        items = await self.db.get_items_by_bom(conn, id_bom)
+        if not items:
+            return items
+        grupos_map = await self.db.get_grupos_por_bom(conn, id_bom)
+        for item in items:
+            item['grupos'] = grupos_map.get(str(item['id_item']), [])
+        return items
 
     async def get_item(self, conn, id_item: UUID) -> dict:
         """Obtiene un item por ID."""
@@ -341,7 +377,8 @@ class BomService:
 
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.BORRADOR,
-            fecha_envio_ing=None
+            fecha_envio_ing=None,
+            fecha_aprobacion_ing=None
         )
 
         await self.db.registrar_aprobacion(
@@ -418,7 +455,8 @@ class BomService:
 
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.APROBADO_ING,
-            fecha_envio_const=None
+            fecha_envio_const=None,
+            fecha_aprobacion_const=None
         )
 
         await self.db.registrar_aprobacion(
@@ -444,6 +482,7 @@ class BomService:
             fecha_envio_ing=None,
             fecha_aprobacion_ing=None,
             fecha_envio_const=None,
+            fecha_aprobacion_const=None
         )
 
         await self.db.registrar_aprobacion(
@@ -541,6 +580,138 @@ class BomService:
         """Estadisticas del BOM."""
         return await self.db.get_estadisticas_bom(conn, id_bom)
 
+    # ─── PERMISOS BOM-ROLE ───────────────────────────────────
+
+    async def get_titulares_que_representa(self, conn, user_id: UUID) -> Set[UUID]:
+        """Retorna el user_id + los titulares cuya suplencia activa tiene este usuario."""
+        titulares = await self.db.get_titulares_que_representa(conn, user_id)
+        result = set(titulares)
+        result.add(user_id)
+        return result
+
+    async def es_bom_role(self, conn, bom: dict, user_id: UUID) -> bool:
+        """True si el usuario es (o representa via suplencia) alguno de los 3 roles del BOM."""
+        if not bom:
+            return False
+        representados = await self.get_titulares_que_representa(conn, user_id)
+        bom_roles = {
+            bom.get('responsable_ing'),
+            bom.get('jefe_construccion'),
+            bom.get('coordinador_obra'),
+        } - {None}
+        return bool(representados & bom_roles)
+
+    # ─── GRUPOS BOM ─────────────────────────────────────────
+
+    async def set_item_grupos(
+        self, conn, id_item: UUID, user_id: UUID, grupo_ids: List[int]
+    ) -> None:
+        """Asigna grupos BOM a un item. Registra en historial."""
+        item = await self.db.get_item_by_id(conn, id_item)
+        if not item:
+            raise ValueError("Item no encontrado")
+        await self.db.set_item_grupos(conn, id_item, grupo_ids)
+        await self.db.registrar_historial(
+            conn, item['id_bom'], AccionHistorial.EDITADO,
+            item['bom_version'], user_id,
+            id_item=id_item,
+            campo_modificado='grupos_bom',
+            valor_nuevo=str(grupo_ids)
+        )
+
+    # ─── SUPLENCIAS ─────────────────────────────────────────
+
+    async def get_suplencia_activa(self, conn, user_id: UUID) -> Optional[dict]:
+        """Suplencia activa vigente del usuario (como titular)."""
+        return await self.db.get_suplencia_activa_del_titular(conn, user_id)
+
+    async def configurar_suplente(
+        self, conn, titular_id: UUID, suplente_id: UUID, fecha_fin
+    ) -> dict:
+        """Configura suplente para el usuario. Valida que la fecha sea futura."""
+        from datetime import date as date_type
+        if isinstance(fecha_fin, str):
+            fecha_fin = date_type.fromisoformat(fecha_fin)
+        if fecha_fin < date_type.today():
+            raise ValueError("La fecha fin de la suplencia debe ser futura")
+        row = await conn.fetchrow(
+            "SELECT id_usuario, nombre FROM tb_usuarios WHERE id_usuario = $1 AND is_active = TRUE",
+            suplente_id
+        )
+        if not row:
+            raise ValueError("El usuario suplente no existe o no esta activo")
+        return await self.db.crear_suplencia(conn, titular_id, suplente_id, fecha_fin)
+
+    async def eliminar_suplencia(self, conn, titular_id: UUID) -> None:
+        """Desactiva la suplencia activa del usuario."""
+        await self.db.desactivar_suplencia(conn, titular_id)
+
+    # ─── APROBADOR FINAL ────────────────────────────────────
+
+    async def enviar_revision_final(
+        self, conn, id_bom: UUID, user_id: UUID
+    ) -> dict:
+        """Envia BOM APROBADO a revision del aprobador final."""
+        bom = await self.get_bom(conn, id_bom)
+        if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO:
+            raise ValueError("El BOM debe estar APROBADO por construccion para enviar al aprobador final")
+
+        await self.db.update_bom_estatus(conn, id_bom, EstatusBOM.EN_REVISION_FINAL)
+        await self.db.registrar_aprobacion(
+            conn, id_bom, TipoAprobacion.ENVIO_REVISION_FINAL,
+            bom['version'], user_id
+        )
+        logger.info("BOM %s enviado a revision final por %s", id_bom, user_id)
+        return await self.db.get_bom_by_id(conn, id_bom)
+
+    async def aprobar_final(
+        self, conn, id_bom: UUID, user_id: UUID,
+        comentarios: Optional[str] = None
+    ) -> dict:
+        """Aprobacion final del BOM por el aprobador final."""
+        bom = await self.get_bom(conn, id_bom)
+        if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_FINAL:
+            raise ValueError("El BOM debe estar EN_REVISION_FINAL para aprobar")
+
+        aprobador_id = await self.db.get_aprobador_final_id(conn)
+        if not aprobador_id or str(user_id) != str(aprobador_id):
+            raise ValueError("Solo el aprobador final designado puede ejecutar esta accion")
+
+        await self.db.update_bom_estatus(conn, id_bom, EstatusBOM.APROBADO_FINAL)
+        await self.db.registrar_aprobacion(
+            conn, id_bom, TipoAprobacion.APROBACION_FINAL,
+            bom['version'], user_id, comentarios=comentarios
+        )
+        logger.info("BOM %s aprobado final por %s", id_bom, user_id)
+        return await self.db.get_bom_by_id(conn, id_bom)
+
+    async def rechazar_final(
+        self, conn, id_bom: UUID, user_id: UUID,
+        comentarios: Optional[str] = None
+    ) -> dict:
+        """Rechazo por aprobador final. Vuelve a APROBADO (construccion)."""
+        if not comentarios or not comentarios.strip():
+            raise ValueError("El motivo del rechazo es obligatorio")
+
+        bom = await self.get_bom(conn, id_bom)
+        if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_FINAL:
+            raise ValueError("El BOM debe estar EN_REVISION_FINAL para rechazar")
+
+        aprobador_id = await self.db.get_aprobador_final_id(conn)
+        if not aprobador_id or str(user_id) != str(aprobador_id):
+            raise ValueError("Solo el aprobador final designado puede ejecutar esta accion")
+
+        await self.db.update_bom_estatus(conn, id_bom, EstatusBOM.APROBADO)
+        await self.db.registrar_aprobacion(
+            conn, id_bom, TipoAprobacion.RECHAZO_FINAL,
+            bom['version'], user_id, comentarios=comentarios
+        )
+        logger.info("BOM %s rechazado final por %s: %s", id_bom, user_id, comentarios)
+        return await self.db.get_bom_by_id(conn, id_bom)
+
+    async def get_aprobador_final_id(self, conn) -> Optional[UUID]:
+        return await self.db.get_aprobador_final_id(conn)
+
     # ─── CATALOGOS ──────────────────────────────────────────
 
     async def get_catalogos(self, conn) -> dict:
@@ -550,9 +721,10 @@ class BomService:
         proveedores = await self.db.get_proveedores(conn)
         usuarios_ing_jefes = await self.db.get_usuarios_por_area(conn, 'ingenieria', solo_jefes=True)
         usuarios_ing = await self.db.get_usuarios_por_area(conn, 'ingenieria', solo_jefes=False)
-        
+
         usuarios_const_jefes = await self.db.get_usuarios_por_area(conn, 'construccion', solo_jefes=True)
         usuarios_const = await self.db.get_usuarios_por_area(conn, 'construccion', solo_jefes=False)
+        grupos_bom = await self.db.get_grupos_bom(conn)
 
         return {
             'tipos_entrega': tipos_entrega,
@@ -561,7 +733,8 @@ class BomService:
             'usuarios_ing': usuarios_ing,           # Lista completa (por si se requiere)
             'usuarios_ing_jefes': usuarios_ing_jefes, # Solo jefes (para Responsable de Ing)
             'usuarios_const': usuarios_const,       # Lista completa (para Coordinador de Obra)
-            'usuarios_const_jefes': usuarios_const_jefes, # Solo jefes (para Jefe de Construcción)
+            'usuarios_const_jefes': usuarios_const_jefes, # Solo jefes (para Jefe de Construccion)
+            'grupos_bom': grupos_bom,
         }
 
     # ─── EXPORT EXCEL ────────────────────────────────────────
@@ -621,9 +794,9 @@ class BomService:
         # Datos
         total_importe = 0
         for row_num, item in enumerate(items, headers_row + 1):
-            precio = item.get('precio_unitario') or 0
-            cantidad = item.get('cantidad') or 0
-            importe = float(cantidad) * float(precio)
+            precio = float(item.get('precio_unitario') or 0)
+            cantidad = float(item.get('cantidad') or 0)
+            importe = cantidad * precio
             total_importe += importe
 
             row_data = [

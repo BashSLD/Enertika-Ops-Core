@@ -495,6 +495,8 @@
                     <button type="button"
                         hx-get="/comercial/modal/confirmar-seguimiento/{{ op.id_oportunidad }}?tipo_solicitud=ACTUALIZACION&prioridad=high"
                         hx-target="body" hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        hx-disabled-elt="this"
+                        hx-on:htmx:before-request="if(document.getElementById('modal-confirmar-seguimiento')){event.preventDefault()}"
                         class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -527,6 +529,8 @@
                     <button type="button"
                         hx-get="/comercial/modal/confirmar-seguimiento/{{ op.id_oportunidad }}?tipo_solicitud=LEVANTAMIENTO&prioridad=normal"
                         hx-target="body" hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        hx-disabled-elt="this"
+                        hx-on:htmx:before-request="if(document.getElementById('modal-confirmar-seguimiento')){event.preventDefault()}"
                         class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -558,6 +562,8 @@
                     <button type="button"
                         hx-get="/comercial/modal/confirmar-seguimiento/{{ op.id_oportunidad }}?tipo_solicitud=OFERTA_FINAL&prioridad=high"
                         hx-target="body" hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        hx-disabled-elt="this"
+                        hx-on:htmx:before-request="if(document.getElementById('modal-confirmar-seguimiento')){event.preventDefault()}"
                         class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

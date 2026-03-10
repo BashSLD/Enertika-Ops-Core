@@ -6,6 +6,8 @@
     'EN_REVISION_CONST': {'bg': 'bg-orange-100', 'text': 'text-orange-800', 'dot': 'bg-orange-400', 'label': 'En Revision Const.'},
     'APROBADO': {'bg': 'bg-green-100', 'text': 'text-green-800', 'dot': 'bg-green-400', 'label': 'Aprobado'},
     'CANCELADO': {'bg': 'bg-red-100', 'text': 'text-red-800', 'dot': 'bg-red-400', 'label': 'Cancelado'},
+    'EN_REVISION_FINAL': {'bg': 'bg-violet-100', 'text': 'text-violet-800', 'dot': 'bg-violet-400', 'label': 'En Revision Final'},
+    'APROBADO_FINAL': {'bg': 'bg-emerald-100', 'text': 'text-emerald-800', 'dot': 'bg-emerald-500', 'label': 'Aprobado Final'},
 } %}
 {% set cfg = estatus_config.get(bom.estatus, estatus_config['BORRADOR']) %}
 
@@ -24,6 +26,9 @@
                 <div><span class="font-medium">Elaborado por:</span> {{ bom.elaborado_por_nombre or 'N/A' }}</div>
                 {% if bom.responsable_ing_nombre %}
                 <div><span class="font-medium">Resp. Ing:</span> {{ bom.responsable_ing_nombre }}</div>
+                {% endif %}
+                {% if bom.jefe_construccion_nombre %}
+                <div><span class="font-medium">Jefe Const:</span> {{ bom.jefe_construccion_nombre }}</div>
                 {% endif %}
                 {% if bom.coordinador_obra_nombre %}
                 <div><span class="font-medium">Coord. Obra:</span> {{ bom.coordinador_obra_nombre }}</div>
@@ -98,14 +103,33 @@
                 Solicitar Modificacion
             </button>
             {% endif %}
+
+            {% if bom.estatus == 'APROBADO' and es_const_manager %}
+            <button hx-post="/bom/{{ bom.id_bom }}/enviar-final"
+                hx-target="#main-content" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-violet-600 hover:bg-violet-700 transition">
+                Enviar a Aprobador Final
+            </button>
+            {% endif %}
+
+            {% if bom.estatus == 'EN_REVISION_FINAL' and es_aprobador_final %}
+            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/aprobar-final" hx-target="#modal-container" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition">
+                Aprobar Final
+            </button>
+            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/rechazar-final" hx-target="#modal-container" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-600 hover:bg-red-700 transition">
+                Rechazar
+            </button>
+            {% endif %}
         </div>
     </div>
 
     {# Barra de progreso del workflow #}
     {% if bom.estatus != 'CANCELADO' %}
     <div class="mt-4 flex items-center gap-1">
-        {% set pasos = ['BORRADOR', 'EN_REVISION_ING', 'APROBADO_ING', 'EN_REVISION_CONST', 'APROBADO'] %}
-        {% set paso_labels = ['Borrador', 'Rev. Ing', 'Aprobado Ing', 'Rev. Const', 'Aprobado'] %}
+        {% set pasos = ['BORRADOR', 'EN_REVISION_ING', 'APROBADO_ING', 'EN_REVISION_CONST', 'APROBADO', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] %}
+        {% set paso_labels = ['Borrador', 'Rev. Ing', 'Apob. Ing', 'Rev. Const', 'Apob. Const', 'Rev. Final', 'Aprobado'] %}
         {% set paso_actual = pasos.index(bom.estatus) if bom.estatus in pasos else 0 %}
 
         {% for paso in pasos %}

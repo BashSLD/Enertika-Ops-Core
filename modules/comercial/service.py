@@ -1069,7 +1069,7 @@ class ComercialService:
             id_status_inicial,  # Parámetro $22
             now_mx,             # Parámetro $23
             parent['es_licitacion'], # Parámetro $24 (Herencia)
-            (now_mx.date() + timedelta(days=7)), # Parámetro $25 (Default +7 dias para seguimiento)
+            (now_mx + timedelta(days=7)), # Parámetro $25 (Default +7 dias para seguimiento)
             bool(sitios_json_pendiente),  # Parámetro $26 (conversion_pendiente)
             sitios_json_pendiente          # Parámetro $27 (sitios_json_pendiente)
         )

@@ -579,6 +579,72 @@ class AdminService:
         logger.info(f"Catalogo {table} ID {item_id}: activo cambiado a {new_status}")
 
 
+    # ========================================
+    # REPORTE SEMANAL
+    # ========================================
+
+    async def generar_reporte_semanal(self, conn, fecha_inicio=None, fecha_fin=None) -> dict:
+        """
+        Genera los datos del reporte semanal de actividad en ECO.
+        Si no se pasan fechas, usa la semana actual (lunes a viernes).
+        Retorna: datos (métricas), fecha_inicio, fecha_fin (fecha_fin es exclusivo en la query).
+        """
+        from datetime import date, timedelta
+
+        if not fecha_inicio:
+            today = date.today()
+            fecha_inicio = today - timedelta(days=today.weekday())  # Lunes
+            fecha_fin = fecha_inicio + timedelta(days=5)            # Sábado (exclusivo → cubre L-V)
+
+        datos = await self.db.get_reporte_semanal_data(conn, fecha_inicio, fecha_fin)
+        return {
+            "datos": datos,
+            "fecha_inicio": fecha_inicio,
+            "fecha_fin": fecha_fin,
+        }
+
+    async def enviar_reporte_semanal(self, conn) -> bool:
+        """
+        Genera y envía el reporte semanal por correo.
+        Los destinatarios se leen desde tb_configuracion_global (clave: reporte_semanal_destinatarios).
+        Retorna True si el correo fue enviado, False si no hay destinatarios configurados.
+        """
+        from datetime import timedelta
+        from core.workflow.notification_service import NotificationService
+        from core.config import settings
+
+        destinatarios_raw = await ConfigService.get_global_config(
+            conn, "reporte_semanal_destinatarios", "", str
+        )
+        destinatarios = {e.strip() for e in destinatarios_raw.split(",") if e.strip()}
+
+        if not destinatarios:
+            logger.warning("[REPORTE_SEMANAL] Sin destinatarios configurados — correo no enviado")
+            return False
+
+        reporte = await self.generar_reporte_semanal(conn)
+        fecha_inicio = reporte["fecha_inicio"]
+        fecha_fin_display = reporte["fecha_fin"] - timedelta(days=1)
+
+        notif = NotificationService()
+        html = notif._render_template("shared/emails/reporte_semanal.html", {
+            "datos": reporte["datos"],
+            "fecha_inicio": fecha_inicio,
+            "fecha_fin_display": fecha_fin_display,
+            "base_url": settings.APP_BASE_URL,
+        })
+
+        subject = (
+            f"Actividad en ECO — Semana del "
+            f"{fecha_inicio.strftime('%d/%m')} al {fecha_fin_display.strftime('%d/%m/%Y')}"
+        )
+
+        sender = await notif._get_notification_sender(conn, "DEFAULT")
+        await notif._send_email(destinatarios, set(), subject, html, sender["email"])
+        logger.info(f"[REPORTE_SEMANAL] Enviado a {len(destinatarios)} destinatarios")
+        return True
+
+
 def get_admin_service():
     """Helper para inyección de dependencias."""
     return AdminService()

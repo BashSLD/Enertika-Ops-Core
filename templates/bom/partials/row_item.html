@@ -1,5 +1,6 @@
 {# Fila individual de un item del BOM #}
 <tr id="item-{{ item.id_item }}"
+    data-grupos="{{ item.grupos | join(',') if item.grupos else '' }}"
     class="hover:bg-gray-50 transition-colors {{ 'bg-green-50' if item.entregado else '' }}">
     <td class="px-3 py-2 text-xs text-gray-400 font-mono">{{ loop.index if loop is defined else item.orden }}</td>
     <td class="px-3 py-2">
@@ -13,6 +14,21 @@
     </td>
     <td class="px-3 py-2 text-sm text-gray-800 max-w-xs">
         <div class="truncate" title="{{ item.descripcion }}">{{ item.descripcion }}</div>
+        {% if item.grupos %}
+        <div class="flex flex-wrap gap-0.5 mt-0.5">
+            {% for codigo in item.grupos %}
+            <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold
+                {% if codigo == 'AC' %}bg-yellow-100 text-yellow-700
+                {% elif codigo == 'DC' %}bg-blue-100 text-blue-700
+                {% elif codigo == 'CM' %}bg-purple-100 text-purple-700
+                {% elif codigo == 'OC' %}bg-orange-100 text-orange-700
+                {% elif codigo == 'TE' %}bg-teal-100 text-teal-700
+                {% else %}bg-gray-100 text-gray-600{% endif %}">
+                {{ codigo }}
+            </span>
+            {% endfor %}
+        </div>
+        {% endif %}
         {% if item.comentarios %}
         <div class="text-xs text-gray-400 truncate mt-0.5" title="{{ item.comentarios }}">{{ item.comentarios }}</div>
         {% endif %}
@@ -72,7 +88,7 @@
         </span>
         {% elif pct > 0 %}
         <span class="text-xs font-medium text-amber-600" title="{{ item.cantidad_recibida }} de {{ item.cantidad }}">
-            {{ "%.0f"|format(pct) }}%
+            {{ "%.0f"|format([pct, 100]|min) }}%
         </span>
         {% else %}
         <span class="text-gray-300">-</span>

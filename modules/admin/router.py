@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Request, Depends, HTTPException, Form
+from fastapi import APIRouter, Request, Depends, HTTPException, Form, Header
 from fastapi.responses import HTMLResponse, Response
+from typing import Optional
 from core.database import get_db_connection
 from fastapi.templating import Jinja2Templates
 from core.security import get_current_user_context
@@ -606,6 +607,139 @@ async def get_config_umbrales(
         "umbrales_compromiso": umbrales_compromiso,
         **context
     })
+
+
+# --- REPORTE SEMANAL ---
+
+@router.api_route("/ui/reporte-semanal", methods=["GET", "HEAD"], include_in_schema=False)
+async def reporte_semanal_page(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
+    _=require_module_access("admin"),
+):
+    """Página de reporte semanal de actividad en ECO."""
+    reporte = await service.generar_reporte_semanal(conn)
+    destinatarios_raw = await ConfigService.get_global_config(
+        conn, "reporte_semanal_destinatarios", "", str
+    )
+    destinatarios_configurados = bool(destinatarios_raw.strip())
+
+    from datetime import timedelta
+    ctx = {
+        "request": request,
+        "datos": reporte["datos"],
+        "fecha_inicio": reporte["fecha_inicio"],
+        "fecha_fin_display": reporte["fecha_fin"] - timedelta(days=1),
+        "destinatarios_configurados": destinatarios_configurados,
+        **context,
+    }
+
+    if request.headers.get("hx-request"):
+        return templates.TemplateResponse("admin/partials/reporte_semanal.html", ctx)
+    return templates.TemplateResponse("admin/reporte_semanal_full.html", ctx)
+
+
+@router.post("/reportes/enviar-semanal", include_in_schema=False)
+async def enviar_reporte_semanal(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
+    _=require_module_access("admin"),
+):
+    """Envía el reporte semanal por correo de forma manual desde el panel admin."""
+    enviado = await service.enviar_reporte_semanal(conn)
+    if enviado:
+        return templates.TemplateResponse("admin/partials/messages/success.html", {
+            "request": request,
+            "title": "Correo enviado",
+            "message": "El reporte semanal fue enviado correctamente.",
+        })
+    return templates.TemplateResponse("admin/partials/messages/error.html", {
+        "request": request,
+        "title": "Sin destinatarios",
+        "message": "Configura los destinatarios en Configuracion Global antes de enviar.",
+    }, status_code=400)
+
+
+@router.post("/reportes/cron/reporte-semanal", include_in_schema=False)
+async def enviar_reporte_semanal_cron(
+    request: Request,
+    conn=Depends(get_db_connection),
+    service: AdminService = Depends(get_admin_service),
+    x_cron_secret: Optional[str] = Header(default=None),
+):
+    """
+    Endpoint para el Cron Job de Railway.
+    Protegido exclusivamente con el header X-Cron-Secret.
+    No requiere sesión de usuario.
+    """
+    if not settings.CRON_SECRET or x_cron_secret != settings.CRON_SECRET:
+        raise HTTPException(status_code=401, detail="No autorizado")
+
+    enviado = await service.enviar_reporte_semanal(conn)
+    return {"enviado": enviado}
+
+
+# ========================================
+# BOM — Aprobador Final
+# ========================================
+
+@router.get("/bom-config", include_in_schema=False)
+async def bom_config_ui(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
+    _=require_module_access("admin"),
+):
+    """Partial HTMX: configuracion del aprobador final del BOM."""
+    from core.bom.service import BomService
+    bom_service = BomService()
+    aprobador_id = await bom_service.get_aprobador_final_id(conn)
+    users = await service.db.fetch_all_users(conn)
+    activos = [u for u in users if u.get('is_active')]
+    return templates.TemplateResponse("admin/partials/bom_aprobador_final.html", {
+        "request": request,
+        "aprobador_id": str(aprobador_id) if aprobador_id else None,
+        "usuarios": activos,
+    })
+
+
+@router.post("/bom-config/aprobador-final", include_in_schema=False)
+async def set_aprobador_final(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("admin"),
+):
+    """Actualiza el aprobador final del BOM en configuracion global."""
+    form = await request.form()
+    user_id_raw = form.get("aprobador_final_id", "").strip()
+    try:
+        from uuid import UUID as _UUID
+        from core.bom.db_service import BomDBService
+        bom_db = BomDBService()
+        user_id = _UUID(user_id_raw)
+        await bom_db.set_aprobador_final_id(conn, user_id)
+        ConfigService.invalidar_cache()
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": "Aprobador final del BOM actualizado",
+            "type": "success",
+        })
+    except (ValueError, AttributeError) as e:
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": f"Error: {e}", "type": "error"
+        })
+    except asyncpg.PostgresError:
+        import logging
+        logging.getLogger("AdminRouter").exception("Error al actualizar aprobador final BOM")
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": "Error interno al guardar", "type": "error"
+        })
 
 
 @router.post("/api/config-umbrales/guardar", include_in_schema=False)

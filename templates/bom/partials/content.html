@@ -21,6 +21,17 @@
                 </svg>
                 Excel
             </a>
+            {# Suplencia #}
+            {% if es_rol_bom %}
+            <button hx-get="/bom/suplencia/modal" hx-target="#modal-container" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition"
+                title="Configurar suplente">
+                <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+                Suplencia
+            </button>
+            {% endif %}
             {% endif %}
 
             {% if not bom and es_ing_editor %}
@@ -122,6 +133,35 @@
             Agregar Item
         </button>
     </div>
+    {% endif %}
+
+    {# Filtro por grupo BOM #}
+    {% if bom %}
+    <div class="mb-3 flex flex-wrap gap-1.5" x-data="{ grupoActivo: 'TODOS' }">
+        <button @click="grupoActivo = 'TODOS'; filtrarGrupo('TODOS')"
+            :class="grupoActivo === 'TODOS' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'"
+            class="px-3 py-1 text-xs font-medium rounded-full transition">Todos</button>
+        {% for grupo in catalogos.grupos_bom %}
+        <button @click="grupoActivo = '{{ grupo.codigo }}'; filtrarGrupo('{{ grupo.codigo }}')"
+            :class="grupoActivo === '{{ grupo.codigo }}' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'"
+            class="px-3 py-1 text-xs font-medium rounded-full transition">
+            <span class="font-bold">{{ grupo.codigo }}</span> &mdash; {{ grupo.nombre }}
+        </button>
+        {% endfor %}
+    </div>
+    <script>
+    function filtrarGrupo(codigo) {
+        const filas = document.querySelectorAll('#tabla-bom-items tbody tr[data-grupos]');
+        filas.forEach(tr => {
+            if (codigo === 'TODOS') {
+                tr.style.display = '';
+            } else {
+                const grupos = tr.dataset.grupos ? tr.dataset.grupos.split(',') : [];
+                tr.style.display = grupos.includes(codigo) ? '' : 'none';
+            }
+        });
+    }
+    </script>
     {% endif %}
 
     {# Tabla de items #}
@@ -247,6 +287,7 @@
                 </div>
 
                 <form hx-post="/bom/{{ id_proyecto }}/items" hx-target="#tabla-bom-items" hx-swap="innerHTML"
+                    hx-disabled-elt="find button[type='submit']"
                     hx-on::after-request="if(event.detail.successful && event.detail.elt === this) { document.getElementById('modal-agregar-item').classList.add('hidden'); }"
                     @submit="$nextTick(() => { if(event.detail && event.detail.successful) reset(); })">
 
@@ -359,7 +400,7 @@
                             Cancelar
                         </button>
                         <button type="submit"
-                            class="px-4 py-2 text-sm rounded-lg text-white bg-green-600 hover:bg-green-700 transition font-medium">
+                            class="px-4 py-2 text-sm rounded-lg text-white bg-green-600 hover:bg-green-700 transition font-medium disabled:opacity-60 disabled:cursor-not-allowed">
                             Agregar
                         </button>
                     </div>

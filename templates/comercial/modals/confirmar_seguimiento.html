@@ -6,8 +6,8 @@
 {% set tipo_label = tipo_labels.get(tipo_solicitud, tipo_solicitud) %}
 
 <div id="modal-confirmar-seguimiento"
-    class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-[10001] backdrop-blur-sm"
-    x-data="{ expandido: false }" x-init="$nextTick(() => $el.querySelector('[autofocus]')?.focus())">
+    class="fixed inset-0 flex items-center justify-center z-[10001] transition-all duration-300 bg-gray-900 bg-opacity-50 backdrop-blur-sm"
+    x-data="{ expandido: false, cargando: false }" x-init="$nextTick(() => $el.querySelector('[autofocus]')?.focus())">
 
     <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden border border-gray-200"
         @click.away="$el.closest('#modal-confirmar-seguimiento').remove()">
@@ -66,31 +66,45 @@
 
             <div class="flex items-center gap-2">
                 <!-- Flujo normal (sin conversión) -->
-                <form x-show="!expandido" hx-post="/comercial/crear-seguimiento/{{ id_oportunidad }}" hx-swap="none"
-                    hx-indicator="#global-loading-overlay">
+                <form x-show="!expandido"
+                    hx-post="/comercial/crear-seguimiento/{{ id_oportunidad }}"
+                    hx-target="#modal-confirmar-seguimiento"
+                    hx-swap="outerHTML"
+                    hx-sync="this:drop"
+                    hx-disabled-elt="find button[type='submit']"
+                    hx-on::before-request="this.querySelector('.btn-spinner').style.display='flex'; this.querySelector('.btn-arrow').style.display='none'; this.querySelector('.btn-label').textContent='Verificando...'"
+                    hx-on::after-request="if(!event.detail.successful){ this.querySelector('.btn-spinner').style.display='none'; this.querySelector('.btn-arrow').style.display='flex'; this.querySelector('.btn-label').textContent='Solicitar'; }">
                     <input type="hidden" name="tipo_solicitud" value="{{ tipo_solicitud }}">
                     <input type="hidden" name="prioridad" value="{{ prioridad }}">
                     <button type="submit"
-                        @click="$el.closest('#modal-confirmar-seguimiento').remove(); document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Creando solicitud...';"
-                        class="px-4 py-2 bg-[#123456] text-white rounded-lg text-sm font-bold hover:bg-[#1a4a7a] shadow-sm transition-colors flex items-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        class="px-4 py-2 bg-[#123456] text-white rounded-lg text-sm font-bold hover:bg-[#1a4a7a] shadow-sm transition-colors flex items-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed">
+                        <svg class="btn-spinner w-4 h-4 animate-spin" style="display:none" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                        <svg class="btn-arrow w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M13 7l5 5m0 0l-5 5m5-5H6" />
                         </svg>
-                        Solicitar
+                        <span class="btn-label">Solicitar</span>
                     </button>
                 </form>
 
                 <!-- Flujo conversión: navegar al Paso 2 de conversión -->
                 <a x-show="expandido"
-                    :href="'/comercial/paso2-conversion/{{ id_oportunidad }}?tipo_solicitud={{ tipo_solicitud }}&prioridad={{ prioridad }}'"
-                    @click="$el.closest('#modal-confirmar-seguimiento').remove()"
+                    href="/comercial/paso2-conversion/{{ id_oportunidad }}?tipo_solicitud={{ tipo_solicitud }}&prioridad={{ prioridad }}"
+                    @click.prevent="if(!cargando){ cargando = true; $el.closest('#modal-confirmar-seguimiento').remove(); window.location.href = $el.href; }"
+                    :class="cargando ? 'opacity-60 pointer-events-none' : ''"
                     class="px-4 py-2 bg-amber-600 text-white rounded-lg text-sm font-bold hover:bg-amber-700 shadow-sm transition-colors flex items-center gap-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg x-show="cargando" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                    <svg x-show="!cargando" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M13 7l5 5m0 0l-5 5m5-5H6" />
                     </svg>
-                    Continuar a carga de sitios
+                    <span x-text="cargando ? 'Cargando...' : 'Continuar a carga de sitios'"></span>
                 </a>
             </div>
 

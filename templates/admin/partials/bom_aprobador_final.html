@@ -1,0 +1,30 @@
+{# Partial: configuracion aprobador final BOM #}
+<div class="bg-white rounded-xl border p-5">
+    <h3 class="text-base font-bold text-gray-800 mb-1">Aprobador Final del BOM</h3>
+    <p class="text-sm text-gray-500 mb-4">
+        Este usuario es el unico que puede dar la aprobacion definitiva al BOM tras pasar por Ingenieria y Construccion.
+    </p>
+    <form hx-post="/admin/bom-config/aprobador-final"
+        hx-target="#toast-container" hx-swap="afterbegin"
+        hx-disabled-elt="find button[type='submit']">
+        <div class="flex items-end gap-3">
+            <div class="flex-1">
+                <label class="block text-sm font-medium text-gray-700 mb-1">Usuario aprobador final</label>
+                <select name="aprobador_final_id" required
+                    class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500">
+                    <option value="">-- Sin aprobador configurado --</option>
+                    {% for u in usuarios %}
+                    <option value="{{ u.id_usuario }}"
+                        {{ 'selected' if aprobador_id and u.id_usuario | string == aprobador_id }}>
+                        {{ u.nombre }} &mdash; {{ u.email }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <button type="submit"
+                class="px-4 py-2 text-sm rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition font-medium disabled:opacity-60 disabled:cursor-not-allowed">
+                Guardar
+            </button>
+        </div>
+    </form>
+</div>

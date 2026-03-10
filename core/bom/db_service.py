@@ -495,3 +495,129 @@ class BomDBService:
             WHERE p.id_proyecto = $1
         """, id_proyecto)
         return dict(row) if row else None
+
+    # ─── GRUPOS BOM ─────────────────────────────────────────
+
+    async def get_grupos_bom(self, conn) -> List[dict]:
+        """Lista grupos BOM activos (AC/DC/CM/OC/TE)."""
+        rows = await conn.fetch("""
+            SELECT id, codigo, nombre, orden
+            FROM tb_cat_grupos_bom
+            WHERE activo = TRUE
+            ORDER BY orden ASC
+        """)
+        return [dict(r) for r in rows]
+
+    async def get_grupos_por_item(self, conn, id_item: UUID) -> List[str]:
+        """Retorna lista de codigos de grupos para un item."""
+        rows = await conn.fetch("""
+            SELECT g.codigo
+            FROM tb_bom_item_grupos ig
+            JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo
+            WHERE ig.id_item = $1
+            ORDER BY g.orden ASC
+        """, id_item)
+        return [r['codigo'] for r in rows]
+
+    async def get_grupos_por_bom(self, conn, id_bom: UUID) -> dict:
+        """Retorna mapa {id_item: [codigo, ...]} para todos los items del BOM. Previene N+1."""
+        rows = await conn.fetch("""
+            SELECT ig.id_item, g.codigo
+            FROM tb_bom_item_grupos ig
+            JOIN tb_cat_grupos_bom g ON g.id = ig.id_grupo
+            JOIN tb_bom_items i ON i.id_item = ig.id_item
+            WHERE i.id_bom = $1 AND i.activo = TRUE
+            ORDER BY g.orden ASC
+        """, id_bom)
+        result: dict = {}
+        for r in rows:
+            key = str(r['id_item'])
+            result.setdefault(key, [])
+            result[key].append(r['codigo'])
+        return result
+
+    async def set_item_grupos(self, conn, id_item: UUID, grupo_ids: List[int]) -> None:
+        """Reemplaza todos los grupos de un item (delete + insert)."""
+        await conn.execute(
+            "DELETE FROM tb_bom_item_grupos WHERE id_item = $1", id_item
+        )
+        if grupo_ids:
+            for gid in grupo_ids:
+                await conn.execute(
+                    "INSERT INTO tb_bom_item_grupos (id_item, id_grupo) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    id_item, gid
+                )
+
+    # ─── SUPLENCIAS ─────────────────────────────────────────
+
+    async def get_suplencia_activa_del_titular(self, conn, titular_id: UUID) -> Optional[dict]:
+        """Obtiene suplencia activa vigente de un usuario (como titular)."""
+        row = await conn.fetchrow("""
+            SELECT s.id, s.titular_id, s.suplente_id, s.fecha_fin, s.activo, s.created_at,
+                   u.nombre AS suplente_nombre
+            FROM tb_bom_suplencias s
+            JOIN tb_usuarios u ON u.id_usuario = s.suplente_id
+            WHERE s.titular_id = $1
+              AND s.activo = TRUE
+              AND s.fecha_fin >= CURRENT_DATE
+            ORDER BY s.fecha_fin DESC
+            LIMIT 1
+        """, titular_id)
+        return dict(row) if row else None
+
+    async def get_titulares_que_representa(self, conn, suplente_id: UUID) -> List[UUID]:
+        """Retorna los titular_ids que este usuario puede representar hoy."""
+        rows = await conn.fetch("""
+            SELECT titular_id
+            FROM tb_bom_suplencias
+            WHERE suplente_id = $1
+              AND activo = TRUE
+              AND fecha_fin >= CURRENT_DATE
+        """, suplente_id)
+        return [r['titular_id'] for r in rows]
+
+    async def crear_suplencia(
+        self, conn, titular_id: UUID, suplente_id: UUID, fecha_fin
+    ) -> dict:
+        """Desactiva suplencias previas del titular e inserta la nueva."""
+        await conn.execute("""
+            UPDATE tb_bom_suplencias SET activo = FALSE
+            WHERE titular_id = $1 AND activo = TRUE
+        """, titular_id)
+        row = await conn.fetchrow("""
+            INSERT INTO tb_bom_suplencias (titular_id, suplente_id, fecha_fin)
+            VALUES ($1, $2, $3)
+            RETURNING *
+        """, titular_id, suplente_id, fecha_fin)
+        return dict(row)
+
+    async def desactivar_suplencia(self, conn, titular_id: UUID) -> None:
+        """Desactiva todas las suplencias activas del usuario como titular."""
+        await conn.execute("""
+            UPDATE tb_bom_suplencias SET activo = FALSE
+            WHERE titular_id = $1 AND activo = TRUE
+        """, titular_id)
+
+    # ─── APROBADOR FINAL ────────────────────────────────────
+
+    async def get_aprobador_final_id(self, conn) -> Optional[UUID]:
+        """Lee el UUID del aprobador final desde tb_configuracion_global."""
+        val = await conn.fetchval("""
+            SELECT valor FROM tb_configuracion_global
+            WHERE clave = 'bom_aprobador_final_id'
+        """)
+        if val:
+            try:
+                from uuid import UUID as _UUID
+                return _UUID(val)
+            except (ValueError, AttributeError):
+                return None
+        return None
+
+    async def set_aprobador_final_id(self, conn, user_id: UUID) -> None:
+        """Actualiza el UUID del aprobador final en tb_configuracion_global."""
+        await conn.execute("""
+            UPDATE tb_configuracion_global
+            SET valor = $1
+            WHERE clave = 'bom_aprobador_final_id'
+        """, str(user_id))

@@ -415,6 +415,40 @@ class AdminDBService:
         )
 
 
+    # ========================================
+    # REPORTE SEMANAL
+    # ========================================
+
+    async def get_reporte_semanal_data(self, conn, fecha_inicio, fecha_fin) -> dict:
+        """
+        Obtiene métricas de actividad para el rango de fechas indicado.
+        fecha_inicio y fecha_fin son objetos date (inicio inclusivo, fin exclusivo).
+        """
+        row = await conn.fetchrow("""
+            SELECT
+              (SELECT COUNT(*) FROM tb_oportunidades
+               WHERE fecha_creacion >= $1 AND fecha_creacion < $2
+              ) AS nuevas_oportunidades,
+
+              (SELECT COUNT(*) FROM tb_oportunidades o
+               JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
+               WHERE e.es_estatus_final = false
+              ) AS en_simulacion_activas,
+
+              (SELECT COUNT(*) FROM tb_levantamientos
+               WHERE fecha_solicitud >= $1 AND fecha_solicitud < $2
+              ) AS levantamientos_semana,
+
+              (SELECT COUNT(*) FROM tb_levantamientos l
+               JOIN tb_cat_estatus_levantamiento e ON l.id_estatus_global = e.id
+               WHERE e.es_estatus_final = false
+              ) AS levantamientos_activos,
+
+              (SELECT COUNT(*) FROM tb_oportunidades) AS total_oportunidades
+        """, fecha_inicio, fecha_fin)
+        return dict(row)
+
+
 def get_admin_db_service() -> AdminDBService:
     """Helper para inyeccion de dependencias."""
     return AdminDBService()
