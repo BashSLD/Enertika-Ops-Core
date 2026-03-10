@@ -373,8 +373,55 @@ class NotificationService:
         except Exception as e:
             logger.error(f"[NOTIFY] Error inesperado en solicitud reasignacion {id_levantamiento}: {e}", exc_info=True)
 
+    async def notify_opportunity_won(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        won_by_ctx: dict,
+    ) -> None:
+        """
+        Envía notificación de oportunidad ganada.
+
+        TO y CC configurados en tb_config_emails con trigger_value='OPORTUNIDAD_GANADA'.
+        Si no hay destinatarios TO configurados, loguea warning y no lanza excepción
+        (el cierre de venta no debe fallar por falta de configuración de correo).
+        """
+        try:
+            to_emails = await self._get_emails_for_event(conn, 'OPORTUNIDAD_GANADA', 'TO')
+            cc_emails = await self._get_emails_for_event(conn, 'OPORTUNIDAD_GANADA', 'CC')
+
+            if not to_emails:
+                logger.warning(f"[NOTIFY] notify_opportunity_won: sin destinatarios TO configurados - Opp: {id_oportunidad}")
+                return
+
+            opp = await self._get_opportunity(conn, id_oportunidad)
+            if not opp:
+                logger.warning(f"[NOTIFY] notify_opportunity_won: oportunidad no encontrada {id_oportunidad}")
+                return
+
+            html = self._render_template('shared/emails/workflow/oportunidad_ganada.html', {
+                'oportunidad': opp,
+                'ganada_por': won_by_ctx.get('user_name', 'Sistema'),
+                'base_url': settings.APP_BASE_URL,
+            })
+
+            subject = f"Oportunidad Ganada: {opp.get('op_id_estandar', '')} - {opp.get('cliente_nombre', '')}"
+            sender_config = await self._get_notification_sender(conn, 'COMERCIAL')
+            await self._send_email(to_emails, cc_emails, subject, html, sender_config['email'])
+
+            logger.info(f"[NOTIFY] Oportunidad ganada notificada - Opp: {id_oportunidad}, TO: {len(to_emails)}")
+
+        except asyncpg.PostgresError as e:
+            logger.error(f"[NOTIFY] Error BD en notify_opportunity_won {id_oportunidad}: {e}", exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error(f"[NOTIFY] Error red/Graph API en notify_opportunity_won {id_oportunidad}: {e}", exc_info=True)
+        except KeyError as e:
+            logger.error(f"[NOTIFY] Error datos faltantes en notify_opportunity_won {id_oportunidad}: campo {e}", exc_info=True)
+        except Exception as e:
+            logger.error(f"[NOTIFY] Error inesperado en notify_opportunity_won {id_oportunidad}: {e}", exc_info=True)
+
     # ===== MÉTODOS PRIVADOS =====
-    
+
     async def _get_opportunity(self, conn, id_oportunidad: UUID) -> dict:
         """
         Obtiene datos básicos de oportunidad.
@@ -459,22 +506,36 @@ class NotificationService:
     async def _get_cc_emails(self, conn, trigger_value: str) -> Set[str]:
         """
         Obtiene correos CC desde configuración de admin (tb_config_emails).
-        
+
         Args:
             conn: Conexión a base de datos
             trigger_value: Valor del trigger ('NUEVO_COMENTARIO', 'ASIGNACION', 'CAMBIO_ESTATUS')
-            
+
         Returns:
             Set[str]: Conjunto de emails configurados como CC
         """
-        query = """
-            SELECT email_to_add 
-            FROM tb_config_emails 
-            WHERE trigger_field = 'EVENTO' 
-              AND trigger_value = $1
-              AND type = 'CC'
+        return await self._get_emails_for_event(conn, trigger_value, 'CC')
+
+    async def _get_emails_for_event(self, conn, trigger_value: str, type_filter: str) -> Set[str]:
         """
-        rows = await conn.fetch(query, trigger_value)
+        Obtiene emails TO o CC desde tb_config_emails para un evento dado.
+
+        Args:
+            conn: Conexión a base de datos
+            trigger_value: Valor del trigger (ej. 'OPORTUNIDAD_GANADA', 'NUEVO_COMENTARIO')
+            type_filter: 'TO' o 'CC'
+
+        Returns:
+            Set[str]: Conjunto de emails configurados
+        """
+        query = """
+            SELECT email_to_add
+            FROM tb_config_emails
+            WHERE trigger_field = 'EVENTO'
+              AND trigger_value = $1
+              AND type = $2
+        """
+        rows = await conn.fetch(query, trigger_value, type_filter)
         return {r['email_to_add'] for r in rows if r['email_to_add']}
     
     async def _get_notification_sender(self, conn, departamento: str = 'DEFAULT') -> dict:

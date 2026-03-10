@@ -214,12 +214,19 @@ async def get_detalle_oportunidad_modal(
     sitios = []
     if can_close_sale and op.get('cantidad_sitios', 1) > 1:
         sitios_rows = await conn.fetch("""
-            SELECT id_sitio, nombre_sitio 
-            FROM tb_sitios_oportunidad 
+            SELECT id_sitio, nombre_sitio
+            FROM tb_sitios_oportunidad
             WHERE id_oportunidad = $1
             ORDER BY nombre_sitio
         """, id_oportunidad)
         sitios = [dict(row) for row in sitios_rows]
+
+    # 4. Datos para sección "Recordatorio de Proyecto" (solo relevante si status=Ganada)
+    tiene_proyecto = bool(await conn.fetchrow(
+        "SELECT id_proyecto FROM tb_proyectos_gate WHERE id_oportunidad = $1 LIMIT 1",
+        id_oportunidad
+    ))
+    notificacion_ganada_at = op.get('notificacion_ganada_at')
 
     return templates.TemplateResponse("shared/modals/detalle_oportunidad_modal.html", {
         "request": request,
@@ -228,5 +235,7 @@ async def get_detalle_oportunidad_modal(
         "can_close_sale": can_close_sale,
         "sitios": sitios,
         "show_solicitar_actions": source_module == "comercial",
+        "tiene_proyecto": tiene_proyecto,
+        "notificacion_ganada_at": notificacion_ganada_at,
     })
 

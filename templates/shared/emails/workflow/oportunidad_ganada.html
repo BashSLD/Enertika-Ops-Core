@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Oportunidad Ganada</title>
+</head>
+
+<body
+    style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4; color: #333333;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <!-- Container Principal -->
+                <table width="600" cellpadding="0" cellspacing="0"
+                    style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+
+                    <!-- Header con Gradiente Enertika -->
+                    <tr>
+                        <td
+                            style="background: linear-gradient(135deg, #166534 0%, #16a34a 100%); padding: 30px 40px; text-align: center;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">
+                                Oportunidad Ganada
+                            </h1>
+                            <p style="margin: 10px 0 0 0; color: #dcfce7; font-size: 14px;">
+                                Esta oportunidad ha sido marcada como Ganada
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Contenido Principal -->
+                    <tr>
+                        <td style="padding: 40px;">
+
+                            <!-- Mensaje Intro -->
+                            <p style="margin: 0 0 30px 0; color: #666666; font-size: 15px; line-height: 1.6;">
+                                La siguiente oportunidad ha sido marcada como <strong style="color: #16a34a;">Ganada</strong>.
+                                El siguiente paso es crear el proyecto correspondiente en Projects Gate.
+                            </p>
+
+                            <!-- Card de Oportunidad -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #f0fdf4; border-left: 4px solid #16a34a; border-radius: 4px; margin-bottom: 30px;">
+                                <tr>
+                                    <td style="padding: 20px;">
+
+                                        <!-- ID Oportunidad -->
+                                        <div style="margin-bottom: 15px;">
+                                            <span
+                                                style="display: inline-block; background-color: #16a34a; color: #ffffff; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px;">
+                                                {{ oportunidad.op_id_estandar }}
+                                            </span>
+                                        </div>
+
+                                        <!-- Detalles -->
+                                        <table width="100%" cellpadding="8" cellspacing="0">
+                                            <tr>
+                                                <td width="140"
+                                                    style="color: #123456; font-weight: 600; font-size: 14px; vertical-align: top;">
+                                                    Cliente:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px;">
+                                                    {{ oportunidad.cliente_nombre }}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    style="color: #123456; font-weight: 600; font-size: 14px; vertical-align: top;">
+                                                    Proyecto:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px;">
+                                                    {{ oportunidad.nombre_proyecto or 'Sin nombre de proyecto' }}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    style="color: #123456; font-weight: 600; font-size: 14px; vertical-align: top;">
+                                                    Marcada por:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px;">
+                                                    {{ ganada_por }}
+                                                </td>
+                                            </tr>
+                                        </table>
+
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Siguiente Paso -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #fefce8; border: 1px solid #fde047; border-radius: 6px; margin-bottom: 30px;">
+                                <tr>
+                                    <td style="padding: 16px 20px;">
+                                        <p style="margin: 0; color: #854d0e; font-size: 14px; font-weight: 600;">
+                                            Accion requerida
+                                        </p>
+                                        <p style="margin: 6px 0 0 0; color: #92400e; font-size: 13px; line-height: 1.5;">
+                                            Crear el proyecto en Projects Gate para continuar con el flujo de trabajo.
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Call to Action -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="margin: 30px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{{ base_url }}/comercial/ui?tab=ganadas"
+                                            style="display: inline-block; background-color: #16a34a; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-size: 15px; font-weight: 600; box-shadow: 0 2px 4px rgba(22,163,74,0.3);">
+                                            Ver Oportunidades Ganadas
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Mensaje de Cierre -->
+                            <p
+                                style="margin: 30px 0 0 0; color: #666666; font-size: 14px; line-height: 1.6; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+                                Este correo es una notificacion automatica del sistema.
+                            </p>
+
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td
+                            style="background-color: #f8f9fa; padding: 25px 40px; text-align: center; border-top: 1px solid #e0e0e0;">
+                            <p style="margin: 0 0 5px 0; color: #00BABB; font-weight: 700; font-size: 16px;">
+                                Enertika Core Ops
+                            </p>
+                            <p style="margin: 0; color: #999999; font-size: 12px;">
+                                Sistema de Gestión de Oportunidades
+                            </p>
+                            <p style="margin: 15px 0 0 0; color: #cccccc; font-size: 11px;">
+                                Este es un correo automatico. Por favor no responder.
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

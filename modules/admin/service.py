@@ -269,6 +269,7 @@ class AdminService:
                         {"label": "Cambio de Estatus",        "value": "CAMBIO_ESTATUS"},
                         {"label": "Asignación",               "value": "ASIGNACION"},
                         {"label": "Solicitud de Viáticos",    "value": "SOLICITUD_VIATICOS"},
+                        {"label": "Oportunidad Ganada",       "value": "OPORTUNIDAD_GANADA"},
                     ]
             # Si no existe en BD, usar fallback
             return [
@@ -277,6 +278,7 @@ class AdminService:
                 {"label": "Cambio de Estatus",        "value": "CAMBIO_ESTATUS"},
                 {"label": "Asignación",               "value": "ASIGNACION"},
                 {"label": "Solicitud de Viáticos",    "value": "SOLICITUD_VIATICOS"},
+                {"label": "Oportunidad Ganada",       "value": "OPORTUNIDAD_GANADA"},
             ]
 
         else:
