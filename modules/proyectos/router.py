@@ -48,7 +48,8 @@ async def get_proyectos_ui(
         "vista_global": True,
     }
 
-    if request.headers.get("hx-request"):
+    # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
+    if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
         return templates.TemplateResponse("proyectos/partials/content.html", template_data)
     return templates.TemplateResponse("proyectos/dashboard.html", template_data)
 

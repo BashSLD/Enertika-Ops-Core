@@ -56,7 +56,8 @@ async def get_construccion_ui(
         "puede_recibir": mod_role in ("editor", "admin") or is_admin,
     }
 
-    if request.headers.get("hx-request"):
+    # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
+    if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
         return templates.TemplateResponse("construccion/partials/content.html", template_data)
     return templates.TemplateResponse("construccion/dashboard.html", template_data)
 

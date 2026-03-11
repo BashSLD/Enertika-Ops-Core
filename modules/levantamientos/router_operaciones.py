@@ -939,6 +939,17 @@ def register_operaciones_endpoints(router: APIRouter):
                 except ValueError:
                     pass  # Skip invalid dates
 
+        con_viaticos = await db_svc.get_levantamientos_con_viaticos_activos(conn, levantamiento_ids)
+        if con_viaticos:
+            nombres = ", ".join(
+                f"{r['op_id_estandar']} - {r['nombre_referencia']}" for r in con_viaticos
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Los siguientes levantamientos ya tienen viáticos solicitados: {nombres}. "
+                       "Devuelve los viáticos antes de agendar la visita de campo.",
+            )
+
         visita = await visitas_db_svc.create_visita(
             conn,
             nombre=nombre.strip() if nombre else None,
@@ -1175,6 +1186,7 @@ def register_operaciones_endpoints(router: APIRouter):
         id_visita: UUID,
         levantamiento_ids: List[UUID] = Form(...),
         conn=Depends(get_db_connection),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
         visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
         context=Depends(get_current_user_context),
         _=require_module_access("levantamientos", "editor"),
@@ -1189,6 +1201,17 @@ def register_operaciones_endpoints(router: APIRouter):
         visita = await visitas_db_svc.get_visita(conn, id_visita)
         if not visita:
             raise HTTPException(status_code=404, detail="Visita de campo no encontrada.")
+
+        con_viaticos = await db_svc.get_levantamientos_con_viaticos_activos(conn, levantamiento_ids)
+        if con_viaticos:
+            nombres = ", ".join(
+                f"{r['op_id_estandar']} - {r['nombre_referencia']}" for r in con_viaticos
+            )
+            raise HTTPException(
+                status_code=400,
+                detail=f"Los siguientes levantamientos ya tienen viáticos solicitados: {nombres}. "
+                       "Devuelve los viáticos antes de agregarlos a la visita de campo.",
+            )
 
         await visitas_db_svc.add_levantamientos_to_visita(conn, id_visita, levantamiento_ids)
 

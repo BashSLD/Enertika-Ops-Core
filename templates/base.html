@@ -113,14 +113,14 @@
         }
 
         @keyframes glow-pulse {
-
+            /* Usa opacity en lugar de box-shadow — GPU-accelerated, sin repaints */
             0%,
             100% {
-                box-shadow: 0 0 5px rgba(0, 186, 187, 0.3);
+                opacity: 1;
             }
 
             50% {
-                box-shadow: 0 0 20px rgba(0, 186, 187, 0.6), 0 0 30px rgba(0, 186, 187, 0.4);
+                opacity: 0.75;
             }
         }
 
@@ -186,8 +186,8 @@
             height: 300px;
         }
 
-        /* Smooth transitions globales */
-        * {
+        /* Smooth transitions — acotado a elementos interactivos para no afectar rendimiento */
+        a, button, [class*="transition"], [class*="module-link"] {
             transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
         }
 
@@ -621,7 +621,10 @@
         {% endif %}
 
         <!-- MAIN CONTENT -->
+        <!-- hx-history-elt: HTMX guarda snapshot solo de esta área (no del body completo).
+             Evita que el cache de historial se llene rápido y fuerza un fetch con sidebar+header al hacer Back. -->
         <main id="main-content"
+            hx-history-elt
             class="flex-1 overflow-y-auto relative bg-gray-50 w-full p-4 md:p-6 lg:p-8 pt-18 md:pt-4">
             {% block content %}
             <div class="bg-white p-8 rounded-xl shadow-sm border border-gray-100 text-center">

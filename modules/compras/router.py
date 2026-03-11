@@ -162,7 +162,10 @@ async def get_compras_ui(
     }
     
     # HTMX Detection
-    if request.headers.get("hx-request"):
+    # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
+    is_htmx = request.headers.get("hx-request")
+    is_history_restore = request.headers.get("hx-history-restore-request")
+    if is_htmx and not is_history_restore:
         template = "compras/partials/content.html"
     else:
         template = "compras/dashboard.html"

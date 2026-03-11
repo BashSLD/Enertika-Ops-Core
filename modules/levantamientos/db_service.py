@@ -130,6 +130,33 @@ class LevantamientosDBService:
             )
         """, id_levantamiento)
     
+    async def get_levantamientos_con_viaticos_activos(self, conn, ids: List[UUID]) -> List[dict]:
+        """
+        Dado un listado de IDs, retorna los que tienen viáticos activos
+        (enviados y sin devolución posterior). Incluye referencia legible.
+        """
+        rows = await conn.fetch("""
+            SELECT
+                l.id_levantamiento,
+                o.op_id_estandar,
+                COALESCE(s.nombre_sitio, o.nombre_proyecto) AS nombre_referencia
+            FROM tb_levantamientos l
+            INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+            LEFT  JOIN tb_sitios_oportunidad s ON l.id_sitio = s.id_sitio
+            WHERE l.id_levantamiento = ANY($1)
+            AND EXISTS (
+                SELECT 1 FROM tb_levantamiento_viaticos_historico h
+                WHERE h.id_levantamiento = l.id_levantamiento
+                AND h.estatus = 'enviado'
+                AND h.fecha_envio > COALESCE((
+                    SELECT MAX(fecha_envio)
+                    FROM tb_levantamiento_viaticos_historico
+                    WHERE id_levantamiento = l.id_levantamiento AND estatus = 'devuelto'
+                ), '2000-01-01'::timestamp)
+            )
+        """, ids)
+        return [dict(r) for r in rows]
+
     async def get_id_by_oportunidad(self, conn, id_oportunidad: UUID) -> Optional[UUID]:
         """Obtiene ID de levantamiento por ID de oportunidad."""
         return await conn.fetchval("""

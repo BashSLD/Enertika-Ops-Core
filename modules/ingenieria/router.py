@@ -52,7 +52,8 @@ async def get_ingenieria_ui(
         "puede_enviar": mod_role in ("editor", "admin") or is_admin,
     }
 
-    if request.headers.get("hx-request"):
+    # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
+    if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
         return templates.TemplateResponse("ingenieria/partials/content.html", template_data)
     return templates.TemplateResponse("ingenieria/dashboard.html", template_data)
 

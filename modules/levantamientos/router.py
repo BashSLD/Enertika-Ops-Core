@@ -56,7 +56,8 @@ async def get_levantamientos_ui(
     - Si es carga directa (F5/URL): retorna dashboard completo
     """
     # HTMX Detection
-    if request.headers.get("hx-request"):
+    # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
+    if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
         # Carga parcial desde sidebar - CARGAR DATOS REALES
         data = await service.get_kanban_data(conn)
 

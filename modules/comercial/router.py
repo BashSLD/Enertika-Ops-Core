@@ -74,7 +74,11 @@ async def get_comercial_ui(
     role = context.get("role", "USER")
     
     # Detección inteligente: HTMX devuelve tabs.html, carga completa devuelve dashboard.html
-    if request.headers.get("hx-request"):
+    # HX-History-Restore-Request: HTMX lo envía cuando restaura desde historial (Back/Forward)
+    # En ese caso retornar full page para que el layout (sidebar/header) esté completo
+    is_htmx = request.headers.get("hx-request")
+    is_history_restore = request.headers.get("hx-history-restore-request")
+    if is_htmx and not is_history_restore:
         template = "comercial/tabs.html"
     else:
         template = "comercial/dashboard.html"
