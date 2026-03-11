@@ -314,6 +314,15 @@ class TransferDBService:
         """, id_traspaso)
         return [dict(r) for r in rows]
 
+    async def tiene_traspaso_enviado(self, conn, id_proyecto: UUID) -> bool:
+        val = await conn.fetchval("""
+            SELECT EXISTS(
+                SELECT 1 FROM tb_traspasos_proyecto
+                WHERE id_proyecto = $1 AND status = 'ENVIADO'
+            )
+        """, id_proyecto)
+        return bool(val)
+
     async def get_kpis_area(self, conn, area: str) -> Dict[str, int]:
         total = await conn.fetchval("""
             SELECT COUNT(*) FROM tb_proyectos_gate

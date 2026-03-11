@@ -39,6 +39,8 @@ logger = logging.getLogger("Levantamientos.Router.Operaciones")
 templates = Jinja2Templates(directory="templates")
 
 
+_MSG_PRORRATEO_CAMBIO = "El prorrateo ha cambiado. Considera reenviar la solicitud."
+
 # ==============================================================
 # HELPER: renderiza el Kanban completo (outerHTML)
 # Usado por posponer, reagendar y entregar.
@@ -1136,6 +1138,70 @@ def register_operaciones_endpoints(router: APIRouter):
 
     # ----------------------------------------------------------
 
+    @router.delete("/visitas-campo/{id_visita}/levantamientos/{id_levantamiento}", include_in_schema=False)
+    async def desacoplar_levantamiento_visita(
+        request: Request,
+        id_visita: UUID,
+        id_levantamiento: UUID,
+        conn=Depends(get_db_connection),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Desacopla un levantamiento de la visita y revierte su estatus a 'Pendiente'.
+        Si era el último levantamiento, elimina la visita completa y cierra el modal.
+        Si la visita ya tenía un envío, incluye advertencia OOB en la respuesta.
+        """
+        visita = await visitas_db_svc.get_visita(conn, id_visita)
+        if not visita:
+            raise HTTPException(status_code=404, detail="Visita de campo no encontrada.")
+
+        ya_enviada = await visitas_db_svc.has_envios(conn, id_visita)
+        restantes = await visitas_db_svc.remove_levantamiento_from_visita(conn, id_visita, id_levantamiento)
+        await db_svc.revertir_estatus_pendiente(conn, id_levantamiento)
+
+        logger.info(
+            "Levantamiento %s desacoplado de visita %s por %s",
+            id_levantamiento, id_visita, context.get('user_name')
+        )
+
+        if restantes == 0:
+            await visitas_db_svc.delete_visita(conn, id_visita)
+            logger.info(
+                "Visita %s eliminada (sin levantamientos) por %s",
+                id_visita, context.get('user_name')
+            )
+            response = templates.TemplateResponse("shared/toast.html", {
+                "request": request,
+                "title": "Visita eliminada",
+                "message": "Al quedar sin levantamientos, la visita fue eliminada automaticamente.",
+                "type": "warning",
+            })
+            response.headers["HX-Trigger"] = "visitaEliminada"
+            return response
+
+        levantamientos_visita, viaticos = await asyncio.gather(
+            visitas_db_svc.get_levantamientos_en_visita(conn, id_visita),
+            visitas_db_svc.get_viaticos_visita(conn, id_visita),
+        )
+        total_viaticos = float(sum(v["monto"] for v in viaticos))
+        prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
+
+        return templates.TemplateResponse("levantamientos/partials/visita_campo_levantamientos.html", {
+            "request": request,
+            "levantamientos_visita": levantamientos_visita,
+            "id_visita": id_visita,
+            "oob_outerhtml": True,
+            "oob_prorrateo": True,
+            "prorrateo": prorrateo,
+            "total_viaticos": total_viaticos,
+            "oob_warning": _MSG_PRORRATEO_CAMBIO if ya_enviada else None,
+        })
+
+    # ----------------------------------------------------------
+
     @router.post("/visitas-campo/{id_visita}/periodo", include_in_schema=False)
     async def actualizar_periodo_visita(
         request: Request,
@@ -1213,10 +1279,13 @@ def register_operaciones_endpoints(router: APIRouter):
                        "Devuelve los viáticos antes de agregarlos a la visita de campo.",
             )
 
+        ya_enviada = await visitas_db_svc.has_envios(conn, id_visita)
         await visitas_db_svc.add_levantamientos_to_visita(conn, id_visita, levantamiento_ids)
 
-        levantamientos_visita = await visitas_db_svc.get_levantamientos_en_visita(conn, id_visita)
-        viaticos = await visitas_db_svc.get_viaticos_visita(conn, id_visita)
+        levantamientos_visita, viaticos = await asyncio.gather(
+            visitas_db_svc.get_levantamientos_en_visita(conn, id_visita),
+            visitas_db_svc.get_viaticos_visita(conn, id_visita),
+        )
         total_viaticos = float(sum(v["monto"] for v in viaticos))
         prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
 
@@ -1227,6 +1296,7 @@ def register_operaciones_endpoints(router: APIRouter):
             "oob_prorrateo": True,
             "prorrateo": prorrateo,
             "total_viaticos": total_viaticos,
+            "oob_warning": _MSG_PRORRATEO_CAMBIO if ya_enviada else None,
         })
 
     # ----------------------------------------------------------

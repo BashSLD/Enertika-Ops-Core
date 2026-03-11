@@ -41,6 +41,9 @@ class ConfiguracionGlobalUpdate(AdminBaseSchema):
     # 4. Configuración Comercial (Targeted Popups)
     comercial_popup_targets: Optional[str] = Field("", description="Lista de emails separados por coma")
 
+    # 5. Reporte Semanal
+    reporte_semanal_destinatarios: Optional[str] = Field("", description="Emails separados por punto y coma")
+
     @field_validator('dias_fin_semana')
     @classmethod
     def validar_dias(cls, v):

@@ -232,6 +232,8 @@ async def update_global_config_endpoint(
     sim_volumen_max: int = Form(100),
     # Comercial Config
     comercial_popup_targets: str = Form(""),
+    # Reporte Semanal
+    reporte_semanal_destinatarios: str = Form(""),
     service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
@@ -283,7 +285,8 @@ async def update_global_config_endpoint(
             sim_mult_actualizaciones=sim_mult_actualizaciones,
             sim_penalizacion_retrabajos=sim_penalizacion_retrabajos,
             sim_volumen_max=sim_volumen_max,
-            comercial_popup_targets=comercial_popup_targets
+            comercial_popup_targets=comercial_popup_targets,
+            reporte_semanal_destinatarios=reporte_semanal_destinatarios
         )
     except ValueError as e:
         return templates.TemplateResponse("admin/partials/messages/error.html", {

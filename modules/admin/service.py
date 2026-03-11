@@ -176,7 +176,9 @@ class AdminService:
             "sim_penalizacion_retrabajos": config_dict.get("sim_penalizacion_retrabajos", None),
             "sim_volumen_max": config_dict.get("sim_volumen_max", None),
             # Comercial Config
-            "comercial_popup_targets": config_dict.get("COMERCIAL_POPUP_TARGETS", "")
+            "comercial_popup_targets": config_dict.get("COMERCIAL_POPUP_TARGETS", ""),
+            # Reporte Semanal
+            "reporte_semanal_destinatarios": config_dict.get("reporte_semanal_destinatarios", "")
         }
 
     async def update_global_config(self, conn, datos: ConfiguracionGlobalUpdate) -> None:
@@ -212,7 +214,9 @@ class AdminService:
             ("sim_penalizacion_retrabajos", str(datos.sim_penalizacion_retrabajos)),
             ("sim_volumen_max", str(datos.sim_volumen_max)),
             # Comercial Config
-            ("COMERCIAL_POPUP_TARGETS", datos.comercial_popup_targets or "")
+            ("COMERCIAL_POPUP_TARGETS", datos.comercial_popup_targets or ""),
+            # Reporte Semanal
+            ("reporte_semanal_destinatarios", datos.reporte_semanal_destinatarios or "")
         ]
 
         for clave, valor in updates:

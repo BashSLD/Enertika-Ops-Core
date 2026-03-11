@@ -157,6 +157,17 @@ class LevantamientosDBService:
         """, ids)
         return [dict(r) for r in rows]
 
+    async def revertir_estatus_pendiente(self, conn, id_levantamiento: UUID) -> None:
+        """Revierte el estatus del levantamiento a 'pendiente' al desacoplarlo de una visita."""
+        await conn.execute("""
+            UPDATE tb_levantamientos
+            SET id_estatus_global = (
+                SELECT id FROM tb_cat_estatus_levantamiento WHERE codigo = 'pendiente'
+            ),
+            updated_at = NOW()
+            WHERE id_levantamiento = $1
+        """, id_levantamiento)
+
     async def get_id_by_oportunidad(self, conn, id_oportunidad: UUID) -> Optional[UUID]:
         """Obtiene ID de levantamiento por ID de oportunidad."""
         return await conn.fetchval("""

@@ -100,7 +100,7 @@ class TransferService:
             )
 
         # Validar que no exista un traspaso pendiente (Doble submit check)
-        if proyecto.get('ultimo_traspaso_status') == 'ENVIADO':
+        if await self.db.tiene_traspaso_enviado(conn, id_proyecto):
             raise ValueError("Ya existe un traspaso pendiente para este proyecto")
 
         # Validar documentos obligatorios
@@ -315,6 +315,7 @@ class TransferService:
             await self._send_notifications(
                 conn=conn,
                 destinatarios=destinatarios,
+                modulo_origen=dest_slug,
                 tipo='TRASPASO_ENVIADO',
                 titulo=f'Traspaso pendiente: {proyecto_id}',
                 mensaje=f'{enviado_por} envio {proyecto_id} de {AREA_LABELS.get(area_origen)} a {AREA_LABELS.get(area_destino)}',
@@ -369,6 +370,7 @@ class TransferService:
             await self._send_notifications(
                 conn=conn,
                 destinatarios=[usuario],
+                modulo_origen=origen_slug,
                 tipo='TRASPASO_ACEPTADO',
                 titulo=f'Traspaso aceptado: {proyecto_id}',
                 mensaje=f'{aceptado_por} acepto el traspaso de {proyecto_id} en {AREA_LABELS.get(area_destino)}',
@@ -424,6 +426,7 @@ class TransferService:
             await self._send_notifications(
                 conn=conn,
                 destinatarios=[usuario],
+                modulo_origen=origen_slug,
                 tipo='TRASPASO_RECHAZADO',
                 titulo=f'Traspaso rechazado: {proyecto_id}',
                 mensaje=f'{rechazado_por} rechazo el traspaso de {proyecto_id}. El proyecto regresa a {AREA_LABELS.get(area_origen)}.',
@@ -457,6 +460,7 @@ class TransferService:
     async def _send_notifications(
         self, conn,
         destinatarios: List[Dict[str, Any]],
+        modulo_origen: str,
         tipo: str,
         titulo: str,
         mensaje: str,
@@ -491,6 +495,7 @@ class TransferService:
                         tipo=tipo,
                         titulo=titulo,
                         mensaje=mensaje,
+                        modulo_origen=modulo_origen,
                     )
                     await notif_service.broadcast_to_user(conn, usuario_id, notification_data)
                 except Exception:

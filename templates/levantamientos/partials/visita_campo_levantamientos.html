@@ -1,13 +1,15 @@
 <!-- templates/levantamientos/partials/visita_campo_levantamientos.html -->
 <!-- Lista swappable de levantamientos de la visita + boton agregar sitios. -->
 <!-- Variables: levantamientos_visita, id_visita o visita.id_visita, [oob_prorrateo, prorrateo, total_viaticos] -->
-<!-- Retornado por POST /visitas-campo/{id}/levantamientos -->
-<!-- hx-target="#vc-lev-visita-container" hx-swap="outerHTML" -->
+<!-- [oob_outerhtml] — cuando es respuesta de desacoplar (hx-swap="none") hace OOB outerHTML -->
+<!-- [oob_warning] — mensaje de advertencia para visitas ya enviadas -->
+<!-- Retornado por POST /visitas-campo/{id}/levantamientos y DELETE /visitas-campo/{id}/levantamientos/{lev} -->
+<!-- hx-target="#vc-lev-visita-container" hx-swap="outerHTML"  (o via oob_outerhtml) -->
 
 <!-- id_visita disponible directamente desde POST o via visita.id_visita cuando es include -->
 {% set _vid = id_visita if id_visita is defined else visita.id_visita %}
 
-<div id="vc-lev-visita-container">
+<div id="vc-lev-visita-container" {% if oob_outerhtml %}hx-swap-oob="outerHTML"{% endif %}>
 
     <!-- Lista de levantamientos actuales -->
     <div class="col-span-2">
@@ -27,6 +29,15 @@
                     {{ lev.fecha_visita_individual.strftime('%d/%m/%Y %H:%M') }}
                 </span>
                 {% endif %}
+                <button
+                    hx-delete="/levantamientos/visitas-campo/{{ _vid }}/levantamientos/{{ lev.id_levantamiento }}"
+                    hx-swap="none"
+                    hx-confirm="¿Desacoplar este levantamiento de la visita? Su estatus se revertira a Pendiente."
+                    hx-on:visitaEliminada="closeModal()"
+                    class="ml-auto text-slate-600 hover:text-red-400 transition-colors flex-shrink-0"
+                    title="Desacoplar de esta visita">
+                    <i class="fas fa-unlink" style="font-size:10px;"></i>
+                </button>
             </div>
             {% endfor %}
         </div>
@@ -42,7 +53,7 @@
         <div id="vc-agregar-lev-container" class="mt-2"></div>
     </div>
 
-    <!-- OOB prorrateo — solo cuando este partial es respuesta HTMX del POST -->
+    <!-- OOB prorrateo — solo cuando este partial es respuesta HTMX del POST/DELETE -->
     {% if oob_prorrateo is defined %}
     <div id="vc-prorrateo-container" hx-swap-oob="innerHTML">
         {% include "levantamientos/partials/visita_campo_prorrateo.html" %}
@@ -50,3 +61,11 @@
     {% endif %}
 
 </div>
+
+<!-- OOB advertencia — visita ya enviada y el prorrateo cambio -->
+{% if oob_warning %}
+{% set type = "warning" %}
+{% set title = "Solicitud ya enviada" %}
+{% set message = oob_warning %}
+{% include "shared/toast.html" %}
+{% endif %}

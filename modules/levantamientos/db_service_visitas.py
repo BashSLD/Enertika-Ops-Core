@@ -21,6 +21,18 @@ class VisitasCampoDBService:
     (conexión asyncpg obtenida via get_db_connection).
     """
 
+    # Condición reutilizable: excluye levantamientos con viáticos en estado 'enviado'
+    # que no hayan sido devueltos posteriormente.
+    _SIN_VIATICOS_ENVIADOS = """NOT EXISTS (
+        SELECT 1 FROM tb_levantamiento_viaticos_historico h
+        WHERE h.id_levantamiento = l.id_levantamiento
+        AND h.estatus = 'enviado'
+        AND h.fecha_envio > COALESCE((
+            SELECT MAX(fecha_envio) FROM tb_levantamiento_viaticos_historico
+            WHERE id_levantamiento = l.id_levantamiento AND estatus = 'devuelto'
+        ), '2000-01-01'::timestamp)
+    )"""
+
     # ----------------------------------------------------------
     # CREAR VISITA
     # ----------------------------------------------------------
@@ -172,7 +184,11 @@ class VisitasCampoDBService:
         Filtra por búsqueda de texto en op_id_estandar, cliente, proyecto o nombre_sitio.
         """
         params: list = []
-        where_conditions = ["o.email_enviado = true", "est.es_estatus_final = FALSE"]
+        where_conditions = [
+            "o.email_enviado = true",
+            "est.es_estatus_final = FALSE",
+            self._SIN_VIATICOS_ENVIADOS,
+        ]
 
         if search:
             params.append(f"%{search.strip()}%")
@@ -366,6 +382,31 @@ class VisitasCampoDBService:
         return [dict(r) for r in rows]
 
     # ----------------------------------------------------------
+    # DESACOPLAR LEVANTAMIENTO
+    # ----------------------------------------------------------
+
+    async def remove_levantamiento_from_visita(
+        self, conn, id_visita: UUID, id_levantamiento: UUID
+    ) -> int:
+        """
+        Elimina un levantamiento del pivot.
+        Retorna el conteo de levantamientos restantes en la visita.
+        """
+        return await conn.fetchval("""
+            WITH deleted AS (
+                DELETE FROM tb_visita_campo_levantamientos
+                WHERE id_visita = $1 AND id_levantamiento = $2
+            )
+            SELECT COUNT(*) FROM tb_visita_campo_levantamientos WHERE id_visita = $1
+        """, id_visita, id_levantamiento)
+
+    async def has_envios(self, conn, id_visita: UUID) -> bool:
+        """Verifica si la visita tiene al menos un envío registrado."""
+        return await conn.fetchval("""
+            SELECT EXISTS(SELECT 1 FROM tb_visita_campo_envios WHERE id_visita = $1)
+        """, id_visita)
+
+    # ----------------------------------------------------------
     # ELIMINAR VISITA (cambio 3)
     # ----------------------------------------------------------
 
@@ -422,6 +463,7 @@ class VisitasCampoDBService:
                 FROM tb_visita_campo_levantamientos
                 WHERE id_visita = $1
             )""",
+            self._SIN_VIATICOS_ENVIADOS,
         ]
 
         if search:
