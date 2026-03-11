@@ -72,6 +72,10 @@
                 </button>
 
                 <button onclick="switchTab('reportes')" id="tab-reportes"
+                    hx-get="/admin/ui/reporte-semanal"
+                    hx-target="#content-reportes"
+                    hx-swap="innerHTML"
+                    hx-trigger="click once"
                     class="tab-button border-b-2 border-transparent py-4 px-1 text-sm font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300 flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                         stroke="currentColor" class="w-5 h-5">
@@ -355,18 +359,7 @@
         {% include "admin/partials/global_config.html" %}
     </div>
 
-    <div id="content-reportes" class="tab-content hidden"
-        hx-get="/admin/ui/reporte-semanal"
-        hx-trigger="revealed"
-        hx-swap="innerHTML">
-        <div class="flex items-center justify-center py-16 text-gray-400">
-            <svg class="animate-spin w-6 h-6 mr-3" fill="none" viewBox="0 0 24 24">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
-            </svg>
-            Cargando reporte...
-        </div>
-    </div>
+    <div id="content-reportes" class="tab-content hidden"></div>
 
 </div>
 
