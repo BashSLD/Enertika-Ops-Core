@@ -162,7 +162,7 @@
             <li class="me-2">
                 <a href="#" hx-get="/simulacion/partials/cards?tab=activos" hx-target="#sim-tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=activos" hx-include=".global-filter"
-                    onclick="updateSimTabContext('activos', this)"
+                    hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('activos', this)"
                     class="sim-tab-link inline-block p-3 rounded-t-lg active group glass-panel bg-white/60 transition-all"
                     aria-current="page">
                     <div class="flex items-center gap-2">
@@ -180,7 +180,7 @@
             <li class="me-2">
                 <a href="#" hx-get="/simulacion/partials/cards?tab=historial" hx-target="#sim-tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=historial" hx-include=".global-filter"
-                    onclick="updateSimTabContext('historial', this)"
+                    hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('historial', this)"
                     class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
@@ -196,7 +196,7 @@
             <li class="me-2">
                 <a href="#" hx-get="/simulacion/partials/cards?tab=levantamientos" hx-target="#sim-tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=levantamientos" hx-include=".global-filter"
-                    onclick="updateSimTabContext('levantamientos', this)"
+                    hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('levantamientos', this)"
                     class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
@@ -212,7 +212,7 @@
             <li class="me-2">
                 <a href="#" hx-get="/simulacion/partials/cards?tab=monitoreo" hx-target="#sim-tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=monitoreo" hx-include=".global-filter"
-                    onclick="updateSimTabContext('monitoreo', this)"
+                    hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('monitoreo', this)"
                     class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
@@ -247,7 +247,7 @@
         class="htmx-indicator absolute inset-0 z-50 flex items-center justify-center bg-white/90 backdrop-blur-sm rounded-xl">
         <div class="text-center">
             <div class="spinner-enertika mx-auto mb-4"></div>
-            <p class="text-emerald-600 font-bold text-lg animate-pulse-subtle">Analizando datos...</p>
+            <p class="text-emerald-600 font-bold text-lg animate-pulse-subtle">Cargando...</p>
         </div>
     </div>
 

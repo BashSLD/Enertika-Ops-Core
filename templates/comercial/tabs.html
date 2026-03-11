@@ -510,7 +510,7 @@
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/cards?tab=activos" hx-target="#tab-content" hx-swap="innerHTML"
-                    hx-push-url="?tab=activos" hx-include=".global-filter" onclick="updateTabContext('activos', this)"
+                    hx-push-url="?tab=activos" hx-include=".global-filter" hx-indicator="#graph-loading-indicator" onclick="updateTabContext('activos', this)"
                     class="tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
@@ -526,7 +526,7 @@
             <li class="me-2">
                 <a href="#" id="tab-historial" hx-get="/comercial/partials/cards?tab=historial" hx-target="#tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=historial" hx-include=".global-filter"
-                    onclick="updateTabContext('historial', this)"
+                    hx-indicator="#graph-loading-indicator" onclick="updateTabContext('historial', this)"
                     class="tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
@@ -542,7 +542,7 @@
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/cards?tab=levantamientos" hx-target="#tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=levantamientos" hx-include=".global-filter"
-                    onclick="updateTabContext('levantamientos', this)"
+                    hx-indicator="#graph-loading-indicator" onclick="updateTabContext('levantamientos', this)"
                     class="tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
@@ -557,7 +557,7 @@
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/cards?tab=ganadas" hx-target="#tab-content" hx-swap="innerHTML"
-                    hx-push-url="?tab=ganadas" hx-include=".global-filter" onclick="updateTabContext('ganadas', this)"
+                    hx-push-url="?tab=ganadas" hx-include=".global-filter" hx-indicator="#graph-loading-indicator" onclick="updateTabContext('ganadas', this)"
                     class="tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
@@ -572,7 +572,7 @@
             </li>
             <li class="me-2">
                 <a href="#" hx-get="/comercial/partials/borradores" hx-target="#tab-content" hx-swap="innerHTML"
-                    hx-push-url="?tab=borradores" onclick="updateTabContext('borradores', this)"
+                    hx-push-url="?tab=borradores" hx-indicator="#graph-loading-indicator" onclick="updateTabContext('borradores', this)"
                     class="tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
@@ -599,7 +599,7 @@
         class="htmx-indicator w-full h-full absolute inset-0 bg-white/80 z-10 flex items-center justify-center backdrop-blur-sm transition-all duration-300">
         <div class="flex flex-col items-center animate-fade-in-up">
             <div class="spinner-enertika mb-4"></div>
-            <p class="text-[#123456] font-bold text-lg animate-pulse">Cargando Gráficas...</p>
+            <p class="text-[#123456] font-bold text-lg animate-pulse">Cargando...</p>
         </div>
     </div>
 
