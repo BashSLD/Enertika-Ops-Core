@@ -217,6 +217,23 @@
         <!-- BODY - Información Principal -->
         <div class="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
 
+            <!-- Sección: Recordatorio de Proyecto (Visible solo cuando status=Ganada y can_edit_comercial) -->
+            {% if can_edit_comercial and op.status_global|lower == 'ganada' %}
+            <div class="bg-green-50 rounded-lg p-5 border border-green-100 border-l-4 border-l-green-500 shadow-sm">
+                <h4 class="text-sm font-bold text-green-800 uppercase tracking-wide mb-3 flex items-center gap-2">
+                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                    </svg>
+                    Recordatorio de Proyecto
+                </h4>
+                <p class="text-xs text-green-700 mb-3">
+                    El siguiente paso es crear el proyecto en Projects Gate.
+                </p>
+                {% include "shared/modals/partials/boton_reenvio_notificacion.html" %}
+            </div>
+            {% endif %}
+
             <!-- Sección: Información del Proyecto -->
             <div
                 class="bg-gradient-to-br from-[#E0F7F7] to-white rounded-lg p-5 border border-[#00BABB]/20 shadow-sm hover-lift transition-all duration-300">
@@ -713,23 +730,6 @@
                     {% endif %}
                     {% endif %}
                 </div>
-            </div>
-            {% endif %}
-
-            <!-- Sección: Recordatorio de Proyecto (Visible solo cuando status=Ganada y can_edit_comercial) -->
-            {% if can_edit_comercial and op.status_global|lower == 'ganada' %}
-            <div class="bg-green-50 rounded-lg p-5 border border-green-100 border-l-4 border-l-green-500 shadow-sm">
-                <h4 class="text-sm font-bold text-green-800 uppercase tracking-wide mb-3 flex items-center gap-2">
-                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                    </svg>
-                    Recordatorio de Proyecto
-                </h4>
-                <p class="text-xs text-green-700 mb-3">
-                    El siguiente paso es crear el proyecto en Projects Gate.
-                </p>
-                {% include "shared/modals/partials/boton_reenvio_notificacion.html" %}
             </div>
             {% endif %}
 

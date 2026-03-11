@@ -1,6 +1,18 @@
 <div id="sitios-container-{{ id_oportunidad }}"
     x-data="{ selected: [], batchStatus: '{{ estatus_options[0].id if estatus_options else 1 }}' }">
 
+<script>
+    window.showBatchSuccessToast = function(count) {
+        document.getElementById('batch-success-toast')?.remove();
+        const toast = document.createElement('div');
+        toast.id = 'batch-success-toast';
+        toast.className = 'fixed bottom-6 right-6 z-[9999] bg-green-600 text-white px-4 py-3 rounded-lg shadow-lg text-sm font-bold flex items-center gap-2';
+        toast.innerHTML = `<svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>${count} sitio${count !== 1 ? 's' : ''} actualizado${count !== 1 ? 's' : ''} correctamente`;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2500);
+    };
+</script>
+
     {% if (current_module_role in ['editor', 'admin'] or context.role == 'ADMIN') and not is_locked %}
     <div x-show="selected.length > 0"
         class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg flex items-center justify-between animate-fade-in-down"
@@ -17,7 +29,8 @@
             <button class="px-3 py-1 bg-blue-600 text-white text-sm font-bold rounded hover:bg-blue-700 shadow-sm"
                 hx-put="/simulacion/sitios/batch-update" hx-ext="json-enc"
                 :hx-vals="JSON.stringify({ ids_sitios: selected, id_estatus_global: parseInt(batchStatus) })"
-                hx-target="#sitios-container-{{ id_oportunidad }}" @htmx:after-request="selected = []">
+                hx-target="#sitios-container-{{ id_oportunidad }}"
+                @htmx:after-request="const n = selected.length; selected = []; if(event.detail.successful) window.showBatchSuccessToast(n)">
                 Actualizar
             </button>
         </div>

@@ -97,16 +97,16 @@
                                     ID / Título
                                 </th>
                                 <th scope="col"
-                                    class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-white/70 backdrop-blur-md">
+                                    class="hidden sm:table-cell px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-white/70 backdrop-blur-md">
                                     Ingeniero Asignado
                                 </th>
                                 <th scope="col"
-                                    class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-48 bg-white/70 backdrop-blur-md">
+                                    class="hidden sm:table-cell px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-48 bg-white/70 backdrop-blur-md">
                                     Solicitado
                                 </th>
                                 {% if current_tab != 'levantamientos' %}
                                 <th scope="col"
-                                    class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-40 bg-white/70 backdrop-blur-md">
+                                    class="hidden sm:table-cell px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-40 bg-white/70 backdrop-blur-md">
                                     Entrega SLA
                                 </th>
                                 {% endif %}
@@ -130,7 +130,7 @@
                                 else 200) ~ 'ms"' %} <!-- Fila principal con Alpine.js -->
                                 <tr @click="$dispatch('row-selected', '{{ op.id_oportunidad }}')"
                                     :class="{ 'bg-blue-50/80 ring-2 ring-blue-400': isSelected('{{ op.id_oportunidad }}'), '!bg-white/90 !border-l-8 !border-l-[#00BABB] shadow-md': isExpanded('{{ op.id_oportunidad }}') && !isSelected('{{ op.id_oportunidad }}') }"
-                                    class="hover:bg-white/80 transition-all duration-200 border-l-4 {{ prioridad_color }} {{ 'shadow-[0_0_10px_rgba(239,68,68,0.5)]' if op.prioridad == 'high' }} hover:shadow-lg hover:-translate-y-[2px] animate-fade-in-up cursor-pointer backdrop-blur-sm"
+                                    class="hover:bg-white/80 transition-[transform,background-color,box-shadow] duration-200 border-l-4 {{ prioridad_color }} {{ 'shadow-[0_0_10px_rgba(239,68,68,0.5)]' if op.prioridad == 'high' }} hover:shadow-lg hover:-translate-y-[2px] animate-fade-in-up cursor-pointer backdrop-blur-sm"
                                     {{ animation_delay|safe }}>
 
                                     <!-- COL 1: ID e Info Interna -->
@@ -186,7 +186,7 @@
                                     </td>
 
                                     <!-- COL 2: Ingeniero/Tecnico Asignado -->
-                                    <td class="px-4 py-2 whitespace-nowrap">
+                                    <td class="hidden sm:table-cell px-4 py-2 whitespace-nowrap">
                                         <div class="flex flex-col items-center justify-center">
                                             {% if current_tab == 'levantamientos' %}
                                             {% if op.tecnico_asignado_nombre %}
@@ -225,7 +225,7 @@
                                     </td>
 
                                     <!-- COL 3: Envío (con Tooltip Alpine.js) -->
-                                    <td class="px-4 py-2 w-48">
+                                    <td class="hidden sm:table-cell px-4 py-2 w-48">
                                         <div class="flex flex-col items-center gap-2">
                                             <div class="text-sm text-gray-700 text-center">
                                                 {{ op.fecha_solicitud | time_mx }}
@@ -268,7 +268,7 @@
 
                                     <!-- COL 5: Entrega SLA -->
                                     {% if current_tab != 'levantamientos' %}
-                                    <td class="px-4 py-2 w-40">
+                                    <td class="hidden sm:table-cell px-4 py-2 w-40">
                                         <div class="flex flex-col items-center gap-2">
                                             <div class="text-sm text-blue-600 font-semibold text-center">
                                                 {{ op.deadline_calculado.strftime('%d/%m/%Y') if
@@ -456,7 +456,9 @@
                                                     class="text-gray-500 hover:text-blue-600 transition focus:outline-none"
                                                     hx-get="/comercial/partials/sitios/{{ op.id_oportunidad }}"
                                                     hx-target="#sites-row-{{ op.id_oportunidad }}" hx-swap="innerHTML"
-                                                    hx-trigger="click once" title="Ver detalle de sitios">
+                                                    hx-trigger="click once" title="Ver detalle de sitios"
+                                                    hx-on:htmx:response-error="showSitiosError('sites-row-{{ op.id_oportunidad }}', '/comercial/partials/sitios/{{ op.id_oportunidad }}')"
+                                                    hx-on:htmx:request-error="showSitiosError('sites-row-{{ op.id_oportunidad }}', '/comercial/partials/sitios/{{ op.id_oportunidad }}')"
                                                     <svg xmlns="http://www.w3.org/2000/svg"
                                                         class="h-5 w-5 transition-transform duration-300"
                                                         :class="{ 'rotate-180': isExpanded('{{ op.id_oportunidad }}') }"
@@ -551,4 +553,22 @@
         const id = e.detail;
         // Aquí se puede agregar lógica personalizada si es necesario
     });
+
+    // Error state para carga de sitios anidados
+    function showSitiosError(targetId, retryUrl) {
+        const target = document.getElementById(targetId);
+        if (!target) return;
+        target.innerHTML = `
+            <div class="p-6 text-center flex flex-col items-center gap-3">
+                <svg class="w-8 h-8 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                </svg>
+                <span class="text-sm text-red-600 font-medium">Error al cargar sitios</span>
+                <button onclick="htmx.ajax('GET', '${retryUrl}', {target: '#${targetId}', swap: 'innerHTML'})"
+                    class="text-xs text-blue-600 underline hover:text-blue-800 font-medium">
+                    Reintentar
+                </button>
+            </div>`;
+    }
 </script>
