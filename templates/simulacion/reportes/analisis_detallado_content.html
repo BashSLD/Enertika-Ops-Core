@@ -42,7 +42,7 @@ function initPdfCharts() {
 }
 </script>
 
-<div class="max-w-[1600px] mx-auto px-6 pb-12 space-y-8" x-data="{
+<div class="max-w-[1600px] mx-auto px-4 sm:px-6 pb-12 space-y-8" x-data="{
         filtros: {
             fecha_inicio: '{{ filtros_aplicados.fecha_inicio }}',
             fecha_fin: '{{ filtros_aplicados.fecha_fin }}',
@@ -120,49 +120,48 @@ function initPdfCharts() {
     </style>
 
     <!-- Header & Filtros -->
-    <div class="flex flex-col xl:flex-row xl:items-center justify-between gap-6">
+    <div class="flex flex-col gap-4">
         <div>
-            <h1 class="text-2xl font-bold text-gray-900">Análisis Detallado - KPIs Duales</h1>
+            <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Análisis Detallado - KPIs Duales</h1>
             <p class="text-sm text-gray-600 mt-1">
-                Comparación de SLA Interno vs Compromiso Cliente - <span class="font-semibold text-gray-900"
-                    x-text="formatDateRange()"></span>
+                Comparación de SLA Interno vs Compromiso Cliente
+                <span class="font-semibold text-gray-900 block sm:inline" x-text="formatDateRange()"></span>
             </p>
         </div>
 
-        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-wrap gap-4 items-center">
+        <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200 flex flex-col sm:flex-row sm:flex-wrap gap-3 items-start sm:items-center">
 
-            <!-- Botón Ayuda -->
-
-
-            <div class="flex flex-col gap-1">
-                <div class="flex items-center gap-2 bg-gray-50 rounded-lg p-2 border border-gray-200">
-                    <span class="text-xs text-gray-500 uppercase font-semibold">Rango:</span>
+            <div class="flex flex-col gap-1 w-full sm:w-auto">
+                <span class="text-xs text-gray-500 uppercase font-semibold">Rango de fechas</span>
+                <div class="flex items-center gap-2 bg-gray-50 rounded-lg p-2 border border-gray-200 w-full">
                     <input type="date" x-model="filtros.fecha_inicio" @change="aplicarFiltros()"
-                        class="text-sm border-0 bg-transparent p-0 focus:ring-0 text-gray-700 w-28">
-                    <span class="text-gray-400">-</span>
+                        class="text-sm border-0 bg-transparent p-0 focus:ring-0 text-gray-700 flex-1 min-w-0">
+                    <span class="text-gray-400 shrink-0">—</span>
                     <input type="date" x-model="filtros.fecha_fin" @change="aplicarFiltros()"
-                        class="text-sm border-0 bg-transparent p-0 focus:ring-0 text-gray-700 w-28">
+                        class="text-sm border-0 bg-transparent p-0 focus:ring-0 text-gray-700 flex-1 min-w-0">
                 </div>
-                <!-- Leyenda de ayuda para fechas -->
-                <p class="text-xs text-red-600 font-medium">Para ver detalles selecciona un rango de fechas</p>
+                <p class="text-xs text-red-600 font-medium">Selecciona un rango para ver detalles</p>
             </div>
 
-            <div class="h-8 w-px bg-gray-200"></div>
+            <div class="hidden sm:block h-8 w-px bg-gray-200"></div>
 
-            <select x-model="filtros.tecnologia" @change="aplicarFiltros()"
-                class="text-sm border-gray-300 rounded-lg focus:ring-[#00BABB] focus:border-[#00BABB]">
-                <option value="">Todas las Tecnologías</option>
-                {% for tech in catalogos.tecnologias %}
-                <option value="{{ tech.id }}">{{ tech.nombre }}</option>
-                {% endfor %}
-            </select>
+            <div class="w-full sm:w-auto">
+                <span class="text-xs text-gray-500 uppercase font-semibold block sm:hidden mb-1">Tecnología</span>
+                <select x-model="filtros.tecnologia" @change="aplicarFiltros()"
+                    class="text-sm border-gray-300 rounded-lg focus:ring-[#00BABB] focus:border-[#00BABB] w-full sm:w-auto">
+                    <option value="">Todas las Tecnologías</option>
+                    {% for tech in catalogos.tecnologias %}
+                    <option value="{{ tech.id }}">{{ tech.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
 
             <button @click="limpiarFiltros()"
-                class="text-sm text-gray-500 hover:text-red-600 transition-colors flex items-center gap-1">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                class="text-sm text-gray-500 hover:text-red-600 transition-colors flex items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 sm:border-0 sm:p-0 w-full sm:w-auto justify-center sm:justify-start">
+                <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
                 </svg>
-                Limpiar
+                Limpiar filtros
             </button>
         </div>
     </div>
@@ -200,6 +199,11 @@ function initPdfCharts() {
                 Contabilización por Tipo de Solicitud
             </h2>
         </div>
+        <div class="sm:hidden flex items-center justify-center gap-1.5 text-xs text-gray-400 py-2 mb-2">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16l-4-4m0 0l4-4m-4 4h18"/></svg>
+            Desliza para ver todos los datos
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
+        </div>
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
             {% include "simulacion/reportes/partials/semaforo_table_duales.html" %}
         </div>
@@ -212,6 +216,11 @@ function initPdfCharts() {
                 <span class="w-1.5 h-6 bg-amber-500 rounded-r-full"></span>
                 Tendencia Mensual
             </h2>
+        </div>
+        <div class="sm:hidden flex items-center justify-center gap-1.5 text-xs text-gray-400 py-2 mb-2">
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16l-4-4m0 0l4-4m-4 4h18"/></svg>
+            Desliza para ver todos los meses
+            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg>
         </div>
         <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden overflow-x-auto">
             {% include "simulacion/reportes/partials/monthly_pivot_duales.html" %}
@@ -233,21 +242,21 @@ function initPdfCharts() {
     {# NUEVA SECCIÓN: RESUMEN EJECUTIVO GLOBAL #}
     {# ============================================================ #}
     <section class="mt-12">
-        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200 shadow-lg p-8">
+        <div class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg border-2 border-blue-200 shadow-lg p-4 sm:p-8">
             <div class="flex items-center gap-3 mb-6">
-                <div class="p-3 bg-blue-500 rounded-lg">
-                    <svg class="w-8 h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <div class="p-2 sm:p-3 bg-blue-500 rounded-lg shrink-0">
+                    <svg class="w-6 h-6 sm:w-8 sm:h-8 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
                 </div>
                 <div>
-                    <h2 class="text-2xl font-bold text-gray-900">📊 Resumen Ejecutivo</h2>
+                    <h2 class="text-xl sm:text-2xl font-bold text-gray-900">Resumen Ejecutivo</h2>
                     <p class="text-sm text-gray-600 mt-1">Síntesis del período analizado</p>
                 </div>
             </div>
 
-            <div class="bg-white rounded-lg p-6 shadow-sm">
+            <div class="bg-white rounded-lg p-4 sm:p-6 shadow-sm">
                 {% with resumen=resumen_ejecutivo %}
                 {% include "simulacion/reportes/partials/resumen_ejecutivo.html" %}
                 {% endwith %}

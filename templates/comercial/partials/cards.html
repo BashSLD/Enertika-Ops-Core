@@ -458,7 +458,7 @@
                                                     hx-target="#sites-row-{{ op.id_oportunidad }}" hx-swap="innerHTML"
                                                     hx-trigger="click once" title="Ver detalle de sitios"
                                                     hx-on:htmx:response-error="showSitiosError('sites-row-{{ op.id_oportunidad }}', '/comercial/partials/sitios/{{ op.id_oportunidad }}')"
-                                                    hx-on:htmx:request-error="showSitiosError('sites-row-{{ op.id_oportunidad }}', '/comercial/partials/sitios/{{ op.id_oportunidad }}')"
+                                                    hx-on:htmx:request-error="showSitiosError('sites-row-{{ op.id_oportunidad }}', '/comercial/partials/sitios/{{ op.id_oportunidad }}')">
                                                     <svg xmlns="http://www.w3.org/2000/svg"
                                                         class="h-5 w-5 transition-transform duration-300"
                                                         :class="{ 'rotate-180': isExpanded('{{ op.id_oportunidad }}') }"
