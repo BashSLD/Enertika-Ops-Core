@@ -1087,7 +1087,7 @@ async def crear_seguimiento(
         expected_title = await service.predict_followup_title(conn, parent_id, tipo_solicitud)
 
         # 2. Buscar hilo
-        thread_id = await ms_auth.find_thread_id(token, expected_title)
+        thread_id = await ms_auth.find_thread_candidates(token, expected_title)
 
         # 3. Si NO existe hilo -> Advertencia (preserva datos de conversión)
         if not thread_id:
