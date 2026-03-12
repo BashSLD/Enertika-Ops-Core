@@ -239,7 +239,7 @@
                 class="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50">Cancelar</button>
             <button type="submit" id="submit-btn" disabled
                 class="px-4 py-2 bg-blue-600 text-white rounded-md shadow-sm text-sm font-medium hover:bg-blue-700 flex items-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed transition-all">
-                <span id="btn-text">⏳ Preparando editor...</span>
+                <span id="btn-text" data-state="loading">⏳ Preparando editor...</span>
             </button>
         </div>
     </form>
@@ -379,6 +379,7 @@
 
                             if (submitBtn && btnText) {
                                 submitBtn.disabled = false;
+                                btnText.dataset.state = 'ready';
                                 btnText.innerHTML = 'Enviar Correo';
                             }
                         } catch (err) {
@@ -386,6 +387,7 @@
                             // Fallback: Habilitar botón para permitir envío aunque sea sin formato
                             if (submitBtn) {
                                 submitBtn.disabled = false;
+                                btnText.dataset.state = 'ready';
                                 btnText.innerHTML = 'Enviar (Texto Simple)';
                             }
                         }
@@ -402,12 +404,26 @@
                         console.error("Failed to load Quill CDN");
                         document.getElementById('quill-editor').innerHTML = '<p class="text-red-500 text-sm">Error cargando editor. Puedes enviar el correo sin formato.</p>';
                         const btn = document.getElementById('submit-btn');
-                        if (btn) { btn.disabled = false; btn.innerText = "Enviar (Sin Formato)"; }
+                        const txt = document.getElementById('btn-text');
+                        if (btn) { btn.disabled = false; }
+                        if (txt) { txt.dataset.state = 'ready'; txt.innerHTML = 'Enviar (Sin Formato)'; }
                     };
                     document.head.appendChild(script);
                 } else {
+                    var checkAttempts = 0;
                     var check = setInterval(function () {
-                        if (typeof Quill !== 'undefined') { clearInterval(check); window.initQuillSafe(); }
+                        checkAttempts++;
+                        if (typeof Quill !== 'undefined') {
+                            clearInterval(check);
+                            window.initQuillSafe();
+                        } else if (checkAttempts >= 50) {
+                            // 5 segundos sin que Quill cargue — habilitar botón como fallback
+                            clearInterval(check);
+                            const btn = document.getElementById('submit-btn');
+                            const txt = document.getElementById('btn-text');
+                            if (btn) { btn.disabled = false; }
+                            if (txt) { txt.dataset.state = 'ready'; txt.innerHTML = 'Enviar (Sin Formato)'; }
+                        }
                     }, 100);
                 }
 

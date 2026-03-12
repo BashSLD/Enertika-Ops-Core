@@ -18,7 +18,7 @@ from datetime import datetime, date as date_type, time as time_type
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from core.security import get_current_user_context
@@ -595,7 +595,7 @@ def register_operaciones_endpoints(router: APIRouter):
         _=require_module_access("levantamientos", "editor"),
     ):
         """
-        Cancela un levantamiento y su oportunidad asociada.
+        Cancela un levantamiento. NO afecta la oportunidad comercial.
         Limpia viáticos, registra historial y notifica a jefe + solicitante.
         Solo ADMIN, Admin del módulo o MANAGER+editor pueden cancelar.
         """
@@ -640,7 +640,7 @@ def register_operaciones_endpoints(router: APIRouter):
             "filtros": {"q": "", "estado": None, "tecnico_id": "", "fecha_inicio": "", "fecha_fin": ""},
             "notification": {
                 "title": "Levantamiento Cancelado",
-                "message": "El levantamiento y su oportunidad han sido cancelados.",
+                "message": "El levantamiento ha sido cancelado.",
                 "type": "success",
             },
         })
@@ -941,6 +941,15 @@ def register_operaciones_endpoints(router: APIRouter):
                 except ValueError:
                     pass  # Skip invalid dates
 
+        # Validar que las fechas individuales estén dentro del período de la visita
+        for lev_id_str, fecha_ind in fechas_individuales.items():
+            if not (fecha_inicio_dt <= fecha_ind <= fecha_fin_dt):
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"La fecha del levantamiento {lev_id_str} está fuera "
+                           "del período de la visita.",
+                )
+
         con_viaticos = await db_svc.get_levantamientos_con_viaticos_activos(conn, levantamiento_ids)
         if con_viaticos:
             nombres = ", ".join(
@@ -952,30 +961,13 @@ def register_operaciones_endpoints(router: APIRouter):
                        "Devuelve los viáticos antes de agendar la visita de campo.",
             )
 
-        visita = await visitas_db_svc.create_visita(
-            conn,
-            nombre=nombre.strip() if nombre else None,
-            fecha_inicio=fecha_inicio_dt,
-            fecha_fin=fecha_fin_dt,
-            levantamiento_ids=levantamiento_ids,
-            creado_por_id=context["user_db_id"],
-            fechas_individuales=fechas_individuales if fechas_individuales else None,
-        )
-
-        id_visita = visita["id_visita"]
-
-        # Sincronizar levantamientos como "Agendado" si tienen fecha individual
-        if fechas_individuales:
-            await visitas_db_svc.sync_levantamientos_agendado(
-                conn, levantamiento_ids, fechas_individuales, context["user_db_id"]
-            )
-
-        # Extraer viáticos iniciales del form (arrays paralelos)
+        # Extraer viáticos iniciales del form (arrays paralelos) antes de la transacción
         viatico_conceptos = form_data.getlist("viatico_concepto")
         viatico_montos = form_data.getlist("viatico_monto")
         viatico_usuario_ids = form_data.getlist("viatico_usuario_id")
 
-        viaticos_creados = []
+        # Parsear viáticos válidos antes de abrir la transacción
+        viaticos_a_crear = []
         for i, concepto in enumerate(viatico_conceptos):
             if not concepto or not concepto.strip():
                 continue
@@ -991,11 +983,31 @@ def register_operaciones_endpoints(router: APIRouter):
                     usuario_id = UUID(viatico_usuario_ids[i])
                 except ValueError:
                     pass
-            v = await visitas_db_svc.create_viatico_visita(
-                conn, id_visita, usuario_id, concepto.strip(), monto, context["user_db_id"]
+            viaticos_a_crear.append((concepto.strip(), monto, usuario_id))
+
+        async with conn.transaction():
+            visita = await visitas_db_svc.create_visita(
+                conn,
+                nombre=nombre.strip() if nombre else None,
+                fecha_inicio=fecha_inicio_dt,
+                fecha_fin=fecha_fin_dt,
+                levantamiento_ids=levantamiento_ids,
+                creado_por_id=context["user_db_id"],
+                fechas_individuales=fechas_individuales if fechas_individuales else None,
             )
-            if v:
-                viaticos_creados.append(v)
+
+            id_visita = visita["id_visita"]
+
+            # Sincronizar levantamientos como "Agendado" si tienen fecha individual
+            if fechas_individuales:
+                await visitas_db_svc.sync_levantamientos_agendado(
+                    conn, levantamiento_ids, fechas_individuales, context["user_db_id"]
+                )
+
+            for concepto, monto, usuario_id in viaticos_a_crear:
+                await visitas_db_svc.create_viatico_visita(
+                    conn, id_visita, usuario_id, concepto, monto, context["user_db_id"]
+                )
 
         levantamientos_visita = await visitas_db_svc.get_levantamientos_en_visita(conn, id_visita)
         visita_completa = await visitas_db_svc.get_visita(conn, id_visita)
@@ -1023,6 +1035,7 @@ def register_operaciones_endpoints(router: APIRouter):
             "total_viaticos": total_viaticos,
             "levantamientos_disponibles": [],
             "preseleccionado": None,
+            "can_edit": True,
         })
 
     # ----------------------------------------------------------
@@ -1301,6 +1314,27 @@ def register_operaciones_endpoints(router: APIRouter):
 
     # ----------------------------------------------------------
 
+    @router.patch("/visitas-campo/{id_visita}/viaticos-opcionales", include_in_schema=False)
+    async def toggle_viaticos_opcionales(
+        id_visita: UUID,
+        viaticos_opcionales: str = Form(...),
+        conn=Depends(get_db_connection),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Activa o desactiva el flag viaticos_opcionales de la visita.
+        Recibe 'viaticos_opcionales' como string ('true'/'false'/'1'/'0').
+        """
+        visita = await visitas_db_svc.get_visita(conn, id_visita)
+        if not visita:
+            raise HTTPException(status_code=404, detail="Visita de campo no encontrada.")
+        opcionales_bool = viaticos_opcionales.lower() in ("true", "1", "on")
+        await visitas_db_svc.update_visita_opcionalidad(conn, id_visita, opcionales_bool)
+        return Response(status_code=200)
+
+    # ----------------------------------------------------------
+
     @router.post("/visitas-campo/{id_visita}/enviar", include_in_schema=False)
     async def enviar_solicitud_visita_campo(
         request: Request,
@@ -1322,17 +1356,20 @@ def register_operaciones_endpoints(router: APIRouter):
         5. Registra en historial.
         6. Retorna partial historial actualizado.
         """
-        viaticos = await visitas_db_svc.get_viaticos_visita(conn, id_visita)
-        if not viaticos:
-            raise HTTPException(status_code=400, detail="No hay viaticos registrados en la visita.")
-
         visita = await visitas_db_svc.get_visita(conn, id_visita)
         if not visita:
             raise HTTPException(status_code=404, detail="Visita de campo no encontrada.")
 
+        viaticos_opcionales = visita.get("viaticos_opcionales", False)
+
+        viaticos = await visitas_db_svc.get_viaticos_visita(conn, id_visita)
+        if not viaticos and not viaticos_opcionales:
+            raise HTTPException(status_code=400, detail="No hay viaticos registrados en la visita.")
+
         levantamientos_visita = await visitas_db_svc.get_levantamientos_en_visita(conn, id_visita)
-        total_monto = float(sum(v["monto"] for v in viaticos))
-        prorrateo = calcular_prorrateo(total_monto, levantamientos_visita)
+        total_monto = float(sum(v["monto"] for v in viaticos)) if not viaticos_opcionales else 0.0
+        prorrateo = calcular_prorrateo(total_monto, levantamientos_visita) if not viaticos_opcionales else {}
+        metodo_prorrateo = "Division igual"
 
         # Construir TO y CC
         to_configurado = await db_svc.get_to_configurados_viaticos(conn)
@@ -1356,6 +1393,8 @@ def register_operaciones_endpoints(router: APIRouter):
             viaticos=viaticos,
             prorrateo=prorrateo,
             total_monto=total_monto,
+            metodo_prorrateo=metodo_prorrateo,
+            viaticos_opcionales=viaticos_opcionales,
             enviado_por=context.get("user_name", "Sistema"),
             fecha_envio=fecha_envio_str,
         )
@@ -1408,6 +1447,7 @@ def register_operaciones_endpoints(router: APIRouter):
             logger.error(f"[VISITA_CAMPO] Excepcion envio correo visita {id_visita}: {exc}")
 
         snapshot = {
+            "viaticos_opcionales": viaticos_opcionales,
             "levantamientos": [
                 {
                     "id_levantamiento": str(lev["id_levantamiento"]),

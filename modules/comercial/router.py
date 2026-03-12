@@ -425,9 +425,9 @@ async def validate_thread_check(
     if not token:
         return JSONResponse({"found": False, "error": "Sesión expirada"}, status_code=401)
 
-    thread_id = await ms_auth.find_thread_id(token, search_term)
+    thread_ids = await ms_auth.find_thread_candidates(token, search_term)
     
-    if thread_id:
+    if thread_ids:
         # Retorna éxito y el término para que el frontend lo pase al formulario
         return JSONResponse({"found": True, "clean_term": search_term})
     else:
@@ -987,6 +987,7 @@ async def get_modal_confirmar_seguimiento(
     row = await service.get_paso2_data(conn, id_oportunidad)
     if not row:
         return HTMLResponse("Oportunidad no encontrada", 404)
+    ultimo_movimiento = await service.get_ultimo_movimiento_hilo(conn, id_oportunidad)
     return templates.TemplateResponse("comercial/modals/confirmar_seguimiento.html", {
         "request": request,
         "id_oportunidad": id_oportunidad,
@@ -994,6 +995,7 @@ async def get_modal_confirmar_seguimiento(
         "prioridad": prioridad,
         "nombre_cliente": row['cliente_nombre'],
         "id_interno": row['id_interno_simulacion'],
+        "ultimo_movimiento": ultimo_movimiento,
     })
 
 

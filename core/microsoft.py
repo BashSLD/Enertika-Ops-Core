@@ -131,16 +131,16 @@ class MicrosoftAuth:
             return {}
 
     # --- LÓGICA DE HILOS ---    
-    async def find_thread_id(self, access_token: str, search_text: str) -> str:
+    async def find_thread_candidates(self, access_token: str, search_text: str) -> list:
         """
-        Busca el ID del hilo más reciente.
+        Busca los IDs de hilos que coincidan con la búsqueda.
         Limpia prefijos (Re:, Fwd:, Rv:, Enc:, Tr:) automáticamente para tolerar inputs sucios.
         CORRECCIONES APLICADAS:
         1. Sin $filter (incompatible con $search).
         2. Sin $orderby (incompatible con $search).
         3. Filtrado de isDraft en Python.
         4. Ordenamiento por fecha en Python.
-        5. Sanitización con Regex para eliminar prefijos de correo.
+        5. Retorna múltiples candidatos para mayor robustez.
         """
         if not access_token or not search_text: 
             return None
@@ -172,6 +172,11 @@ class MicrosoftAuth:
                     # Ignorar borradores
                     if item.get("isDraft") is True:
                         continue
+                        
+                    # Filtrar elementos que NO son mensajes de correo estandar (ej. EventMessage)
+                    odata_type = item.get("@odata.type", "")
+                    if odata_type and odata_type != "#microsoft.graph.message":
+                        continue
                     
                     # Validar texto en asunto
                     subject = item.get("subject", "") or ""
@@ -180,23 +185,21 @@ class MicrosoftAuth:
                 
                 if not candidatos:
                     logger.info(f"NO se encontró hilo válido con '{clean_text}'")
-                    return None
+                    return []
 
                 # 2. Ordenamiento en memoria (El más reciente primero)
                 # Las fechas ISO 8601 se pueden ordenar como strings directamente
                 candidatos.sort(key=lambda x: x.get("receivedDateTime", ""), reverse=True)
                 
-                # Tomamos el primero (el más reciente)
-                winner = candidatos[0]
-                logger.info(f"HILO ENCONTRADO: {winner['id']} ({winner.get('receivedDateTime')})")
-                return winner["id"]
+                logger.info(f"HILOS ENCONTRADOS: {len(candidatos)} candidatos para {clean_text}")
+                return [c["id"] for c in candidatos]
 
             else:
                 logger.error(f"Error Graph: {resp.status_code} - {resp.text}")
-                return None
+                return []
         except Exception as e:
-            logger.error(f"Excepción buscando hilo: {e}")
-            return None
+            logger.error(f"Excepción buscando hilos candidatos: {e}")
+            return []
 
     async def reply_with_new_subject(self, access_token, thread_id, new_subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments):
         """

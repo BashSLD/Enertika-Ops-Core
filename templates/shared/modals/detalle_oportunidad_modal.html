@@ -478,7 +478,9 @@
             </div>
 
             <!-- Sección: Acciones Solicitud (Requiere Editor Comercial) -->
-            {% if can_edit_comercial and show_solicitar_actions %}
+            <!-- Visible solo en estatus: Entregado, Perdido, Cancelado -->
+            {% if can_edit_comercial and show_solicitar_actions and op.status_global|lower in ['entregado', 'perdido',
+            'cancelado'] %}
             <div class="bg-blue-50 rounded-lg p-5 border border-blue-100 border-l-4 border-l-[#00BABB] shadow-sm">
                 <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
                     <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -488,13 +490,16 @@
                     Solicitar:
                 </h4>
 
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <!-- solicitando nunca se resetea — el modal cierra tras la navegación.
+                     Si se agrega manejo de error, resetear aquí y mantener el modal abierto. -->
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3" x-data="{ solicitando: false }"
+                    :class="{ 'pointer-events-none opacity-60': solicitando }">
 
                     <!-- Solicitar Actualización -->
                     {% if op.es_multisitio %}
                     <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}" hx-target="body"
                         hx-swap="beforeend" hx-indicator="#global-loading-overlay"
-                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
+                        x-on:submit="solicitando = true; document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
                         class="block w-full">
                         <input type="hidden" name="tipo_solicitud" value="ACTUALIZACION">
                         <input type="hidden" name="prioridad" value="high">
@@ -511,8 +516,7 @@
                     <button type="button"
                         hx-get="/comercial/modal/confirmar-seguimiento/{{ op.id_oportunidad }}?tipo_solicitud=ACTUALIZACION&prioridad=high"
                         hx-target="body" hx-swap="beforeend" hx-indicator="#global-loading-overlay"
-                        hx-disabled-elt="this"
-                        hx-on:htmx:before-request="if(document.getElementById('modal-confirmar-seguimiento')){event.preventDefault()}"
+                        x-on:click="solicitando = true"
                         class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-blue-50 text-blue-700 border border-blue-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -528,7 +532,7 @@
                     {% if op.es_multisitio %}
                     <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}" hx-target="body"
                         hx-swap="beforeend" hx-indicator="#global-loading-overlay"
-                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
+                        x-on:submit="solicitando = true; document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
                         class="block w-full">
                         <input type="hidden" name="tipo_solicitud" value="LEVANTAMIENTO">
                         <input type="hidden" name="prioridad" value="normal">
@@ -545,8 +549,7 @@
                     <button type="button"
                         hx-get="/comercial/modal/confirmar-seguimiento/{{ op.id_oportunidad }}?tipo_solicitud=LEVANTAMIENTO&prioridad=normal"
                         hx-target="body" hx-swap="beforeend" hx-indicator="#global-loading-overlay"
-                        hx-disabled-elt="this"
-                        hx-on:htmx:before-request="if(document.getElementById('modal-confirmar-seguimiento')){event.preventDefault()}"
+                        x-on:click="solicitando = true"
                         class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-purple-50 text-purple-700 border border-purple-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -561,7 +564,7 @@
                     {% if op.es_multisitio %}
                     <form hx-post="/comercial/crear-seguimiento/{{ op.id_oportunidad }}" hx-target="body"
                         hx-swap="beforeend" hx-indicator="#global-loading-overlay"
-                        x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
+                        x-on:submit="solicitando = true; document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
                         class="block w-full">
                         <input type="hidden" name="tipo_solicitud" value="OFERTA_FINAL">
                         <input type="hidden" name="prioridad" value="high">
@@ -578,8 +581,7 @@
                     <button type="button"
                         hx-get="/comercial/modal/confirmar-seguimiento/{{ op.id_oportunidad }}?tipo_solicitud=OFERTA_FINAL&prioridad=high"
                         hx-target="body" hx-swap="beforeend" hx-indicator="#global-loading-overlay"
-                        hx-disabled-elt="this"
-                        hx-on:htmx:before-request="if(document.getElementById('modal-confirmar-seguimiento')){event.preventDefault()}"
+                        x-on:click="solicitando = true"
                         class="w-full flex items-center justify-center gap-2 px-4 py-2 bg-white hover:bg-green-50 text-green-700 border border-green-200 rounded-lg shadow-sm transition-all text-xs font-bold uppercase tracking-wide h-10">
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -683,9 +685,9 @@
                 <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
                     <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
                     </svg>
                     Ubicación
                 </h4>
@@ -693,22 +695,24 @@
                     {% if op.direccion_obra %}
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Dirección</label>
-                        <p class="text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200">{{ op.direccion_obra }}</p>
+                        <p class="text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200">{{
+                            op.direccion_obra }}</p>
                     </div>
                     {% endif %}
                     {% if op.coordenadas_gps %}
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Coordenadas GPS</label>
-                        <p class="text-gray-800 font-mono bg-white px-3 py-2 rounded-md border border-gray-200">{{ op.coordenadas_gps }}</p>
+                        <p class="text-gray-800 font-mono bg-white px-3 py-2 rounded-md border border-gray-200">{{
+                            op.coordenadas_gps }}</p>
                     </div>
                     {% endif %}
                     {% if op.google_maps_link %}
                     {% if op.google_maps_link.startswith('http://') or op.google_maps_link.startswith('https://') %}
-                        {% set maps_href = op.google_maps_link %}
+                    {% set maps_href = op.google_maps_link %}
                     {% elif '.' in op.google_maps_link and ' ' not in op.google_maps_link %}
-                        {% set maps_href = 'https://' + op.google_maps_link %}
+                    {% set maps_href = 'https://' + op.google_maps_link %}
                     {% else %}
-                        {% set maps_href = None %}
+                    {% set maps_href = None %}
                     {% endif %}
                     {% if maps_href %}
                     <div>
@@ -716,7 +720,7 @@
                             class="inline-flex items-center gap-2 px-4 py-2 bg-white border border-blue-200 rounded-lg text-blue-600 hover:bg-blue-100 font-medium text-sm transition-colors shadow-sm">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
+                                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                             </svg>
                             Ver en Google Maps
                         </a>
@@ -724,7 +728,8 @@
                     {% else %}
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Google Maps</label>
-                        <p class="text-gray-500 text-xs bg-white px-3 py-2 rounded-md border border-gray-200">{{ op.google_maps_link }}</p>
+                        <p class="text-gray-500 text-xs bg-white px-3 py-2 rounded-md border border-gray-200">{{
+                            op.google_maps_link }}</p>
                     </div>
                     {% endif %}
                     {% endif %}

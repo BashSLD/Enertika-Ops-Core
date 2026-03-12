@@ -44,6 +44,7 @@ from .db_service import (
     QUERY_GET_SITIOS_SIMPLE,
     QUERY_INSERT_SITIO_UNICO,
     QUERY_UPDATE_EMAIL_ENVIADO,
+    QUERY_GET_ULTIMO_MOVIMIENTO_HILO,
     QUERY_UPDATE_PRIORIDAD,
     QUERY_DELETE_OPORTUNIDAD,
     QUERY_DELETE_COMENTARIOS_WF,
@@ -1749,10 +1750,23 @@ class ComercialService:
         no por el título futuro (que tendría el tipo de solicitud nuevo).
         """
         titulo_parent = await conn.fetchval(
-            "SELECT titulo_proyecto FROM tb_oportunidades WHERE id_oportunidad = $1", 
+            "SELECT titulo_proyecto FROM tb_oportunidades WHERE id_oportunidad = $1",
             parent_id
         )
         return titulo_parent or ""
+
+    async def get_ultimo_movimiento_hilo(self, conn, id_oportunidad: UUID) -> Optional[dict]:
+        """
+        Retorna el movimiento más reciente con email enviado en el mismo hilo,
+        solo si es distinto al registro actual. Usado para advertir al usuario
+        que no está solicitando desde el último movimiento.
+        """
+        row = await conn.fetchrow(QUERY_GET_ULTIMO_MOVIMIENTO_HILO, id_oportunidad)
+        if not row:
+            return None
+        if row['id_oportunidad'] == id_oportunidad:
+            return None
+        return dict(row)
 
     def get_next_ui_step(self, cantidad_sitios: int) -> str:
         """Determina el siguiente paso del flujo UI basado en reglas de negocio."""

@@ -964,10 +964,10 @@ class LevantamientoService:
         """
         Cancela un levantamiento:
         1. Cambia estado a 'cancelado'
-        2. Cancela la oportunidad asociada en tb_oportunidades
-        3. Limpia viáticos activos
-        4. Registra en historial
-        5. Fire & Forget: notificación a jefe de área + solicitante
+        2. Limpia viáticos activos
+        3. Registra en historial
+        4. Fire & Forget: notificación a jefe de área + solicitante
+        La oportunidad comercial NO se toca — cada solicitud tiene su propio ciclo de vida.
         """
         from .db_service import get_db_service as _get_db
         _db = _get_db()
@@ -1000,26 +1000,10 @@ class LevantamientoService:
                 WHERE id_levantamiento = $5
             """, id_cancelado, motivo, now_mx, user_context['user_db_id'], id_levantamiento)
 
-            # 2. Cancelar oportunidad asociada
-            id_cancelado_opp = await conn.fetchval("""
-                SELECT id FROM tb_cat_estatus_oportunidades
-                WHERE LOWER(nombre) LIKE '%cancelad%' AND activo = true
-                LIMIT 1
-            """)
-            if id_cancelado_opp:
-                await conn.execute("""
-                    UPDATE tb_oportunidades
-                    SET id_estatus_global = $1,
-                        updated_at        = $2
-                    WHERE id_oportunidad = $3
-                """, id_cancelado_opp, now_mx, lev['id_oportunidad'])
-            else:
-                logger.warning(f"[CANCELAR] No se encontro estado 'cancelado' en tb_cat_estatus_oportunidades para opp {lev['id_oportunidad']}")
-
-            # 3. Limpiar viáticos activos
+            # 2. Limpiar viáticos activos
             await _db.clear_viaticos_activos(conn, id_levantamiento)
 
-            # 4. Historial
+            # 3. Historial
             await self._registrar_en_historial(
                 conn=conn,
                 id_levantamiento=id_levantamiento,
@@ -1030,7 +1014,7 @@ class LevantamientoService:
                 metadata={"tipo_cambio": "cancelacion"}
             )
 
-        # 5. Notificación Fire & Forget
+        # 4. Notificación Fire & Forget
         asyncio.create_task(
             self._execute_notification_background(
                 self._notificar_cancelacion_impl,

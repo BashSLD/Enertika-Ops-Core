@@ -88,6 +88,7 @@ class VisitasCampoDBService:
             SELECT
                 v.id_visita,
                 v.nombre,
+                v.viaticos_opcionales,
                 v.fecha_inicio AT TIME ZONE 'America/Mexico_City' AS fecha_inicio,
                 v.fecha_fin    AT TIME ZONE 'America/Mexico_City' AS fecha_fin,
                 v.created_at   AT TIME ZONE 'America/Mexico_City' AS created_at,
@@ -102,8 +103,8 @@ class VisitasCampoDBService:
             LEFT JOIN tb_visita_campo_viaticos vcv
                 ON v.id_visita = vcv.id_visita
             WHERE v.id_visita = $1
-            GROUP BY v.id_visita, v.nombre, v.fecha_inicio, v.fecha_fin,
-                     v.created_at, u.nombre
+            GROUP BY v.id_visita, v.nombre, v.viaticos_opcionales,
+                     v.fecha_inicio, v.fecha_fin, v.created_at, u.nombre
         """, id_visita)
         return dict(row) if row else None
 
@@ -314,6 +315,14 @@ class VisitasCampoDBService:
             ORDER BY u.nombre ASC
         """, id_visita)
 
+        if not rows:
+            rows = await conn.fetch("""
+                SELECT id_usuario, nombre, email
+                FROM tb_usuarios
+                WHERE is_active = true
+                ORDER BY nombre ASC
+            """)
+
         return [dict(r) for r in rows]
 
     # ----------------------------------------------------------
@@ -363,7 +372,7 @@ class VisitasCampoDBService:
         return dict(row) if row else None
 
     async def get_envios_visita(self, conn, id_visita: UUID) -> List[dict]:
-        """Historial de envíos de la visita, más reciente primero."""
+        """Historial de envíos de la visita, más reciente primero (máx 20)."""
         rows = await conn.fetch("""
             SELECT
                 id,
@@ -378,6 +387,7 @@ class VisitasCampoDBService:
             FROM tb_visita_campo_envios
             WHERE id_visita = $1
             ORDER BY fecha_envio DESC
+            LIMIT 20
         """, id_visita)
         return [dict(r) for r in rows]
 
@@ -519,6 +529,21 @@ class VisitasCampoDBService:
             ON CONFLICT (id_visita, id_levantamiento) DO NOTHING
         """, [(id_visita, lev_id) for lev_id in levantamiento_ids])
         return len(levantamiento_ids)
+
+    async def update_visita_opcionalidad(
+        self, conn, id_visita: UUID, viaticos_opcionales: bool
+    ) -> bool:
+        """
+        Actualiza el flag viaticos_opcionales de la visita.
+        Retorna True si la visita existia y se actualizo.
+        """
+        status = await conn.execute("""
+            UPDATE tb_visitas_campo
+            SET viaticos_opcionales = $2,
+                updated_at = NOW()
+            WHERE id_visita = $1
+        """, id_visita, viaticos_opcionales)
+        return status == "UPDATE 1"
 
     async def sync_levantamientos_agendado(
         self, conn, levantamiento_ids: List[UUID],

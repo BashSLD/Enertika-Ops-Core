@@ -216,6 +216,8 @@ class ConfigService:
                 return default
 
             valor = row['valor']
+            if valor is None:
+                return default
             
             # Cast simple basado en el tipo solicitado
             if tipo == int:

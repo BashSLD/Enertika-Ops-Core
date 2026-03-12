@@ -176,9 +176,9 @@ class AdminService:
             "sim_penalizacion_retrabajos": config_dict.get("sim_penalizacion_retrabajos", None),
             "sim_volumen_max": config_dict.get("sim_volumen_max", None),
             # Comercial Config
-            "comercial_popup_targets": config_dict.get("COMERCIAL_POPUP_TARGETS", ""),
+            "comercial_popup_targets": config_dict.get("COMERCIAL_POPUP_TARGETS") or "",
             # Reporte Semanal
-            "reporte_semanal_destinatarios": config_dict.get("reporte_semanal_destinatarios", "")
+            "reporte_semanal_destinatarios": config_dict.get("reporte_semanal_destinatarios") or ""
         }
 
     async def update_global_config(self, conn, datos: ConfiguracionGlobalUpdate) -> None:

@@ -24,15 +24,17 @@
     <!-- ====================================================== -->
     <!-- MODO CREAR                                              -->
     <!-- ====================================================== -->
-    <form hx-post="/levantamientos/visitas-campo" hx-target="#modal-content" hx-swap="innerHTML" x-data="{
+    <form hx-post="/levantamientos/visitas-campo" hx-target="#modal-content" hx-swap="innerHTML"
+          data-preseleccionado='{{ preseleccionado | tojson }}'
+          data-lev-data='{{ levantamientos_disponibles | map(attribute="id_levantamiento") | list | tojson }}'
+          x-data="{
               busqueda: '',
               seleccionados: [],
               viaticos: [],
               levData: {},
               init() {
-                  {% if preseleccionado %}
-                  this.seleccionados = ['{{ preseleccionado }}'];
-                  {% endif %}
+                  const pre = JSON.parse(this.$el.dataset.preseleccionado || 'null');
+                  if (pre) this.seleccionados = [pre];
                   // Build lookup for levantamiento display info
                   {% if levantamientos_disponibles %}
                   {% for lev in levantamientos_disponibles %}
@@ -210,6 +212,7 @@
     <!-- ====================================================== -->
     <!-- MODO GESTIONAR                                          -->
     <!-- ====================================================== -->
+    <div x-data="{ sinViaticos: {{ 'true' if visita.viaticos_opcionales else 'false' }}, numViaticos: {{ viaticos | length }} }">
 
     <!-- Info de la visita: periodo (editable) + levantamientos (swappable) -->
     <div class="vc-info-panel mb-4">
@@ -219,8 +222,26 @@
         </div>
     </div>
 
+    <!-- ========== TOGGLE VIÁTICOS OPCIONALES ========== -->
+    {% if can_edit %}
+    <div class="mb-4 p-3 bg-slate-800/50 rounded-lg border border-slate-700/40 flex flex-wrap items-center gap-3">
+        <label class="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox"
+                x-model="sinViaticos"
+                @change="htmx.ajax('PATCH', '/levantamientos/visitas-campo/{{ visita.id_visita }}/viaticos-opcionales', { values: { viaticos_opcionales: sinViaticos ? '1' : '0' }, swap: 'none' })"
+                class="w-4 h-4 accent-amber-500" />
+            <span class="text-sm text-slate-300 select-none">Sin viáticos (visita local / misma jornada)</span>
+        </label>
+        <div x-show="sinViaticos && numViaticos > 0"
+            class="flex items-center gap-1.5 text-xs text-amber-400">
+            <i class="fas fa-exclamation-triangle"></i>
+            <span>Los viáticos cargados no se incluirán en el envío.</span>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- ========== VIÁTICOS ========== -->
-    <div class="vc-section mb-4">
+    <div class="vc-section mb-4" x-show="!sinViaticos">
         <h4 class="vc-section-title">
             <i class="fas fa-money-bill-wave text-emerald-400"></i>
             Viáticos del Viaje
@@ -264,8 +285,17 @@
         </div>
     </div>
 
+    <!-- Mensaje informativo cuando la visita es sin viáticos -->
+    <div class="vc-section mb-4" x-show="sinViaticos">
+        <div class="flex items-center gap-3 text-slate-400 text-sm">
+            <i class="fas fa-info-circle text-amber-500"></i>
+            <span>Esta visita esta marcada como <strong class="text-amber-400">sin viaticos de viaje</strong>.
+                El correo se enviara sin tabla de viaticos ni prorrateo.</span>
+        </div>
+    </div>
+
     <!-- ========== PRORRATEO ========== -->
-    <div class="vc-section mb-4" id="vc-prorrateo-container">
+    <div class="vc-section mb-4" id="vc-prorrateo-container" x-show="!sinViaticos">
         {% include "levantamientos/partials/visita_campo_prorrateo.html" %}
     </div>
 
@@ -411,6 +441,8 @@
             {% include "levantamientos/partials/historial_envios_visita.html" %}
         </div>
     </div>
+
+    </div>{# /x-data sinViaticos wrapper #}
 
     {% endif %}{# end if step #}
 

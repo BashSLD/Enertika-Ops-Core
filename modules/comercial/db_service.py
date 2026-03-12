@@ -211,6 +211,22 @@ QUERY_INSERT_SITIO_UNICO = """
     VALUES ($1, $2, $3, $4, $5, $6, $7)
 """
 
+QUERY_GET_ULTIMO_MOVIMIENTO_HILO = """
+    WITH root AS (
+        SELECT COALESCE(parent_id, id_oportunidad) AS root_id
+        FROM tb_oportunidades
+        WHERE id_oportunidad = $1
+    )
+    SELECT o.id_oportunidad, o.op_id_estandar, ts.nombre AS tipo_solicitud
+    FROM tb_oportunidades o
+    JOIN tb_cat_tipos_solicitud ts ON ts.id = o.id_tipo_solicitud
+    CROSS JOIN root
+    WHERE (o.id_oportunidad = root.root_id OR o.parent_id = root.root_id)
+      AND o.email_enviado = TRUE
+    ORDER BY o.created_at DESC
+    LIMIT 1
+"""
+
 # Updates
 QUERY_UPDATE_EMAIL_ENVIADO = "UPDATE tb_oportunidades SET email_enviado = TRUE WHERE id_oportunidad = $1"
 QUERY_UPDATE_PRIORIDAD = "UPDATE tb_oportunidades SET prioridad = $1 WHERE id_oportunidad = $2"

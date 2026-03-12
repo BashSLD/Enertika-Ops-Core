@@ -94,6 +94,17 @@
                                 </tbody>
                             </table>
 
+                            {% if viaticos_opcionales %}
+                            <!-- Visita sin viáticos -->
+                            <table role="presentation" style="width:100%; margin-bottom:25px;">
+                                <tr>
+                                    <td style="padding:16px 20px; background-color:#fffbeb; border:1px solid #fcd34d; border-radius:6px; font-size:13px; color:#92400e;">
+                                        <strong>Visita sin viaticos de viaje.</strong>
+                                        Esta visita fue marcada como visita local / sin gastos de desplazamiento.
+                                    </td>
+                                </tr>
+                            </table>
+                            {% else %}
                             <!-- Viáticos del viaje -->
                             <h3 style="margin:0 0 12px 0; color:#1e293b; font-size:15px; font-weight:600;">
                                 Viaticos del Viaje
@@ -109,7 +120,7 @@
                                 <tbody>
                                     {% for v in viaticos %}
                                     <tr>
-                                        <td style="padding:10px 12px; font-size:13px; color:#334155; border-bottom:1px solid #e2e8f0;">{{ v.usuario_nombre }}</td>
+                                        <td style="padding:10px 12px; font-size:13px; color:#334155; border-bottom:1px solid #e2e8f0;">{{ v.usuario_nombre or "Sin asignar" }}</td>
                                         <td style="padding:10px 12px; font-size:13px; color:#334155; border-bottom:1px solid #e2e8f0;">{{ v.concepto }}</td>
                                         <td style="padding:10px 12px; font-size:13px; color:#334155; border-bottom:1px solid #e2e8f0; text-align:right; font-family:monospace;">${{ "%.2f"|format(v.monto) }}</td>
                                     </tr>
@@ -126,7 +137,7 @@
                             <!-- Prorrateo por levantamiento -->
                             <h3 style="margin:0 0 12px 0; color:#1e293b; font-size:15px; font-weight:600;">
                                 Prorrateo por Levantamiento
-                                <span style="font-size:12px; color:#64748b; font-weight:400;">(division igual)</span>
+                                <span style="font-size:12px; color:#64748b; font-weight:400;">({{ metodo_prorrateo }})</span>
                             </h3>
                             <table role="presentation" style="width:100%; border-collapse:collapse; margin-bottom:25px;">
                                 <thead>
@@ -147,6 +158,7 @@
                                     {% endfor %}
                                 </tbody>
                             </table>
+                            {% endif %}
 
                             <!-- Firma -->
                             <table role="presentation" style="width:100%; border-top:1px solid #e2e8f0; padding-top:20px;">

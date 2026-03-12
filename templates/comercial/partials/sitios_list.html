@@ -161,12 +161,14 @@
 
                 // Re-habilitar botón "Enviar Correo" si existe (fix para seguimientos)
                 const submitBtn = document.getElementById('submit-btn');
-                if (submitBtn && window.quillInstance) {
+                if (submitBtn) {
                     submitBtn.disabled = false;
                     submitBtn.classList.remove('opacity-50', 'cursor-not-allowed');
                     const btnText = document.getElementById('btn-text');
-                    if (btnText) btnText.innerHTML = 'Enviar Correo';
-                    console.log('✅ Botón re-habilitado después de eliminar sitio');
+                    if (btnText && btnText.dataset.state === 'loading') {
+                        btnText.dataset.state = 'ready';
+                        btnText.innerHTML = 'Enviar Correo';
+                    }
                 }
 
                 document.body.removeEventListener('htmx:afterSwap', handler);

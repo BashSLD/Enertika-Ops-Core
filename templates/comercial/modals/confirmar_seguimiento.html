@@ -29,6 +29,18 @@
         <!-- Body -->
         <div class="p-6 space-y-4">
 
+            <!-- Advertencia: no se está solicitando desde el último movimiento -->
+            {% if ultimo_movimiento %}
+            <div class="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-800">
+                <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 9v2m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                </svg>
+                <span>El último movimiento registrado fue un <strong>{{ ultimo_movimiento.tipo_solicitud }}</strong>
+                ({{ ultimo_movimiento.op_id_estandar }}). Considera solicitarlo desde ese registro para continuar el hilo de correo existente.</span>
+            </div>
+            {% endif %}
+
             <!-- Toggle multisitio -->
             <button type="button" @click="expandido = !expandido"
                 class="w-full flex items-center justify-between px-4 py-3 rounded-lg border transition-colors" :class="expandido

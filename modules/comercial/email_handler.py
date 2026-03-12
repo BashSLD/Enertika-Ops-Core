@@ -249,14 +249,37 @@ class EmailHandler:
         # Buscar hilo si hay search_key
         thread_id = None
         if threading_context["search_key"]:
-            thread_id = await ms_auth.find_thread_id(access_token, threading_context["search_key"])
+            candidatos_ids = await ms_auth.find_thread_candidates(access_token, threading_context["search_key"])
             
-            if thread_id:
+            for cid in candidatos_ids:
                 logger.info(
-                    f"HILO ENCONTRADO | ID: {thread_id[:20]}... | "
+                    f"PROBANDO HILO CANDIDATO | ID: {cid[:20]}... | "
                     f"Se responderá con nuevo título: '{subject}'"
                 )
-            else:
+                ok, msg = await ms_auth.reply_with_new_subject(
+                    access_token=access_token,
+                    thread_id=cid,
+                    new_subject=subject,
+                    body=body,
+                    recipients=recipients,
+                    cc_recipients=cc,
+                    bcc_recipients=bcc,
+                    importance=prioridad.lower(),
+                    attachments=attachments
+                )
+                if ok:
+                    thread_id = cid
+                    logger.info(f"Correo enviado como RESPUESTA en hilo existente (ID: {cid[:20]}...)")
+                    break
+                else:
+                    logger.warning(f"Error respondiendo a candidato {cid[:20]}...: {msg}. Probando siguiente...")
+            
+            if not thread_id and candidatos_ids:
+                logger.warning(
+                    f"TODOS LOS HILOS CANDIDATOS FALLARON | Búsqueda: '{threading_context.get('search_key')}' | "
+                    f"Se enviará como correo nuevo"
+                )
+            elif not candidatos_ids:
                 logger.warning(
                     f"HILO NO ENCONTRADO | Búsqueda: '{threading_context.get('search_key')}' | "
                     f"Se enviará como correo nuevo"
@@ -264,24 +287,14 @@ class EmailHandler:
         
         # --- SEGURIDAD: Bloquear envío si es Modo Homologación y falló la búsqueda ---
         if legacy_search_term and not thread_id:
-             error_msg = f"Error: No se encontró el hilo para '{legacy_search_term}'. El envío ha sido bloqueado por seguridad."
+             error_msg = f"Error: No se encontró un hilo válido para '{legacy_search_term}' o falló la respuesta a todos los candidatos. El envío ha sido bloqueado por seguridad."
              logger.error(error_msg)
              # Retornamos error explícito en lugar de enviar correo nuevo "roto"
              return {"success": False, "error": error_msg}
         
+        # Si thread_id tiene valor, ya se envió exitosamente en el ciclo for.
         if thread_id:
-            ok, msg = await ms_auth.reply_with_new_subject(
-                access_token=access_token,
-                thread_id=thread_id,
-                new_subject=subject,
-                body=body,
-                recipients=recipients,
-                cc_recipients=cc,
-                bcc_recipients=bcc,
-                importance=prioridad.lower(),
-                attachments=attachments
-            )
-            logger.info(f"Correo enviado como RESPUESTA en hilo existente")
+            return {"success": True, "error": None}
         else:
             ok, msg = await ms_auth.send_email_with_attachments(
                 access_token=access_token,
