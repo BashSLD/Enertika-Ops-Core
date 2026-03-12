@@ -223,7 +223,7 @@ QUERY_GET_ULTIMO_MOVIMIENTO_HILO = """
     CROSS JOIN root
     WHERE (o.id_oportunidad = root.root_id OR o.parent_id = root.root_id)
       AND o.email_enviado = TRUE
-    ORDER BY o.created_at DESC
+    ORDER BY o.fecha_creacion DESC
     LIMIT 1
 """
 
