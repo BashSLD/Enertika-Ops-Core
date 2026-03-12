@@ -41,7 +41,7 @@
             <div class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-blue-500 bg-white">
                 <div class="chips-container flex flex-wrap gap-1"></div>
                 <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
-                    placeholder="Escribe correo y Enter o ;">
+                    placeholder="Escribe correo y Enter o ;" list="system-users-list">
             </div>
             <input type="hidden" name="recipients_str" class="recipients-hidden">
         </div>
@@ -55,10 +55,18 @@
             <div class="border border-gray-300 rounded-md p-2 focus-within:ring-1 focus-within:ring-blue-500 bg-white">
                 <div class="chips-container flex flex-wrap gap-1"></div>
                 <input type="text" class="chip-input border-none focus:ring-0 p-1 text-sm w-full"
-                    placeholder="Agregar copias extra...">
+                    placeholder="Agregar copias extra..." list="system-users-list">
             </div>
             <input type="hidden" name="extra_cc" class="recipients-hidden">
         </div>
+
+        {% if system_users %}
+        <datalist id="system-users-list">
+            {% for u in system_users %}
+            <option value="{{ u.email }}">{{ u.name }}</option>
+            {% endfor %}
+        </datalist>
+        {% endif %}
 
         <!-- Prioridad del Correo -->
         <div>

@@ -885,10 +885,15 @@ async def get_paso3_email_form(
 
     template = "comercial/email_form.html" if request.headers.get("hx-request") else "comercial/email_full.html"
 
+    # Buscar correos de usuarios activos en el sistema para la lista desplegable
+    system_users = await conn.fetch("SELECT email, nombre FROM tb_usuarios WHERE is_active = TRUE AND email IS NOT NULL AND email != '' ORDER BY nombre")
+    user_dict_list = [{"email": u["email"], "name": u["nombre"]} for u in system_users]
+    
     return templates.TemplateResponse(template, {
         "request": request,
         **data, # Desempaquetar dict del servicio
         "legacy_term": legacy_term,
+        "system_users": user_dict_list,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {})

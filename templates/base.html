@@ -783,6 +783,16 @@
                 addChip(e.target);
             }
         });
+        document.addEventListener('change', function (e) {
+            // Convierte a chip si pierde foco o se escoge opción del datalist
+            if (e.target.classList.contains('chip-input')) {
+                // Solo convertir si hay un valor que parece un correo razonable
+                let val = e.target.value.trim().replace(/[;,]/g, '');
+                if (val && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(val)) {
+                    addChip(e.target);
+                }
+            }
+        });
         document.addEventListener('click', function (e) {
             if (e.target.classList.contains('chip-remove')) removeChip(e.target);
         });
@@ -797,8 +807,8 @@
             chip.className = 'inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 border border-blue-200 mr-2 mb-2 animate-fade-in-down';
             chip.innerHTML = `<span>${value}</span><button type="button" class="chip-remove ml-2 text-blue-500 hover:text-blue-700 font-bold">×</button>`;
             chipsContainer.appendChild(chip);
-            updateHiddenInput(hiddenInput, chipsContainer);
             input.value = '';
+            updateHiddenInput(hiddenInput, chipsContainer);
         }
         function removeChip(button) {
             const chip = button.closest('div');
