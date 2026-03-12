@@ -134,11 +134,15 @@ function initPdfCharts() {
             <div class="flex flex-col gap-1 w-full sm:w-auto">
                 <span class="text-xs text-gray-500 uppercase font-semibold">Rango de fechas</span>
                 <div class="flex items-center gap-2 bg-gray-50 rounded-lg p-2 border border-gray-200 w-full">
-                    <input type="date" x-model="filtros.fecha_inicio" @change="aplicarFiltros()"
+                    <input type="date" x-model="filtros.fecha_inicio"
                         class="text-sm border-0 bg-transparent p-0 focus:ring-0 text-gray-700 flex-1 min-w-0">
                     <span class="text-gray-400 shrink-0">—</span>
-                    <input type="date" x-model="filtros.fecha_fin" @change="aplicarFiltros()"
+                    <input type="date" x-model="filtros.fecha_fin"
                         class="text-sm border-0 bg-transparent p-0 focus:ring-0 text-gray-700 flex-1 min-w-0">
+                    <button @click="aplicarFiltros()" title="Aplicar rango"
+                        class="shrink-0 ml-1 px-2 py-0.5 bg-[#00BABB] hover:bg-[#009a9b] text-white text-xs font-semibold rounded transition-colors">
+                        Aplicar
+                    </button>
                 </div>
                 <p class="text-xs text-red-600 font-medium">Selecciona un rango para ver detalles</p>
             </div>

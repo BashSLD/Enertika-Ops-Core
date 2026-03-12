@@ -574,6 +574,12 @@
                 <div class="kv k-amber">{{ m.en_espera }}</div>
                 <div class="kl">En Espera</div>
             </td>
+            {% if m.ganadas > 0 %}
+            <td class="kpi-card k-green">
+                <div class="kv k-green">{{ m.ganadas }}</div>
+                <div class="kl">Ganadas</div>
+            </td>
+            {% endif %}
         </tr>
     </table>
 
@@ -590,6 +596,16 @@
             <td class="ml">En espera</td>
             <td class="mv">{{ m.en_espera }}</td>
         </tr>
+        {% if m.sim_adicionales_count > 0 %}
+        <tr>
+            <td class="ml" colspan="2" style="font-size:9px;color:#6b7280;">
+                Incluye {{ m.sim_adicionales_count }} simulacion{% if m.sim_adicionales_count != 1 %}es{% endif %} adicional{% if m.sim_adicionales_count != 1 %}es{% endif %} dentro de oportunidades existentes.
+            </td>
+            <td class="ml" colspan="2" style="font-size:9px;color:#6b7280;">
+                Levantamientos no se incluyen en el total de solicitudes.
+            </td>
+        </tr>
+        {% endif %}
     </table>
 
     {# Graficas: Estatus + Tendencia mensual en la misma pagina #}

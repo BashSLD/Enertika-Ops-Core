@@ -28,6 +28,11 @@
                 La capacidad operativa permitió procesar <strong>{{ resumen.total_ofertas }} ofertas</strong>
                 abarcando <strong>{{ resumen.total_sitios_global }} sitios</strong>,
                 con <strong>{{ resumen.en_espera }}</strong> casos en espera al cierre.
+                {% if resumen.ganadas > 0 %}
+                <br><span class="text-gray-500 text-xs">
+                    {{ resumen.ganadas }} oportunidad{% if resumen.ganadas != 1 %}es{% endif %} cerrada{% if resumen.ganadas != 1 %}s{% endif %} como Ganada en el período.
+                </span>
+                {% endif %}
                 {% if resumen.oportunidades_multisitio_global > 0 %}
                 <br><span class="text-gray-500 text-xs">{{ resumen.oportunidades_multisitio_global }} oportunidades multisitio en el período.</span>
                 {% endif %}
@@ -40,6 +45,17 @@
                 {% for tipo in resumen.top_tipos %}
                 {{ tipo.nombre }} ({{ tipo.total }} - {{ tipo.porcentaje }}%){% if not loop.last %}, {% endif %}
                 {% endfor %}.
+                {% if resumen.levantamiento_info %}
+                <br><span class="text-gray-500 text-xs">
+                    Levantamientos: {{ resumen.levantamiento_info.total }} sitios
+                    ({{ resumen.levantamiento_info.porcentaje }}% del total incluyendo levantamientos — no contabilizados como solicitudes de simulacion).
+                </span>
+                {% endif %}
+                {% if resumen.sim_adicionales_count > 0 %}
+                <br><span class="text-gray-500 text-xs">
+                    Incluye {{ resumen.sim_adicionales_count }} simulacion{% if resumen.sim_adicionales_count != 1 %}es{% endif %} adicional{% if resumen.sim_adicionales_count != 1 %}es{% endif %} dentro de oportunidades existentes.
+                </span>
+                {% endif %}
             </p>
         </div>
 
@@ -87,12 +103,26 @@
                 </ul>
                 {% if resumen.total_retrabajos > 0 %}
                 <div class="mt-2 text-xs bg-red-50 text-red-800 p-2 rounded border border-red-100">
-                    <strong>⚠️ Retrabajos:</strong> {{ resumen.total_retrabajos }} casos ({{
+                    <strong>Retrabajos:</strong> {{ resumen.total_retrabajos }} casos ({{
                     resumen.porcentaje_retrabajos }}%)
                     {% if resumen.motivo_retrabajo_principal %}
                     <br>Principal causa: "{{ resumen.motivo_retrabajo_principal }}" ({{ resumen.conteo_motivo_principal
                     }})
                     {% endif %}
+                </div>
+                {% endif %}
+                {% if resumen.motivos_cierre %}
+                {% set total_cerradas = resumen.motivos_cierre | sum(attribute='total') %}
+                <div class="mt-2 text-xs bg-amber-50 text-amber-900 p-2 rounded border border-amber-100">
+                    <strong>Canceladas / Perdidas:</strong> {{ total_cerradas }} oportunidad{% if total_cerradas != 1 %}es{% endif %} con motivo registrado
+                    <ul class="mt-1 space-y-0.5">
+                        {% for mc in resumen.motivos_cierre[:5] %}
+                        <li class="flex items-center justify-between gap-2">
+                            <span class="truncate">{{ mc.motivo }}</span>
+                            <span class="shrink-0 font-semibold">{{ mc.total }}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
                 </div>
                 {% endif %}
             </div>

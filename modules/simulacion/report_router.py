@@ -203,9 +203,10 @@ async def get_analisis_detallado(
         logger.warning("get_datos_graficas fallo en analisis detallado: %s", exc)
         graficas_dict = {}
 
-    # Obtener motivo de retrabajo principal
+    # Obtener motivo de retrabajo principal y motivos de cierre
     motivo_retrabajo = await service.get_motivo_retrabajo_principal(conn, filtros)
-    
+    motivos_cierre = await service.db.get_chart_motivos_cierre(conn, asdict(filtros))
+
     # Generar resumen ejecutivo
     resumen_ejecutivo = await service.generar_resumen_ejecutivo(
         conn,
@@ -215,7 +216,8 @@ async def get_analisis_detallado(
         filtros=filtros,
         motivo_retrabajo_principal=motivo_retrabajo,
         metricas_tecnologia=metricas_tech,
-        resumen_mensual=resumen_mensual
+        resumen_mensual=resumen_mensual,
+        motivos_cierre=motivos_cierre,
     )
     
     # Generar lista de meses
@@ -287,6 +289,48 @@ async def get_analisis_detallado(
             "simulacion/reportes/analisis_detallado.html", 
             template_data
         )
+
+
+# =============================================================================
+# MODAL: OPORTUNIDADES POR USUARIO
+# =============================================================================
+
+@router.get("/usuario/{usuario_id}/oportunidades", include_in_schema=False)
+async def get_oportunidades_usuario_modal(
+    request: Request,
+    usuario_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    tech_id: Optional[str] = None,
+    type_id: Optional[str] = None,
+    status_id: Optional[str] = None,
+    context = Depends(get_current_user_context),
+    conn = Depends(get_db_connection),
+    service: ReportesSimulacionService = Depends(get_reportes_service),
+    _ = require_module_access("simulacion")
+):
+    """Modal con listado de oportunidades trabajadas por un usuario en el período."""
+    try:
+        uid = UUID(usuario_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="usuario_id inválido")
+
+    filtros = parse_filtros(start_date, end_date, tech_id, type_id, status_id)
+    oportunidades = await service.get_oportunidades_usuario_reporte(conn, uid, filtros)
+    nombre_param = request.query_params.get("nombre", "Usuario")
+
+    return templates.TemplateResponse(
+        "simulacion/reportes/modals/oportunidades_usuario_modal.html",
+        {
+            "request": request,
+            "oportunidades": oportunidades,
+            "nombre_usuario": nombre_param,
+            "filtros_aplicados": {
+                "fecha_inicio": filtros.fecha_inicio.isoformat(),
+                "fecha_fin": filtros.fecha_fin.isoformat(),
+            },
+        }
+    )
 
 
 # =============================================================================

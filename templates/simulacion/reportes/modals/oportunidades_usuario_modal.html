@@ -1,0 +1,238 @@
+{# templates/simulacion/reportes/modals/oportunidades_usuario_modal.html #}
+{# Modal de drill-down: oportunidades trabajadas por un usuario en el período #}
+
+<div
+    x-data="{ open: true }"
+    x-init="$nextTick(() => { open = true })"
+    x-show="open"
+    x-transition:enter="transition ease-out duration-200"
+    x-transition:enter-start="opacity-0"
+    x-transition:enter-end="opacity-100"
+    x-transition:leave="transition ease-in duration-150"
+    x-transition:leave-start="opacity-100"
+    x-transition:leave-end="opacity-0"
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-gray-900/60 backdrop-blur-sm"
+    @keydown.escape.window="open = false; $nextTick(() => document.getElementById('modal-oportunidades-usuario').innerHTML = '')"
+    @click.self="open = false; $nextTick(() => document.getElementById('modal-oportunidades-usuario').innerHTML = '')">
+
+    <div
+        x-show="open"
+        x-transition:enter="transition ease-out duration-200"
+        x-transition:enter-start="opacity-0 scale-95"
+        x-transition:enter-end="opacity-100 scale-100"
+        x-transition:leave="transition ease-in duration-150"
+        x-transition:leave-start="opacity-100 scale-100"
+        x-transition:leave-end="opacity-0 scale-95"
+        class="bg-white rounded-xl shadow-2xl w-full max-w-6xl max-h-[92vh] sm:max-h-[88vh] flex flex-col">
+
+        {# Header #}
+        <div class="bg-gradient-to-r from-[#123456] to-[#0d2440] px-4 sm:px-6 py-3 sm:py-4 rounded-t-xl flex items-center justify-between gap-3 shrink-0">
+            <div class="flex items-center gap-2 sm:gap-3 min-w-0">
+                <div class="p-1.5 sm:p-2 bg-white/10 rounded-lg shrink-0 hidden sm:block">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                    </svg>
+                </div>
+                <div class="min-w-0">
+                    <h2 class="text-sm sm:text-lg font-bold text-white truncate">
+                        <span class="text-white/60 font-normal hidden sm:inline">Oportunidades — </span>{{ nombre_usuario }}
+                    </h2>
+                    <p class="text-[10px] sm:text-xs text-white/60 truncate">
+                        {{ filtros_aplicados.fecha_inicio }} al {{ filtros_aplicados.fecha_fin }}
+                        &middot; {{ oportunidades | length }} registros
+                    </p>
+                </div>
+            </div>
+            <button
+                @click="open = false; $nextTick(() => document.getElementById('modal-oportunidades-usuario').innerHTML = '')"
+                class="p-2 text-white/70 hover:text-white hover:bg-white/10 rounded-lg transition-colors shrink-0">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+            </button>
+        </div>
+
+        {# Body #}
+        <div class="overflow-y-auto flex-1 p-0">
+            {% if oportunidades %}
+            <div class="overflow-x-auto">
+                <table class="w-full text-sm min-w-[900px]">
+                    <thead class="sticky top-0 z-10">
+                        <tr class="bg-gray-100 border-b border-gray-200">
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">ID</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Cliente</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide">Proyecto</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Tipo</th>
+                            <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Tecnología</th>
+                            <th class="px-4 py-3 text-center text-xs font-semibold text-amber-700 uppercase tracking-wide bg-amber-50 whitespace-nowrap">Licitación</th>
+                            <th class="px-4 py-3 text-center text-xs font-semibold text-teal-700 uppercase tracking-wide bg-teal-50 whitespace-nowrap">Sitios</th>
+                            <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Estatus</th>
+                            <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Fecha solicitud</th>
+                            <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Fecha entrega</th>
+                            <th class="px-4 py-3 text-center text-xs font-semibold text-emerald-700 uppercase tracking-wide bg-emerald-50 whitespace-nowrap">KPI Interno</th>
+                            <th class="px-4 py-3 text-center text-xs font-semibold text-blue-700 uppercase tracking-wide bg-blue-50 whitespace-nowrap">KPI Compromiso</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% for op in oportunidades %}
+                        <tr class="hover:bg-gray-50 transition-colors">
+
+                            {# ID #}
+                            <td class="px-4 py-3 font-mono text-xs text-gray-500 whitespace-nowrap">
+                                {{ op.op_id_estandar or '-' }}
+                            </td>
+
+                            {# Cliente #}
+                            <td class="px-4 py-3">
+                                <span class="font-medium text-gray-900">{{ op.cliente_nombre or '-' }}</span>
+                            </td>
+
+                            {# Proyecto #}
+                            <td class="px-4 py-3 max-w-[200px]">
+                                <span class="text-gray-700 text-xs leading-snug line-clamp-2" title="{{ op.nombre_proyecto }}">
+                                    {{ op.nombre_proyecto or '-' }}
+                                </span>
+                                {% if op.clasificacion_solicitud == 'EXTRAORDINARIO' %}
+                                <span class="inline-block mt-1 px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded text-[10px] font-medium">Extraordinario</span>
+                                {% endif %}
+                                {% if op.parent_id %}
+                                <span class="inline-block mt-1 px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px] font-medium">Actualización</span>
+                                {% endif %}
+                            </td>
+
+                            {# Tipo #}
+                            <td class="px-4 py-3 whitespace-nowrap">
+                                <span class="text-xs text-gray-600">{{ op.tipo_solicitud or '-' }}</span>
+                            </td>
+
+                            {# Tecnología #}
+                            <td class="px-4 py-3 text-center whitespace-nowrap">
+                                {% if op.tecnologia %}
+                                <span class="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium">{{ op.tecnologia }}</span>
+                                {% else %}
+                                <span class="text-gray-400 text-xs">-</span>
+                                {% endif %}
+                            </td>
+
+                            {# Licitación #}
+                            <td class="px-4 py-3 text-center bg-amber-50/40">
+                                {% if op.es_licitacion %}
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-amber-100 text-amber-800 rounded-full text-xs font-semibold">
+                                    <svg class="w-3 h-3" fill="currentColor" viewBox="0 0 20 20">
+                                        <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd"/>
+                                    </svg>
+                                    Sí
+                                </span>
+                                {% else %}
+                                <span class="text-gray-300 text-xs">—</span>
+                                {% endif %}
+                            </td>
+
+                            {# Sitios / Multisitio #}
+                            <td class="px-4 py-3 text-center bg-teal-50/40">
+                                {% set n_sitios = op.sitios_count or op.cantidad_sitios or 1 %}
+                                {% if n_sitios > 1 %}
+                                <span class="inline-flex items-center gap-1 px-2 py-0.5 bg-teal-100 text-teal-800 rounded-full text-xs font-semibold">
+                                    {{ n_sitios }} <span class="text-[10px] font-normal">sitios</span>
+                                </span>
+                                {% else %}
+                                <span class="text-gray-500 text-xs">{{ n_sitios }}</span>
+                                {% endif %}
+                            </td>
+
+                            {# Estatus #}
+                            <td class="px-4 py-3 whitespace-nowrap">
+                                {% set est = op.estatus_nombre | lower %}
+                                {% if 'entregado' in est or 'ganada' in est %}
+                                <span class="px-2 py-0.5 bg-green-100 text-green-800 rounded text-xs font-medium">{{ op.estatus_nombre }}</span>
+                                {% elif 'proceso' in est or 'pendiente' in est or 'revisión' in est %}
+                                <span class="px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs font-medium">{{ op.estatus_nombre }}</span>
+                                {% elif 'perdido' in est or 'cancelado' in est %}
+                                <span class="px-2 py-0.5 bg-red-100 text-red-800 rounded text-xs font-medium">{{ op.estatus_nombre }}</span>
+                                {% else %}
+                                <span class="px-2 py-0.5 bg-gray-100 text-gray-700 rounded text-xs font-medium">{{ op.estatus_nombre }}</span>
+                                {% endif %}
+                            </td>
+
+                            {# Fecha solicitud #}
+                            <td class="px-4 py-3 text-center whitespace-nowrap">
+                                <span class="text-xs text-gray-600">
+                                    {{ op.fecha_solicitud | time_mx if op.fecha_solicitud else '-' }}
+                                </span>
+                            </td>
+
+                            {# Fecha entrega #}
+                            <td class="px-4 py-3 text-center whitespace-nowrap">
+                                <span class="text-xs text-gray-600">
+                                    {{ op.fecha_entrega_simulacion | time_mx if op.fecha_entrega_simulacion else '-' }}
+                                </span>
+                            </td>
+
+                            {# KPI Interno #}
+                            <td class="px-4 py-3 text-center bg-emerald-50/40">
+                                {% if op.kpi_interno == 'A tiempo' %}
+                                <span class="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-semibold">A tiempo</span>
+                                {% elif op.kpi_interno == 'Tarde' %}
+                                <span class="px-2 py-0.5 bg-red-100 text-red-700 rounded text-xs font-semibold">Tarde</span>
+                                {% else %}
+                                <span class="text-gray-300 text-xs">—</span>
+                                {% endif %}
+                            </td>
+
+                            {# KPI Compromiso #}
+                            <td class="px-4 py-3 text-center bg-blue-50/40">
+                                {% if op.kpi_compromiso == 'A tiempo' %}
+                                <span class="px-2 py-0.5 bg-green-100 text-green-700 rounded text-xs font-semibold">A tiempo</span>
+                                {% elif op.kpi_compromiso == 'Tarde' %}
+                                <span class="px-2 py-0.5 bg-orange-100 text-orange-700 rounded text-xs font-semibold">Tarde</span>
+                                {% else %}
+                                <span class="text-gray-300 text-xs">—</span>
+                                {% endif %}
+                            </td>
+
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="flex flex-col items-center justify-center py-20 text-gray-400">
+                <svg class="w-14 h-14 mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+                </svg>
+                <p class="text-base font-medium">Sin oportunidades en el período</p>
+                <p class="text-sm mt-1">Ajusta los filtros para ver resultados</p>
+            </div>
+            {% endif %}
+        </div>
+
+        {# Footer #}
+        <div class="px-4 sm:px-6 py-3 bg-gray-50 border-t rounded-b-xl flex flex-wrap items-center gap-3 justify-between shrink-0">
+            {% set ns = namespace(lic=0, multisitio=0, tiempo=0, tarde=0) %}
+            {% for op in oportunidades %}
+                {% if op.es_licitacion %}{% set ns.lic = ns.lic + 1 %}{% endif %}
+                {% if (op.sitios_count or 0) > 1 %}{% set ns.multisitio = ns.multisitio + 1 %}{% endif %}
+                {% if op.kpi_compromiso == 'A tiempo' %}{% set ns.tiempo = ns.tiempo + 1 %}{% endif %}
+                {% if op.kpi_compromiso == 'Tarde' %}{% set ns.tarde = ns.tarde + 1 %}{% endif %}
+            {% endfor %}
+            <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
+                <span><strong class="text-amber-600">{{ ns.lic }}</strong> licitaciones</span>
+                <span><strong class="text-teal-600">{{ ns.multisitio }}</strong> multisitio</span>
+                <span class="hidden sm:inline"><strong class="text-green-600">{{ ns.tiempo }}</strong> a tiempo</span>
+                <span class="hidden sm:inline"><strong class="text-orange-600">{{ ns.tarde }}</strong> tarde</span>
+                <span class="sm:hidden text-[10px]">
+                    <strong class="text-green-600">{{ ns.tiempo }}</strong> ok /
+                    <strong class="text-orange-600">{{ ns.tarde }}</strong> tarde
+                </span>
+            </div>
+            <button
+                @click="open = false; $nextTick(() => document.getElementById('modal-oportunidades-usuario').innerHTML = '')"
+                class="px-3 sm:px-4 py-1.5 sm:py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 text-xs sm:text-sm font-medium rounded-lg transition-colors shrink-0">
+                Cerrar
+            </button>
+        </div>
+
+    </div>
+</div>

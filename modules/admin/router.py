@@ -1,3 +1,4 @@
+from datetime import timedelta
 from fastapi import APIRouter, Request, Depends, HTTPException, Form, Header
 from fastapi.responses import HTMLResponse, Response
 from typing import Optional
@@ -40,9 +41,8 @@ async def admin_dashboard(
     modules_dict = await service.get_modules_catalog(conn)
     catalogos = await service.get_catalogos_reglas(conn)
     global_config = await service.get_global_config(conn)
-    import logging
-    logging.getLogger("AdminRouter").debug(f"Dashboard Config Loaded: {global_config}")
-    
+    reporte = await service.generar_reporte_semanal(conn)
+
     return templates.TemplateResponse("admin/dashboard.html", {
         "request": request,
         "users": users_enriched,
@@ -54,7 +54,12 @@ async def admin_dashboard(
         "config_global": global_config,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
-        "module_roles": context.get("module_roles", {})
+        "module_roles": context.get("module_roles", {}),
+        # Datos reporte semanal
+        "reporte_datos": reporte["datos"],
+        "reporte_fecha_inicio": reporte["fecha_inicio"],
+        "reporte_fecha_fin_display": reporte["fecha_fin"] - timedelta(days=1),
+        "reporte_destinatarios_configurados": bool(global_config.get("reporte_semanal_destinatarios", "").strip()),
     })
 
 @router.post("/users/role")

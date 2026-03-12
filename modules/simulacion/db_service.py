@@ -680,7 +680,8 @@ class SimulacionDBService:
                     o.id_motivo_cierre,
                     o.tiempo_elaboracion_horas,
                     o.fecha_entrega_simulacion,
-                    o.cantidad_sitios
+                    o.cantidad_sitios,
+                    'sitio_normal' AS origen
                 FROM tb_sitios_oportunidad s
                 JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
                 JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
@@ -703,7 +704,8 @@ class SimulacionDBService:
                     o.id_motivo_cierre,
                     NULL AS tiempo_elaboracion_horas,
                     sa.fecha_entrega AS fecha_entrega_simulacion,
-                    o.cantidad_sitios
+                    o.cantidad_sitios,
+                    'sim_adicional' AS origen
                 FROM tb_simulaciones_adicionales sa
                 JOIN tb_oportunidades o ON sa.id_oportunidad = o.id_oportunidad
                 JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
@@ -727,7 +729,9 @@ class SimulacionDBService:
                 AVG(CASE WHEN tiempo_elaboracion_horas IS NOT NULL AND id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) THEN tiempo_elaboracion_horas END) as tiempo_promedio_horas,
                 COUNT(CASE WHEN id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as total_sitios,
                 COUNT(CASE WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as total_sitios_entregados,
-                COUNT(DISTINCT CASE WHEN cantidad_sitios > 1 AND id_tipo_solicitud != ${idx_levantamiento} THEN id_oportunidad END) as oportunidades_multisitio
+                COUNT(DISTINCT CASE WHEN cantidad_sitios > 1 AND id_tipo_solicitud != ${idx_levantamiento} THEN id_oportunidad END) as oportunidades_multisitio,
+                COUNT(DISTINCT CASE WHEN id_estatus_global = ${idx_ganada} AND id_tipo_solicitud != ${idx_levantamiento} THEN id_oportunidad END) as ganadas,
+                COUNT(CASE WHEN origen = 'sim_adicional' THEN id_sitio END) as sim_adicionales_count
             FROM sitios_kpis
         """
         row = await conn.fetchrow(query, *params)
@@ -843,7 +847,7 @@ class SimulacionDBService:
         where_clause, params = self._build_report_where_clause(filters)
         
         query = f"""
-            SELECT 
+            SELECT
                 m.motivo,
                 m.categoria,
                 COUNT(*) as total
@@ -852,6 +856,7 @@ class SimulacionDBService:
             JOIN tb_cat_motivos_cierre m ON o.id_motivo_cierre = m.id
             {where_clause}
             AND o.id_motivo_cierre IS NOT NULL
+            AND LOWER(e.nombre) IN ('cancelado', 'perdido')
             GROUP BY m.id, m.motivo, m.categoria
             ORDER BY total DESC
             LIMIT 10
@@ -921,6 +926,56 @@ class SimulacionDBService:
             INNER JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
             {where_clause}
             ORDER BY u.nombre
+        """
+        rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
+    async def get_report_oportunidades_usuario(self, conn, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """
+        Lista individual de oportunidades de un usuario para el modal de drill-down.
+        Requiere que filters incluya responsable_id.
+        """
+        where_clause, params = self._build_report_where_clause(filters)
+        query = f"""
+            SELECT
+                o.id_oportunidad,
+                o.op_id_estandar,
+                o.nombre_proyecto,
+                o.cliente_nombre,
+                o.es_licitacion,
+                o.clasificacion_solicitud,
+                o.parent_id,
+                o.cantidad_sitios,
+                o.fecha_solicitud,
+                o.fecha_entrega_simulacion,
+                e.nombre AS estatus_nombre,
+                ts.nombre AS tipo_solicitud,
+                t.nombre AS tecnologia,
+                COUNT(s.id_sitio) AS sitios_count,
+                CASE
+                    WHEN COUNT(CASE WHEN s.kpi_status_interno = 'Entrega tarde' THEN 1 END) > 0 THEN 'Tarde'
+                    WHEN COUNT(CASE WHEN s.kpi_status_interno = 'Entrega a tiempo' THEN 1 END) = COUNT(s.id_sitio)
+                         AND COUNT(s.id_sitio) > 0 THEN 'A tiempo'
+                    ELSE '-'
+                END AS kpi_interno,
+                CASE
+                    WHEN COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega tarde' THEN 1 END) > 0 THEN 'Tarde'
+                    WHEN COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega a tiempo' THEN 1 END) = COUNT(s.id_sitio)
+                         AND COUNT(s.id_sitio) > 0 THEN 'A tiempo'
+                    ELSE '-'
+                END AS kpi_compromiso
+            FROM tb_oportunidades o
+            JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
+            JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
+            LEFT JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
+            LEFT JOIN tb_sitios_oportunidad s ON o.id_oportunidad = s.id_oportunidad
+            {where_clause}
+            GROUP BY
+                o.id_oportunidad, o.op_id_estandar, o.nombre_proyecto, o.cliente_nombre,
+                o.es_licitacion, o.clasificacion_solicitud, o.parent_id, o.cantidad_sitios,
+                o.fecha_solicitud, o.fecha_entrega_simulacion,
+                e.nombre, ts.nombre, t.nombre
+            ORDER BY o.fecha_solicitud DESC
         """
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]

@@ -18,7 +18,7 @@ from datetime import datetime, date, timedelta
 from typing import List, Dict, Optional, Any, Tuple
 from uuid import UUID
 from zoneinfo import ZoneInfo
-from dataclasses import dataclass, field, asdict
+from dataclasses import dataclass, field, asdict, replace as dc_replace
 from enum import Enum
 import logging
 from dateutil.relativedelta import relativedelta
@@ -40,6 +40,9 @@ from .db_service import SimulacionDBService
 from core.config_service import ConfigService, UmbralesKPI
 
 logger = logging.getLogger("ReportesSimulacion")
+
+_MESES_ES = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+             'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
 
 
 # =============================================================================
@@ -196,6 +199,8 @@ class MetricasGenerales(KPIMetricsMixin):
     
     sin_fecha_entrega: int = 0
     tiempo_promedio_horas: Optional[float] = None
+    ganadas: int = 0
+    sim_adicionales_count: int = 0
 
     @property
     def tiempo_promedio_dias(self) -> Optional[float]:
@@ -622,6 +627,14 @@ class ResumenEjecutivo:
     total_sitios_global: int = 0
     oportunidades_multisitio_global: int = 0
 
+    # Ganadas y simulaciones adicionales
+    ganadas: int = 0
+    sim_adicionales_count: int = 0
+    levantamiento_info: Optional[Dict[str, Any]] = None
+
+    # Motivos de cierre (canceladas + perdidas)
+    motivos_cierre: List[Dict[str, Any]] = field(default_factory=list)
+
 
 
 
@@ -727,7 +740,9 @@ class ReportesSimulacionService:
             tiempo_promedio_horas=row['tiempo_promedio_horas'],
             total_sitios=row['total_sitios'] or 0,
             total_sitios_entregados=row['total_sitios_entregados'] or 0,
-            oportunidades_multisitio=row['oportunidades_multisitio'] or 0
+            oportunidades_multisitio=row['oportunidades_multisitio'] or 0,
+            ganadas=row['ganadas'] or 0,
+            sim_adicionales_count=row['sim_adicionales_count'] or 0
         )
     
     async def get_motivo_retrabajo_principal(
@@ -893,10 +908,23 @@ class ReportesSimulacionService:
         
         return resultados
     
+    async def get_oportunidades_usuario_reporte(
+        self,
+        conn,
+        usuario_id: UUID,
+        filtros: FiltrosReporte
+    ) -> List[Dict[str, Any]]:
+        """
+        Lista individual de oportunidades trabajadas por un usuario en el período.
+        Usado en el modal de drill-down desde Performance por Usuario.
+        """
+        filtros_usuario = dc_replace(filtros, responsable_id=usuario_id)
+        return await self.db.get_report_oportunidades_usuario(conn, asdict(filtros_usuario))
+
     async def get_tiempo_promedio_por_tipo(
-        self, 
-        conn, 
-        user_id: UUID, 
+        self,
+        conn,
+        user_id: UUID,
         filtros: FiltrosReporte
     ) -> Dict[str, float]:
         """
@@ -979,38 +1007,45 @@ class ReportesSimulacionService:
         filas_tipo: List[FilaContabilizacion],
         filtros: FiltrosReporte,
         motivo_retrabajo_principal: tuple = (None, 0),
-        # === NUEVOS PARÁMETROS ===
         metricas_tecnologia: List[MetricaTecnologia] = None,
-        resumen_mensual: Dict[str, 'FilaMensual'] = None
+        resumen_mensual: Dict[str, 'FilaMensual'] = None,
+        motivos_cierre: List[Dict[str, Any]] = None,
     ) -> ResumenEjecutivo:
         """
         Genera SOLO DATOS para el resumen ejecutivo.
         El renderizado HTML se hace en el template.
         """
-        import locale
-        
-        # Configurar locale para fechas en español
-        try:
-            locale.setlocale(locale.LC_TIME, 'es_ES.UTF-8')
-        except (locale.Error, ValueError):
-            pass  # Fallback si locale no está disponible en el sistema
-        
+        def _fmt_fecha(d):
+            return f"{d.day:02d} de {_MESES_ES[d.month]} de {d.year}"
+
         # Formatear fechas
-        fecha_inicio = filtros.fecha_inicio.strftime("%d de %B de %Y")
-        fecha_fin = filtros.fecha_fin.strftime("%d de %B de %Y")
+        fecha_inicio = _fmt_fecha(filtros.fecha_inicio)
+        fecha_fin = _fmt_fecha(filtros.fecha_fin)
         
-        # Top 3 tipos
+        # Top 3 tipos — excluir levantamientos del ranking, tratarlos por separado
         top_tipos = []
-        if filas_tipo and metricas.total_sitios > 0:
-            top_tipos_sorted = sorted(filas_tipo, key=lambda x: x.total, reverse=True)[:3]
-            top_tipos = [
-                {
-                    "nombre": t.nombre,
-                    "total": t.total,
-                    "porcentaje": round((t.total / metricas.total_sitios) * 100, 1) if metricas.total_sitios > 0 else 0
+        levantamiento_info = None
+        if filas_tipo:
+            filas_no_lev = [f for f in filas_tipo if not f.es_levantamiento]
+            fila_lev = next((f for f in filas_tipo if f.es_levantamiento), None)
+
+            if filas_no_lev and metricas.total_sitios > 0:
+                top_tipos_sorted = sorted(filas_no_lev, key=lambda x: x.total, reverse=True)[:3]
+                top_tipos = [
+                    {
+                        "nombre": t.nombre,
+                        "total": t.total,
+                        "porcentaje": round((t.total / metricas.total_sitios) * 100, 1)
+                    }
+                    for t in top_tipos_sorted
+                ]
+
+            if fila_lev and fila_lev.total > 0:
+                total_con_lev = metricas.total_sitios + fila_lev.total
+                levantamiento_info = {
+                    "total": fila_lev.total,
+                    "porcentaje": round((fila_lev.total / total_con_lev) * 100, 1) if total_con_lev > 0 else 0
                 }
-                for t in top_tipos_sorted
-            ]
         
         # Mejor usuario (por KPI Compromiso)
         mejor_usuario_data = None
@@ -1217,6 +1252,10 @@ class ReportesSimulacionService:
             meses_en_rango=meses_en_rango,
             total_sitios_global=metricas.total_sitios,
             oportunidades_multisitio_global=metricas.oportunidades_multisitio,
+            ganadas=metricas.ganadas,
+            sim_adicionales_count=metricas.sim_adicionales_count,
+            levantamiento_info=levantamiento_info,
+            motivos_cierre=motivos_cierre or [],
         )
     
     async def get_resumen_mensual(self, conn, filtros: FiltrosReporte) -> Dict[str, FilaMensual]:

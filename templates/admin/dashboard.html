@@ -72,10 +72,6 @@
                 </button>
 
                 <button onclick="switchTab('reportes')" id="tab-reportes"
-                    hx-get="/admin/ui/reporte-semanal"
-                    hx-target="#content-reportes"
-                    hx-swap="innerHTML"
-                    hx-trigger="click once"
                     class="tab-button border-b-2 border-transparent py-4 px-1 text-sm font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300 flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
                         stroke="currentColor" class="w-5 h-5">
@@ -359,7 +355,11 @@
         {% include "admin/partials/global_config.html" %}
     </div>
 
-    <div id="content-reportes" class="tab-content hidden"></div>
+    <div id="content-reportes" class="tab-content hidden">
+        {% with datos=reporte_datos, fecha_inicio=reporte_fecha_inicio, fecha_fin_display=reporte_fecha_fin_display, destinatarios_configurados=reporte_destinatarios_configurados %}
+        {% include "admin/partials/reporte_semanal.html" %}
+        {% endwith %}
+    </div>
 
 </div>
 
@@ -396,7 +396,6 @@
         document.querySelectorAll('.tab-button').forEach(btn => {
             btn.classList.remove('border-[#00BABB]', 'text-[#123456]');
             btn.classList.add('border-transparent', 'text-gray-500');
-            // Reset icono color
             const icon = btn.querySelector('svg');
             if (icon) icon.classList.remove('text-[#00BABB]');
         });

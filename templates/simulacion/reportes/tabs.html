@@ -163,11 +163,15 @@
 
             <div class="flex flex-wrap items-center gap-3">
                 <div class="flex items-center gap-2 bg-gray-50 rounded-lg p-2">
-                    <input type="date" x-model="filtros.fecha_inicio" @change="aplicarFiltros()"
+                    <input type="date" x-model="filtros.fecha_inicio"
                         class="text-sm border-gray-300 rounded-md focus:ring-[#00BABB]">
                     <span class="text-gray-400">-</span>
-                    <input type="date" x-model="filtros.fecha_fin" @change="aplicarFiltros()"
+                    <input type="date" x-model="filtros.fecha_fin"
                         class="text-sm border-gray-300 rounded-md focus:ring-[#00BABB]">
+                    <button @click="aplicarFiltros()" title="Aplicar rango"
+                        class="px-2 py-1 bg-[#00BABB] hover:bg-[#009a9b] text-white text-xs font-semibold rounded transition-colors">
+                        Aplicar
+                    </button>
                 </div>
                 <select x-model="filtros.tecnologia" @change="aplicarFiltros()"
                     class="text-sm border-gray-300 rounded-lg focus:ring-[#00BABB]">
