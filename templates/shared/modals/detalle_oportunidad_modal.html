@@ -478,8 +478,7 @@
             </div>
 
             <!-- Sección: Acciones Solicitud (Requiere Editor Comercial) -->
-            <!-- Visible solo en estatus: Entregado, Perdido, Cancelado -->
-            {% if can_edit_comercial and show_solicitar_actions and op.status_global|lower in ['entregado', 'perdido', 'cancelado'] %}
+            {% if can_edit_comercial and show_solicitar_actions %}
             <div class="bg-blue-50 rounded-lg p-5 border border-blue-100 border-l-4 border-l-[#00BABB] shadow-sm">
                 <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
                     <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">

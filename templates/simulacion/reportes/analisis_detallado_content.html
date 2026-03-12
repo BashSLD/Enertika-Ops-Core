@@ -167,6 +167,27 @@ function initPdfCharts() {
                 </svg>
                 Limpiar filtros
             </button>
+
+            <!-- Botones Móvil dentro de Filtros -->
+            <div class="flex sm:hidden w-full gap-2 mt-2 pt-3 border-t border-gray-100">
+                <button onclick="descargarPDFAnalisis(this)"
+                    class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#00BABB] text-white rounded-lg hover:bg-[#009a9b] text-sm font-medium transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed">
+                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    <span>PDF</span>
+                </button>
+                <button
+                    onclick="document.getElementById('modal-explicacion-metricas').classList.remove('hidden'); setTimeout(() => { document.getElementById('modal-explicacion-metricas').classList.remove('opacity-0'); document.querySelector('#modal-explicacion-metricas > div').classList.remove('scale-95'); }, 10);"
+                    class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#123456] text-white rounded-lg hover:bg-[#0d2440] text-sm font-medium transition-colors duration-200">
+                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    <span>Métricas</span>
+                </button>
+            </div>
         </div>
     </div>
 
