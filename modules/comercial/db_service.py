@@ -8,7 +8,7 @@ QUERY_GET_OPORTUNIDADES_LIST = """
         tipo_sol.nombre as tipo_solicitud, o.deadline_calculado, o.deadline_negociado, o.cantidad_sitios,
         o.titulo_proyecto, o.prioridad, o.es_fuera_horario,
         o.es_licitacion, o.fecha_entrega_simulacion,
-        o.fecha_ideal_usuario,
+        o.fecha_ideal_usuario, o.google_maps_link,
         u_creador.nombre as solicitado_por,
         u_sim.nombre as responsable_simulacion,
         u_sim.email as responsable_email,

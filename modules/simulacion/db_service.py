@@ -458,7 +458,7 @@ class SimulacionDBService:
                 o.id_interno_simulacion, o.deadline_calculado, o.deadline_negociado,
                 o.fecha_entrega_simulacion, o.cantidad_sitios, o.prioridad, o.es_fuera_horario,
                 o.es_licitacion,
-                o.fecha_ideal_usuario,
+                o.fecha_ideal_usuario, o.google_maps_link,
                 tipo_sol.nombre as tipo_solicitud,
                 u_creador.nombre as solicitado_por,
                 u_sim.nombre as responsable_simulacion,
@@ -1164,6 +1164,94 @@ class SimulacionDBService:
         
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
+
+    async def get_clientes_alta_iteracion(
+        self, conn, filters: Dict[str, Any], umbral: int = 3
+    ) -> List[Dict[str, Any]]:
+        """
+        Ciclos (raíz de cadena parent_id) activos en el período con más de `umbral`
+        solicitudes de tipo ACTUALIZACION en su histórico completo.
+
+        Usa CTE recursiva para resolver la raíz real de cada oportunidad,
+        evitando contar actualizaciones de proyectos independientes del mismo cliente.
+
+        Retorna ordenado por cnt_actualizaciones DESC con:
+          cliente_nombre, proyecto_nombre, cnt_actualizaciones,
+          cnt_pre_oferta, cnt_levantamientos, cnt_ofertas_finales,
+          cnt_licitaciones, cnt_otros, solicitantes (lista)
+        """
+        fecha_inicio = filters.get("fecha_inicio")
+        fecha_fin = filters.get("fecha_fin")
+
+        query = """
+            WITH RECURSIVE cadena AS (
+                SELECT id_oportunidad,
+                       id_oportunidad  AS raiz_id,
+                       nombre_proyecto AS raiz_nombre,
+                       cliente_id
+                FROM tb_oportunidades
+                WHERE parent_id IS NULL
+
+                UNION ALL
+
+                SELECT o.id_oportunidad,
+                       c.raiz_id,
+                       c.raiz_nombre,
+                       o.cliente_id
+                FROM tb_oportunidades o
+                JOIN cadena c ON o.parent_id = c.id_oportunidad
+            ),
+            clientes_en_periodo AS (
+                SELECT DISTINCT cliente_id
+                FROM tb_oportunidades
+                WHERE fecha_solicitud >= $1
+                  AND fecha_solicitud < $2::date + INTERVAL '1 day'
+                  AND cliente_id IS NOT NULL
+            ),
+            ciclos_con_alta_iter AS (
+                SELECT cad.cliente_id, cad.raiz_id
+                FROM tb_oportunidades o
+                JOIN cadena cad ON o.id_oportunidad = cad.id_oportunidad
+                JOIN clientes_en_periodo cp ON cad.cliente_id = cp.cliente_id
+                JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
+                WHERE ts.codigo_interno = 'ACTUALIZACION'
+                GROUP BY cad.cliente_id, cad.raiz_id
+                HAVING COUNT(*) > $3
+            ),
+            resumen AS (
+                SELECT
+                    c.nombre_fiscal                                                    AS cliente_nombre,
+                    cad.raiz_nombre                                                    AS proyecto_nombre,
+                    COUNT(*) FILTER (WHERE ts.codigo_interno = 'ACTUALIZACION')        AS cnt_actualizaciones,
+                    COUNT(*) FILTER (WHERE ts.codigo_interno = 'PRE_OFERTA')           AS cnt_pre_oferta,
+                    COUNT(*) FILTER (WHERE ts.codigo_interno = 'LEVANTAMIENTO')        AS cnt_levantamientos,
+                    COUNT(*) FILTER (WHERE ts.codigo_interno = 'OFERTA_FINAL')         AS cnt_ofertas_finales,
+                    COUNT(*) FILTER (WHERE ts.codigo_interno = 'LICITACION')           AS cnt_licitaciones,
+                    COUNT(*) FILTER (WHERE ts.codigo_interno NOT IN (
+                        'ACTUALIZACION','PRE_OFERTA','LEVANTAMIENTO','OFERTA_FINAL','LICITACION'
+                    ))                                                                  AS cnt_otros,
+                    ARRAY_AGG(
+                        DISTINCT COALESCE(u.nombre, o.solicitado_por)
+                        ORDER BY COALESCE(u.nombre, o.solicitado_por)
+                    ) FILTER (
+                        WHERE ts.codigo_interno = 'ACTUALIZACION'
+                          AND COALESCE(u.nombre, o.solicitado_por) IS NOT NULL
+                    )                                                                   AS solicitantes
+                FROM tb_oportunidades o
+                JOIN cadena cad              ON o.id_oportunidad = cad.id_oportunidad
+                JOIN ciclos_con_alta_iter ca ON cad.cliente_id = ca.cliente_id
+                                            AND cad.raiz_id    = ca.raiz_id
+                JOIN tb_clientes c           ON cad.cliente_id = c.id
+                JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
+                LEFT JOIN tb_usuarios u      ON o.solicitado_por_id = u.id_usuario
+                GROUP BY c.id, c.nombre_fiscal, cad.raiz_id, cad.raiz_nombre
+            )
+            SELECT * FROM resumen
+            ORDER BY cnt_actualizaciones DESC
+        """
+        rows = await conn.fetch(query, fecha_inicio, fecha_fin, umbral)
+        return [dict(r) for r in rows]
+
 
 QUERY_INSERT_HISTORIAL_ESTATUS = """
     INSERT INTO tb_historial_estatus (

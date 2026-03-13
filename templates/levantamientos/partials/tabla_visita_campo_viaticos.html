@@ -4,27 +4,27 @@
 <!-- Variables: viaticos, id_visita, levantamientos_visita, prorrateo, total_viaticos -->
 
 {% if viaticos %}
-<table class="tabla-viaticos">
-    <thead>
+<table class="w-full text-sm text-left text-white mt-2">
+    <thead class="text-xs text-slate-400 uppercase bg-slate-800/50 border-b border-slate-700">
         <tr>
-            <th>Usuario</th>
-            <th>Concepto</th>
-            <th style="text-align:right;">Monto</th>
+            <th class="px-2 py-2">Usuario</th>
+            <th class="px-2 py-2">Concepto</th>
+            <th class="px-2 py-2 text-right">Monto</th>
             <th style="width:36px;"></th>
         </tr>
     </thead>
     <tbody>
         {% for v in viaticos %}
-        <tr id="vc-row-viat-{{ v.id }}">
-            <td>{{ v.usuario_nombre }}</td>
-            <td>{{ v.concepto }}</td>
-            <td class="monto-col">${{ "%.2f"|format(v.monto) }}</td>
-            <td>
-                <button class="elim-btn"
+        <tr id="vc-row-viat-{{ v.id }}" class="border-b border-slate-700/50 hover:bg-slate-800/30">
+            <td class="px-2 py-2">{{ v.usuario_nombre if v.usuario_nombre else 'Sin asignar' }}</td>
+            <td class="px-2 py-2">{{ v.concepto }}</td>
+            <td class="px-2 py-2 text-right font-medium">${{ "%.2f"|format(v.monto) }}</td>
+            <td class="px-2 py-2 text-center">
+                <button type="button" class="text-slate-500 hover:text-red-400 transition-colors"
                         hx-delete="/levantamientos/visitas-campo/{{ id_visita }}/viaticos/{{ v.id }}"
                         hx-target="#vc-tabla-viaticos-container"
                         hx-swap="innerHTML"
-                        hx-confirm="¿Eliminar este registro?">
+                        hx-confirm="¿Eliminar este viático?">
                     <i class="fas fa-trash-alt"></i>
                 </button>
             </td>
@@ -32,12 +32,14 @@
         {% endfor %}
     </tbody>
 </table>
-<div class="total-row">
-    <span class="label">Total viaje:</span>
-    <span class="valor">${{ "%.2f"|format(total_viaticos) }}</span>
+<div class="flex justify-between items-center mt-3 pt-2 border-t border-slate-700">
+    <span class="text-slate-400 text-sm font-medium">Total viaje:</span>
+    <span class="text-emerald-400 font-bold text-lg">${{ "%.2f"|format(total_viaticos) }}</span>
 </div>
 {% else %}
-<div class="empty-viat">No hay viáticos registrados para esta visita.</div>
+<div class="text-slate-500 text-sm text-center py-4 bg-slate-800/30 rounded border border-slate-700/50">
+    No hay viáticos registrados para esta visita.
+</div>
 {% endif %}
 
 <!-- Prorrateo OOB — actualiza el contenedor de prorrateo en el modal -->

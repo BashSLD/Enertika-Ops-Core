@@ -117,9 +117,9 @@
                     <strong>Canceladas / Perdidas:</strong> {{ total_cerradas }} oportunidad{% if total_cerradas != 1 %}es{% endif %} con motivo registrado
                     <ul class="mt-1 space-y-0.5">
                         {% for mc in resumen.motivos_cierre[:5] %}
-                        <li class="flex items-center justify-between gap-2">
+                        <li class="flex items-center gap-1">
                             <span class="truncate">{{ mc.motivo }}</span>
-                            <span class="shrink-0 font-semibold">{{ mc.total }}</span>
+                            <span class="shrink-0 font-semibold">({{ mc.total }})</span>
                         </li>
                         {% endfor %}
                     </ul>

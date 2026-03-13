@@ -866,6 +866,65 @@
     {% endfor %}
     {% endif %}
 
+    {# ================================================================
+       SECCION: CLIENTES CON ALTA ITERACION DE ACTUALIZACIONES
+    ================================================================ #}
+    {% if tablas.alta_iteracion %}
+    <div style="page-break-before: avoid; margin-top: 28px;">
+        <h2 style="font-size:10pt;font-weight:700;color:#0A2463;margin:0 0 4px 0;letter-spacing:0.03em;">
+            ATENCION: Proyectos con Alta Iteracion de Actualizaciones
+        </h2>
+        <p style="font-size:7.5pt;color:#64748b;margin:0 0 10px 0;">
+            Los siguientes proyectos acumulan mas de 3 solicitudes del tipo
+            <em>Actualizacion</em> en su ciclo completo. Una alta iteracion puede indicar
+            requerimientos iniciales poco definidos o ciclos de decision prolongados,
+            lo cual reduce la probabilidad de cierre. Se recomienda revisar los
+            stages de mejora en la etapa comercial.
+        </p>
+        <table style="width:100%;border-collapse:collapse;font-size:7.5pt;">
+            <thead>
+                <tr style="background:#0A2463;color:#ffffff;">
+                    <th style="padding:5px 8px;text-align:left;font-weight:600;">Cliente</th>
+                    <th style="padding:5px 8px;text-align:left;font-weight:600;">Proyecto</th>
+                    <th style="padding:5px 8px;text-align:center;font-weight:600;width:36px;">Act.</th>
+                    <th style="padding:5px 8px;text-align:left;font-weight:600;">Resumen del ciclo</th>
+                    <th style="padding:5px 8px;text-align:left;font-weight:600;">Solicitantes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in tablas.alta_iteracion %}
+                <tr style="background:{% if loop.index is odd %}#fff7ed{% else %}#ffffff{% endif %};border-bottom:1px solid #fed7aa;">
+                    <td style="padding:5px 8px;font-weight:600;color:#1e293b;">{{ row.cliente_nombre }}</td>
+                    <td style="padding:5px 8px;color:#334155;">{{ row.proyecto_nombre }}</td>
+                    <td style="padding:5px 8px;text-align:center;">
+                        <span style="background:#dc2626;color:#ffffff;padding:2px 7px;border-radius:10px;font-weight:700;font-size:8pt;">
+                            {{ row.cnt_actualizaciones }}
+                        </span>
+                    </td>
+                    <td style="padding:5px 8px;color:#475569;">
+                        {%- set partes = [] -%}
+                        {%- if row.cnt_pre_oferta > 0 -%}{%- set _ = partes.append(row.cnt_pre_oferta ~ ' Pre Oferta') -%}{%- endif -%}
+                        {%- if row.cnt_actualizaciones > 0 -%}{%- set _ = partes.append(row.cnt_actualizaciones ~ ' Actualizacion') -%}{%- endif -%}
+                        {%- if row.cnt_levantamientos > 0 -%}{%- set _ = partes.append(row.cnt_levantamientos ~ ' Levantamiento') -%}{%- endif -%}
+                        {%- if row.cnt_ofertas_finales > 0 -%}{%- set _ = partes.append(row.cnt_ofertas_finales ~ ' Oferta Final') -%}{%- endif -%}
+                        {%- if row.cnt_licitaciones > 0 -%}{%- set _ = partes.append(row.cnt_licitaciones ~ ' Licitacion') -%}{%- endif -%}
+                        {%- if row.cnt_otros > 0 -%}{%- set _ = partes.append(row.cnt_otros ~ ' Otros') -%}{%- endif -%}
+                        {{ partes | join(' · ') }}
+                    </td>
+                    <td style="padding:5px 8px;color:#475569;">
+                        {% if row.solicitantes %}
+                            {{ row.solicitantes | join(', ') }}
+                        {% else %}
+                            <em style="color:#94a3b8;">No registrado</em>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% endif %}
+
 </body>
 
 </html>

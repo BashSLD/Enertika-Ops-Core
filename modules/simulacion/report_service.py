@@ -1347,6 +1347,12 @@ class ReportesSimulacionService:
     # DATOS PARA GRÁFICAS
     # =========================================================================
     
+    async def get_clientes_alta_iteracion(
+        self, conn, filtros: FiltrosReporte, umbral: int = 3
+    ) -> List[Dict]:
+        """Clientes con más de `umbral` solicitudes de tipo Actualización en su histórico."""
+        return await self.db.get_clientes_alta_iteracion(conn, asdict(filtros), umbral)
+
     async def get_all_report_data(self, conn, filtros: FiltrosReporte) -> dict:
         """Obtiene TODOS los datos necesarios para el PDF en una sola llamada."""
         return {
@@ -1356,6 +1362,7 @@ class ReportesSimulacionService:
             'usuarios': await self.get_detalle_por_usuario(conn, filtros),
             'mensual': await self.get_resumen_mensual(conn, filtros),
             'motivos_cierre': await self.db.get_chart_motivos_cierre(conn, asdict(filtros)),
+            'alta_iteracion': await self.get_clientes_alta_iteracion(conn, filtros),
         }
 
     async def get_datos_graficas(self, conn, filtros: FiltrosReporte, metricas: Optional[MetricasGenerales] = None) -> Dict[str, DatosGrafica]:

@@ -206,6 +206,7 @@ class VisitasCampoDBService:
         query = f"""
             SELECT
                 l.id_levantamiento,
+                l.fecha_visita_programada AT TIME ZONE 'America/Mexico_City' AS fecha_visita_programada,
                 o.op_id_estandar,
                 o.nombre_proyecto,
                 o.titulo_proyecto,
@@ -491,6 +492,7 @@ class VisitasCampoDBService:
         query = f"""
             SELECT
                 l.id_levantamiento,
+                l.fecha_visita_programada AT TIME ZONE 'America/Mexico_City' AS fecha_visita_programada,
                 o.op_id_estandar,
                 o.nombre_proyecto,
                 o.titulo_proyecto,

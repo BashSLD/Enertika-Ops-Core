@@ -26,7 +26,7 @@
     <!-- ====================================================== -->
     <form hx-post="/levantamientos/visitas-campo" hx-target="#modal-content" hx-swap="innerHTML"
           data-preseleccionado='{{ preseleccionado | tojson }}'
-          data-lev-data='{{ levantamientos_disponibles | map(attribute="id_levantamiento") | list | tojson }}'
+          data-lev-data='{{ levantamientos_disponibles | map(attribute="id_levantamiento") | map("string") | list | tojson }}'
           x-data="{
               busqueda: '',
               seleccionados: [],
@@ -41,7 +41,8 @@
                   this.levData['{{ lev.id_levantamiento }}'] = {
                       opId: '{{ lev.op_id_estandar }}',
                       cliente: '{{ lev.cliente_nombre|replace("'", "\\'") }}',
-                      sitio: '{{ (lev.nombre_sitio or "")|replace("'", "\\'") }}'
+                      sitio: '{{ (lev.nombre_sitio or "")|replace("'", "\\'") }}',
+                      fechaProgramada: '{{ lev.fecha_visita_programada.strftime("%Y-%m-%dT%H:%M") if lev.fecha_visita_programada else "" }}'
                   };
                   {% endfor %}
                   {% endif %}
@@ -153,6 +154,7 @@
                             <span class="text-slate-500 text-xs" x-text="levData[levId]?.cliente || ''"></span>
                         </div>
                         <input type="datetime-local" :name="'fecha_lev_' + levId" class="vc-input text-xs"
+                            :value="levData[levId]?.fechaProgramada || ''"
                             style="width: 200px; padding: 0.25rem 0.5rem;" />
                     </div>
                 </template>
@@ -183,7 +185,7 @@
                     <div class="col-span-3">
                         <input type="text" :name="'viatico_usuario_id'" x-model="v.usuario_id" class="vc-input text-xs"
                             placeholder="(sin asignar)" style="display:none" />
-                        <span class="text-slate-500 text-xs leading-8">Sin asignar</span>
+                        <span class="text-white text-xs leading-8">Sin asignar</span>
                     </div>
                     <div class="col-span-1 flex items-center">
                         <button type="button" @click="removeViatico(idx)"
@@ -200,10 +202,10 @@
             </button>
         </div>
 
-        <div class="flex justify-end gap-2">
-            <button type="button" class="btn btn-secondary btn-sm" onclick="closeModal()">Cancelar</button>
-            <button type="submit" class="btn btn-primary btn-sm" :disabled="seleccionados.length === 0">
-                <i class="fas fa-arrow-right mr-1"></i> Crear Visita
+        <div class="flex justify-end gap-2 mt-4 pt-4 border-t border-slate-700">
+            <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+            <button type="submit" class="btn btn-primary" :disabled="seleccionados.length === 0">
+                <i class="fas fa-check-circle mr-1"></i> Confirmar y Crear Visita de Campo
             </button>
         </div>
     </form>
@@ -255,9 +257,9 @@
                 <div class="col-span-4">
                     <label class="vc-label">Usuario <span class="text-slate-500 text-xs">(opcional)</span></label>
                     <select name="usuario_id" class="vc-input">
-                        <option value="">Sin asignar</option>
+                        <option value="" class="bg-slate-800">Sin asignar</option>
                         {% for u in usuarios %}
-                        <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
+                        <option value="{{ u.id_usuario }}" class="bg-slate-800">{{ u.nombre }}</option>
                         {% endfor %}
                     </select>
                 </div>
@@ -387,9 +389,14 @@
                                 class="text-emerald-300 hover:text-white">&times;</button>
                         </span>
                     </template>
-                    <input type="text" x-model="currentTo" @keydown="handleKeyTo($event)" @blur="addTo()"
-                        class="flex-1 min-w-[160px] bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
-                        placeholder="correo@ejemplo.com + Enter" />
+                    <div class="flex flex-1 items-center min-w-[200px]">
+                        <input type="text" x-model="currentTo" @keydown="handleKeyTo($event)" @blur="setTimeout(() => { addTo() }, 150)"
+                            class="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
+                            placeholder="correo@ejemplo.com" />
+                        <button type="button" @click.prevent="addTo()" class="ml-2 text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded transition-colors">
+                            Agregar
+                        </button>
+                    </div>
                 </div>
                 <p x-show="toError" class="text-red-400 text-xs mt-1">Debes ingresar al menos un destinatario.</p>
                 <input type="hidden" name="to_destinatarios" :value="tagsTo.join(';')" />
@@ -416,9 +423,14 @@
                                 class="text-blue-300 hover:text-white">&times;</button>
                         </span>
                     </template>
-                    <input type="text" x-model="currentCc" @keydown="handleKeyCc($event)" @blur="addCc()"
-                        class="flex-1 min-w-[160px] bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
-                        placeholder="correo@ejemplo.com + Enter" />
+                    <div class="flex flex-1 items-center min-w-[200px]">
+                        <input type="text" x-model="currentCc" @keydown="handleKeyCc($event)" @blur="setTimeout(() => { addCc() }, 150)"
+                            class="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
+                            placeholder="correo@ejemplo.com" />
+                        <button type="button" @click.prevent="addCc()" class="ml-2 text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded transition-colors">
+                            Agregar
+                        </button>
+                    </div>
                 </div>
                 <input type="hidden" name="cc_adicionales" :value="tagsCc.join(';')" />
             </div>

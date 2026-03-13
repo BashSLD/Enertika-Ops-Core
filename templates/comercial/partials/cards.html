@@ -130,7 +130,7 @@
                                 else 200) ~ 'ms"' %} <!-- Fila principal con Alpine.js -->
                                 <tr @click="$dispatch('row-selected', '{{ op.id_oportunidad }}')"
                                     :class="{ 'bg-blue-50/80 ring-2 ring-blue-400': isSelected('{{ op.id_oportunidad }}'), '!bg-white/90 !border-l-8 !border-l-[#00BABB] shadow-md': isExpanded('{{ op.id_oportunidad }}') && !isSelected('{{ op.id_oportunidad }}') }"
-                                    class="hover:bg-white/80 transition-[transform,background-color,box-shadow] duration-200 border-l-4 {{ prioridad_color }} {{ 'shadow-[0_0_10px_rgba(239,68,68,0.5)]' if op.prioridad == 'high' }} hover:shadow-lg hover:-translate-y-[2px] animate-fade-in-up cursor-pointer backdrop-blur-sm"
+                                    class="{{ 'bg-red-50/40 ring-1 ring-inset ring-red-300/70 hover:bg-red-50/70' if op.prioridad == 'high' else 'hover:bg-white' }} hover:ring-1 hover:ring-inset hover:ring-gray-200 transition-colors duration-100 border-l-4 {{ prioridad_color }} animate-fade-in-up cursor-pointer backdrop-blur-sm"
                                     {{ animation_delay|safe }}>
 
                                     <!-- COL 1: ID e Info Interna -->
@@ -171,6 +171,31 @@
                                             {{ titulo }}
                                             {% endif %}
                                         </div>
+                                        
+                                        {% if op.google_maps_link %}
+                                        <div class="mt-1 flex items-center">
+                                            {% if op.google_maps_link.startswith('http://') or op.google_maps_link.startswith('https://') %}
+                                                {% set maps_href = op.google_maps_link %}
+                                            {% elif '.' in op.google_maps_link and ' ' not in op.google_maps_link %}
+                                                {% set maps_href = 'https://' + op.google_maps_link %}
+                                            {% else %}
+                                                {% set maps_href = None %}
+                                            {% endif %}
+                                            {% if maps_href %}
+                                            <a href="{{ maps_href }}" target="_blank" rel="noopener noreferrer"
+                                                class="flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 transition-colors font-semibold"
+                                                title="Ver en Google Maps" @click.stop>
+                                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                        d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                                        d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                                                </svg>
+                                                Ver en Maps
+                                            </a>
+                                            {% endif %}
+                                        </div>
+                                        {% endif %}
                                         <div class="text-xs text-gray-400 mt-1 whitespace-nowrap">
                                             <span class="font-semibold text-gray-500">Solicitado por:</span> {{
                                             op.solicitado_por or 'Desconocido' }}
