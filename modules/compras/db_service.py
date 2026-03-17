@@ -245,6 +245,8 @@ class ComprasDBService:
                 COUNT(*) FILTER (WHERE estatus = 'PENDIENTE') as pendientes,
                 COUNT(*) FILTER (WHERE estatus = 'FACTURADO') as facturados,
                 COUNT(*) FILTER (WHERE estatus = 'ANTICIPO') as anticipos,
+                COUNT(*) FILTER (WHERE estatus = 'PARCIALMENTE_FACTURADO') as parciales,
+                COUNT(*) FILTER (WHERE estatus = 'CERRADO') as cerrados,
                 COALESCE(SUM(monto) FILTER (WHERE moneda = 'MXN'), 0) as total_mxn,
                 COALESCE(SUM(monto) FILTER (WHERE moneda = 'USD'), 0) as total_usd
             FROM tb_comprobantes_pago
@@ -345,15 +347,15 @@ class ComprasDBService:
         self, conn, beneficiario: str, monto: Decimal,
         moneda: str, tolerancia: Decimal = Decimal("0.50")
     ) -> List[dict]:
-        """Busca comprobantes pendientes/anticipo por beneficiario + monto con tolerancia."""
+        """Busca comprobantes pendientes/anticipo/parcial por beneficiario + monto con tolerancia."""
         rows = await conn.fetch("""
             SELECT
                 c.id_comprobante, c.fecha_pago, c.beneficiario_orig,
-                c.monto, c.moneda, c.estatus, c.created_at,
+                c.monto, c.moneda, c.estatus, c.monto_facturado, c.created_at,
                 u.nombre as comprador_nombre
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO')
+            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO', 'PARCIALMENTE_FACTURADO')
             AND c.beneficiario_orig = $1
             AND c.moneda = $2
             AND ABS(c.monto - $3) <= $4
@@ -365,18 +367,18 @@ class ComprasDBService:
         self, conn, nombres: List[str], monto: Decimal,
         moneda: str, tolerancia: Decimal = Decimal("0.50")
     ) -> List[dict]:
-        """Busca comprobantes pendientes/anticipo donde beneficiario coincide con
+        """Busca comprobantes pendientes/anticipo/parcial donde beneficiario coincide con
         razon_social o nombre_comercial del proveedor + monto."""
         if not nombres:
             return []
         rows = await conn.fetch("""
             SELECT
                 c.id_comprobante, c.fecha_pago, c.beneficiario_orig,
-                c.monto, c.moneda, c.estatus, c.created_at,
+                c.monto, c.moneda, c.estatus, c.monto_facturado, c.created_at,
                 u.nombre as comprador_nombre
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO')
+            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO', 'PARCIALMENTE_FACTURADO')
             AND c.beneficiario_orig = ANY($1)
             AND c.moneda = $2
             AND ABS(c.monto - $3) <= $4
@@ -388,31 +390,57 @@ class ComprasDBService:
         self, conn, monto: Decimal, moneda: str,
         tolerancia: Decimal = Decimal("0.50")
     ) -> List[dict]:
-        """Busca comprobantes pendientes/anticipo solo por monto + moneda."""
+        """Busca comprobantes pendientes/anticipo/parcial solo por monto + moneda."""
         rows = await conn.fetch("""
             SELECT
                 c.id_comprobante, c.fecha_pago, c.beneficiario_orig,
-                c.monto, c.moneda, c.estatus, c.created_at,
+                c.monto, c.moneda, c.estatus, c.monto_facturado, c.created_at,
                 u.nombre as comprador_nombre
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO')
+            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO', 'PARCIALMENTE_FACTURADO')
             AND c.moneda = $1
             AND ABS(c.monto - $2) <= $3
             ORDER BY c.fecha_pago DESC
         """, moneda, monto, tolerancia)
         return [dict(r) for r in rows]
 
+    async def buscar_comprobantes_parciales_por_proveedor(
+        self, conn, id_proveedor: UUID, moneda: str,
+        monto_xml: Decimal, tolerancia: Decimal = Decimal("0.50")
+    ) -> List[dict]:
+        """Busca comprobantes PENDIENTE o PARCIALMENTE_FACTURADO del mismo proveedor
+        donde el saldo restante (monto - monto_facturado) puede absorber el XML.
+
+        Ordena por cercanía entre saldo y monto del XML.
+        """
+        rows = await conn.fetch("""
+            SELECT
+                c.id_comprobante, c.fecha_pago, c.beneficiario_orig,
+                c.monto, c.moneda, c.estatus, c.monto_facturado,
+                (c.monto - c.monto_facturado) AS saldo_pendiente,
+                u.nombre AS comprador_nombre
+            FROM tb_comprobantes_pago c
+            LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
+            WHERE c.id_proveedor = $1
+            AND c.moneda = $2
+            AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')
+            AND (c.monto - c.monto_facturado) >= $3 - $4
+            ORDER BY ABS((c.monto - c.monto_facturado) - $3) ASC
+            LIMIT 5
+        """, id_proveedor, moneda, monto_xml, tolerancia)
+        return [dict(r) for r in rows]
+
     async def buscar_comprobantes_pendientes(
         self, conn, q: Optional[str] = None, limit: int = 20
     ) -> List[dict]:
-        """Busqueda libre de comprobantes pendientes/anticipo (para match manual)."""
+        """Busqueda libre de comprobantes pendientes/anticipo/parcial (para match manual)."""
         query = """
             SELECT
                 c.id_comprobante, c.fecha_pago, c.beneficiario_orig,
-                c.monto, c.moneda, c.estatus, c.created_at
+                c.monto, c.moneda, c.estatus, c.monto_facturado, c.created_at
             FROM tb_comprobantes_pago c
-            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO')
+            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO', 'PARCIALMENTE_FACTURADO')
         """
         params = []
         if q:
@@ -437,36 +465,78 @@ class ComprasDBService:
     async def confirmar_match(
         self, conn, id_comprobante: UUID, uuid_factura: str,
         id_proveedor: UUID, tipo_factura: str = "NORMAL",
-        current_estatus: Optional[str] = None
+        current_estatus: Optional[str] = None,
+        monto_factura: Decimal = Decimal("0")
     ):
         """Actualiza comprobante con datos de la factura XML.
 
-        Logica de estatus:
+        Logica de estatus con soporte de parciales:
         - NOTA_CREDITO: no cambia estatus del comprobante
         - ANTICIPO: estatus → ANTICIPO
-        - CIERRE_ANTICIPO / NORMAL: estatus → FACTURADO
+        - NORMAL/CIERRE_ANTICIPO:
+            monto_facturado_nuevo >= monto_pago - $0.50 → FACTURADO
+            monto_facturado_nuevo < monto_pago - $0.50  → PARCIALMENTE_FACTURADO
+
+        El campo uuid_factura se setea solo si era NULL (primera factura vinculada).
+        El campo id_proveedor se setea solo si era NULL.
         """
+        tolerancia = Decimal("0.50")
         es_anticipo = tipo_factura == "ANTICIPO"
 
         if tipo_factura == "NOTA_CREDITO":
-            # Nota de credito: no cambiar estatus, solo registrar uuid y proveedor
-            estatus = current_estatus or "FACTURADO"
-        elif tipo_factura == "ANTICIPO":
-            estatus = "ANTICIPO"
+            nuevo_estatus = current_estatus or "FACTURADO"
+            await conn.execute("""
+                UPDATE tb_comprobantes_pago
+                SET uuid_factura = COALESCE(uuid_factura, $1),
+                    id_proveedor = COALESCE(id_proveedor, $2),
+                    estatus = $3,
+                    es_anticipo = $4,
+                    tipo_factura = $5,
+                    updated_at = NOW()
+                WHERE id_comprobante = $6
+            """, uuid_factura, id_proveedor, nuevo_estatus, es_anticipo,
+                tipo_factura, id_comprobante)
+            return
+
+        if tipo_factura == "ANTICIPO":
+            await conn.execute("""
+                UPDATE tb_comprobantes_pago
+                SET uuid_factura = COALESCE(uuid_factura, $1),
+                    id_proveedor = COALESCE(id_proveedor, $2),
+                    estatus = 'ANTICIPO',
+                    es_anticipo = TRUE,
+                    tipo_factura = $3,
+                    monto_facturado = monto_facturado + $4,
+                    updated_at = NOW()
+                WHERE id_comprobante = $5
+            """, uuid_factura, id_proveedor, tipo_factura, monto_factura, id_comprobante)
+            return
+
+        # NORMAL / CIERRE_ANTICIPO: calcular si cubre el pago completo
+        row = await conn.fetchrow("""
+            SELECT monto, monto_facturado
+            FROM tb_comprobantes_pago
+            WHERE id_comprobante = $1
+        """, id_comprobante)
+
+        nuevo_monto_facturado = row['monto_facturado'] + monto_factura
+        if nuevo_monto_facturado >= row['monto'] - tolerancia:
+            nuevo_estatus = "FACTURADO"
         else:
-            estatus = "FACTURADO"
+            nuevo_estatus = "PARCIALMENTE_FACTURADO"
 
         await conn.execute("""
             UPDATE tb_comprobantes_pago
-            SET uuid_factura = $1,
-                id_proveedor = $2,
+            SET uuid_factura = COALESCE(uuid_factura, $1),
+                id_proveedor = COALESCE(id_proveedor, $2),
                 estatus = $3,
                 es_anticipo = $4,
                 tipo_factura = $5,
+                monto_facturado = $6,
                 updated_at = NOW()
-            WHERE id_comprobante = $6
-        """, uuid_factura, id_proveedor, estatus, es_anticipo,
-            tipo_factura, id_comprobante)
+            WHERE id_comprobante = $7
+        """, uuid_factura, id_proveedor, nuevo_estatus, es_anticipo,
+            tipo_factura, nuevo_monto_facturado, id_comprobante)
 
     async def vincular_cierre_anticipo(
         self, conn, id_comprobante: UUID, uuid_anticipo_relacionado: str
@@ -850,6 +920,145 @@ class ComprasDBService:
             "DELETE FROM tb_beneficiario_proveedor WHERE id = $1", relacion_id
         )
         return result == "DELETE 1"
+
+    # ========================================
+    # FACTURAS PARCIALES Y REMANENTES
+    # ========================================
+
+    async def desvincular_factura(
+        self, conn, id_comprobante: UUID, uuid_factura: str
+    ) -> dict:
+        """Elimina una factura de la junction table y recalcula el estado del comprobante.
+
+        Retorna dict con nuevo estatus y monto_facturado.
+        """
+        tolerancia = Decimal("0.50")
+
+        # Eliminar de junction
+        await conn.execute("""
+            DELETE FROM tb_comprobante_facturas
+            WHERE id_comprobante = $1 AND uuid_factura = $2
+        """, id_comprobante, uuid_factura)
+
+        # Eliminar materiales del historial asociados a esa factura en este comprobante
+        await conn.execute("""
+            DELETE FROM tb_materiales_historial
+            WHERE uuid_factura = $1 AND id_comprobante = $2
+        """, uuid_factura, id_comprobante)
+
+        # Recalcular monto_facturado desde junction
+        nuevo_total = await conn.fetchval("""
+            SELECT COALESCE(SUM(monto), 0)
+            FROM tb_comprobante_facturas
+            WHERE id_comprobante = $1
+        """, id_comprobante)
+        nuevo_total = nuevo_total or Decimal("0")
+
+        row = await conn.fetchrow(
+            "SELECT monto, uuid_factura as uuid_principal FROM tb_comprobantes_pago WHERE id_comprobante = $1",
+            id_comprobante
+        )
+        monto_pago = row['monto']
+        uuid_principal = row['uuid_principal']
+
+        # Determinar nuevo estatus
+        if nuevo_total <= Decimal("0"):
+            nuevo_estatus = "PENDIENTE"
+        elif nuevo_total >= monto_pago - tolerancia:
+            nuevo_estatus = "FACTURADO"
+        else:
+            nuevo_estatus = "PARCIALMENTE_FACTURADO"
+
+        # Si se desvinculó la factura principal, encontrar la siguiente o limpiar
+        nueva_uuid_principal = uuid_principal
+        if str(uuid_principal).upper() == uuid_factura.upper():
+            siguiente = await conn.fetchval("""
+                SELECT uuid_factura FROM tb_comprobante_facturas
+                WHERE id_comprobante = $1
+                ORDER BY created_at ASC LIMIT 1
+            """, id_comprobante)
+            nueva_uuid_principal = siguiente  # None si no hay más
+
+        await conn.execute("""
+            UPDATE tb_comprobantes_pago
+            SET monto_facturado = $1,
+                estatus = $2,
+                uuid_factura = $3,
+                updated_at = NOW()
+            WHERE id_comprobante = $4
+        """, nuevo_total, nuevo_estatus, nueva_uuid_principal, id_comprobante)
+
+        return {"nuevo_estatus": nuevo_estatus, "monto_facturado": float(nuevo_total)}
+
+    async def cerrar_remanente(
+        self, conn, id_comprobante: UUID, motivo: str, user_id: UUID
+    ) -> bool:
+        """Marca el comprobante como CERRADO con el saldo restante como remanente.
+
+        Solo aplica a PENDIENTE o PARCIALMENTE_FACTURADO.
+        """
+        row = await conn.fetchrow("""
+            SELECT monto, monto_facturado, estatus
+            FROM tb_comprobantes_pago
+            WHERE id_comprobante = $1
+        """, id_comprobante)
+
+        if not row:
+            return False
+        if row['estatus'] not in ('PENDIENTE', 'PARCIALMENTE_FACTURADO'):
+            return False
+
+        monto_remanente = row['monto'] - row['monto_facturado']
+
+        await conn.execute("""
+            UPDATE tb_comprobantes_pago
+            SET estatus = 'CERRADO',
+                monto_remanente = $1,
+                motivo_cierre = $2,
+                cerrado_por_id = $3,
+                cerrado_at = NOW(),
+                updated_at = NOW()
+            WHERE id_comprobante = $4
+        """, monto_remanente, motivo, user_id, id_comprobante)
+        return True
+
+    async def reabrir_comprobante(
+        self, conn, id_comprobante: UUID
+    ) -> bool:
+        """Revierte un comprobante CERRADO a su estado anterior (PENDIENTE o PARCIALMENTE_FACTURADO).
+
+        Solo aplica a CERRADO.
+        """
+        tolerancia = Decimal("0.50")
+
+        row = await conn.fetchrow("""
+            SELECT monto, monto_facturado, estatus
+            FROM tb_comprobantes_pago
+            WHERE id_comprobante = $1
+        """, id_comprobante)
+
+        if not row or row['estatus'] != 'CERRADO':
+            return False
+
+        monto_facturado = row['monto_facturado'] or Decimal("0")
+        if monto_facturado <= Decimal("0"):
+            estatus_anterior = "PENDIENTE"
+        elif monto_facturado >= row['monto'] - tolerancia:
+            estatus_anterior = "FACTURADO"
+        else:
+            estatus_anterior = "PARCIALMENTE_FACTURADO"
+
+        await conn.execute("""
+            UPDATE tb_comprobantes_pago
+            SET estatus = $1,
+                monto_remanente = NULL,
+                motivo_cierre = NULL,
+                cerrado_por_id = NULL,
+                cerrado_at = NULL,
+                updated_at = NOW()
+            WHERE id_comprobante = $2
+        """, estatus_anterior, id_comprobante)
+        return True
 
 
 def get_db_service():

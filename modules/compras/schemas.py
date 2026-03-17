@@ -21,6 +21,8 @@ class EstatusComprobante(str, Enum):
     PENDIENTE = "PENDIENTE"
     FACTURADO = "FACTURADO"
     ANTICIPO = "ANTICIPO"
+    PARCIALMENTE_FACTURADO = "PARCIALMENTE_FACTURADO"
+    CERRADO = "CERRADO"
 
 
 class MonedaComprobante(str, Enum):
@@ -68,7 +70,10 @@ class ComprobanteRead(ComprobanteBase):
     id_comprobante: UUID
     estatus: EstatusComprobante
     uuid_factura: Optional[UUID] = None
-    
+    monto_facturado: Optional[Decimal] = None
+    monto_remanente: Optional[Decimal] = None
+    motivo_cierre: Optional[str] = None
+
     # Relaciones (IDs)
     id_proveedor: Optional[UUID] = None
     id_zona: Optional[int] = None
@@ -294,6 +299,8 @@ class EstadisticasMes(BaseModel):
     pendientes: int
     facturados: int
     anticipos: int = 0
+    parciales: int = 0
+    cerrados: int = 0
     total_mxn: float
     total_usd: float
 

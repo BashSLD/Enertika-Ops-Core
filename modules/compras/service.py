@@ -657,7 +657,21 @@ class ComprasService:
                 candidatos=self._format_candidatos(candidatos),
             )
 
-        # Nivel 3: sin match
+        # Nivel 3: buscar por proveedor + saldo pendiente (facturas parciales)
+        id_proveedor = proveedor.get('id_proveedor')
+        if id_proveedor:
+            candidatos = await db_svc.buscar_comprobantes_parciales_por_proveedor(
+                conn, id_proveedor, moneda, monto, MATCH_TOLERANCIA
+            )
+            if candidatos:
+                return XmlMatchResult(
+                    cfdi=cfdi,
+                    match_type="PARCIAL_MATCH",
+                    candidatos=self._format_candidatos(candidatos),
+                    comprobante_id=candidatos[0]['id_comprobante'] if len(candidatos) == 1 else None,
+                )
+
+        # Nivel 4: sin match
         return XmlMatchResult(
             cfdi=cfdi,
             match_type="NO_MATCH",
@@ -719,23 +733,32 @@ class ComprasService:
             )
         id_proveedor = proveedor['id_proveedor']
 
-        # Obtener comprobante para saber el beneficiario
+        # Obtener comprobante para saber el beneficiario y estado actual
         comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
         if not comprobante:
             raise ValueError("Comprobante no encontrado")
 
         current_estatus = comprobante['estatus']
-        # Permitir match en PENDIENTE y ANTICIPO (para multiples anticipos)
-        if current_estatus not in ('PENDIENTE', 'ANTICIPO'):
+        if current_estatus not in ('PENDIENTE', 'ANTICIPO', 'PARCIALMENTE_FACTURADO'):
             raise ValueError("El comprobante ya no esta disponible para match")
 
-        # 1. Actualizar comprobante con datos de la factura
-        await db_svc.confirmar_match(
-            conn, id_comprobante, uuid_factura, id_proveedor,
-            tipo_factura, current_estatus
-        )
+        monto_factura = Decimal(str(cfdi_data.get('total', 0)))
+        monto_pago = Decimal(str(comprobante['monto']))
+        monto_ya_facturado = Decimal(str(comprobante.get('monto_facturado') or 0))
 
-        # 1b. Insertar en junction table
+        # Validar anti-sobrefacturacion
+        if tipo_factura not in ('NOTA_CREDITO', 'ANTICIPO'):
+            proyectado = monto_ya_facturado + monto_factura
+            if proyectado > monto_pago + Decimal("0.50"):
+                exceso = proyectado - monto_pago
+                raise ValueError(
+                    f"La factura excede el monto del pago por ${exceso:,.2f} "
+                    f"(ya facturado: ${monto_ya_facturado:,.2f}, "
+                    f"nueva factura: ${monto_factura:,.2f}, "
+                    f"pago total: ${monto_pago:,.2f})"
+                )
+
+        # 1. Insertar en junction table PRIMERO (confirmar_match lee desde aqui)
         try:
             fecha_str = cfdi_data.get('fecha', '')
             fecha_factura = datetime.fromisoformat(fecha_str).date()
@@ -744,12 +767,18 @@ class ComprasService:
 
         await db_svc.insertar_comprobante_factura(
             conn, id_comprobante, uuid_factura, tipo_factura,
-            monto=Decimal(str(cfdi_data.get('total', 0))),
+            monto=monto_factura,
             moneda=cfdi_data.get('moneda', 'MXN'),
             fecha=fecha_factura,
             id_proveedor=id_proveedor,
             rfc_emisor=cfdi_data.get('emisor_rfc'),
             nombre_emisor=cfdi_data.get('emisor_nombre'),
+        )
+
+        # 2. Actualizar comprobante (calcula nuevo estatus usando monto_factura)
+        await db_svc.confirmar_match(
+            conn, id_comprobante, uuid_factura, id_proveedor,
+            tipo_factura, current_estatus, monto_factura
         )
 
         # 2. Guardar relaciones beneficiario↔proveedor (bidireccional)
@@ -848,9 +877,16 @@ class ComprasService:
                 logger.warning("Error validando conceptos: %s", e)
                 validacion_ok = False
 
+        # Leer estatus y saldo resultante para informar al usuario
+        comprobante_actualizado = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+        nuevo_estatus = comprobante_actualizado['estatus'] if comprobante_actualizado else "FACTURADO"
+        monto_facturado_nuevo = float(comprobante_actualizado.get('monto_facturado') or 0) if comprobante_actualizado else 0.0
+        monto_pago_total = float(comprobante_actualizado.get('monto') or 0) if comprobante_actualizado else 0.0
+        saldo_pendiente = monto_pago_total - monto_facturado_nuevo
+
         logger.info(
-            "Match confirmado: UUID=%s, Comprobante=%s, Proveedor=%s, Tipo=%s",
-            uuid_factura[:8], id_comprobante, emisor_rfc, tipo_factura
+            "Match confirmado: UUID=%s, Comprobante=%s, Proveedor=%s, Tipo=%s, Estatus=%s",
+            uuid_factura[:8], id_comprobante, emisor_rfc, tipo_factura, nuevo_estatus
         )
 
         return {
@@ -861,6 +897,11 @@ class ComprasService:
             "conceptos_guardados": len(conceptos),
             "relacionados_guardados": len(relacionados),
             "validacion_ok": validacion_ok,
+            "nuevo_estatus": nuevo_estatus,
+            "es_parcial": nuevo_estatus == "PARCIALMENTE_FACTURADO",
+            "monto_facturado": monto_facturado_nuevo,
+            "monto_total": monto_pago_total,
+            "saldo_pendiente": saldo_pendiente,
         }
 
     async def buscar_comprobantes_pendientes(
@@ -889,6 +930,63 @@ class ComprasService:
         from .db_service import get_db_service
         db_svc = get_db_service()
         return await db_svc.delete_relacion(conn, relacion_id)
+
+    # ========================================
+    # FACTURAS PARCIALES Y REMANENTES
+    # ========================================
+
+    async def get_facturas_vinculadas(self, conn, id_comprobante: UUID) -> List[dict]:
+        """Lista todas las facturas vinculadas a un comprobante con sus montos."""
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+        rows = await db_svc.get_facturas_comprobante(conn, id_comprobante)
+        for r in rows:
+            if 'monto' in r and isinstance(r['monto'], Decimal):
+                r['monto'] = float(r['monto'])
+            if 'fecha' in r and r['fecha'] and hasattr(r['fecha'], 'strftime'):
+                r['fecha_str'] = r['fecha'].strftime('%d/%m/%Y')
+        return rows
+
+    async def desvincular_factura(
+        self, conn, id_comprobante: UUID, uuid_factura: str
+    ) -> dict:
+        """Desvincula una factura de un comprobante y recalcula su estado."""
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+
+        # Verificar que la factura existe en la junction
+        exists = await db_svc.uuid_factura_exists_in_junction(conn, uuid_factura)
+        if not exists:
+            raise ValueError("La factura no esta vinculada a este comprobante")
+
+        return await db_svc.desvincular_factura(conn, id_comprobante, uuid_factura)
+
+    async def cerrar_remanente(
+        self, conn, id_comprobante: UUID, motivo: str, user_id: UUID
+    ) -> bool:
+        """Cierra un comprobante indicando que no habra mas facturas."""
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+
+        if not motivo or not motivo.strip():
+            raise ValueError("El motivo de cierre es requerido")
+
+        ok = await db_svc.cerrar_remanente(conn, id_comprobante, motivo.strip(), user_id)
+        if not ok:
+            raise ValueError(
+                "El comprobante no puede cerrarse (debe estar en PENDIENTE o PARCIALMENTE_FACTURADO)"
+            )
+        return True
+
+    async def reabrir_comprobante(self, conn, id_comprobante: UUID) -> bool:
+        """Reabre un comprobante CERRADO."""
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+
+        ok = await db_svc.reabrir_comprobante(conn, id_comprobante)
+        if not ok:
+            raise ValueError("El comprobante no esta CERRADO o no existe")
+        return True
 
     # ========================================
     # SHAREPOINT - ARCHIVOS
