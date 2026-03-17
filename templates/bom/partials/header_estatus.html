@@ -1,13 +1,14 @@
 {# Header con estatus del BOM + botones de accion del workflow #}
 {% set estatus_config = {
-    'BORRADOR': {'bg': 'bg-gray-100', 'text': 'text-gray-800', 'dot': 'bg-gray-400', 'label': 'Borrador'},
-    'EN_REVISION_ING': {'bg': 'bg-amber-100', 'text': 'text-amber-800', 'dot': 'bg-amber-400', 'label': 'En Revision Ing.'},
-    'APROBADO_ING': {'bg': 'bg-blue-100', 'text': 'text-blue-800', 'dot': 'bg-blue-400', 'label': 'Aprobado Ing.'},
+    'BORRADOR':          {'bg': 'bg-gray-100',   'text': 'text-gray-800',   'dot': 'bg-gray-400',   'label': 'Borrador'},
+    'EN_REVISION_ING':   {'bg': 'bg-amber-100',  'text': 'text-amber-800',  'dot': 'bg-amber-400',  'label': 'En Revision Ing.'},
+    'APROBADO_ING':      {'bg': 'bg-blue-100',   'text': 'text-blue-800',   'dot': 'bg-blue-400',   'label': 'Aprobado Ing.'},
+    'EN_REVISION_OBRA':  {'bg': 'bg-yellow-100', 'text': 'text-yellow-800', 'dot': 'bg-yellow-400', 'label': 'En Revision Obra'},
     'EN_REVISION_CONST': {'bg': 'bg-orange-100', 'text': 'text-orange-800', 'dot': 'bg-orange-400', 'label': 'En Revision Const.'},
-    'APROBADO': {'bg': 'bg-green-100', 'text': 'text-green-800', 'dot': 'bg-green-400', 'label': 'Aprobado'},
-    'CANCELADO': {'bg': 'bg-red-100', 'text': 'text-red-800', 'dot': 'bg-red-400', 'label': 'Cancelado'},
+    'APROBADO_CONST':    {'bg': 'bg-green-100',  'text': 'text-green-800',  'dot': 'bg-green-400',  'label': 'Aprobado Const.'},
     'EN_REVISION_FINAL': {'bg': 'bg-violet-100', 'text': 'text-violet-800', 'dot': 'bg-violet-400', 'label': 'En Revision Final'},
-    'APROBADO_FINAL': {'bg': 'bg-emerald-100', 'text': 'text-emerald-800', 'dot': 'bg-emerald-500', 'label': 'Aprobado Final'},
+    'APROBADO_FINAL':    {'bg': 'bg-emerald-100','text': 'text-emerald-800','dot': 'bg-emerald-500','label': 'Aprobado Final'},
+    'CANCELADO':         {'bg': 'bg-red-100',    'text': 'text-red-800',    'dot': 'bg-red-400',    'label': 'Cancelado'},
 } %}
 {% set cfg = estatus_config.get(bom.estatus, estatus_config['BORRADOR']) %}
 
@@ -70,9 +71,9 @@
             {% endif %}
 
             {% if bom.estatus == 'APROBADO_ING' and es_ing_editor %}
-            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/enviar-const" hx-target="#modal-container" hx-swap="innerHTML"
+            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/enviar-obra" hx-target="#modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition">
-                Enviar a Construccion
+                Enviar a Revision Obra
             </button>
             {% endif %}
 
@@ -86,10 +87,21 @@
             </button>
             {% endif %}
 
+            {% if bom.estatus == 'EN_REVISION_OBRA' and es_const_manager %}
+            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/aprobar-obra" hx-target="#modal-container" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition">
+                Aprobar Obra
+            </button>
+            <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/rechazar-obra" hx-target="#modal-container" hx-swap="innerHTML"
+                class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-600 hover:bg-red-700 transition">
+                Rechazar Obra
+            </button>
+            {% endif %}
+
             {% if bom.estatus == 'EN_REVISION_CONST' and es_const_manager %}
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/aprobar-const" hx-target="#modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition">
-                Aprobar
+                Aprobar Const.
             </button>
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/rechazar-const" hx-target="#modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-red-600 hover:bg-red-700 transition">
@@ -97,14 +109,14 @@
             </button>
             {% endif %}
 
-            {% if bom.estatus == 'APROBADO' and es_ing_manager %}
+            {% if bom.estatus == 'APROBADO_CONST' and es_ing_manager %}
             <button hx-get="/bom/{{ bom.id_bom }}/modal-aprobar/solicitar-modificacion" hx-target="#modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-amber-600 hover:bg-amber-700 transition">
                 Solicitar Modificacion
             </button>
             {% endif %}
 
-            {% if bom.estatus == 'APROBADO' and es_const_manager %}
+            {% if bom.estatus == 'APROBADO_CONST' and es_const_manager %}
             <button hx-post="/bom/{{ bom.id_bom }}/enviar-final"
                 hx-target="#main-content" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-violet-600 hover:bg-violet-700 transition">
@@ -128,8 +140,8 @@
     {# Barra de progreso del workflow #}
     {% if bom.estatus != 'CANCELADO' %}
     <div class="mt-4 flex items-center gap-1">
-        {% set pasos = ['BORRADOR', 'EN_REVISION_ING', 'APROBADO_ING', 'EN_REVISION_CONST', 'APROBADO', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] %}
-        {% set paso_labels = ['Borrador', 'Rev. Ing', 'Apob. Ing', 'Rev. Const', 'Apob. Const', 'Rev. Final', 'Aprobado'] %}
+        {% set pasos = ['BORRADOR', 'EN_REVISION_ING', 'APROBADO_ING', 'EN_REVISION_OBRA', 'EN_REVISION_CONST', 'APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] %}
+        {% set paso_labels = ['Borrador', 'Rev. Ing', 'Apb. Ing', 'Rev. Obra', 'Rev. Const', 'Apb. Const', 'Rev. Final', 'Aprobado'] %}
         {% set paso_actual = pasos.index(bom.estatus) if bom.estatus in pasos else 0 %}
 
         {% for paso in pasos %}

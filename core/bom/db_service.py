@@ -116,8 +116,12 @@ class BomDBService:
         campo_map = {
             'fecha_envio_ing': 'fecha_envio_ing',
             'fecha_aprobacion_ing': 'fecha_aprobacion_ing',
+            'fecha_envio_obra': 'fecha_envio_obra',
+            'fecha_aprobacion_obra': 'fecha_aprobacion_obra',
             'fecha_envio_const': 'fecha_envio_const',
             'fecha_aprobacion_const': 'fecha_aprobacion_const',
+            'fecha_envio_final': 'fecha_envio_final',
+            'fecha_aprobacion_final': 'fecha_aprobacion_final',
             'responsable_ing': 'responsable_ing',
             'jefe_construccion': 'jefe_construccion',
             'coordinador_obra': 'coordinador_obra',
@@ -613,6 +617,26 @@ class BomDBService:
             except (ValueError, AttributeError):
                 return None
         return None
+
+    async def get_usuario_email(self, conn, user_id: UUID) -> Optional[str]:
+        """Retorna el email de un usuario activo, o None si no existe."""
+        return await conn.fetchval(
+            "SELECT email FROM tb_usuarios WHERE id_usuario = $1 AND is_active = TRUE",
+            user_id
+        )
+
+    async def get_sender_email(self, conn, departamento: str = 'DEFAULT') -> Optional[str]:
+        """Retorna email_remitente del buzon de notificaciones configurado."""
+        email = await conn.fetchval("""
+            SELECT email_remitente FROM tb_correos_notificaciones
+            WHERE departamento = $1 AND activo = TRUE LIMIT 1
+        """, departamento.upper())
+        if not email:
+            email = await conn.fetchval("""
+                SELECT email_remitente FROM tb_correos_notificaciones
+                WHERE departamento = 'DEFAULT' AND activo = TRUE LIMIT 1
+            """)
+        return email
 
     async def set_aprobador_final_id(self, conn, user_id: UUID) -> None:
         """Actualiza el UUID del aprobador final en tb_configuracion_global."""

@@ -1050,6 +1050,104 @@ async def eliminar_suplencia(
 
 
 # ========================================
+# WORKFLOW OBRA (coordinador_obra)
+# ========================================
+
+@router.post("/{id_bom}/enviar-obra", include_in_schema=False)
+async def enviar_revision_obra(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria"),
+):
+    """Envia BOM aprobado por ing a revision del coordinador de obra."""
+    user_id = context.get("user_db_id")
+    try:
+        bom = await service.enviar_revision_obra(conn, id_bom, user_id)
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": "BOM enviado a revision de Obra",
+            "type": "success",
+            "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
+        })
+    except ValueError as e:
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": str(e), "type": "error"
+        })
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al enviar BOM a obra")
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": "Error interno", "type": "error"
+        })
+
+
+@router.post("/{id_bom}/aprobar-obra", include_in_schema=False)
+async def aprobar_obra(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_manager_access("construccion"),
+):
+    """Aprueba BOM por coordinador de obra. Avanza automaticamente a EN_REVISION_CONST."""
+    form = await request.form()
+    user_id = context.get("user_db_id")
+    comentarios = form.get("comentarios", "").strip() or None
+    try:
+        bom = await service.aprobar_obra(conn, id_bom, user_id, comentarios)
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": "BOM aprobado por Obra y enviado a Construccion",
+            "type": "success",
+            "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
+        })
+    except ValueError as e:
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": str(e), "type": "error"
+        })
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD en aprobacion obra BOM")
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": "Error interno", "type": "error"
+        })
+
+
+@router.post("/{id_bom}/rechazar-obra", include_in_schema=False)
+async def rechazar_obra(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_manager_access("construccion"),
+):
+    """Rechaza BOM por coordinador de obra. Vuelve a APROBADO_ING."""
+    form = await request.form()
+    user_id = context.get("user_db_id")
+    comentarios = form.get("comentarios", "").strip() or None
+    try:
+        bom = await service.rechazar_obra(conn, id_bom, user_id, comentarios)
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request,
+            "message": "BOM devuelto a Ingenieria para revision.",
+            "type": "warning",
+            "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
+        })
+    except ValueError as e:
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": str(e), "type": "error"
+        })
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD en rechazo obra BOM")
+        return templates.TemplateResponse("shared/toast.html", {
+            "request": request, "message": "Error interno", "type": "error"
+        })
+
+
+# ========================================
 # WORKFLOW APROBADOR FINAL
 # ========================================
 

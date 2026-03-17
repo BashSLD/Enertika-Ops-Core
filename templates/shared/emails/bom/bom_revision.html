@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BOM - Actualizacion de estado</title>
+</head>
+
+{#
+  Variables esperadas:
+    bom          - dict con datos del BOM (proyecto_id_estandar, proyecto_nombre, version, estatus)
+    evento       - str: ENVIADO_REVISION_ING | APROBADO_ING | RECHAZADO_ING |
+                        ENVIADO_REVISION_OBRA | RECHAZADO_OBRA |
+                        ENVIADO_REVISION_CONST | APROBADO_CONST | RECHAZADO_CONST |
+                        ENVIADO_REVISION_FINAL | APROBADO_FINAL | RECHAZADO_FINAL
+    por_nombre   - str: nombre del usuario que ejecuto la accion
+    comentarios  - str|None: comentarios opcionales
+    app_url      - str: URL directa al BOM
+#}
+
+{% set evento_config = {
+    'ENVIADO_REVISION_ING':   {'titulo': 'Revision requerida', 'sub': 'Ingenieria', 'color': '#D97706', 'color_end': '#F59E0B', 'msg': 'El BOM ha sido enviado para tu revision. Por favor revisa los items y aprueba o rechaza.', 'accion': true},
+    'APROBADO_ING':           {'titulo': 'Aprobado por Ingenieria', 'sub': 'Puedes enviarlo a Obra', 'color': '#2563EB', 'color_end': '#3B82F6', 'msg': 'El BOM fue aprobado por el responsable de ingenieria. Ya puedes enviarlo a revision de Obra.', 'accion': false},
+    'RECHAZADO_ING':          {'titulo': 'Devuelto por Ingenieria', 'sub': 'Requiere correccion', 'color': '#DC2626', 'color_end': '#EF4444', 'msg': 'El BOM fue rechazado por ingenieria y requiere correcciones.', 'accion': false},
+    'ENVIADO_REVISION_OBRA':  {'titulo': 'Revision requerida', 'sub': 'Coordinacion de Obra', 'color': '#CA8A04', 'color_end': '#EAB308', 'msg': 'El BOM ha sido enviado para tu revision como coordinador de obra. Por favor revisa y aprueba o rechaza.', 'accion': true},
+    'RECHAZADO_OBRA':         {'titulo': 'Devuelto por Obra', 'sub': 'Requiere correccion', 'color': '#DC2626', 'color_end': '#EF4444', 'msg': 'El BOM fue rechazado por obra y requiere correcciones antes de reenviar.', 'accion': false},
+    'ENVIADO_REVISION_CONST': {'titulo': 'Revision requerida', 'sub': 'Jefe de Construccion', 'color': '#EA580C', 'color_end': '#F97316', 'msg': 'El BOM ha sido enviado para tu revision como jefe de construccion. Por favor revisa y aprueba o rechaza.', 'accion': true},
+    'APROBADO_CONST':         {'titulo': 'Aprobado por Construccion', 'sub': 'Listo para aprobacion final', 'color': '#16A34A', 'color_end': '#22C55E', 'msg': 'El BOM fue aprobado por construccion. Ya puedes enviarlo al aprobador final.', 'accion': false},
+    'RECHAZADO_CONST':        {'titulo': 'Devuelto por Construccion', 'sub': 'Requiere correccion', 'color': '#DC2626', 'color_end': '#EF4444', 'msg': 'El BOM fue rechazado por construccion y requiere correcciones.', 'accion': false},
+    'ENVIADO_REVISION_FINAL': {'titulo': 'Aprobacion final requerida', 'sub': 'Aprobador Final', 'color': '#7C3AED', 'color_end': '#8B5CF6', 'msg': 'El BOM requiere tu aprobacion final. Por favor revisa y aprueba o rechaza.', 'accion': true},
+    'APROBADO_FINAL':         {'titulo': 'BOM Aprobado Definitivamente', 'sub': 'Flujo completado', 'color': '#059669', 'color_end': '#10B981', 'msg': 'El BOM fue aprobado de forma definitiva. El flujo de aprobacion ha concluido.', 'accion': false},
+    'RECHAZADO_FINAL':        {'titulo': 'Devuelto por Aprobador Final', 'sub': 'Requiere revision', 'color': '#DC2626', 'color_end': '#EF4444', 'msg': 'El BOM fue rechazado por el aprobador final y requiere revision.', 'accion': false},
+} %}
+{% set cfg = evento_config.get(evento, {'titulo': 'Actualizacion BOM', 'sub': '', 'color': '#123456', 'color_end': '#00BABB', 'msg': 'Hubo un cambio de estado en el BOM.', 'accion': false}) %}
+
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4; color: #333333;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0"
+                    style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, {{ cfg.color }} 0%, {{ cfg.color_end }} 100%); padding: 30px 40px; text-align: center;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 22px; font-weight: 600;">
+                                {{ cfg.titulo }}
+                            </h1>
+                            <p style="margin: 8px 0 0 0; color: rgba(255,255,255,0.85); font-size: 13px;">
+                                Lista de Materiales (BOM) &mdash; {{ cfg.sub }}
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Cuerpo -->
+                    <tr>
+                        <td style="padding: 36px 40px;">
+
+                            <p style="margin: 0 0 20px 0; color: #333333; font-size: 15px; line-height: 1.6;">
+                                {{ cfg.msg }}
+                            </p>
+
+                            <!-- Info BOM -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px; margin-bottom: 24px;">
+                                <tr>
+                                    <td style="padding: 16px 20px;">
+                                        <table width="100%" cellpadding="4" cellspacing="0">
+                                            <tr>
+                                                <td style="font-size: 12px; color: #64748b; font-weight: 600; width: 140px;">PROYECTO</td>
+                                                <td style="font-size: 13px; color: #1e293b; font-weight: 600;">
+                                                    {{ bom.get('proyecto_id_estandar', '') }} &mdash; {{ bom.get('proyecto_nombre', '') }}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-size: 12px; color: #64748b; font-weight: 600;">VERSION</td>
+                                                <td style="font-size: 13px; color: #1e293b;">v{{ bom.get('version', 1) }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-size: 12px; color: #64748b; font-weight: 600;">ESTADO ACTUAL</td>
+                                                <td style="font-size: 13px; color: #1e293b;">{{ bom.get('estatus', '') }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="font-size: 12px; color: #64748b; font-weight: 600;">REALIZADO POR</td>
+                                                <td style="font-size: 13px; color: #1e293b;">{{ por_nombre }}</td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            {% if comentarios %}
+                            <!-- Comentarios -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #fef3c7; border-left: 4px solid #F59E0B; border-radius: 4px; margin-bottom: 24px;">
+                                <tr>
+                                    <td style="padding: 14px 16px;">
+                                        <p style="margin: 0 0 4px 0; font-size: 11px; font-weight: 600; color: #92400e; text-transform: uppercase;">Comentarios</p>
+                                        <p style="margin: 0; font-size: 14px; color: #78350f; line-height: 1.5;">{{ comentarios }}</p>
+                                    </td>
+                                </tr>
+                            </table>
+                            {% endif %}
+
+                            {% if cfg.accion %}
+                            <!-- CTA -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 24px;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{{ app_url }}"
+                                            style="display: inline-block; padding: 12px 28px; background-color: {{ cfg.color }}; color: #ffffff; text-decoration: none; border-radius: 6px; font-size: 14px; font-weight: 600;">
+                                            Revisar BOM ahora
+                                        </a>
+                                        <p style="margin: 8px 0 0 0; font-size: 11px; color: #94a3b8;">
+                                            Puedes revisarlo desde tu celular
+                                        </p>
+                                    </td>
+                                </tr>
+                            </table>
+                            {% else %}
+                            <p style="margin: 0 0 24px 0; font-size: 13px; color: #64748b;">
+                                <a href="{{ app_url }}" style="color: {{ cfg.color }};">Ver BOM en la plataforma</a>
+                            </p>
+                            {% endif %}
+
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="background-color: #f8fafc; padding: 16px 40px; border-top: 1px solid #e2e8f0; text-align: center;">
+                            <p style="margin: 0; font-size: 11px; color: #94a3b8;">
+                                Enertika Ops Core &mdash; Notificacion automatica. No responder a este correo.
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

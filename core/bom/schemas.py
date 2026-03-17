@@ -15,11 +15,12 @@ class EstatusBOM(str, Enum):
     BORRADOR = "BORRADOR"
     EN_REVISION_ING = "EN_REVISION_ING"
     APROBADO_ING = "APROBADO_ING"
+    EN_REVISION_OBRA = "EN_REVISION_OBRA"
     EN_REVISION_CONST = "EN_REVISION_CONST"
-    APROBADO = "APROBADO"
-    CANCELADO = "CANCELADO"
+    APROBADO_CONST = "APROBADO_CONST"
     EN_REVISION_FINAL = "EN_REVISION_FINAL"
     APROBADO_FINAL = "APROBADO_FINAL"
+    CANCELADO = "CANCELADO"
 
 
 class AccionHistorial(str, Enum):
@@ -34,6 +35,9 @@ class TipoAprobacion(str, Enum):
     ENVIO_REVISION_ING = "ENVIO_REVISION_ING"
     APROBACION_ING = "APROBACION_ING"
     RECHAZO_ING = "RECHAZO_ING"
+    ENVIO_REVISION_OBRA = "ENVIO_REVISION_OBRA"
+    APROBACION_OBRA = "APROBACION_OBRA"
+    RECHAZO_OBRA = "RECHAZO_OBRA"
     ENVIO_REVISION_CONST = "ENVIO_REVISION_CONST"
     APROBACION_CONST = "APROBACION_CONST"
     RECHAZO_CONST = "RECHAZO_CONST"
@@ -77,8 +81,12 @@ class BomRead(BaseModel):
     coordinador_obra_nombre: Optional[str] = None
     fecha_envio_ing: Optional[datetime] = None
     fecha_aprobacion_ing: Optional[datetime] = None
+    fecha_envio_obra: Optional[datetime] = None
+    fecha_aprobacion_obra: Optional[datetime] = None
     fecha_envio_const: Optional[datetime] = None
     fecha_aprobacion_const: Optional[datetime] = None
+    fecha_envio_final: Optional[datetime] = None
+    fecha_aprobacion_final: Optional[datetime] = None
     notas: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None

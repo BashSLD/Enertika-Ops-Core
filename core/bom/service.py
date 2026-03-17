@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 
 from core.bom.db_service import BomDBService
 from core.bom.schemas import EstatusBOM, AccionHistorial, TipoAprobacion
+from core.config import settings
 
 logger = logging.getLogger("BOM.Service")
 
@@ -26,7 +27,8 @@ ESTATUS_EDITABLE_ING = {EstatusBOM.BORRADOR}
 
 # Estatus que permiten edicion por construccion/compras (campos especificos)
 ESTATUS_EDITABLE_CONST_COMPRAS = {
-    EstatusBOM.APROBADO_ING, EstatusBOM.EN_REVISION_CONST, EstatusBOM.APROBADO
+    EstatusBOM.APROBADO_ING, EstatusBOM.EN_REVISION_OBRA,
+    EstatusBOM.EN_REVISION_CONST, EstatusBOM.APROBADO_CONST
 }
 
 # Estados en los que NO se puede editar de ninguna forma
@@ -337,7 +339,10 @@ class BomService:
         )
 
         logger.info("BOM %s enviado a revision ing por %s", id_bom, user_id)
-        return await self.db.get_bom_by_id(conn, id_bom)
+        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
+        await self._notify_bom(conn, bom_updated, bom_updated.get('responsable_ing'),
+                               'ENVIADO_REVISION_ING', por_user_id=user_id)
+        return bom_updated
 
     async def aprobar_ing(
         self, conn, id_bom: UUID, user_id: UUID,
@@ -360,7 +365,10 @@ class BomService:
         )
 
         logger.info("BOM %s aprobado por ing %s", id_bom, user_id)
-        return await self.db.get_bom_by_id(conn, id_bom)
+        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
+        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
+                               'APROBADO_ING', por_user_id=user_id)
+        return bom_updated
 
     async def rechazar_ing(
         self, conn, id_bom: UUID, user_id: UUID,
@@ -387,7 +395,10 @@ class BomService:
         )
 
         logger.info("BOM %s rechazado por ing %s: %s", id_bom, user_id, comentarios)
-        return await self.db.get_bom_by_id(conn, id_bom)
+        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
+        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
+                               'RECHAZADO_ING', por_user_id=user_id, comentarios=comentarios)
+        return bom_updated
 
     async def enviar_revision_const(
         self, conn, id_bom: UUID, user_id: UUID,
@@ -438,7 +449,10 @@ class BomService:
         )
 
         logger.info("BOM %s aprobado por const %s", id_bom, user_id)
-        return await self.db.get_bom_by_id(conn, id_bom)
+        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
+        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
+                               'APROBADO_CONST', por_user_id=user_id)
+        return bom_updated
 
     async def rechazar_const(
         self, conn, id_bom: UUID, user_id: UUID,
@@ -465,7 +479,86 @@ class BomService:
         )
 
         logger.info("BOM %s rechazado por const %s: %s", id_bom, user_id, comentarios)
-        return await self.db.get_bom_by_id(conn, id_bom)
+        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
+        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
+                               'RECHAZADO_CONST', por_user_id=user_id, comentarios=comentarios)
+        return bom_updated
+
+    async def enviar_revision_obra(
+        self, conn, id_bom: UUID, user_id: UUID
+    ) -> dict:
+        """Envia BOM aprobado por ing a revision del coordinador de obra."""
+        bom = await self.get_bom(conn, id_bom)
+
+        if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_ING:
+            raise ValueError("El BOM debe estar APROBADO_ING para enviar a obra")
+
+        await self.db.update_bom_estatus(
+            conn, id_bom, EstatusBOM.EN_REVISION_OBRA,
+            fecha_envio_obra=datetime.now(timezone.utc)
+        )
+        await self.db.registrar_aprobacion(
+            conn, id_bom, TipoAprobacion.ENVIO_REVISION_OBRA,
+            bom['version'], user_id
+        )
+        logger.info("BOM %s enviado a revision obra por %s", id_bom, user_id)
+        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
+        await self._notify_bom(conn, bom_updated, bom_updated.get('coordinador_obra'),
+                               'ENVIADO_REVISION_OBRA', por_user_id=user_id)
+        return bom_updated
+
+    async def aprobar_obra(
+        self, conn, id_bom: UUID, user_id: UUID,
+        comentarios: Optional[str] = None
+    ) -> dict:
+        """Aprueba BOM por coordinador de obra. Avanza automaticamente a EN_REVISION_CONST."""
+        bom = await self.get_bom(conn, id_bom)
+
+        if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_OBRA:
+            raise ValueError("El BOM debe estar EN_REVISION_OBRA para aprobar")
+
+        await self.db.update_bom_estatus(
+            conn, id_bom, EstatusBOM.EN_REVISION_CONST,
+            fecha_aprobacion_obra=datetime.now(timezone.utc),
+            fecha_envio_const=datetime.now(timezone.utc)
+        )
+        await self.db.registrar_aprobacion(
+            conn, id_bom, TipoAprobacion.APROBACION_OBRA,
+            bom['version'], user_id, comentarios=comentarios
+        )
+        logger.info("BOM %s aprobado por obra %s, avanza a EN_REVISION_CONST", id_bom, user_id)
+        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
+        await self._notify_bom(conn, bom_updated, bom_updated.get('jefe_construccion'),
+                               'ENVIADO_REVISION_CONST', por_user_id=user_id)
+        return bom_updated
+
+    async def rechazar_obra(
+        self, conn, id_bom: UUID, user_id: UUID,
+        comentarios: Optional[str] = None
+    ) -> dict:
+        """Rechaza BOM por coordinador de obra. Vuelve a APROBADO_ING."""
+        if not comentarios or not comentarios.strip():
+            raise ValueError("El motivo del rechazo es obligatorio")
+
+        bom = await self.get_bom(conn, id_bom)
+
+        if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_OBRA:
+            raise ValueError("El BOM debe estar EN_REVISION_OBRA para rechazar")
+
+        await self.db.update_bom_estatus(
+            conn, id_bom, EstatusBOM.APROBADO_ING,
+            fecha_envio_obra=None,
+            fecha_aprobacion_obra=None
+        )
+        await self.db.registrar_aprobacion(
+            conn, id_bom, TipoAprobacion.RECHAZO_OBRA,
+            bom['version'], user_id, comentarios=comentarios
+        )
+        logger.info("BOM %s rechazado por obra %s: %s", id_bom, user_id, comentarios)
+        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
+        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
+                               'RECHAZADO_OBRA', por_user_id=user_id, comentarios=comentarios)
+        return bom_updated
 
     async def devolver_a_borrador(
         self, conn, id_bom: UUID, user_id: UUID,
@@ -527,8 +620,8 @@ class BomService:
         """
         bom = await self.get_bom(conn, id_bom)
 
-        if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO:
-            raise ValueError("Solo se puede solicitar modificacion de un BOM APROBADO")
+        if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_CONST:
+            raise ValueError("Solo se puede solicitar modificacion de un BOM APROBADO_CONST")
 
         # Registrar solicitud en version actual
         await self.db.registrar_aprobacion(
@@ -651,18 +744,25 @@ class BomService:
     async def enviar_revision_final(
         self, conn, id_bom: UUID, user_id: UUID
     ) -> dict:
-        """Envia BOM APROBADO a revision del aprobador final."""
+        """Envia BOM APROBADO_CONST a revision del aprobador final."""
         bom = await self.get_bom(conn, id_bom)
-        if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO:
-            raise ValueError("El BOM debe estar APROBADO por construccion para enviar al aprobador final")
+        if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_CONST:
+            raise ValueError("El BOM debe estar APROBADO_CONST para enviar al aprobador final")
 
-        await self.db.update_bom_estatus(conn, id_bom, EstatusBOM.EN_REVISION_FINAL)
+        aprobador_id = await self.db.get_aprobador_final_id(conn)
+        await self.db.update_bom_estatus(
+            conn, id_bom, EstatusBOM.EN_REVISION_FINAL,
+            fecha_envio_final=datetime.now(timezone.utc)
+        )
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.ENVIO_REVISION_FINAL,
             bom['version'], user_id
         )
         logger.info("BOM %s enviado a revision final por %s", id_bom, user_id)
-        return await self.db.get_bom_by_id(conn, id_bom)
+        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
+        await self._notify_bom(conn, bom_updated, aprobador_id,
+                               'ENVIADO_REVISION_FINAL', por_user_id=user_id)
+        return bom_updated
 
     async def aprobar_final(
         self, conn, id_bom: UUID, user_id: UUID,
@@ -677,19 +777,25 @@ class BomService:
         if not aprobador_id or str(user_id) != str(aprobador_id):
             raise ValueError("Solo el aprobador final designado puede ejecutar esta accion")
 
-        await self.db.update_bom_estatus(conn, id_bom, EstatusBOM.APROBADO_FINAL)
+        await self.db.update_bom_estatus(
+            conn, id_bom, EstatusBOM.APROBADO_FINAL,
+            fecha_aprobacion_final=datetime.now(timezone.utc)
+        )
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.APROBACION_FINAL,
             bom['version'], user_id, comentarios=comentarios
         )
         logger.info("BOM %s aprobado final por %s", id_bom, user_id)
-        return await self.db.get_bom_by_id(conn, id_bom)
+        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
+        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
+                               'APROBADO_FINAL', por_user_id=user_id)
+        return bom_updated
 
     async def rechazar_final(
         self, conn, id_bom: UUID, user_id: UUID,
         comentarios: Optional[str] = None
     ) -> dict:
-        """Rechazo por aprobador final. Vuelve a APROBADO (construccion)."""
+        """Rechazo por aprobador final. Vuelve a APROBADO_CONST."""
         if not comentarios or not comentarios.strip():
             raise ValueError("El motivo del rechazo es obligatorio")
 
@@ -701,16 +807,78 @@ class BomService:
         if not aprobador_id or str(user_id) != str(aprobador_id):
             raise ValueError("Solo el aprobador final designado puede ejecutar esta accion")
 
-        await self.db.update_bom_estatus(conn, id_bom, EstatusBOM.APROBADO)
+        await self.db.update_bom_estatus(conn, id_bom, EstatusBOM.APROBADO_CONST)
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.RECHAZO_FINAL,
             bom['version'], user_id, comentarios=comentarios
         )
         logger.info("BOM %s rechazado final por %s: %s", id_bom, user_id, comentarios)
-        return await self.db.get_bom_by_id(conn, id_bom)
+        bom_updated = await self.db.get_bom_by_id(conn, id_bom)
+        await self._notify_bom(conn, bom_updated, bom_updated.get('elaborado_por'),
+                               'RECHAZADO_FINAL', por_user_id=user_id, comentarios=comentarios)
+        return bom_updated
 
     async def get_aprobador_final_id(self, conn) -> Optional[UUID]:
         return await self.db.get_aprobador_final_id(conn)
+
+    # ─── NOTIFICACIONES EMAIL ────────────────────────────────
+
+    async def _notify_bom(
+        self, conn, bom: dict,
+        to_user_id,
+        evento: str,
+        por_user_id=None,
+        comentarios: Optional[str] = None
+    ) -> None:
+        """Envia email de notificacion de cambio de estado BOM. Fire-and-forget."""
+        if not to_user_id:
+            return
+        try:
+            from core.workflow.notification_service import NotificationService
+            notif = NotificationService()
+
+            to_email = await self.db.get_usuario_email(conn, to_user_id)
+            if not to_email:
+                return
+
+            sender_email = await self.db.get_sender_email(conn, 'DEFAULT')
+            if not sender_email:
+                logger.warning("BOM notify: no DEFAULT sender email configurado")
+                return
+
+            por_nombre = None
+            if por_user_id:
+                por_nombre = await conn.fetchval(
+                    "SELECT nombre FROM tb_usuarios WHERE id_usuario = $1", por_user_id
+                )
+
+            html = notif._render_template('shared/emails/bom/bom_revision.html', {
+                'bom': bom,
+                'evento': evento,
+                'por_nombre': por_nombre or 'Sistema',
+                'comentarios': comentarios,
+                'app_url': f"{settings.APP_BASE_URL}/bom/{bom.get('id_proyecto')}/ui",
+            })
+
+            subject_map = {
+                'ENVIADO_REVISION_ING':   f"BOM {bom.get('proyecto_id_estandar', '')} - Revision requerida (Ingenieria)",
+                'APROBADO_ING':           f"BOM {bom.get('proyecto_id_estandar', '')} - Aprobado por Ingenieria",
+                'RECHAZADO_ING':          f"BOM {bom.get('proyecto_id_estandar', '')} - Devuelto por Ingenieria",
+                'ENVIADO_REVISION_OBRA':  f"BOM {bom.get('proyecto_id_estandar', '')} - Revision requerida (Obra)",
+                'RECHAZADO_OBRA':         f"BOM {bom.get('proyecto_id_estandar', '')} - Devuelto por Obra",
+                'ENVIADO_REVISION_CONST': f"BOM {bom.get('proyecto_id_estandar', '')} - Revision requerida (Construccion)",
+                'APROBADO_CONST':         f"BOM {bom.get('proyecto_id_estandar', '')} - Aprobado por Construccion",
+                'RECHAZADO_CONST':        f"BOM {bom.get('proyecto_id_estandar', '')} - Devuelto por Construccion",
+                'ENVIADO_REVISION_FINAL': f"BOM {bom.get('proyecto_id_estandar', '')} - Aprobacion final requerida",
+                'APROBADO_FINAL':         f"BOM {bom.get('proyecto_id_estandar', '')} - Aprobado definitivamente",
+                'RECHAZADO_FINAL':        f"BOM {bom.get('proyecto_id_estandar', '')} - Devuelto por Aprobador Final",
+            }
+            subject = subject_map.get(evento, f"BOM {bom.get('proyecto_id_estandar', '')} - Actualizacion")
+
+            await notif._send_email({to_email}, set(), subject, html, sender_email)
+            logger.info("BOM notify enviada: evento=%s to_user=%s", evento, to_user_id)
+        except Exception:
+            logger.exception("BOM notify: error enviando email, evento=%s", evento)
 
     # ─── CATALOGOS ──────────────────────────────────────────
 

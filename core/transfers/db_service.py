@@ -273,9 +273,11 @@ class TransferDBService:
 
     async def get_traspaso_by_id(self, conn, id_traspaso: UUID) -> Optional[Dict[str, Any]]:
         row = await conn.fetchrow("""
-            SELECT tr.*, p.proyecto_id_estandar, p.area_actual
+            SELECT tr.*, p.proyecto_id_estandar, p.area_actual,
+                   o.nombre_proyecto, o.cliente_nombre, o.op_id_estandar
             FROM tb_traspasos_proyecto tr
             JOIN tb_proyectos_gate p ON tr.id_proyecto = p.id_proyecto
+            LEFT JOIN tb_oportunidades o ON p.id_oportunidad = o.id_oportunidad
             WHERE tr.id_traspaso = $1
         """, id_traspaso)
         return dict(row) if row else None
