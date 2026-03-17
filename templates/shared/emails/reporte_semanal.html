@@ -116,6 +116,27 @@
                                 </tr>
                             </table>
 
+                            <!-- Texto para copiar -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom: 32px; background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px;">
+                                <tr>
+                                    <td style="padding: 24px;">
+                                        <div style="font-size: 14px; font-weight: 600; color: #4b5563; margin-bottom: 12px;">Texto listo para compartir</div>
+                                        <pre style="margin: 0; font-family: 'Courier New', Courier, monospace; font-size: 14px; color: #374151; white-space: pre-wrap; line-height: 1.6;">Actividad en ECO — Semana del {{ fecha_inicio.strftime('%d/%m') }} al {{ fecha_fin_display.strftime('%d/%m/%Y') }}
+
+Oportunidades registradas en el sistema
+  {{ datos.nuevas_oportunidades }} nuevas oportunidades ingresadas esta semana
+  {{ datos.total_oportunidades }} oportunidades acumuladas en el sistema hasta hoy
+
+Proyectos en simulación
+  {{ datos.en_simulacion_activas }} proyectos activos actualmente en proceso de simulación
+
+Levantamientos solicitados desde ECO
+  {{ datos.levantamientos_semana }} levantamientos solicitados esta semana
+  {{ datos.levantamientos_activos }} levantamientos activos en seguimiento actualmente</pre>
+                                    </td>
+                                </tr>
+                            </table>
+
                             <!-- CTA -->
                             <table width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 8px 0;">
                                 <tr>

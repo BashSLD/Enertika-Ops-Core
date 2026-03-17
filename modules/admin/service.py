@@ -622,6 +622,7 @@ class AdminService:
         destinatarios_raw = await ConfigService.get_global_config(
             conn, "reporte_semanal_destinatarios", "", str
         )
+        destinatarios_raw = destinatarios_raw.replace(";", ",")
         destinatarios = {e.strip() for e in destinatarios_raw.split(",") if e.strip()}
 
         if not destinatarios:
