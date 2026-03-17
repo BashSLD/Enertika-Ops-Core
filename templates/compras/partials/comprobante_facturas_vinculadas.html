@@ -1,0 +1,172 @@
+<!-- Panel de facturas vinculadas a un comprobante parcial -->
+<div class="bg-orange-50 border border-orange-200 rounded-lg p-4 mt-1"
+     hx-swap-oob="innerHTML:#facturas-panel-{{ comprobante.id_comprobante }}"
+     id="facturas-panel-inner-{{ comprobante.id_comprobante }}">
+
+    <!-- Encabezado con barra de progreso -->
+    <div class="flex items-center justify-between mb-3">
+        <h4 class="text-sm font-semibold text-gray-700">Facturas vinculadas</h4>
+        {% if comprobante.estatus == 'CERRADO' %}
+        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-200 text-gray-600">
+            Cerrado
+        </span>
+        {% endif %}
+    </div>
+
+    <!-- Barra de progreso -->
+    <div class="mb-3">
+        <div class="flex justify-between text-xs text-gray-600 mb-1">
+            <span>Facturado: ${{ "{:,.2f}".format(monto_facturado) }} {{ comprobante.moneda }}</span>
+            <span>Pago total: ${{ "{:,.2f}".format(monto_total) }} {{ comprobante.moneda }}</span>
+        </div>
+        <div class="w-full bg-gray-200 rounded-full h-2.5">
+            <div class="h-2.5 rounded-full {% if comprobante.estatus == 'FACTURADO' %}bg-green-500{% elif comprobante.estatus == 'CERRADO' %}bg-gray-400{% else %}bg-orange-400{% endif %}"
+                 style="width: {{ [porcentaje, 100]|min }}%"></div>
+        </div>
+        <div class="flex justify-between text-xs mt-1">
+            <span class="{% if comprobante.estatus == 'CERRADO' %}text-gray-500{% else %}text-orange-600{% endif %}">
+                {{ porcentaje }}% facturado
+            </span>
+            {% if saldo_pendiente > 0.005 %}
+            <span class="{% if comprobante.estatus == 'CERRADO' %}text-gray-500{% else %}text-orange-700 font-medium{% endif %}">
+                Saldo: ${{ "{:,.2f}".format(saldo_pendiente) }}
+                {% if comprobante.estatus == 'CERRADO' %} (remanente){% endif %}
+            </span>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- Motivo de cierre -->
+    {% if comprobante.estatus == 'CERRADO' and comprobante.motivo_cierre %}
+    <div class="bg-gray-100 rounded p-2 mb-3 text-xs text-gray-600">
+        <span class="font-medium">Motivo cierre:</span> {{ comprobante.motivo_cierre }}
+    </div>
+    {% endif %}
+
+    <!-- Tabla de facturas -->
+    {% if facturas %}
+    <div class="overflow-x-auto mb-3">
+        <table class="w-full text-xs">
+            <thead>
+                <tr class="text-gray-500 border-b border-orange-200">
+                    <th class="text-left py-1 pr-3">UUID</th>
+                    <th class="text-left py-1 pr-3">Emisor</th>
+                    <th class="text-right py-1 pr-3">Monto</th>
+                    <th class="text-left py-1 pr-3">Fecha</th>
+                    <th class="text-left py-1 pr-3">Tipo</th>
+                    {% if comprobante.estatus != 'CERRADO' %}
+                    <th class="text-center py-1"></th>
+                    {% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for f in facturas %}
+                <tr class="border-b border-orange-100 hover:bg-orange-100">
+                    <td class="py-1.5 pr-3 font-mono text-gray-500">{{ f.uuid_factura[:8] }}...</td>
+                    <td class="py-1.5 pr-3 text-gray-700 max-w-[160px] truncate">{{ f.nombre_emisor or f.rfc_emisor or '-' }}</td>
+                    <td class="py-1.5 pr-3 text-right font-medium text-gray-800">
+                        ${{ "{:,.2f}".format(f.monto|float if f.monto else 0) }}
+                    </td>
+                    <td class="py-1.5 pr-3 text-gray-500">{{ f.fecha_str if f.fecha_str is defined else '-' }}</td>
+                    <td class="py-1.5 pr-3">
+                        <span class="px-1.5 py-0.5 rounded text-xs
+                            {% if f.tipo == 'ANTICIPO' %}bg-amber-100 text-amber-700
+                            {% elif f.tipo == 'NOTA_CREDITO' %}bg-red-100 text-red-700
+                            {% else %}bg-gray-100 text-gray-600{% endif %}">
+                            {{ f.tipo }}
+                        </span>
+                    </td>
+                    {% if comprobante.estatus != 'CERRADO' %}
+                    <td class="py-1.5 text-center">
+                        <button
+                            hx-delete="/compras/comprobante/{{ comprobante.id_comprobante }}/factura/{{ f.uuid_factura }}"
+                            hx-target="#facturas-panel-{{ comprobante.id_comprobante }}"
+                            hx-swap="innerHTML"
+                            hx-confirm="¿Desvincular esta factura? Se eliminará del historial de materiales."
+                            class="text-red-400 hover:text-red-600 transition-colors"
+                            title="Desvincular factura">
+                            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </td>
+                    {% endif %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-xs text-gray-500 mb-3">Sin facturas vinculadas aún.</p>
+    {% endif %}
+
+    <!-- Acciones -->
+    <div class="flex gap-2 flex-wrap">
+        {% if comprobante.estatus == 'PARCIALMENTE_FACTURADO' %}
+        <!-- Cerrar remanente -->
+        <button
+            onclick="document.getElementById('modal-remanente-{{ comprobante.id_comprobante }}').classList.remove('hidden')"
+            class="px-3 py-1.5 text-xs font-medium text-white bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors">
+            Cerrar remanente
+        </button>
+        {% elif comprobante.estatus == 'PENDIENTE' and not facturas %}
+        <!-- Cerrar sin facturas (descartar) -->
+        <button
+            onclick="document.getElementById('modal-remanente-{{ comprobante.id_comprobante }}').classList.remove('hidden')"
+            class="px-3 py-1.5 text-xs font-medium text-white bg-gray-600 hover:bg-gray-700 rounded-lg transition-colors">
+            Descartar (sin factura)
+        </button>
+        {% elif comprobante.estatus == 'CERRADO' %}
+        <!-- Reabrir -->
+        <button
+            hx-post="/compras/comprobante/{{ comprobante.id_comprobante }}/reabrir"
+            hx-target="#facturas-panel-{{ comprobante.id_comprobante }}"
+            hx-swap="innerHTML"
+            hx-confirm="¿Reabrir este comprobante?"
+            class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors">
+            Reabrir
+        </button>
+        {% endif %}
+    </div>
+</div>
+
+<!-- Modal cerrar remanente -->
+{% if comprobante.estatus in ('PARCIALMENTE_FACTURADO', 'PENDIENTE') %}
+<div id="modal-remanente-{{ comprobante.id_comprobante }}"
+     class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+        <h3 class="text-base font-semibold text-gray-800 mb-1">Cerrar remanente</h3>
+        {% if saldo_pendiente > 0.005 %}
+        <p class="text-sm text-gray-600 mb-4">
+            Quedarán <span class="font-semibold text-orange-600">${{ "{:,.2f}".format(saldo_pendiente) }}</span>
+            sin facturar. Esta acción indica que no se esperan más facturas para este pago.
+        </p>
+        {% else %}
+        <p class="text-sm text-gray-600 mb-4">
+            No se han vinculado facturas a este pago. Se marcará como descartado.
+        </p>
+        {% endif %}
+        <form hx-post="/compras/comprobante/{{ comprobante.id_comprobante }}/cerrar-remanente"
+              hx-target="#facturas-panel-{{ comprobante.id_comprobante }}"
+              hx-swap="innerHTML"
+              x-data
+              @htmx:after-request="document.getElementById('modal-remanente-{{ comprobante.id_comprobante }}').classList.add('hidden')">
+            <label class="block text-sm font-medium text-gray-700 mb-1">Motivo <span class="text-red-500">*</span></label>
+            <textarea name="motivo" required rows="3"
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB] resize-none"
+                placeholder="Ej. El proveedor no emitirá más facturas por este pago..."></textarea>
+            <div class="flex justify-end gap-2 mt-4">
+                <button type="button"
+                    onclick="document.getElementById('modal-remanente-{{ comprobante.id_comprobante }}').classList.add('hidden')"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors">
+                    Cancelar
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-gray-700 hover:bg-gray-800 rounded-lg transition-colors">
+                    Confirmar cierre
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}

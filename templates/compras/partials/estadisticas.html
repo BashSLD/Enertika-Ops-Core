@@ -1,4 +1,4 @@
-<div id="stats-container" class="grid grid-cols-2 md:grid-cols-{{ '6' if estadisticas.anticipos is defined and estadisticas.anticipos > 0 else '5' }} gap-4 mb-6">
+<div id="stats-container" class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 mb-6">
     <div class="bg-white rounded-lg shadow p-4 border-l-4 border-blue-500">
         <p class="text-xs text-gray-500 uppercase">Total Mes</p>
         <p class="text-2xl font-bold text-gray-800">{{ estadisticas.total }}</p>
@@ -13,10 +13,22 @@
         <p class="text-2xl font-bold text-amber-600">{{ estadisticas.anticipos }}</p>
     </div>
     {% endif %}
+    {% if estadisticas.parciales is defined and estadisticas.parciales > 0 %}
+    <div class="bg-white rounded-lg shadow p-4 border-l-4 border-orange-500">
+        <p class="text-xs text-gray-500 uppercase">Parciales</p>
+        <p class="text-2xl font-bold text-orange-500">{{ estadisticas.parciales }}</p>
+    </div>
+    {% endif %}
     <div class="bg-white rounded-lg shadow p-4 border-l-4 border-green-500">
         <p class="text-xs text-gray-500 uppercase">Facturados</p>
         <p class="text-2xl font-bold text-green-600">{{ estadisticas.facturados }}</p>
     </div>
+    {% if estadisticas.cerrados is defined and estadisticas.cerrados > 0 %}
+    <div class="bg-white rounded-lg shadow p-4 border-l-4 border-gray-400">
+        <p class="text-xs text-gray-500 uppercase">Cerrados</p>
+        <p class="text-2xl font-bold text-gray-500">{{ estadisticas.cerrados }}</p>
+    </div>
+    {% endif %}
     <div class="bg-white rounded-lg shadow p-4 border-l-4 border-purple-500">
         <p class="text-xs text-gray-500 uppercase">Total MXN</p>
         <p class="text-xl font-bold text-gray-800">${{ "{:,.2f}".format(estadisticas.total_mxn) }}</p>

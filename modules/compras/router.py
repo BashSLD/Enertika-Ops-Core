@@ -880,3 +880,207 @@ async def get_comprobante_archivos(
             "id_comprobante": id_comprobante,
         }
     )
+
+
+# ========================================
+# FACTURAS PARCIALES Y REMANENTES
+# ========================================
+
+@router.get("/comprobante/{id_comprobante}/facturas-vinculadas", response_class=HTMLResponse)
+async def get_facturas_vinculadas(
+    request: Request,
+    id_comprobante: UUID,
+    conn=Depends(get_db_connection),
+    service: ComprasService = Depends(get_compras_service),
+    _=require_module_access("compras"),
+):
+    """
+    Lista las facturas vinculadas a un comprobante con barra de progreso.
+    Incluye botones para cerrar remanente o desvincular facturas.
+    """
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+
+    comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+    if not comprobante:
+        raise HTTPException(status_code=404, detail="Comprobante no encontrado")
+
+    facturas = await service.get_facturas_vinculadas(conn, id_comprobante)
+
+    monto_total = float(comprobante.get('monto') or 0)
+    monto_facturado = float(comprobante.get('monto_facturado') or 0)
+    saldo_pendiente = monto_total - monto_facturado
+    porcentaje = round((monto_facturado / monto_total * 100), 1) if monto_total > 0 else 0
+
+    return templates.TemplateResponse(
+        "compras/partials/comprobante_facturas_vinculadas.html",
+        {
+            "request": request,
+            "comprobante": comprobante,
+            "facturas": facturas,
+            "monto_total": monto_total,
+            "monto_facturado": monto_facturado,
+            "saldo_pendiente": saldo_pendiente,
+            "porcentaje": porcentaje,
+        },
+    )
+
+
+@router.delete("/comprobante/{id_comprobante}/factura/{uuid_factura}", response_class=HTMLResponse)
+async def desvincular_factura(
+    request: Request,
+    id_comprobante: UUID,
+    uuid_factura: str,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: ComprasService = Depends(get_compras_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Desvincula una factura de un comprobante y recalcula su estado."""
+    try:
+        resultado = await service.desvincular_factura(conn, id_comprobante, uuid_factura)
+    except ValueError as e:
+        return templates.TemplateResponse(
+            "shared/toast.html",
+            {"request": request, "message": str(e), "type": "error"},
+        )
+
+    # Retornar panel actualizado + toast
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+    facturas = await service.get_facturas_vinculadas(conn, id_comprobante)
+
+    monto_total = float(comprobante.get('monto') or 0)
+    monto_facturado = float(comprobante.get('monto_facturado') or 0)
+    saldo_pendiente = monto_total - monto_facturado
+    porcentaje = round((monto_facturado / monto_total * 100), 1) if monto_total > 0 else 0
+
+    panel_html = templates.TemplateResponse(
+        "compras/partials/comprobante_facturas_vinculadas.html",
+        {
+            "request": request,
+            "comprobante": comprobante,
+            "facturas": facturas,
+            "monto_total": monto_total,
+            "monto_facturado": monto_facturado,
+            "saldo_pendiente": saldo_pendiente,
+            "porcentaje": porcentaje,
+        },
+    ).body.decode("utf-8")
+
+    toast_html = templates.TemplateResponse(
+        "shared/toast.html",
+        {"request": request, "message": "Factura desvinculada correctamente", "type": "success"},
+    ).body.decode("utf-8")
+
+    return HTMLResponse(content=panel_html + toast_html)
+
+
+@router.post("/comprobante/{id_comprobante}/cerrar-remanente", response_class=HTMLResponse)
+async def cerrar_remanente(
+    request: Request,
+    id_comprobante: UUID,
+    motivo: str = Form(...),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: ComprasService = Depends(get_compras_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Cierra un comprobante indicando que no habrá más facturas (remanente)."""
+    user_id = context.get("user_db_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Usuario no identificado")
+
+    try:
+        await service.cerrar_remanente(conn, id_comprobante, motivo, user_id)
+    except ValueError as e:
+        return templates.TemplateResponse(
+            "shared/toast.html",
+            {"request": request, "message": str(e), "type": "error"},
+        )
+
+    # Retornar panel actualizado + toast
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+    facturas = await service.get_facturas_vinculadas(conn, id_comprobante)
+
+    monto_total = float(comprobante.get('monto') or 0)
+    monto_facturado = float(comprobante.get('monto_facturado') or 0)
+    saldo_pendiente = monto_total - monto_facturado
+    porcentaje = round((monto_facturado / monto_total * 100), 1) if monto_total > 0 else 0
+
+    panel_html = templates.TemplateResponse(
+        "compras/partials/comprobante_facturas_vinculadas.html",
+        {
+            "request": request,
+            "comprobante": comprobante,
+            "facturas": facturas,
+            "monto_total": monto_total,
+            "monto_facturado": monto_facturado,
+            "saldo_pendiente": saldo_pendiente,
+            "porcentaje": porcentaje,
+        },
+    ).body.decode("utf-8")
+
+    toast_html = templates.TemplateResponse(
+        "shared/toast.html",
+        {
+            "request": request,
+            "message": f"Comprobante cerrado. Remanente: ${saldo_pendiente:,.2f}",
+            "type": "success",
+        },
+    ).body.decode("utf-8")
+
+    return HTMLResponse(content=panel_html + toast_html)
+
+
+@router.post("/comprobante/{id_comprobante}/reabrir", response_class=HTMLResponse)
+async def reabrir_comprobante(
+    request: Request,
+    id_comprobante: UUID,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: ComprasService = Depends(get_compras_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Reabre un comprobante CERRADO."""
+    try:
+        await service.reabrir_comprobante(conn, id_comprobante)
+    except ValueError as e:
+        return templates.TemplateResponse(
+            "shared/toast.html",
+            {"request": request, "message": str(e), "type": "error"},
+        )
+
+    # Retornar panel actualizado + toast
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+    facturas = await service.get_facturas_vinculadas(conn, id_comprobante)
+
+    monto_total = float(comprobante.get('monto') or 0)
+    monto_facturado = float(comprobante.get('monto_facturado') or 0)
+    saldo_pendiente = monto_total - monto_facturado
+    porcentaje = round((monto_facturado / monto_total * 100), 1) if monto_total > 0 else 0
+
+    panel_html = templates.TemplateResponse(
+        "compras/partials/comprobante_facturas_vinculadas.html",
+        {
+            "request": request,
+            "comprobante": comprobante,
+            "facturas": facturas,
+            "monto_total": monto_total,
+            "monto_facturado": monto_facturado,
+            "saldo_pendiente": saldo_pendiente,
+            "porcentaje": porcentaje,
+        },
+    ).body.decode("utf-8")
+
+    toast_html = templates.TemplateResponse(
+        "shared/toast.html",
+        {"request": request, "message": "Comprobante reabierto correctamente", "type": "success"},
+    ).body.decode("utf-8")
+
+    return HTMLResponse(content=panel_html + toast_html)

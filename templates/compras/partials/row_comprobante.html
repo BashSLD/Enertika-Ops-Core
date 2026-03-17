@@ -82,6 +82,29 @@
             <span class="w-2 h-2 mr-1.5 rounded-full bg-amber-400"></span>
             Anticipo
         </span>
+        {% elif comprobante.estatus == 'PARCIALMENTE_FACTURADO' %}
+        {% set monto_f = comprobante.monto_facturado|float if comprobante.monto_facturado else 0 %}
+        {% set monto_t = comprobante.monto|float %}
+        {% set pct = ((monto_f / monto_t) * 100)|round(0)|int if monto_t > 0 else 0 %}
+        <span
+            class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-orange-100 text-orange-800">
+            <span class="w-2 h-2 mr-1.5 rounded-full bg-orange-400"></span>
+            Parcial {{ pct }}%
+        </span>
+        <span class="block text-xs text-orange-600 mt-0.5">
+            ${{ "{:,.2f}".format(monto_f) }} / ${{ "{:,.2f}".format(monto_t) }}
+        </span>
+        {% elif comprobante.estatus == 'CERRADO' %}
+        <span
+            class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-200 text-gray-600">
+            <span class="w-2 h-2 mr-1.5 rounded-full bg-gray-400"></span>
+            Cerrado
+        </span>
+        {% if comprobante.monto_remanente %}
+        <span class="block text-xs text-gray-500 mt-0.5">
+            Rem. ${{ "{:,.2f}".format(comprobante.monto_remanente|float) }}
+        </span>
+        {% endif %}
         {% else %}
         <span
             class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
@@ -135,5 +158,25 @@
                     d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
             </svg>
         </button>
+        {% if comprobante.estatus in ('PARCIALMENTE_FACTURADO', 'CERRADO') %}
+        <button
+            hx-get="/compras/comprobante/{{ comprobante.id_comprobante }}/facturas-vinculadas"
+            hx-target="#facturas-panel-{{ comprobante.id_comprobante }}"
+            hx-swap="innerHTML"
+            class="text-orange-500 hover:text-orange-700 transition-colors"
+            title="Ver facturas vinculadas">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+        </button>
+        {% endif %}
     </td>
 </tr>
+{% if comprobante.estatus in ('PARCIALMENTE_FACTURADO', 'CERRADO') %}
+<tr id="facturas-panel-row-{{ comprobante.id_comprobante }}">
+    <td colspan="10" class="px-4 pb-2">
+        <div id="facturas-panel-{{ comprobante.id_comprobante }}"></div>
+    </td>
+</tr>
+{% endif %}

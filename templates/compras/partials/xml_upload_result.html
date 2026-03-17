@@ -268,6 +268,104 @@
     {% endif %}
 
     <!-- ============================================ -->
+    <!-- COINCIDENCIA PARCIAL (monto < pago)          -->
+    <!-- ============================================ -->
+    {% set parcial_matches = result.procesados|selectattr("match_type", "equalto", "PARCIAL_MATCH")|list %}
+    {% if parcial_matches %}
+    <div class="bg-orange-50 border border-orange-200 rounded-lg p-4">
+        <div class="flex items-start gap-2">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-orange-500 mt-0.5 shrink-0" fill="none"
+                viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M4 19h16a2 2 0 002-2V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2z" />
+            </svg>
+            <div class="flex-1">
+                <p class="font-medium text-orange-800">{{ parcial_matches|length }} factura(s) con coincidencia parcial</p>
+                <p class="text-sm text-orange-600 mt-1">El monto del XML es menor al pago completo. Se registrará como pago parcial.</p>
+                <div class="mt-2 space-y-2">
+                    {% for match in parcial_matches %}
+                    {% set tipo_val = match.cfdi.tipo_factura %}
+                    {% set candidato = match.candidatos[0] if match.candidatos else None %}
+                    <div class="bg-white rounded p-3 border border-orange-100" id="xml-result-parcial-{{ loop.index }}">
+                        <div class="flex items-start justify-between gap-3">
+                            <div class="flex-1 min-w-0">
+                                <div class="flex items-center gap-2 flex-wrap">
+                                    <span class="text-xs font-mono text-gray-500">{{ match.cfdi.uuid[:8] }}...</span>
+                                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800">
+                                        Pago parcial
+                                    </span>
+                                </div>
+                                <p class="text-sm font-medium text-gray-800 truncate">{{ match.cfdi.emisor_nombre }}</p>
+                                <p class="text-xs text-gray-500">
+                                    {{ match.cfdi.emisor_rfc }}
+                                    | Factura: ${{ "{:,.2f}".format(match.cfdi.total|float) }} {{ match.cfdi.moneda }}
+                                    | {{ match.cfdi.conceptos|length }} items
+                                </p>
+                                {% if candidato %}
+                                <div class="mt-1.5 bg-orange-50 rounded p-2 text-xs">
+                                    <p class="text-orange-700 font-medium">Comprobante candidato:</p>
+                                    <p class="text-gray-600">
+                                        {{ candidato.beneficiario_orig|truncate(35) }}
+                                        — Pago: ${{ "{:,.2f}".format(candidato.monto|float) }}
+                                        {% if candidato.saldo_pendiente is defined %}
+                                        — Saldo: ${{ "{:,.2f}".format(candidato.saldo_pendiente|float) }}
+                                        {% endif %}
+                                    </p>
+                                </div>
+                                {% endif %}
+                            </div>
+                            <div class="flex items-center gap-2 shrink-0">
+                                {% if match.comprobante_id %}
+                                <form hx-post="/compras/xml-confirm-match"
+                                    hx-target="#xml-result-parcial-{{ loop.index }}" hx-swap="innerHTML">
+                                    <input type="hidden" name="uuid_factura" value="{{ match.cfdi.uuid }}">
+                                    <input type="hidden" name="id_comprobante" value="{{ match.comprobante_id }}">
+                                    <input type="hidden" name="emisor_rfc" value="{{ match.cfdi.emisor_rfc }}">
+                                    <input type="hidden" name="emisor_nombre" value="{{ match.cfdi.emisor_nombre }}">
+                                    <input type="hidden" name="total" value="{{ match.cfdi.total }}">
+                                    <input type="hidden" name="subtotal" value="{{ match.cfdi.subtotal or '' }}">
+                                    <input type="hidden" name="moneda" value="{{ match.cfdi.moneda }}">
+                                    <input type="hidden" name="fecha" value="{{ match.cfdi.fecha }}">
+                                    <input type="hidden" name="tipo_factura" value="{{ tipo_val }}">
+                                    <input type="hidden" name="tipo_comprobante" value="{{ match.cfdi.tipo_comprobante or '' }}">
+                                    <input type="hidden" name="metodo_pago" value="{{ match.cfdi.metodo_pago or '' }}">
+                                    <input type="hidden" name="forma_pago" value="{{ match.cfdi.forma_pago or '' }}">
+                                    <input type="hidden" name="conceptos_json" value="{{ match.cfdi.conceptos|tojson|forceescape }}">
+                                    <input type="hidden" name="relacionados_json" value="{{ match.cfdi.relacionados|tojson|forceescape }}">
+                                    <input type="hidden" name="xml_content_b64" value="{{ match.xml_content_b64 }}">
+                                    <input type="hidden" name="guardar_relacion" value="true">
+                                    <button type="submit"
+                                        class="px-3 py-1.5 text-xs font-medium text-white bg-orange-500 hover:bg-orange-600 rounded-lg transition-colors">
+                                        Confirmar parcial
+                                    </button>
+                                </form>
+                                {% endif %}
+                                <button type="button"
+                                    class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg transition-colors"
+                                    data-xml-uuid="{{ match.cfdi.uuid }}" data-xml-rfc="{{ match.cfdi.emisor_rfc }}"
+                                    data-xml-nombre="{{ match.cfdi.emisor_nombre }}"
+                                    data-xml-total="{{ match.cfdi.total }}" data-xml-moneda="{{ match.cfdi.moneda }}"
+                                    data-xml-subtotal="{{ match.cfdi.subtotal or '' }}"
+                                    data-xml-fecha="{{ match.cfdi.fecha }}" data-xml-tipo="{{ tipo_val }}"
+                                    data-xml-conceptos="{{ match.cfdi.conceptos|tojson|forceescape }}"
+                                    data-xml-relacionados="{{ match.cfdi.relacionados|tojson|forceescape }}"
+                                    data-xml-tipo-comprobante="{{ match.cfdi.tipo_comprobante or '' }}"
+                                    data-xml-metodo-pago="{{ match.cfdi.metodo_pago or '' }}"
+                                    data-xml-forma-pago="{{ match.cfdi.forma_pago or '' }}"
+                                    onclick="abrirModalMatch(this)">
+                                    Cambiar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- ============================================ -->
     <!-- SIN MATCH                                    -->
     <!-- ============================================ -->
     {% set no_matches = result.procesados|selectattr("match_type", "equalto", "NO_MATCH")|list %}
