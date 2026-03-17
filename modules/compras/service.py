@@ -478,6 +478,8 @@ class ComprasService:
             "pendientes": stats['pendientes'],
             "facturados": stats['facturados'],
             "anticipos": stats.get('anticipos', 0),
+            "parciales": stats.get('parciales', 0),
+            "cerrados": stats.get('cerrados', 0),
             "total_mxn": float(stats['total_mxn']),
             "total_usd": float(stats['total_usd'])
         }
