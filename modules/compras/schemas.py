@@ -240,6 +240,7 @@ class ComprobanteFilter(BaseModel):
     def validate_estatus(cls, v):
         if v == "TODOS" or not v:
             return None
+        # SIN_COMPLETAR es un valor especial que el db_service expande a IN (PENDIENTE, PARCIALMENTE_FACTURADO)
         return v
 
     @field_validator('id_zona', 'id_categoria', mode='before')

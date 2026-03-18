@@ -196,7 +196,7 @@ class ComprasService:
         """
         return await self.get_comprobantes(
             conn,
-            filtros={"estatus": "PENDIENTE"}
+            filtros={"estatus": "SIN_COMPLETAR"}
         )
     
     async def get_comprobante_by_id(self, conn, id_comprobante: UUID) -> Optional[dict]:
@@ -302,77 +302,82 @@ class ComprasService:
         filtros: dict
     ) -> bytes:
         """
-        Genera archivo Excel con los comprobantes filtrados.
+        Genera archivo Excel con dos hojas:
+        - Hoja 1: Comprobantes de Pago (incluye montos parciales)
+        - Hoja 2: Facturas Vinculadas (una fila por factura)
         """
         from openpyxl import Workbook
         from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
         from openpyxl.utils import get_column_letter
         from io import BytesIO
-        
-        # Obtener datos (sin límite de paginación logic handled inside get_comprobantes via per_page=0 trick or similar in db_service if implemented, 
-        # but here we reuse get_comprobantes which expects per_page.
-        # Let's adjust get_comprobantes call to request all.
-        
+
         comprobantes, _ = await self.get_comprobantes(
             conn,
             filtros=filtros,
             per_page=100000
         )
 
-        # Batch fetch de facturas junction para todos los comprobantes
         from .db_service import get_db_service
         db_svc = get_db_service()
         comp_ids = [c['id_comprobante'] for c in comprobantes if c.get('id_comprobante')]
         facturas_map = await db_svc.get_facturas_for_comprobantes(conn, comp_ids)
 
-        # Crear workbook
         wb = Workbook()
-        ws = wb.active
-        ws.title = "Comprobantes de Pago"
 
-        # Estilos
-        header_font = Font(bold=True, color="FFFFFF")
-        header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
-        header_alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-        thin_border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
-        )
+        # ── Estilos compartidos ──────────────────────────────────────────────
+        def make_header_style():
+            return (
+                Font(bold=True, color="FFFFFF"),
+                PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid"),
+                Alignment(horizontal="center", vertical="center", wrap_text=True),
+            )
 
-        # Headers
-        headers = [
-            "Comprador",
-            "Proveedor",
-            "Proyecto",
-            "Zona",
-            "Fecha de Pago",
-            "Estatus",
-            "Monto",
-            "Moneda",
-            "Categoría",
-            "UUID Factura",
-            "Tipo Factura",
-            "UUIDs Relacionados"
+        def make_subheader_fill(color="2E75B6"):
+            return PatternFill(start_color=color, end_color=color, fill_type="solid")
+
+        thin = Side(style='thin')
+        thin_border = Border(left=thin, right=thin, top=thin, bottom=thin)
+        num_fmt = '#,##0.00'
+        right_align = Alignment(horizontal="right")
+
+        def write_header_row(ws, headers):
+            h_font, h_fill, h_align = make_header_style()
+            for col, text in enumerate(headers, 1):
+                cell = ws.cell(row=1, column=col, value=text)
+                cell.font = h_font
+                cell.fill = h_fill
+                cell.alignment = h_align
+                cell.border = thin_border
+
+        # ── HOJA 1: Comprobantes ─────────────────────────────────────────────
+        ws1 = wb.active
+        ws1.title = "Comprobantes de Pago"
+        ws1.row_dimensions[1].height = 30
+
+        headers1 = [
+            "Comprador", "Proveedor", "Proyecto", "Zona",
+            "Fecha de Pago", "Estatus",
+            "Monto", "Monto Facturado", "Monto Pendiente", "Moneda",
+            "Categoría", "Num. Facturas",
         ]
+        write_header_row(ws1, headers1)
 
-        for col_num, header in enumerate(headers, 1):
-            cell = ws.cell(row=1, column=col_num, value=header)
-            cell.font = header_font
-            cell.fill = header_fill
-            cell.alignment = header_alignment
-            cell.border = thin_border
+        # Colores de estatus para Hoja 1
+        estatus_fills = {
+            "FACTURADO":              PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid"),
+            "PARCIALMENTE_FACTURADO": PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
+            "CERRADO":                PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid"),
+            "PENDIENTE":              PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid"),
+        }
 
-        # Datos
         for row_num, comp in enumerate(comprobantes, 2):
-            # Determinar nombre de proveedor
             proveedor = comp.get('proveedor_nombre') or comp.get('beneficiario_orig', '')
-
-            # Obtener facturas junction para este comprobante
-            comp_facturas = facturas_map.get(comp.get('id_comprobante'), [])
-            tipos_factura = ", ".join(set(f.get('tipo', '') for f in comp_facturas)) if comp_facturas else ""
-            uuids_rel = ", ".join(f.get('uuid_factura', '')[:8] for f in comp_facturas) if comp_facturas else ""
+            comp_id = comp.get('id_comprobante')
+            comp_facturas = facturas_map.get(comp_id, [])
+            monto = float(comp.get('monto') or 0)
+            monto_facturado = float(comp.get('monto_facturado') or 0)
+            monto_pendiente = monto - monto_facturado
+            estatus = comp.get('estatus', '')
 
             row_data = [
                 comp.get('comprador_nombre', ''),
@@ -380,37 +385,83 @@ class ComprasService:
                 comp.get('proyecto_nombre', ''),
                 comp.get('zona_nombre', ''),
                 comp['fecha_pago'].strftime("%d/%m/%Y") if comp.get('fecha_pago') else '',
-                comp.get('estatus', ''),
-                comp.get('monto', 0),
+                estatus,
+                float(monto),
+                float(monto_facturado),
+                float(monto_pendiente),
                 comp.get('moneda', 'MXN'),
                 comp.get('categoria_nombre', ''),
-                str(comp.get('uuid_factura', '')) if comp.get('uuid_factura') else '',
-                tipos_factura,
-                uuids_rel,
+                len(comp_facturas),
             ]
 
+            estatus_fill = estatus_fills.get(estatus)
             for col_num, value in enumerate(row_data, 1):
-                cell = ws.cell(row=row_num, column=col_num, value=value)
+                cell = ws1.cell(row=row_num, column=col_num, value=value)
                 cell.border = thin_border
+                if col_num in (7, 8, 9):
+                    cell.number_format = num_fmt
+                    cell.alignment = right_align
+                if estatus_fill and col_num == 6:
+                    cell.fill = estatus_fill
 
-                # Formato especial para monto
-                if col_num == 7:  # Columna Monto
-                    cell.number_format = '#,##0.00'
-                    cell.alignment = Alignment(horizontal="right")
+        col_widths1 = [20, 35, 30, 15, 15, 22, 15, 16, 16, 10, 20, 13]
+        for i, w in enumerate(col_widths1, 1):
+            ws1.column_dimensions[get_column_letter(i)].width = w
+        ws1.freeze_panes = "A2"
 
-        # Ajustar anchos de columna
-        column_widths = [20, 35, 30, 15, 15, 15, 15, 10, 20, 40, 18, 40]
-        for i, width in enumerate(column_widths, 1):
-            ws.column_dimensions[get_column_letter(i)].width = width
-        
-        # Congelar primera fila
-        ws.freeze_panes = "A2"
-        
-        # Exportar a bytes
+        # ── HOJA 2: Facturas Vinculadas ──────────────────────────────────────
+        ws2 = wb.create_sheet("Facturas Vinculadas")
+        ws2.row_dimensions[1].height = 30
+
+        headers2 = [
+            "Fecha de Pago", "Comprador", "Proveedor", "Proyecto",
+            "Estatus Comprobante", "Monto Comprobante", "Moneda",
+            "UUID Factura", "Tipo", "Monto Factura", "RFC Emisor", "Nombre Emisor",
+        ]
+        write_header_row(ws2, headers2)
+
+        row_num2 = 2
+        for comp in comprobantes:
+            comp_id = comp.get('id_comprobante')
+            comp_facturas = facturas_map.get(comp_id, [])
+            if not comp_facturas:
+                continue
+
+            proveedor = comp.get('proveedor_nombre') or comp.get('beneficiario_orig', '')
+            fecha_pago = comp['fecha_pago'].strftime("%d/%m/%Y") if comp.get('fecha_pago') else ''
+
+            for f in comp_facturas:
+                fecha_factura = f.get('fecha')
+                row_data2 = [
+                    fecha_pago,
+                    comp.get('comprador_nombre', ''),
+                    proveedor,
+                    comp.get('proyecto_nombre', ''),
+                    comp.get('estatus', ''),
+                    float(comp.get('monto') or 0),
+                    comp.get('moneda', 'MXN'),
+                    str(f.get('uuid_factura', '')),
+                    f.get('tipo', ''),
+                    float(f.get('monto') or 0),
+                    f.get('rfc_emisor', ''),
+                    f.get('nombre_emisor', ''),
+                ]
+                for col_num, value in enumerate(row_data2, 1):
+                    cell = ws2.cell(row=row_num2, column=col_num, value=value)
+                    cell.border = thin_border
+                    if col_num in (6, 10):
+                        cell.number_format = num_fmt
+                        cell.alignment = right_align
+                row_num2 += 1
+
+        col_widths2 = [15, 20, 35, 30, 22, 16, 10, 38, 14, 15, 18, 40]
+        for i, w in enumerate(col_widths2, 1):
+            ws2.column_dimensions[get_column_letter(i)].width = w
+        ws2.freeze_panes = "A2"
+
         buffer = BytesIO()
         wb.save(buffer)
         buffer.seek(0)
-        
         return buffer.getvalue()
     
     # ========================================
@@ -687,6 +738,10 @@ class ComprasService:
             item = dict(r)
             if 'monto' in item and isinstance(item['monto'], Decimal):
                 item['monto'] = float(item['monto'])
+            if 'monto_facturado' in item and isinstance(item['monto_facturado'], Decimal):
+                item['monto_facturado'] = float(item['monto_facturado'])
+            if 'saldo_pendiente' in item and isinstance(item['saldo_pendiente'], Decimal):
+                item['saldo_pendiente'] = float(item['saldo_pendiente'])
             if 'fecha_pago' in item and hasattr(item['fecha_pago'], 'strftime'):
                 item['fecha_pago_str'] = item['fecha_pago'].strftime("%d/%m/%Y")
             formatted.append(item)

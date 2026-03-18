@@ -85,6 +85,7 @@
                             <th class="px-3 py-2 text-left text-xs font-medium text-gray-600 uppercase">Beneficiario</th>
                             <th class="px-3 py-2 text-right text-xs font-medium text-gray-600 uppercase">Monto</th>
                             <th class="px-3 py-2 text-center text-xs font-medium text-gray-600 uppercase">Mon.</th>
+                            <th class="px-3 py-2 text-center text-xs font-medium text-gray-600 uppercase">Estatus</th>
                         </tr>
                     </thead>
                     <tbody id="match-candidatos-body" class="divide-y divide-gray-100">
@@ -218,11 +219,6 @@
         document.getElementById('match-candidatos-body').innerHTML =
             '<tr><td colspan="5" class="px-3 py-6 text-center text-sm text-gray-400">Escribe para buscar comprobantes pendientes...</td></tr>';
 
-        // Trigger initial search with XML total as query
-        const searchInput = document.getElementById('match-search-input');
-        searchInput.value = total.toFixed(2);
-        htmx.trigger(searchInput, 'keyup');
-
         // Show modal
         document.getElementById('xml-match-modal').classList.remove('hidden');
     };
@@ -278,6 +274,7 @@
             swap: 'beforeend'
         }).then(() => {
             cerrarModalMatch();
+            if (typeof clearXmlUploadModal === 'function') clearXmlUploadModal();
             // Reload tabla
             const form = document.getElementById('filtros-form');
             if (form) htmx.trigger(form, 'submit');

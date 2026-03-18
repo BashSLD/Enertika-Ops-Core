@@ -119,33 +119,58 @@
 
     <!-- Adjuntos -->
     <td class="px-4 py-3 text-center">
-        {% if comprobante.count_archivos and comprobante.count_archivos > 0 %}
-        <button hx-get="/compras/comprobante/{{ comprobante.id_comprobante }}/archivos"
-            hx-target="#popover-{{ comprobante.id_comprobante }}" hx-swap="innerHTML"
-            class="relative text-blue-600 hover:text-blue-800 transition-colors group"
-            title="{{ comprobante.count_archivos }} archivo(s)">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
-                stroke="currentColor">
+        <div class="flex items-center justify-center gap-2">
+            <!-- Botón PDF -->
+            {% set has_pdf = comprobante.count_pdf and comprobante.count_pdf > 0 %}
+            {% if has_pdf %}
+            <div class="relative">
+                <button hx-get="/compras/comprobante/{{ comprobante.id_comprobante }}/archivos?tipo=pdf"
+                    hx-target="#popover-pdf-{{ comprobante.id_comprobante }}" hx-swap="innerHTML"
+                    class="text-red-500 hover:text-red-700 transition-colors"
+                    title="Ver comprobante PDF">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                    </svg>
+                </button>
+                <div id="popover-pdf-{{ comprobante.id_comprobante }}"
+                    class="hidden absolute z-10 mt-1 right-0 bg-white shadow-lg rounded-lg border border-gray-200"></div>
+            </div>
+            {% else %}
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
             </svg>
-            {% if comprobante.count_archivos > 1 %}
-            <span
-                class="absolute -top-1 -right-1 bg-blue-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center">
-                {{ comprobante.count_archivos }}
-            </span>
             {% endif %}
-        </button>
-        <!-- Popover container -->
-        <div id="popover-{{ comprobante.id_comprobante }}"
-            class="hidden absolute z-10 mt-2 bg-white shadow-lg rounded-lg border border-gray-200"></div>
-        {% else %}
-        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-300" fill="none" viewBox="0 0 24 24"
-            stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-        </svg>
-        {% endif %}
+
+            <!-- Botón XML -->
+            {% set has_xml = comprobante.count_xml and comprobante.count_xml > 0 %}
+            {% if has_xml %}
+            <div class="relative">
+                <button hx-get="/compras/comprobante/{{ comprobante.id_comprobante }}/archivos?tipo=xml"
+                    hx-target="#popover-xml-{{ comprobante.id_comprobante }}" hx-swap="innerHTML"
+                    class="relative text-orange-500 hover:text-orange-700 transition-colors"
+                    title="{{ comprobante.count_xml }} XML(s) vinculado(s)">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+                    </svg>
+                    {% if comprobante.count_xml > 1 %}
+                    <span class="absolute -top-1 -right-1 bg-orange-500 text-white text-xs rounded-full h-4 w-4 flex items-center justify-center leading-none">
+                        {{ comprobante.count_xml }}
+                    </span>
+                    {% endif %}
+                </button>
+                <div id="popover-xml-{{ comprobante.id_comprobante }}"
+                    class="hidden absolute z-10 mt-1 right-0 bg-white shadow-lg rounded-lg border border-gray-200"></div>
+            </div>
+            {% else %}
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-gray-200" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
+            </svg>
+            {% endif %}
+        </div>
     </td>
 
     <!-- Acciones -->
@@ -163,6 +188,7 @@
             hx-get="/compras/comprobante/{{ comprobante.id_comprobante }}/facturas-vinculadas"
             hx-target="#facturas-panel-{{ comprobante.id_comprobante }}"
             hx-swap="innerHTML"
+            hx-on::before-request="const p=document.getElementById('facturas-panel-{{ comprobante.id_comprobante }}');if(p&&p.innerHTML.trim()!==''){p.innerHTML='';event.preventDefault();}"
             class="text-orange-500 hover:text-orange-700 transition-colors"
             title="Ver facturas vinculadas">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

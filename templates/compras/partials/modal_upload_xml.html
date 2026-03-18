@@ -140,6 +140,8 @@
             xmlStoredFiles = [];
             if (xmlFileInput) xmlFileInput.value = '';
             if (xmlResultContainer) xmlResultContainer.innerHTML = '';
+            if (xmlDropZone) xmlDropZone.style.display = '';
+            if (xmlUploadBtn) xmlUploadBtn.style.display = '';
             updateXmlUI();
             if (xmlModal) xmlModal.classList.add('hidden');
         };

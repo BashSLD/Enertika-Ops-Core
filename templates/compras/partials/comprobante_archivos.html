@@ -1,45 +1,33 @@
-<!-- Lista de archivos asociados a un comprobante - Versión Popover -->
+<!-- Archivos adjuntos de un comprobante (PDF o XML) -->
 {% if archivos|length == 1 %}
-<!-- 1 archivo: Redirigir directamente -->
-{% set archivo = archivos[0] %}
-<script>
-    window.open('{{ archivo.url_sharepoint }}', '_blank');
-</script>
+<!-- 1 archivo: abrir directo -->
+<script>window.open('{{ archivos[0].url_sharepoint }}', '_blank');</script>
 {% elif archivos|length > 1 %}
-<!-- Múltiples archivos: Mostrar lista en popover -->
-<div class="p-3 min-w-[200px]">
-    <p class="text-xs font-semibold text-gray-600 mb-2">Archivos adjuntos:</p>
+<!-- Múltiples archivos: lista en popover -->
+<div class="p-3 min-w-[220px]">
+    <p class="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+        {% if tipo == 'xml' %}Facturas XML{% elif tipo == 'pdf' %}Comprobantes PDF{% else %}Archivos adjuntos{% endif %}
+    </p>
     <div class="space-y-1">
         {% for archivo in archivos %}
-        {% set es_xml = archivo.origen_slug == 'factura_xml' or (archivo.metadata and
-        archivo.metadata.get('content_type', '')|string == 'text/xml') %}
-        {% set es_pdf = archivo.origen_slug == 'comprobante_pago' or archivo.nombre_archivo.endswith('.pdf') %}
+        {% set es_xml = archivo.origen_slug == 'factura_xml' %}
+        {% set label = archivo.metadata.get('nombre_emisor') or archivo.metadata.get('rfc_emisor') or archivo.nombre_archivo if archivo.metadata else archivo.nombre_archivo %}
         <a href="{{ archivo.url_sharepoint }}" target="_blank" rel="noopener noreferrer"
-            title="{{ archivo.nombre_archivo }}" class="flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors
-                    {% if es_xml %}bg-orange-50 hover:bg-orange-100 text-orange-700
-                    {% elif es_pdf %}bg-red-50 hover:bg-red-100 text-red-700
-                    {% else %}bg-gray-50 hover:bg-gray-100 text-gray-700{% endif %}">
+            class="flex items-center gap-2 px-2 py-1.5 rounded text-sm transition-colors
+                {% if es_xml %}bg-orange-50 hover:bg-orange-100 text-orange-700
+                {% else %}bg-red-50 hover:bg-red-100 text-red-700{% endif %}">
             {% if es_xml %}
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24"
-                stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
             </svg>
-            <span class="font-medium">XML</span>
-            {% elif es_pdf %}
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24"
-                stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
-            </svg>
-            <span class="font-medium">PDF</span>
             {% else %}
-            <span class="text-xs truncate">{{ archivo.nombre_archivo }}</span>
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+            </svg>
             {% endif %}
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 ml-auto flex-shrink-0" fill="none"
-                viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            <span class="truncate max-w-[170px]" title="{{ label }}">{{ label|truncate(30) }}</span>
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 ml-auto flex-shrink-0 opacity-60" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/>
             </svg>
         </a>
         {% endfor %}

@@ -41,7 +41,7 @@
 
                 <!-- Botón Export Excel -->
                 <a id="export-excel-btn"
-                    href="/compras/export-excel?estatus=PENDIENTE&fecha_inicio={{ filtros.fecha_inicio }}&fecha_fin={{ filtros.fecha_fin }}"
+                    href="/compras/export-excel?estatus=SIN_COMPLETAR&fecha_inicio={{ filtros.fecha_inicio }}&fecha_fin={{ filtros.fecha_fin }}"
                     class="ripple-effect bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
@@ -111,12 +111,12 @@
                 <label class="block text-xs font-medium text-gray-600 mb-1">Estatus</label>
                 <select name="estatus" autocomplete="off"
                     class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-                    <option value="PENDIENTE" {% if filtros.estatus=='PENDIENTE' %}selected{% endif %}>Pendiente
-                    </option>
-                    <option value="ANTICIPO" {% if filtros.estatus=='ANTICIPO' %}selected{% endif %}>Anticipo
-                    </option>
-                    <option value="FACTURADO" {% if filtros.estatus=='FACTURADO' %}selected{% endif %}>Facturado
-                    </option>
+                    <option value="SIN_COMPLETAR" {% if filtros.estatus=='SIN_COMPLETAR' %}selected{% endif %}>Pendiente + Parcial</option>
+                    <option value="PENDIENTE" {% if filtros.estatus=='PENDIENTE' %}selected{% endif %}>Solo pendiente</option>
+                    <option value="PARCIALMENTE_FACTURADO" {% if filtros.estatus=='PARCIALMENTE_FACTURADO' %}selected{% endif %}>Solo parcial</option>
+                    <option value="ANTICIPO" {% if filtros.estatus=='ANTICIPO' %}selected{% endif %}>Anticipo</option>
+                    <option value="FACTURADO" {% if filtros.estatus=='FACTURADO' %}selected{% endif %}>Facturado</option>
+                    <option value="CERRADO" {% if filtros.estatus=='CERRADO' %}selected{% endif %}>Cerrado</option>
                     <option value="TODOS" {% if filtros.estatus=='TODOS' %}selected{% endif %}>Todos</option>
                 </select>
             </div>
@@ -344,7 +344,7 @@
         // Reset inputs
         form.querySelector('input[name="fecha_inicio"]').value = '';
         form.querySelector('input[name="fecha_fin"]').value = '';
-        form.querySelector('select[name="estatus"]').value = 'PENDIENTE';
+        form.querySelector('select[name="estatus"]').value = 'SIN_COMPLETAR';
         form.querySelector('select[name="id_zona"]').value = '';
         form.querySelector('select[name="id_categoria"]').value = '';
 
@@ -352,7 +352,7 @@
         htmx.trigger(form, 'submit');
 
         // Update excel link
-        document.getElementById('export-excel-btn').href = '/compras/export-excel?estatus=PENDIENTE';
+        document.getElementById('export-excel-btn').href = '/compras/export-excel?estatus=SIN_COMPLETAR';
     }
     function abrirModalCrearProyecto() {
         htmx.ajax('GET', '/projects/modal-crear', {

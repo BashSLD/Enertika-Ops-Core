@@ -156,7 +156,7 @@ async def get_compras_ui(
         "filtros": {
             "fecha_inicio": "",
             "fecha_fin": "",
-            "estatus": "PENDIENTE"
+            "estatus": "SIN_COMPLETAR"
         },
         "estadisticas": estadisticas
     }
@@ -692,10 +692,11 @@ async def confirm_xml_match(
     }
 
     try:
-        resultado = await service.confirmar_match_xml(
-            conn, cfdi_data, id_comprobante, user_id,
-            guardar_relacion=guardar_relacion
-        )
+        async with conn.transaction():
+            resultado = await service.confirmar_match_xml(
+                conn, cfdi_data, id_comprobante, user_id,
+                guardar_relacion=guardar_relacion
+            )
     except ValueError as e:
         return templates.TemplateResponse(
             "shared/toast.html",
@@ -741,12 +742,21 @@ async def confirm_xml_match(
     if not resultado.get('validacion_ok', True):
         validacion_msg = " (advertencia: validacion de montos difiere)"
 
+    es_parcial = resultado.get('es_parcial', False)
+    if es_parcial:
+        saldo = resultado.get('saldo_pendiente', 0)
+        toast_msg = f"Pago parcial registrado. Saldo pendiente: ${saldo:,.2f}{validacion_msg}"
+        toast_type = "warning" if not resultado.get('validacion_ok', True) else "success"
+    else:
+        toast_msg = f"Factura {uuid_factura[:8]}... vinculada correctamente ({tipo_factura}{items_msg}{validacion_msg})"
+        toast_type = "success" if resultado.get('validacion_ok', True) else "warning"
+
     toast_html = templates.TemplateResponse(
         "shared/toast.html",
         {
             "request": request,
-            "message": f"Factura {uuid_factura[:8]}... vinculada correctamente ({tipo_factura}{items_msg}{validacion_msg})",
-            "type": "success" if resultado.get('validacion_ok', True) else "warning",
+            "message": toast_msg,
+            "type": toast_type,
         }
     ).body.decode("utf-8")
 
@@ -858,25 +868,27 @@ async def delete_relacion(
 async def get_comprobante_archivos(
     request: Request,
     id_comprobante: UUID,
+    tipo: Optional[str] = None,
     conn = Depends(get_db_connection),
     service: ComprasService = Depends(get_compras_service),
     _ = require_module_access("compras")
 ):
     """
-    Lista los archivos (PDF y XML) asociados a un comprobante.
-
-    Muestra links a SharePoint para descarga directa.
-
-    Returns:
-        HTML con lista de archivos del comprobante
+    Lista los archivos (PDF y/o XML) asociados a un comprobante.
+    tipo: 'pdf' | 'xml' | None (todos)
     """
     archivos = await service.get_archivos_comprobante(conn, id_comprobante)
+
+    origen_map = {"pdf": "comprobante_pago", "xml": "factura_xml"}
+    if tipo and tipo in origen_map:
+        archivos = [a for a in archivos if a.get("origen_slug") == origen_map[tipo]]
 
     return templates.TemplateResponse(
         "compras/partials/comprobante_archivos.html",
         {
             "request": request,
             "archivos": archivos,
+            "tipo": tipo,
             "id_comprobante": id_comprobante,
         }
     )

@@ -58,7 +58,7 @@ class ComprasDBService:
     ):
         """Builds dynamic query for filtering comprobantes."""
         base_query = """
-            SELECT 
+            SELECT
                 c.id_comprobante,
                 c.fecha_pago,
                 c.beneficiario_orig,
@@ -66,6 +66,9 @@ class ComprasDBService:
                 c.moneda,
                 c.estatus,
                 c.uuid_factura,
+                c.monto_facturado,
+                c.monto_remanente,
+                c.motivo_cierre,
                 c.created_at,
                 c.id_proveedor,
                 c.id_zona,
@@ -77,11 +80,18 @@ class ComprasDBService:
                 z.nombre as zona_nombre,
                 pr.proyecto_id_estandar as proyecto_nombre,
                 cat.nombre as categoria_nombre,
-                (SELECT COUNT(*) 
-                 FROM tb_documentos_attachments da 
-                 WHERE da.activo = true 
+                (SELECT COUNT(*)
+                 FROM tb_documentos_attachments da
+                 WHERE da.activo = true
                  AND da.metadata->>'id_comprobante' = c.id_comprobante::text
-                ) as count_archivos
+                 AND da.origen_slug = 'comprobante_pago'
+                ) as count_pdf,
+                (SELECT COUNT(*)
+                 FROM tb_documentos_attachments da
+                 WHERE da.activo = true
+                 AND da.metadata->>'id_comprobante' = c.id_comprobante::text
+                 AND da.origen_slug = 'factura_xml'
+                ) as count_xml
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
             LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
@@ -109,10 +119,13 @@ class ComprasDBService:
             param_idx += 1
         
         if filtros.get('estatus'):
-            base_query += f" AND c.estatus = ${param_idx}"
-            params.append(filtros['estatus'])
-            param_idx += 1
-        
+            if filtros['estatus'] == 'SIN_COMPLETAR':
+                base_query += " AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')"
+            else:
+                base_query += f" AND c.estatus = ${param_idx}"
+                params.append(filtros['estatus'])
+                param_idx += 1
+
         if filtros.get('id_zona'):
             base_query += f" AND c.id_zona = ${param_idx}"
             params.append(filtros['id_zona'])
@@ -425,8 +438,8 @@ class ComprasDBService:
             WHERE c.id_proveedor = $1
             AND c.moneda = $2
             AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')
-            AND (c.monto - c.monto_facturado) >= $3 - $4
-            ORDER BY ABS((c.monto - c.monto_facturado) - $3) ASC
+            AND (c.monto - c.monto_facturado) >= $3::NUMERIC - $4::NUMERIC
+            ORDER BY ABS((c.monto - c.monto_facturado) - $3::NUMERIC) ASC
             LIMIT 5
         """, id_proveedor, moneda, monto_xml, tolerancia)
         return [dict(r) for r in rows]
@@ -843,7 +856,8 @@ class ComprasDBService:
         if not ids:
             return {}
         rows = await conn.fetch("""
-            SELECT id_comprobante, uuid_factura, tipo, monto, moneda
+            SELECT id_comprobante, uuid_factura, tipo, monto, moneda,
+                   fecha, rfc_emisor, nombre_emisor
             FROM tb_comprobante_facturas
             WHERE id_comprobante = ANY($1)
             ORDER BY id_comprobante, created_at
@@ -945,6 +959,14 @@ class ComprasDBService:
             DELETE FROM tb_materiales_historial
             WHERE uuid_factura = $1 AND id_comprobante = $2
         """, uuid_factura, id_comprobante)
+
+        # Eliminar attachment XML de SharePoint registry
+        await conn.execute("""
+            DELETE FROM tb_documentos_attachments
+            WHERE origen_slug = 'factura_xml'
+            AND metadata->>'uuid_factura' = $1
+            AND metadata->>'id_comprobante' = $2
+        """, uuid_factura, str(id_comprobante))
 
         # Recalcular monto_facturado desde junction
         nuevo_total = await conn.fetchval("""
