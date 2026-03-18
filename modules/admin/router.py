@@ -448,6 +448,32 @@ async def update_levantamiento_flag(
     })
 
 
+@router.post("/users/{user_id}/rol-organizacional")
+async def update_rol_organizacional(
+    request: Request,
+    user_id: UUID,
+    rol_organizacional: str = Form(""),
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
+):
+    """Actualiza el rol organizacional del usuario (jefe_ingenieria, jefe_construccion, director, o ninguno)."""
+    try:
+        await service.update_user_rol_organizacional(conn, user_id, rol_organizacional)
+        return templates.TemplateResponse("admin/partials/messages/success.html", {
+            "request": request,
+            "title": "OK",
+            "message": "Rol organizacional actualizado"
+        })
+    except ValueError as e:
+        return templates.TemplateResponse("admin/partials/messages/error.html", {
+            "request": request,
+            "title": "Error",
+            "message": str(e)
+        }, status_code=400)
+
+
 # --- ABM DE CATÁLOGOS ---
 
 @router.post("/catalogs/tecnologias")

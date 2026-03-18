@@ -1,6 +1,7 @@
 <tr id="user-{{ u.id_usuario }}" class="{% if u.is_active is false %}bg-gray-100 text-gray-500{% endif %}"
     data-simulation-flag="{{ u.puede_asignarse_simulacion|default(false)|lower }}"
-    data-levantamiento-flag="{{ u.puede_asignarse_levantamientos|default(false)|lower }}">
+    data-levantamiento-flag="{{ u.puede_asignarse_levantamientos|default(false)|lower }}"
+    data-rol-organizacional="{{ u.rol_organizacional or '' }}">
     <td
         class="px-6 py-4 whitespace-nowrap font-medium {% if u.is_active is false %}text-gray-500{% else %}text-gray-900{% endif %}">
         {{ u.nombre }}
@@ -12,9 +13,15 @@
     </td>
     <td class="px-6 py-4 whitespace-nowrap">{{ u.email }}</td>
 
-    <!-- Departamento con selector -->
+    <!-- Departamento + Rol Organizacional -->
     <td class="px-6 py-4 whitespace-nowrap">
         <span class="text-sm">{{ u.department or 'N/A' }}</span>
+        {% if u.rol_organizacional %}
+        {% set rol_labels = {'jefe_ingenieria': 'Jefe Ing.', 'jefe_construccion': 'Jefe Const.', 'director': 'Director'} %}
+        <span class="ml-1 inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-indigo-100 text-indigo-800">
+            {{ rol_labels.get(u.rol_organizacional, u.rol_organizacional) }}
+        </span>
+        {% endif %}
     </td>
 
     <!-- Módulos Asignados (badges) -->

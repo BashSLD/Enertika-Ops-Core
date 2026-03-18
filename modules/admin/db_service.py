@@ -89,6 +89,14 @@ class AdminDBService:
             value, user_id
         )
 
+    async def update_user_rol_organizacional(self, conn, user_id: UUID, rol: str) -> None:
+        """Actualiza el rol organizacional del usuario (jefe_ingenieria, jefe_construccion, director, o NULL)."""
+        valor = rol if rol else None
+        await conn.execute(
+            "UPDATE tb_usuarios SET rol_organizacional = $1 WHERE id_usuario = $2",
+            valor, user_id
+        )
+
     async def deactivate_user(self, conn, user_id: UUID) -> None:
         """Marca un usuario como inactivo (soft delete)."""
         await conn.execute(

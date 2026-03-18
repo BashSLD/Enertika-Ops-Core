@@ -508,6 +508,10 @@
                 document.getElementById('user-levantamiento-flag').checked = false;
             }
 
+            // Cargar rol organizacional
+            const rolOrg = userRow ? (userRow.dataset.rolOrganizacional || '') : '';
+            document.getElementById('user-rol-organizacional').value = rolOrg;
+
         } catch (e) {
             console.error(e);
             document.getElementById('perms-response').innerHTML = '<div class="text-red-500">Error cargando datos</div>';
@@ -551,6 +555,12 @@
             const fdLev = new FormData();
             fdLev.append('puede_asignarse_levantamientos', levFlag ? 'true' : 'false');
             await fetch(`/admin/users/${currentUserId}/levantamiento-flag`, { method: 'POST', body: fdLev });
+
+            // Guardar rol organizacional
+            const rolOrg = document.getElementById('user-rol-organizacional').value;
+            const fdRol = new FormData();
+            fdRol.append('rol_organizacional', rolOrg);
+            await fetch(`/admin/users/${currentUserId}/rol-organizacional`, { method: 'POST', body: fdRol });
 
             // Mostrar éxito y recargar
             setTimeout(() => location.reload(), 500);
@@ -689,6 +699,18 @@
                 <div>
                     <label class="block text-sm font-bold text-gray-700">Módulo Inicio</label>
                     <select id="user-preferred-module" class="w-full rounded-lg border-gray-300"></select>
+                </div>
+
+                <!-- Rol Organizacional -->
+                <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Rol Organizacional</label>
+                    <p class="text-xs text-gray-500 mb-2">Define el rol jerárquico global del usuario (excluyente — solo uno por persona).</p>
+                    <select id="user-rol-organizacional" class="w-full rounded-lg border-gray-300 text-sm">
+                        <option value="">Ninguno</option>
+                        <option value="jefe_ingenieria">Jefe de Ingeniería</option>
+                        <option value="jefe_construccion">Jefe de Construcción</option>
+                        <option value="director">Director</option>
+                    </select>
                 </div>
 
                 <!-- Flag Asignación Simulación -->

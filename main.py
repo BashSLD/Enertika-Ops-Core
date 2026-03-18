@@ -96,6 +96,10 @@ app.include_router(bom_router)
 from core.pdf_service.router import router as pdf_router
 app.include_router(pdf_router)
 
+# Tipo de Cambio USD/MXN (Banxico)
+from core.tipo_cambio.router import router as tipo_cambio_router
+app.include_router(tipo_cambio_router)
+
 # Workflow: Comentarios centralizados
 from core.workflow.router import router as workflow_router
 app.include_router(workflow_router)
@@ -128,6 +132,18 @@ async def start_background_tasks():
     """Lanza tareas en segundo plano al inicio."""
     asyncio.create_task(cleanup_temp_uploads_periodically())
     asyncio.create_task(check_levantamientos_sin_asignar_periodically())
+
+    # Refrescar tipo de cambio al inicio (no bloquea si falla)
+    from core.tipo_cambio.service import TipoCambioService
+    from core.database import get_db_pool
+    async def _refresh_tipo_cambio():
+        try:
+            pool = await get_db_pool()
+            async with pool.acquire() as conn:
+                await TipoCambioService().startup_refresh(conn, settings.BANXICO_TOKEN)
+        except Exception as exc:
+            logging.getLogger("main").warning("No se pudo refrescar tipo de cambio en startup: %s", exc)
+    asyncio.create_task(_refresh_tipo_cambio())
     
 # Actualizamos el on_startup
 app.router.on_startup.append(start_background_tasks)
@@ -186,7 +202,7 @@ async def root(
             # Lista de módulos válidos (actualizar al agregar nuevos módulos)
             VALID_MODULES = {
                 "comercial", "simulacion", "levantamientos", "proyectos",
-                "construccion", "compras", "oym", "admin", "ingenieria"
+                "construccion", "compras", "oym", "admin", "ingenieria", "finanzas"
             }
             
             if slug not in VALID_MODULES:

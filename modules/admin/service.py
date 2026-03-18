@@ -11,6 +11,7 @@ import logging
 
 from .schemas import ConfiguracionGlobalUpdate, EmailRuleCreate
 from .db_service import AdminDBService
+from .constants import ROLES_ORGANIZACIONALES_VALIDOS
 from core.config_service import ConfigService
 
 logger = logging.getLogger("AdminModule")
@@ -439,6 +440,20 @@ class AdminService:
         """
         await self.db.update_user_levantamiento_flag(conn, user_id, value)
         logger.info(f"Flag levantamientos actualizado para usuario {user_id}: {value}")
+
+    async def update_user_rol_organizacional(self, conn, user_id: UUID, rol: str) -> None:
+        """
+        Actualiza el rol organizacional del usuario.
+
+        Args:
+            conn: Conexión a la base de datos
+            user_id: ID del usuario
+            rol: jefe_ingenieria | jefe_construccion | director | '' (ninguno)
+        """
+        if rol not in ROLES_ORGANIZACIONALES_VALIDOS:
+            raise ValueError(f"Rol organizacional inválido: {rol}")
+        await self.db.update_user_rol_organizacional(conn, user_id, rol)
+        logger.info(f"Rol organizacional actualizado para usuario {user_id}: '{rol or 'ninguno'}'")
 
     async def deactivate_user(self, conn, user_id: UUID) -> Dict:
         """
