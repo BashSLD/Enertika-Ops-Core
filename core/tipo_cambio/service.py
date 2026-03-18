@@ -3,10 +3,18 @@
 Service para tipo de cambio USD/MXN.
 Consulta la API de Banxico (serie SF43718 — FIX interbancario).
 """
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 from typing import Optional
+from zoneinfo import ZoneInfo
 import logging
+
+TZ_MX = ZoneInfo("America/Mexico_City")
+
+
+def _hoy_mx():
+    """Fecha actual en zona horaria México (no UTC del servidor)."""
+    return datetime.now(TZ_MX).date()
 
 import httpx
 
@@ -79,7 +87,7 @@ class TipoCambioService:
         registro = await self.db.get_tasa_mas_reciente(conn)
         if not registro:
             return None
-        antiguedad = (date.today() - registro["fecha"]).days
+        antiguedad = (_hoy_mx() - registro["fecha"]).days
         return {**registro, "dias_antiguedad": antiguedad}
 
     async def refresh_tasa(self, conn, token: str) -> dict:
@@ -114,7 +122,7 @@ class TipoCambioService:
         No lanza excepción para no bloquear el inicio de la app.
         """
         try:
-            existente = await self.db.get_tasa_by_fecha(conn, date.today())
+            existente = await self.db.get_tasa_by_fecha(conn, _hoy_mx())
             if existente:
                 logger.info("[TIPO_CAMBIO] Tasa del día ya registrada: $%s MXN", existente["tasa_mxn"])
                 return
