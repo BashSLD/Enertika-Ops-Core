@@ -207,3 +207,33 @@ async def check_levantamientos_sin_asignar_periodically(interval_seconds: int = 
             logger.error("[LEV_REMINDER] Error de BD en tarea de recordatorios: %s", e)
         except Exception as e:
             logger.error("[LEV_REMINDER] Error inesperado en tarea de recordatorios: %s", e, exc_info=True)
+
+
+async def refresh_tipo_cambio_periodically(interval_seconds: int = 3600):
+    """
+    Tarea en segundo plano que refresca el tipo de cambio USD/MXN desde Banxico.
+    Corre cada hora. Solo consulta la API si la tasa del dia actual no existe en BD.
+    Banxico publica el FIX alrededor de las 12:00 PM hora Mexico — el primer ciclo
+    exitoso despues de esa hora persiste la tasa del dia.
+    """
+    logger.info("[TIPO_CAMBIO] Tarea periodica inicializada (intervalo: %sh)", interval_seconds // 3600)
+
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            from core.database import get_db_pool
+            from core.tipo_cambio.service import TipoCambioService
+            from core.config import settings
+
+            if not settings.BANXICO_TOKEN:
+                logger.debug("[TIPO_CAMBIO] BANXICO_TOKEN no configurado — omitiendo ciclo")
+                continue
+
+            pool = await get_db_pool()
+            async with pool.acquire() as conn:
+                await TipoCambioService().startup_refresh(conn, settings.BANXICO_TOKEN)
+
+        except asyncpg.PostgresError as e:
+            logger.error("[TIPO_CAMBIO] Error de BD en tarea periodica: %s", e)
+        except Exception as e:
+            logger.error("[TIPO_CAMBIO] Error inesperado en tarea periodica: %s", e)

@@ -126,25 +126,14 @@ app.include_router(projects_router)
 
 # --- Background Tasks ---
 import asyncio
-from core.tasks import cleanup_temp_uploads_periodically, check_levantamientos_sin_asignar_periodically
+from core.tasks import cleanup_temp_uploads_periodically, check_levantamientos_sin_asignar_periodically, refresh_tipo_cambio_periodically
 
 async def start_background_tasks():
     """Lanza tareas en segundo plano al inicio."""
     asyncio.create_task(cleanup_temp_uploads_periodically())
     asyncio.create_task(check_levantamientos_sin_asignar_periodically())
+    asyncio.create_task(refresh_tipo_cambio_periodically())
 
-    # Refrescar tipo de cambio al inicio (no bloquea si falla)
-    from core.tipo_cambio.service import TipoCambioService
-    from core.database import get_db_pool
-    async def _refresh_tipo_cambio():
-        try:
-            pool = await get_db_pool()
-            async with pool.acquire() as conn:
-                await TipoCambioService().startup_refresh(conn, settings.BANXICO_TOKEN)
-        except Exception as exc:
-            logging.getLogger("main").warning("No se pudo refrescar tipo de cambio en startup: %s", exc)
-    asyncio.create_task(_refresh_tipo_cambio())
-    
 # Actualizamos el on_startup
 app.router.on_startup.append(start_background_tasks)
 
