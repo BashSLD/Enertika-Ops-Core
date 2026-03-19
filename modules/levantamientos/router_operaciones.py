@@ -18,7 +18,7 @@ from datetime import datetime, date as date_type, time as time_type
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import Response, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from core.security import get_current_user_context
@@ -904,7 +904,7 @@ def register_operaciones_endpoints(router: APIRouter):
         nombre: Optional[str] = Form(None),
         fecha_inicio: str = Form(...),
         fecha_fin: str = Form(...),
-        levantamiento_ids: List[UUID] = Form(...),
+        levantamiento_ids: List[UUID] = Form(default=[]),
         conn=Depends(get_db_connection),
         db_svc: LevantamientosDBService = Depends(get_db_service),
         visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
@@ -914,19 +914,30 @@ def register_operaciones_endpoints(router: APIRouter):
         """
         Crea una nueva Visita de Campo con sus levantamientos vinculados.
         Soporta fechas individuales por levantamiento y viáticos iniciales.
-        Retorna el modal en modo 'gestionar' con la visita recién creada.
+        Retorna HX-Location a la página de detalle tras crear la visita.
         """
+        def _err(msg: str) -> HTMLResponse:
+            return HTMLResponse(
+                content=(
+                    '<div id="vc-crear-error"'
+                    ' class="mb-4 p-3 bg-red-900/40 border border-red-500/50 rounded-lg text-red-300 text-sm">'
+                    f'<i class="fas fa-exclamation-circle mr-2"></i>{msg}'
+                    "</div>"
+                ),
+                status_code=200,
+            )
+
         if not levantamiento_ids:
-            raise HTTPException(status_code=400, detail="Debes seleccionar al menos un levantamiento.")
+            return _err("Debes seleccionar al menos un levantamiento.")
 
         try:
             fecha_inicio_dt = datetime.fromisoformat(fecha_inicio).replace(tzinfo=ZoneInfo("America/Mexico_City"))
             fecha_fin_dt = datetime.fromisoformat(fecha_fin).replace(tzinfo=ZoneInfo("America/Mexico_City"))
         except ValueError:
-            raise HTTPException(status_code=400, detail="Formato de fecha/hora invalido.")
+            return _err("Formato de fecha/hora inválido.")
 
         if fecha_fin_dt <= fecha_inicio_dt:
-            raise HTTPException(status_code=400, detail="La fecha de fin debe ser posterior a la de inicio.")
+            return _err("La fecha de fin debe ser posterior a la de inicio.")
 
         # Extraer fechas individuales por levantamiento del form
         form_data = await request.form()
@@ -942,23 +953,21 @@ def register_operaciones_endpoints(router: APIRouter):
                     pass  # Skip invalid dates
 
         # Validar que las fechas individuales estén dentro del período de la visita
-        for lev_id_str, fecha_ind in fechas_individuales.items():
-            if not (fecha_inicio_dt <= fecha_ind <= fecha_fin_dt):
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"La fecha del levantamiento {lev_id_str} está fuera "
-                           "del período de la visita.",
-                )
+        fuera = [lev_id_str for lev_id_str, fecha_ind in fechas_individuales.items()
+                 if not (fecha_inicio_dt <= fecha_ind <= fecha_fin_dt)]
+        if fuera:
+            op_ids_map = await db_svc.get_op_ids_by_ids(conn, levantamiento_ids)
+            nombres = ", ".join(op_ids_map.get(lid, lid) for lid in fuera)
+            return _err(f"La fecha de {nombres} está fuera del período de la visita.")
 
         con_viaticos = await db_svc.get_levantamientos_con_viaticos_activos(conn, levantamiento_ids)
         if con_viaticos:
             nombres = ", ".join(
                 f"{r['op_id_estandar']} - {r['nombre_referencia']}" for r in con_viaticos
             )
-            raise HTTPException(
-                status_code=400,
-                detail=f"Los siguientes levantamientos ya tienen viáticos solicitados: {nombres}. "
-                       "Devuelve los viáticos antes de agendar la visita de campo.",
+            return _err(
+                f"Los siguientes levantamientos ya tienen viáticos solicitados: {nombres}. "
+                "Devuelve los viáticos antes de agendar la visita de campo."
             )
 
         # Extraer viáticos iniciales del form (arrays paralelos) antes de la transacción
@@ -1016,27 +1025,13 @@ def register_operaciones_endpoints(router: APIRouter):
         to_configurados = await db_svc.get_to_configurados_viaticos(conn)
         cc_configurados = await db_svc.get_cc_configurados_viaticos(conn)
 
-        # Calcular prorrateo
-        from .db_service_visitas import calcular_prorrateo
-        total_viaticos = sum(v.get("monto", 0) for v in viaticos)
-        prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita) if total_viaticos > 0 else {}
-
-        return templates.TemplateResponse("levantamientos/modals/visita_campo_modal.html", {
-            "request": request,
-            "step": "gestionar",
-            "visita": visita_completa,
-            "levantamientos_visita": levantamientos_visita,
-            "viaticos": viaticos,
-            "usuarios": usuarios,
-            "historial_envios": [],
-            "to_configurados": to_configurados,
-            "cc_configurados": cc_configurados,
-            "prorrateo": prorrateo,
-            "total_viaticos": total_viaticos,
-            "levantamientos_disponibles": [],
-            "preseleccionado": None,
-            "can_edit": True,
+        # Redirigir a la página de detalle via HX-Location
+        hx_location = json.dumps({
+            "path": f"/levantamientos/visitas-campo/{id_visita}/ui",
+            "target": "#main-content",
+            "swap": "innerHTML",
         })
+        return Response(content="", status_code=204, headers={"HX-Location": hx_location})
 
     # ----------------------------------------------------------
 
@@ -1142,12 +1137,12 @@ def register_operaciones_endpoints(router: APIRouter):
 
         logger.info(f"[VISITA_CAMPO] Visita {id_visita} eliminada por {context.get('user_name')}")
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "title": "Visita Eliminada",
-            "message": "La visita de campo ha sido eliminada correctamente.",
-            "type": "success",
+        hx_location = json.dumps({
+            "path": "/levantamientos/ui",
+            "target": "#main-content",
+            "swap": "innerHTML",
         })
+        return Response(content="", status_code=204, headers={"HX-Location": hx_location})
 
     # ----------------------------------------------------------
 
@@ -1186,14 +1181,12 @@ def register_operaciones_endpoints(router: APIRouter):
                 "Visita %s eliminada (sin levantamientos) por %s",
                 id_visita, context.get('user_name')
             )
-            response = templates.TemplateResponse("shared/toast.html", {
-                "request": request,
-                "title": "Visita eliminada",
-                "message": "Al quedar sin levantamientos, la visita fue eliminada automaticamente.",
-                "type": "warning",
+            hx_location = json.dumps({
+                "path": "/levantamientos/ui",
+                "target": "#main-content",
+                "swap": "innerHTML",
             })
-            response.headers["HX-Trigger"] = "visitaEliminada"
-            return response
+            return Response(content="", status_code=204, headers={"HX-Location": hx_location})
 
         levantamientos_visita, viaticos = await asyncio.gather(
             visitas_db_svc.get_levantamientos_en_visita(conn, id_visita),

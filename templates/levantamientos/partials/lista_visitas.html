@@ -1,0 +1,108 @@
+<div id="kanban-container" class="flex flex-col h-full">
+    <!-- Header -->
+    <div class="glass-panel p-4 rounded-xl mb-4 flex flex-wrap gap-3 justify-between items-center border-l-4 border-violet-500">
+        <div>
+            <h2 class="text-2xl font-light text-gray-800">
+                Módulo <span class="font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-600 to-indigo-500">Levantamientos</span>
+            </h2>
+            <p class="text-gray-500 text-sm mt-1">
+                Visitas de Campo
+                <span class="ml-1 bg-violet-100 text-violet-700 text-xs font-bold px-2 py-0.5 rounded-full">{{ visitas|length }}</span>
+            </p>
+        </div>
+        <div class="flex gap-2 flex-wrap">
+            <!-- Volver al Kanban -->
+            <button hx-get="/levantamientos/partials/kanban"
+                    hx-target="#kanban-container" hx-swap="outerHTML"
+                    class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold py-2 px-3 rounded-lg flex items-center gap-2 transition-all duration-200">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                </svg>
+                <span class="hidden sm:inline">Volver al Kanban</span>
+            </button>
+        </div>
+    </div>
+
+    <!-- Contenido -->
+    {% if visitas %}
+    <div class="glass-panel rounded-xl overflow-hidden">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="border-b border-gray-200/70 bg-white/50">
+                    <th class="text-left px-4 py-3 font-semibold text-gray-600">Nombre / Fecha</th>
+                    <th class="text-left px-4 py-3 font-semibold text-gray-600 hidden md:table-cell">Período</th>
+                    <th class="text-center px-4 py-3 font-semibold text-gray-600 hidden sm:table-cell">Levantamientos</th>
+                    <th class="text-right px-4 py-3 font-semibold text-gray-600 hidden lg:table-cell">Viáticos</th>
+                    <th class="text-center px-4 py-3 font-semibold text-gray-600 hidden sm:table-cell">Estatus</th>
+                    <th class="text-right px-4 py-3 font-semibold text-gray-600">Acción</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for v in visitas %}
+                <tr class="border-b border-gray-100 hover:bg-white/60 transition-colors">
+                    <!-- Nombre -->
+                    <td class="px-4 py-3">
+                        <p class="font-medium text-gray-800">
+                            {% if v.nombre %}
+                                {{ v.nombre }}
+                            {% else %}
+                                Visita del {{ v.fecha_inicio.strftime('%d %b %Y') if v.fecha_inicio else '—' }}
+                            {% endif %}
+                        </p>
+                        <p class="text-xs text-gray-400 mt-0.5">
+                            Creada {{ v.created_at.strftime('%d/%m/%Y') if v.created_at else '—' }}
+                        </p>
+                    </td>
+                    <!-- Período -->
+                    <td class="px-4 py-3 text-gray-600 hidden md:table-cell whitespace-nowrap">
+                        {% if v.fecha_inicio and v.fecha_fin %}
+                            {{ v.fecha_inicio.strftime('%d %b') }} — {{ v.fecha_fin.strftime('%d %b %Y') }}
+                        {% elif v.fecha_inicio %}
+                            Desde {{ v.fecha_inicio.strftime('%d %b %Y') }}
+                        {% else %}
+                            —
+                        {% endif %}
+                    </td>
+                    <!-- Levantamientos -->
+                    <td class="px-4 py-3 text-center hidden sm:table-cell">
+                        <span class="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-0.5 rounded-full">
+                            {{ v.num_levantamientos }}
+                        </span>
+                    </td>
+                    <!-- Viáticos -->
+                    <td class="px-4 py-3 text-right text-gray-700 font-medium hidden lg:table-cell">
+                        ${{ '{:,.2f}'.format(v.total_viaticos) }}
+                    </td>
+                    <!-- Estatus enviada -->
+                    <td class="px-4 py-3 text-center hidden sm:table-cell">
+                        {% if v.enviada %}
+                        <span class="bg-emerald-100 text-emerald-700 text-xs font-semibold px-2 py-0.5 rounded-full">
+                            Enviada
+                        </span>
+                        {% else %}
+                        <span class="bg-amber-100 text-amber-700 text-xs font-semibold px-2 py-0.5 rounded-full">
+                            Pendiente
+                        </span>
+                        {% endif %}
+                    </td>
+                    <!-- Acción -->
+                    <td class="px-4 py-3 text-right">
+                        <button hx-get="/levantamientos/visitas-campo/{{ v.id_visita }}/ui"
+                                hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                                class="bg-violet-600 hover:bg-violet-700 text-white text-xs font-semibold py-1.5 px-3 rounded-lg transition-colors">
+                            Abrir
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="glass-panel rounded-xl flex flex-col items-center justify-center py-16 text-center">
+        <i class="fas fa-map-marker-alt text-4xl text-gray-300 mb-4"></i>
+        <p class="text-gray-500 text-lg font-medium">No hay visitas de campo registradas</p>
+        <p class="text-gray-400 text-sm mt-1">Crea la primera desde el botón "Visita de Campo" en el kanban.</p>
+    </div>
+    {% endif %}
+</div>

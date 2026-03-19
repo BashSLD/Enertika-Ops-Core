@@ -16,6 +16,7 @@ from fastapi.templating import Jinja2Templates
 from core.security import get_current_user_context
 from core.permissions import require_module_access, require_any_module_access
 from core.database import get_db_connection
+from core.config import settings
 
 from .service import get_service, LevantamientoService
 from .db_service import get_db_service, LevantamientosDBService
@@ -24,6 +25,7 @@ from .db_service_visitas import get_visitas_db_service, VisitasCampoDBService
 logger = logging.getLogger("Levantamientos.Router.Modales")
 
 templates = Jinja2Templates(directory="templates")
+templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 
 
 def register_modal_endpoints(router: APIRouter):
@@ -447,3 +449,130 @@ def register_modal_endpoints(router: APIRouter):
             "id_levantamiento": id_levantamiento,
             "visitas": visitas,
         })
+
+    # ----------------------------------------------------------
+    # VISITAS DE CAMPO — páginas dedicadas
+    # ----------------------------------------------------------
+
+    @router.api_route("/visitas-campo/nueva", methods=["GET", "HEAD"], include_in_schema=False)
+    async def get_page_nueva_visita(
+        request: Request,
+        id_levantamiento: Optional[UUID] = Query(None),
+        conn=Depends(get_db_connection),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Página dedicada para crear una nueva Visita de Campo.
+        Dual render: HTMX → content partial; directo → full page con base.html.
+        """
+        levantamientos = await visitas_db_svc.get_levantamientos_disponibles(conn)
+        preseleccionado = str(id_levantamiento) if id_levantamiento else None
+
+        # JSON pre-serializado para Alpine (los asyncpg Records tienen campos datetime)
+        import json as _json
+        lev_data_json = _json.dumps([
+            {
+                "id_levantamiento": str(lev["id_levantamiento"]),
+                "op_id_estandar": lev.get("op_id_estandar") or "",
+                "cliente_nombre": lev.get("cliente_nombre") or "",
+                "nombre_sitio": lev.get("nombre_sitio") or "",
+                "nombre_proyecto": lev.get("nombre_proyecto") or lev.get("titulo_proyecto") or "",
+                "fecha_visita_programada": (
+                    lev["fecha_visita_programada"].strftime("%Y-%m-%dT%H:%M")
+                    if lev.get("fecha_visita_programada") else ""
+                ),
+            }
+            for lev in levantamientos
+        ])
+
+        ctx = {
+            "request": request,
+            "levantamientos_disponibles": levantamientos,
+            "preseleccionado": preseleccionado,
+            "lev_data_json": lev_data_json,
+        }
+
+        is_htmx = request.headers.get("hx-request")
+        is_history_restore = request.headers.get("hx-history-restore-request")
+        if is_htmx and not is_history_restore:
+            return templates.TemplateResponse(
+                "levantamientos/visita_campo_crear_content.html", ctx
+            )
+        return templates.TemplateResponse(
+            "levantamientos/dashboard.html",
+            {
+                **ctx,
+                "inner_template": "levantamientos/visita_campo_crear_content.html",
+                "user_name": context.get("user_name"),
+                "role": context.get("role"),
+                "module_roles": context.get("module_roles", {}),
+            },
+        )
+
+    # ----------------------------------------------------------
+
+    @router.get("/visitas-campo/{id_visita}/ui", include_in_schema=False)
+    async def get_page_detalle_visita(
+        request: Request,
+        id_visita: UUID,
+        conn=Depends(get_db_connection),
+        db_svc: LevantamientosDBService = Depends(get_db_service),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """
+        Página dedicada para gestionar una Visita de Campo existente.
+        Dual render: HTMX → content partial; directo → full page con base.html.
+        """
+        visita = await visitas_db_svc.get_visita(conn, id_visita)
+        if not visita:
+            raise HTTPException(status_code=404, detail="Visita de campo no encontrada")
+
+        levantamientos_visita = await visitas_db_svc.get_levantamientos_en_visita(conn, id_visita)
+        viaticos = await visitas_db_svc.get_viaticos_visita(conn, id_visita)
+        usuarios = await visitas_db_svc.get_usuarios_para_visita(conn, id_visita)
+        historial_envios = await visitas_db_svc.get_envios_visita(conn, id_visita)
+        to_configurados = await db_svc.get_to_configurados_viaticos(conn)
+        cc_configurados = await db_svc.get_cc_configurados_viaticos(conn)
+
+        user_role = context.get("role")
+        mod_role = context.get("module_roles", {}).get("levantamientos")
+        can_edit = user_role == "ADMIN" or mod_role in ["editor", "admin"]
+
+        from .db_service_visitas import calcular_prorrateo
+        total_viaticos = float(sum(v["monto"] for v in viaticos))
+        prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
+
+        ctx = {
+            "request": request,
+            "visita": visita,
+            "levantamientos_visita": levantamientos_visita,
+            "viaticos": viaticos,
+            "usuarios": usuarios,
+            "historial_envios": historial_envios,
+            "to_configurados": to_configurados,
+            "cc_configurados": cc_configurados,
+            "prorrateo": prorrateo,
+            "total_viaticos": total_viaticos,
+            "can_edit": can_edit,
+        }
+
+        is_htmx = request.headers.get("hx-request")
+        is_history_restore = request.headers.get("hx-history-restore-request")
+        if is_htmx and not is_history_restore:
+            return templates.TemplateResponse(
+                "levantamientos/visita_campo_detalle_content.html", ctx
+            )
+        return templates.TemplateResponse(
+            "levantamientos/dashboard.html",
+            {
+                **ctx,
+                "inner_template": "levantamientos/visita_campo_detalle_content.html",
+                "user_name": context.get("user_name"),
+                "role": context.get("role"),
+                "module_roles": context.get("module_roles", {}),
+            },
+        )

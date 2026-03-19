@@ -36,9 +36,9 @@
                 </p>
             </div>
             <button
-                hx-get="/levantamientos/modal/visita-campo/{{ v.id_visita }}"
-                hx-target="#modal-content"
-                hx-swap="innerHTML"
+                hx-get="/levantamientos/visitas-campo/{{ v.id_visita }}/ui"
+                hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                onclick="closeModal()"
                 class="btn btn-sm btn-outline-blue flex-shrink-0 ml-3">
                 <i class="fas fa-external-link-alt mr-1"></i> Abrir
             </button>
@@ -48,9 +48,9 @@
 
     <div class="mt-4 pt-4 border-t border-slate-700 flex justify-between items-center">
         <button
-            hx-get="/levantamientos/modal/visita-campo/nueva?id_levantamiento={{ id_levantamiento }}"
-            hx-target="#modal-content"
-            hx-swap="innerHTML"
+            hx-get="/levantamientos/visitas-campo/nueva?id_levantamiento={{ id_levantamiento }}"
+            hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+            onclick="closeModal()"
             class="btn btn-sm btn-outline-emerald">
             <i class="fas fa-plus mr-1"></i> Nueva Visita con este Levantamiento
         </button>

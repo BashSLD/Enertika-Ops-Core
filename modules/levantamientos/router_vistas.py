@@ -17,6 +17,7 @@ from core.database import get_db_connection
 
 from .db_service import get_db_service, LevantamientosDBService
 from .db_service_analytics import get_analytics_db_service, LevantamientosAnalyticsDBService
+from .db_service_visitas import get_visitas_db_service, VisitasCampoDBService
 
 logger = logging.getLogger("Levantamientos.Router.Vistas")
 
@@ -143,3 +144,22 @@ def register_vistas_endpoints(router: APIRouter):
             "tendencia": tendencia,
             "tiempos_costos": tiempos_costos,
         })
+
+    # ==============================================================
+    # GET — LISTA DE VISITAS DE CAMPO
+    # ==============================================================
+
+    @router.get("/partials/visitas", include_in_schema=False)
+    async def get_lista_visitas(
+        request: Request,
+        conn=Depends(get_db_connection),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        context=Depends(get_current_user_context),
+        _=require_module_access("levantamientos"),
+    ):
+        """Lista centralizada de todas las visitas de campo."""
+        visitas = await visitas_db_svc.get_all_visitas(conn)
+        return templates.TemplateResponse(
+            "levantamientos/partials/lista_visitas.html",
+            {"request": request, "visitas": visitas},
+        )

@@ -10,6 +10,9 @@
     </div>
 
 
+    {% if inner_template %}
+    {% include inner_template %}
+    {% else %}
     <!-- Kanban Board -->
     <div id="kanban-container" hx-get="/levantamientos/partials/kanban" hx-trigger="load" hx-swap="outerHTML"
         class="flex-1">
@@ -21,6 +24,7 @@
             </div>
         </div>
     </div>
+    {% endif %}
 </div>
 
 

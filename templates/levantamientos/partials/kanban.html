@@ -12,13 +12,19 @@
         <div class="flex gap-2 flex-wrap">
             <!-- Visita de Campo -->
             {% if can_edit %}
-            <button hx-get="/levantamientos/modal/visita-campo/nueva" hx-target="#modal-content" hx-swap="innerHTML"
-                onclick="openModal()"
+            <button hx-get="/levantamientos/visitas-campo/nueva"
+                hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
                 class="bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold py-2 px-3 rounded-lg flex items-center gap-2 transition-all duration-200">
                 <i class="fas fa-route"></i>
-                Visita de Campo
+                <span class="hidden sm:inline">Visita de Campo</span>
             </button>
             {% endif %}
+            <!-- Ver Visitas -->
+            <button hx-get="/levantamientos/partials/visitas" hx-target="#kanban-container" hx-swap="outerHTML"
+                class="bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold py-2 px-3 rounded-lg flex items-center gap-2 transition-all duration-200">
+                <i class="fas fa-map-marker-alt h-4 w-4"></i>
+                <span class="hidden sm:inline">Visitas</span>
+            </button>
             <!-- Ver Gráficas -->
             <button hx-get="/levantamientos/partials/graficas" hx-target="#kanban-container" hx-swap="outerHTML"
                 class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold py-2 px-3 rounded-lg flex items-center gap-2 transition-all duration-200">
@@ -27,7 +33,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
-                Gráficas
+                <span class="hidden sm:inline">Gráficas</span>
             </button>
             <!-- Ver Lista -->
             <button hx-get="/levantamientos/partials/lista?tab=activos" hx-target="#kanban-container"
@@ -38,7 +44,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M3 10h18M3 14h18M3 6h18M3 18h18" />
                 </svg>
-                Ver Lista
+                <span class="hidden sm:inline">Ver Lista</span>
             </button>
             <!-- Actualizar -->
             <button hx-get="/levantamientos/partials/kanban" hx-target="#kanban-container" hx-swap="outerHTML"
@@ -48,7 +54,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                 </svg>
-                Actualizar
+                <span class="hidden sm:inline">Actualizar</span>
             </button>
         </div>
     </div>

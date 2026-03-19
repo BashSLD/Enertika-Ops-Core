@@ -547,6 +547,32 @@ class VisitasCampoDBService:
         """, id_visita, viaticos_opcionales)
         return status == "UPDATE 1"
 
+    async def get_all_visitas(self, conn) -> List[dict]:
+        """
+        Lista de todas las visitas de campo, ordenadas por fecha de creación descendente.
+        Incluye conteo de levantamientos, total de viáticos y si ya fue enviada.
+        """
+        rows = await conn.fetch("""
+            SELECT
+                v.id_visita,
+                v.nombre,
+                v.fecha_inicio AT TIME ZONE 'America/Mexico_City' AS fecha_inicio,
+                v.fecha_fin    AT TIME ZONE 'America/Mexico_City' AS fecha_fin,
+                v.created_at   AT TIME ZONE 'America/Mexico_City' AS created_at,
+                COUNT(DISTINCT vcl.id_levantamiento)              AS num_levantamientos,
+                COALESCE(SUM(vcv.monto), 0)                       AS total_viaticos,
+                EXISTS(
+                    SELECT 1 FROM tb_visita_campo_envios e
+                    WHERE e.id_visita = v.id_visita
+                ) AS enviada
+            FROM tb_visitas_campo v
+            LEFT JOIN tb_visita_campo_levantamientos vcl ON vcl.id_visita = v.id_visita
+            LEFT JOIN tb_visita_campo_viaticos vcv        ON vcv.id_visita = v.id_visita
+            GROUP BY v.id_visita, v.nombre, v.fecha_inicio, v.fecha_fin, v.created_at
+            ORDER BY v.created_at DESC
+        """)
+        return [dict(r) for r in rows]
+
     async def sync_levantamientos_agendado(
         self, conn, levantamiento_ids: List[UUID],
         fechas_individuales: Dict[str, datetime],
