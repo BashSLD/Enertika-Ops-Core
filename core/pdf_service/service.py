@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Optional
 
 import jinja2
-from weasyprint import HTML
 
 logger = logging.getLogger("PDFService")
 
@@ -54,6 +53,7 @@ class PDFService:
         effective_base_url = base_url or TEMPLATES_PDF_PATH.as_uri() + "/"
 
         def _render_sync() -> bytes:
+            from weasyprint import HTML  # lazy import — falla solo al generar PDF, no al arrancar
             return HTML(
                 string=html_string,
                 base_url=effective_base_url,
