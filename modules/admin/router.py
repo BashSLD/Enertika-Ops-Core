@@ -8,7 +8,9 @@ from core.security import get_current_user_context
 from core.permissions import require_module_access
 
 from core.config import settings
+from core.jinja_filters import register_timezone_filters
 from .service import AdminService, get_admin_service
+from core.tipo_cambio.service import TipoCambioService
 import asyncpg
 
 from . import endpoints_correos_notif
@@ -22,6 +24,7 @@ router = APIRouter(
 
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
+register_timezone_filters(templates.env)
 
 # --- CONFIG EMAIL ENDPOINTS ---
 
@@ -34,6 +37,7 @@ async def admin_dashboard(
     _ = require_module_access("admin")
 ):
     """Dashboard principal: Lista usuarios, Reglas, Departamentos y Módulos."""
+    tc_service = TipoCambioService()
     users_enriched = await service.get_users_enriched(conn)
     rules = await service.get_email_rules(conn)
     defaults = await service.get_email_defaults(conn)
@@ -42,6 +46,8 @@ async def admin_dashboard(
     catalogos = await service.get_catalogos_reglas(conn)
     global_config = await service.get_global_config(conn)
     reporte = await service.generar_reporte_semanal(conn)
+    tc_actual = await tc_service.get_tasa_actual(conn)
+    tc_historial = await tc_service.get_historial(conn, limit=30)
 
     return templates.TemplateResponse("admin/dashboard.html", {
         "request": request,
@@ -60,6 +66,9 @@ async def admin_dashboard(
         "reporte_fecha_inicio": reporte["fecha_inicio"],
         "reporte_fecha_fin_display": reporte["fecha_fin"] - timedelta(days=1),
         "reporte_destinatarios_configurados": bool(global_config.get("reporte_semanal_destinatarios", "").strip()),
+        # Tipo de cambio
+        "tipo_cambio_actual": tc_actual,
+        "tipo_cambio_historial": tc_historial,
     })
 
 @router.post("/users/role")

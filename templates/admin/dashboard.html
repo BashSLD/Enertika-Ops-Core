@@ -80,6 +80,16 @@
                     </svg>
                     Reportes
                 </button>
+
+                <button onclick="switchTab('tipo-cambio')" id="tab-tipo-cambio"
+                    class="tab-button border-b-2 border-transparent py-4 px-1 text-sm font-medium text-gray-500 hover:text-gray-700 hover:border-gray-300 flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                        stroke="currentColor" class="w-5 h-5">
+                        <path stroke-linecap="round" stroke-linejoin="round"
+                            d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Tipo de Cambio
+                </button>
             </nav>
         </div>
     </div>
@@ -359,6 +369,115 @@
         {% with datos=reporte_datos, fecha_inicio=reporte_fecha_inicio, fecha_fin_display=reporte_fecha_fin_display, destinatarios_configurados=reporte_destinatarios_configurados %}
         {% include "admin/partials/reporte_semanal.html" %}
         {% endwith %}
+    </div>
+
+    <div id="content-tipo-cambio" class="tab-content hidden">
+        <section class="bg-white p-6 rounded-lg shadow border-t-4 border-emerald-500">
+
+            <!-- Header + acción refrescar -->
+            <div class="flex items-center justify-between mb-6">
+                <div>
+                    <h2 class="text-xl font-bold text-emerald-700 flex items-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5"
+                            stroke="currentColor" class="w-6 h-6">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        Tipo de Cambio USD/MXN
+                    </h2>
+                    <p class="text-sm text-gray-500 mt-0.5">FIX interbancario — fuente Banxico (serie SF43718)</p>
+                </div>
+                <div class="flex items-center gap-3">
+                    <div id="tc-refresh-msg"></div>
+                    <button hx-post="/tipo-cambio/refrescar"
+                        hx-target="#tc-refresh-msg"
+                        hx-swap="innerHTML"
+                        hx-indicator="#tc-spinner"
+                        class="flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition-colors">
+                        <svg id="tc-spinner" class="w-4 h-4 htmx-indicator animate-spin" fill="none"
+                            stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                        Consultar Banxico
+                    </button>
+                </div>
+            </div>
+
+            <!-- Tasa actual destacada -->
+            {% if tipo_cambio_actual %}
+            {% set tc = tipo_cambio_actual %}
+            <div class="mb-6 p-4 rounded-xl border {% if tc.dias_antiguedad == 0 %}bg-emerald-50 border-emerald-200{% elif tc.dias_antiguedad <= 3 %}bg-amber-50 border-amber-200{% else %}bg-red-50 border-red-200{% endif %}">
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="text-xs font-semibold uppercase tracking-wider {% if tc.dias_antiguedad == 0 %}text-emerald-600{% elif tc.dias_antiguedad <= 3 %}text-amber-600{% else %}text-red-600{% endif %} mb-1">
+                            Tasa más reciente
+                        </div>
+                        <div class="text-3xl font-bold text-gray-900">
+                            ${{ "%.4f"|format(tc.tasa_mxn) }} <span class="text-base font-normal text-gray-500">MXN/USD</span>
+                        </div>
+                        <div class="text-sm text-gray-500 mt-1">
+                            Fecha: {{ tc.fecha.strftime('%d/%m/%Y') if tc.fecha else '—' }}
+                            &nbsp;·&nbsp; Fuente: {{ tc.fuente }}
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        {% if tc.dias_antiguedad == 0 %}
+                        <span class="px-3 py-1 text-xs font-bold rounded-full bg-emerald-100 text-emerald-700">Hoy</span>
+                        {% elif tc.dias_antiguedad == 1 %}
+                        <span class="px-3 py-1 text-xs font-bold rounded-full bg-amber-100 text-amber-700">Ayer</span>
+                        {% else %}
+                        <span class="px-3 py-1 text-xs font-bold rounded-full bg-red-100 text-red-700">{{ tc.dias_antiguedad }} dias</span>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="mb-6 p-4 bg-gray-50 border border-gray-200 rounded-xl text-sm text-gray-500">
+                Sin registros. Haz clic en "Consultar Banxico" para obtener la tasa actual.
+            </div>
+            {% endif %}
+
+            <!-- Tabla historial -->
+            <h3 class="text-sm font-semibold text-gray-600 uppercase tracking-wider mb-3">Historial (ultimos 30 dias)</h3>
+            {% if tipo_cambio_historial %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200 text-sm">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Fecha</th>
+                            <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase">Tasa MXN/USD</th>
+                            <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Fuente</th>
+                            <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Registrado</th>
+                        </tr>
+                    </thead>
+                    <tbody class="bg-white divide-y divide-gray-100">
+                        {% for r in tipo_cambio_historial %}
+                        <tr class="hover:bg-gray-50">
+                            <td class="px-4 py-2.5 font-mono text-gray-800">
+                                {{ r.fecha.strftime('%d/%m/%Y') if r.fecha else '—' }}
+                            </td>
+                            <td class="px-4 py-2.5 text-right font-semibold text-gray-900">
+                                ${{ "%.4f"|format(r.tasa_mxn) }}
+                            </td>
+                            <td class="px-4 py-2.5 text-center">
+                                <span class="px-2 py-0.5 text-xs rounded-full bg-emerald-100 text-emerald-700 font-medium">
+                                    {{ r.fuente }}
+                                </span>
+                            </td>
+                            <td class="px-4 py-2.5 text-gray-500 text-xs">
+                                {{ r.creado_en | time_mx if r.creado_en else '—' }}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-sm text-gray-400">Sin registros historicos.</p>
+            {% endif %}
+
+        </section>
     </div>
 
 </div>

@@ -8,7 +8,7 @@ GET  /tipo-cambio/historial  — últimas 30 tasas (solo admin)
 import logging
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, HTMLResponse
 import asyncpg
 
 from core.database import get_db_connection
@@ -48,14 +48,28 @@ async def refrescar_tasa(
     _context=Depends(get_current_user_context),
     _=require_module_access("admin"),
 ):
-    """Fuerza actualización de la tasa desde Banxico API. Solo admin."""
+    """Fuerza actualización de la tasa desde Banxico API. Solo admin.
+    Devuelve HTML snippet para HTMX o JSON si no es HTMX."""
+    is_htmx = request.headers.get("hx-request")
     try:
         resultado = await _service.refresh_tasa(conn, settings.BANXICO_TOKEN)
+        if is_htmx:
+            tasa = resultado["tasa_mxn"]
+            fecha = resultado["fecha"].strftime("%d/%m/%Y") if hasattr(resultado["fecha"], "strftime") else str(resultado["fecha"])
+            return HTMLResponse(
+                f'<span class="text-sm text-emerald-700 font-medium">'
+                f'Actualizado: ${tasa:.4f} MXN ({fecha})'
+                f'</span>'
+            )
         return resultado
     except ValueError as exc:
+        if is_htmx:
+            return HTMLResponse(f'<span class="text-sm text-red-600">{exc}</span>', status_code=502)
         return JSONResponse({"error": str(exc)}, status_code=502)
     except asyncpg.PostgresError:
         logger.exception("Error BD al refrescar tasa")
+        if is_htmx:
+            return HTMLResponse('<span class="text-sm text-red-600">Error interno al guardar la tasa</span>', status_code=500)
         return JSONResponse({"error": "Error interno al guardar la tasa"}, status_code=500)
 
 
