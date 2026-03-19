@@ -1,0 +1,423 @@
+{# templates/bom/partials/cotizaciones.html #}
+{# Tab de cotizaciones del BOM — cargado lazy via HTMX #}
+
+<div id="tab-cotizaciones-content"
+    x-data="cotizacionesBom()"
+    x-init="init()"
+    data-bom-id="{{ bom.id_bom }}"
+    data-items='{{ items_disponibles | tojson | replace("'", "&#39;") }}'>
+
+    {# Header #}
+    <div class="flex items-center justify-between mb-4">
+        <div>
+            <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide">Cotizaciones</h3>
+            <p class="text-xs text-gray-400 mt-0.5">{{ cotizaciones | length }} cotización{{ 'es' if cotizaciones | length != 1 else '' }} registrada{{ 's' if cotizaciones | length != 1 else '' }}</p>
+        </div>
+        {% if es_compras_editor and bom.estatus == 'APROBADO_CONST' %}
+        <button @click="abrirModal()"
+            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition shadow-sm">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            Nueva Cotización
+        </button>
+        {% endif %}
+    </div>
+
+    {# Lista de cotizaciones #}
+    {% if cotizaciones %}
+    <div class="space-y-3">
+        {% for cot in cotizaciones %}
+        {% set estatus_styles = {
+            'BORRADOR':    'bg-gray-100 text-gray-700 border-gray-300',
+            'RECIBIDA':    'bg-blue-100 text-blue-800 border-blue-300',
+            'SELECCIONADA':'bg-emerald-100 text-emerald-800 border-emerald-300',
+            'RECHAZADA':   'bg-red-100 text-red-700 border-red-300',
+        } %}
+        {% set style = estatus_styles.get(cot.estatus, 'bg-gray-100 text-gray-700 border-gray-300') %}
+        <div class="bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+            <div class="flex items-start justify-between gap-3">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2 flex-wrap">
+                        <span class="text-sm font-semibold text-gray-800 truncate">
+                            {{ cot.nombre_proveedor or 'Sin proveedor' }}
+                        </span>
+                        <span class="px-2 py-0.5 text-xs font-bold rounded-lg border {{ style }}">
+                            {{ cot.estatus }}
+                        </span>
+                        <span class="text-xs text-gray-400">{{ cot.moneda }}</span>
+                    </div>
+                    <div class="flex items-center gap-4 mt-2 text-sm">
+                        <span class="text-gray-500">Subtotal: <span class="font-semibold text-gray-800">${{ "{:,.2f}".format(cot.subtotal | float) if cot.subtotal else '—' }}</span></span>
+                        <span class="text-gray-500">IVA: <span class="font-semibold text-gray-800">${{ "{:,.2f}".format(cot.iva | float) if cot.iva else '—' }}</span></span>
+                        <span class="text-gray-500">Total: <span class="font-bold text-emerald-700">${{ "{:,.2f}".format(cot.total | float) if cot.total else '—' }}</span></span>
+                    </div>
+                    <div class="flex items-center gap-3 mt-1 text-xs text-gray-400">
+                        <span>{{ cot.total_items_cotizacion }} ítem{{ 's' if cot.total_items_cotizacion != 1 else '' }}</span>
+                        <span>Por: {{ cot.creado_por_nombre or '—' }}</span>
+                        {% if cot.notas %}
+                        <span class="italic truncate max-w-xs" title="{{ cot.notas }}">{{ cot.notas[:60] }}{% if cot.notas|length > 60 %}...{% endif %}</span>
+                        {% endif %}
+                    </div>
+                </div>
+
+                {# Acciones #}
+                {% if es_compras_editor and cot.estatus not in ('SELECCIONADA', 'RECHAZADA') %}
+                <div class="flex items-center gap-2 shrink-0">
+                    {% if cot.estatus in ('BORRADOR', 'RECIBIDA') %}
+                    <button
+                        hx-post="/bom/cotizaciones/{{ cot.id }}/seleccionar"
+                        hx-target="#tab-cotizaciones"
+                        hx-swap="innerHTML"
+                        hx-confirm="¿Marcar esta cotización como SELECCIONADA? Esto actualizará el estado de los ítems cubiertos."
+                        class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition">
+                        Seleccionar
+                    </button>
+                    <button
+                        hx-post="/bom/cotizaciones/{{ cot.id }}/rechazar"
+                        hx-target="#tab-cotizaciones"
+                        hx-swap="innerHTML"
+                        hx-confirm="¿Rechazar esta cotización?"
+                        class="px-2.5 py-1.5 text-xs font-medium rounded-lg text-white bg-red-500 hover:bg-red-600 transition">
+                        Rechazar
+                    </button>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+
+            {# PDF badge #}
+            {% if cot.pdf_url %}
+            <div class="mt-2">
+                <a href="{{ cot.pdf_url }}" target="_blank" rel="noopener"
+                    class="inline-flex items-center gap-1 text-xs text-red-600 hover:text-red-700 font-medium">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                    </svg>
+                    Ver PDF
+                </a>
+            </div>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+        <svg class="mx-auto w-10 h-10 text-gray-300 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        <p class="text-sm text-gray-500 font-medium">Sin cotizaciones registradas</p>
+        {% if es_compras_editor and bom.estatus == 'APROBADO_CONST' %}
+        <p class="text-xs text-gray-400 mt-1">Crea la primera cotización con el botón de arriba.</p>
+        {% endif %}
+    </div>
+    {% endif %}
+</div>
+
+{# Modal Nueva Cotización #}
+<div x-show="modalAbierto" x-cloak
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
+    @keydown.escape.window="cerrarModal()">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-3 max-h-[90vh] flex flex-col">
+
+        {# Header modal #}
+        <div class="flex items-center justify-between px-6 py-4 border-b border-gray-200 shrink-0"
+            style="background: linear-gradient(135deg, #065f46 0%, #047857 100%);">
+            <div class="flex items-center gap-3">
+                <div class="p-2 bg-white/15 rounded-lg">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                </div>
+                <div>
+                    <h2 class="text-base font-semibold text-white">Nueva Cotización</h2>
+                    <p class="text-xs text-emerald-200">Selecciona ítems y captura el precio del proveedor</p>
+                </div>
+            </div>
+            <button @click="cerrarModal()" class="text-white/60 hover:text-white transition-colors p-1">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        {# Body modal — scrollable #}
+        <div class="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+
+            {# Proveedor #}
+            <div>
+                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Proveedor</label>
+                <div class="relative">
+                    <input type="text" x-model="busquedaProveedor"
+                        @input.debounce.400ms="buscarProveedores()"
+                        @focus="mostrarResultadosProveedor = true"
+                        @click.outside="mostrarResultadosProveedor = false"
+                        placeholder="Buscar proveedor..."
+                        autocomplete="off"
+                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500">
+                    <div id="resultados-proveedores-bom"
+                        class="absolute z-20 w-full mt-1"
+                        x-show="mostrarResultadosProveedor && busquedaProveedor.length >= 2">
+                    </div>
+                </div>
+                <div x-show="proveedorSeleccionado.nombre"
+                    class="mt-2 flex items-center gap-2 px-3 py-2 bg-emerald-50 border border-emerald-200 rounded-lg">
+                    <svg class="w-4 h-4 text-emerald-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    <span class="text-sm text-emerald-800 font-medium" x-text="proveedorSeleccionado.nombre"></span>
+                    <button type="button" @click="limpiarProveedor()" class="ml-auto text-emerald-400 hover:text-emerald-600">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            {# Moneda + IVA #}
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Moneda</label>
+                    <select x-model="moneda" class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500">
+                        <option value="MXN">MXN — Peso Mexicano</option>
+                        <option value="USD">USD — Dólar</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">IVA %</label>
+                    <input type="number" x-model.number="ivaPct" min="0" max="100" step="0.01"
+                        class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500">
+                </div>
+            </div>
+
+            {# Ítems #}
+            <div>
+                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-2">
+                    Ítems a cotizar
+                    <span class="text-gray-400 font-normal normal-case ml-1">(<span x-text="itemsSeleccionados.length"></span> seleccionados)</span>
+                </label>
+                <template x-if="itemsDisponibles.length === 0">
+                    <p class="text-sm text-gray-400 italic text-center py-4">Todos los ítems ya están en proceso de cotización o pago.</p>
+                </template>
+                <div class="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+                    <template x-for="item in itemsDisponibles" :key="item.id_item">
+                        <div class="flex items-center gap-3 px-3 py-2.5 rounded-lg border"
+                            :class="isSelected(item.id_item) ? 'bg-emerald-50 border-emerald-300' : 'bg-white border-gray-200'">
+                            <input type="checkbox"
+                                :checked="isSelected(item.id_item)"
+                                @change="toggleItem(item)"
+                                class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 shrink-0">
+                            <div class="flex-1 min-w-0">
+                                <div class="text-sm font-medium text-gray-800 truncate" x-text="item.descripcion"></div>
+                                <div class="text-xs text-gray-400">
+                                    <span x-text="item.categoria_nombre || '—'"></span>
+                                    &bull;
+                                    Cant: <span x-text="item.cantidad"></span>
+                                    <span x-text="item.unidad_medida || ''"></span>
+                                </div>
+                            </div>
+                            <div x-show="isSelected(item.id_item)" class="shrink-0">
+                                <input type="number"
+                                    :value="getPrecio(item.id_item)"
+                                    @input="setPrecio(item.id_item, $event.target.value)"
+                                    min="0" step="0.01"
+                                    placeholder="Precio unit."
+                                    class="w-28 text-sm border border-emerald-300 rounded-lg px-2 py-1 focus:ring-2 focus:ring-emerald-500 text-right">
+                            </div>
+                        </div>
+                    </template>
+                </div>
+            </div>
+
+            {# Resumen totales #}
+            <div x-show="itemsSeleccionados.length > 0"
+                class="bg-emerald-50 rounded-lg px-4 py-3 space-y-1 border border-emerald-200">
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">Subtotal</span>
+                    <span class="font-semibold" x-text="'$' + subtotal.toLocaleString('es-MX', {minimumFractionDigits: 2})"></span>
+                </div>
+                <div class="flex justify-between text-sm">
+                    <span class="text-gray-600">IVA (<span x-text="ivaPct"></span>%)</span>
+                    <span class="font-semibold" x-text="'$' + iva.toLocaleString('es-MX', {minimumFractionDigits: 2})"></span>
+                </div>
+                <div class="flex justify-between text-sm border-t border-emerald-300 pt-1 mt-1">
+                    <span class="font-bold text-emerald-800">Total</span>
+                    <span class="font-bold text-emerald-800" x-text="'$' + total.toLocaleString('es-MX', {minimumFractionDigits: 2}) + ' ' + moneda"></span>
+                </div>
+            </div>
+
+            {# Notas #}
+            <div>
+                <label class="block text-xs font-bold text-gray-600 uppercase tracking-wide mb-1">Notas</label>
+                <textarea x-model="notas" rows="2"
+                    class="w-full text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-emerald-500 resize-none"
+                    placeholder="Notas opcionales sobre esta cotización..."></textarea>
+            </div>
+        </div>
+
+        {# Footer modal #}
+        <div class="flex items-center justify-between gap-2 px-5 py-3 border-t border-gray-100 bg-gray-50 shrink-0">
+            <p x-show="errorMsg" x-text="errorMsg" class="text-sm text-red-600 font-medium"></p>
+            <div class="flex gap-2 ml-auto">
+                <button type="button" @click="cerrarModal()"
+                    class="px-4 py-2 text-sm text-gray-600 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors">
+                    Cancelar
+                </button>
+                <button type="button" @click="guardar()" :disabled="guardando || itemsSeleccionados.length === 0"
+                    class="flex items-center gap-2 px-5 py-2 text-sm font-medium text-white rounded-lg transition-colors disabled:opacity-60 disabled:cursor-not-allowed bg-emerald-600 hover:bg-emerald-700">
+                    <svg class="w-4 h-4" :class="{'animate-spin': guardando}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                    </svg>
+                    <span x-text="guardando ? 'Guardando...' : 'Crear Cotización'"></span>
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+function cotizacionesBom() {
+    return {
+        modalAbierto: false,
+        itemsDisponibles: [],
+        itemsSeleccionados: [],    // [{id_item, precio_unitario, cantidad, ...}]
+        precios: {},               // { id_item: precio_unitario }
+        moneda: 'MXN',
+        ivaPct: 16,
+        notas: '',
+        busquedaProveedor: '',
+        mostrarResultadosProveedor: false,
+        proveedorSeleccionado: { id: null, nombre: '' },
+        guardando: false,
+        errorMsg: '',
+
+        init() {
+            try {
+                this.itemsDisponibles = JSON.parse(this.$el.dataset.items || '[]');
+            } catch(e) { this.itemsDisponibles = []; }
+        },
+
+        abrirModal() {
+            this.itemsSeleccionados = [];
+            this.precios = {};
+            this.notas = '';
+            this.moneda = 'MXN';
+            this.ivaPct = 16;
+            this.busquedaProveedor = '';
+            this.proveedorSeleccionado = { id: null, nombre: '' };
+            this.errorMsg = '';
+            this.modalAbierto = true;
+        },
+
+        cerrarModal() { this.modalAbierto = false; },
+
+        isSelected(id_item) {
+            return this.itemsSeleccionados.some(i => i.id_item === id_item);
+        },
+
+        toggleItem(item) {
+            if (this.isSelected(item.id_item)) {
+                this.itemsSeleccionados = this.itemsSeleccionados.filter(i => i.id_item !== item.id_item);
+                delete this.precios[item.id_item];
+            } else {
+                this.itemsSeleccionados.push({ ...item });
+                this.precios[item.id_item] = item.precio_unitario || 0;
+            }
+        },
+
+        getPrecio(id_item) {
+            return this.precios[id_item] || 0;
+        },
+
+        setPrecio(id_item, val) {
+            this.precios[id_item] = parseFloat(val) || 0;
+        },
+
+        get subtotal() {
+            return this.itemsSeleccionados.reduce((acc, item) => {
+                const p = parseFloat(this.precios[item.id_item]) || 0;
+                const c = parseFloat(item.cantidad) || 0;
+                return acc + p * c;
+            }, 0);
+        },
+
+        get iva() {
+            return Math.round(this.subtotal * this.ivaPct / 100 * 100) / 100;
+        },
+
+        get total() {
+            return Math.round((this.subtotal + this.iva) * 100) / 100;
+        },
+
+        async buscarProveedores() {
+            if (this.busquedaProveedor.length < 2) return;
+            const resp = await fetch(`/bom/proveedores/buscar?q=${encodeURIComponent(this.busquedaProveedor)}`);
+            const html = await resp.text();
+            document.getElementById('resultados-proveedores-bom').innerHTML = html;
+            this.mostrarResultadosProveedor = true;
+        },
+
+        limpiarProveedor() {
+            this.proveedorSeleccionado = { id: null, nombre: '' };
+            this.busquedaProveedor = '';
+        },
+
+        async guardar() {
+            if (this.itemsSeleccionados.length === 0) {
+                this.errorMsg = 'Selecciona al menos un ítem.';
+                return;
+            }
+            this.guardando = true;
+            this.errorMsg = '';
+            try {
+                const body = {
+                    proveedor_id: this.proveedorSeleccionado.id || null,
+                    nombre_proveedor: this.proveedorSeleccionado.nombre || this.busquedaProveedor || null,
+                    moneda: this.moneda,
+                    iva_pct: this.ivaPct,
+                    notas: this.notas || null,
+                    items: this.itemsSeleccionados.map(item => ({
+                        bom_item_id: item.id_item,
+                        precio_unitario: parseFloat(this.precios[item.id_item]) || 0,
+                        cantidad: parseFloat(item.cantidad),
+                    })),
+                };
+                const bomId = document.getElementById('tab-cotizaciones-content').dataset.bomId;
+                const resp = await fetch(`/bom/${bomId}/cotizaciones`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'HX-Request': 'true' },
+                    body: JSON.stringify(body),
+                });
+                if (!resp.ok) {
+                    const err = await resp.json().catch(() => ({}));
+                    throw new Error(err.detail || 'Error al crear cotización');
+                }
+                const html = await resp.text();
+                document.getElementById('tab-cotizaciones').innerHTML = html;
+                this.cerrarModal();
+            } catch(e) {
+                this.errorMsg = e.message;
+            } finally {
+                this.guardando = false;
+            }
+        }
+    };
+}
+
+// Función global llamada desde el autocomplete de proveedores
+function seleccionarProveedor(id, nombre) {
+    // Buscar el componente Alpine más cercano
+    const el = document.getElementById('tab-cotizaciones-content');
+    if (el && el._x_dataStack) {
+        const data = el._x_dataStack[0];
+        if (data) {
+            data.proveedorSeleccionado = { id, nombre };
+            data.busquedaProveedor = nombre;
+            data.mostrarResultadosProveedor = false;
+        }
+    }
+}
+</script>

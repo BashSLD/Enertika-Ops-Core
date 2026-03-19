@@ -3,13 +3,15 @@ Router compartido de BOM (Lista de Materiales).
 Endpoints HTMX para CRUD de items, workflow de aprobaciones y exportacion Excel.
 """
 
-from fastapi import APIRouter, Depends, Request, HTTPException
+from fastapi import APIRouter, Depends, Request, HTTPException, Form, UploadFile, File
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import Response
+from fastapi.responses import Response, HTMLResponse
 from uuid import UUID
 from datetime import datetime
+from typing import List, Optional
 import asyncpg
 import logging
+import json
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
@@ -1274,4 +1276,202 @@ async def export_excel(
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"'
         }
+    )
+
+
+# ========================================
+# COTIZACIONES (Fase C)
+# ========================================
+
+def _cotizacion_ctx(request, cotizaciones, bom, es_compras_editor: bool) -> dict:
+    return {
+        "request": request,
+        "cotizaciones": cotizaciones,
+        "bom": bom,
+        "es_compras_editor": es_compras_editor,
+    }
+
+
+@router.get("/{id_bom}/cotizaciones", include_in_schema=False)
+async def get_cotizaciones_tab(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria"),
+):
+    """Tab de cotizaciones — cargado lazy con HTMX intersect."""
+    bom = await service.db.get_bom_by_id(conn, id_bom)
+    if not bom:
+        raise HTTPException(status_code=404, detail="BOM no encontrado")
+
+    role = context.get("role")
+    module_roles = context.get("module_roles", {})
+    es_compras_editor = (
+        role == "ADMIN"
+        or module_roles.get("compras") in ("editor", "admin")
+    )
+
+    cotizaciones = await service.listar_cotizaciones(conn, id_bom)
+    items = await service.get_items(conn, id_bom)
+    items_disponibles = [i for i in items if i.get('estatus_compra', 'SIN_COTIZAR') not in ('AUTORIZADO', 'PAGADO')]
+
+    return templates.TemplateResponse(
+        "bom/partials/cotizaciones.html",
+        {
+            **_cotizacion_ctx(request, cotizaciones, bom, es_compras_editor),
+            "items_disponibles": items_disponibles,
+        }
+    )
+
+
+@router.post("/{id_bom}/cotizaciones", include_in_schema=False)
+async def crear_cotizacion(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras"),
+):
+    """Crea una nueva cotización para el BOM. Recibe JSON en el body."""
+    user_id = context.get("user_db_id")
+    if not user_id:
+        raise HTTPException(status_code=401)
+
+    body = await request.json()
+    proveedor_id_str = body.get("proveedor_id")
+    proveedor_id = UUID(proveedor_id_str) if proveedor_id_str else None
+    nombre_proveedor = body.get("nombre_proveedor", "").strip() or None
+    moneda = body.get("moneda", "MXN")
+    iva_pct = float(body.get("iva_pct", 16))
+    notas = body.get("notas", "").strip() or None
+    items_raw = body.get("items", [])
+
+    items_data = []
+    for it in items_raw:
+        items_data.append({
+            "bom_item_id": UUID(it["bom_item_id"]),
+            "precio_unitario": float(it["precio_unitario"]),
+            "cantidad": float(it["cantidad"]),
+        })
+
+    try:
+        await service.crear_cotizacion(
+            conn, id_bom, proveedor_id, nombre_proveedor, moneda,
+            items_data, iva_pct, notas, user_id
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    # Retornar tab actualizado
+    bom = await service.db.get_bom_by_id(conn, id_bom)
+    cotizaciones = await service.listar_cotizaciones(conn, id_bom)
+    items = await service.get_items(conn, id_bom)
+    items_disponibles = [i for i in items if i.get('estatus_compra', 'SIN_COTIZAR') not in ('AUTORIZADO', 'PAGADO')]
+
+    role = context.get("role")
+    module_roles = context.get("module_roles", {})
+    es_compras_editor = role == "ADMIN" or module_roles.get("compras") in ("editor", "admin")
+
+    return templates.TemplateResponse(
+        "bom/partials/cotizaciones.html",
+        {
+            **_cotizacion_ctx(request, cotizaciones, bom, es_compras_editor),
+            "items_disponibles": items_disponibles,
+        }
+    )
+
+
+@router.post("/cotizaciones/{cotizacion_id}/seleccionar", include_in_schema=False)
+async def seleccionar_cotizacion(
+    request: Request,
+    cotizacion_id: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras"),
+):
+    user_id = context.get("user_db_id")
+    try:
+        cotizacion = await service.seleccionar_cotizacion(conn, cotizacion_id, user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    bom = await service.db.get_bom_by_id(conn, cotizacion['bom_id'])
+    cotizaciones = await service.listar_cotizaciones(conn, cotizacion['bom_id'])
+    items = await service.get_items(conn, cotizacion['bom_id'])
+    items_disponibles = [i for i in items if i.get('estatus_compra', 'SIN_COTIZAR') not in ('AUTORIZADO', 'PAGADO')]
+
+    role = context.get("role")
+    module_roles = context.get("module_roles", {})
+    es_compras_editor = role == "ADMIN" or module_roles.get("compras") in ("editor", "admin")
+
+    return templates.TemplateResponse(
+        "bom/partials/cotizaciones.html",
+        {
+            **_cotizacion_ctx(request, cotizaciones, bom, es_compras_editor),
+            "items_disponibles": items_disponibles,
+        }
+    )
+
+
+@router.post("/cotizaciones/{cotizacion_id}/rechazar", include_in_schema=False)
+async def rechazar_cotizacion(
+    request: Request,
+    cotizacion_id: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("compras"),
+):
+    user_id = context.get("user_db_id")
+    try:
+        cotizacion = await service.rechazar_cotizacion(conn, cotizacion_id, user_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    bom = await service.db.get_bom_by_id(conn, cotizacion['bom_id'])
+    cotizaciones = await service.listar_cotizaciones(conn, cotizacion['bom_id'])
+    items = await service.get_items(conn, cotizacion['bom_id'])
+    items_disponibles = [i for i in items if i.get('estatus_compra', 'SIN_COTIZAR') not in ('AUTORIZADO', 'PAGADO')]
+
+    role = context.get("role")
+    module_roles = context.get("module_roles", {})
+    es_compras_editor = role == "ADMIN" or module_roles.get("compras") in ("editor", "admin")
+
+    return templates.TemplateResponse(
+        "bom/partials/cotizaciones.html",
+        {
+            **_cotizacion_ctx(request, cotizaciones, bom, es_compras_editor),
+            "items_disponibles": items_disponibles,
+        }
+    )
+
+
+@router.get("/proveedores/buscar", include_in_schema=False)
+async def buscar_proveedores_bom(
+    request: Request,
+    q: str = "",
+    conn=Depends(get_db_connection),
+    _=require_module_access("compras"),
+):
+    """Autocomplete de proveedores para el modal de cotización."""
+    if len(q) < 2:
+        return HTMLResponse("")
+    proveedores = await BomService().db.get_proveedores_buscar(conn, q)
+    items_html = "".join(
+        f'<button type="button" '
+        f'onclick="seleccionarProveedor(\'{p["id_proveedor"]}\', \'{(p["nombre_comercial"] or p["razon_social"] or "").replace(chr(39), "")}\'); document.getElementById(\'resultados-proveedores-bom\').innerHTML=\'\'"'
+        f' class="w-full text-left px-3 py-2 text-sm hover:bg-blue-50 border-b border-gray-100 last:border-0">'
+        f'<span class="font-medium">{p["nombre_comercial"] or p["razon_social"]}</span>'
+        f'<span class="text-xs text-gray-400 ml-2">{p["rfc"] or ""}</span>'
+        f'</button>'
+        for p in proveedores
+    )
+    if not items_html:
+        items_html = '<p class="px-3 py-2 text-sm text-gray-400 italic">Sin resultados</p>'
+    return HTMLResponse(
+        f'<div class="bg-white border border-gray-200 rounded-lg shadow-lg overflow-hidden">{items_html}</div>'
     )

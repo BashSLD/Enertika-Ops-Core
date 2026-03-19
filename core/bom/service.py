@@ -1018,6 +1018,95 @@ class BomService:
         buffer.seek(0)
         return buffer.getvalue()
 
+    # ─── COTIZACIONES ────────────────────────────────────────
+
+    async def listar_cotizaciones(self, conn, id_bom: UUID) -> List[dict]:
+        return await self.db.get_cotizaciones_by_bom(conn, id_bom)
+
+    async def crear_cotizacion(
+        self, conn, id_bom: UUID, proveedor_id: Optional[UUID],
+        nombre_proveedor: Optional[str], moneda: str,
+        items_data: list, iva_pct: float, notas: Optional[str],
+        creado_por: UUID
+    ) -> dict:
+        """
+        Crea una cotización con sus ítems.
+        items_data: lista de dicts con bom_item_id, precio_unitario, cantidad.
+        """
+        bom = await self.get_bom(conn, id_bom)
+        if bom['estatus'] != EstatusBOM.APROBADO_CONST:
+            raise ValueError("Solo se pueden crear cotizaciones en BOMs con estatus APROBADO_CONST.")
+
+        if not items_data:
+            raise ValueError("Debes seleccionar al menos un item para cotizar.")
+
+        # Calcular totales
+        subtotal = sum(
+            float(i['precio_unitario']) * float(i['cantidad'])
+            for i in items_data
+        )
+        iva = round(subtotal * iva_pct / 100, 2)
+        total = round(subtotal + iva, 2)
+
+        cotizacion = await self.db.crear_cotizacion(
+            conn, id_bom, proveedor_id, nombre_proveedor, moneda,
+            round(subtotal, 2), iva, total, notas, creado_por
+        )
+
+        # Preparar ítems con subtotal_linea
+        items_insert = []
+        for i in items_data:
+            pu = float(i['precio_unitario'])
+            cant = float(i['cantidad'])
+            items_insert.append({
+                'bom_item_id': i['bom_item_id'],
+                'precio_unitario': pu,
+                'cantidad': cant,
+                'moneda': moneda,
+                'subtotal_linea': round(pu * cant, 2),
+            })
+        await self.db.agregar_items_cotizacion(conn, cotizacion['id'], items_insert)
+
+        logger.info("Cotización %s creada para BOM %s por usuario %s", cotizacion['id'], id_bom, creado_por)
+        return cotizacion
+
+    async def seleccionar_cotizacion(
+        self, conn, cotizacion_id: UUID, user_id: UUID
+    ) -> dict:
+        """
+        Marca una cotización como SELECCIONADA y actualiza estatus_compra
+        de los ítems cubiertos a COTIZADO.
+        """
+        cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
+        if not cotizacion:
+            raise ValueError("Cotización no encontrada.")
+        if cotizacion['estatus'] not in ('BORRADOR', 'RECIBIDA'):
+            raise ValueError(f"La cotización está en estatus {cotizacion['estatus']} y no puede seleccionarse.")
+
+        updated = await self.db.actualizar_estatus_cotizacion(conn, cotizacion_id, 'SELECCIONADA')
+
+        # Actualizar estatus_compra de los ítems cubiertos
+        items = await self.db.get_items_cotizacion(conn, cotizacion_id)
+        if items:
+            item_ids = [i['bom_item_id'] for i in items]
+            await self.db.actualizar_estatus_compra_items(conn, item_ids, 'COTIZADO')
+
+        logger.info("Cotización %s seleccionada por usuario %s", cotizacion_id, user_id)
+        return updated
+
+    async def rechazar_cotizacion(
+        self, conn, cotizacion_id: UUID, user_id: UUID
+    ) -> dict:
+        cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
+        if not cotizacion:
+            raise ValueError("Cotización no encontrada.")
+        if cotizacion['estatus'] in ('SELECCIONADA', 'RECHAZADA'):
+            raise ValueError(f"La cotización está en estatus {cotizacion['estatus']}.")
+
+        updated = await self.db.actualizar_estatus_cotizacion(conn, cotizacion_id, 'RECHAZADA')
+        logger.info("Cotización %s rechazada por usuario %s", cotizacion_id, user_id)
+        return updated
+
     # ─── HELPERS INTERNOS ────────────────────────────────────
 
     async def _validar_edicion_items(self, conn, id_bom: UUID, area_editor: str) -> dict:

@@ -645,3 +645,114 @@ class BomDBService:
             SET valor = $1
             WHERE clave = 'bom_aprobador_final_id'
         """, str(user_id))
+
+    # ─── COTIZACIONES ────────────────────────────────────────
+
+    async def crear_cotizacion(
+        self, conn, bom_id: UUID, proveedor_id: Optional[UUID],
+        nombre_proveedor: Optional[str], moneda: str,
+        subtotal, iva, total, notas: Optional[str], creado_por: UUID
+    ) -> dict:
+        row = await conn.fetchrow("""
+            INSERT INTO tb_bom_cotizaciones
+                (bom_id, proveedor_id, nombre_proveedor, moneda,
+                 subtotal, iva, total, notas, creado_por)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+            RETURNING *
+        """, bom_id, proveedor_id, nombre_proveedor, moneda,
+            subtotal, iva, total, notas, creado_por)
+        return dict(row)
+
+    async def agregar_items_cotizacion(self, conn, cotizacion_id: UUID, items: list) -> None:
+        """Inserta ítems en tb_bom_cotizacion_items en lote."""
+        await conn.executemany("""
+            INSERT INTO tb_bom_cotizacion_items
+                (cotizacion_id, bom_item_id, precio_unitario, cantidad, moneda, subtotal_linea)
+            VALUES ($1,$2,$3,$4,$5,$6)
+            ON CONFLICT (cotizacion_id, bom_item_id) DO NOTHING
+        """, [
+            (cotizacion_id,
+             i['bom_item_id'], i['precio_unitario'], i['cantidad'],
+             i.get('moneda', 'MXN'), i['subtotal_linea'])
+            for i in items
+        ])
+
+    async def get_cotizaciones_by_bom(self, conn, bom_id: UUID) -> List[dict]:
+        rows = await conn.fetch("""
+            SELECT c.*,
+                   u.nombre AS creado_por_nombre,
+                   COUNT(ci.id) AS total_items_cotizacion
+            FROM tb_bom_cotizaciones c
+            LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
+            LEFT JOIN tb_bom_cotizacion_items ci ON ci.cotizacion_id = c.id
+            WHERE c.bom_id = $1
+            GROUP BY c.id, u.nombre
+            ORDER BY c.creado_en DESC
+        """, bom_id)
+        return [dict(r) for r in rows]
+
+    async def get_cotizacion_by_id(self, conn, cotizacion_id: UUID) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            SELECT c.*,
+                   u.nombre AS creado_por_nombre
+            FROM tb_bom_cotizaciones c
+            LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
+            WHERE c.id = $1
+        """, cotizacion_id)
+        return dict(row) if row else None
+
+    async def get_items_cotizacion(self, conn, cotizacion_id: UUID) -> List[dict]:
+        rows = await conn.fetch("""
+            SELECT ci.*,
+                   bi.descripcion, bi.unidad_medida, bi.id_categoria,
+                   cat.nombre AS categoria_nombre
+            FROM tb_bom_cotizacion_items ci
+            JOIN tb_bom_items bi ON bi.id_item = ci.bom_item_id
+            LEFT JOIN tb_cat_categorias_compra cat ON cat.id = bi.id_categoria
+            WHERE ci.cotizacion_id = $1
+            ORDER BY bi.orden ASC
+        """, cotizacion_id)
+        return [dict(r) for r in rows]
+
+    async def actualizar_estatus_cotizacion(
+        self, conn, cotizacion_id: UUID, estatus: str
+    ) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizaciones
+            SET estatus = $2, actualizado_en = NOW()
+            WHERE id = $1
+            RETURNING *
+        """, cotizacion_id, estatus)
+        return dict(row) if row else None
+
+    async def actualizar_pdf_cotizacion(
+        self, conn, cotizacion_id: UUID, pdf_url: str
+    ) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizaciones
+            SET pdf_url = $2, estatus = 'RECIBIDA', actualizado_en = NOW()
+            WHERE id = $1
+            RETURNING *
+        """, cotizacion_id, pdf_url)
+        return dict(row) if row else None
+
+    async def actualizar_estatus_compra_items(
+        self, conn, bom_item_ids: List[UUID], estatus_compra: str
+    ) -> None:
+        """Actualiza estatus_compra de varios items BOM en lote."""
+        await conn.execute("""
+            UPDATE tb_bom_items
+            SET estatus_compra = $1, updated_at = NOW()
+            WHERE id_item = ANY($2::uuid[])
+        """, estatus_compra, bom_item_ids)
+
+    async def get_proveedores_buscar(self, conn, q: str) -> List[dict]:
+        rows = await conn.fetch("""
+            SELECT id_proveedor, rfc, razon_social, nombre_comercial
+            FROM tb_proveedores
+            WHERE is_active = TRUE
+              AND (nombre_comercial ILIKE $1 OR razon_social ILIKE $1 OR rfc ILIKE $1)
+            ORDER BY nombre_comercial
+            LIMIT 15
+        """, f"%{q}%")
+        return [dict(r) for r in rows]

@@ -169,10 +169,10 @@
         {% include "bom/partials/tabla_items.html" %}
     </div>
 
-    {# Tabs: Historial / Aprobaciones #}
+    {# Tabs: Historial / Aprobaciones / Cotizaciones #}
     <div class="mt-6" x-data="{ tab: 'aprobaciones' }">
         <div class="border-b border-gray-200 mb-4">
-            <nav class="flex -mb-px space-x-4">
+            <nav class="flex -mb-px space-x-4 flex-wrap gap-y-1">
                 <button @click="tab = 'aprobaciones'"
                     :class="tab === 'aprobaciones' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
                     class="py-2 px-3 border-b-2 font-medium text-sm transition">
@@ -183,6 +183,13 @@
                     class="py-2 px-3 border-b-2 font-medium text-sm transition">
                     Historial de Cambios
                 </button>
+                {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] and es_compras_editor %}
+                <button @click="tab = 'cotizaciones'"
+                    :class="tab === 'cotizaciones' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                    class="py-2 px-3 border-b-2 font-medium text-sm transition">
+                    Cotizaciones
+                </button>
+                {% endif %}
                 {% if versiones|length > 1 %}
                 <button @click="tab = 'versiones'"
                     :class="tab === 'versiones' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
@@ -202,6 +209,14 @@
             hx-trigger="intersect once" hx-swap="innerHTML">
             <div class="text-center py-4 text-gray-400 text-sm">Cargando historial...</div>
         </div>
+
+        {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] and es_compras_editor %}
+        <div x-show="tab === 'cotizaciones'" id="tab-cotizaciones"
+            hx-get="/bom/{{ bom.id_bom }}/cotizaciones"
+            hx-trigger="intersect once" hx-swap="innerHTML">
+            <div class="text-center py-4 text-gray-400 text-sm">Cargando cotizaciones...</div>
+        </div>
+        {% endif %}
 
         {% if versiones|length > 1 %}
         <div x-show="tab === 'versiones'">
