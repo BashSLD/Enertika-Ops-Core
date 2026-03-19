@@ -2,11 +2,15 @@
 Router del Modulo Proyectos
 Vista global de todos los proyectos con filtros por area y estatus.
 """
-from fastapi import APIRouter, Request, Depends, Query
+from fastapi import APIRouter, Request, Depends, Query, HTTPException, Form
+from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from uuid import UUID
-from typing import Optional
+from typing import Optional, List
 from core.config import settings
+import logging
+
+logger = logging.getLogger("Proyectos.Router")
 
 from core.security import get_current_user_context
 from core.permissions import require_module_access
@@ -87,6 +91,89 @@ async def get_visita_obra_modal(
         "request": request,
         "user_name": context.get("user_name"),
     })
+
+
+def _equipo_template_data(request, id_proyecto, data, permisos, guardado=False):
+    return {
+        "request": request,
+        "id_proyecto": str(id_proyecto),
+        "asignaciones": data["asignaciones"],
+        "jefe_ingenieria": data["jefe_ingenieria"],
+        "jefe_construccion": data["jefe_construccion"],
+        "usuarios_ingenieria": data["usuarios_ingenieria"],
+        "usuarios_construccion": data["usuarios_construccion"],
+        "usuarios_oym": data["usuarios_oym"],
+        "roles_equipo": [r for r in [
+            {"rol": "ingeniero_asignado", "area": "INGENIERIA"},
+            {"rol": "coordinador_obra",   "area": "CONSTRUCCION"},
+            {"rol": "encargado",          "area": "OYM"},
+        ]],
+        **permisos,
+        "guardado": guardado,
+    }
+
+
+@router.get("/partials/equipo/{id_proyecto}", include_in_schema=False)
+async def get_equipo_partial(
+    request: Request,
+    id_proyecto: UUID,
+    context=Depends(get_current_user_context),
+    _=require_module_access("proyectos"),
+    conn=Depends(get_db_connection),
+    service: ProyectosService = Depends(get_service),
+):
+    data = await service.get_equipo_proyecto(conn, id_proyecto)
+    permisos = service.permisos_equipo(context)
+
+    return templates.TemplateResponse(
+        "proyectos/partials/equipo_modal.html",
+        _equipo_template_data(request, id_proyecto, data, permisos),
+    )
+
+
+@router.post("/equipo/{id_proyecto}", include_in_schema=False)
+async def save_equipo(
+    request: Request,
+    id_proyecto: UUID,
+    context=Depends(get_current_user_context),
+    _=require_module_access("proyectos"),
+    conn=Depends(get_db_connection),
+    service: ProyectosService = Depends(get_service),
+):
+    permisos = service.permisos_equipo(context)
+    if not any([permisos["puede_asignar_ingenieria"], permisos["puede_asignar_construccion"], permisos["puede_asignar_oym"]]):
+        raise HTTPException(status_code=403, detail="Sin permisos para editar el equipo")
+
+    form = await request.form()
+    asignaciones = []
+    n = 0
+    while True:
+        rol = form.get(f"rol_{n}_rol")
+        if rol is None:
+            break
+        area = form.get(f"rol_{n}_area", "")
+        usuario_str = form.get(f"rol_{n}_usuario", "")
+        asignaciones.append({
+            "rol_proyecto": rol,
+            "area": area,
+            "id_usuario": UUID(usuario_str) if usuario_str else None,
+        })
+        n += 1
+
+    user_db_id = context.get("user_db_id")
+    if not user_db_id:
+        raise HTTPException(status_code=401, detail="Usuario no autenticado")
+
+    try:
+        await service.save_equipo_proyecto(conn, id_proyecto, asignaciones, user_db_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    data = await service.get_equipo_proyecto(conn, id_proyecto)
+    return templates.TemplateResponse(
+        "proyectos/partials/equipo_modal.html",
+        _equipo_template_data(request, id_proyecto, data, permisos, guardado=True),
+    )
 
 
 @router.get("/partials/timeline/{id_proyecto}", include_in_schema=False)
