@@ -4,7 +4,7 @@
     <div class="mb-4">
         <div class="flex items-center gap-2 text-sm text-gray-500 mb-2">
             <a href="#" hx-get="/simulacion/ui" hx-target="#main-content" hx-push-url="true"
-                class="hover:text-emerald-600 transition-colors">Simulación</a>
+                class="hover:text-indigo-600 transition-colors">Simulación</a>
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"></path>
             </svg>
@@ -32,7 +32,7 @@
                     Fecha Inicio
                 </label>
                 <input type="date" name="fecha_inicio"
-                    class="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors">
+                    class="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors">
             </div>
 
             <div>
@@ -40,7 +40,7 @@
                     Fecha Fin
                 </label>
                 <input type="date" name="fecha_fin"
-                    class="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors">
+                    class="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors">
             </div>
 
             <div>
@@ -48,7 +48,7 @@
                     Usuario
                 </label>
                 <select name="user_id"
-                    class="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors">
+                    class="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors">
                     <option value="">Todos</option>
                     {% for usuario in usuarios %}
                     <option value="{{ usuario.id }}">{{ usuario.nombre }}</option>
@@ -61,7 +61,7 @@
                     Tipo Solicitud
                 </label>
                 <select name="tipo_solicitud"
-                    class="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors">
+                    class="w-full border border-gray-300 rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-colors">
                     <option value="">Todos</option>
                     {% for tipo in tipos_solicitud %}
                     <option value="{{ tipo.id }}">{{ tipo.nombre }}</option>
@@ -75,7 +75,7 @@
                     Limpiar
                 </button>
                 <button type="submit"
-                    class="px-6 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors flex items-center gap-2 shadow-lg shadow-emerald-600/30">
+                    class="px-6 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors flex items-center gap-2 shadow-lg shadow-indigo-600/30">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
@@ -101,7 +101,7 @@
         <div class="flex justify-center items-center py-12">
             <div class="text-center">
                 <div class="spinner-enertika mx-auto mb-4"></div>
-                <p class="text-emerald-600 font-medium animate-pulse">Cargando métricas operativas...</p>
+                <p class="text-indigo-600 font-medium animate-pulse">Cargando métricas operativas...</p>
             </div>
         </div>
     </div>

@@ -11,9 +11,9 @@
         right: 0;
         bottom: 0px;
         height: 0;
-        background: linear-gradient(to right, #059669, #14b8a6);
+        background: linear-gradient(to right, #4f46e5, #6366f1);
         transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-        z-index: 50;
+        z-index: 1;
         border-top-left-radius: 4px;
         border-top-right-radius: 4px;
         display: block;
@@ -24,14 +24,18 @@
         height: 4px;
         opacity: 1;
     }
+
+    .sim-tabs-list {
+        scrollbar-width: none;
+    }
 </style>
 <div class="flex flex-col h-full relative">
     <!-- Header with Actions -->
     <div
-        class="glass-panel p-4 rounded-xl mb-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-l-4 border-emerald-500">
+        class="glass-panel p-4 rounded-xl mb-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-l-4 border-indigo-500">
         <div>
             <h2 class="text-2xl font-light text-gray-800">
-                Módulo <span class="font-bold text-emerald-600">Simulación</span>
+                Módulo <span class="font-bold text-indigo-600">Simulación</span>
             </h2>
             <p class="text-gray-500 text-sm mt-1">Gestión de Simulaciones y Oportunidades</p>
         </div>
@@ -51,7 +55,7 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
-                Métricas Operativas
+                <span class="hidden sm:inline">Métricas Operativas</span>
             </button>
             {% endif %}
 
@@ -65,7 +69,7 @@
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    Registro Extraordinario
+                    <span class="hidden sm:inline">Registro Extraordinario</span>
                 </button>
 
                 <!-- Popup de Advertencia -->
@@ -140,9 +144,9 @@
     <!-- Tabs Navigation -->
     <div
         class="mb-6 text-sm font-medium text-center text-gray-500 border-b border-gray-200/50 dark:text-gray-400 dark:border-gray-700/50">
-        <ul class="flex flex-wrap -mb-px gap-2">
+        <ul class="sim-tabs-list flex -mb-px gap-1 sm:gap-2 overflow-x-auto [&::-webkit-scrollbar]:hidden">
 
-            <li class="me-2">
+            <li class="shrink-0">
                 <a href="#" hx-get="/simulacion/partials/graphs" hx-target="#sim-tab-content" hx-swap="innerHTML"
                     hx-push-url="/simulacion/ui?tab=graphs" hx-include=".global-filter"
                     hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('graphs', this)"
@@ -159,25 +163,27 @@
                 </a>
             </li>
 
-            <li class="me-2">
+            <li class="shrink-0">
                 <a href="#" hx-get="/simulacion/partials/cards?tab=activos" hx-target="#sim-tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=activos" hx-include=".global-filter"
                     hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('activos', this)"
                     class="sim-tab-link inline-block p-3 rounded-t-lg active group glass-panel bg-white/60 transition-all"
                     aria-current="page">
                     <div class="flex items-center gap-2">
-                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-emerald-600" fill="none"
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600" fill="none"
                             viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
                         </svg>
-                        <span
-                            class="font-bold bg-clip-text text-transparent bg-gradient-to-r from-emerald-600 to-teal-500">Solicitudes
-                            (Activos)</span>
+                        <span class="font-bold bg-clip-text text-transparent bg-gradient-to-r from-indigo-600 to-violet-500">
+                            <span class="sm:hidden">Activos</span>
+                            <span class="hidden sm:inline">Solicitudes (Activos)</span>
+                        </span>
                     </div>
                 </a>
             </li>
-            <li class="me-2">
+
+            <li class="shrink-0">
                 <a href="#" hx-get="/simulacion/partials/cards?tab=historial" hx-target="#sim-tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=historial" hx-include=".global-filter"
                     hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('historial', this)"
@@ -189,11 +195,15 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                         </svg>
-                        <span>Ofertas Generadas</span>
+                        <span>
+                            <span class="sm:hidden">Historial</span>
+                            <span class="hidden sm:inline">Ofertas Generadas</span>
+                        </span>
                     </div>
                 </a>
             </li>
-            <li class="me-2">
+
+            <li class="shrink-0">
                 <a href="#" hx-get="/simulacion/partials/cards?tab=levantamientos" hx-target="#sim-tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=levantamientos" hx-include=".global-filter"
                     hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('levantamientos', this)"
@@ -209,7 +219,8 @@
                     </div>
                 </a>
             </li>
-            <li class="me-2">
+
+            <li class="shrink-0">
                 <a href="#" hx-get="/simulacion/partials/cards?tab=monitoreo" hx-target="#sim-tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=monitoreo" hx-include=".global-filter"
                     hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('monitoreo', this)"
@@ -223,7 +234,10 @@
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
                         </svg>
-                        <span>Monitoreo de Cotización</span>
+                        <span>
+                            <span class="sm:hidden">Monitoreo</span>
+                            <span class="hidden sm:inline">Monitoreo de Cotización</span>
+                        </span>
                     </div>
                 </a>
             </li>
@@ -237,17 +251,17 @@
         <div class="flex justify-center items-center h-full">
             <div class="text-center">
                 <div class="spinner-enertika mx-auto mb-4"></div>
-                <p class="text-emerald-600 font-medium animate-pulse-subtle">Cargando datos...</p>
+                <p class="text-indigo-600 font-medium animate-pulse-subtle">Cargando datos...</p>
             </div>
         </div>
     </div>
 
     <!-- Overlay de Carga para Gráficas -->
     <div id="sim-graphs-loading"
-        class="htmx-indicator absolute inset-0 z-20 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-xl">
+        class="htmx-indicator absolute inset-0 z-30 flex items-center justify-center bg-white/80 backdrop-blur-sm rounded-xl">
         <div class="text-center">
             <div class="spinner-enertika mx-auto mb-4"></div>
-            <p class="text-emerald-600 font-bold text-lg animate-pulse-subtle">Cargando...</p>
+            <p class="text-indigo-600 font-bold text-lg animate-pulse-subtle">Cargando...</p>
         </div>
     </div>
 
@@ -264,7 +278,7 @@
             // 2. Guardar en localStorage para refresh del modal
             localStorage.setItem('sim_current_tab', tabName);
 
-            // 3. Lógica visual con colores corporativos (emerald)
+            // 3. Lógica visual con colores corporativos (indigo)
             const allTabs = document.querySelectorAll('.sim-tab-link');
 
             allTabs.forEach(el => {
@@ -275,12 +289,12 @@
                 // Remove gradient text from inner span
                 const span = el.querySelector('span'); // Assuming the text is in a span or div inside
                 if (span) {
-                    span.classList.remove('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-emerald-600', 'to-teal-500');
+                    span.classList.remove('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-indigo-600', 'to-violet-500');
                 }
                 // Remove gradient active SVG scale or color if needed (handled by group-hover usually, but for active we might want it fixed)
                 const svg = el.querySelector('svg');
                 if (svg) {
-                    svg.classList.remove('text-emerald-600');
+                    svg.classList.remove('text-indigo-600');
                 }
             });
 
@@ -291,12 +305,12 @@
             // Add gradient to text
             const activeSpan = element.querySelector('span');
             if (activeSpan) {
-                activeSpan.classList.add('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-emerald-600', 'to-teal-500');
+                activeSpan.classList.add('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-indigo-600', 'to-violet-500');
             }
 
             const activeSvg = element.querySelector('svg');
             if (activeSvg) {
-                activeSvg.classList.add('text-emerald-600');
+                activeSvg.classList.add('text-indigo-600');
             }
 
             // 4. Actualizar hx-get de los filtros globales
@@ -336,12 +350,12 @@
                 // Confetti Logic - Celebration for SLA-compliant delivery
                 if (confettiParam === '1' && typeof confetti === 'function') {
                     setTimeout(() => {
-                        // Trigger confetti with Simulación branding colors (emerald/teal)
+                        // Trigger confetti with Simulación branding colors (indigo/teal)
                         confetti({
                             particleCount: 200,
                             spread: 100,
                             origin: { y: 0.6 },
-                            colors: ['#059669', '#14b8a6', '#10b981', '#0d9488'], // Emerald and teal shades
+                            colors: ['#4f46e5', '#6366f1', '#818cf8', '#a5b4fc'], // Indigo shades
                             zIndex: 10000
                         });
 

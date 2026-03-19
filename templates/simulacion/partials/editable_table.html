@@ -1,27 +1,27 @@
 <div class="animate-fade-in-down">
     <div class="flex justify-between items-center mb-4">
         <h3 class="text-lg font-bold text-gray-700">Historial de Simulaciones</h3>
-        <button class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-1 px-3 rounded text-sm shadow">
+        <button class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1 px-3 rounded text-sm shadow">
             + Nueva Simulación
         </button>
     </div>
 
     <div class="bg-white shadow overflow-hidden border-b border-gray-200 sm:rounded-lg">
         <table class="min-w-full divide-y divide-gray-200">
-            <thead class="bg-emerald-50">
+            <thead class="bg-indigo-50">
                 <tr>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-emerald-800 uppercase tracking-wider">ID
+                    <th class="px-6 py-3 text-left text-xs font-medium text-indigo-800 uppercase tracking-wider">ID
                     </th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-emerald-800 uppercase tracking-wider">
+                    <th class="px-6 py-3 text-left text-xs font-medium text-indigo-800 uppercase tracking-wider">
                         Proyecto</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-emerald-800 uppercase tracking-wider">
+                    <th class="px-6 py-3 text-left text-xs font-medium text-indigo-800 uppercase tracking-wider">
                         Potencia (kW)</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-emerald-800 uppercase tracking-wider">Ahorro
+                    <th class="px-6 py-3 text-left text-xs font-medium text-indigo-800 uppercase tracking-wider">Ahorro
                         ($)</th>
-                    <th class="px-6 py-3 text-left text-xs font-medium text-emerald-800 uppercase tracking-wider">Status
+                    <th class="px-6 py-3 text-left text-xs font-medium text-indigo-800 uppercase tracking-wider">Status
                     </th>
                     <th
-                        class="px-6 py-3 text-left text-xs font-medium text-emerald-800 uppercase tracking-wider max-w-[100px]">
+                        class="px-6 py-3 text-left text-xs font-medium text-indigo-800 uppercase tracking-wider max-w-[100px]">
                         Acciones</th>
                 </tr>
             </thead>
@@ -33,13 +33,13 @@
                     <!-- Editable Field: Proyecto -->
                     <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
                         <input type="text" value="{{ sim.proyecto }}"
-                            class="border-transparent bg-transparent hover:border-gray-300 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded px-2 py-1 w-full transition-colors" />
+                            class="border-transparent bg-transparent hover:border-gray-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded px-2 py-1 w-full transition-colors" />
                     </td>
 
                     <!-- Editable Field: Potencia -->
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                         <input type="number" value="{{ sim.potencia }}"
-                            class="border-transparent bg-transparent hover:border-gray-300 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 rounded px-2 py-1 w-24 transition-colors text-right" />
+                            class="border-transparent bg-transparent hover:border-gray-300 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded px-2 py-1 w-24 transition-colors text-right" />
                     </td>
 
                     <td class="px-6 py-4 whitespace-nowrap text-sm text-green-600 font-bold">
@@ -47,7 +47,7 @@
                     </td>
 
                     <td class="px-6 py-4 whitespace-nowrap">
-                        <select class="text-xs rounded-full px-2 py-1 border-gray-200 focus:border-emerald-500 focus:ring-0 cursor-pointer 
+                        <select class="text-xs rounded-full px-2 py-1 border-gray-200 focus:border-indigo-500 focus:ring-0 cursor-pointer 
                             {% if sim.status == 'Finalizado' %} bg-green-100 text-green-800
                             {% elif sim.status == 'Borrador' %} bg-gray-100 text-gray-800
                             {% else %} bg-blue-100 text-blue-800 {% endif %}">
@@ -61,7 +61,7 @@
                     </td>
 
                     <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button class="text-emerald-600 hover:text-emerald-900 mx-1" title="Guardar Cambios">
+                        <button class="text-indigo-600 hover:text-indigo-900 mx-1" title="Guardar Cambios">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                                 stroke="currentColor">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
