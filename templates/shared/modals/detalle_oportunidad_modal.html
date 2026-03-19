@@ -88,6 +88,7 @@
                             class="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden">
 
                             <form hx-post="/comercial/cierre-venta/{{ op.id_oportunidad }}" hx-swap="none"
+                                x-data="{ loading: false }" @submit="loading = true"
                                 class="divide-y divide-gray-100">
 
                                 <!-- Header del Dropdown -->
@@ -189,13 +190,19 @@
                                         class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
                                         Cancelar
                                     </button>
-                                    <button type="submit"
-                                        class="px-4 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition shadow-sm flex items-center gap-1">
-                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <button type="submit" :disabled="loading"
+                                        class="px-4 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition shadow-sm flex items-center gap-1 disabled:opacity-70 disabled:cursor-not-allowed">
+                                        <!-- Spinner (loading) -->
+                                        <svg x-show="loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/>
+                                        </svg>
+                                        <!-- Checkmark (idle) -->
+                                        <svg x-show="!loading" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                 d="M5 13l4 4L19 7" />
                                         </svg>
-                                        Confirmar Cierre
+                                        <span x-text="loading ? 'Procesando...' : 'Confirmar Cierre'"></span>
                                     </button>
                                 </div>
                             </form>

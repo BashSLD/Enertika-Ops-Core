@@ -85,6 +85,9 @@ from .db_service import (
     QUERY_UPDATE_NOTIFICACION_GANADA_AT,
     QUERY_GET_PROYECTO_FOR_OPORTUNIDAD,
     QUERY_GET_NOTIFICACION_GANADA_AT,
+    QUERY_GET_PROGRESO_GATE,
+    QUERY_GET_JEFE_BY_ROL_ORG,
+    QUERY_GET_EQUIPO_PROYECTO_ACTIVO,
 )
 
 # Shared Services
@@ -98,7 +101,7 @@ from core.workflow.notification_service import get_notification_service as get_w
 import logging
 
 logger = logging.getLogger("ComercialModule")
-from core.permissions import user_has_module_access
+from core.permissions import user_has_module_access, ROLE_HIERARCHY
 
 logger = logging.getLogger("ComercialModule")
 
@@ -442,9 +445,14 @@ class ComercialService:
         Verifica que el usuario sea dueño de la oportunidad o tenga rol de MANAGER/ADMIN.
         Raises HTTPException 403 si no tiene permiso.
         """
-        # Refactor: Use centralized module permission check
-        # "admin" module role (or Global ADMIN/MANAGER+Admin) allows bypassing ownership
-        if user_has_module_access("comercial", user_context, "admin"):
+        role = user_context.get("role")
+        module_role = user_context.get("module_roles", {}).get("comercial", "")
+
+        is_global_admin = role == "ADMIN"
+        is_module_admin = module_role == "admin"
+        is_manager_editor = role == "MANAGER" and ROLE_HIERARCHY.get(module_role, 0) >= ROLE_HIERARCHY.get("editor", 0)
+
+        if is_global_admin or is_module_admin or is_manager_editor:
             return
 
         owner_id = await conn.fetchval(QUERY_GET_OPORTUNIDAD_OWNER, id_oportunidad)
@@ -1184,7 +1192,59 @@ class ComercialService:
                 bess_data['uso_sistema_json'] = []
         
         return bess_data
-    
+
+    async def get_progreso_proyecto(self, conn, id_oportunidad: UUID) -> Optional[dict]:
+        """
+        Obtiene datos de progreso del proyecto vinculado a una oportunidad.
+        Retorna None si la oportunidad no tiene proyecto asignado.
+        """
+        gate = await conn.fetchrow(QUERY_GET_PROGRESO_GATE, id_oportunidad)
+        if not gate:
+            return None
+
+        area = gate['area_actual']
+
+        rol_org_map = {
+            'INGENIERIA': 'jefe_ingenieria',
+            'CONSTRUCCION': 'jefe_construccion',
+        }
+        rol_org = rol_org_map.get(area)
+
+        jefe_row = None
+        if rol_org:
+            jefe_row = await conn.fetchrow(QUERY_GET_JEFE_BY_ROL_ORG, rol_org)
+
+        equipo_rows = await conn.fetch(QUERY_GET_EQUIPO_PROYECTO_ACTIVO, gate['id_proyecto'])
+
+        coordinador = None
+        encargado_area = None
+        encargado_oym = None
+        for m in equipo_rows:
+            if m['rol_proyecto'] == 'coordinador_obra':
+                coordinador = m['nombre_usuario']
+            elif m['rol_proyecto'] == 'encargado' and m['area'] == area:
+                encargado_area = m['nombre_usuario']
+            elif m['rol_proyecto'] == 'encargado' and m['area'] == 'OYM':
+                encargado_oym = m['nombre_usuario']
+
+        dias_en_area = 0
+        if gate['fecha_inicio_area']:
+            fecha_inicio = gate['fecha_inicio_area']
+            if hasattr(fecha_inicio, 'date'):
+                fecha_inicio = fecha_inicio.date()
+            dias_en_area = (date.today() - fecha_inicio).days
+
+        return {
+            'id_proyecto': str(gate['id_proyecto']),
+            'area_actual': area,
+            'dias_en_area': dias_en_area,
+            'jefe_area': dict(jefe_row) if jefe_row else None,
+            'coordinador': coordinador,
+            'encargado_area': encargado_area,
+            'encargado_oym': encargado_oym,
+            'status_fase': gate['status_fase'],
+        }
+
     async def get_data_for_email_form(self, conn, id_oportunidad: UUID, user_context: dict) -> dict:
         await self.verify_ownership(conn, id_oportunidad, user_context)
         row = await conn.fetchrow(QUERY_CHECK_BORRADOR_VIGENTE, id_oportunidad)

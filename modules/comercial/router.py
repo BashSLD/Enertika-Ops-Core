@@ -297,6 +297,22 @@ async def get_bess_partial(
         {"request": request, "bess": bess}
     )
 
+@router.get("/partials/progreso/{id_oportunidad}", include_in_schema=False)
+async def get_progreso_partial(
+    request: Request,
+    id_oportunidad: UUID,
+    service: ComercialService = Depends(get_comercial_service),
+    conn=Depends(get_db_connection),
+    _=require_module_access("comercial"),
+):
+    """Modal de progreso de proyecto para una oportunidad ganada."""
+    progreso = await service.get_progreso_proyecto(conn, id_oportunidad)
+    return templates.TemplateResponse(
+        "comercial/partials/progreso_modal.html",
+        {"request": request, "progreso": progreso, "id_oportunidad": str(id_oportunidad)},
+    )
+
+
 @router.post("/notificar/{id_oportunidad}")
 async def notificar_oportunidad(
     request: Request,

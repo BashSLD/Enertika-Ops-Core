@@ -16,7 +16,9 @@ QUERY_GET_OPORTUNIDADES_LIST = """
         lev_estatus.nombre as status_levantamiento,
         lev.fecha_visita_programada as fecha_programada,
         lev.id_levantamiento,
-        u_tecnico.nombre as tecnico_asignado_nombre
+        u_tecnico.nombre as tecnico_asignado_nombre,
+        pg.id_proyecto,
+        pg.area_actual AS proyecto_area_actual
     FROM tb_oportunidades o
     LEFT JOIN tb_cat_estatus_oportunidades estatus ON o.id_estatus_global = estatus.id
     LEFT JOIN tb_cat_tipos_solicitud tipo_sol ON o.id_tipo_solicitud = tipo_sol.id
@@ -32,6 +34,7 @@ QUERY_GET_OPORTUNIDADES_LIST = """
     ) lev ON o.id_oportunidad = lev.id_oportunidad
     LEFT JOIN tb_cat_estatus_levantamiento lev_estatus ON lev.id_estatus_global = lev_estatus.id
     LEFT JOIN tb_usuarios u_tecnico ON lev.tecnico_asignado_id = u_tecnico.id_usuario
+    LEFT JOIN tb_proyectos_gate pg ON pg.id_oportunidad = o.id_oportunidad
     WHERE o.email_enviado = true
 """
 
@@ -414,6 +417,27 @@ QUERY_UPDATE_NOTIFICACION_GANADA_AT = """
 
 QUERY_GET_PROYECTO_FOR_OPORTUNIDAD = """
     SELECT id_proyecto FROM tb_proyectos_gate WHERE id_oportunidad = $1 LIMIT 1
+"""
+
+QUERY_GET_PROGRESO_GATE = """
+    SELECT id_proyecto, area_actual, fecha_inicio_area, status_fase
+    FROM tb_proyectos_gate
+    WHERE id_oportunidad = $1
+    LIMIT 1
+"""
+
+QUERY_GET_JEFE_BY_ROL_ORG = """
+    SELECT id_usuario, nombre
+    FROM tb_usuarios
+    WHERE rol_organizacional = $1 AND is_active = TRUE
+    LIMIT 1
+"""
+
+QUERY_GET_EQUIPO_PROYECTO_ACTIVO = """
+    SELECT pu.rol_proyecto, pu.area, u.nombre AS nombre_usuario
+    FROM tb_proyecto_usuarios pu
+    JOIN tb_usuarios u ON u.id_usuario = pu.id_usuario
+    WHERE pu.id_proyecto = $1 AND pu.activo = true
 """
 
 QUERY_GET_NOTIFICACION_GANADA_AT = """
