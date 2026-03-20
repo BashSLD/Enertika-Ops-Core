@@ -86,12 +86,13 @@
                             <th class="px-3 py-2 text-right text-xs font-medium text-gray-600 uppercase">Monto</th>
                             <th class="px-3 py-2 text-center text-xs font-medium text-gray-600 uppercase">Mon.</th>
                             <th class="px-3 py-2 text-center text-xs font-medium text-gray-600 uppercase">Estatus</th>
+                            <th class="px-3 py-2 w-24"></th>
                         </tr>
                     </thead>
                     <tbody id="match-candidatos-body" class="divide-y divide-gray-100">
                         <tr>
-                            <td colspan="5" class="px-3 py-6 text-center text-sm text-gray-400">
-                                Escribe para buscar comprobantes pendientes...
+                            <td colspan="7" class="px-3 py-6 text-center text-sm text-gray-400">
+                                Cargando comprobantes pendientes...
                             </td>
                         </tr>
                     </tbody>
@@ -221,6 +222,12 @@
 
         // Show modal
         document.getElementById('xml-match-modal').classList.remove('hidden');
+
+        // Cargar comprobantes pendientes de inmediato (sin necesidad de teclear)
+        htmx.ajax('GET', '/compras/comprobantes-pendientes', {
+            target: '#match-candidatos-body',
+            swap: 'innerHTML'
+        });
     };
 
     window.cerrarModalMatch = function () {

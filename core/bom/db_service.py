@@ -756,3 +756,149 @@ class BomDBService:
             LIMIT 15
         """, f"%{q}%")
         return [dict(r) for r in rows]
+
+    # ─── AUTORIZACIONES (Fase D) ────────────────────────────
+
+    async def crear_autorizacion(
+        self, conn, cotizacion_id: UUID, bom_id: UUID, proyecto_id: UUID,
+        monto_total, moneda: str, tipo_cambio_snapshot, creado_por: UUID
+    ) -> dict:
+        row = await conn.fetchrow("""
+            INSERT INTO tb_bom_autorizaciones
+                (cotizacion_id, bom_id, proyecto_id, monto_total, moneda,
+                 tipo_cambio_snapshot, creado_por)
+            VALUES ($1,$2,$3,$4,$5,$6,$7)
+            RETURNING *
+        """, cotizacion_id, bom_id, proyecto_id, monto_total, moneda,
+            tipo_cambio_snapshot, creado_por)
+        return dict(row)
+
+    async def get_autorizacion_by_id(self, conn, autorizacion_id: UUID) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            SELECT a.*,
+                   c.nombre_proveedor,
+                   u1.nombre AS aprobador_obra_nombre,
+                   u2.nombre AS aprobador_direccion_nombre,
+                   u3.nombre AS aprobador_finanzas_nombre,
+                   u4.nombre AS rechazado_por_nombre
+            FROM tb_bom_autorizaciones a
+            JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
+            LEFT JOIN tb_usuarios u1 ON u1.id_usuario = a.aprobador_obra_id
+            LEFT JOIN tb_usuarios u2 ON u2.id_usuario = a.aprobador_direccion_id
+            LEFT JOIN tb_usuarios u3 ON u3.id_usuario = a.aprobador_finanzas_id
+            LEFT JOIN tb_usuarios u4 ON u4.id_usuario = a.rechazado_por
+            WHERE a.id = $1
+        """, autorizacion_id)
+        return dict(row) if row else None
+
+    async def get_autorizacion_by_cotizacion(self, conn, cotizacion_id: UUID) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            SELECT a.*,
+                   c.nombre_proveedor,
+                   u1.nombre AS aprobador_obra_nombre,
+                   u2.nombre AS aprobador_direccion_nombre,
+                   u3.nombre AS aprobador_finanzas_nombre,
+                   u4.nombre AS rechazado_por_nombre
+            FROM tb_bom_autorizaciones a
+            JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
+            LEFT JOIN tb_usuarios u1 ON u1.id_usuario = a.aprobador_obra_id
+            LEFT JOIN tb_usuarios u2 ON u2.id_usuario = a.aprobador_direccion_id
+            LEFT JOIN tb_usuarios u3 ON u3.id_usuario = a.aprobador_finanzas_id
+            LEFT JOIN tb_usuarios u4 ON u4.id_usuario = a.rechazado_por
+            WHERE a.cotizacion_id = $1
+        """, cotizacion_id)
+        return dict(row) if row else None
+
+    async def get_autorizaciones_by_bom(self, conn, bom_id: UUID) -> List[dict]:
+        rows = await conn.fetch("""
+            SELECT a.*,
+                   c.nombre_proveedor,
+                   u1.nombre AS aprobador_obra_nombre,
+                   u2.nombre AS aprobador_direccion_nombre,
+                   u3.nombre AS aprobador_finanzas_nombre,
+                   u4.nombre AS rechazado_por_nombre
+            FROM tb_bom_autorizaciones a
+            JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
+            LEFT JOIN tb_usuarios u1 ON u1.id_usuario = a.aprobador_obra_id
+            LEFT JOIN tb_usuarios u2 ON u2.id_usuario = a.aprobador_direccion_id
+            LEFT JOIN tb_usuarios u3 ON u3.id_usuario = a.aprobador_finanzas_id
+            LEFT JOIN tb_usuarios u4 ON u4.id_usuario = a.rechazado_por
+            WHERE a.bom_id = $1
+            ORDER BY a.creado_en DESC
+        """, bom_id)
+        return [dict(r) for r in rows]
+
+    async def get_tipo_cambio_vigente(self, conn) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            SELECT tasa_mxn, fecha FROM tb_tipo_cambio
+            ORDER BY fecha DESC LIMIT 1
+        """)
+        return dict(row) if row else None
+
+    async def get_director(self, conn) -> Optional[dict]:
+        """Obtiene el primer usuario con rol_organizacional = 'director'."""
+        row = await conn.fetchrow("""
+            SELECT id_usuario, nombre, email
+            FROM tb_usuarios
+            WHERE rol_organizacional = 'director' AND activo = TRUE
+            LIMIT 1
+        """)
+        return dict(row) if row else None
+
+    async def update_autorizacion_paso_obra(
+        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str]
+    ) -> dict:
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_autorizaciones
+            SET estatus = 'AUTORIZADO_OBRA',
+                aprobador_obra_id = $2,
+                fecha_aprobacion_obra = NOW(),
+                nota_obra = $3
+            WHERE id = $1
+            RETURNING *
+        """, autorizacion_id, user_id, nota)
+        return dict(row)
+
+    async def update_autorizacion_paso_direccion(
+        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str]
+    ) -> dict:
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_autorizaciones
+            SET estatus = 'AUTORIZADO_DIRECCION',
+                aprobador_direccion_id = $2,
+                fecha_aprobacion_direccion = NOW(),
+                nota_direccion = $3
+            WHERE id = $1
+            RETURNING *
+        """, autorizacion_id, user_id, nota)
+        return dict(row)
+
+    async def update_autorizacion_paso_finanzas(
+        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str]
+    ) -> dict:
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_autorizaciones
+            SET estatus = 'AUTORIZADO_FINANZAS',
+                aprobador_finanzas_id = $2,
+                fecha_aprobacion_finanzas = NOW(),
+                nota_finanzas = $3
+            WHERE id = $1
+            RETURNING *
+        """, autorizacion_id, user_id, nota)
+        return dict(row)
+
+    async def rechazar_autorizacion_db(
+        self, conn, autorizacion_id: UUID, user_id: UUID,
+        motivo: str, paso: str
+    ) -> dict:
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_autorizaciones
+            SET estatus = 'RECHAZADO',
+                rechazado_en_paso = $3,
+                rechazado_por = $2,
+                motivo_rechazo = $4,
+                fecha_rechazo = NOW()
+            WHERE id = $1
+            RETURNING *
+        """, autorizacion_id, user_id, paso, motivo)
+        return dict(row)

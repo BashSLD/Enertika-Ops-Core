@@ -190,6 +190,13 @@
                     Cotizaciones
                 </button>
                 {% endif %}
+                {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] %}
+                <button @click="tab = 'autorizaciones'"
+                    :class="tab === 'autorizaciones' ? 'border-amber-500 text-amber-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                    class="py-2 px-3 border-b-2 font-medium text-sm transition">
+                    Autorizaciones
+                </button>
+                {% endif %}
                 {% if versiones|length > 1 %}
                 <button @click="tab = 'versiones'"
                     :class="tab === 'versiones' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
@@ -215,6 +222,14 @@
             hx-get="/bom/{{ bom.id_bom }}/cotizaciones"
             hx-trigger="intersect once" hx-swap="innerHTML">
             <div class="text-center py-4 text-gray-400 text-sm">Cargando cotizaciones...</div>
+        </div>
+        {% endif %}
+
+        {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] %}
+        <div x-show="tab === 'autorizaciones'" id="tab-autorizaciones"
+            hx-get="/bom/{{ bom.id_bom }}/autorizaciones"
+            hx-trigger="intersect once" hx-swap="innerHTML">
+            <div class="text-center py-4 text-gray-400 text-sm">Cargando autorizaciones...</div>
         </div>
         {% endif %}
 

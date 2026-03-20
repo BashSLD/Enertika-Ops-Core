@@ -28,11 +28,18 @@
         <span class="inline-flex items-center px-1.5 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">Parcial</span>
         {% endif %}
     </td>
+    <td class="px-3 py-2 text-center" onclick="event.stopPropagation()">
+        <button type="button"
+            onclick="seleccionarCandidato(this.closest('tr')); confirmarMatchManual();"
+            class="px-2 py-1 text-xs font-medium text-white bg-[#00BABB] hover:bg-[#009999] rounded-lg transition-colors whitespace-nowrap">
+            Confirmar
+        </button>
+    </td>
 </tr>
 {% endfor %}
 {% else %}
 <tr>
-    <td colspan="5" class="px-3 py-6 text-center text-sm text-gray-500">
+    <td colspan="7" class="px-3 py-6 text-center text-sm text-gray-500">
         No se encontraron comprobantes pendientes
         {% if request.query_params.get('q') %}
         para "{{ request.query_params.get('q') }}"

@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autorización BOM - Notificación</title>
+</head>
+
+{#
+  Variables esperadas:
+    autorizacion  - dict con datos de la autorización
+    bom           - dict con datos del BOM (proyecto_id_estandar, proyecto_nombre)
+    evento        - str: PENDIENTE_OBRA | PENDIENTE_DIRECCION | PENDIENTE_FINANZAS | RECHAZADO | AUTORIZADO_FINANZAS
+    por_nombre    - str: nombre del usuario que ejecutó la acción
+    nota          - str|None: nota/motivo opcional
+    app_url       - str: URL directa al BOM
+#}
+
+{% set evento_config = {
+    'PENDIENTE_OBRA': {
+        'titulo':  'Autorización de Compra requerida',
+        'sub':     'Requiere tu aprobación como Coordinador de Obra',
+        'color':   '#D97706', 'color_end': '#F59E0B',
+        'msg':     'Se ha seleccionado una cotización en el BOM y requiere tu autorización como Coordinador de Obra antes de proceder con la compra.',
+        'accion':  true,
+        'icono':   'obra',
+    },
+    'PENDIENTE_DIRECCION': {
+        'titulo':  'Autorización de Compra requerida',
+        'sub':     'Requiere tu aprobación como Director',
+        'color':   '#7C3AED', 'color_end': '#8B5CF6',
+        'msg':     'La cotización fue aprobada por Obra y ahora requiere tu autorización como Director.',
+        'accion':  true,
+        'icono':   'direccion',
+    },
+    'PENDIENTE_FINANZAS': {
+        'titulo':  'Autorización de Compra requerida',
+        'sub':     'Requiere aprobación de Finanzas',
+        'color':   '#065F46', 'color_end': '#059669',
+        'msg':     'La cotización fue aprobada por Dirección y está lista para la aprobación final de Finanzas.',
+        'accion':  true,
+        'icono':   'finanzas',
+    },
+    'RECHAZADO': {
+        'titulo':  'Autorización Rechazada',
+        'sub':     'La cotización vuelve a revisión',
+        'color':   '#DC2626', 'color_end': '#EF4444',
+        'msg':     'La autorización de compra fue rechazada. La cotización ha vuelto al estado RECIBIDA para su revisión.',
+        'accion':  false,
+        'icono':   'rechazo',
+    },
+    'AUTORIZADO_FINANZAS': {
+        'titulo':  'Compra Autorizada',
+        'sub':     'Flujo de autorización completado',
+        'color':   '#059669', 'color_end': '#10B981',
+        'msg':     'La cotización ha sido aprobada por todas las partes. La compra puede realizarse.',
+        'accion':  false,
+        'icono':   'aprobado',
+    },
+} %}
+{% set cfg = evento_config.get(evento, {
+    'titulo': 'Actualización de Autorización',
+    'sub': '',
+    'color': '#1E3A5F', 'color_end': '#00BABB',
+    'msg': 'Hubo un cambio en la autorización de compra.',
+    'accion': false,
+}) %}
+
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4; color: #333333;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0"
+                    style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, {{ cfg.color }} 0%, {{ cfg.color_end }} 100%); padding: 30px 40px; text-align: center;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 22px; font-weight: 600;">
+                                {{ cfg.titulo }}
+                            </h1>
+                            <p style="margin: 8px 0 0 0; color: rgba(255,255,255,0.85); font-size: 13px;">
+                                Autorización de Compra BOM &mdash; {{ cfg.sub }}
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Proyecto info -->
+                    <tr>
+                        <td style="padding: 24px 40px 8px 40px;">
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #f8f9fa; border-radius: 6px; border: 1px solid #e9ecef;">
+                                <tr>
+                                    <td style="padding: 14px 18px;">
+                                        <p style="margin: 0; font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px;">Proyecto</p>
+                                        <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: 600; color: #1a1a2e;">
+                                            {{ bom.get('proyecto_id_estandar', '') }}
+                                        </p>
+                                        <p style="margin: 2px 0 0 0; font-size: 13px; color: #495057;">
+                                            {{ bom.get('proyecto_nombre', '') }}
+                                        </p>
+                                    </td>
+                                    <td style="padding: 14px 18px; text-align: right; border-left: 1px solid #e9ecef; min-width: 140px;">
+                                        <p style="margin: 0; font-size: 11px; color: #6c757d; text-transform: uppercase; letter-spacing: 0.5px;">Monto</p>
+                                        <p style="margin: 4px 0 0 0; font-size: 16px; font-weight: 700; color: {{ cfg.color }};">
+                                            {% if autorizacion.get('monto_total') %}
+                                                ${{ "{:,.2f}".format(autorizacion.monto_total | float) }} {{ autorizacion.get('moneda', 'MXN') }}
+                                            {% else %}
+                                                &mdash;
+                                            {% endif %}
+                                        </p>
+                                        {% if autorizacion.get('tipo_cambio_snapshot') %}
+                                        <p style="margin: 2px 0 0 0; font-size: 11px; color: #6c757d;">
+                                            TC: ${{ "{:,.4f}".format(autorizacion.tipo_cambio_snapshot | float) }} MXN/USD
+                                        </p>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    {% if autorizacion.get('nombre_proveedor') %}
+                    <tr>
+                        <td style="padding: 8px 40px 0 40px;">
+                            <p style="margin: 0; font-size: 13px; color: #6c757d;">
+                                Proveedor: <strong style="color: #333;">{{ autorizacion.nombre_proveedor }}</strong>
+                            </p>
+                        </td>
+                    </tr>
+                    {% endif %}
+
+                    <!-- Mensaje -->
+                    <tr>
+                        <td style="padding: 20px 40px 8px 40px;">
+                            <p style="margin: 0; font-size: 14px; color: #555555; line-height: 1.6;">
+                                {{ cfg.msg }}
+                            </p>
+                            {% if por_nombre %}
+                            <p style="margin: 10px 0 0 0; font-size: 13px; color: #6c757d;">
+                                Acción realizada por: <strong>{{ por_nombre }}</strong>
+                            </p>
+                            {% endif %}
+                            {% if nota %}
+                            <p style="margin: 10px 0 0 0; font-size: 13px; color: #555; background: #fff3cd; border-left: 3px solid #ffc107; padding: 8px 12px; border-radius: 0 4px 4px 0;">
+                                <strong>Nota:</strong> {{ nota }}
+                            </p>
+                            {% endif %}
+                        </td>
+                    </tr>
+
+                    <!-- Progreso del flujo -->
+                    <tr>
+                        <td style="padding: 16px 40px 8px 40px;">
+                            <table width="100%" cellpadding="0" cellspacing="0">
+                                <tr>
+                                    {% set est = autorizacion.get('estatus', 'PENDIENTE') %}
+                                    {% set pasos = [
+                                        ('Obra', 'AUTORIZADO_OBRA'),
+                                        ('Dirección', 'AUTORIZADO_DIRECCION'),
+                                        ('Finanzas', 'AUTORIZADO_FINANZAS'),
+                                    ] %}
+                                    {% set orden = ['PENDIENTE', 'AUTORIZADO_OBRA', 'AUTORIZADO_DIRECCION', 'AUTORIZADO_FINANZAS'] %}
+                                    {% set idx_actual = orden.index(est) if est in orden else 0 %}
+
+                                    {% for label, estado in pasos %}
+                                    {% set idx = loop.index %}
+                                    {% if est == 'RECHAZADO' %}
+                                        {% set color_paso = '#DC2626' %}
+                                        {% set bg = '#FEF2F2' %}
+                                        {% set txt = '#DC2626' %}
+                                    {% elif idx <= idx_actual %}
+                                        {% set color_paso = '#059669' %}
+                                        {% set bg = '#D1FAE5' %}
+                                        {% set txt = '#065F46' %}
+                                    {% else %}
+                                        {% set color_paso = '#D1D5DB' %}
+                                        {% set bg = '#F9FAFB' %}
+                                        {% set txt = '#6B7280' %}
+                                    {% endif %}
+                                    <td style="text-align: center; padding: 0 4px;">
+                                        <div style="background: {{ bg }}; border: 1px solid {{ color_paso }}; border-radius: 6px; padding: 8px 6px;">
+                                            <p style="margin: 0; font-size: 11px; font-weight: 700; color: {{ txt }}; text-transform: uppercase;">{{ label }}</p>
+                                            {% if idx <= idx_actual and est != 'RECHAZADO' %}
+                                            <p style="margin: 2px 0 0 0; font-size: 10px; color: #059669;">Aprobado</p>
+                                            {% elif est == 'RECHAZADO' %}
+                                            <p style="margin: 2px 0 0 0; font-size: 10px; color: #DC2626;">Rechazado</p>
+                                            {% else %}
+                                            <p style="margin: 2px 0 0 0; font-size: 10px; color: #9CA3AF;">Pendiente</p>
+                                            {% endif %}
+                                        </div>
+                                    </td>
+                                    {% endfor %}
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- CTA -->
+                    {% if cfg.get('accion') %}
+                    <tr>
+                        <td style="padding: 20px 40px 8px 40px; text-align: center;">
+                            <a href="{{ app_url }}"
+                                style="display: inline-block; background: linear-gradient(135deg, {{ cfg.color }} 0%, {{ cfg.color_end }} 100%);
+                                       color: #ffffff; text-decoration: none; padding: 12px 32px;
+                                       border-radius: 6px; font-size: 14px; font-weight: 600;">
+                                Ver BOM y Autorizar
+                            </a>
+                        </td>
+                    </tr>
+                    {% endif %}
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding: 24px 40px; border-top: 1px solid #e9ecef; margin-top: 16px;">
+                            <p style="margin: 0; font-size: 11px; color: #9ca3af; text-align: center;">
+                                Este mensaje fue generado automáticamente por Enertika Ops Core.
+                                <a href="{{ app_url }}" style="color: #6366f1; text-decoration: none;">Ver en la plataforma</a>
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

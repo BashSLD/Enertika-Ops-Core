@@ -224,3 +224,58 @@ class SuplenciaRead(BaseModel):
     activo: bool = True
     created_at: Optional[datetime] = None
     model_config = {"from_attributes": True}
+
+
+# --- Autorizaciones de Compra (Fase D) ---
+
+class EstatusAutorizacion(str, Enum):
+    PENDIENTE = "PENDIENTE"
+    AUTORIZADO_OBRA = "AUTORIZADO_OBRA"
+    AUTORIZADO_DIRECCION = "AUTORIZADO_DIRECCION"
+    AUTORIZADO_FINANZAS = "AUTORIZADO_FINANZAS"
+    RECHAZADO = "RECHAZADO"
+
+
+class BomAutorizacionRead(BaseModel):
+    id: UUID
+    cotizacion_id: UUID
+    bom_id: UUID
+    proyecto_id: UUID
+    monto_total: Optional[Decimal] = None
+    moneda: str = "MXN"
+    tipo_cambio_snapshot: Optional[Decimal] = None
+    estatus: EstatusAutorizacion
+
+    # Paso 1 — Coordinador de Obra
+    aprobador_obra_id: Optional[UUID] = None
+    aprobador_obra_nombre: Optional[str] = None
+    fecha_aprobacion_obra: Optional[datetime] = None
+    nota_obra: Optional[str] = None
+
+    # Paso 2 — Director
+    aprobador_direccion_id: Optional[UUID] = None
+    aprobador_direccion_nombre: Optional[str] = None
+    fecha_aprobacion_direccion: Optional[datetime] = None
+    nota_direccion: Optional[str] = None
+
+    # Paso 3 — Finanzas
+    aprobador_finanzas_id: Optional[UUID] = None
+    aprobador_finanzas_nombre: Optional[str] = None
+    fecha_aprobacion_finanzas: Optional[datetime] = None
+    nota_finanzas: Optional[str] = None
+
+    # Rechazo
+    rechazado_en_paso: Optional[str] = None
+    rechazado_por: Optional[UUID] = None
+    rechazado_por_nombre: Optional[str] = None
+    motivo_rechazo: Optional[str] = None
+    fecha_rechazo: Optional[datetime] = None
+
+    # Auditoría
+    creado_por: Optional[UUID] = None
+    creado_en: Optional[datetime] = None
+
+    # Desnormalizados (de cotización)
+    nombre_proveedor: Optional[str] = None
+
+    model_config = {"from_attributes": True}

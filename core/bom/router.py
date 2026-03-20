@@ -1450,6 +1450,160 @@ async def rechazar_cotizacion(
     )
 
 
+# ========================================
+# AUTORIZACIONES (Fase D)
+# ========================================
+
+def _autorizacion_ctx(request, autorizaciones, bom, context) -> dict:
+    role = context.get("role")
+    module_roles = context.get("module_roles", {})
+    user_id = context.get("user_db_id")
+    rol_org = context.get("rol_organizacional")
+
+    es_admin = role == "ADMIN"
+    es_director = rol_org == "director"
+    es_coordinador_obra = bom.get("coordinador_obra") == user_id if bom else False
+
+    return {
+        "request": request,
+        "autorizaciones": autorizaciones,
+        "bom": bom,
+        "user_id": user_id,
+        "es_admin": es_admin,
+        "es_director": es_director,
+        "es_coordinador_obra": es_coordinador_obra,
+    }
+
+
+@router.get("/{id_bom}/autorizaciones", include_in_schema=False)
+async def get_autorizaciones_tab(
+    request: Request,
+    id_bom: UUID,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria"),
+):
+    bom = await service.db.get_bom_by_id(conn, id_bom)
+    if not bom:
+        raise HTTPException(status_code=404, detail="BOM no encontrado")
+    autorizaciones = await service.listar_autorizaciones(conn, id_bom)
+    return templates.TemplateResponse(
+        "bom/partials/autorizaciones.html",
+        _autorizacion_ctx(request, autorizaciones, bom, context),
+    )
+
+
+@router.post("/autorizaciones/{autorizacion_id}/aprobar-obra", include_in_schema=False)
+async def aprobar_autorizacion_obra(
+    request: Request,
+    autorizacion_id: UUID,
+    nota: Optional[str] = Form(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria"),
+):
+    user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    try:
+        aut = await service.aprobar_obra(conn, autorizacion_id, user_id, nota, user_role)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        raise HTTPException(status_code=500, detail="Error al aprobar la autorización.")
+
+    bom = await service.db.get_bom_by_id(conn, aut['bom_id'])
+    autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
+    return templates.TemplateResponse(
+        "bom/partials/autorizaciones.html",
+        _autorizacion_ctx(request, autorizaciones, bom, context),
+    )
+
+
+@router.post("/autorizaciones/{autorizacion_id}/aprobar-direccion", include_in_schema=False)
+async def aprobar_autorizacion_direccion(
+    request: Request,
+    autorizacion_id: UUID,
+    nota: Optional[str] = Form(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria"),
+):
+    user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
+    try:
+        aut = await service.aprobar_direccion(conn, autorizacion_id, user_id, nota, user_role, rol_org)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        raise HTTPException(status_code=500, detail="Error al aprobar la autorización.")
+
+    bom = await service.db.get_bom_by_id(conn, aut['bom_id'])
+    autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
+    return templates.TemplateResponse(
+        "bom/partials/autorizaciones.html",
+        _autorizacion_ctx(request, autorizaciones, bom, context),
+    )
+
+
+@router.post("/autorizaciones/{autorizacion_id}/aprobar-finanzas", include_in_schema=False)
+async def aprobar_autorizacion_finanzas(
+    request: Request,
+    autorizacion_id: UUID,
+    nota: Optional[str] = Form(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria"),
+):
+    user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    try:
+        aut = await service.aprobar_finanzas(conn, autorizacion_id, user_id, nota, user_role)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        raise HTTPException(status_code=500, detail="Error al aprobar la autorización.")
+
+    bom = await service.db.get_bom_by_id(conn, aut['bom_id'])
+    autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
+    return templates.TemplateResponse(
+        "bom/partials/autorizaciones.html",
+        _autorizacion_ctx(request, autorizaciones, bom, context),
+    )
+
+
+@router.post("/autorizaciones/{autorizacion_id}/rechazar", include_in_schema=False)
+async def rechazar_autorizacion(
+    request: Request,
+    autorizacion_id: UUID,
+    motivo: str = Form(...),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: BomService = Depends(get_bom_service),
+    _=require_module_access("ingenieria"),
+):
+    user_id = context.get("user_db_id")
+    user_role = context.get("role")
+    rol_org = context.get("rol_organizacional")
+    try:
+        aut = await service.rechazar_autorizacion(conn, autorizacion_id, user_id, motivo, user_role, rol_org)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        raise HTTPException(status_code=500, detail="Error al rechazar la autorización.")
+
+    bom = await service.db.get_bom_by_id(conn, aut['bom_id'])
+    autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
+    return templates.TemplateResponse(
+        "bom/partials/autorizaciones.html",
+        _autorizacion_ctx(request, autorizaciones, bom, context),
+    )
+
+
 @router.get("/proveedores/buscar", include_in_schema=False)
 async def buscar_proveedores_bom(
     request: Request,

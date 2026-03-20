@@ -281,10 +281,10 @@ class LevantamientoService:
             "pospuestos": []         # Estado 4
         }
 
-        # Obtener Jefe Default para fallback visual
+        # Obtener Jefe Default para fallback visual (jefe_ingenieria por defecto)
         jefe_default = await conn.fetchrow("""
              SELECT id_usuario, nombre FROM tb_usuarios
-             WHERE es_jefe_levantamientos_default = TRUE LIMIT 1
+             WHERE rol_organizacional = 'jefe_ingenieria' AND is_active = TRUE LIMIT 1
         """)
         jefe_default_nombre = jefe_default['nombre'] if jefe_default else "Sin asignar"
         jefe_default_id = jefe_default['id_usuario'] if jefe_default else None
@@ -342,11 +342,12 @@ class LevantamientoService:
     # ========================================
     
     async def get_jefe_default(self, conn) -> Optional[UUID]:
-        """Obtiene el ID del jefe de levantamientos por defecto."""
+        """Obtiene el ID del jefe de ingeniería (responsable por defecto de levantamientos)."""
         return await conn.fetchval("""
-            SELECT id_usuario 
-            FROM tb_usuarios 
-            WHERE es_jefe_levantamientos_default = TRUE 
+            SELECT id_usuario
+            FROM tb_usuarios
+            WHERE rol_organizacional = 'jefe_ingenieria'
+              AND is_active = TRUE
             LIMIT 1
         """)
 
@@ -933,14 +934,15 @@ class LevantamientoService:
             ORDER BY u.nombre
         """)
 
-        # Jefes: Solo usuarios marcados como jefe default
+        # Jefes: jefe_ingenieria (default) y jefe_construccion, ordenados para que ingenieria aparezca primero
         jefes = await conn.fetch("""
-            SELECT id_usuario, nombre, email, rol_sistema
+            SELECT id_usuario, nombre, email, rol_sistema, rol_organizacional
             FROM tb_usuarios
-            WHERE es_jefe_levantamientos_default = true
+            WHERE rol_organizacional IN ('jefe_ingenieria', 'jefe_construccion')
               AND is_active = true
-            ORDER BY nombre
-            LIMIT 1
+            ORDER BY
+                CASE rol_organizacional WHEN 'jefe_ingenieria' THEN 0 ELSE 1 END,
+                nombre
         """)
 
         return {

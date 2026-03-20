@@ -1074,8 +1074,8 @@ class BomService:
         self, conn, cotizacion_id: UUID, user_id: UUID
     ) -> dict:
         """
-        Marca una cotización como SELECCIONADA y actualiza estatus_compra
-        de los ítems cubiertos a COTIZADO.
+        Marca una cotización como SELECCIONADA, actualiza estatus_compra de ítems
+        y crea la autorización de compra (Fase D) notificando al coordinador de obra.
         """
         cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
         if not cotizacion:
@@ -1091,8 +1091,227 @@ class BomService:
             item_ids = [i['bom_item_id'] for i in items]
             await self.db.actualizar_estatus_compra_items(conn, item_ids, 'COTIZADO')
 
+        # Crear autorización de compra (Fase D) si no existe ya
+        existente = await self.db.get_autorizacion_by_cotizacion(conn, cotizacion_id)
+        if not existente:
+            bom = await self.db.get_bom_by_id(conn, cotizacion['bom_id'])
+            tc = await self.db.get_tipo_cambio_vigente(conn)
+            autorizacion = await self.db.crear_autorizacion(
+                conn,
+                cotizacion_id=cotizacion_id,
+                bom_id=cotizacion['bom_id'],
+                proyecto_id=bom['id_proyecto'],
+                monto_total=cotizacion['total'],
+                moneda=cotizacion['moneda'],
+                tipo_cambio_snapshot=tc['tasa_mxn'] if tc else None,
+                creado_por=user_id,
+            )
+            # Notificar al coordinador de obra
+            coordinador_id = bom.get('coordinador_obra')
+            if coordinador_id:
+                aut_enriquecida = {**autorizacion, 'nombre_proveedor': cotizacion.get('nombre_proveedor')}
+                await self._notify_autorizacion(
+                    conn, aut_enriquecida, bom,
+                    to_user_id=coordinador_id,
+                    evento='PENDIENTE_OBRA',
+                    por_user_id=user_id,
+                )
+
         logger.info("Cotización %s seleccionada por usuario %s", cotizacion_id, user_id)
         return updated
+
+    # ─── AUTORIZACIONES (Fase D) ────────────────────────────
+
+    async def listar_autorizaciones(self, conn, bom_id: UUID) -> list:
+        return await self.db.get_autorizaciones_by_bom(conn, bom_id)
+
+    async def aprobar_obra(
+        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str], user_role: str
+    ) -> dict:
+        """Aprueba paso 1 (Coordinador de Obra). Valida que sea el coordinador o ADMIN."""
+        aut = await self.db.get_autorizacion_by_id(conn, autorizacion_id)
+        if not aut:
+            raise ValueError("Autorización no encontrada.")
+        if aut['estatus'] != 'PENDIENTE':
+            raise ValueError(f"La autorización está en estatus {aut['estatus']} y no puede aprobarse en este paso.")
+
+        bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
+
+        # Validar que el usuario es el coordinador_obra del proyecto o ADMIN
+        if user_role != 'ADMIN' and bom.get('coordinador_obra') != user_id:
+            raise ValueError("Solo el coordinador de obra del proyecto puede aprobar este paso.")
+
+        updated = await self.db.update_autorizacion_paso_obra(conn, autorizacion_id, user_id, nota)
+
+        # Notificar al Director
+        director = await self.db.get_director(conn)
+        if director:
+            await self._notify_autorizacion(
+                conn, {**aut, **updated}, bom,
+                to_user_id=director['id_usuario'],
+                evento='PENDIENTE_DIRECCION',
+                por_user_id=user_id,
+                nota=nota,
+            )
+
+        logger.info("Autorización %s aprobada (obra) por usuario %s", autorizacion_id, user_id)
+        return updated
+
+    async def aprobar_direccion(
+        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str], user_role: str, rol_org: Optional[str]
+    ) -> dict:
+        """Aprueba paso 2 (Director). Valida rol_organizacional = 'director' o ADMIN."""
+        aut = await self.db.get_autorizacion_by_id(conn, autorizacion_id)
+        if not aut:
+            raise ValueError("Autorización no encontrada.")
+        if aut['estatus'] != 'AUTORIZADO_OBRA':
+            raise ValueError(f"La autorización está en estatus {aut['estatus']} y no puede aprobarse en este paso.")
+
+        if user_role != 'ADMIN' and rol_org != 'director':
+            raise ValueError("Solo el Director puede aprobar este paso.")
+
+        updated = await self.db.update_autorizacion_paso_direccion(conn, autorizacion_id, user_id, nota)
+
+        # Notificar al creador de la autorización (Compras) como proxy hasta Fase E
+        bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
+        if aut.get('creado_por'):
+            await self._notify_autorizacion(
+                conn, {**aut, **updated}, bom,
+                to_user_id=aut['creado_por'],
+                evento='PENDIENTE_FINANZAS',
+                por_user_id=user_id,
+                nota=nota,
+            )
+
+        logger.info("Autorización %s aprobada (dirección) por usuario %s", autorizacion_id, user_id)
+        return updated
+
+    async def aprobar_finanzas(
+        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str], user_role: str
+    ) -> dict:
+        """Aprueba paso 3 (Finanzas). Hasta Fase E, solo ADMIN puede aprobar."""
+        aut = await self.db.get_autorizacion_by_id(conn, autorizacion_id)
+        if not aut:
+            raise ValueError("Autorización no encontrada.")
+        if aut['estatus'] != 'AUTORIZADO_DIRECCION':
+            raise ValueError(f"La autorización está en estatus {aut['estatus']} y no puede aprobarse en este paso.")
+
+        if user_role != 'ADMIN':
+            raise ValueError("Solo Finanzas puede aprobar este paso.")
+
+        # Actualizar estatus_compra de los ítems a AUTORIZADO
+        items_cot = await self.db.get_items_cotizacion(conn, aut['cotizacion_id'])
+        if items_cot:
+            item_ids = [i['bom_item_id'] for i in items_cot]
+            await self.db.actualizar_estatus_compra_items(conn, item_ids, 'AUTORIZADO')
+
+        updated = await self.db.update_autorizacion_paso_finanzas(conn, autorizacion_id, user_id, nota)
+
+        logger.info("Autorización %s aprobada (finanzas) por usuario %s", autorizacion_id, user_id)
+        return updated
+
+    async def rechazar_autorizacion(
+        self, conn, autorizacion_id: UUID, user_id: UUID, motivo: str,
+        user_role: str, rol_org: Optional[str]
+    ) -> dict:
+        """Rechaza la autorización en el paso actual. Cotización vuelve a RECIBIDA."""
+        aut = await self.db.get_autorizacion_by_id(conn, autorizacion_id)
+        if not aut:
+            raise ValueError("Autorización no encontrada.")
+
+        estatus = aut['estatus']
+        if estatus in ('AUTORIZADO_FINANZAS', 'RECHAZADO'):
+            raise ValueError(f"La autorización ya está en estatus {estatus}.")
+
+        # Determinar paso y validar permisos
+        if estatus == 'PENDIENTE':
+            paso = 'OBRA'
+            if user_role != 'ADMIN':
+                bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
+                if bom.get('coordinador_obra') != user_id:
+                    raise ValueError("Solo el coordinador de obra puede rechazar en este paso.")
+        elif estatus == 'AUTORIZADO_OBRA':
+            paso = 'DIRECCION'
+            if user_role != 'ADMIN' and rol_org != 'director':
+                raise ValueError("Solo el Director puede rechazar en este paso.")
+        else:  # AUTORIZADO_DIRECCION
+            paso = 'FINANZAS'
+            if user_role != 'ADMIN':
+                raise ValueError("Solo Finanzas puede rechazar en este paso.")
+
+        updated = await self.db.rechazar_autorizacion_db(conn, autorizacion_id, user_id, motivo, paso)
+
+        # Cotización vuelve a RECIBIDA
+        await self.db.actualizar_estatus_cotizacion(conn, aut['cotizacion_id'], 'RECIBIDA')
+
+        # Ítems vuelven a SIN_COTIZAR
+        items_cot = await self.db.get_items_cotizacion(conn, aut['cotizacion_id'])
+        if items_cot:
+            item_ids = [i['bom_item_id'] for i in items_cot]
+            await self.db.actualizar_estatus_compra_items(conn, item_ids, 'SIN_COTIZAR')
+
+        # Notificar al creador de la autorización (Compras)
+        bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
+        if aut.get('creado_por'):
+            await self._notify_autorizacion(
+                conn, {**aut, **updated}, bom,
+                to_user_id=aut['creado_por'],
+                evento='RECHAZADO',
+                por_user_id=user_id,
+                nota=motivo,
+            )
+
+        logger.info("Autorización %s rechazada en paso %s por usuario %s", autorizacion_id, paso, user_id)
+        return updated
+
+    async def _notify_autorizacion(
+        self, conn, autorizacion: dict, bom: dict,
+        to_user_id, evento: str,
+        por_user_id=None, nota: Optional[str] = None
+    ) -> None:
+        """Envía email de notificación de cambio en autorización. Fire-and-forget."""
+        if not to_user_id:
+            return
+        try:
+            from core.workflow.notification_service import NotificationService
+            notif = NotificationService()
+
+            to_email = await self.db.get_usuario_email(conn, to_user_id)
+            if not to_email:
+                return
+
+            sender_email = await self.db.get_sender_email(conn, 'DEFAULT')
+            if not sender_email:
+                return
+
+            por_nombre = None
+            if por_user_id:
+                por_nombre = await conn.fetchval(
+                    "SELECT nombre FROM tb_usuarios WHERE id_usuario = $1", por_user_id
+                )
+
+            html = notif._render_template('shared/emails/bom/bom_autorizacion.html', {
+                'autorizacion': autorizacion,
+                'bom': bom,
+                'evento': evento,
+                'por_nombre': por_nombre or 'Sistema',
+                'nota': nota,
+                'app_url': f"{settings.APP_BASE_URL}/bom/{bom.get('id_proyecto')}/ui",
+            })
+
+            subject_map = {
+                'PENDIENTE_OBRA':      f"Autorización BOM {bom.get('proyecto_id_estandar', '')} - Requiere aprobación de Obra",
+                'PENDIENTE_DIRECCION': f"Autorización BOM {bom.get('proyecto_id_estandar', '')} - Requiere aprobación de Dirección",
+                'PENDIENTE_FINANZAS':  f"Autorización BOM {bom.get('proyecto_id_estandar', '')} - Requiere aprobación de Finanzas",
+                'RECHAZADO':           f"Autorización BOM {bom.get('proyecto_id_estandar', '')} - Rechazada",
+                'AUTORIZADO_FINANZAS': f"Autorización BOM {bom.get('proyecto_id_estandar', '')} - Aprobada completamente",
+            }
+            subject = subject_map.get(evento, f"Autorización BOM {bom.get('proyecto_id_estandar', '')} - Actualización")
+
+            await notif._send_email({to_email}, set(), subject, html, sender_email)
+            logger.info("Autorizacion notify: evento=%s to_user=%s", evento, to_user_id)
+        except Exception:
+            logger.exception("Autorizacion notify: error enviando email, evento=%s", evento)
 
     async def rechazar_cotizacion(
         self, conn, cotizacion_id: UUID, user_id: UUID

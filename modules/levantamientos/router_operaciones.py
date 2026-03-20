@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from core.security import get_current_user_context
-from core.permissions import require_module_access
+from core.permissions import require_module_access, require_manager_access
 from core.database import get_db_connection
 from core.microsoft import MicrosoftAuth
 
@@ -592,7 +592,7 @@ def register_operaciones_endpoints(router: APIRouter):
         service: LevantamientoService = Depends(get_service),
         db_svc: LevantamientosDBService = Depends(get_db_service),
         context=Depends(get_current_user_context),
-        _=require_module_access("levantamientos", "editor"),
+        _=require_manager_access("levantamientos", "editor"),
     ):
         """
         Cancela un levantamiento. NO afecta la oportunidad comercial.
