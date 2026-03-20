@@ -24,53 +24,65 @@
     }
 }">
     <!-- Filters / Actions Bar -->
-    <div class="mb-4 flex flex-col sm:flex-row justify-between items-center gap-4">
-        <div class="flex flex-col">
-            <h3 class="text-lg font-bold text-gray-700">
-                {% if current_tab == 'activos' %}Solicitudes Activas
-                {% elif current_tab == 'historial' %}Ofertas Generadas
-                {% elif current_tab == 'levantamientos' %}Seguimiento de Levantamientos
-                {% elif current_tab == 'ganadas' %}Oportunidades Ganadas
-                {% else %}Listado{% endif %}
-            </h3>
+    <div x-data="{ showFilters: false }" class="mb-4">
+        <div class="flex justify-between items-start gap-3">
+            <div class="flex flex-col">
+                <h3 class="text-lg font-bold text-gray-700">
+                    {% if current_tab == 'activos' %}Solicitudes Activas
+                    {% elif current_tab == 'historial' %}Ofertas Generadas
+                    {% elif current_tab == 'levantamientos' %}Seguimiento de Levantamientos
+                    {% elif current_tab == 'ganadas' %}Oportunidades Ganadas
+                    {% else %}Listado{% endif %}
+                </h3>
 
-            <!-- Subtabs para Levantamientos -->
-            {% if current_tab == 'levantamientos' %}
-            <div class="flex gap-3 text-sm mt-2">
-                <button hx-get="/simulacion/partials/cards?tab=levantamientos&subtab=solicitados&limit={{ limit }}"
-                    hx-target="#sim-tab-content"
-                    class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-blue-600 border border-blue-700 shadow-md' if not subtab or subtab == 'solicitados' else 'text-gray-600 bg-white border border-gray-300 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-500' }}">
-                    Solicitados
-                </button>
-                <span class="text-gray-300">|</span>
-                <button hx-get="/simulacion/partials/cards?tab=levantamientos&subtab=realizados&limit={{ limit }}"
-                    hx-target="#sim-tab-content"
-                    class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-blue-600 border border-blue-700 shadow-md' if subtab == 'realizados' else 'text-gray-600 bg-white border border-gray-300 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-500' }}">
-                    Realizados
-                </button>
-            </div>
-            {% endif %}
+                <!-- Subtabs para Levantamientos -->
+                {% if current_tab == 'levantamientos' %}
+                <div class="flex gap-3 text-sm mt-2">
+                    <button hx-get="/simulacion/partials/cards?tab=levantamientos&subtab=solicitados&limit={{ limit }}"
+                        hx-target="#sim-tab-content"
+                        class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-blue-600 border border-blue-700 shadow-md' if not subtab or subtab == 'solicitados' else 'text-gray-600 bg-white border border-gray-300 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-500' }}">
+                        Solicitados
+                    </button>
+                    <span class="text-gray-300">|</span>
+                    <button hx-get="/simulacion/partials/cards?tab=levantamientos&subtab=realizados&limit={{ limit }}"
+                        hx-target="#sim-tab-content"
+                        class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-blue-600 border border-blue-700 shadow-md' if subtab == 'realizados' else 'text-gray-600 bg-white border border-gray-300 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-500' }}">
+                        Realizados
+                    </button>
+                </div>
+                {% endif %}
 
-            <!-- Subtabs para Historial -->
-            {% if current_tab == 'historial' %}
-            <div class="flex gap-3 text-sm mt-2">
-                <button hx-get="/simulacion/partials/cards?tab=historial&subtab=entregado&limit={{ limit }}"
-                    hx-target="#sim-tab-content"
-                    class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-green-600 border border-green-700 shadow-md' if not subtab or subtab == 'entregado' else 'text-gray-600 bg-white border border-gray-300 hover:bg-green-50 hover:text-green-700 hover:border-green-500' }}">
-                    Entregado
-                </button>
-                <span class="text-gray-300">|</span>
-                <button hx-get="/simulacion/partials/cards?tab=historial&subtab=cancelado_perdido&limit={{ limit }}"
-                    hx-target="#sim-tab-content"
-                    class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-red-600 border border-red-700 shadow-md' if subtab == 'cancelado_perdido' else 'text-gray-600 bg-white border border-gray-300 hover:bg-red-50 hover:text-red-700 hover:border-red-500' }}">
-                    Cancelado - Perdido
-                </button>
+                <!-- Subtabs para Historial -->
+                {% if current_tab == 'historial' %}
+                <div class="flex gap-3 text-sm mt-2">
+                    <button hx-get="/simulacion/partials/cards?tab=historial&subtab=entregado&limit={{ limit }}"
+                        hx-target="#sim-tab-content"
+                        class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-green-600 border border-green-700 shadow-md' if not subtab or subtab == 'entregado' else 'text-gray-600 bg-white border border-gray-300 hover:bg-green-50 hover:text-green-700 hover:border-green-500' }}">
+                        Entregado
+                    </button>
+                    <span class="text-gray-300">|</span>
+                    <button hx-get="/simulacion/partials/cards?tab=historial&subtab=cancelado_perdido&limit={{ limit }}"
+                        hx-target="#sim-tab-content"
+                        class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-red-600 border border-red-700 shadow-md' if subtab == 'cancelado_perdido' else 'text-gray-600 bg-white border border-gray-300 hover:bg-red-50 hover:text-red-700 hover:border-red-500' }}">
+                        Cancelado - Perdido
+                    </button>
+                </div>
+                {% endif %}
             </div>
-            {% endif %}
+
+            <!-- Toggle filtros: solo visible en móvil -->
+            <button @click="showFilters = !showFilters"
+                class="md:hidden shrink-0 flex items-center gap-1 bg-indigo-100 text-indigo-700 text-xs font-semibold py-1.5 px-3 rounded-lg mt-1">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                </svg>
+                <span x-text="showFilters ? 'Ocultar' : 'Filtros'"></span>
+            </button>
         </div>
 
-        <!-- Selector de cantidad de registros y Buscador -->
-        <div class="flex flex-col md:flex-row items-center gap-3">
+        <!-- Selector de cantidad de registros y Buscador (colapsable en móvil) -->
+        <div :class="showFilters ? 'flex' : 'hidden md:flex'" class="flex-col md:flex-row items-center gap-3 mt-3 md:mt-0">
             <!-- BUSCADOR REUBICADO -->
             <div class="relative w-full md:w-64">
                 <span class="absolute inset-y-0 left-0 flex items-center pl-2">

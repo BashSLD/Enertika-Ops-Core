@@ -1,7 +1,71 @@
 <div class="animate-fade-in-down px-4">
-    <!-- Header -->
-    <!-- Header -->
-    <div class="glass-panel rounded-xl shadow-lg p-4 border-l-4 border-[#00BABB] mb-4">
+    {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
+    <!-- MOVIL: barra compacta -->
+    <div class="md:hidden flex items-center justify-between mb-4 px-1">
+        <span class="text-sm font-bold text-[#00BABB]">Compras</span>
+        <div x-data="{ open: false }" class="relative">
+            <button @click="open = !open"
+                class="flex items-center gap-1 bg-[#00BABB] text-white text-xs font-semibold py-1.5 px-3 rounded-lg">
+                Acciones
+                <svg class="h-3 w-3 transition-transform" :class="open && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+            <div x-show="open" x-transition @click.outside="open = false"
+                class="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl shadow-xl border border-gray-100 p-2 flex flex-col gap-2 min-w-[160px]">
+                {% if can_edit %}
+                <button onclick="document.getElementById('upload-modal').classList.remove('hidden')"
+                    class="bg-[#00BABB] text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+                    </svg>
+                    Cargar PDFs
+                </button>
+                <button onclick="document.getElementById('upload-xml-modal').classList.remove('hidden')"
+                    class="bg-orange-500 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+                    </svg>
+                    Cargar XMLs
+                </button>
+                {% endif %}
+                <a href="/compras/export-excel?estatus=SIN_COMPLETAR&fecha_inicio={{ filtros.fecha_inicio }}&fecha_fin={{ filtros.fecha_fin }}"
+                    class="bg-green-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Exportar Excel
+                </a>
+                <a hx-get="/materials/ui" hx-target="#main-content" hx-push-url="true"
+                    class="bg-indigo-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2 cursor-pointer">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                    </svg>
+                    Materiales
+                </a>
+                <button hx-get="/compras/relaciones" hx-target="#relaciones-container" hx-swap="innerHTML"
+                    class="bg-teal-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                    </svg>
+                    Relaciones
+                </button>
+                <button onclick="abrirModalCrearProyecto()"
+                    class="bg-purple-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
+                    </svg>
+                    Crear Proyecto
+                </button>
+            </div>
+        </div>
+    </div>
+    <!-- DESKTOP: Header -->
+    <div class="glass-panel rounded-xl shadow-lg p-4 border-l-4 border-[#00BABB] mb-4 hidden md:block">
         <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
             <div>
                 <h1 class="text-2xl font-light text-[#123456] mb-2">
@@ -13,7 +77,6 @@
             </div>
 
             <!-- Acciones principales -->
-            {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
             <div class="flex flex-wrap gap-3">
                 {% if can_edit %}
                 <!-- Botón Upload PDFs -->

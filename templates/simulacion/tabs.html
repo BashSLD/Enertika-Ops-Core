@@ -30,9 +30,47 @@
     }
 </style>
 <div class="flex flex-col h-full relative">
-    <!-- Header with Actions -->
+    <!-- MOVIL: barra compacta -->
+    <div class="md:hidden flex items-center justify-between mb-4 px-1">
+        <span class="text-sm font-bold text-indigo-600">Simulación</span>
+        <div x-data="{ open: false }" class="relative">
+            <button @click="open = !open"
+                class="flex items-center gap-1 bg-indigo-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg">
+                Acciones
+                <svg class="h-3 w-3 transition-transform" :class="open && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+            <div x-show="open" x-transition @click.outside="open = false"
+                class="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl shadow-xl border border-gray-100 p-2 flex flex-col gap-2 min-w-[180px]">
+                {% set is_admin_or_manager = (role == 'ADMIN') or (role == 'MANAGER') %}
+                {% set can_view_metrics = is_admin_or_manager and (current_module_role in ['editor', 'admin']) %}
+                {% if can_view_metrics %}
+                <button hx-get="/simulacion/metricas-operativas" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                    class="bg-indigo-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    Métricas Operativas
+                </button>
+                {% endif %}
+                {% if is_admin_or_manager %}
+                <button onclick="document.getElementById('btn-sim-extraordinario').click()"
+                    class="bg-orange-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                    </svg>
+                    Reg. Extraordinario
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+    <!-- DESKTOP: Header with Actions -->
     <div
-        class="glass-panel p-4 rounded-xl mb-4 flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-l-4 border-indigo-500">
+        class="glass-panel p-4 rounded-xl mb-4 hidden md:flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-l-4 border-indigo-500">
         <div>
             <h2 class="text-2xl font-light text-gray-800">
                 Módulo <span class="font-bold text-indigo-600">Simulación</span>
@@ -62,7 +100,7 @@
             {% if is_admin_or_manager %}
             <!-- Botón: Registro Extraordinario (Solo ADMIN/MANAGER) con Popup Advertencia -->
             <div x-data="{ showWarning: false }" class="relative">
-                <button @click="showWarning = true"
+                <button id="btn-sim-extraordinario" @click="showWarning = true"
                     class="ripple-effect bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold py-2 px-3 rounded-lg shadow-lg shadow-orange-600/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">

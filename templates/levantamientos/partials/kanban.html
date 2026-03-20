@@ -1,7 +1,67 @@
 <div id="kanban-container" class="flex flex-col h-full">
-    <!-- Header Premium -->
+    <!-- MOVIL: barra compacta -->
+    <div class="md:hidden flex items-center justify-between mb-4 px-1">
+        <span class="text-sm font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-500">Levantamientos</span>
+        <div x-data="{ open: false }" class="relative">
+            <button @click="open = !open"
+                class="flex items-center gap-1 bg-blue-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg">
+                Acciones
+                <svg class="h-3 w-3 transition-transform" :class="open && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+            <div x-show="open" x-transition @click.outside="open = false"
+                class="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl shadow-xl border border-gray-100 p-2 flex flex-col gap-2 min-w-[160px]">
+                {% if can_edit %}
+                <button hx-get="/levantamientos/visitas-campo/nueva"
+                    hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                    class="bg-teal-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+                    </svg>
+                    Visita de Campo
+                </button>
+                {% endif %}
+                <button hx-get="/levantamientos/partials/visitas" hx-target="#kanban-container" hx-swap="outerHTML"
+                    class="bg-violet-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    </svg>
+                    Visitas
+                </button>
+                <button hx-get="/levantamientos/partials/graficas" hx-target="#kanban-container" hx-swap="outerHTML"
+                    class="bg-emerald-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                    </svg>
+                    Gráficas
+                </button>
+                <button hx-get="/levantamientos/partials/lista?tab=activos" hx-target="#kanban-container" hx-swap="outerHTML"
+                    class="bg-indigo-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18M3 6h18M3 18h18" />
+                    </svg>
+                    Ver Lista
+                </button>
+                <button hx-get="/levantamientos/partials/kanban" hx-target="#kanban-container" hx-swap="outerHTML"
+                    class="bg-blue-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                    </svg>
+                    Actualizar
+                </button>
+            </div>
+        </div>
+    </div>
+    <!-- DESKTOP: Header Premium -->
     <div
-        class="glass-panel p-4 rounded-xl mb-4 flex flex-wrap gap-3 justify-between items-center border-l-4 border-blue-500">
+        class="glass-panel p-4 rounded-xl mb-4 hidden md:flex flex-wrap gap-3 justify-between items-center border-l-4 border-blue-500">
         <div>
             <h2 class="text-2xl font-light text-gray-800">
                 Módulo <span
@@ -15,14 +75,22 @@
             <button hx-get="/levantamientos/visitas-campo/nueva"
                 hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
                 class="bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold py-2 px-3 rounded-lg flex items-center gap-2 transition-all duration-200">
-                <i class="fas fa-route"></i>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+                </svg>
                 <span class="hidden sm:inline">Visita de Campo</span>
             </button>
             {% endif %}
             <!-- Ver Visitas -->
             <button hx-get="/levantamientos/partials/visitas" hx-target="#kanban-container" hx-swap="outerHTML"
                 class="bg-violet-600 hover:bg-violet-700 text-white text-sm font-semibold py-2 px-3 rounded-lg flex items-center gap-2 transition-all duration-200">
-                <i class="fas fa-map-marker-alt h-4 w-4"></i>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
                 <span class="hidden sm:inline">Visitas</span>
             </button>
             <!-- Ver Gráficas -->
