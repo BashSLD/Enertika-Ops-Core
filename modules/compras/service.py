@@ -804,7 +804,7 @@ class ComprasService:
         monto_ya_facturado = Decimal(str(comprobante.get('monto_facturado') or 0))
 
         # Validar anti-sobrefacturacion
-        if tipo_factura not in ('NOTA_CREDITO', 'ANTICIPO'):
+        if tipo_factura not in ('NOTA_CREDITO', 'ANTICIPO', 'PAGO'):
             proyectado = monto_ya_facturado + monto_factura
             if proyectado > monto_pago + Decimal("0.50"):
                 exceso = proyectado - monto_pago

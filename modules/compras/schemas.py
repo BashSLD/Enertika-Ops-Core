@@ -335,6 +335,7 @@ class TipoFactura(str, Enum):
     ANTICIPO = "ANTICIPO"
     CIERRE_ANTICIPO = "CIERRE_ANTICIPO"
     NOTA_CREDITO = "NOTA_CREDITO"
+    PAGO = "PAGO"  # CFDI complemento de pago (TipoDeComprobante="P")
 
 
 class TipoComprobanteSAT(str, Enum):
