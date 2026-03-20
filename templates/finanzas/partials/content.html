@@ -1,0 +1,61 @@
+<div id="finanzas-main-content" class="h-full flex flex-col animate-fade-in-down" x-data="{ tab: 'pendientes' }">
+
+    {# Header #}
+    <div class="glass-panel p-4 rounded-xl mb-4 flex flex-col md:flex-row justify-between md:items-center gap-3 border-l-4 border-emerald-500">
+        <div class="hidden md:block">
+            <h2 class="text-2xl font-light text-gray-800">
+                Módulo <span class="font-bold text-emerald-600">Finanzas</span>
+            </h2>
+            <p class="text-gray-500 text-sm mt-1">Gestión de pagos BOM autorizados</p>
+        </div>
+    </div>
+
+    {# KPIs #}
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+        <div class="glass-card p-4 rounded-xl">
+            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Pendientes de Pago</h3>
+            <div class="text-3xl font-bold text-amber-600 mt-2">{{ kpis.pendientes_pago }}</div>
+        </div>
+        <div class="glass-card p-4 rounded-xl">
+            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Pagos Últimos 30d</h3>
+            <div class="text-3xl font-bold text-emerald-600 mt-2">{{ kpis.pagados_30d }}</div>
+        </div>
+        <div class="glass-card p-4 rounded-xl">
+            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Pagado Este Mes (MXN)</h3>
+            <div class="text-3xl font-bold text-blue-600 mt-2">
+                ${{ "{:,.0f}".format(kpis.monto_pagado_mes_mxn or 0) }}
+            </div>
+        </div>
+    </div>
+
+    {# Tabs #}
+    <div class="glass-panel rounded-xl flex-1 flex flex-col">
+        <div class="flex border-b border-gray-200 px-4">
+            <button @click="tab = 'pendientes'"
+                :class="tab === 'pendientes' ? 'border-b-2 border-amber-500 text-amber-700 font-semibold' : 'text-gray-500 hover:text-gray-700'"
+                class="px-4 py-3 text-sm transition-colors duration-150 flex items-center gap-2">
+                Pendientes de Pago
+                {% if kpis.pendientes_pago > 0 %}
+                <span class="bg-amber-100 text-amber-800 text-xs font-bold px-2 py-0.5 rounded-full">
+                    {{ kpis.pendientes_pago }}
+                </span>
+                {% endif %}
+            </button>
+            <button @click="tab = 'historial'"
+                :class="tab === 'historial' ? 'border-b-2 border-emerald-500 text-emerald-700 font-semibold' : 'text-gray-500 hover:text-gray-700'"
+                class="px-4 py-3 text-sm transition-colors duration-150">
+                Historial de Pagos
+            </button>
+        </div>
+
+        {# Pendientes #}
+        <div x-show="tab === 'pendientes'" class="p-4 flex-1 overflow-auto">
+            {% include "finanzas/partials/lista_pendientes.html" %}
+        </div>
+
+        {# Historial #}
+        <div x-show="tab === 'historial'" class="p-4 flex-1 overflow-auto">
+            {% include "finanzas/partials/lista_historial.html" %}
+        </div>
+    </div>
+</div>

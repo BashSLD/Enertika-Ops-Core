@@ -1187,17 +1187,19 @@ class BomService:
         return updated
 
     async def aprobar_finanzas(
-        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str], user_role: str
+        self, conn, autorizacion_id: UUID, user_id: UUID, nota: Optional[str],
+        user_role: str, finanzas_role: Optional[str] = None
     ) -> dict:
-        """Aprueba paso 3 (Finanzas). Hasta Fase E, solo ADMIN puede aprobar."""
+        """Aprueba paso 3 (Finanzas). Requiere ADMIN o rol finanzas editor+."""
         aut = await self.db.get_autorizacion_by_id(conn, autorizacion_id)
         if not aut:
             raise ValueError("Autorización no encontrada.")
         if aut['estatus'] != 'AUTORIZADO_DIRECCION':
             raise ValueError(f"La autorización está en estatus {aut['estatus']} y no puede aprobarse en este paso.")
 
-        if user_role != 'ADMIN':
-            raise ValueError("Solo Finanzas puede aprobar este paso.")
+        es_finanzas = finanzas_role in ('editor', 'admin')
+        if user_role != 'ADMIN' and not es_finanzas:
+            raise ValueError("Solo usuarios del módulo Finanzas pueden aprobar este paso.")
 
         # Actualizar estatus_compra de los ítems a AUTORIZADO
         items_cot = await self.db.get_items_cotizacion(conn, aut['cotizacion_id'])
@@ -1212,7 +1214,7 @@ class BomService:
 
     async def rechazar_autorizacion(
         self, conn, autorizacion_id: UUID, user_id: UUID, motivo: str,
-        user_role: str, rol_org: Optional[str]
+        user_role: str, rol_org: Optional[str], finanzas_role: Optional[str] = None
     ) -> dict:
         """Rechaza la autorización en el paso actual. Cotización vuelve a RECIBIDA."""
         aut = await self.db.get_autorizacion_by_id(conn, autorizacion_id)
@@ -1236,8 +1238,9 @@ class BomService:
                 raise ValueError("Solo el Director puede rechazar en este paso.")
         else:  # AUTORIZADO_DIRECCION
             paso = 'FINANZAS'
-            if user_role != 'ADMIN':
-                raise ValueError("Solo Finanzas puede rechazar en este paso.")
+            es_finanzas = finanzas_role in ('editor', 'admin')
+            if user_role != 'ADMIN' and not es_finanzas:
+                raise ValueError("Solo usuarios del módulo Finanzas pueden rechazar en este paso.")
 
         updated = await self.db.rechazar_autorizacion_db(conn, autorizacion_id, user_id, motivo, paso)
 

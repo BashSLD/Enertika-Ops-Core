@@ -1,0 +1,56 @@
+{% if not pendientes %}
+<div class="text-center py-12 text-gray-400">
+    <svg class="w-12 h-12 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+              d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <p class="text-sm">Sin autorizaciones pendientes de pago</p>
+</div>
+{% else %}
+<div class="overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
+                <th class="pb-2 pr-4">Proyecto</th>
+                <th class="pb-2 pr-4">Proveedor</th>
+                <th class="pb-2 pr-4">Monto</th>
+                <th class="pb-2 pr-4">Aprobado</th>
+                <th class="pb-2"></th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100" id="finanzas-pendientes-list">
+            {% for a in pendientes %}
+            <tr class="hover:bg-gray-50 transition-colors duration-100" id="finanzas-aut-{{ a.id }}">
+                <td class="py-3 pr-4">
+                    <div class="font-medium text-gray-800">{{ a.proyecto_id_estandar or '—' }}</div>
+                    <div class="text-xs text-gray-500">{{ a.nombre_proyecto or '' }}</div>
+                </td>
+                <td class="py-3 pr-4 text-gray-700">{{ a.nombre_proveedor or '—' }}</td>
+                <td class="py-3 pr-4">
+                    <span class="font-semibold text-gray-800">
+                        {{ a.moneda }} ${{ "{:,.2f}".format(a.monto_total) }}
+                    </span>
+                    {% if a.tipo_cambio_snapshot and a.moneda == 'USD' %}
+                    <div class="text-xs text-gray-400">TC {{ a.tipo_cambio_snapshot }}</div>
+                    {% endif %}
+                </td>
+                <td class="py-3 pr-4 text-gray-500 text-xs">
+                    {{ a.fecha_aprobacion_finanzas | time_mx if a.fecha_aprobacion_finanzas else '—' }}
+                </td>
+                <td class="py-3 text-right">
+                    {% if puede_registrar_pago %}
+                    <button
+                        hx-get="/finanzas/autorizaciones/{{ a.id }}/modal-pago"
+                        hx-target="body"
+                        hx-swap="beforeend"
+                        class="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 transition-colors duration-150">
+                        Registrar Pago
+                    </button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}

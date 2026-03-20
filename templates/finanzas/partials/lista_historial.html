@@ -1,0 +1,50 @@
+{% if not historial %}
+<div class="text-center py-12 text-gray-400">
+    <p class="text-sm">Sin pagos registrados aún.</p>
+</div>
+{% else %}
+<div class="overflow-x-auto">
+    <table class="w-full text-sm">
+        <thead>
+            <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
+                <th class="pb-2 pr-4">Fecha Pago</th>
+                <th class="pb-2 pr-4">Proyecto</th>
+                <th class="pb-2 pr-4">Proveedor</th>
+                <th class="pb-2 pr-4">Monto</th>
+                <th class="pb-2 pr-4">Referencia</th>
+                <th class="pb-2 pr-4">Comprobante</th>
+                <th class="pb-2">Registrado por</th>
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            {% for p in historial %}
+            <tr class="hover:bg-gray-50 transition-colors duration-100">
+                <td class="py-3 pr-4 text-gray-700">
+                    {{ p.fecha_pago.strftime('%d/%m/%Y') if p.fecha_pago else '—' }}
+                </td>
+                <td class="py-3 pr-4">
+                    <div class="font-medium text-gray-800">{{ p.proyecto_id_estandar or '—' }}</div>
+                    <div class="text-xs text-gray-500">{{ p.nombre_proyecto or '' }}</div>
+                </td>
+                <td class="py-3 pr-4 text-gray-700">{{ p.nombre_proveedor or '—' }}</td>
+                <td class="py-3 pr-4 font-semibold text-gray-800">
+                    {{ p.moneda }} ${{ "{:,.2f}".format(p.monto_pagado) }}
+                </td>
+                <td class="py-3 pr-4 text-gray-500 text-xs">{{ p.referencia_bancaria or '—' }}</td>
+                <td class="py-3 pr-4">
+                    {% if p.comprobante_url %}
+                    <a href="{{ p.comprobante_url }}" target="_blank"
+                       class="text-xs text-blue-600 hover:underline">Ver PDF</a>
+                    {% elif p.id_comprobante %}
+                    <span class="text-xs text-gray-400">En Compras</span>
+                    {% else %}
+                    <span class="text-xs text-gray-300">—</span>
+                    {% endif %}
+                </td>
+                <td class="py-3 text-gray-500 text-xs">{{ p.registrado_por_nombre or '—' }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}

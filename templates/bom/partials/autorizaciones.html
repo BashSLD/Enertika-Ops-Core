@@ -114,8 +114,8 @@
                     </button>
                     {% endif %}
 
-                    {# Paso 3: Finanzas (solo ADMIN hasta Fase E) #}
-                    {% if aut.estatus == 'AUTORIZADO_DIRECCION' and es_admin %}
+                    {# Paso 3: Finanzas — ADMIN o usuario con rol finanzas editor+ #}
+                    {% if aut.estatus == 'AUTORIZADO_DIRECCION' and (es_admin or es_finanzas) %}
                     <form hx-post="/bom/autorizaciones/{{ aut.id }}/aprobar-finanzas"
                           hx-target="#tab-autorizaciones" hx-swap="innerHTML">
                         <input type="hidden" name="nota" value="">

@@ -1459,10 +1459,12 @@ def _autorizacion_ctx(request, autorizaciones, bom, context) -> dict:
     module_roles = context.get("module_roles", {})
     user_id = context.get("user_db_id")
     rol_org = context.get("rol_organizacional")
+    finanzas_role = module_roles.get("finanzas")
 
     es_admin = role == "ADMIN"
     es_director = rol_org == "director"
     es_coordinador_obra = bom.get("coordinador_obra") == user_id if bom else False
+    es_finanzas = finanzas_role in ("editor", "admin")
 
     return {
         "request": request,
@@ -1472,6 +1474,7 @@ def _autorizacion_ctx(request, autorizaciones, bom, context) -> dict:
         "es_admin": es_admin,
         "es_director": es_director,
         "es_coordinador_obra": es_coordinador_obra,
+        "es_finanzas": es_finanzas,
     }
 
 
@@ -1561,8 +1564,9 @@ async def aprobar_autorizacion_finanzas(
 ):
     user_id = context.get("user_db_id")
     user_role = context.get("role")
+    finanzas_role = context.get("module_roles", {}).get("finanzas")
     try:
-        aut = await service.aprobar_finanzas(conn, autorizacion_id, user_id, nota, user_role)
+        aut = await service.aprobar_finanzas(conn, autorizacion_id, user_id, nota, user_role, finanzas_role)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except asyncpg.PostgresError:
@@ -1589,8 +1593,9 @@ async def rechazar_autorizacion(
     user_id = context.get("user_db_id")
     user_role = context.get("role")
     rol_org = context.get("rol_organizacional")
+    finanzas_role = context.get("module_roles", {}).get("finanzas")
     try:
-        aut = await service.rechazar_autorizacion(conn, autorizacion_id, user_id, motivo, user_role, rol_org)
+        aut = await service.rechazar_autorizacion(conn, autorizacion_id, user_id, motivo, user_role, rol_org, finanzas_role)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except asyncpg.PostgresError:
