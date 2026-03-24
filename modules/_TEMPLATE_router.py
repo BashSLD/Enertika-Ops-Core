@@ -95,11 +95,14 @@ async def get_template_ui(
     - Esto puede causar duplicación del sidebar o módulos ocultos incorrectamente
     """
     # HTMX Detection: carga parcial vs completa
-    if request.headers.get("hx-request"):
+    # CRITICO: checar ambos headers — hx-history-restore-request indica Back/Forward
+    is_htmx = request.headers.get("hx-request")
+    is_history_restore = request.headers.get("hx-history-restore-request")
+    if is_htmx and not is_history_restore:
         # Carga parcial desde sidebar (HTMX)
         template = "TEMPLATE/partials/content.html"  # Cambiar ruta
     else:
-        # Carga completa (F5 o URL directo)
+        # Carga completa (F5, URL directo, o Back/Forward con cache vacío)
         template = "TEMPLATE/dashboard.html"  # Cambiar ruta
     
     return templates.TemplateResponse(request, template, {"user_name": context.get("user_name"),
