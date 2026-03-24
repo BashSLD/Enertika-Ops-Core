@@ -307,9 +307,9 @@ async def get_comprobantes_list(
                 "fecha_inicio": filtros.fecha_inicio.isoformat() if filtros.fecha_inicio else "",
                 "fecha_fin": filtros.fecha_fin.isoformat() if filtros.fecha_fin else "",
                 "estatus": filtros.estatus or "",
-                "id_zona": filtros.id_zona,
+                "id_zona": filtros.id_zona or "",
                 "id_proyecto": str(filtros.id_proyecto) if filtros.id_proyecto else "",
-                "id_categoria": filtros.id_categoria
+                "id_categoria": filtros.id_categoria or "",
             }
         }
     )
