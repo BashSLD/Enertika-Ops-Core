@@ -888,22 +888,42 @@ class LevantamientosDBService:
 
     async def get_visitas_campo_for_lev(self, conn, id_levantamiento: UUID) -> List[dict]:
         """
-        Retorna visitas de campo que contienen este levantamiento.
-        Usado por el modal de viáticos individuales para mostrar el indicador
-        de que el levantamiento pertenece a una Visita de Campo.
+        Retorna visitas de campo que contienen este levantamiento, con viáticos y prorrateo.
         """
         rows = await conn.fetch("""
             SELECT
                 v.id_visita,
                 v.nombre,
                 v.fecha_inicio AT TIME ZONE 'America/Mexico_City' AS fecha_inicio,
-                v.fecha_fin    AT TIME ZONE 'America/Mexico_City' AS fecha_fin
+                v.fecha_fin    AT TIME ZONE 'America/Mexico_City' AS fecha_fin,
+                (SELECT COALESCE(SUM(monto), 0) FROM tb_visita_campo_viaticos WHERE id_visita = v.id_visita) AS total_viaticos,
+                (SELECT COUNT(*) FROM tb_visita_campo_levantamientos WHERE id_visita = v.id_visita) AS num_levantamientos,
+                EXISTS(SELECT 1 FROM tb_visita_campo_envios WHERE id_visita = v.id_visita AND estatus = 'enviado') AS enviada
             FROM tb_visita_campo_levantamientos vcl
             JOIN tb_visitas_campo v ON vcl.id_visita = v.id_visita
             WHERE vcl.id_levantamiento = $1
             ORDER BY v.fecha_inicio DESC
         """, id_levantamiento)
-        return [dict(r) for r in rows]
+        rows_dicts = [dict(r) for r in rows]
+        # Calcular prorrateo para este levantamiento en cada visita
+        for r in rows_dicts:
+            n = r["num_levantamientos"] or 1
+            r["monto_prorrateo"] = float(r["total_viaticos"]) / n if r["total_viaticos"] else 0.0
+        return rows_dicts
+
+    async def check_visita_tiene_viaticos(self, conn, id_levantamiento: UUID) -> bool:
+        """
+        Verifica si el levantamiento pertenece a alguna visita de campo
+        que tenga viáticos registrados (aunque aún no se haya enviado el correo).
+        """
+        return await conn.fetchval("""
+            SELECT EXISTS(
+                SELECT 1
+                FROM tb_visita_campo_levantamientos vcl
+                JOIN tb_visita_campo_viaticos vcv ON vcl.id_visita = vcv.id_visita
+                WHERE vcl.id_levantamiento = $1
+            )
+        """, id_levantamiento)
 
 
 # --------------------------------------------------------------

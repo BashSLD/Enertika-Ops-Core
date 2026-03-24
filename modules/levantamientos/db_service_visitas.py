@@ -93,18 +93,11 @@ class VisitasCampoDBService:
                 v.fecha_fin    AT TIME ZONE 'America/Mexico_City' AS fecha_fin,
                 v.created_at   AT TIME ZONE 'America/Mexico_City' AS created_at,
                 u.nombre AS creado_por_nombre,
-                COUNT(DISTINCT vcl.id_levantamiento)  AS num_levantamientos,
-                COALESCE(SUM(vcv.monto), 0)           AS total_viaticos
+                (SELECT COUNT(*) FROM tb_visita_campo_levantamientos WHERE id_visita = v.id_visita) AS num_levantamientos,
+                (SELECT COALESCE(SUM(monto), 0) FROM tb_visita_campo_viaticos WHERE id_visita = v.id_visita) AS total_viaticos
             FROM tb_visitas_campo v
-            LEFT JOIN tb_usuarios u
-                ON v.creado_por_id = u.id_usuario
-            LEFT JOIN tb_visita_campo_levantamientos vcl
-                ON v.id_visita = vcl.id_visita
-            LEFT JOIN tb_visita_campo_viaticos vcv
-                ON v.id_visita = vcv.id_visita
+            LEFT JOIN tb_usuarios u ON v.creado_por_id = u.id_usuario
             WHERE v.id_visita = $1
-            GROUP BY v.id_visita, v.nombre, v.viaticos_opcionales,
-                     v.fecha_inicio, v.fecha_fin, v.created_at, u.nombre
         """, id_visita)
         return dict(row) if row else None
 
@@ -162,17 +155,11 @@ class VisitasCampoDBService:
                 v.nombre,
                 v.fecha_inicio AT TIME ZONE 'America/Mexico_City' AS fecha_inicio,
                 v.fecha_fin    AT TIME ZONE 'America/Mexico_City' AS fecha_fin,
-                COUNT(DISTINCT vcl2.id_levantamiento) AS num_levantamientos,
-                COALESCE(SUM(vcv.monto), 0)           AS total_viaticos
+                (SELECT COUNT(*) FROM tb_visita_campo_levantamientos WHERE id_visita = v.id_visita) AS num_levantamientos,
+                (SELECT COALESCE(SUM(monto), 0) FROM tb_visita_campo_viaticos WHERE id_visita = v.id_visita) AS total_viaticos
             FROM tb_visita_campo_levantamientos vcl
-            JOIN tb_visitas_campo v
-                ON vcl.id_visita = v.id_visita
-            LEFT JOIN tb_visita_campo_levantamientos vcl2
-                ON v.id_visita = vcl2.id_visita
-            LEFT JOIN tb_visita_campo_viaticos vcv
-                ON v.id_visita = vcv.id_visita
+            JOIN tb_visitas_campo v ON vcl.id_visita = v.id_visita
             WHERE vcl.id_levantamiento = $1
-            GROUP BY v.id_visita, v.nombre, v.fecha_inicio, v.fecha_fin
             ORDER BY v.fecha_inicio DESC
         """, id_levantamiento)
         return [dict(r) for r in rows]
@@ -559,16 +546,10 @@ class VisitasCampoDBService:
                 v.fecha_inicio AT TIME ZONE 'America/Mexico_City' AS fecha_inicio,
                 v.fecha_fin    AT TIME ZONE 'America/Mexico_City' AS fecha_fin,
                 v.created_at   AT TIME ZONE 'America/Mexico_City' AS created_at,
-                COUNT(DISTINCT vcl.id_levantamiento)              AS num_levantamientos,
-                COALESCE(SUM(vcv.monto), 0)                       AS total_viaticos,
-                EXISTS(
-                    SELECT 1 FROM tb_visita_campo_envios e
-                    WHERE e.id_visita = v.id_visita
-                ) AS enviada
+                (SELECT COUNT(*) FROM tb_visita_campo_levantamientos WHERE id_visita = v.id_visita) AS num_levantamientos,
+                (SELECT COALESCE(SUM(monto), 0) FROM tb_visita_campo_viaticos WHERE id_visita = v.id_visita) AS total_viaticos,
+                EXISTS(SELECT 1 FROM tb_visita_campo_envios e WHERE e.id_visita = v.id_visita) AS enviada
             FROM tb_visitas_campo v
-            LEFT JOIN tb_visita_campo_levantamientos vcl ON vcl.id_visita = v.id_visita
-            LEFT JOIN tb_visita_campo_viaticos vcv        ON vcv.id_visita = v.id_visita
-            GROUP BY v.id_visita, v.nombre, v.fecha_inicio, v.fecha_fin, v.created_at
             ORDER BY v.created_at DESC
         """)
         return [dict(r) for r in rows]

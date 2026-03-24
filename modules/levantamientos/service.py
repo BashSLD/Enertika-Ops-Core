@@ -560,7 +560,7 @@ class LevantamientoService:
                     updated_by_id = $3
                 WHERE id_levantamiento = $4
             """, nuevo_estado, now_mx, user_context['user_db_id'], id_levantamiento)
-            
+
             # Insertar en Historial (Reemplazo de Trigger)
             await self._registrar_en_historial(
                 conn=conn,
@@ -570,6 +570,55 @@ class LevantamientoService:
                 user_context=user_context,
                 observaciones=observaciones or "Cambio de estado manual"
             )
+
+            # Al completar: si el levantamiento está en una visita de campo con viáticos
+            # y aún no tiene registro en el historico individual, auto-confirmar con prorrateo.
+            _db_svc = _get_db_cambiar()
+            _estatus_map2 = await _db_svc.get_estatus_map(conn)
+            id_completado = _estatus_map2.get('completado')
+            if nuevo_estado == id_completado:
+                already_sent = await _db_svc.check_viaticos_sent(conn, id_levantamiento)
+                if not already_sent:
+                    visita_rows = await conn.fetch("""
+                        SELECT
+                            v.id_visita,
+                            v.nombre,
+                            (SELECT COALESCE(SUM(monto), 0) FROM tb_visita_campo_viaticos WHERE id_visita = v.id_visita) AS total_viaticos,
+                            (SELECT COUNT(*) FROM tb_visita_campo_levantamientos WHERE id_visita = v.id_visita) AS num_levantamientos,
+                            (SELECT json_agg(json_build_object('usuario_nombre', COALESCE(u.nombre, 'Sin asignar'), 'concepto', vcv.concepto, 'monto', vcv.monto))
+                             FROM tb_visita_campo_viaticos vcv
+                             LEFT JOIN tb_usuarios u ON vcv.usuario_id = u.id_usuario
+                             WHERE vcv.id_visita = v.id_visita
+                            ) AS viaticos_json
+                        FROM tb_visita_campo_levantamientos vcl
+                        JOIN tb_visitas_campo v ON vcl.id_visita = v.id_visita
+                        WHERE vcl.id_levantamiento = $1
+                          AND (SELECT COUNT(*) FROM tb_visita_campo_viaticos WHERE id_visita = v.id_visita) > 0
+                        ORDER BY v.created_at DESC
+                        LIMIT 1
+                    """, id_levantamiento)
+                    if visita_rows:
+                        import json as _json
+                        vr = visita_rows[0]
+                        n = int(vr["num_levantamientos"]) or 1
+                        total = float(vr["total_viaticos"]) or 0.0
+                        monto_prorrateo = round(total / n, 2)
+                        snapshot = _json.loads(vr["viaticos_json"]) if vr["viaticos_json"] else []
+                        await conn.execute("""
+                            INSERT INTO tb_levantamiento_viaticos_historico
+                                (id_levantamiento, enviado_por_id, enviado_por_nombre,
+                                 fecha_envio, to_destinatarios, cc_destinatarios,
+                                 viaticos_snapshot, total_monto, estatus)
+                            VALUES ($1, $2, $3, now(), $4, $5, $6::jsonb, $7, 'enviado')
+                        """,
+                            id_levantamiento,
+                            user_context["user_db_id"],
+                            user_context.get("user_name", "Sistema"),
+                            [],
+                            [],
+                            _json.dumps(snapshot),
+                            monto_prorrateo,
+                        )
         
         # Notificar cambio de estado - Fire & Forget para respuesta instantánea
         asyncio.create_task(
@@ -604,11 +653,14 @@ class LevantamientoService:
                 )
 
             # Regla 2: Para pasar a "En Proceso", debe haber solicitado viáticos
+            # (vía individual enviado) O tener viáticos registrados en una visita de campo.
             has_viaticos = await db_svc.check_viaticos_sent(conn, id_levantamiento)
+            if not has_viaticos:
+                has_viaticos = await db_svc.check_visita_tiene_viaticos(conn, id_levantamiento)
             if not has_viaticos:
                 raise HTTPException(
                     status_code=400,
-                    detail="Debes enviar la solicitud de viáticos antes de iniciar."
+                    detail="Debes registrar los viáticos (o enviar la solicitud) antes de iniciar."
                 )
 
     async def get_modal_data(self, conn, id_levantamiento: UUID) -> dict:

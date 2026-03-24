@@ -5,7 +5,7 @@
 # ==============================================================
 
 import logging
-from typing import Optional
+from typing import List, Optional
 from uuid import UUID
 from datetime import datetime
 from zoneinfo import ZoneInfo
@@ -457,7 +457,7 @@ def register_modal_endpoints(router: APIRouter):
     @router.api_route("/visitas-campo/nueva", methods=["GET", "HEAD"], include_in_schema=False)
     async def get_page_nueva_visita(
         request: Request,
-        id_levantamiento: Optional[UUID] = Query(None),
+        id_levantamiento: List[UUID] = Query(default=[]),
         conn=Depends(get_db_connection),
         visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
         context=Depends(get_current_user_context),
@@ -466,9 +466,10 @@ def register_modal_endpoints(router: APIRouter):
         """
         Página dedicada para crear una nueva Visita de Campo.
         Dual render: HTMX → content partial; directo → full page con base.html.
+        Soporta múltiples pre-selecciones via ?id_levantamiento=uuid1&id_levantamiento=uuid2.
         """
         levantamientos = await visitas_db_svc.get_levantamientos_disponibles(conn)
-        preseleccionado = str(id_levantamiento) if id_levantamiento else None
+        preseleccionados = [str(uid) for uid in id_levantamiento]
 
         # JSON pre-serializado para Alpine (los asyncpg Records tienen campos datetime)
         import json as _json
@@ -490,7 +491,7 @@ def register_modal_endpoints(router: APIRouter):
         ctx = {
             "request": request,
             "levantamientos_disponibles": levantamientos,
-            "preseleccionado": preseleccionado,
+            "preseleccionados": preseleccionados,
             "lev_data_json": lev_data_json,
         }
 

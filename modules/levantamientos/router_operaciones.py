@@ -775,6 +775,17 @@ def register_operaciones_endpoints(router: APIRouter):
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
         viaticos = await db_svc.get_viaticos(conn, id_levantamiento)
+        # Si no hay viáticos individuales, buscar en visita de campo (prorrateo)
+        if not viaticos:
+            visitas_vc = await db_svc.get_visitas_campo_for_lev(conn, id_levantamiento)
+            for vc in visitas_vc:
+                if vc.get("monto_prorrateo", 0) > 0:
+                    viaticos = [{
+                        "usuario_nombre": "Prorrateo — " + (vc.get("nombre") or "Visita de Campo"),
+                        "concepto": f"Prorrateo visita de campo ({vc['num_levantamientos']} sitios)",
+                        "monto": vc["monto_prorrateo"],
+                    }]
+                    break
         historial = await db_svc.get_historial_envios(conn, id_levantamiento)
 
         header_font = Font(bold=True, color="FFFFFF", size=11)
@@ -919,10 +930,19 @@ def register_operaciones_endpoints(router: APIRouter):
         def _err(msg: str) -> HTMLResponse:
             return HTMLResponse(
                 content=(
-                    '<div id="vc-crear-error"'
-                    ' class="mb-4 p-3 bg-red-900/40 border border-red-500/50 rounded-lg text-red-300 text-sm">'
-                    f'<i class="fas fa-exclamation-circle mr-2"></i>{msg}'
-                    "</div>"
+                    '<div x-data="{show:true}" x-show="show" x-transition'
+                    ' x-init="setTimeout(()=>show=false,6000)"'
+                    ' class="pointer-events-auto max-w-sm w-full bg-slate-800 border border-red-500/60'
+                    ' rounded-xl shadow-lg p-4 flex items-start gap-3">'
+                    '<div class="flex-shrink-0 w-8 h-8 rounded-full bg-red-500/20 flex items-center justify-center">'
+                    '<i class="fas fa-exclamation-circle text-red-400 text-sm"></i></div>'
+                    '<div class="flex-1 min-w-0">'
+                    '<p class="text-sm font-semibold text-red-400">Error</p>'
+                    f'<p class="text-xs text-slate-300 mt-0.5">{msg}</p>'
+                    '</div>'
+                    '<button @click="show=false" class="text-slate-500 hover:text-white transition-colors flex-shrink-0">'
+                    '<i class="fas fa-times text-xs"></i></button>'
+                    '</div>'
                 ),
                 status_code=200,
             )
@@ -1469,6 +1489,27 @@ def register_operaciones_endpoints(router: APIRouter):
             estatus=estatus_envio,
             error_detalle=error_detalle,
         )
+
+        # Al envío exitoso: registrar en historial individual de cada levantamiento
+        # para que check_viaticos_sent() los reconozca y permitan cambiar a "En Proceso".
+        if estatus_envio == "enviado":
+            snapshot_viaticos = [
+                {"usuario_nombre": v["usuario_nombre"], "concepto": v["concepto"], "monto": float(v["monto"])}
+                for v in viaticos
+            ]
+            for lev in levantamientos_visita:
+                monto_lev = float(prorrateo.get(str(lev["id_levantamiento"]), 0)) if prorrateo else 0.0
+                await db_svc.insert_historial_envio(
+                    conn=conn,
+                    id_levantamiento=lev["id_levantamiento"],
+                    enviado_por_id=context["user_db_id"],
+                    enviado_por_nombre=context.get("user_name", "Sistema"),
+                    to_destinatarios=to_list,
+                    cc_destinatarios=cc_all,
+                    viaticos_snapshot=snapshot_viaticos,
+                    total_monto=monto_lev,
+                    estatus="enviado",
+                )
 
         historial_envios = await visitas_db_svc.get_envios_visita(conn, id_visita)
 

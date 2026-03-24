@@ -33,9 +33,10 @@
                     hx-delete="/levantamientos/visitas-campo/{{ _vid }}/levantamientos/{{ lev.id_levantamiento }}"
                     hx-swap="none"
                     hx-confirm="¿Desacoplar este levantamiento de la visita? Su estatus se revertira a Pendiente."
-                    class="ml-auto text-slate-600 hover:text-red-400 transition-colors flex-shrink-0"
+                    class="ml-auto flex items-center gap-1 px-1.5 py-0.5 bg-red-900/30 hover:bg-red-900/60 border border-red-700/40 hover:border-red-500/60 rounded text-red-400 hover:text-red-300 transition-colors flex-shrink-0 text-xs"
                     title="Desacoplar de esta visita">
-                    <i class="fas fa-unlink" style="font-size:10px;"></i>
+                    <i class="fas fa-unlink"></i>
+                    Sacar
                 </button>
             </div>
             {% endfor %}

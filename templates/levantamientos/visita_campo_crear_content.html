@@ -1,21 +1,21 @@
 <!-- templates/levantamientos/visita_campo_crear_content.html -->
 <!-- Página dedicada: crear nueva Visita de Campo                         -->
-<!-- Variables: levantamientos_disponibles, preseleccionado               -->
+<!-- Variables: levantamientos_disponibles, preseleccionados               -->
 <!-- GET /levantamientos/visitas-campo/nueva                              -->
 
 <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
 
 <div class="flex flex-col min-h-full p-4 sm:p-6 bg-slate-900 text-white"
      data-lev-list='{{ lev_data_json | safe }}'
-     data-preseleccionado='{{ preseleccionado | tojson if preseleccionado else "null" }}'
+     data-preseleccionados='{{ preseleccionados | tojson }}'
      x-data="{
          busqueda: '',
          seleccionados: [],
          viaticos: [],
          levData: {},
          init() {
-             const pre = JSON.parse(this.$el.dataset.preseleccionado || 'null');
-             if (pre) this.seleccionados = [pre];
+             const pre = JSON.parse(this.$el.dataset.preseleccionados || '[]');
+             if (pre.length) this.seleccionados = pre;
              const lista = JSON.parse(this.$el.dataset.levList || '[]');
              lista.forEach(l => {
                  this.levData[l.id_levantamiento] = {
@@ -39,9 +39,10 @@
     <!-- Header -->
     <div class="mb-6 flex items-center gap-3">
         <button hx-get="/levantamientos/ui" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
-                class="text-slate-400 hover:text-emerald-400 transition-colors flex-shrink-0 text-lg"
+                class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 hover:border-slate-500 rounded-lg text-slate-300 hover:text-white transition-colors text-sm flex-shrink-0"
                 title="Volver a Levantamientos">
-            &#8592;
+            <i class="fas fa-arrow-left text-xs"></i>
+            Volver
         </button>
         <div>
             <h1 class="text-xl font-semibold text-white flex items-center gap-2">
@@ -52,17 +53,10 @@
         </div>
     </div>
 
-    <!-- Mensaje de error inline -->
-    <div id="vc-crear-error" class="hidden mb-4 p-3 bg-red-900/40 border border-red-500/50 rounded-lg text-red-300 text-sm"></div>
-
     <!-- Formulario principal -->
     <form hx-post="/levantamientos/visitas-campo"
-          hx-target="#vc-crear-error"
-          hx-swap="outerHTML"
-          hx-on::htmx:before-request="
-              const e = document.getElementById('vc-crear-error');
-              if (e) { e.className = 'hidden mb-4 p-3 bg-red-900/40 border border-red-500/50 rounded-lg text-red-300 text-sm'; e.innerHTML = ''; }
-          "
+          hx-target="#toast-container"
+          hx-swap="afterbegin"
           class="flex flex-col flex-1">
 
         <!-- Hidden inputs generados por Alpine para los levantamientos seleccionados -->
