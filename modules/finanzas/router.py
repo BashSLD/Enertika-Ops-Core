@@ -42,7 +42,6 @@ def _base_ctx(request: Request, context: dict) -> dict:
     module_roles = context.get("module_roles", {})
     mod_role = module_roles.get("finanzas", "viewer")
     return {
-        "request": request,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": module_roles,
@@ -65,8 +64,8 @@ async def get_finanzas_ui(
         **data,
     }
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
-        return templates.TemplateResponse("finanzas/partials/content.html", ctx)
-    return templates.TemplateResponse("finanzas/dashboard.html", ctx)
+        return templates.TemplateResponse(request, "finanzas/partials/content.html", ctx)
+    return templates.TemplateResponse(request, "finanzas/dashboard.html", ctx)
 
 
 @router.get("/partials/pendientes", include_in_schema=False)
@@ -78,7 +77,7 @@ async def get_pendientes_partial(
     service: FinanzasService = Depends(get_finanzas_service),
 ):
     pendientes = await service.get_pendientes(conn)
-    return templates.TemplateResponse("finanzas/partials/lista_pendientes.html", {
+    return templates.TemplateResponse(request, "finanzas/partials/lista_pendientes.html", {
         **_base_ctx(request, context),
         "pendientes": pendientes,
     })
@@ -93,7 +92,7 @@ async def get_historial_partial(
     service: FinanzasService = Depends(get_finanzas_service),
 ):
     historial = await service.get_historial(conn)
-    return templates.TemplateResponse("finanzas/partials/lista_historial.html", {
+    return templates.TemplateResponse(request, "finanzas/partials/lista_historial.html", {
         **_base_ctx(request, context),
         "historial": historial,
     })
@@ -112,9 +111,7 @@ async def modal_registrar_pago(
         aut = await service.get_modal_registrar_pago(conn, autorizacion_id)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return templates.TemplateResponse("finanzas/partials/modal_registrar_pago.html", {
-        "request": request,
-        "autorizacion": aut,
+    return templates.TemplateResponse(request, "finanzas/partials/modal_registrar_pago.html", {"autorizacion": aut,
     })
 
 
@@ -154,7 +151,7 @@ async def registrar_pago(
 
     # Recargar lista de pendientes y pasar a historial
     data = await service.get_dashboard_data(conn)
-    return templates.TemplateResponse("finanzas/partials/content.html", {
+    return templates.TemplateResponse(request, "finanzas/partials/content.html", {
         **_base_ctx(request, context),
         **data,
     })

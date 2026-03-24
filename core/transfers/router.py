@@ -44,9 +44,7 @@ async def get_checklist(
     if id_proyecto:
         proyecto = await service.get_proyecto_detalle(conn, id_proyecto)
 
-    return templates.TemplateResponse("shared/partials/modal_enviar_traspaso.html", {
-        "request": request,
-        "documentos": docs,
+    return templates.TemplateResponse(request, "shared/partials/modal_enviar_traspaso.html", {"documentos": docs,
         "area_origen": area_origen.upper(),
         "area_destino": area_destino.upper(),
         "proyecto": proyecto,
@@ -68,9 +66,7 @@ async def get_motivos_rechazo(
     if id_traspaso:
         traspaso = await service.db.get_traspaso_by_id(conn, id_traspaso)
 
-    return templates.TemplateResponse("shared/partials/modal_rechazar_traspaso.html", {
-        "request": request,
-        "motivos": motivos,
+    return templates.TemplateResponse(request, "shared/partials/modal_rechazar_traspaso.html", {"motivos": motivos,
         "area": area.upper(),
         "traspaso": traspaso,
         "id_traspaso": id_traspaso,
@@ -88,9 +84,7 @@ async def get_timeline(
     historial = await service.get_historial_traspasos(conn, id_proyecto)
     proyecto = await service.get_proyecto_detalle(conn, id_proyecto)
 
-    return templates.TemplateResponse("shared/partials/timeline_proyecto.html", {
-        "request": request,
-        "historial": historial,
+    return templates.TemplateResponse(request, "shared/partials/timeline_proyecto.html", {"historial": historial,
         "proyecto": proyecto,
     })
 
@@ -140,24 +134,18 @@ async def enviar_traspaso(
             "CONSTRUCCION": "construccion",
         }.get(area_origen, "proyectos")
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": f"Traspaso enviado exitosamente a {area_destino}",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": f"Traspaso enviado exitosamente a {area_destino}",
             "type": "success",
             "redirect_url": f"/{module_slug}/ui",
         })
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError as e:
         logger.exception("Error de BD al enviar traspaso")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": f"Error de BD: {str(e)}",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": f"Error de BD: {str(e)}",
             "type": "error",
         })
 
@@ -204,24 +192,18 @@ async def recibir_traspaso(
             "OYM": "oym",
         }.get(traspaso.get('area_destino', ''), "proyectos")
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Traspaso aceptado exitosamente",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Traspaso aceptado exitosamente",
             "type": "success",
             "redirect_url": f"/{module_slug}/ui",
         })
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError as e:
         logger.exception("Error de BD al aceptar traspaso")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": f"Error de BD: {str(e)}",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": f"Error de BD: {str(e)}",
             "type": "error",
         })
 
@@ -272,23 +254,17 @@ async def rechazar_traspaso(
             "OYM": "oym",
         }.get(traspaso.get('area_destino', ''), "proyectos")
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Traspaso rechazado. Se notificara al area de origen.",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Traspaso rechazado. Se notificara al area de origen.",
             "type": "warning",
             "redirect_url": f"/{module_slug}/ui",
         })
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError as e:
         logger.exception("Error de BD al rechazar traspaso")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": f"Error de BD: {str(e)}",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": f"Error de BD: {str(e)}",
             "type": "error",
         })

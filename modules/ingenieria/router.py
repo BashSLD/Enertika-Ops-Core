@@ -40,7 +40,6 @@ async def get_ingenieria_ui(
     is_admin = context.get("role") == "ADMIN"
 
     template_data = {
-        "request": request,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
@@ -54,8 +53,8 @@ async def get_ingenieria_ui(
 
     # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
-        return templates.TemplateResponse("ingenieria/partials/content.html", template_data)
-    return templates.TemplateResponse("ingenieria/dashboard.html", template_data)
+        return templates.TemplateResponse(request, "ingenieria/partials/content.html", template_data)
+    return templates.TemplateResponse(request, "ingenieria/dashboard.html", template_data)
 
 
 @router.get("/partials/proyectos", include_in_schema=False)
@@ -69,9 +68,7 @@ async def get_proyectos_partial(
     service: IngenieriaService = Depends(get_service),
 ):
     proyectos = await service.get_proyectos(conn, q, limit)
-    return templates.TemplateResponse("shared/partials/lista_proyectos.html", {
-        "request": request,
-        "proyectos": proyectos,
+    return templates.TemplateResponse(request, "shared/partials/lista_proyectos.html", {"proyectos": proyectos,
         "area": "INGENIERIA",
         "area_destino": "CONSTRUCCION",
         "current_module_role": context.get("module_roles", {}).get("ingenieria", "viewer"),
@@ -91,9 +88,7 @@ async def modal_enviar(
     proyecto = await service.get_proyecto_detalle(conn, id_proyecto)
     docs = await service.get_checklist_envio(conn)
 
-    return templates.TemplateResponse("shared/partials/modal_enviar_traspaso.html", {
-        "request": request,
-        "proyecto": proyecto,
+    return templates.TemplateResponse(request, "shared/partials/modal_enviar_traspaso.html", {"proyecto": proyecto,
         "documentos": docs,
         "area_origen": "INGENIERIA",
         "area_destino": "CONSTRUCCION",

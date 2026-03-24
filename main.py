@@ -179,10 +179,8 @@ async def root(
         # 2. Usuarios sin módulos asignados → Mostrar mensaje
         if not module_roles:
             return templates.TemplateResponse(
-                "index.html",
-                {
-                    "request": request,
-                    "app_name": "Enertika Core Ops",
+                request, "index.html",
+                {                    "app_name": "Enertika Core Ops",
                     "error_message": "No tienes módulos asignados. Contacta al administrador para obtener acceso."
                 }
             )
@@ -220,20 +218,16 @@ async def root(
         
         # 6. Fallback final (no debería llegar aquí)
         return templates.TemplateResponse(
-            "index.html",
-            {
-                "request": request,
-                "app_name": "Enertika Core Ops",
+            request, "index.html",
+            {                "app_name": "Enertika Core Ops",
                 "error_message": "Error de configuración. Contacta al administrador."
             }
         )
     
     # NO LOGUEADO -> Mostrar Login
     return templates.TemplateResponse(
-        "index.html",
-        {
-            "request": request, 
-            "app_name": "Enertika Core Ops"
+        request, "index.html",
+        {            "app_name": "Enertika Core Ops"
         }
     )
     

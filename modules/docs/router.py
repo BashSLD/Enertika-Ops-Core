@@ -43,9 +43,7 @@ async def get_docs_content(
     template_name = available_docs.get(module_name, "docs/generic.html")
     
     # Datos de contexto para la plantilla (roles, usuario, etc)
-    return templates.TemplateResponse(template_name, {
-        "request": request,
-        "module_name": module_name,
+    return templates.TemplateResponse(request, template_name, {        "module_name": module_name,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {})
@@ -57,6 +55,4 @@ async def get_docs_layout(request: Request):
     Retorna el layout base del modal (vacío).
     El frontend luego llamará a /content/{module} para llenarlo.
     """
-    return templates.TemplateResponse("docs/layout.html", {
-        "request": request
-    })
+    return templates.TemplateResponse(request, "docs/layout.html", {})

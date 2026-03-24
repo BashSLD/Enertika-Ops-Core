@@ -47,9 +47,7 @@ def register_modal_endpoints(router: APIRouter):
         if not lev:
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
-        return templates.TemplateResponse("levantamientos/modals/posponer_modal.html", {
-            "request": request,
-            "lev_data": lev,
+        return templates.TemplateResponse(request, "levantamientos/modals/posponer_modal.html", {"lev_data": lev,
             "has_active_viaticos": await db_svc.check_viaticos_sent(conn, id_levantamiento)
         })
 
@@ -73,9 +71,7 @@ def register_modal_endpoints(router: APIRouter):
         if not lev:
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
-        return templates.TemplateResponse("shared/modals/detalle_levantamiento_modal.html", {
-            "request": request,
-            "lev": lev,
+        return templates.TemplateResponse(request, "shared/modals/detalle_levantamiento_modal.html", {"lev": lev,
             "source": source
         })
 
@@ -98,9 +94,7 @@ def register_modal_endpoints(router: APIRouter):
 
         historial = await service.get_historial_estados(conn, id_levantamiento)
 
-        return templates.TemplateResponse("shared/modals/historial_levantamiento_modal.html", {
-            "request": request,
-            "lev_data": lev,
+        return templates.TemplateResponse(request, "shared/modals/historial_levantamiento_modal.html", {"lev_data": lev,
             "historial": historial,
         })
 
@@ -133,9 +127,7 @@ def register_modal_endpoints(router: APIRouter):
         jefe_area_id = lev.get("jefe_area_id")
         is_jefe = (jefe_area_id is not None and str(jefe_area_id) == str(user_db_id))
 
-        return templates.TemplateResponse("levantamientos/modals/reagendar_modal.html", {
-            "request": request,
-            "lev_data": lev,
+        return templates.TemplateResponse(request, "levantamientos/modals/reagendar_modal.html", {"lev_data": lev,
             "desde": desde,
             "today_str": today_str,
             "responsable_actual": responsable_actual,
@@ -174,9 +166,7 @@ def register_modal_endpoints(router: APIRouter):
         historial       = await db_svc.get_historial_envios(conn, id_levantamiento)
         visitas_campo   = await db_svc.get_visitas_campo_for_lev(conn, id_levantamiento)
 
-        return templates.TemplateResponse("levantamientos/modals/viaticos_modal.html", {
-            "request": request,
-            "lev_data": lev,
+        return templates.TemplateResponse(request, "levantamientos/modals/viaticos_modal.html", {"lev_data": lev,
             "viaticos": viaticos,
             "usuarios": usuarios,
             "to_configurados": to_configurados,
@@ -204,9 +194,7 @@ def register_modal_endpoints(router: APIRouter):
 
         adjuntos_previos = await db_svc.get_adjuntos_levantamiento(conn, id_levantamiento)
 
-        return templates.TemplateResponse("levantamientos/modals/entrega_modal.html", {
-            "request": request,
-            "lev_data": lev,
+        return templates.TemplateResponse(request, "levantamientos/modals/entrega_modal.html", {"lev_data": lev,
             "adjuntos_previos": adjuntos_previos,
         })
 
@@ -226,9 +214,7 @@ def register_modal_endpoints(router: APIRouter):
         if not lev:
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
-        return templates.TemplateResponse("levantamientos/modals/cancelar_modal.html", {
-            "request": request,
-            "lev_data": lev,
+        return templates.TemplateResponse(request, "levantamientos/modals/cancelar_modal.html", {"lev_data": lev,
             "id_levantamiento": id_levantamiento,
         })
 
@@ -261,9 +247,7 @@ def register_modal_endpoints(router: APIRouter):
             if fecha_mx.hour or fecha_mx.minute:
                 hora_str = fecha_mx.strftime("%H:%M")
 
-        return templates.TemplateResponse("levantamientos/modals/fecha_ideal_modal.html", {
-            "request": request,
-            "lev_data": lev,
+        return templates.TemplateResponse(request, "levantamientos/modals/fecha_ideal_modal.html", {"lev_data": lev,
             "fecha_str": fecha_str,
             "hora_str": hora_str,
         })
@@ -289,9 +273,7 @@ def register_modal_endpoints(router: APIRouter):
         if not responsable or str(responsable['id_usuario']) != str(user_db_id):
             raise HTTPException(status_code=403, detail="Solo el ingeniero responsable puede solicitar reasignacion")
 
-        return templates.TemplateResponse("levantamientos/modals/solicitar_reasignacion_modal.html", {
-            "request": request,
-            "lev_data": lev,
+        return templates.TemplateResponse(request, "levantamientos/modals/solicitar_reasignacion_modal.html", {"lev_data": lev,
             "id_levantamiento": id_levantamiento,
         })
 
@@ -315,9 +297,7 @@ def register_modal_endpoints(router: APIRouter):
         levantamientos = await visitas_db_svc.get_levantamientos_disponibles(conn)
         preseleccionado = str(id_levantamiento) if id_levantamiento else None
 
-        return templates.TemplateResponse("levantamientos/modals/visita_campo_modal.html", {
-            "request": request,
-            "step": "crear",
+        return templates.TemplateResponse(request, "levantamientos/modals/visita_campo_modal.html", {"step": "crear",
             "levantamientos_disponibles": levantamientos,
             "preseleccionado": preseleccionado,
             "visita": None,
@@ -364,9 +344,7 @@ def register_modal_endpoints(router: APIRouter):
         total_viaticos = float(sum(v["monto"] for v in viaticos))
         prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
 
-        return templates.TemplateResponse("levantamientos/modals/visita_campo_modal.html", {
-            "request": request,
-            "step": "gestionar",
+        return templates.TemplateResponse(request, "levantamientos/modals/visita_campo_modal.html", {"step": "gestionar",
             "visita": visita,
             "levantamientos_visita": levantamientos_visita,
             "viaticos": viaticos,
@@ -400,11 +378,9 @@ def register_modal_endpoints(router: APIRouter):
         disponibles = await visitas_db_svc.get_levantamientos_disponibles_para_agregar(
             conn, id_visita
         )
-        return templates.TemplateResponse(
-            "levantamientos/partials/visita_campo_selector_agregar.html",
-            {
-                "request": request,
-                "id_visita": id_visita,
+        return templates.TemplateResponse(request, 
+            request, "levantamientos/partials/visita_campo_selector_agregar.html",
+            {                "id_visita": id_visita,
                 "levantamientos_disponibles": disponibles,
             },
         )
@@ -430,9 +406,7 @@ def register_modal_endpoints(router: APIRouter):
         if not visitas:
             # Redirige al modal de nueva visita con pre-selección
             levantamientos = await visitas_db_svc.get_levantamientos_disponibles(conn)
-            return templates.TemplateResponse("levantamientos/modals/visita_campo_modal.html", {
-                "request": request,
-                "step": "crear",
+            return templates.TemplateResponse(request, "levantamientos/modals/visita_campo_modal.html", {"step": "crear",
                 "levantamientos_disponibles": levantamientos,
                 "preseleccionado": str(id_levantamiento),
                 "visita": None,
@@ -444,9 +418,7 @@ def register_modal_endpoints(router: APIRouter):
                 "cc_configurados": [],
             })
 
-        return templates.TemplateResponse("levantamientos/modals/visitas_de_levantamiento_modal.html", {
-            "request": request,
-            "id_levantamiento": id_levantamiento,
+        return templates.TemplateResponse(request, "levantamientos/modals/visitas_de_levantamiento_modal.html", {"id_levantamiento": id_levantamiento,
             "visitas": visitas,
         })
 
@@ -489,7 +461,6 @@ def register_modal_endpoints(router: APIRouter):
         ])
 
         ctx = {
-            "request": request,
             "levantamientos_disponibles": levantamientos,
             "preseleccionados": preseleccionados,
             "lev_data_json": lev_data_json,
@@ -498,10 +469,10 @@ def register_modal_endpoints(router: APIRouter):
         is_htmx = request.headers.get("hx-request")
         is_history_restore = request.headers.get("hx-history-restore-request")
         if is_htmx and not is_history_restore:
-            return templates.TemplateResponse(
+            return templates.TemplateResponse(request, 
                 "levantamientos/visita_campo_crear_content.html", ctx
             )
-        return templates.TemplateResponse(
+        return templates.TemplateResponse(request, 
             "levantamientos/dashboard.html",
             {
                 **ctx,
@@ -548,7 +519,6 @@ def register_modal_endpoints(router: APIRouter):
         prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
 
         ctx = {
-            "request": request,
             "visita": visita,
             "levantamientos_visita": levantamientos_visita,
             "viaticos": viaticos,
@@ -564,10 +534,10 @@ def register_modal_endpoints(router: APIRouter):
         is_htmx = request.headers.get("hx-request")
         is_history_restore = request.headers.get("hx-history-restore-request")
         if is_htmx and not is_history_restore:
-            return templates.TemplateResponse(
+            return templates.TemplateResponse(request, 
                 "levantamientos/visita_campo_detalle_content.html", ctx
             )
-        return templates.TemplateResponse(
+        return templates.TemplateResponse(request, 
             "levantamientos/dashboard.html",
             {
                 **ctx,

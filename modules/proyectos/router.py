@@ -41,7 +41,6 @@ async def get_proyectos_ui(
     proyectos = await service.get_proyectos(conn)
 
     template_data = {
-        "request": request,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
@@ -54,8 +53,8 @@ async def get_proyectos_ui(
 
     # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
-        return templates.TemplateResponse("proyectos/partials/content.html", template_data)
-    return templates.TemplateResponse("proyectos/dashboard.html", template_data)
+        return templates.TemplateResponse(request, "proyectos/partials/content.html", template_data)
+    return templates.TemplateResponse(request, "proyectos/dashboard.html", template_data)
 
 
 @router.get("/partials/proyectos", include_in_schema=False)
@@ -72,9 +71,7 @@ async def get_proyectos_partial(
 ):
     proyectos = await service.get_proyectos(conn, area, status, q, limit)
 
-    return templates.TemplateResponse("shared/partials/lista_proyectos.html", {
-        "request": request,
-        "proyectos": proyectos,
+    return templates.TemplateResponse(request, "shared/partials/lista_proyectos.html", {"proyectos": proyectos,
         "area": area,
         "current_module_role": context.get("module_roles", {}).get("proyectos", "viewer"),
         "vista_global": True,
@@ -87,15 +84,12 @@ async def get_visita_obra_modal(
     context=Depends(get_current_user_context),
     _=require_module_access("proyectos"),
 ):
-    return templates.TemplateResponse("proyectos/partials/visita_obra_modal.html", {
-        "request": request,
-        "user_name": context.get("user_name"),
+    return templates.TemplateResponse(request, "proyectos/partials/visita_obra_modal.html", {"user_name": context.get("user_name"),
     })
 
 
 def _equipo_template_data(request, id_proyecto, data, permisos, guardado=False):
     return {
-        "request": request,
         "id_proyecto": str(id_proyecto),
         "asignaciones": data["asignaciones"],
         "jefe_ingenieria": data["jefe_ingenieria"],
@@ -125,7 +119,7 @@ async def get_equipo_partial(
     data = await service.get_equipo_proyecto(conn, id_proyecto)
     permisos = service.permisos_equipo(context)
 
-    return templates.TemplateResponse(
+    return templates.TemplateResponse(request, 
         "proyectos/partials/equipo_modal.html",
         _equipo_template_data(request, id_proyecto, data, permisos),
     )
@@ -170,7 +164,7 @@ async def save_equipo(
         raise HTTPException(status_code=400, detail=str(e))
 
     data = await service.get_equipo_proyecto(conn, id_proyecto)
-    return templates.TemplateResponse(
+    return templates.TemplateResponse(request, 
         "proyectos/partials/equipo_modal.html",
         _equipo_template_data(request, id_proyecto, data, permisos, guardado=True),
     )
@@ -188,8 +182,6 @@ async def get_timeline_partial(
     historial = await service.get_historial(conn, id_proyecto)
     proyecto = await service.get_proyecto_detalle(conn, id_proyecto)
 
-    return templates.TemplateResponse("shared/partials/timeline_proyecto.html", {
-        "request": request,
-        "historial": historial,
+    return templates.TemplateResponse(request, "shared/partials/timeline_proyecto.html", {"historial": historial,
         "proyecto": proyecto,
     })

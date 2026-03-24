@@ -49,9 +49,7 @@ async def admin_dashboard(
     tc_actual = await tc_service.get_tasa_actual(conn)
     tc_historial = await tc_service.get_historial(conn, limit=30)
 
-    return templates.TemplateResponse("admin/dashboard.html", {
-        "request": request,
-        "users": users_enriched,
+    return templates.TemplateResponse(request, "admin/dashboard.html", {"users": users_enriched,
         "rules": rules,
         "defaults": defaults,
         "departments": departments_dict,
@@ -83,9 +81,7 @@ async def update_user_role(
 ):
     """Actualiza el rol de sistema de un usuario (HTMX)."""
     await service.update_user_role(conn, user_id, role)
-    return templates.TemplateResponse("admin/partials/messages/success.html", {
-        "request": request,
-        "title": "Actualizado", 
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Actualizado", 
         "message": f"Rol cambiado a {role}"
     })
 
@@ -124,9 +120,7 @@ async def delete_user(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     
     # Retornar fila actualizada
-    return templates.TemplateResponse("admin/partials/user_row.html", {
-        "request": request,
-        "u": user
+    return templates.TemplateResponse(request, "admin/partials/user_row.html", {"u": user
     })
 
 @router.post("/users/{user_id}/restore")
@@ -145,9 +139,7 @@ async def restore_user(
         raise HTTPException(status_code=404, detail="Usuario no encontrado")
     
     # Retornar fila actualizada
-    return templates.TemplateResponse("admin/partials/user_row.html", {
-        "request": request,
-        "u": user
+    return templates.TemplateResponse(request, "admin/partials/user_row.html", {"u": user
     })
 
 @router.delete("/rules/{id}")
@@ -163,9 +155,7 @@ async def delete_email_rule(
     await service.delete_email_rule(conn, id)
     
     # Retornar template partial con feedback visual
-    return templates.TemplateResponse("admin/partials/rule_deleted.html", {
-        "request": request,
-        "rule_id": id
+    return templates.TemplateResponse(request, "admin/partials/rule_deleted.html", {"rule_id": id
     })
 
 # --- CONFIG DEFAULT EMAILS (GLOBAL) ---
@@ -183,9 +173,7 @@ async def update_email_defaults(
     """Actualiza configuracion global de correos (TO, CC, CCO)."""
     await service.update_email_defaults(conn, default_to, default_cc, default_cco)
     
-    return templates.TemplateResponse("admin/partials/messages/success.html", {
-        "request": request,
-        "title": "Configuración Actualizada",
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Configuración Actualizada",
         "message": "Los correos por defecto se han guardado."
     })
 
@@ -212,13 +200,11 @@ async def get_trigger_options(
     
     if options:
         # Renderizar como Select con opciones del catálogo
-        return templates.TemplateResponse("admin/partials/dynamic_trigger_select.html", {
-            "request": request,
-            "options": options
+        return templates.TemplateResponse(request, "admin/partials/dynamic_trigger_select.html", {"options": options
         })
     else:
         # Renderizar como Input Text libre
-        return templates.TemplateResponse("admin/partials/dynamic_trigger_input.html", {"request": request})
+        return templates.TemplateResponse(request, "admin/partials/dynamic_trigger_input.html", {})
 
 from .schemas import OrigenAdjuntoCreate
 
@@ -303,9 +289,7 @@ async def update_global_config_endpoint(
             reporte_semanal_destinatarios=reporte_semanal_destinatarios
         )
     except ValueError as e:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Error de Validación",
+        return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Error de Validación",
             "message": str(e)
         }, status_code=400)
     
@@ -313,9 +297,7 @@ async def update_global_config_endpoint(
     await service.update_global_config(conn, datos)
     
     # 3. Retornar mensaje de éxito
-    return templates.TemplateResponse("admin/partials/messages/success.html", {
-        "request": request,
-        "title": "Configuración Actualizada",
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Configuración Actualizada",
         "message": f"Reglas de negocio y parámetros de SharePoint actualizados correctamente."
     })
 
@@ -333,9 +315,7 @@ async def reset_simulation_config_endpoint(
     """
     await service.reset_simulation_defaults(conn)
     
-    return templates.TemplateResponse("admin/partials/messages/success.html", {
-        "request": request,
-        "title": "Valores Restaurados",
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Valores Restaurados",
         "message": "Se han restablecido los valores por defecto para Simulación."
     })
 
@@ -358,8 +338,7 @@ async def update_user_department(
     """Asigna un departamento a un usuario."""
     try:
         dept_nombre = await service.update_user_department(conn, user_id, department_slug)
-        return templates.TemplateResponse("admin/partials/messages/success.html", {
-            "request": request, "title": "Actualizado", "message": f"Depto: {dept_nombre}"
+        return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Actualizado", "message": f"Depto: {dept_nombre}"
         })
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -386,8 +365,7 @@ async def update_user_modules(
     
     await service.update_user_modules(conn, user_id, module_roles)
     
-    return templates.TemplateResponse("admin/partials/messages/success.html", {
-        "request": request, "title": "Guardado", "message": "Permisos actualizados"
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Guardado", "message": "Permisos actualizados"
     })
 
 @router.post("/users/{user_id}/preferred-module")
@@ -403,8 +381,7 @@ async def update_preferred_module(
     """Establece el modulo preferido del usuario."""
     await service.update_preferred_module(conn, user_id, modulo_slug if modulo_slug else None)
     
-    return templates.TemplateResponse("admin/partials/messages/success.html", {
-        "request": request, "title": "OK", "message": "Módulo preferido guardado"
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "OK", "message": "Módulo preferido guardado"
     })
 
 @router.get("/users/{user_id}/modules")
@@ -430,9 +407,7 @@ async def update_simulation_flag(
     """Actualiza el flag que permite a un usuario ser asignado como responsable de simulacion."""
     await service.update_user_simulation_flag(conn, user_id, puede_asignarse_simulacion)
 
-    return templates.TemplateResponse("admin/partials/messages/success.html", {
-        "request": request,
-        "title": "OK",
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "OK",
         "message": f"Flag simulación {'activado' if puede_asignarse_simulacion else 'desactivado'}"
     })
 
@@ -450,9 +425,7 @@ async def update_levantamiento_flag(
     """Actualiza el flag que permite a un usuario ser asignado en levantamientos."""
     await service.update_user_levantamiento_flag(conn, user_id, puede_asignarse_levantamientos)
 
-    return templates.TemplateResponse("admin/partials/messages/success.html", {
-        "request": request,
-        "title": "OK",
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "OK",
         "message": f"Flag levantamientos {'activado' if puede_asignarse_levantamientos else 'desactivado'}"
     })
 
@@ -470,15 +443,11 @@ async def update_rol_organizacional(
     """Actualiza el rol organizacional del usuario (jefe_ingenieria, jefe_construccion, director, o ninguno)."""
     try:
         await service.update_user_rol_organizacional(conn, user_id, rol_organizacional)
-        return templates.TemplateResponse("admin/partials/messages/success.html", {
-            "request": request,
-            "title": "OK",
+        return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "OK",
             "message": "Rol organizacional actualizado"
         })
     except ValueError as e:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Error",
+        return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Error",
             "message": str(e)
         }, status_code=400)
 
@@ -497,15 +466,11 @@ async def create_tecnologia(
     """Crea una nueva tecnologia en el catalogo."""
     try:
         await service.create_tecnologia(conn, nombre)
-        return templates.TemplateResponse("admin/partials/messages/success.html", {
-            "request": request,
-            "title": "Tecnología Creada",
+        return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Tecnología Creada",
             "message": f"La tecnología '{nombre}' fue creada exitosamente."
         })
     except ValueError as e:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Error de Validación",
+        return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Error de Validación",
             "message": str(e)
         }, status_code=400)
 
@@ -522,21 +487,15 @@ async def create_tipo_solicitud(
     """Crea un nuevo tipo de solicitud."""
     try:
         await service.create_tipo_solicitud(conn, nombre, codigo_interno)
-        return templates.TemplateResponse("admin/partials/messages/success.html", {
-            "request": request,
-            "title": "Tipo Creado",
+        return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Tipo Creado",
             "message": f"El tipo '{nombre}' fue creado exitosamente."
         })
     except ValueError as e:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Error de Validación",
+        return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Error de Validación",
             "message": str(e)
         }, status_code=400)
     except asyncpg.PostgresError as e:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Error de Base de Datos",
+        return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Error de Base de Datos",
             "message": "No se pudo guardar en la base de datos. Intente nuevamente."
         }, status_code=500)
 
@@ -554,21 +513,15 @@ async def create_estatus(
     """Crea un nuevo estatus global con color."""
     try:
         await service.create_estatus(conn, nombre, descripcion, color_hex)
-        return templates.TemplateResponse("admin/partials/messages/success.html", {
-            "request": request,
-            "title": "Estatus Creado",
+        return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Estatus Creado",
             "message": f"El estatus '{nombre}' fue creado exitosamente."
         })
     except ValueError as e:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Error de Validación",
+        return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Error de Validación",
             "message": str(e)
         }, status_code=400)
     except asyncpg.PostgresError as e:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Error de Base de Datos",
+        return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Error de Base de Datos",
             "message": "No se pudo guardar en la base de datos. Intente nuevamente."
         }, status_code=500)
 
@@ -586,21 +539,15 @@ async def create_origen_adjunto(
     """Crea un nuevo origen de adjunto."""
     try:
         await service.create_origen_adjunto(conn, slug, descripcion)
-        return templates.TemplateResponse("admin/partials/messages/success.html", {
-            "request": request,
-            "title": "Origen Creado",
+        return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Origen Creado",
             "message": f"El origen '{slug}' fue creado exitosamente."
         })
     except ValueError as e:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Error de Validación",
+        return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Error de Validación",
             "message": str(e)
         }, status_code=400)
     except asyncpg.PostgresError as e:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Error de Base de Datos",
+        return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Error de Base de Datos",
             "message": "No se pudo guardar en la base de datos. Intente nuevamente."
         }, status_code=500)
 
@@ -644,9 +591,7 @@ async def get_config_umbrales(
     # Para simplificar, usaremos config_umbrales.html (partial) y si es full load, redirigir al dashboard O renderizar wrapper.
     # La propuesta del usuario dice: "config_umbrales_dashboard.html" para full load.
     
-    return templates.TemplateResponse(template, {
-        "request": request,
-        "umbrales_interno": umbrales_interno,
+    return templates.TemplateResponse(request, template, {"umbrales_interno": umbrales_interno,
         "umbrales_compromiso": umbrales_compromiso,
         **context
     })
@@ -671,7 +616,6 @@ async def reporte_semanal_page(
 
     from datetime import timedelta
     ctx = {
-        "request": request,
         "datos": reporte["datos"],
         "fecha_inicio": reporte["fecha_inicio"],
         "fecha_fin_display": reporte["fecha_fin"] - timedelta(days=1),
@@ -680,8 +624,8 @@ async def reporte_semanal_page(
     }
 
     if request.headers.get("hx-request"):
-        return templates.TemplateResponse("admin/partials/reporte_semanal.html", ctx)
-    return templates.TemplateResponse("admin/reporte_semanal_full.html", ctx)
+        return templates.TemplateResponse(request, "admin/partials/reporte_semanal.html", ctx)
+    return templates.TemplateResponse(request, "admin/reporte_semanal_full.html", ctx)
 
 
 @router.post("/reportes/enviar-semanal", include_in_schema=False)
@@ -695,14 +639,10 @@ async def enviar_reporte_semanal(
     """Envía el reporte semanal por correo de forma manual desde el panel admin."""
     enviado = await service.enviar_reporte_semanal(conn)
     if enviado:
-        return templates.TemplateResponse("admin/partials/messages/success.html", {
-            "request": request,
-            "title": "Correo enviado",
+        return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Correo enviado",
             "message": "El reporte semanal fue enviado correctamente.",
         })
-    return templates.TemplateResponse("admin/partials/messages/error.html", {
-        "request": request,
-        "title": "Sin destinatarios",
+    return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Sin destinatarios",
         "message": "Configura los destinatarios en Configuracion Global antes de enviar.",
     }, status_code=400)
 
@@ -744,9 +684,7 @@ async def bom_config_ui(
     aprobador_id = await bom_service.get_aprobador_final_id(conn)
     users = await service.db.fetch_all_users(conn)
     activos = [u for u in users if u.get('is_active')]
-    return templates.TemplateResponse("admin/partials/bom_aprobador_final.html", {
-        "request": request,
-        "aprobador_id": str(aprobador_id) if aprobador_id else None,
+    return templates.TemplateResponse(request, "admin/partials/bom_aprobador_final.html", {"aprobador_id": str(aprobador_id) if aprobador_id else None,
         "usuarios": activos,
     })
 
@@ -768,20 +706,16 @@ async def set_aprobador_final(
         user_id = _UUID(user_id_raw)
         await bom_db.set_aprobador_final_id(conn, user_id)
         ConfigService.invalidar_cache()
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Aprobador final del BOM actualizado",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Aprobador final del BOM actualizado",
             "type": "success",
         })
     except (ValueError, AttributeError) as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": f"Error: {e}", "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": f"Error: {e}", "type": "error"
         })
     except asyncpg.PostgresError:
         import logging
         logging.getLogger("AdminRouter").exception("Error al actualizar aprobador final BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": "Error interno al guardar", "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al guardar", "type": "error"
         })
 
 
@@ -800,16 +734,12 @@ async def guardar_umbrales(
     
     # Validaciones
     if umbral_excelente <= umbral_bueno:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Error",
+        return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Error",
             "message": "El umbral excelente debe ser mayor que el bueno"
         })
     
     if umbral_bueno <= 0 or umbral_excelente > 100:
-        return templates.TemplateResponse("admin/partials/messages/error.html", {
-            "request": request,
-            "title": "Error",
+        return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Error",
             "message": "Los umbrales deben estar entre 0 y 100"
         })
     
@@ -837,8 +767,6 @@ async def guardar_umbrales(
     # Invalidar cache
     ConfigService.invalidar_cache()
     
-    return templates.TemplateResponse("admin/partials/messages/success.html", {
-        "request": request,
-        "title": "Guardado",
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Guardado",
         "message": f"Umbrales de {tipo_kpi} actualizados correctamente"
     })

@@ -77,9 +77,7 @@ async def get_comentarios_modal(
     
     logger.info(f"[COMENTARIOS MODAL] Mostrando {len(comentarios)} comentarios. Usuario puede comentar: {can_comment}")
     
-    return templates.TemplateResponse("shared/modals/comentarios_modal.html", {
-        "request": request,
-        "id_oportunidad": id_oportunidad,
+    return templates.TemplateResponse(request, "shared/modals/comentarios_modal.html", {"id_oportunidad": id_oportunidad,
         "module_slug": module,
         "department_slug": MODULE_TO_DEPT.get(module),
         "can_comment": can_comment,
@@ -148,9 +146,7 @@ async def create_comentario_workflow(
     # Retornar lista actualizada de comentarios
     comentarios = await workflow_service.get_historial(conn, id_oportunidad)
     
-    response = templates.TemplateResponse("shared/partials/comentarios_list.html", {
-        "request": request,
-        "comentarios": comentarios,
+    response = templates.TemplateResponse(request, "shared/partials/comentarios_list.html", {"comentarios": comentarios,
         "mode": None,
         "has_more": False,
         "total_extra": 0,
@@ -228,9 +224,7 @@ async def get_detalle_oportunidad_modal(
     ))
     notificacion_ganada_at = op.get('notificacion_ganada_at')
 
-    return templates.TemplateResponse("shared/modals/detalle_oportunidad_modal.html", {
-        "request": request,
-        "op": op,
+    return templates.TemplateResponse(request, "shared/modals/detalle_oportunidad_modal.html", {"op": op,
         "can_edit_comercial": can_edit_comercial,
         "can_close_sale": can_close_sale,
         "sitios": sitios,

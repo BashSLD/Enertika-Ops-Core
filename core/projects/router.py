@@ -160,10 +160,8 @@ async def get_modal_crear_proyecto(
     siguiente_consecutivo = await service.get_siguiente_consecutivo_sugerido(conn)
     
     return templates.TemplateResponse(
-        "shared/partials/modal_crear_proyecto.html",
-        {
-            "request": request,
-            "oportunidades": oportunidades,
+        request, "shared/partials/modal_crear_proyecto.html",
+        {            "oportunidades": oportunidades,
             "tecnologias": tecnologias,
             "siguiente_consecutivo": siguiente_consecutivo
         }
@@ -209,10 +207,8 @@ async def crear_proyecto(
         )
         
         return templates.TemplateResponse(
-            "shared/partials/proyecto_creado_result.html",
-            {
-                "request": request,
-                "success": True,
+            request, "shared/partials/proyecto_creado_result.html",
+            {                "success": True,
                 "proyecto": proyecto,
                 "mensaje": f"Proyecto {proyecto['proyecto_id_estandar']} creado exitosamente"
             }
@@ -220,10 +216,8 @@ async def crear_proyecto(
         
     except HTTPException as e:
         return templates.TemplateResponse(
-            "shared/partials/proyecto_creado_result.html",
-            {
-                "request": request,
-                "success": False,
+            request, "shared/partials/proyecto_creado_result.html",
+            {                "success": False,
                 "proyecto": None,
                 "mensaje": e.detail
             }
@@ -231,10 +225,8 @@ async def crear_proyecto(
     except Exception as e:
         logger.error(f"Error creando proyecto: {e}", exc_info=True)
         return templates.TemplateResponse(
-            "shared/partials/proyecto_creado_result.html",
-            {
-                "request": request,
-                "success": False,
+            request, "shared/partials/proyecto_creado_result.html",
+            {                "success": False,
                 "proyecto": None,
                 "mensaje": f"Error inesperado: {str(e)}"
             }

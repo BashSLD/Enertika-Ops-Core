@@ -35,9 +35,7 @@ async def list_config_correos(
             activo DESC
     """)
     
-    return templates.TemplateResponse("admin/partials/config_correos_list.html", {
-        "request": request,
-        "configs": configs
+    return templates.TemplateResponse(request, "admin/partials/config_correos_list.html", {"configs": configs
     })
 
 
@@ -47,9 +45,7 @@ async def new_config_correo_form(
     _ = require_module_access("admin", "admin")
 ):
     """Formulario para nueva configuración de correo."""
-    return templates.TemplateResponse("admin/partials/config_correos_form.html", {
-        "request": request,
-        "config": None
+    return templates.TemplateResponse(request, "admin/partials/config_correos_form.html", {"config": None
     })
 
 
@@ -69,9 +65,7 @@ async def edit_config_correo_form(
     if not config:
         return HTMLResponse("Configuración no encontrada", status_code=404)
     
-    return templates.TemplateResponse("admin/partials/config_correos_form.html", {
-        "request": request,
-        "config": config
+    return templates.TemplateResponse(request, "admin/partials/config_correos_form.html", {"config": config
     })
 
 

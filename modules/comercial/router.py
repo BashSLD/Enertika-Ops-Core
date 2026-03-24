@@ -92,9 +92,7 @@ async def get_comercial_ui(
     # Conteo de borradores para badge del tab
     borradores_count = await service.get_borradores_count(conn, context)
 
-    return templates.TemplateResponse(template, {
-        "request": request,
-        "user_name": user_name,
+    return templates.TemplateResponse(request, template, {"user_name": user_name,
         "role": role,
         "module_roles": context.get("module_roles", {}),
         "current_module_role": context.get("module_roles", {}).get("comercial", "viewer"),
@@ -139,9 +137,7 @@ async def get_comercial_form(
     else:
         catalogos = await service.get_catalogos_creacion(conn, include_simulacion=False)  # Filtrado (PRE_OFERTA, LICITACION)
 
-    return templates.TemplateResponse("shared/forms/oportunidad_form.html", {
-        "request": request, 
-        "canal_default": canal_default,
+    return templates.TemplateResponse(request, "shared/forms/oportunidad_form.html", {"canal_default": canal_default,
         "catalogos": catalogos,  # Catálogos filtrados
         "user_name": user_context.get("user_name"),
         "role": user_context.get("role"),
@@ -180,7 +176,7 @@ async def get_graphs_partial(
         filtro_fecha_inicio=f_inicio,
         filtro_fecha_fin=f_fin
     )
-    return templates.TemplateResponse("comercial/partials/graphs.html", {"request": request, "stats": stats})
+    return templates.TemplateResponse(request, "comercial/partials/graphs.html", {"stats": stats})
 
 @router.get("/partials/cards", include_in_schema=False)
 async def get_cards_partial(
@@ -238,10 +234,8 @@ async def get_cards_partial(
         ops_processed.append(d)
     
     return templates.TemplateResponse(
-        "comercial/partials/cards.html", 
-        {
-            "request": request, 
-            "oportunidades": ops_processed,
+        request, "comercial/partials/cards.html", 
+        {            "oportunidades": ops_processed,
             "user_token": has_valid_token,
             "current_tab": tab,
             "subtab": subtab,
@@ -262,8 +256,8 @@ async def get_sitios_partial(
     """Retorna la sub-tabla de sitios para una oportunidad."""
     rows = await service.get_sitios_simple(conn, id_oportunidad, user_context)
     return templates.TemplateResponse(
-        "comercial/partials/sitios_list.html",
-        {"request": request, "sitios": rows}
+        request, "comercial/partials/sitios_list.html",
+        {"sitios": rows}
     )
 
 @router.get("/partials/comentarios/{id_oportunidad}", include_in_schema=False)
@@ -277,8 +271,8 @@ async def get_comentarios_partial(
     """Retorna los comentarios de simulación para una oportunidad."""
     comentarios = await workflow_service.get_historial(conn, id_oportunidad)
     return templates.TemplateResponse(
-        "shared/partials/comentarios_list.html",
-        {"request": request, "comentarios": comentarios}
+        request, "shared/partials/comentarios_list.html",
+        {"comentarios": comentarios}
     )
 
 @router.get("/partials/bess/{id_oportunidad}", include_in_schema=False)
@@ -293,8 +287,8 @@ async def get_bess_partial(
     """Retorna los detalles BESS para una oportunidad."""
     bess = await service.get_detalles_bess(conn, id_oportunidad, user_context)
     return templates.TemplateResponse(
-        "shared/modals/bess_detalle_modal.html",  # New Modal Wrapper
-        {"request": request, "bess": bess}
+        request, "shared/modals/bess_detalle_modal.html",  # New Modal Wrapper
+        {"bess": bess}
     )
 
 @router.get("/partials/progreso/{id_oportunidad}", include_in_schema=False)
@@ -308,8 +302,8 @@ async def get_progreso_partial(
     """Modal de progreso de proyecto para una oportunidad ganada."""
     progreso = await service.get_progreso_proyecto(conn, id_oportunidad)
     return templates.TemplateResponse(
-        "comercial/partials/progreso_modal.html",
-        {"request": request, "progreso": progreso, "id_oportunidad": str(id_oportunidad)},
+        request, "comercial/partials/progreso_modal.html",
+        {"progreso": progreso, "id_oportunidad": str(id_oportunidad)},
     )
 
 
@@ -568,8 +562,8 @@ async def handle_oportunidad_creation(
     except ValueError as e:
         # Errores de validación de negocio
         return templates.TemplateResponse(
-            "comercial/error_message.html", 
-            {"request": request, "detail": str(e)},
+            request, "comercial/error_message.html", 
+            {"detail": str(e)},
             status_code=200 
         )
     except asyncpg.PostgresError as e:
@@ -595,8 +589,8 @@ async def buscar_oportunidades_para_relacionar(
     resultados = [dict(r) for r in filas]
 
     return templates.TemplateResponse(
-        "comercial/partials/buscar_oportunidad_relacionar.html",
-        {"request": request, "resultados": resultados}
+        request, "comercial/partials/buscar_oportunidad_relacionar.html",
+        {"resultados": resultados}
     )
 
 
@@ -630,9 +624,7 @@ async def get_comercial_form_extraordinario(
     # Obtener catálogos (Solo PRE_OFERTA y SIMULACION para extraordinarias)
     catalogos = await service.get_catalogos_extraordinario(conn)
 
-    return templates.TemplateResponse("shared/forms/oportunidad_form.html", {
-        "request": request,
-        "catalogos": catalogos,
+    return templates.TemplateResponse(request, "shared/forms/oportunidad_form.html", {"catalogos": catalogos,
         "canal_default": canal_default,
         "user_name": user_context.get("user_name"),
         "role": role,
@@ -775,22 +767,22 @@ async def handle_oportunidad_extraordinaria(
 
     except ValueError as e:
         return templates.TemplateResponse(
-            "comercial/error_message.html",
-            {"request": request, "detail": str(e)},
+            request, "comercial/error_message.html",
+            {"detail": str(e)},
             status_code=200
         )
     except asyncpg.PostgresError as e:
         logger.error(f"Error BD en solicitud extraordinaria: {e}", exc_info=True)
         return templates.TemplateResponse(
-            "comercial/error_message.html",
-            {"request": request, "detail": "Error de base de datos. Intente nuevamente."},
+            request, "comercial/error_message.html",
+            {"detail": "Error de base de datos. Intente nuevamente."},
             status_code=500
         )
     except Exception as e:
         logger.error(f"Error en creación de solicitud extraordinaria: {e}", exc_info=True)
         return templates.TemplateResponse(
-            "comercial/error_message.html",
-            {"request": request, "detail": "Ocurrió un error inesperado."},
+            request, "comercial/error_message.html",
+            {"detail": "Ocurrió un error inesperado."},
             status_code=500
         )
 
@@ -804,9 +796,7 @@ async def get_borradores_partial(
 ):
     """Retorna la vista parcial de borradores (oportunidades sin enviar <24h)."""
     borradores = await service.get_borradores(conn, user_context)
-    return templates.TemplateResponse("comercial/partials/borradores.html", {
-        "request": request,
-        "borradores": borradores,
+    return templates.TemplateResponse(request, "comercial/partials/borradores.html", {"borradores": borradores,
     })
 
 
@@ -822,9 +812,7 @@ async def eliminar_borrador(
     """Elimina un borrador y devuelve la lista actualizada en el mismo tab."""
     await service.cancelar_oportunidad(conn, id_oportunidad, user_context)
     borradores = await service.get_borradores(conn, user_context)
-    return templates.TemplateResponse("comercial/partials/borradores.html", {
-        "request": request,
-        "borradores": borradores,
+    return templates.TemplateResponse(request, "comercial/partials/borradores.html", {"borradores": borradores,
     })
 
 
@@ -863,9 +851,7 @@ async def reasignar_oportunidad(
     await service.reasignar_oportunidad(conn, id_oportunidad, new_owner_id, user_context)
     
     # Retornar toast de éxito via OOB swap
-    return templates.TemplateResponse("shared/toast.html", {
-        "request": request,
-        "type": "success",
+    return templates.TemplateResponse(request, "shared/toast.html", {"type": "success",
         "title": "Reasignación exitosa",
         "message": "Oportunidad reasignada correctamente."
     })
@@ -895,8 +881,8 @@ async def get_paso3_email_form(
         if not data: return HTMLResponse("Oportunidad no encontrada", 404)
     except ValueError as e:
         return templates.TemplateResponse(
-            "comercial/error_message.html",
-            {"request": request, "detail": str(e)},
+            request, "comercial/error_message.html",
+            {"detail": str(e)},
             status_code=200
         )
 
@@ -906,9 +892,7 @@ async def get_paso3_email_form(
     system_users = await conn.fetch("SELECT email, nombre FROM tb_usuarios WHERE is_active = TRUE AND email IS NOT NULL AND email != '' ORDER BY nombre")
     user_dict_list = [{"email": u["email"], "name": u["nombre"]} for u in system_users]
     
-    return templates.TemplateResponse(template, {
-        "request": request,
-        **data, # Desempaquetar dict del servicio
+    return templates.TemplateResponse(request, template, {**data, # Desempaquetar dict del servicio
         "legacy_term": legacy_term,
         "system_users": user_dict_list,
         "user_name": context.get("user_name"),
@@ -945,9 +929,7 @@ async def upload_preview_endpoint(
         # Delegar Lógica Compleja al Service (skip_quantity_check en modo conversión)
         result = await service.preview_site_upload(conn, contents, uuid_op, user_context, skip_quantity_check=is_conversion)
 
-        return templates.TemplateResponse("comercial/partials/upload_preview.html", {
-            "request": request,
-            "columns": result["columns"],
+        return templates.TemplateResponse(request, "comercial/partials/upload_preview.html", {"columns": result["columns"],
             "preview_rows": result["preview_rows"],
             "total_rows": result["total_rows"],
             "json_data": result["json_data"],
@@ -958,10 +940,10 @@ async def upload_preview_endpoint(
             "prioridad_conv": prioridad_conv,
         })
     except HTTPException as he:
-        return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {"request": request, "title": "Error", "message": he.detail})
+        return templates.TemplateResponse(request, "comercial/partials/toasts/toast_error.html", {"title": "Error", "message": he.detail})
     except Exception as e:
         logger.error(f"Error upload: {e}", exc_info=True)
-        return templates.TemplateResponse("comercial/partials/toasts/toast_error.html", {"request": request, "title": "Error técnico", "message": "Error procesando el archivo. Verifique el formato e intente nuevamente."})
+        return templates.TemplateResponse(request, "comercial/partials/toasts/toast_error.html", {"title": "Error técnico", "message": "Error procesando el archivo. Verifique el formato e intente nuevamente."})
 
 
 @router.post("/upload-confirm", response_class=HTMLResponse)
@@ -981,15 +963,11 @@ async def upload_confirm_endpoint(
         count = await service.confirm_site_upload(conn, uuid_op, sitios_json, user_context)
         
         if extraordinaria == 1:
-            return templates.TemplateResponse("comercial/partials/messages/success_redirect.html", {
-                "request": request,
-                "message": f"Carga Exitosa ({count} sitios). Redirigiendo...",
+            return templates.TemplateResponse(request, "comercial/partials/messages/success_redirect.html", {"message": f"Carga Exitosa ({count} sitios). Redirigiendo...",
                 "redirect_url": "/comercial/ui"
             })
         else:
-            return templates.TemplateResponse("comercial/partials/messages/success_redirect.html", {
-                "request": request,
-                "message": f"Carga Exitosa ({count} sitios). Cargando paso 3...",
+            return templates.TemplateResponse(request, "comercial/partials/messages/success_redirect.html", {"message": f"Carga Exitosa ({count} sitios). Cargando paso 3...",
                 "hx_url": f"/comercial/paso3/{op_id}"
             })
     except HTTPException as he:
@@ -1010,9 +988,7 @@ async def get_modal_confirmar_seguimiento(
     if not row:
         return HTMLResponse("Oportunidad no encontrada", 404)
     ultimo_movimiento = await service.get_ultimo_movimiento_hilo(conn, id_oportunidad)
-    return templates.TemplateResponse("comercial/modals/confirmar_seguimiento.html", {
-        "request": request,
-        "id_oportunidad": id_oportunidad,
+    return templates.TemplateResponse(request, "comercial/modals/confirmar_seguimiento.html", {"id_oportunidad": id_oportunidad,
         "tipo_solicitud": tipo_solicitud,
         "prioridad": prioridad,
         "nombre_cliente": row['cliente_nombre'],
@@ -1035,9 +1011,7 @@ async def get_paso2_conversion(
     row = await service.get_paso2_data(conn, id_oportunidad)
     if not row:
         return HTMLResponse("Oportunidad no encontrada", 404)
-    return templates.TemplateResponse("comercial/paso2_conversion.html", {
-        "request": request,
-        "oportunidad_id": id_oportunidad,
+    return templates.TemplateResponse(request, "comercial/paso2_conversion.html", {"oportunidad_id": id_oportunidad,
         "nombre_cliente": row['cliente_nombre'],
         "id_interno": row['id_interno_simulacion'],
         "titulo_proyecto": row['titulo_proyecto'],
@@ -1062,10 +1036,8 @@ async def get_paso_2_form(
          return HTMLResponse("Oportunidad no encontrada", 404)
 
     return templates.TemplateResponse(
-        "comercial/paso2.html",
-        {
-            "request": request,
-            "oportunidad_id": id_oportunidad,
+        request, "comercial/paso2.html",
+        {            "oportunidad_id": id_oportunidad,
             "nombre_cliente": row['cliente_nombre'],
             "id_interno": row['id_interno_simulacion'],
             "titulo_proyecto": row['titulo_proyecto'],
@@ -1108,9 +1080,7 @@ async def crear_seguimiento(
 
         # 3. Si NO existe hilo -> Advertencia (preserva datos de conversión)
         if not thread_id:
-            return templates.TemplateResponse("comercial/modals/thread_not_found_warning.html", {
-                "request": request,
-                "expected_title": expected_title,
+            return templates.TemplateResponse(request, "comercial/modals/thread_not_found_warning.html", {"expected_title": expected_title,
                 "parent_id": parent_id,
                 "tipo_solicitud": tipo_solicitud,
                 "prioridad": prioridad,
@@ -1178,14 +1148,14 @@ async def cierre_venta(
         
     except HTTPException as he:
         return templates.TemplateResponse(
-            "comercial/partials/toasts/toast_error.html",
-            {"request": request, "title": "Error", "message": he.detail}
+            request, "comercial/partials/toasts/toast_error.html",
+            {"title": "Error", "message": he.detail}
         )
     except Exception as e:
         logger.error(f"Error en cierre de venta: {e}", exc_info=True)
         return templates.TemplateResponse(
-            "comercial/partials/toasts/toast_error.html",
-            {"request": request, "title": "Error", "message": "Ocurrió un error al procesar el cierre de venta."}
+            request, "comercial/partials/toasts/toast_error.html",
+            {"title": "Error", "message": "Ocurrió un error al procesar el cierre de venta."}
         )
 
 
@@ -1215,10 +1185,8 @@ async def reenviar_notificacion_ganada(
         tiene_proyecto = bool(await conn.fetchrow(QUERY_GET_PROYECTO_FOR_OPORTUNIDAD, id_oportunidad))
 
         return templates.TemplateResponse(
-            "shared/modals/partials/boton_reenvio_notificacion.html",
-            {
-                "request": request,
-                "id_oportunidad": id_oportunidad,
+            request, "shared/modals/partials/boton_reenvio_notificacion.html",
+            {                "id_oportunidad": id_oportunidad,
                 "notificacion_ganada_at": notificacion_ganada_at,
                 "tiene_proyecto": tiene_proyecto,
                 "toast": {"type": "success", "title": "Enviado", "message": "Recordatorio reenviado correctamente."},
@@ -1227,10 +1195,8 @@ async def reenviar_notificacion_ganada(
 
     except ValueError as ve:
         return templates.TemplateResponse(
-            "shared/toast.html",
-            {
-                "request": request,
-                "type": "error",
+            request, "shared/toast.html",
+            {                "type": "error",
                 "title": "No permitido",
                 "message": str(ve),
             }
@@ -1238,10 +1204,8 @@ async def reenviar_notificacion_ganada(
     except asyncpg.PostgresError as e:
         logger.error(f"Error BD en reenvio notificacion ganada {id_oportunidad}: {e}", exc_info=True)
         return templates.TemplateResponse(
-            "shared/toast.html",
-            {
-                "request": request,
-                "type": "error",
+            request, "shared/toast.html",
+            {                "type": "error",
                 "title": "Error",
                 "message": "Error de base de datos al reenviar la notificación.",
             }
@@ -1249,10 +1213,8 @@ async def reenviar_notificacion_ganada(
     except Exception as e:
         logger.error(f"Error en reenvio notificacion ganada {id_oportunidad}: {e}", exc_info=True)
         return templates.TemplateResponse(
-            "shared/toast.html",
-            {
-                "request": request,
-                "type": "error",
+            request, "shared/toast.html",
+            {                "type": "error",
                 "title": "Error",
                 "message": "Ocurrió un error al reenviar el recordatorio.",
             }

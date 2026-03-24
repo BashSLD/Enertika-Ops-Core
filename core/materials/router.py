@@ -93,7 +93,6 @@ async def get_materials_ui(
     pages = (total + per_page - 1) // per_page if total > 0 else 1
 
     template_context = {
-        "request": request,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
@@ -115,7 +114,7 @@ async def get_materials_ui(
     else:
         template = "materials/dashboard.html"
 
-    return templates.TemplateResponse(template, template_context)
+    return templates.TemplateResponse(request, template, template_context)
 
 
 # ========================================
@@ -143,10 +142,8 @@ async def get_materials_list(
     estadisticas = await service.get_estadisticas(conn, filtro_stats)
 
     return templates.TemplateResponse(
-        "materials/partials/tabla_materiales.html",
-        {
-            "request": request,
-            "materiales": materiales,
+        request, "materials/partials/tabla_materiales.html",
+        {            "materiales": materiales,
             "total": total,
             "page": filtros.page,
             "per_page": filtros.per_page,
@@ -184,10 +181,8 @@ async def get_material_precios(
         raise HTTPException(status_code=404, detail="Material no encontrado")
 
     return templates.TemplateResponse(
-        "materials/partials/modal_precios.html",
-        {
-            "request": request,
-            "material": material,
+        request, "materials/partials/modal_precios.html",
+        {            "material": material,
             "precios": precios,
             "precios_sat": precios_sat,
         }
@@ -227,10 +222,8 @@ async def update_material(
     catalogos = await service.get_catalogos(conn)
 
     return templates.TemplateResponse(
-        "materials/partials/row_material.html",
-        {
-            "request": request,
-            "m": material,
+        request, "materials/partials/row_material.html",
+        {            "m": material,
             "categorias": catalogos.get("categorias", []),
             "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
             "role": context.get("role"),
@@ -288,10 +281,8 @@ async def buscar_materiales_similares(
     )
 
     return templates.TemplateResponse(
-        "materials/partials/similar_results.html",
-        {
-            "request": request,
-            "resultados": resultados,
+        request, "materials/partials/similar_results.html",
+        {            "resultados": resultados,
             "query": q,
         }
     )

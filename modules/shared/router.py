@@ -47,10 +47,8 @@ async def get_calculadora_ventas(
     can_edit_constants = is_admin_or_manager and can_edit
 
     return templates.TemplateResponse(
-        "shared/modals/calculadora_ventas.html",
-        {
-            "request": request,
-            "tc_valor": round(tc_valor, 4),
+        request, "shared/modals/calculadora_ventas.html",
+        {            "tc_valor": round(tc_valor, 4),
             "tc_efectivo": round(tc_efectivo, 4),
             "can_edit_constants": can_edit_constants,
         },

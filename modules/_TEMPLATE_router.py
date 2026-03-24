@@ -102,9 +102,7 @@ async def get_template_ui(
         # Carga completa (F5 o URL directo)
         template = "TEMPLATE/dashboard.html"  # Cambiar ruta
     
-    return templates.TemplateResponse(template, {
-        "request": request,
-        "user_name": context.get("user_name"),
+    return templates.TemplateResponse(request, template, {"user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),  # ⚠️ CRÍTICO para sidebar
         "current_module_role": context.get("module_roles", {}).get("TEMPLATE", "viewer")
@@ -131,9 +129,7 @@ async def get_template_list(
     # items = await service.get_data(conn)
     items = []  # Placeholder
     
-    return templates.TemplateResponse("TEMPLATE/partials/list.html", {
-        "request": request,
-        "items": items
+    return templates.TemplateResponse(request, "TEMPLATE/partials/list.html", {"items": items
     })
 
 # ========================================
@@ -151,9 +147,7 @@ async def get_template_form(
     Nota: require_module_access("TEMPLATE", "editor") valida que el usuario
     tenga rol de "editor" o superior en este módulo.
     """
-    return templates.TemplateResponse("TEMPLATE/form.html", {
-        "request": request,
-        "user_name": context.get("user_name"),
+    return templates.TemplateResponse(request, "TEMPLATE/form.html", {"user_name": context.get("user_name"),
         "module_roles": context.get("module_roles", {})
     })
 

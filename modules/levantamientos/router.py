@@ -67,9 +67,7 @@ async def get_levantamientos_ui(
             context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
         )
 
-        return templates.TemplateResponse("levantamientos/partials/kanban.html", {
-            "request": request,
-            "pendientes": data['pendientes'],
+        return templates.TemplateResponse(request, "levantamientos/partials/kanban.html", {"pendientes": data['pendientes'],
             "agendados": data['agendados'],
             "en_proceso": data['en_proceso'],
             "completados": data['completados'],
@@ -80,9 +78,7 @@ async def get_levantamientos_ui(
         })
     else:
         # Carga completa de página
-        return templates.TemplateResponse("levantamientos/dashboard.html", {
-            "request": request,
-            "user_name": context.get("user_name"),
+        return templates.TemplateResponse(request, "levantamientos/dashboard.html", {"user_name": context.get("user_name"),
             "role": context.get("role"),
             "module_roles": context.get("module_roles", {}),
             "current_module_role": context.get("module_roles", {}).get("levantamientos", "viewer")
@@ -109,9 +105,7 @@ async def get_kanban_partial(
         context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
     )
     
-    return templates.TemplateResponse("levantamientos/partials/kanban.html", {
-        "request": request,
-        "pendientes": data['pendientes'],
+    return templates.TemplateResponse(request, "levantamientos/partials/kanban.html", {"pendientes": data['pendientes'],
         "agendados": data['agendados'],
         "en_proceso": data['en_proceso'],
         "completados": data['completados'],
@@ -174,9 +168,7 @@ async def get_assign_modal(
         str(user_db_id) == str(current_responsable_id)
     )
 
-    return templates.TemplateResponse("levantamientos/modals/assign_modal.html", {
-        "request": request,
-        "id_levantamiento": id_levantamiento,
+    return templates.TemplateResponse(request, "levantamientos/modals/assign_modal.html", {"id_levantamiento": id_levantamiento,
         "lev_data": lev_data,
         "responsables": usuarios['responsables'],
         "acompaniantes": usuarios['acompaniantes'],
@@ -205,9 +197,7 @@ async def get_historial_modal(
     # Obtener historial
     historial = await service.get_historial_estados(conn, id_levantamiento)
     
-    return templates.TemplateResponse("shared/modals/historial_levantamiento_modal.html", {
-        "request": request,
-        "lev_data": lev_data,
+    return templates.TemplateResponse(request, "shared/modals/historial_levantamiento_modal.html", {"lev_data": lev_data,
         "historial": historial
     })
 
@@ -246,9 +236,7 @@ async def assign_responsables_endpoint(
             context.get("role") == "ADMIN"
             or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
         )
-        return templates.TemplateResponse("levantamientos/partials/kanban.html", {
-            "request": request,
-            "pendientes": data['pendientes'],
+        return templates.TemplateResponse(request, "levantamientos/partials/kanban.html", {"pendientes": data['pendientes'],
             "agendados": data['agendados'],
             "en_proceso": data['en_proceso'],
             "completados": data['completados'],
@@ -272,9 +260,7 @@ async def assign_responsables_endpoint(
             context.get("role") == "ADMIN"
             or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
         )
-        return templates.TemplateResponse("levantamientos/partials/kanban.html", {
-            "request": request,
-            "pendientes": data['pendientes'],
+        return templates.TemplateResponse(request, "levantamientos/partials/kanban.html", {"pendientes": data['pendientes'],
             "agendados": data['agendados'],
             "en_proceso": data['en_proceso'],
             "completados": data['completados'],
@@ -312,9 +298,7 @@ async def change_status_endpoint(
             context.get("role") == "ADMIN"
             or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
          )
-         return templates.TemplateResponse("levantamientos/partials/kanban.html", {
-            "request": request,
-            "pendientes": data['pendientes'],
+         return templates.TemplateResponse(request, "levantamientos/partials/kanban.html", {"pendientes": data['pendientes'],
             "agendados": data['agendados'],
             "en_proceso": data['en_proceso'],
             "completados": data['completados'],
@@ -344,9 +328,7 @@ async def change_status_endpoint(
             context.get("role") == "ADMIN"
             or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
         )
-        return templates.TemplateResponse("levantamientos/partials/kanban.html", {
-            "request": request,
-            "pendientes": data['pendientes'],
+        return templates.TemplateResponse(request, "levantamientos/partials/kanban.html", {"pendientes": data['pendientes'],
             "agendados": data['agendados'],
             "en_proceso": data['en_proceso'],
             "completados": data['completados'],
@@ -365,9 +347,7 @@ async def change_status_endpoint(
             context.get("role") == "ADMIN"
             or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
         )
-        return templates.TemplateResponse("levantamientos/partials/kanban.html", {
-            "request": request,
-            "pendientes": data['pendientes'],
+        return templates.TemplateResponse(request, "levantamientos/partials/kanban.html", {"pendientes": data['pendientes'],
             "agendados": data['agendados'],
             "en_proceso": data['en_proceso'],
             "completados": data['completados'],

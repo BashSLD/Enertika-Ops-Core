@@ -139,7 +139,6 @@ async def get_reportes_ui(
     u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso", "SIMULACION")
 
     template_data = {
-        "request": request,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
@@ -160,9 +159,9 @@ async def get_reportes_ui(
     
     # Detección HTMX vs carga directa
     if request.headers.get("hx-request"):
-        return templates.TemplateResponse("simulacion/reportes/tabs.html", template_data)
+        return templates.TemplateResponse(request, "simulacion/reportes/tabs.html", template_data)
     else:
-        return templates.TemplateResponse("simulacion/reportes/dashboard.html", template_data)
+        return templates.TemplateResponse(request, "simulacion/reportes/dashboard.html", template_data)
 
 
 @router.api_route("/analisis-detallado", methods=["GET", "HEAD"], include_in_schema=False)
@@ -234,7 +233,6 @@ async def get_analisis_detallado(
                      'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
     
     template_data = {
-        "request": request,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
@@ -272,20 +270,20 @@ async def get_analisis_detallado(
         
         if hx_target == "report-content":
             # Caso: Filtrado dentro de la vista (solo contenido interno)
-            return templates.TemplateResponse(
+            return templates.TemplateResponse(request, 
                 "simulacion/reportes/analisis_detallado_content.html", 
                 template_data
             )
         else:
             # Caso: Navegación desde Dashboard (Breadcrumbs + Wrapper + Contenido)
             # Esto asume target="main-content" o similar
-            return templates.TemplateResponse(
+            return templates.TemplateResponse(request, 
                 "simulacion/reportes/analisis_detallado_inner.html", 
                 template_data
             )
     else:
         # Carga completa (F5)
-        return templates.TemplateResponse(
+        return templates.TemplateResponse(request, 
             "simulacion/reportes/analisis_detallado.html", 
             template_data
         )
@@ -319,11 +317,9 @@ async def get_oportunidades_usuario_modal(
     oportunidades = await service.get_oportunidades_usuario_reporte(conn, uid, filtros)
     nombre_param = request.query_params.get("nombre", "Usuario")
 
-    return templates.TemplateResponse(
-        "simulacion/reportes/modals/oportunidades_usuario_modal.html",
-        {
-            "request": request,
-            "oportunidades": oportunidades,
+    return templates.TemplateResponse(request, 
+        request, "simulacion/reportes/modals/oportunidades_usuario_modal.html",
+        {            "oportunidades": oportunidades,
             "nombre_usuario": nombre_param,
             "filtros_aplicados": {
                 "fecha_inicio": filtros.fecha_inicio.isoformat(),
@@ -455,9 +451,7 @@ async def get_config_modal(
     """
     catalogos = await service.get_catalogos_filtros(conn)
     
-    return templates.TemplateResponse("simulacion/reportes/modals/filter_modal.html", {
-        "request": request,
-        "tecnologias": catalogos["tecnologias"],
+    return templates.TemplateResponse(request, "simulacion/reportes/modals/filter_modal.html", {"tecnologias": catalogos["tecnologias"],
         "tipos_solicitud": catalogos["tipos_solicitud"],
         "estatus": catalogos["estatus"],
         "usuarios": catalogos["usuarios"],

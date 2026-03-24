@@ -57,9 +57,7 @@ async def _render_kanban(request, conn, service, context, notification: Optional
         or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
     )
 
-    return templates.TemplateResponse("levantamientos/partials/kanban.html", {
-        "request": request,
-        "pendientes": data["pendientes"],
+    return templates.TemplateResponse(request, "levantamientos/partials/kanban.html", {"pendientes": data["pendientes"],
         "agendados": data["agendados"],
         "en_proceso": data["en_proceso"],
         "completados": data["completados"],
@@ -286,9 +284,7 @@ def register_operaciones_endpoints(router: APIRouter):
 
         viaticos = await db_svc.get_viaticos(conn, id_levantamiento)
 
-        return templates.TemplateResponse("levantamientos/partials/tabla_viaticos.html", {
-            "request": request,
-            "viaticos": viaticos,
+        return templates.TemplateResponse(request, "levantamientos/partials/tabla_viaticos.html", {"viaticos": viaticos,
             "id_levantamiento": id_levantamiento,
         })
 
@@ -314,9 +310,7 @@ def register_operaciones_endpoints(router: APIRouter):
 
         viaticos = await db_svc.get_viaticos(conn, id_levantamiento)
 
-        return templates.TemplateResponse("levantamientos/partials/tabla_viaticos.html", {
-            "request": request,
-            "viaticos": viaticos,
+        return templates.TemplateResponse(request, "levantamientos/partials/tabla_viaticos.html", {"viaticos": viaticos,
             "id_levantamiento": id_levantamiento,
         })
 
@@ -447,9 +441,7 @@ def register_operaciones_endpoints(router: APIRouter):
 
         historial = await db_svc.get_historial_envios(conn, id_levantamiento)
 
-        return templates.TemplateResponse("levantamientos/partials/historial_envios.html", {
-            "request": request,
-            "historial_envios": historial,
+        return templates.TemplateResponse(request, "levantamientos/partials/historial_envios.html", {"historial_envios": historial,
         })
 
     # ==============================================================
@@ -629,9 +621,7 @@ def register_operaciones_endpoints(router: APIRouter):
             user_role == "ADMIN"
             or mod_role in ["editor", "admin"]
         )
-        return templates.TemplateResponse("levantamientos/partials/lista.html", {
-            "request": request,
-            "tab": "activos",
+        return templates.TemplateResponse(request, "levantamientos/partials/lista.html", {"tab": "activos",
             "levantamientos": levantamientos,
             "tecnicos": tecnicos,
             "estatus_filtro": [e for e in estatus_list if e['grupo_kanban'] == 'activo'],
@@ -685,9 +675,7 @@ def register_operaciones_endpoints(router: APIRouter):
         estatus_list = await db_svc.get_estatus_list(conn)
         tecnicos = await db_svc.get_usuarios_tecnicos(conn)
         can_edit = (user_role == "ADMIN" or mod_role in ["editor", "admin"])
-        return templates.TemplateResponse("levantamientos/partials/lista.html", {
-            "request": request,
-            "tab": "cancelados",
+        return templates.TemplateResponse(request, "levantamientos/partials/lista.html", {"tab": "cancelados",
             "levantamientos": cancelados,
             "tecnicos": tecnicos,
             "estatus_filtro": [],
@@ -744,9 +732,7 @@ def register_operaciones_endpoints(router: APIRouter):
             )
         )
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "title": "Solicitud Enviada",
+        return templates.TemplateResponse(request, "shared/toast.html", {"title": "Solicitud Enviada",
             "message": "El equipo responsable sera notificado para gestionar la reasignacion.",
             "type": "success",
         })
@@ -1089,9 +1075,7 @@ def register_operaciones_endpoints(router: APIRouter):
         total_viaticos = float(sum(v["monto"] for v in viaticos))
         prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
 
-        return templates.TemplateResponse("levantamientos/partials/tabla_visita_campo_viaticos.html", {
-            "request": request,
-            "viaticos": viaticos,
+        return templates.TemplateResponse(request, "levantamientos/partials/tabla_visita_campo_viaticos.html", {"viaticos": viaticos,
             "id_visita": id_visita,
             "levantamientos_visita": levantamientos_visita,
             "prorrateo": prorrateo,
@@ -1123,9 +1107,7 @@ def register_operaciones_endpoints(router: APIRouter):
         total_viaticos = float(sum(v["monto"] for v in viaticos))
         prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
 
-        return templates.TemplateResponse("levantamientos/partials/tabla_visita_campo_viaticos.html", {
-            "request": request,
-            "viaticos": viaticos,
+        return templates.TemplateResponse(request, "levantamientos/partials/tabla_visita_campo_viaticos.html", {"viaticos": viaticos,
             "id_visita": id_visita,
             "levantamientos_visita": levantamientos_visita,
             "prorrateo": prorrateo,
@@ -1215,9 +1197,7 @@ def register_operaciones_endpoints(router: APIRouter):
         total_viaticos = float(sum(v["monto"] for v in viaticos))
         prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
 
-        return templates.TemplateResponse("levantamientos/partials/visita_campo_levantamientos.html", {
-            "request": request,
-            "levantamientos_visita": levantamientos_visita,
+        return templates.TemplateResponse(request, "levantamientos/partials/visita_campo_levantamientos.html", {"levantamientos_visita": levantamientos_visita,
             "id_visita": id_visita,
             "oob_outerhtml": True,
             "oob_prorrateo": True,
@@ -1264,9 +1244,7 @@ def register_operaciones_endpoints(router: APIRouter):
 
         visita_actualizada = await visitas_db_svc.get_visita(conn, id_visita)
 
-        return templates.TemplateResponse("levantamientos/partials/visita_campo_periodo.html", {
-            "request": request,
-            "visita": visita_actualizada,
+        return templates.TemplateResponse(request, "levantamientos/partials/visita_campo_periodo.html", {"visita": visita_actualizada,
             "can_edit": True,
         })
 
@@ -1315,9 +1293,7 @@ def register_operaciones_endpoints(router: APIRouter):
         total_viaticos = float(sum(v["monto"] for v in viaticos))
         prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
 
-        return templates.TemplateResponse("levantamientos/partials/visita_campo_levantamientos.html", {
-            "request": request,
-            "levantamientos_visita": levantamientos_visita,
+        return templates.TemplateResponse(request, "levantamientos/partials/visita_campo_levantamientos.html", {"levantamientos_visita": levantamientos_visita,
             "id_visita": id_visita,
             "oob_prorrateo": True,
             "prorrateo": prorrateo,
@@ -1513,9 +1489,7 @@ def register_operaciones_endpoints(router: APIRouter):
 
         historial_envios = await visitas_db_svc.get_envios_visita(conn, id_visita)
 
-        return templates.TemplateResponse("levantamientos/partials/historial_envios_visita.html", {
-            "request": request,
-            "historial_envios": historial_envios,
+        return templates.TemplateResponse(request, "levantamientos/partials/historial_envios_visita.html", {"historial_envios": historial_envios,
         })
 
     # ==============================================================

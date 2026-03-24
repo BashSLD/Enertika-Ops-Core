@@ -37,10 +37,8 @@ class EmailHandler:
         
         if not row:
             return (False, templates.TemplateResponse(
-                "comercial/partials/toasts/toast_error.html",
-                {
-                    "request": request,
-                    "title": "Error",
+                request, "comercial/partials/toasts/toast_error.html",
+                {                    "title": "Error",
                     "message": "Oportunidad no encontrada. Por favor intenta nuevamente."
                 },
                 status_code=404
@@ -114,10 +112,8 @@ class EmailHandler:
         await service.update_email_status(conn, id_oportunidad, user_context)
         
         success_response = templates.TemplateResponse(
-            "comercial/partials/messages/success_sent.html",
-            {
-                "request": request,
-                "title": "Enviado Exitosamente",
+            request, "comercial/partials/messages/success_sent.html",
+            {                "title": "Enviado Exitosamente",
                 "message": "Regresando al tablero...",
                 "redirect_url": "/comercial/ui"
             }
@@ -191,10 +187,8 @@ class EmailHandler:
             return {
                 "success": False,
                 "error_response": templates.TemplateResponse(
-                    "comercial/partials/toasts/toast_error.html",
-                    {
-                        "request": request,
-                        "title": "Adjuntos exceden límite",
+                    request, "comercial/partials/toasts/toast_error.html",
+                    {                        "title": "Adjuntos exceden límite",
                         "message": f"El tamaño total de adjuntos ({total_mb:.1f}MB) "
                                    f"excede el máximo permitido de 35MB."
                     }
@@ -321,10 +315,8 @@ class EmailHandler:
         
         logger.error(f"Fallo envio correo Graph: {error_msg}")
         return templates.TemplateResponse(
-            "comercial/partials/toasts/toast_error.html",
-            {
-                "request": request,
-                "title": "Error enviando correo",
+            request, "comercial/partials/toasts/toast_error.html",
+            {                "title": "Error enviando correo",
                 "message": error_msg
             },
             status_code=400

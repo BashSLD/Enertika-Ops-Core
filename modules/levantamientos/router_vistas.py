@@ -98,9 +98,7 @@ def register_vistas_endpoints(router: APIRouter):
 
         tecnicos = await db_svc.get_usuarios_tecnicos(conn)
 
-        return templates.TemplateResponse("levantamientos/partials/lista.html", {
-            "request": request,
-            "tab": tab,
+        return templates.TemplateResponse(request, "levantamientos/partials/lista.html", {"tab": tab,
             "levantamientos": levantamientos,
             "tecnicos": tecnicos,
             "estatus_filtro": estatus_filtro,
@@ -137,9 +135,7 @@ def register_vistas_endpoints(router: APIRouter):
         tendencia      = await analytics_svc.get_tendencia_semanal(conn)
         tiempos_costos = await analytics_svc.get_tiempos_y_costos(conn)
 
-        return templates.TemplateResponse("levantamientos/partials/graficas.html", {
-            "request": request,
-            "distribucion": distribucion,
+        return templates.TemplateResponse(request, "levantamientos/partials/graficas.html", {"distribucion": distribucion,
             "carga_tecnicos": carga_tecnicos,
             "tendencia": tendencia,
             "tiempos_costos": tiempos_costos,
@@ -160,6 +156,6 @@ def register_vistas_endpoints(router: APIRouter):
         """Lista centralizada de todas las visitas de campo."""
         visitas = await visitas_db_svc.get_all_visitas(conn)
         return templates.TemplateResponse(
-            "levantamientos/partials/lista_visitas.html",
-            {"request": request, "visitas": visitas},
+            request, "levantamientos/partials/lista_visitas.html",
+            {"visitas": visitas},
         )

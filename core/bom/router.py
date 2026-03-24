@@ -90,7 +90,6 @@ def _build_bom_context(request, context, bom, **extra) -> dict:
     )
 
     ctx = {
-        "request": request,
         "bom": bom,
         "area_editor": area_editor,
         "es_ing_editor": es_ing_editor,
@@ -163,7 +162,7 @@ async def bom_ui(
 
     is_htmx = request.headers.get("hx-request")
     template = "bom/partials/content.html" if is_htmx else "bom/dashboard.html"
-    return templates.TemplateResponse(template, ctx)
+    return templates.TemplateResponse(request, template, ctx)
 
 
 # ========================================
@@ -196,24 +195,18 @@ async def crear_bom(
             notas=notas
         )
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": f"BOM v{bom['version']} creado exitosamente",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": f"BOM v{bom['version']} creado exitosamente",
             "type": "success",
             "redirect_url": f"/bom/{id_proyecto}/ui",
         })
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al crear BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Error interno al crear el BOM",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al crear el BOM",
             "type": "error",
         })
 
@@ -238,7 +231,7 @@ async def get_items(
         items = await service.get_items(conn, bom['id_bom'])
 
     ctx = _build_bom_context(request, context, bom, items=items)
-    return templates.TemplateResponse("bom/partials/tabla_items.html", ctx)
+    return templates.TemplateResponse(request, "bom/partials/tabla_items.html", ctx)
 
 
 @router.post("/{id_proyecto}/items", include_in_schema=False)
@@ -255,17 +248,13 @@ async def agregar_item(
     area_editor = _get_area_editor(context)
 
     if area_editor not in ("ingenieria", "construccion"):
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Solo Ingenieria y Construccion pueden agregar items al BOM. Compras solo puede editar proveedor y precio de items existentes.",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Solo Ingenieria y Construccion pueden agregar items al BOM. Compras solo puede editar proveedor y precio de items existentes.",
             "type": "error",
         })
 
     bom = await service.get_bom_proyecto(conn, id_proyecto)
     if not bom:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "No existe un BOM para este proyecto",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "No existe un BOM para este proyecto",
             "type": "error",
         })
 
@@ -302,19 +291,15 @@ async def agregar_item(
             request, context, bom,
             items=items, estadisticas=estadisticas
         )
-        return templates.TemplateResponse("bom/partials/tabla_items.html", ctx)
+        return templates.TemplateResponse(request, "bom/partials/tabla_items.html", ctx)
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al agregar item BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Error interno al agregar el item",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al agregar el item",
             "type": "error",
         })
 
@@ -380,19 +365,15 @@ async def editar_item(
         bom = await service.get_bom(conn, item['id_bom'])
 
         ctx = _build_bom_context(request, context, bom, item=item)
-        return templates.TemplateResponse("bom/partials/row_item.html", ctx)
+        return templates.TemplateResponse(request, "bom/partials/row_item.html", ctx)
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al editar item BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Error interno al editar el item",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al editar el item",
             "type": "error",
         })
 
@@ -410,9 +391,7 @@ async def eliminar_item(
     area_editor = _get_area_editor(context)
 
     if area_editor not in ("ingenieria", "construccion"):
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "No tienes permisos para eliminar items",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "No tienes permisos para eliminar items",
             "type": "error",
         })
 
@@ -429,19 +408,15 @@ async def eliminar_item(
             request, context, bom,
             items=items, estadisticas=estadisticas
         )
-        return templates.TemplateResponse("bom/partials/tabla_items.html", ctx)
+        return templates.TemplateResponse(request, "bom/partials/tabla_items.html", ctx)
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al eliminar item BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Error interno al eliminar el item",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al eliminar el item",
             "type": "error",
         })
 
@@ -464,7 +439,7 @@ async def get_modal_editar_item(
         request, context, bom,
         item=item, catalogos=catalogos
     )
-    return templates.TemplateResponse("bom/partials/modal_item.html", ctx)
+    return templates.TemplateResponse(request, "bom/partials/modal_item.html", ctx)
 
 
 # ========================================
@@ -488,9 +463,7 @@ async def buscar_materiales(
         # Sin query: mostrar materiales recientes como dropdown inicial
         resultados = await service.db.get_materiales_recientes(conn, limite=10)
 
-    return templates.TemplateResponse("bom/partials/buscar_materiales.html", {
-        "request": request,
-        "resultados": resultados,
+    return templates.TemplateResponse(request, "bom/partials/buscar_materiales.html", {"resultados": resultados,
         "query": q,
     })
 
@@ -519,24 +492,18 @@ async def enviar_revision(
             responsable_ing=UUID(responsable_ing) if responsable_ing else None
         )
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM enviado a revision de ingenieria",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM enviado a revision de ingenieria",
             "type": "success",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al enviar BOM a revision")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Error interno al enviar a revision",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al enviar a revision",
             "type": "error",
         })
 
@@ -558,24 +525,18 @@ async def aprobar_ing(
     try:
         bom = await service.aprobar_ing(conn, id_bom, user_id, comentarios)
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM aprobado por ingenieria",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM aprobado por ingenieria",
             "type": "success",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al aprobar BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Error interno al aprobar",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al aprobar",
             "type": "error",
         })
 
@@ -597,24 +558,18 @@ async def rechazar_ing(
     try:
         bom = await service.rechazar_ing(conn, id_bom, user_id, comentarios)
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM rechazado. Se devolvio a borrador.",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM rechazado. Se devolvio a borrador.",
             "type": "warning",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al rechazar BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Error interno al rechazar",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al rechazar",
             "type": "error",
         })
 
@@ -639,24 +594,18 @@ async def enviar_const(
             coordinador_obra=UUID(coordinador_obra) if coordinador_obra else None
         )
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM enviado a revision de construccion",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM enviado a revision de construccion",
             "type": "success",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al enviar BOM a construccion")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Error interno al enviar a construccion",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al enviar a construccion",
             "type": "error",
         })
 
@@ -678,24 +627,18 @@ async def aprobar_const(
     try:
         bom = await service.aprobar_const(conn, id_bom, user_id, comentarios)
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM aprobado por construccion. Listo para compras.",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM aprobado por construccion. Listo para compras.",
             "type": "success",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al aprobar BOM por construccion")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Error interno al aprobar",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al aprobar",
             "type": "error",
         })
 
@@ -717,24 +660,18 @@ async def rechazar_const(
     try:
         bom = await service.rechazar_const(conn, id_bom, user_id, comentarios)
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM rechazado por construccion. Devuelto a ingenieria.",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM rechazado por construccion. Devuelto a ingenieria.",
             "type": "warning",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al rechazar BOM por construccion")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Error interno al rechazar",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al rechazar",
             "type": "error",
         })
 
@@ -756,24 +693,18 @@ async def devolver_borrador(
     try:
         bom = await service.devolver_a_borrador(conn, id_bom, user_id, comentarios)
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM devuelto a borrador para correccion",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM devuelto a borrador para correccion",
             "type": "warning",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al devolver BOM a borrador")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Error interno al devolver a borrador",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al devolver a borrador",
             "type": "error",
         })
 
@@ -795,24 +726,18 @@ async def cancelar_bom(
     try:
         bom = await service.cancelar_bom(conn, id_bom, user_id, comentarios)
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM cancelado",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM cancelado",
             "type": "warning",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al cancelar BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Error interno al cancelar el BOM",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al cancelar el BOM",
             "type": "error",
         })
 
@@ -836,24 +761,18 @@ async def solicitar_modificacion(
             conn, id_bom, user_id, comentarios
         )
 
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": f"Nueva version v{nuevo_bom['version']} creada en borrador",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": f"Nueva version v{nuevo_bom['version']} creada en borrador",
             "type": "success",
             "redirect_url": f"/bom/{nuevo_bom['id_proyecto']}/ui",
         })
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": str(e),
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e),
             "type": "error",
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al solicitar modificacion BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Error interno al solicitar modificacion",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al solicitar modificacion",
             "type": "error",
         })
 
@@ -875,9 +794,7 @@ async def get_historial(
     historial = await service.get_historial(conn, id_bom)
     bom = await service.get_bom(conn, id_bom)
 
-    return templates.TemplateResponse("bom/partials/historial.html", {
-        "request": request,
-        "historial": historial,
+    return templates.TemplateResponse(request, "bom/partials/historial.html", {"historial": historial,
         "bom": bom,
     })
 
@@ -895,9 +812,7 @@ async def get_aprobaciones(
     aprobaciones = await service.get_aprobaciones(conn, id_bom)
     bom = await service.get_bom(conn, id_bom)
 
-    return templates.TemplateResponse("bom/partials/aprobaciones.html", {
-        "request": request,
-        "aprobaciones": aprobaciones,
+    return templates.TemplateResponse(request, "bom/partials/aprobaciones.html", {"aprobaciones": aprobaciones,
         "bom": bom,
     })
 
@@ -920,9 +835,7 @@ async def get_modal_aprobar(
     bom = await service.get_bom(conn, id_bom)
     catalogos = await service.get_catalogos(conn)
 
-    return templates.TemplateResponse("bom/partials/modal_aprobar.html", {
-        "request": request,
-        "bom": bom,
+    return templates.TemplateResponse(request, "bom/partials/modal_aprobar.html", {"bom": bom,
         "accion": accion,
         "catalogos": catalogos,
     })
@@ -954,16 +867,14 @@ async def set_item_grupos(
         item['grupos'] = await service.db.get_grupos_por_item(conn, id_item)
         bom = await service.get_bom(conn, item['id_bom'])
         ctx = _build_bom_context(request, context, bom, item=item)
-        return templates.TemplateResponse("bom/partials/row_item.html", ctx)
+        return templates.TemplateResponse(request, "bom/partials/row_item.html", ctx)
 
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": str(e), "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al asignar grupos BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": "Error interno al asignar grupos", "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al asignar grupos", "type": "error"
         })
 
 
@@ -985,9 +896,7 @@ async def get_modal_suplencia(
     usuarios = await service.db.get_usuarios_por_area(conn, 'ingenieria', solo_jefes=False)
     const_usuarios = await service.db.get_usuarios_por_area(conn, 'construccion', solo_jefes=False)
     todos_usuarios = {str(u['id_usuario']): u for u in usuarios + const_usuarios}
-    return templates.TemplateResponse("bom/partials/modal_suplencia.html", {
-        "request": request,
-        "suplencia_activa": suplencia_activa,
+    return templates.TemplateResponse(request, "bom/partials/modal_suplencia.html", {"suplencia_activa": suplencia_activa,
         "usuarios": list(todos_usuarios.values()),
         "user_id": user_id,
     })
@@ -1013,19 +922,15 @@ async def configurar_suplencia(
         suplente_id = _UUID(suplente_id_raw)
         fecha_fin = date_type.fromisoformat(fecha_fin_raw)
         await service.configurar_suplente(conn, user_id, suplente_id, fecha_fin)
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "Suplencia configurada exitosamente",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Suplencia configurada exitosamente",
             "type": "success",
         })
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": str(e), "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al configurar suplencia")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": "Error interno al configurar suplencia", "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al configurar suplencia", "type": "error"
         })
 
 
@@ -1041,13 +946,11 @@ async def eliminar_suplencia(
     user_id = context.get("user_db_id")
     try:
         await service.eliminar_suplencia(conn, user_id)
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": "Suplencia eliminada", "type": "success"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Suplencia eliminada", "type": "success"
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al eliminar suplencia")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": "Error interno al eliminar suplencia", "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno al eliminar suplencia", "type": "error"
         })
 
 
@@ -1068,20 +971,16 @@ async def enviar_revision_obra(
     user_id = context.get("user_db_id")
     try:
         bom = await service.enviar_revision_obra(conn, id_bom, user_id)
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM enviado a revision de Obra",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM enviado a revision de Obra",
             "type": "success",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": str(e), "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al enviar BOM a obra")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": "Error interno", "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno", "type": "error"
         })
 
 
@@ -1100,20 +999,16 @@ async def aprobar_obra(
     comentarios = form.get("comentarios", "").strip() or None
     try:
         bom = await service.aprobar_obra(conn, id_bom, user_id, comentarios)
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM aprobado por Obra y enviado a Construccion",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM aprobado por Obra y enviado a Construccion",
             "type": "success",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": str(e), "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD en aprobacion obra BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": "Error interno", "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno", "type": "error"
         })
 
 
@@ -1132,20 +1027,16 @@ async def rechazar_obra(
     comentarios = form.get("comentarios", "").strip() or None
     try:
         bom = await service.rechazar_obra(conn, id_bom, user_id, comentarios)
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM devuelto a Ingenieria para revision.",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM devuelto a Ingenieria para revision.",
             "type": "warning",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": str(e), "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD en rechazo obra BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": "Error interno", "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno", "type": "error"
         })
 
 
@@ -1166,20 +1057,16 @@ async def enviar_revision_final(
     user_id = context.get("user_db_id")
     try:
         bom = await service.enviar_revision_final(conn, id_bom, user_id)
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM enviado al aprobador final",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM enviado al aprobador final",
             "type": "success",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": str(e), "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD al enviar BOM a revision final")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": "Error interno", "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno", "type": "error"
         })
 
 
@@ -1198,20 +1085,16 @@ async def aprobar_final(
     comentarios = form.get("comentarios", "").strip() or None
     try:
         bom = await service.aprobar_final(conn, id_bom, user_id, comentarios)
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM aprobado de forma definitiva",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM aprobado de forma definitiva",
             "type": "success",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": str(e), "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD en aprobacion final BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": "Error interno", "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno", "type": "error"
         })
 
 
@@ -1230,20 +1113,16 @@ async def rechazar_final(
     comentarios = form.get("comentarios", "").strip() or None
     try:
         bom = await service.rechazar_final(conn, id_bom, user_id, comentarios)
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request,
-            "message": "BOM devuelto a construccion para revision.",
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM devuelto a construccion para revision.",
             "type": "warning",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
         })
     except ValueError as e:
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": str(e), "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": str(e), "type": "error"
         })
     except asyncpg.PostgresError:
         logger.exception("Error de BD en rechazo final BOM")
-        return templates.TemplateResponse("shared/toast.html", {
-            "request": request, "message": "Error interno", "type": "error"
+        return templates.TemplateResponse(request, "shared/toast.html", {"message": "Error interno", "type": "error"
         })
 
 
@@ -1285,7 +1164,6 @@ async def export_excel(
 
 def _cotizacion_ctx(request, cotizaciones, bom, es_compras_editor: bool) -> dict:
     return {
-        "request": request,
         "cotizaciones": cotizaciones,
         "bom": bom,
         "es_compras_editor": es_compras_editor,
@@ -1318,7 +1196,7 @@ async def get_cotizaciones_tab(
     items_disponibles = [i for i in items if i.get('estatus_compra', 'SIN_COTIZAR') not in ('AUTORIZADO', 'PAGADO')]
 
     return templates.TemplateResponse(
-        "bom/partials/cotizaciones.html",
+        request, "bom/partials/cotizaciones.html",
         {
             **_cotizacion_ctx(request, cotizaciones, bom, es_compras_editor),
             "items_disponibles": items_disponibles,
@@ -1376,7 +1254,7 @@ async def crear_cotizacion(
     es_compras_editor = role == "ADMIN" or module_roles.get("compras") in ("editor", "admin")
 
     return templates.TemplateResponse(
-        "bom/partials/cotizaciones.html",
+        request, "bom/partials/cotizaciones.html",
         {
             **_cotizacion_ctx(request, cotizaciones, bom, es_compras_editor),
             "items_disponibles": items_disponibles,
@@ -1409,7 +1287,7 @@ async def seleccionar_cotizacion(
     es_compras_editor = role == "ADMIN" or module_roles.get("compras") in ("editor", "admin")
 
     return templates.TemplateResponse(
-        "bom/partials/cotizaciones.html",
+        request, "bom/partials/cotizaciones.html",
         {
             **_cotizacion_ctx(request, cotizaciones, bom, es_compras_editor),
             "items_disponibles": items_disponibles,
@@ -1442,7 +1320,7 @@ async def rechazar_cotizacion(
     es_compras_editor = role == "ADMIN" or module_roles.get("compras") in ("editor", "admin")
 
     return templates.TemplateResponse(
-        "bom/partials/cotizaciones.html",
+        request, "bom/partials/cotizaciones.html",
         {
             **_cotizacion_ctx(request, cotizaciones, bom, es_compras_editor),
             "items_disponibles": items_disponibles,
@@ -1467,7 +1345,6 @@ def _autorizacion_ctx(request, autorizaciones, bom, context) -> dict:
     es_finanzas = finanzas_role in ("editor", "admin")
 
     return {
-        "request": request,
         "autorizaciones": autorizaciones,
         "bom": bom,
         "user_id": user_id,
@@ -1492,7 +1369,7 @@ async def get_autorizaciones_tab(
         raise HTTPException(status_code=404, detail="BOM no encontrado")
     autorizaciones = await service.listar_autorizaciones(conn, id_bom)
     return templates.TemplateResponse(
-        "bom/partials/autorizaciones.html",
+        request, "bom/partials/autorizaciones.html",
         _autorizacion_ctx(request, autorizaciones, bom, context),
     )
 
@@ -1519,7 +1396,7 @@ async def aprobar_autorizacion_obra(
     bom = await service.db.get_bom_by_id(conn, aut['bom_id'])
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
     return templates.TemplateResponse(
-        "bom/partials/autorizaciones.html",
+        request, "bom/partials/autorizaciones.html",
         _autorizacion_ctx(request, autorizaciones, bom, context),
     )
 
@@ -1547,7 +1424,7 @@ async def aprobar_autorizacion_direccion(
     bom = await service.db.get_bom_by_id(conn, aut['bom_id'])
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
     return templates.TemplateResponse(
-        "bom/partials/autorizaciones.html",
+        request, "bom/partials/autorizaciones.html",
         _autorizacion_ctx(request, autorizaciones, bom, context),
     )
 
@@ -1575,7 +1452,7 @@ async def aprobar_autorizacion_finanzas(
     bom = await service.db.get_bom_by_id(conn, aut['bom_id'])
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
     return templates.TemplateResponse(
-        "bom/partials/autorizaciones.html",
+        request, "bom/partials/autorizaciones.html",
         _autorizacion_ctx(request, autorizaciones, bom, context),
     )
 
@@ -1604,7 +1481,7 @@ async def rechazar_autorizacion(
     bom = await service.db.get_bom_by_id(conn, aut['bom_id'])
     autorizaciones = await service.listar_autorizaciones(conn, aut['bom_id'])
     return templates.TemplateResponse(
-        "bom/partials/autorizaciones.html",
+        request, "bom/partials/autorizaciones.html",
         _autorizacion_ctx(request, autorizaciones, bom, context),
     )
 

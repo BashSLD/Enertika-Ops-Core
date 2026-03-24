@@ -41,7 +41,6 @@ async def get_oym_ui(
     is_admin = context.get("role") == "ADMIN"
 
     template_data = {
-        "request": request,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
@@ -56,8 +55,8 @@ async def get_oym_ui(
 
     # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
-        return templates.TemplateResponse("oym/partials/content.html", template_data)
-    return templates.TemplateResponse("oym/dashboard.html", template_data)
+        return templates.TemplateResponse(request, "oym/partials/content.html", template_data)
+    return templates.TemplateResponse(request, "oym/dashboard.html", template_data)
 
 
 @router.get("/partials/proyectos", include_in_schema=False)
@@ -74,9 +73,7 @@ async def get_proyectos_partial(
     pendientes = await service.get_pendientes_recepcion(conn)
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
 
-    return templates.TemplateResponse("shared/partials/lista_proyectos.html", {
-        "request": request,
-        "proyectos": proyectos,
+    return templates.TemplateResponse(request, "shared/partials/lista_proyectos.html", {"proyectos": proyectos,
         "pendientes": pendientes,
         "area": "OYM",
         "current_module_role": mod_role,
@@ -95,9 +92,7 @@ async def modal_recibir(
 ):
     traspaso = await service.transfers.db.get_traspaso_by_id(conn, id_traspaso)
 
-    return templates.TemplateResponse("shared/partials/modal_recibir_traspaso.html", {
-        "request": request,
-        "traspaso": traspaso,
+    return templates.TemplateResponse(request, "shared/partials/modal_recibir_traspaso.html", {"traspaso": traspaso,
         "id_traspaso": id_traspaso,
         "area": "OYM",
     })
@@ -115,9 +110,7 @@ async def modal_rechazar(
     motivos = await service.get_motivos_rechazo(conn)
     traspaso = await service.transfers.db.get_traspaso_by_id(conn, id_traspaso)
 
-    return templates.TemplateResponse("shared/partials/modal_rechazar_traspaso.html", {
-        "request": request,
-        "motivos": motivos,
+    return templates.TemplateResponse(request, "shared/partials/modal_rechazar_traspaso.html", {"motivos": motivos,
         "traspaso": traspaso,
         "id_traspaso": id_traspaso,
         "area": "OYM",

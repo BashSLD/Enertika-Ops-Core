@@ -101,9 +101,7 @@ async def get_simulacion_ui(
     else:
         effective_role = context.get("module_roles", {}).get("simulacion", "viewer")
 
-    return templates.TemplateResponse(template, {
-        "request": request,
-        "user_name": context.get("user_name"),
+    return templates.TemplateResponse(request, template, {"user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
         "current_module_role": effective_role,
@@ -133,9 +131,7 @@ async def get_form_extraordinario(
     catalogos = await service.get_catalogos_ui(conn)
     canal_default = service.get_canal_from_user_name(context.get("user_name", ""))
     
-    return templates.TemplateResponse("shared/forms/oportunidad_form.html", {
-        "request": request,
-        "catalogos": catalogos,
+    return templates.TemplateResponse(request, "shared/forms/oportunidad_form.html", {"catalogos": catalogos,
         "canal_default": canal_default,
         "user_name": context.get("user_name"),
         "role": role,
@@ -241,22 +237,16 @@ async def create_oportunidad_extraordinaria(
         
     except asyncpg.PostgresError as db_err:
         logger.error(f"DB Error creating simulacion op: {db_err}")
-        return templates.TemplateResponse("simulacion/partials/messages/error.html", {
-            "request": request,
-            "title": "Error de Base de Datos",
+        return templates.TemplateResponse(request, "simulacion/partials/messages/error.html", {"title": "Error de Base de Datos",
             "message": "No se pudo crear la oportunidad. Verifique los datos o contacte a soporte."
         })
     except ValueError as val_err:
-        return templates.TemplateResponse("simulacion/partials/messages/error.html", {
-            "request": request,
-            "title": "Datos Inválidos",
+        return templates.TemplateResponse(request, "simulacion/partials/messages/error.html", {"title": "Datos Inválidos",
             "message": str(val_err)
         })
     except Exception as e:
         logger.error(f"Unexpected error creating simulacion op: {e}")
-        return templates.TemplateResponse("simulacion/partials/messages/error.html", {
-            "request": request,
-            "title": "Error del Sistema",
+        return templates.TemplateResponse(request, "simulacion/partials/messages/error.html", {"title": "Error del Sistema",
             "message": "Ocurrió un error inesperado."
         })
 
@@ -315,9 +305,7 @@ async def get_graphs_partial(
     metricas = await report_service.get_metricas_generales(conn, filtros)
     graficas = await report_service.get_datos_graficas(conn, filtros, metricas=metricas)
     
-    return templates.TemplateResponse("simulacion/reportes/tabs.html", {
-        "request": request,
-        "user_name": context.get("user_name"),
+    return templates.TemplateResponse(request, "simulacion/reportes/tabs.html", {"user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
         "current_module_role": context.get("module_roles", {}).get("simulacion", "viewer"),
@@ -359,9 +347,7 @@ async def get_cards_partial(
         d['es_multisitio'] = ComercialService.is_originally_multisite(d)
         ops_processed.append(d)
     
-    return templates.TemplateResponse("simulacion/partials/cards.html", {
-        "request": request,
-        "oportunidades": ops_processed,
+    return templates.TemplateResponse(request, "simulacion/partials/cards.html", {"oportunidades": ops_processed,
         "current_tab": tab,
         "subtab": subtab,
         "limit": limit,
@@ -403,9 +389,7 @@ async def get_comentarios_partial(
         comentarios = [comentarios[0]]
         has_more = False  # No mostrar botón "ver más" en historial
             
-    return templates.TemplateResponse("shared/partials/comentarios_list.html", {
-        "request": request,
-        "comentarios": comentarios,
+    return templates.TemplateResponse(request, "shared/partials/comentarios_list.html", {"comentarios": comentarios,
         "mode": mode,
         "has_more": has_more,
         "total_extra": total_comentarios - len(comentarios) if mode == 'compact' else total_comentarios - 1,
@@ -433,9 +417,7 @@ async def create_comentario(
     
     # Retornar la lista actualizada con todas las variables necesarias
     comentarios = await workflow_service.get_historial(conn, id_oportunidad)
-    return templates.TemplateResponse("shared/partials/comentarios_list.html", {
-        "request": request,
-        "comentarios": comentarios,
+    return templates.TemplateResponse(request, "shared/partials/comentarios_list.html", {"comentarios": comentarios,
         "mode": None,  # Mostrar todos los comentarios después de crear uno nuevo
         "has_more": False,
         "total_extra": 0,
@@ -454,9 +436,7 @@ async def get_bess_partial(
     bess = await service.get_detalles_bess(conn, id_oportunidad)
     
     
-    return templates.TemplateResponse("shared/modals/bess_detalle_modal.html", {
-        "request": request,
-        "bess": bess
+    return templates.TemplateResponse(request, "shared/modals/bess_detalle_modal.html", {"bess": bess
     })
 
 @router.get("/partials/sitios/{id_oportunidad}", include_in_schema=False)
@@ -493,9 +473,7 @@ async def get_sitios_partial(
          if op['id_estatus_global'] in [status_ids.get('entregado'), status_ids.get('cancelado'), status_ids.get('perdido'), status_ids.get('ganada')]:
              is_locked = True
 
-    return templates.TemplateResponse("simulacion/partials/sitios_list.html", {
-        "request": request,
-        "sitios": sitios,
+    return templates.TemplateResponse(request, "simulacion/partials/sitios_list.html", {"sitios": sitios,
         "context": context,
         "current_module_role": effective_role, 
         "estatus_options": [dict(r) for r in estatus_options],
@@ -527,9 +505,7 @@ async def get_detalle_modal(
     can_edit_comercial = False 
     can_close_sale = False
     
-    return templates.TemplateResponse("shared/modals/detalle_oportunidad_modal.html", {
-        "request": request,
-        "op": dict(op),
+    return templates.TemplateResponse(request, "shared/modals/detalle_oportunidad_modal.html", {"op": dict(op),
         "can_edit_comercial": can_edit_comercial,
         "can_close_sale": can_close_sale,
         "context": context
@@ -599,9 +575,7 @@ async def get_edit_modal(
     # Simulaciones adicionales existentes (read-only si ya están registradas)
     simulaciones_adicionales = await db_service.get_simulaciones_adicionales(conn, id_oportunidad)
 
-    return templates.TemplateResponse("simulacion/modals/update_oportunidades.html", {
-        "request": request,
-        "op": dict(op),
+    return templates.TemplateResponse(request, "simulacion/modals/update_oportunidades.html", {"op": dict(op),
         "responsables": responsables,
         "estatus_global": [dict(r) for r in estatus_global],
         "motivos_cierre": [dict(r) for r in motivos_cierre],
@@ -705,9 +679,7 @@ async def update_simulacion(
             redirect_url += "?confetti=1"
 
         
-        return templates.TemplateResponse("simulacion/partials/messages/success_redirect.html", {
-            "request": request,
-            "title": "Actualización Exitosa",
+        return templates.TemplateResponse(request, "simulacion/partials/messages/success_redirect.html", {"title": "Actualización Exitosa",
             "message": "La oportunidad se ha actualizado correctamente.",
             "redirect_url": redirect_url
         })
@@ -715,14 +687,10 @@ async def update_simulacion(
         # UX IMPROVEMENT: Mostrar errores de validación dentro del modal como mensajes inline
         # para que el usuario los vea en contexto y pueda corregirlos fácilmente
         if e.status_code == 400:
-             return templates.TemplateResponse("simulacion/partials/messages/error_inline.html", {
-                "request": request,
-                "message": e.detail
+             return templates.TemplateResponse(request, "simulacion/partials/messages/error_inline.html", {"message": e.detail
             }, status_code=200) # Forzamos 200 para que HTMX renderice el contenido
             
-        return templates.TemplateResponse("simulacion/partials/messages/error_inline.html", {
-            "request": request, 
-            "message": e.detail
+        return templates.TemplateResponse(request, "simulacion/partials/messages/error_inline.html", {"message": e.detail
         }, status_code=e.status_code)
 
 @router.put("/sitios/batch-update")
@@ -743,9 +711,7 @@ async def batch_update_sitios(
     try:
         if not datos.ids_sitios:
              # Retorno vacío seguro si no hubo selección
-            return templates.TemplateResponse("simulacion/partials/sitios_list.html", {
-                "request": request, 
-                "sitios": [], 
+            return templates.TemplateResponse(request, "simulacion/partials/sitios_list.html", {"sitios": [], 
                 "context": context
             })
 
@@ -776,9 +742,7 @@ async def batch_update_sitios(
         if op and op['id_estatus_global'] in [status_ids.get('entregado'), status_ids.get('cancelado'), status_ids.get('perdido'), status_ids.get('ganada')]:
              is_locked = True
             
-        return templates.TemplateResponse("simulacion/partials/sitios_list.html", {
-            "request": request, 
-            "sitios": sitios,
+        return templates.TemplateResponse(request, "simulacion/partials/sitios_list.html", {"sitios": sitios,
             "context": context,
             "current_module_role": effective_role,
             "estatus_options": [dict(r) for r in estatus_options],
@@ -820,9 +784,7 @@ async def batch_update_sitios(
         # Since this endpoint is protected by `require_module_access("simulacion", "editor")`, the user is at least an editor.
         # So passing "editor" is safe for the purpose of showing the checkboxes again.
         
-        return templates.TemplateResponse("simulacion/partials/sitios_list.html", {
-            "request": request,
-            "sitios": sitios,
+        return templates.TemplateResponse(request, "simulacion/partials/sitios_list.html", {"sitios": sitios,
             "context": {"role": "ADMIN"}, # Dummy context to avoid jinja errors if used elsewhere
             "current_module_role": "editor", # Force enable checkboxes after update
             "estatus_options": [dict(r) for r in estatus_options],
@@ -831,9 +793,7 @@ async def batch_update_sitios(
 
     except Exception as e:
         logger.error(f"[BATCH UPDATE ERROR] {str(e)}")
-        return templates.TemplateResponse("shared/partials/toasts/toast_error.html", {
-            "request": request,
-            "title": "Error Batch",
+        return templates.TemplateResponse(request, "shared/partials/toasts/toast_error.html", {"title": "Error Batch",
             "message": f"Error procesando solicitud: {str(e)}"
         })
 
@@ -850,15 +810,11 @@ async def update_responsable(
     try:
         # Update directo
         await db_service.update_responsable(conn, id_oportunidad, responsable_simulacion_id)
-        return templates.TemplateResponse("shared/partials/toasts/toast_success.html", {
-            "request": request,
-            "title": "Asignación Actualizada",
+        return templates.TemplateResponse(request, "shared/partials/toasts/toast_success.html", {"title": "Asignación Actualizada",
             "message": "El responsable ha sido actualizado correctamente."
         })
     except Exception as e:
-        return templates.TemplateResponse("shared/partials/toasts/toast_error.html", {
-            "request": request,
-            "title": "Error Asignación",
+        return templates.TemplateResponse(request, "shared/partials/toasts/toast_error.html", {"title": "Error Asignación",
             "message": str(e)
         })
 
@@ -897,9 +853,7 @@ async def get_metricas_operativas(
     else:
         template = "simulacion/dashboard.html"
     
-    return templates.TemplateResponse(template, {
-        "request": request,
-        "usuarios": [dict(r) for r in usuarios],
+    return templates.TemplateResponse(request, template, {"usuarios": [dict(r) for r in usuarios],
         "tipos_solicitud": [dict(r) for r in tipos_solicitud],
         "inner_template": "simulacion/metricas_operativas.html",
         **context
@@ -925,9 +879,7 @@ async def get_datos_metricas(
     is_manager = context.get("role") == "MANAGER"
     
     if not (is_admin or is_manager):
-        return templates.TemplateResponse("shared/error.html", {
-            "request": request,
-            "message": "Acceso denegado: Se requiere ser Admin o Manager."
+        return templates.TemplateResponse(request, "shared/error.html", {"message": "Acceso denegado: Se requiere ser Admin o Manager."
         })
     
     # Parsear fechas (últimos 3 meses por defecto)
@@ -978,9 +930,7 @@ async def get_datos_metricas(
         tipo_solicitud_id=tipo_int
     )
     
-    return templates.TemplateResponse("simulacion/partials/metricas_datos.html", {
-        "request": request,
-        "metricas_estatus": metricas_estatus,
+    return templates.TemplateResponse(request, "simulacion/partials/metricas_datos.html", {"metricas_estatus": metricas_estatus,
         "cuellos_botella": cuellos,
         "ciclos": ciclos,
         "transiciones": transiciones,
@@ -1009,16 +959,14 @@ async def get_detalle_estatus(
     is_manager = context.get("role") == "MANAGER"
     
     if not (is_admin or is_manager):
-        return templates.TemplateResponse("shared/error.html", {
-            "request": request,
-            "message": "Acceso denegado"
+        return templates.TemplateResponse(request, "shared/error.html", {"message": "Acceso denegado"
         })
     
     try:
         start = datetime.fromisoformat(fecha_inicio).date()
         end = datetime.fromisoformat(fecha_fin).date()
     except ValueError:
-        return templates.TemplateResponse("shared/error.html", {"request": request, "message": "Fechas inválidas"})
+        return templates.TemplateResponse(request, "shared/error.html", {"message": "Fechas inválidas"})
 
     user_uuid = None
     if user_id:
@@ -1040,9 +988,7 @@ async def get_detalle_estatus(
     else:
         promedio_dias = max_dias = min_dias = 0
     
-    return templates.TemplateResponse("simulacion/partials/detalle_oportunidades_estatus.html", {
-        "request": request,
-        "oportunidades": oportunidades,
+    return templates.TemplateResponse(request, "simulacion/partials/detalle_oportunidades_estatus.html", {"oportunidades": oportunidades,
         "promedio_dias": promedio_dias,
         "max_dias": max_dias,
         "min_dias": min_dias,
@@ -1068,9 +1014,7 @@ async def get_detalle_transicion(
     is_manager = context.get("role") == "MANAGER"
     
     if not (is_admin or is_manager):
-        return templates.TemplateResponse("shared/error.html", {
-            "request": request,
-            "message": "Acceso denegado"
+        return templates.TemplateResponse(request, "shared/error.html", {"message": "Acceso denegado"
         })
     
     user_uuid = None
@@ -1093,9 +1037,7 @@ async def get_detalle_transicion(
     else:
         promedio_dias = max_dias = min_dias = 0
     
-    return templates.TemplateResponse("simulacion/partials/detalle_oportunidades_transicion.html", {
-        "request": request,
-        "oportunidades": oportunidades,
+    return templates.TemplateResponse(request, "simulacion/partials/detalle_oportunidades_transicion.html", {"oportunidades": oportunidades,
         "estatus_origen": estatus_origen,
         "estatus_destino": estatus_destino,
         "promedio_dias": promedio_dias,
