@@ -313,6 +313,7 @@ async def get_progreso_partial(
     )
 
 
+
 @router.post("/notificar/{id_oportunidad}")
 async def notificar_oportunidad(
     request: Request,

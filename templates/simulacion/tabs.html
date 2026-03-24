@@ -65,6 +65,19 @@
                     Reg. Extraordinario
                 </button>
                 {% endif %}
+                <!-- Calculadora (todos los roles) -->
+                <button @click="open = false"
+                    hx-get="/shared/partials/calculadora-ventas?modulo=simulacion"
+                    hx-target="body"
+                    hx-swap="beforeend"
+                    hx-on::before-request="document.getElementById('modal-calculadora-ventas')?.remove()"
+                    class="bg-gray-700 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 7H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M9 7h6M9 12h.01M12 12h.01M15 12h.01M9 15h.01M12 15h.01M15 15h.01M9 18h.01M12 18h.01M15 18h.01"/>
+                    </svg>
+                    Calculadora
+                </button>
             </div>
         </div>
     </div>
@@ -173,6 +186,24 @@
                 </div>
             </div>
             {% endif %}
+            <!-- Calculadora (todos los roles) -->
+            <div class="relative group">
+                <button
+                    hx-get="/shared/partials/calculadora-ventas?modulo=simulacion"
+                    hx-target="body"
+                    hx-swap="beforeend"
+                    hx-on::before-request="document.getElementById('modal-calculadora-ventas')?.remove()"
+                    class="ripple-effect bg-gray-700 hover:bg-gray-800 text-white font-bold p-2 rounded-lg shadow-lg flex items-center transition-all duration-200 ease-in-out transform hover:scale-105"
+                    aria-label="Calculadora de ventas">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 7H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M9 7h6M9 12h.01M12 12h.01M15 12h.01M9 15h.01M12 15h.01M15 15h.01M9 18h.01M12 18h.01M15 18h.01"/>
+                    </svg>
+                </button>
+                <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                    Calculadora
+                </div>
+            </div>
         </div>
     </div>
 

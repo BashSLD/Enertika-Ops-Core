@@ -87,6 +87,10 @@ app.include_router(finanzas_router.router)
 from core.transfers.router import router as transfers_router
 app.include_router(transfers_router)
 
+# Shared — partials compartidos entre módulos (calculadora, etc.)
+from modules.shared.router import router as shared_router
+app.include_router(shared_router)
+
 # Materiales compartido (subfuncion de Compras)
 from core.materials.router import router as materials_router
 app.include_router(materials_router)
