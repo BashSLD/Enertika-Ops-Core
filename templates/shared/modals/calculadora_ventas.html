@@ -19,7 +19,7 @@
         get horasSolares() { return this.dias ? this.dias / this.c5_5 : null },
         get porcentajeEfectividad() { return this.horasSolares ? this.horasSolares / this.c0_8 : null },
         get capacidadPanel() { return this.porcentajeEfectividad ? this.porcentajeEfectividad / this.c0_071 : null },
-        get numeroPaneles() { return this.capacidadPanel ? Math.floor(this.capacidadPanel) : null },
+        get numeroPaneles() { return this.capacidadPanel ? Math.ceil(this.capacidadPanel) : null },
         fmt(v, d) { return v !== null ? v.toLocaleString('es-MX', {minimumFractionDigits: d ?? 2, maximumFractionDigits: d ?? 2}) : '\u2014' },
         fmtCurrency(v) { return v !== null ? '$' + v.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '\u2014' }
     }"
@@ -149,7 +149,7 @@
                             <p class="text-xs font-semibold text-gray-700" x-text="fmt(porcentajeEfectividad, 4)"></p>
                         </div>
                         <div class="bg-gray-50 rounded-lg px-2.5 py-2 col-span-2">
-                            <p class="text-xs text-gray-500">Capacidad panel</p>
+                            <p class="text-xs text-gray-500">Cantidad de paneles</p>
                             <p class="text-xs font-semibold text-gray-700" x-text="fmt(capacidadPanel, 4)"></p>
                         </div>
                     </div>
