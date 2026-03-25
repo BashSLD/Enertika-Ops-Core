@@ -17,7 +17,7 @@ class FinanzasDBService:
     # ─── Autorizaciones ──────────────────────────────────────────────────────
 
     async def get_autorizaciones_pendientes_pago(self, conn) -> List[Dict[str, Any]]:
-        """Autorizaciones en AUTORIZADO_FINANZAS sin pago registrado."""
+        """Autorizaciones en AUTORIZADO_FINANZAS (sin pago aún)."""
         rows = await conn.fetch("""
             SELECT
                 a.id,
@@ -38,12 +38,20 @@ class FinanzasDBService:
             JOIN tb_proyectos_gate p   ON p.id_proyecto = a.proyecto_id
             LEFT JOIN tb_oportunidades op ON op.id_oportunidad = p.id_oportunidad
             LEFT JOIN tb_clientes cl   ON cl.id = op.cliente_id
-            LEFT JOIN tb_bom_pagos bp  ON bp.autorizacion_id = a.id
             WHERE a.estatus = 'AUTORIZADO_FINANZAS'
-              AND bp.id IS NULL
             ORDER BY a.fecha_aprobacion_finanzas
         """)
         return [dict(r) for r in rows]
+
+    async def actualizar_estatus_autorizacion(
+        self, conn, autorizacion_id: UUID, nuevo_estatus: str
+    ) -> None:
+        """Actualiza el estatus de una autorización BOM."""
+        await conn.execute("""
+            UPDATE tb_bom_autorizaciones
+            SET estatus = $1
+            WHERE id = $2
+        """, nuevo_estatus, autorizacion_id)
 
     async def get_historial_pagos(
         self, conn, limit: int = 100
@@ -160,7 +168,7 @@ class FinanzasDBService:
         row = await conn.fetchrow("""
             SELECT
                 COUNT(*) FILTER (
-                    WHERE a.estatus = 'AUTORIZADO_FINANZAS' AND bp.id IS NULL
+                    WHERE a.estatus = 'AUTORIZADO_FINANZAS'
                 ) AS pendientes_pago,
                 COUNT(*) FILTER (
                     WHERE bp.id IS NOT NULL

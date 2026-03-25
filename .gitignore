@@ -44,3 +44,5 @@ CLAUDE.md
 .agent/
 .mcp.json
 docs/
+.claude/knowledge/
+.vscode/

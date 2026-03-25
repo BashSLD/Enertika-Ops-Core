@@ -69,30 +69,31 @@ class FinanzasService:
                 f"La autorización está en estatus {aut['estatus']}."
             )
 
-        pago = await self.db.crear_pago_db(
-            conn,
-            autorizacion_id=autorizacion_id,
-            monto_pagado=monto_pagado,
-            moneda=moneda,
-            tipo_cambio_usado=tipo_cambio_usado,
-            fecha_pago=fecha_pago,
-            referencia_bancaria=referencia_bancaria,
-            comprobante_url=comprobante_url,
-            registrado_por=registrado_por,
-        )
-
-        await self.db.crear_comprobante_bom(
-            conn,
-            id_bom_pago=pago["id"],
-            fecha_pago=fecha_pago,
-            beneficiario_orig=aut.get("nombre_proveedor") or "Sin proveedor",
-            monto=monto_pagado,
-            moneda=moneda,
-            id_proveedor=aut.get("proveedor_id"),
-            id_proyecto=aut.get("proyecto_id"),
-            capturado_por=registrado_por,
-            comprobante_url=comprobante_url,
-        )
+        async with conn.transaction():
+            pago = await self.db.crear_pago_db(
+                conn,
+                autorizacion_id=autorizacion_id,
+                monto_pagado=monto_pagado,
+                moneda=moneda,
+                tipo_cambio_usado=tipo_cambio_usado,
+                fecha_pago=fecha_pago,
+                referencia_bancaria=referencia_bancaria,
+                comprobante_url=comprobante_url,
+                registrado_por=registrado_por,
+            )
+            await self.db.actualizar_estatus_autorizacion(conn, autorizacion_id, "PAGADO")
+            await self.db.crear_comprobante_bom(
+                conn,
+                id_bom_pago=pago["id"],
+                fecha_pago=fecha_pago,
+                beneficiario_orig=aut.get("nombre_proveedor") or "Sin proveedor",
+                monto=monto_pagado,
+                moneda=moneda,
+                id_proveedor=aut.get("proveedor_id"),
+                id_proyecto=aut.get("proyecto_id"),
+                capturado_por=registrado_por,
+                comprobante_url=comprobante_url,
+            )
 
         logger.info(
             "Pago BOM registrado: autorizacion=%s pago=%s monto=%s %s",

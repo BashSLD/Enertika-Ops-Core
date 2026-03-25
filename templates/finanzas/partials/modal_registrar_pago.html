@@ -46,7 +46,7 @@
         <form
             hx-post="/finanzas/autorizaciones/{{ autorizacion.id }}/pago"
             hx-target="#finanzas-main-content"
-            hx-swap="innerHTML"
+            hx-swap="outerHTML"
             @htmx:after-request="if(event.detail.successful) { open = false; $el.closest('[x-data]').remove(); }"
             x-data="{ moneda: '{{ autorizacion.moneda }}' }"
             class="p-5 space-y-4">

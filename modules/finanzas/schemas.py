@@ -33,3 +33,4 @@ class BomPagoRead(BaseModel):
     proyecto_id_estandar: Optional[str] = None
     nombre_proyecto: Optional[str] = None
     id_comprobante: Optional[UUID] = None
+    registrado_por_nombre: Optional[str] = None
