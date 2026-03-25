@@ -133,13 +133,14 @@ app.include_router(projects_router)
 
 # --- Background Tasks ---
 import asyncio
-from core.tasks import cleanup_temp_uploads_periodically, check_levantamientos_sin_asignar_periodically, refresh_tipo_cambio_periodically
+from core.tasks import cleanup_temp_uploads_periodically, check_levantamientos_sin_asignar_periodically, refresh_tipo_cambio_periodically, check_recordatorios_levantamientos_periodically
 
 async def start_background_tasks():
     """Lanza tareas en segundo plano al inicio."""
     asyncio.create_task(cleanup_temp_uploads_periodically())
     asyncio.create_task(check_levantamientos_sin_asignar_periodically())
     asyncio.create_task(refresh_tipo_cambio_periodically())
+    asyncio.create_task(check_recordatorios_levantamientos_periodically())
 
 # Actualizamos el on_startup
 app.router.on_startup.append(start_background_tasks)

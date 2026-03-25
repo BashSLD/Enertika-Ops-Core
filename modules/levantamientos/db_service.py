@@ -168,12 +168,16 @@ class LevantamientosDBService:
         return {str(r["id_levantamiento"]): r["op_id_estandar"] for r in rows}
 
     async def revertir_estatus_pendiente(self, conn, id_levantamiento: UUID) -> None:
-        """Revierte el estatus del levantamiento a 'pendiente' al desacoplarlo de una visita."""
+        """
+        Revierte el levantamiento a 'pendiente' al removerlo de una visita.
+        Limpia fecha_visita_programada ya que fue asignada por la visita.
+        """
         await conn.execute("""
             UPDATE tb_levantamientos
             SET id_estatus_global = (
                 SELECT id FROM tb_cat_estatus_levantamiento WHERE codigo = 'pendiente'
             ),
+            fecha_visita_programada = NULL,
             updated_at = NOW()
             WHERE id_levantamiento = $1
         """, id_levantamiento)

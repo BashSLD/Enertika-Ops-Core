@@ -554,6 +554,46 @@ class VisitasCampoDBService:
         """)
         return [dict(r) for r in rows]
 
+    async def propagar_ingeniero_visita(
+        self, conn, id_visita: UUID, ingeniero_id: UUID, asignado_por_id: UUID
+    ) -> int:
+        """
+        Asigna ingeniero_id como responsable en tb_levantamiento_asignaciones
+        para todos los levantamientos de la visita.
+        1. Quita es_responsable anterior en cada levantamiento.
+        2. Upsert del ingeniero con es_responsable=true.
+        Retorna cantidad de levantamientos actualizados.
+        """
+        lev_ids = [
+            r["id_levantamiento"]
+            for r in await conn.fetch(
+                "SELECT id_levantamiento FROM tb_visita_campo_levantamientos WHERE id_visita = $1",
+                id_visita,
+            )
+        ]
+        if not lev_ids:
+            return 0
+
+        await conn.execute("""
+            UPDATE tb_levantamiento_asignaciones
+            SET es_responsable = false
+            WHERE id_levantamiento = ANY($1::uuid[]) AND es_responsable = true
+        """, lev_ids)
+
+        await conn.executemany("""
+            INSERT INTO tb_levantamiento_asignaciones
+                (id_levantamiento, tecnico_id, asignado_por_id, es_responsable)
+            VALUES ($1, $2, $3, true)
+            ON CONFLICT (id_levantamiento, tecnico_id)
+            DO UPDATE SET es_responsable = true, asignado_por_id = $3
+        """, [(lev_id, ingeniero_id, asignado_por_id) for lev_id in lev_ids])
+
+        logger.info(
+            "[VISITA] Ingeniero propagado a %d levantamientos de visita %s",
+            len(lev_ids), id_visita,
+        )
+        return len(lev_ids)
+
     async def sync_levantamientos_agendado(
         self, conn, levantamiento_ids: List[UUID],
         fechas_individuales: Dict[str, datetime],

@@ -124,7 +124,7 @@
 
         <!-- Column 1: PENDIENTES -->
         <div class="flex flex-col glass-panel rounded-xl shadow-sm h-full border-t-4 border-orange-400"
-            x-data="{ open: true }">
+            x-data="{ open: $persist(true).as('lev-col-pendiente') }">
             <div class="p-4 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
                 @click="open = !open">
                 <h3 class="font-bold text-gray-700 flex justify-between items-center">
@@ -348,7 +348,7 @@
 
         <!-- Column 2: AGENDADOS -->
         <div class="flex flex-col glass-panel rounded-xl shadow-sm h-full border-t-4 border-blue-500"
-            x-data="{ open: false }">
+            x-data="{ open: $persist(false).as('lev-col-agendado') }">
             <div class="p-4 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
                 @click="open = !open">
                 <h3 class="font-bold text-gray-700 flex justify-between items-center">
@@ -551,8 +551,8 @@
                         </div>
 
                         {% if can_edit %}
-                        <button hx-post="/levantamientos/change-status/{{ item.id_levantamiento }}"
-                            hx-vals='{"nuevo_estado": 3}' hx-target="#kanban-container" hx-swap="outerHTML"
+                        <button x-data
+                            @click="$dispatch('open-status-modal', {id: '{{ item.id_levantamiento }}', estado: 3, label: 'Iniciar Levantamiento'})"
                             class="bg-yellow-50 text-yellow-600 hover:bg-yellow-100 px-3 py-1.5 rounded text-sm font-semibold transition-colors flex items-center gap-1">
                             <span class="text-lg">
                                 <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
@@ -585,7 +585,7 @@
 
         <!-- Column 3: EN PROCESO -->
         <div class="flex flex-col glass-panel rounded-xl shadow-sm h-full border-t-4 border-yellow-500"
-            x-data="{ open: false }">
+            x-data="{ open: $persist(false).as('lev-col-en_proceso') }">
             <div class="p-4 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
                 @click="open = !open">
                 <h3 class="font-bold text-gray-700 flex justify-between items-center">
@@ -768,8 +768,8 @@
                             </div>
 
                             {% if can_edit %}
-                            <button hx-post="/levantamientos/change-status/{{ item.id_levantamiento }}"
-                                hx-vals='{"nuevo_estado": 5}' hx-target="#kanban-container" hx-swap="outerHTML"
+                            <button x-data
+                                @click="$dispatch('open-status-modal', {id: '{{ item.id_levantamiento }}', estado: 5, label: 'Completar Levantamiento'})"
                                 class="bg-green-50 text-green-600 hover:bg-green-100 px-3 py-1.5 rounded text-sm font-semibold transition-colors flex items-center gap-1">
                                 <span class="text-lg">
                                     <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
@@ -804,7 +804,7 @@
 
         <!-- Column 4: COMPLETADOS -->
         <div class="flex flex-col glass-panel rounded-xl shadow-sm h-full border-t-4 border-green-500"
-            x-data="{ open: false }">
+            x-data="{ open: $persist(false).as('lev-col-completado') }">
             <div class="p-4 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
                 @click="open = !open">
                 <h3 class="font-bold text-gray-700 flex justify-between items-center">
@@ -965,7 +965,7 @@
 
         <!-- Column 5: ENTREGADOS -->
         <div class="flex flex-col glass-panel rounded-xl shadow-sm h-full border-t-4 border-green-700"
-            x-data="{ open: false }">
+            x-data="{ open: $persist(false).as('lev-col-entregado') }">
             <div class="p-4 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
                 @click="open = !open">
                 <h3 class="font-bold text-gray-700 flex justify-between items-center">
@@ -1131,7 +1131,7 @@
 
         <!-- Column 6: POSPUESTOS -->
         <div class="flex flex-col glass-panel rounded-xl shadow-sm h-full border-t-4 border-gray-500"
-            x-data="{ open: false }">
+            x-data="{ open: $persist(false).as('lev-col-pospuesto') }">
             <div class="p-4 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
                 @click="open = !open">
                 <h3 class="font-bold text-gray-700 flex justify-between items-center">
@@ -1298,4 +1298,60 @@
     {% include "shared/toast.html" %}
     {% endwith %}
     {% endif %}
+
+    <!-- Mini-modal: Iniciar / Completar con observaciones opcionales -->
+    <div x-data="levStatusModal()"
+         x-show="open"
+         x-on:open-status-modal.window="openWith($event.detail)"
+         x-transition:enter="transition ease-out duration-150"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         x-transition:leave="transition ease-in duration-100"
+         x-transition:leave-start="opacity-100"
+         x-transition:leave-end="opacity-0"
+         class="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-4 bg-black/60"
+         x-cloak>
+        <div class="bg-slate-800 rounded-xl p-5 w-full max-w-sm border border-slate-700 shadow-2xl"
+             @click.stop>
+            <h3 class="text-white font-semibold text-base mb-3" x-text="label"></h3>
+            <textarea x-model="observaciones" rows="3"
+                      placeholder="Observaciones opcionales..."
+                      class="w-full bg-slate-700 text-white rounded-lg p-3 text-sm resize-none border border-slate-600 focus:border-blue-500 focus:outline-none placeholder-slate-400"></textarea>
+            <div class="flex gap-2 mt-3">
+                <button @click="cancel()"
+                        class="flex-1 px-4 py-2 rounded-lg border border-slate-600 text-slate-300 hover:bg-slate-700 transition-colors text-sm">
+                    Cancelar
+                </button>
+                <button @click="confirm()"
+                        class="flex-1 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white font-semibold transition-colors text-sm">
+                    Confirmar
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    function levStatusModal() {
+        return {
+            open: false, id: null, estado: null, label: '', observaciones: '',
+            openWith(detail) {
+                this.id = detail.id;
+                this.estado = detail.estado;
+                this.label = detail.label;
+                this.observaciones = '';
+                this.open = true;
+            },
+            cancel() { this.open = false; this.observaciones = ''; },
+            confirm() {
+                htmx.ajax('POST', '/levantamientos/change-status/' + this.id, {
+                    values: { nuevo_estado: this.estado, observaciones: this.observaciones || '' },
+                    target: '#kanban-container',
+                    swap: 'outerHTML'
+                });
+                this.open = false;
+                this.observaciones = '';
+            }
+        };
+    }
+    </script>
 </div>

@@ -471,12 +471,25 @@ class LevantamientoService:
         # Notificar a nuevos técnicos asignados
         new_techs = set(tecnicos_ids) - set(old_tech_ids)
         for new_tid in new_techs:
-             asyncio.create_task(
+            asyncio.create_task(
                 self._execute_notification_background(
                     self._notificar_asignacion_impl,
                     id_oportunidad=current['id_oportunidad'],
-                    old_responsable_id=None, # Tratamos como nueva asignación
+                    old_responsable_id=None,
                     new_responsable_id=new_tid,
+                    user_context=user_context
+                )
+            )
+
+        # Notificar al nuevo jefe de área si cambió
+        old_jefe_id = current['jefe_area_id']
+        if jefe_id and jefe_id != old_jefe_id:
+            asyncio.create_task(
+                self._execute_notification_background(
+                    self._notificar_asignacion_impl,
+                    id_oportunidad=current['id_oportunidad'],
+                    old_responsable_id=old_jefe_id,
+                    new_responsable_id=jefe_id,
                     user_context=user_context
                 )
             )

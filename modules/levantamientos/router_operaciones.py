@@ -1019,6 +1019,11 @@ def register_operaciones_endpoints(router: APIRouter):
                     conn, levantamiento_ids, fechas_individuales, context["user_db_id"]
                 )
 
+            # Propagar creador de la visita como ingeniero responsable en cada levantamiento
+            await visitas_db_svc.propagar_ingeniero_visita(
+                conn, id_visita, context["user_db_id"], context["user_db_id"]
+            )
+
             for concepto, monto, usuario_id in viaticos_a_crear:
                 await visitas_db_svc.create_viatico_visita(
                     conn, id_visita, usuario_id, concepto, monto, context["user_db_id"]
@@ -1285,6 +1290,9 @@ def register_operaciones_endpoints(router: APIRouter):
 
         ya_enviada = await visitas_db_svc.has_envios(conn, id_visita)
         await visitas_db_svc.add_levantamientos_to_visita(conn, id_visita, levantamiento_ids)
+        await visitas_db_svc.propagar_ingeniero_visita(
+            conn, id_visita, context["user_db_id"], context["user_db_id"]
+        )
 
         levantamientos_visita, viaticos = await asyncio.gather(
             visitas_db_svc.get_levantamientos_en_visita(conn, id_visita),

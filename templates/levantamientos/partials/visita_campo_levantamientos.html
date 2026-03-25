@@ -25,18 +25,18 @@
                 <span class="text-slate-500">— {{ lev.cliente_nombre }}</span>
                 {% if lev.fecha_visita_individual %}
                 <span class="text-blue-400 ml-1" title="Fecha de visita individual">
-                    <i class="fas fa-calendar-day" style="font-size:9px;"></i>
+                    <i class="fas fa-calendar-day text-blue-400" style="font-size:9px;"></i>
                     {{ lev.fecha_visita_individual.strftime('%d/%m/%Y %H:%M') }}
                 </span>
                 {% endif %}
                 <button
                     hx-delete="/levantamientos/visitas-campo/{{ _vid }}/levantamientos/{{ lev.id_levantamiento }}"
                     hx-swap="none"
-                    hx-confirm="¿Desacoplar este levantamiento de la visita? Su estatus se revertira a Pendiente."
+                    hx-confirm="¿Remover este sitio de la visita? Su estatus se revertira a Pendiente y se limpiara su fecha programada."
                     class="ml-auto flex items-center gap-1 px-1.5 py-0.5 bg-red-900/30 hover:bg-red-900/60 border border-red-700/40 hover:border-red-500/60 rounded text-red-400 hover:text-red-300 transition-colors flex-shrink-0 text-xs"
-                    title="Desacoplar de esta visita">
-                    <i class="fas fa-unlink"></i>
-                    Sacar
+                    title="Remover de esta visita">
+                    <i class="fas fa-times"></i>
+                    Remover
                 </button>
             </div>
             {% endfor %}
