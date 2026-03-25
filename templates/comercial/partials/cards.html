@@ -239,7 +239,7 @@
         <div class="-my-2 sm:-mx-6 lg:-mx-8">
             <div class="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
                 <div class="shadow border-b border-gray-200 sm:rounded-lg overflow-x-auto">
-                    <table class="w-full divide-y divide-gray-200">
+                    <table class="w-full divide-y divide-gray-200 min-w-[800px]">
                         <thead class="bg-gray-50">
                             <tr>
                                 <th scope="col"
@@ -506,62 +506,43 @@
                                         %}
                                         {% if status == 'pendiente' %}
                                         <span
-                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300 shadow-sm shadow-yellow-200/50"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300 shadow-sm"
                                             title="La oportunidad ha sido enviada a simulación, pero aún no la ha revisado">
                                             ⏳ Pendiente
                                         </span>
                                         {% elif status == 'en revision' or status == 'en revisión' %}
                                         <span
-                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-blue-100 text-blue-800 border border-blue-300 shadow-sm shadow-blue-200/50"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-blue-100 text-blue-800 border border-blue-300 shadow-sm"
                                             title="La oportunidad está siendo revisada por simulación">
-                                            <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
-                                                viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                            </svg>
-                                            En Revisión
+                                            👁️ En Revisión
                                         </span>
                                         {% elif status == 'en proceso' %}
                                         <span
-                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-[#E0F7F7] text-[#123456] border border-[#00BABB] shadow-md shadow-[#00BABB]/20 animate-pulse-subtle"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-[#E0F7F7] text-[#123456] border border-[#00BABB] shadow-sm"
                                             title="La oportunidad está en proceso de simulación">
-                                            <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
-                                                viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                            </svg>
-                                            En Proceso
+                                            ⚙️ En Proceso
                                         </span>
                                         {% elif status == 'entregado' %}
                                         <span
-                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-green-100 text-green-800 border border-green-300 shadow-sm shadow-green-200/50"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-green-100 text-green-800 border border-green-300 shadow-sm"
                                             title="La oportunidad ha sido enviada a comercial">
-                                            <svg class="w-4 h-4 inline-block mr-1" fill="none" stroke="currentColor"
-                                                viewBox="0 0 24 24">
-                                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                                            </svg>
-                                            Entregado
+                                            ✅ Entregado
                                         </span>
                                         {% elif status == 'cancelado' %}
                                         <span
-                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800 border border-gray-200"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-800"
                                             title="La oportunidad ha sido cancelada">
                                             Cancelado
                                         </span>
                                         {% elif status == 'perdida' or status == 'perdido' %}
                                         <span
-                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800 border border-red-200"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800"
                                             title="La oportunidad ha sido perdida">
                                             Perdida
                                         </span>
                                         {% elif status == 'cerrada' %}
                                         <span
-                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm shadow-emerald-200/50"
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300 shadow-sm"
                                             title="La oportunidad se ha ganado">
                                             🎉 Cerrada
                                         </span>
