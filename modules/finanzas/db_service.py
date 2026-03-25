@@ -31,7 +31,7 @@ class FinanzasDBService:
                 a.nota_finanzas,
                 c.nombre_proveedor,
                 p.proyecto_id_estandar,
-                p.nombre          AS nombre_proyecto,
+                p.nombre_corto    AS nombre_proyecto,
                 cl.razon_social   AS cliente_nombre
             FROM tb_bom_autorizaciones a
             JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
@@ -62,7 +62,7 @@ class FinanzasDBService:
                 bp.registrado_en,
                 c.nombre_proveedor,
                 p.proyecto_id_estandar,
-                p.nombre          AS nombre_proyecto,
+                p.nombre_corto    AS nombre_proyecto,
                 cp.id_comprobante,
                 u.nombre_completo AS registrado_por_nombre
             FROM tb_bom_pagos bp
@@ -93,7 +93,7 @@ class FinanzasDBService:
                 c.nombre_proveedor,
                 c.proveedor_id,
                 p.proyecto_id_estandar,
-                p.nombre  AS nombre_proyecto,
+                p.nombre_corto    AS nombre_proyecto,
                 p.id_oportunidad
             FROM tb_bom_autorizaciones a
             JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
