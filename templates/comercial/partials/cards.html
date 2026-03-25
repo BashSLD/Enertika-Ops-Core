@@ -84,158 +84,8 @@
         </div>
     </div>
 
-    <!-- Cards/Table -->
-
-    <!-- Mobile: Card View -->
-    <div class="sm:hidden flex flex-col divide-y divide-gray-100 rounded-xl overflow-hidden shadow border border-gray-200 bg-white/40">
-        {% for op in oportunidades %}
-        {% set prioridad_color = 'border-green-400' if op.prioridad == 'low' else ('border-red-400' if op.prioridad == 'high' else 'border-[#00BABB]') %}
-        <div class="border-l-4 {{ prioridad_color }} px-3 py-2.5 {{ 'bg-red-50/40' if op.prioridad == 'high' else 'bg-white/90' }}">
-
-            <!-- Fila 1: ID + flags + Status -->
-            <div class="flex items-center justify-between gap-2">
-                <div class="flex items-center gap-1.5 min-w-0">
-                    {% if current_tab == 'levantamientos' and op.id_levantamiento %}
-                    <button hx-get="/levantamientos/modals/detalle/{{ op.id_levantamiento }}?source=comercial"
-                        hx-target="body" hx-swap="beforeend"
-                        hx-indicator="#global-loading-overlay"
-                        class="font-mono font-bold text-sm text-blue-700 hover:underline shrink-0">
-                        {{ op.id_interno_simulacion or 'N/A' }}
-                    </button>
-                    {% else %}
-                    <button hx-get="/workflow/modals/detalle/{{ op.id_oportunidad }}"
-                        hx-target="body" hx-swap="beforeend"
-                        hx-indicator="#global-loading-overlay" hx-disabled-elt="this"
-                        class="font-mono font-bold text-sm text-gray-700 hover:text-[#00BABB] hover:underline shrink-0">
-                        {{ op.id_interno_simulacion or 'N/A' }}
-                    </button>
-                    {% endif %}
-                    {% if op.prioridad == 'high' %}
-                    <span class="text-[10px] font-bold bg-red-100 text-red-800 border border-red-200 px-1.5 py-0.5 rounded animate-pulse-subtle shrink-0">🔥 URGENTE</span>
-                    {% endif %}
-                    {% if op.es_licitacion %}
-                    <span class="text-[10px] font-medium bg-teal-100 text-teal-800 px-1.5 py-0.5 rounded shrink-0">🏛️ Lic.</span>
-                    {% endif %}
-                </div>
-                <div class="shrink-0">
-                    {% if current_tab == 'levantamientos' %}
-                    {% set lev_status = op.status_levantamiento|lower if op.status_levantamiento else 'pendiente' %}
-                    {% if lev_status == 'pendiente' %}<span class="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300">Pendiente</span>
-                    {% elif lev_status == 'agendado' %}<span class="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-blue-100 text-blue-800 border border-blue-300">Agendado</span>
-                    {% elif lev_status in ('en proceso', 'en_proceso') %}<span class="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-teal-100 text-teal-800 border border-teal-300">En Proceso</span>
-                    {% elif lev_status == 'completado' %}<span class="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-green-100 text-green-800 border border-green-300">Completado</span>
-                    {% elif lev_status == 'entregado' %}<span class="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300">Entregado</span>
-                    {% elif lev_status == 'pospuesto' %}<span class="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-gray-100 text-gray-800 border border-gray-300">Pospuesto</span>
-                    {% else %}<span class="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-gray-100 text-gray-600">{{ op.status_levantamiento or '—' }}</span>
-                    {% endif %}
-                    {% else %}
-                    {% set status = op.status_global|lower if op.status_global else 'pendiente' %}
-                    {% if status == 'pendiente' %}<span class="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-yellow-100 text-yellow-800 border border-yellow-300">⏳ Pendiente</span>
-                    {% elif status in ('en revision', 'en revisión') %}<span class="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-blue-100 text-blue-800 border border-blue-300">En Revisión</span>
-                    {% elif status == 'en proceso' %}<span class="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-[#E0F7F7] text-[#123456] border border-[#00BABB]">En Proceso</span>
-                    {% elif status == 'entregado' %}<span class="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-green-100 text-green-800 border border-green-300">Entregado</span>
-                    {% elif status == 'cancelado' %}<span class="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-gray-100 text-gray-800 border border-gray-200">Cancelado</span>
-                    {% elif status in ('perdida', 'perdido') %}<span class="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-red-100 text-red-800 border border-red-200">Perdida</span>
-                    {% elif status == 'cerrada' %}<span class="px-2 py-0.5 text-[10px] font-bold rounded-lg bg-emerald-100 text-emerald-800 border border-emerald-300">🎉 Cerrada</span>
-                    {% else %}<span class="px-2 py-0.5 text-[10px] font-semibold rounded-full bg-gray-100 text-gray-600 border border-gray-200">{{ op.status_global }}</span>
-                    {% endif %}
-                    {% endif %}
-                </div>
-            </div>
-
-            <!-- Fila 2: Título -->
-            <div class="text-xs text-gray-600 mt-1 truncate">
-                {{ (op.titulo_proyecto or op.nombre_proyecto or '')[:65] }}
-            </div>
-
-            <!-- Fila 3: Metadata -->
-            <div class="flex items-center justify-between mt-0.5 text-[11px] text-gray-400">
-                <span class="truncate max-w-[55%]">{{ op.solicitado_por or 'Desconocido' }}</span>
-                <div class="flex items-center gap-2 shrink-0">
-                    {% if current_tab == 'levantamientos' and op.fecha_programada %}
-                    <span>{{ op.fecha_programada.strftime('%d/%m %H:%M') }}</span>
-                    {% else %}
-                    <span>{{ op.fecha_solicitud | time_mx }}</span>
-                    {% if current_tab != 'levantamientos' and op.deadline_calculado %}
-                    <span class="text-blue-500 font-medium">SLA {{ op.deadline_calculado.strftime('%d/%m') }}</span>
-                    {% endif %}
-                    {% endif %}
-                </div>
-            </div>
-
-            {% if current_tab == 'levantamientos' and op.tecnico_asignado_nombre %}
-            <div class="text-[11px] text-teal-600 mt-0.5">Técnico: {{ op.tecnico_asignado_nombre }}</div>
-            {% endif %}
-
-            <!-- Fila 4: Botones icono -->
-            <div class="flex items-center gap-2 mt-2">
-                <button {% if current_tab == 'levantamientos' %}
-                    hx-get="/workflow/modals/comentarios?id_oportunidad={{ op.id_oportunidad }}&module=levantamientos"
-                    {% else %}
-                    hx-get="/workflow/modals/comentarios?id_oportunidad={{ op.id_oportunidad }}&module=comercial"
-                    {% endif %}
-                    hx-target="body" hx-swap="beforeend"
-                    class="p-2 rounded-lg bg-blue-50 text-blue-600 hover:bg-blue-100 border border-blue-200 touch-manipulation"
-                    title="Ver/Enviar Comentarios">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-                    </svg>
-                </button>
-
-                {% if op.tiene_detalles_bess %}
-                <button hx-get="/comercial/partials/bess/{{ op.id_oportunidad }}"
-                    hx-target="body" hx-swap="beforeend"
-                    class="p-2 rounded-lg bg-green-50 text-green-600 hover:bg-green-100 border border-green-200 touch-manipulation"
-                    title="Detalles BESS">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
-                    </svg>
-                </button>
-                {% endif %}
-
-                {% if op.id_proyecto %}
-                <button hx-get="/comercial/partials/progreso/{{ op.id_oportunidad }}"
-                    hx-target="body" hx-swap="beforeend"
-                    class="p-2 rounded-lg bg-violet-50 text-violet-600 hover:bg-violet-100 border border-violet-200 touch-manipulation"
-                    title="Progreso">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"/>
-                    </svg>
-                </button>
-                {% endif %}
-
-                {% if op.es_multisitio %}
-                <button @click.stop="toggleExpanded('{{ op.id_oportunidad }}')"
-                    hx-get="/comercial/partials/sitios/{{ op.id_oportunidad }}"
-                    hx-target="#sites-mobile-{{ op.id_oportunidad }}" hx-swap="innerHTML"
-                    hx-trigger="click once"
-                    class="ml-auto flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 border border-blue-200 text-[11px] font-semibold touch-manipulation">
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"/>
-                    </svg>
-                    {{ op.cantidad_sitios }} sitio{{ 's' if op.cantidad_sitios > 1 else '' }}
-                    <svg class="w-3.5 h-3.5 transition-transform duration-200" :class="{ 'rotate-180': isExpanded('{{ op.id_oportunidad }}') }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                    </svg>
-                </button>
-                {% endif %}
-            </div>
-
-            {% if op.es_multisitio %}
-            <div x-show="isExpanded('{{ op.id_oportunidad }}')" x-transition.duration.200ms class="mt-2 pt-2 border-t border-gray-100">
-                <div id="sites-mobile-{{ op.id_oportunidad }}" class="rounded-lg border border-gray-200 overflow-hidden bg-white text-center text-xs text-gray-400 p-4">
-                    Cargando sitios...
-                </div>
-            </div>
-            {% endif %}
-        </div>
-        {% else %}
-        <div class="px-4 py-6 text-center text-sm text-gray-500">No hay solicitudes registradas aún.</div>
-        {% endfor %}
-    </div>
-
-    <!-- Desktop: Table View -->
-    <div class="hidden sm:flex flex-col">
+    <!-- Table View -->
+    <div class="flex flex-col">
         <div class="-my-2 sm:-mx-6 lg:-mx-8">
             <div class="py-2 align-middle inline-block min-w-full sm:px-6 lg:px-8">
                 <div class="shadow border-b border-gray-200 sm:rounded-lg overflow-x-auto">
@@ -247,16 +97,16 @@
                                     ID / Título
                                 </th>
                                 <th scope="col"
-                                    class="hidden sm:table-cell px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-white/70 backdrop-blur-md">
+                                    class="table-cell px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-white/70 backdrop-blur-md">
                                     Ingeniero Asignado
                                 </th>
                                 <th scope="col"
-                                    class="hidden sm:table-cell px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-48 bg-white/70 backdrop-blur-md">
+                                    class="table-cell px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-48 bg-white/70 backdrop-blur-md">
                                     Solicitado
                                 </th>
                                 {% if current_tab != 'levantamientos' %}
                                 <th scope="col"
-                                    class="hidden sm:table-cell px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-40 bg-white/70 backdrop-blur-md">
+                                    class="table-cell px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-40 bg-white/70 backdrop-blur-md">
                                     Entrega SLA
                                 </th>
                                 {% endif %}
@@ -361,7 +211,7 @@
                                     </td>
 
                                     <!-- COL 2: Ingeniero/Tecnico Asignado -->
-                                    <td class="hidden sm:table-cell px-4 py-2 whitespace-nowrap">
+                                    <td class="table-cell px-4 py-2 whitespace-nowrap">
                                         <div class="flex flex-col items-center justify-center">
                                             {% if current_tab == 'levantamientos' %}
                                             {% if op.tecnico_asignado_nombre %}
@@ -400,7 +250,7 @@
                                     </td>
 
                                     <!-- COL 3: Envío (con Tooltip Alpine.js) -->
-                                    <td class="hidden sm:table-cell px-4 py-2 w-48">
+                                    <td class="table-cell px-4 py-2 w-48">
                                         <div class="flex flex-col items-center gap-2">
                                             <div class="text-sm text-gray-700 text-center">
                                                 {{ op.fecha_solicitud | time_mx }}
@@ -443,7 +293,7 @@
 
                                     <!-- COL 5: Entrega SLA -->
                                     {% if current_tab != 'levantamientos' %}
-                                    <td class="hidden sm:table-cell px-4 py-2 w-40">
+                                    <td class="table-cell px-4 py-2 w-40">
                                         <div class="flex flex-col items-center gap-2">
                                             <div class="text-sm text-blue-600 font-semibold text-center">
                                                 {{ op.deadline_calculado.strftime('%d/%m/%Y') if

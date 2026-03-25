@@ -65,7 +65,7 @@
     {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
     {% set is_admin_or_manager = (role == 'ADMIN') or (role == 'MANAGER') %}
     <!-- MOVIL: barra compacta -->
-    <div class="md:hidden flex items-center justify-between bg-gray-50 py-2 mb-2">
+    <div class="md:hidden flex items-center justify-between sticky top-14 bg-gray-50 py-2 mb-2">
         <span class="text-sm font-bold text-[#00BABB]">Comercial</span>
         <div x-data="{ open: false }" class="relative">
             <button @click="open = !open"
