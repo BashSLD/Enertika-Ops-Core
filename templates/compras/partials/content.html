@@ -1,7 +1,7 @@
 <div class="animate-fade-in-down px-4">
     {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
     <!-- MOVIL: barra compacta -->
-    <div class="md:hidden flex items-center justify-between mb-4 px-1">
+    <div class="md:hidden flex items-center justify-between sticky top-14 z-20 bg-gray-50 py-2 mb-2">
         <span class="text-sm font-bold text-[#00BABB]">Compras</span>
         <div x-data="{ open: false }" class="relative">
             <button @click="open = !open"
@@ -12,7 +12,7 @@
                 </svg>
             </button>
             <div x-show="open" x-transition @click.outside="open = false"
-                class="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl shadow-xl border border-gray-100 p-2 flex flex-col gap-2 min-w-[160px]">
+                class="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-gray-100 p-2 flex flex-col gap-2 min-w-[160px]">
                 {% if can_edit %}
                 <button onclick="document.getElementById('upload-modal').classList.remove('hidden')"
                     class="bg-[#00BABB] text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">

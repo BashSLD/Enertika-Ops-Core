@@ -1,6 +1,6 @@
 <div id="kanban-container" class="flex flex-col h-full">
     <!-- MOVIL: barra compacta -->
-    <div class="md:hidden flex items-center justify-between mb-4 px-1">
+    <div class="md:hidden flex items-center justify-between sticky top-14 z-20 bg-gray-50 py-2 mb-2">
         <span class="text-sm font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-indigo-500">Levantamientos</span>
         <div x-data="{ open: false }" class="relative">
             <button @click="open = !open"
@@ -11,7 +11,7 @@
                 </svg>
             </button>
             <div x-show="open" x-transition @click.outside="open = false"
-                class="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl shadow-xl border border-gray-100 p-2 flex flex-col gap-2 min-w-[160px]">
+                class="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-gray-100 p-2 flex flex-col gap-2 min-w-[160px]">
                 {% if can_edit %}
                 <button hx-get="/levantamientos/visitas-campo/nueva"
                     hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"

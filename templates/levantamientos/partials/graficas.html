@@ -4,7 +4,7 @@
 
 <div id="kanban-container" class="flex flex-col h-full">
     <!-- MOVIL: barra compacta -->
-    <div class="md:hidden flex items-center justify-between mb-4 px-1">
+    <div class="md:hidden flex items-center justify-between sticky top-14 z-20 bg-gray-50 py-2 mb-2">
         <span class="text-sm font-bold text-emerald-600">Levantamientos — Gráficas</span>
         <div x-data="{ open: false }" class="relative">
             <button @click="open = !open"
@@ -15,7 +15,7 @@
                 </svg>
             </button>
             <div x-show="open" x-transition @click.outside="open = false"
-                class="absolute right-0 top-full mt-1 z-20 bg-white rounded-xl shadow-xl border border-gray-100 p-2 flex flex-col gap-2 min-w-[140px]">
+                class="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-gray-100 p-2 flex flex-col gap-2 min-w-[140px]">
                 <button hx-get="/levantamientos/partials/lista?tab=activos" hx-target="#kanban-container" hx-swap="outerHTML"
                     class="bg-indigo-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

@@ -1,6 +1,30 @@
 <div id="kanban-container" class="flex flex-col h-full">
-    <!-- Header -->
-    <div class="glass-panel p-4 rounded-xl mb-4 flex flex-wrap gap-3 justify-between items-center border-l-4 border-violet-500">
+    <!-- MOVIL: barra compacta -->
+    <div class="md:hidden flex items-center justify-between sticky top-14 z-20 bg-gray-50 py-2 mb-2">
+        <span class="text-sm font-bold text-violet-600">Visitas de Campo</span>
+        <div x-data="{ open: false }" class="relative">
+            <button @click="open = !open"
+                class="flex items-center gap-1 bg-violet-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg">
+                Acciones
+                <svg class="h-3 w-3 transition-transform" :class="open && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                </svg>
+            </button>
+            <div x-show="open" x-transition @click.outside="open = false"
+                class="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-gray-100 p-2 flex flex-col gap-2 min-w-[160px]"
+                style="display:none">
+                <button hx-get="/levantamientos/partials/kanban" hx-target="#kanban-container" hx-swap="outerHTML"
+                    class="bg-blue-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
+                    </svg>
+                    Volver al Kanban
+                </button>
+            </div>
+        </div>
+    </div>
+    <!-- DESKTOP: Header -->
+    <div class="glass-panel p-4 rounded-xl mb-4 hidden md:flex flex-wrap gap-3 justify-between items-center border-l-4 border-violet-500">
         <div>
             <h2 class="text-2xl font-light text-gray-800">
                 Módulo <span class="font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-600 to-indigo-500">Levantamientos</span>

@@ -3,7 +3,12 @@
 {% block content %}
 <div class="max-w-7xl mx-auto space-y-8 animate-fade-in-up">
 
-    <div class="flex items-center gap-3 mb-8">
+    <!-- MOVIL: barra compacta -->
+    <div class="md:hidden flex items-center justify-between sticky top-14 z-20 bg-gray-50 py-2 mb-2">
+        <span class="text-sm font-bold text-[#123456]">Administración</span>
+    </div>
+
+    <div class="hidden md:flex items-center gap-3 mb-8">
         <div class="p-3 bg-white rounded-lg shadow-sm border border-gray-200">
             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="#123456"
                 class="w-8 h-8">

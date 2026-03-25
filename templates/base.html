@@ -381,11 +381,32 @@
                 </svg>
             </button>
             <span class="text-lg font-bold text-[#00BABB]">Enertika</span>
-            <div class="relative">
-                <span class="text-lg">👤</span>
-                <span x-show="$store.notifications?.count > 0"
-                    x-text="$store.notifications?.count > 99 ? '99+' : $store.notifications?.count"
-                    class="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-bold px-1 rounded-full min-w-[14px] text-center"></span>
+            <div x-data="{ userMenuOpen: false }" class="relative">
+                <button @click="userMenuOpen = !userMenuOpen"
+                    class="relative p-1.5 rounded-lg hover:bg-blue-800/50 transition">
+                    <div class="w-7 h-7 rounded-full bg-blue-800 text-white text-xs font-bold flex items-center justify-center">
+                        {{ user_name[:2].upper() if user_name else '?' }}
+                    </div>
+                    <span x-show="$store.notifications?.count > 0"
+                        x-text="$store.notifications?.count > 99 ? '99+' : $store.notifications?.count"
+                        class="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold px-1 rounded-full min-w-[14px] text-center"></span>
+                </button>
+                <div x-show="userMenuOpen" x-transition @click.outside="userMenuOpen = false"
+                    class="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-gray-100 p-2 min-w-[180px]"
+                    style="display:none">
+                    <div class="px-3 py-2 border-b border-gray-100 mb-1">
+                        <p class="text-[10px] text-gray-400 uppercase font-semibold tracking-wide">Conectado como</p>
+                        <p class="text-sm font-semibold text-gray-800 truncate max-w-[156px]">{{ user_name }}</p>
+                    </div>
+                    <a href="/auth/logout"
+                        class="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full">
+                        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                        </svg>
+                        Cerrar sesión
+                    </a>
+                </div>
             </div>
         </header>
 
