@@ -378,9 +378,10 @@ def register_modal_endpoints(router: APIRouter):
         disponibles = await visitas_db_svc.get_levantamientos_disponibles_para_agregar(
             conn, id_visita
         )
-        return templates.TemplateResponse(request, 
-            request, "levantamientos/partials/visita_campo_selector_agregar.html",
-            {                "id_visita": id_visita,
+        return templates.TemplateResponse(request,
+            "levantamientos/partials/visita_campo_selector_agregar.html",
+            {
+                "id_visita": id_visita,
                 "levantamientos_disponibles": disponibles,
             },
         )

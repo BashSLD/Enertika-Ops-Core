@@ -37,7 +37,7 @@ class FinanzasDBService:
             JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
             JOIN tb_proyectos_gate p   ON p.id_proyecto = a.proyecto_id
             LEFT JOIN tb_oportunidades op ON op.id_oportunidad = p.id_oportunidad
-            LEFT JOIN tb_clientes cl   ON cl.id_cliente = op.id_cliente
+            LEFT JOIN tb_clientes cl   ON cl.id = op.cliente_id
             LEFT JOIN tb_bom_pagos bp  ON bp.autorizacion_id = a.id
             WHERE a.estatus = 'AUTORIZADO_FINANZAS'
               AND bp.id IS NULL

@@ -206,8 +206,8 @@ async def upload_comprobantes(
         try:
             await validate_upload_size(f, max_bytes=50 * 1024 * 1024)
         except ValueError as e:
-            return templates.TemplateResponse(request, 
-                request, "compras/partials/upload_result.html",
+            return templates.TemplateResponse(request,
+                 "compras/partials/upload_result.html",
                 {                    "success": False,
                     "message": f"Archivo {f.filename}: {e}",
                     "insertados": 0,
@@ -217,8 +217,8 @@ async def upload_comprobantes(
             )
 
     if not pdf_files:
-        return templates.TemplateResponse(request, 
-            request, "compras/partials/upload_result.html",
+        return templates.TemplateResponse(request,
+             "compras/partials/upload_result.html",
             {                "success": False,
                 "message": "No se encontraron archivos PDF válidos",
                 "insertados": 0,
@@ -234,8 +234,8 @@ async def upload_comprobantes(
     comprobantes, total = await service.get_comprobantes_default_view(conn)
     catalogos = await service.get_catalogos(conn)
     
-    return templates.TemplateResponse(request, 
-        request, "compras/partials/upload_result.html",
+    return templates.TemplateResponse(request,
+         "compras/partials/upload_result.html",
         {            "success": result["insertados"] > 0,
             "message": f"{result['insertados']} comprobante(s) cargado(s) exitosamente",
             "insertados": result["insertados"],
@@ -284,9 +284,10 @@ async def get_comprobantes_list(
     )
     
     # Renderizar tabla
-    response = templates.TemplateResponse(request, 
-        request, "compras/partials/tabla_comprobantes.html",
-        {            "comprobantes": comprobantes,
+    response = templates.TemplateResponse(request,
+        "compras/partials/tabla_comprobantes.html",
+        {
+            "comprobantes": comprobantes,
             "total": total,
             "page": filtros.page,
             "per_page": filtros.per_page,
@@ -297,17 +298,17 @@ async def get_comprobantes_list(
             "filtros": {
                 "fecha_inicio": filtros.fecha_inicio.isoformat() if filtros.fecha_inicio else "",
                 "fecha_fin": filtros.fecha_fin.isoformat() if filtros.fecha_fin else "",
-                "estatus": filtros.estatus or "",
+                "estatus": filtros.estatus if filtros.estatus is not None else "TODOS",
                 "id_zona": filtros.id_zona or "",
                 "id_proyecto": str(filtros.id_proyecto) if filtros.id_proyecto else "",
                 "id_categoria": filtros.id_categoria or "",
             }
         }
     )
-    
+
     # Renderizar stats OOB
-    stats_html = templates.TemplateResponse(request, 
-        request, "compras/partials/estadisticas.html",
+    stats_html = templates.TemplateResponse(request,
+        "compras/partials/estadisticas.html",
         {"estadisticas": estadisticas}
     ).body.decode("utf-8")
     
@@ -341,8 +342,8 @@ async def get_comprobante_edit_modal(
     
     catalogos = await service.get_catalogos(conn)
     
-    return templates.TemplateResponse(request, 
-        request, "compras/partials/modal_editar.html",
+    return templates.TemplateResponse(request,
+         "compras/partials/modal_editar.html",
         {            "comprobante": comprobante,
             "zonas": catalogos.get("zonas", []),
             "categorias": catalogos.get("categorias", []),
@@ -372,8 +373,8 @@ async def update_comprobante(
     comprobante = await service.update_comprobante(conn, id_comprobante, updates, user_context=context)
     catalogos = await service.get_catalogos(conn)
     
-    return templates.TemplateResponse(request, 
-        request, "compras/partials/row_comprobante.html",
+    return templates.TemplateResponse(request,
+         "compras/partials/row_comprobante.html",
         {            "comprobante": comprobante,
             "zonas": catalogos.get("zonas", []),
             "categorias": catalogos.get("categorias", []),
@@ -430,8 +431,8 @@ async def bulk_update_comprobantes(
     
     count = await service.bulk_update_comprobantes(conn, uuid_list, updates, user_context=context)
     
-    return templates.TemplateResponse(request, 
-        request, "compras/partials/bulk_result.html",
+    return templates.TemplateResponse(request,
+         "compras/partials/bulk_result.html",
         {            "count": count
         }
     )
@@ -498,8 +499,8 @@ async def search_proveedores(
     """
     proveedores = await service.get_proveedores_search(conn, q)
     
-    return templates.TemplateResponse(request, 
-        request, "compras/partials/proveedores_search_results.html",
+    return templates.TemplateResponse(request,
+         "compras/partials/proveedores_search_results.html",
         {            "proveedores": proveedores
         }
     )
@@ -521,8 +522,8 @@ async def get_estadisticas(
     """
     stats = await service.get_estadisticas_generales(conn, estatus="PENDIENTE")
 
-    return templates.TemplateResponse(request, 
-        request, "compras/partials/estadisticas.html",
+    return templates.TemplateResponse(request,
+         "compras/partials/estadisticas.html",
         {            "estadisticas": stats
         }
     )
@@ -567,16 +568,16 @@ async def upload_xmls(
         try:
             await validate_upload_size(f, max_bytes=10 * 1024 * 1024)
         except ValueError as e:
-            return templates.TemplateResponse(request, 
-                request, "compras/partials/xml_upload_result.html",
+            return templates.TemplateResponse(request,
+                 "compras/partials/xml_upload_result.html",
                 {                    "result": None,
                     "error_msg": f"Archivo {f.filename}: {e}",
                 }
             )
 
     if not xml_files:
-        return templates.TemplateResponse(request, 
-            request, "compras/partials/xml_upload_result.html",
+        return templates.TemplateResponse(request,
+             "compras/partials/xml_upload_result.html",
             {                "result": None,
                 "error_msg": "No se encontraron archivos XML validos",
             }
@@ -591,8 +592,8 @@ async def upload_xmls(
     # NOTA: El upload a SharePoint se hace al confirmar el match, no aqui
     result_data = _serialize_xml_result(result)
 
-    return templates.TemplateResponse(request, 
-        request, "compras/partials/xml_upload_result.html",
+    return templates.TemplateResponse(request,
+         "compras/partials/xml_upload_result.html",
         {            "result": result_data,
             "error_msg": None,
         }
@@ -673,8 +674,8 @@ async def confirm_xml_match(
                 guardar_relacion=guardar_relacion
             )
     except ValueError as e:
-        return templates.TemplateResponse(request, 
-            request, "shared/toast.html",
+        return templates.TemplateResponse(request,
+             "shared/toast.html",
             {                "message": str(e),
                 "type": "error",
             }
@@ -724,16 +725,16 @@ async def confirm_xml_match(
         toast_msg = f"Factura {uuid_factura[:8]}... vinculada correctamente ({tipo_factura}{items_msg}{validacion_msg})"
         toast_type = "success" if resultado.get('validacion_ok', True) else "warning"
 
-    toast_html = templates.TemplateResponse(request, 
-        request, "shared/toast.html",
+    toast_html = templates.TemplateResponse(request,
+         "shared/toast.html",
         {            "message": toast_msg,
             "type": toast_type,
         }
     ).body.decode("utf-8")
 
     # Resultado de confirmacion con OOB toast
-    result_html = templates.TemplateResponse(request, 
-        request, "compras/partials/xml_confirm_result.html",
+    result_html = templates.TemplateResponse(request,
+         "compras/partials/xml_confirm_result.html",
         {            "resultado": resultado,
         }
     ).body.decode("utf-8")
@@ -763,8 +764,8 @@ async def search_comprobantes_pendientes(
         conn, q=q if q else None, limit=limit
     )
 
-    return templates.TemplateResponse(request, 
-        request, "compras/partials/xml_match_rows.html",
+    return templates.TemplateResponse(request,
+         "compras/partials/xml_match_rows.html",
         {            "candidatos": candidatos,
         }
     )
@@ -789,8 +790,8 @@ async def get_relaciones(
     """
     relaciones = await service.get_relaciones(conn, q=q if q else None)
 
-    return templates.TemplateResponse(request, 
-        request, "compras/partials/relaciones_beneficiario.html",
+    return templates.TemplateResponse(request,
+         "compras/partials/relaciones_beneficiario.html",
         {            "relaciones": relaciones,
             "q": q,
             "role": context.get("role"),
@@ -810,15 +811,15 @@ async def delete_relacion(
     """Elimina una relacion beneficiario-proveedor."""
     success = await service.delete_relacion(conn, relacion_id)
     if not success:
-        return templates.TemplateResponse(request, 
-            request, "shared/toast.html",
+        return templates.TemplateResponse(request,
+             "shared/toast.html",
             {                "message": "Relacion no encontrada",
                 "type": "error",
             }
         )
 
-    return templates.TemplateResponse(request, 
-        request, "shared/toast.html",
+    return templates.TemplateResponse(request,
+         "shared/toast.html",
         {            "message": "Relacion eliminada correctamente",
             "type": "success",
         }
@@ -844,8 +845,8 @@ async def get_comprobante_archivos(
     if tipo and tipo in origen_map:
         archivos = [a for a in archivos if a.get("origen_slug") == origen_map[tipo]]
 
-    return templates.TemplateResponse(request, 
-        request, "compras/partials/comprobante_archivos.html",
+    return templates.TemplateResponse(request,
+         "compras/partials/comprobante_archivos.html",
         {            "archivos": archivos,
             "tipo": tipo,
             "id_comprobante": id_comprobante,
@@ -883,8 +884,8 @@ async def get_facturas_vinculadas(
     saldo_pendiente = monto_total - monto_facturado
     porcentaje = round((monto_facturado / monto_total * 100), 1) if monto_total > 0 else 0
 
-    return templates.TemplateResponse(request, 
-        request, "compras/partials/comprobante_facturas_vinculadas.html",
+    return templates.TemplateResponse(request,
+         "compras/partials/comprobante_facturas_vinculadas.html",
         {            "comprobante": comprobante,
             "facturas": facturas,
             "monto_total": monto_total,
@@ -909,8 +910,8 @@ async def desvincular_factura(
     try:
         resultado = await service.desvincular_factura(conn, id_comprobante, uuid_factura)
     except ValueError as e:
-        return templates.TemplateResponse(request, 
-            request, "shared/toast.html",
+        return templates.TemplateResponse(request,
+             "shared/toast.html",
             {"message": str(e), "type": "error"},
         )
 
@@ -925,8 +926,8 @@ async def desvincular_factura(
     saldo_pendiente = monto_total - monto_facturado
     porcentaje = round((monto_facturado / monto_total * 100), 1) if monto_total > 0 else 0
 
-    panel_html = templates.TemplateResponse(request, 
-        request, "compras/partials/comprobante_facturas_vinculadas.html",
+    panel_html = templates.TemplateResponse(request,
+         "compras/partials/comprobante_facturas_vinculadas.html",
         {            "comprobante": comprobante,
             "facturas": facturas,
             "monto_total": monto_total,
@@ -936,8 +937,8 @@ async def desvincular_factura(
         },
     ).body.decode("utf-8")
 
-    toast_html = templates.TemplateResponse(request, 
-        request, "shared/toast.html",
+    toast_html = templates.TemplateResponse(request,
+         "shared/toast.html",
         {"message": "Factura desvinculada correctamente", "type": "success"},
     ).body.decode("utf-8")
 
@@ -962,8 +963,8 @@ async def cerrar_remanente(
     try:
         await service.cerrar_remanente(conn, id_comprobante, motivo, user_id)
     except ValueError as e:
-        return templates.TemplateResponse(request, 
-            request, "shared/toast.html",
+        return templates.TemplateResponse(request,
+             "shared/toast.html",
             {"message": str(e), "type": "error"},
         )
 
@@ -978,8 +979,8 @@ async def cerrar_remanente(
     saldo_pendiente = monto_total - monto_facturado
     porcentaje = round((monto_facturado / monto_total * 100), 1) if monto_total > 0 else 0
 
-    panel_html = templates.TemplateResponse(request, 
-        request, "compras/partials/comprobante_facturas_vinculadas.html",
+    panel_html = templates.TemplateResponse(request,
+         "compras/partials/comprobante_facturas_vinculadas.html",
         {            "comprobante": comprobante,
             "facturas": facturas,
             "monto_total": monto_total,
@@ -989,8 +990,8 @@ async def cerrar_remanente(
         },
     ).body.decode("utf-8")
 
-    toast_html = templates.TemplateResponse(request, 
-        request, "shared/toast.html",
+    toast_html = templates.TemplateResponse(request,
+         "shared/toast.html",
         {            "message": f"Comprobante cerrado. Remanente: ${saldo_pendiente:,.2f}",
             "type": "success",
         },
@@ -1012,8 +1013,8 @@ async def reabrir_comprobante(
     try:
         await service.reabrir_comprobante(conn, id_comprobante)
     except ValueError as e:
-        return templates.TemplateResponse(request, 
-            request, "shared/toast.html",
+        return templates.TemplateResponse(request,
+             "shared/toast.html",
             {"message": str(e), "type": "error"},
         )
 
@@ -1028,8 +1029,8 @@ async def reabrir_comprobante(
     saldo_pendiente = monto_total - monto_facturado
     porcentaje = round((monto_facturado / monto_total * 100), 1) if monto_total > 0 else 0
 
-    panel_html = templates.TemplateResponse(request, 
-        request, "compras/partials/comprobante_facturas_vinculadas.html",
+    panel_html = templates.TemplateResponse(request,
+         "compras/partials/comprobante_facturas_vinculadas.html",
         {            "comprobante": comprobante,
             "facturas": facturas,
             "monto_total": monto_total,
@@ -1039,8 +1040,8 @@ async def reabrir_comprobante(
         },
     ).body.decode("utf-8")
 
-    toast_html = templates.TemplateResponse(request, 
-        request, "shared/toast.html",
+    toast_html = templates.TemplateResponse(request,
+         "shared/toast.html",
         {"message": "Comprobante reabierto correctamente", "type": "success"},
     ).body.decode("utf-8")
 

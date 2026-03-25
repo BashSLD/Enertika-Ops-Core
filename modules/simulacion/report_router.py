@@ -317,9 +317,10 @@ async def get_oportunidades_usuario_modal(
     oportunidades = await service.get_oportunidades_usuario_reporte(conn, uid, filtros)
     nombre_param = request.query_params.get("nombre", "Usuario")
 
-    return templates.TemplateResponse(request, 
-        request, "simulacion/reportes/modals/oportunidades_usuario_modal.html",
-        {            "oportunidades": oportunidades,
+    return templates.TemplateResponse(request,
+        "simulacion/reportes/modals/oportunidades_usuario_modal.html",
+        {
+            "oportunidades": oportunidades,
             "nombre_usuario": nombre_param,
             "filtros_aplicados": {
                 "fecha_inicio": filtros.fecha_inicio.isoformat(),
