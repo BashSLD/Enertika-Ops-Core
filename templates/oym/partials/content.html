@@ -1,30 +1,28 @@
 <div class="h-full flex flex-col animate-fade-in-down">
-    {# MOVIL: barra compacta #}
-    <div class="md:hidden flex items-center justify-between sticky top-14 z-20 bg-gray-50 py-2 mb-2">
-        <span class="text-sm font-bold text-blue-600">O&M</span>
-        <div x-data="{ open: false }" class="relative">
-            <button @click="open = !open"
-                class="flex items-center gap-1 bg-blue-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg">
-                Buscar
-                <svg class="h-3 w-3 transition-transform" :class="open && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                </svg>
-            </button>
-            <div x-show="open" x-transition @click.outside="open = false"
-                class="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-gray-100 p-3 min-w-[220px]"
-                style="display:none">
-                <div class="relative">
-                    <input type="text" name="q" placeholder="Buscar proyecto..."
-                        hx-get="/oym/partials/proyectos" hx-trigger="keyup changed delay:500ms"
-                        hx-target="#proyectos-list"
-                        class="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                    <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-                    </svg>
-                </div>
-            </div>
+    {# MOVIL: template de acciones para el header (poblado via JS) #}
+    <div id="mobile-actions-template" style="display:none">
+        <div class="relative w-full">
+            <input type="text" name="q" placeholder="Buscar proyecto..."
+                hx-get="/oym/partials/proyectos" hx-trigger="keyup changed delay:500ms"
+                hx-target="#proyectos-list"
+                class="w-full pl-9 pr-3 py-2.5 text-sm border border-gray-300 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+            <svg class="w-4 h-4 text-gray-400 absolute left-3 top-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+            </svg>
         </div>
     </div>
+    <script>
+    (function() {
+        var tmpl = document.getElementById('mobile-actions-template');
+        var slot = document.getElementById('mobile-module-actions-slot');
+        if (!slot || !tmpl) return;
+        slot.innerHTML = '';
+        Array.from(tmpl.children).forEach(function(child) { slot.appendChild(child.cloneNode(true)); });
+        if (typeof htmx !== 'undefined') htmx.process(slot);
+        var sep = document.getElementById('mobile-actions-separator');
+        if (sep) sep.classList.toggle('hidden', slot.children.length === 0);
+    })();
+    </script>
     {# DESKTOP: Module Header #}
     <div class="glass-panel p-4 rounded-xl mb-4 hidden md:flex flex-col md:flex-row justify-between md:items-center gap-3 border-l-4 border-blue-500">
         <div>

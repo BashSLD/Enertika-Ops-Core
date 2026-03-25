@@ -364,10 +364,11 @@
 
 <body class="bg-gray-100 font-sans text-gray-900">
 
-    <div class="flex h-screen overflow-hidden" x-data="{ 
-            sidebarOpen: localStorage.getItem('sidebarOpen') !== 'false', 
+    <div class="flex h-screen overflow-hidden" x-data="{
+            sidebarOpen: localStorage.getItem('sidebarOpen') !== 'false',
             mobileMenuOpen: false,
-            notificationsOpen: false 
+            notificationsOpen: false,
+            moduleNames: {comercial:'Comercial',simulacion:'Simulación',levantamientos:'Levantamientos',proyectos:'Proyectos',compras:'Compras',ingenieria:'Ingeniería',construccion:'Construcción',finanzas:'Finanzas',oym:'O & M',admin:'Admin',materials:'Materiales'}
         }" x-init="$watch('sidebarOpen', val => localStorage.setItem('sidebarOpen', val))">
 
         {% if user_name %}
@@ -380,32 +381,57 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
                 </svg>
             </button>
-            <span class="text-lg font-bold text-[#00BABB]">Enertika</span>
-            <div x-data="{ userMenuOpen: false }" class="relative">
-                <button @click="userMenuOpen = !userMenuOpen"
-                    class="relative p-1.5 rounded-lg hover:bg-blue-800/50 transition">
-                    <div class="w-7 h-7 rounded-full bg-blue-800 text-white text-xs font-bold flex items-center justify-center">
-                        {{ user_name[:2].upper() if user_name else '?' }}
-                    </div>
-                    <span x-show="$store.notifications?.count > 0"
-                        x-text="$store.notifications?.count > 99 ? '99+' : $store.notifications?.count"
-                        class="absolute -top-0.5 -right-0.5 bg-red-500 text-white text-[10px] font-bold px-1 rounded-full min-w-[14px] text-center"></span>
+            <span class="text-base font-bold truncate max-w-[160px] transition-colors duration-200"
+                :class="$store.activeModule?.slug ? 'text-white' : 'text-[#00BABB]'"
+                x-text="moduleNames[$store.activeModule?.slug] || 'Enertika'"></span>
+            <div x-data="{ actionsOpen: false }" class="relative">
+                <!-- Backdrop -->
+                <div x-show="actionsOpen" @click="actionsOpen = false"
+                    class="fixed inset-0 bg-black/50 z-[59] md:hidden" style="display:none"></div>
+                <!-- Trigger: 3 dots -->
+                <button @click="actionsOpen = !actionsOpen"
+                    class="p-2 rounded-lg hover:bg-blue-800/50 transition">
+                    <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
+                        <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                    </svg>
                 </button>
-                <div x-show="userMenuOpen" x-transition @click.outside="userMenuOpen = false"
-                    class="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-gray-100 p-2 min-w-[180px]"
-                    style="display:none">
-                    <div class="px-3 py-2 border-b border-gray-100 mb-1">
-                        <p class="text-[10px] text-gray-400 uppercase font-semibold tracking-wide">Conectado como</p>
-                        <p class="text-sm font-semibold text-gray-800 truncate max-w-[156px]">{{ user_name }}</p>
+                <!-- Bottom sheet -->
+                <div x-show="actionsOpen"
+                    x-transition:enter="transition ease-out duration-250"
+                    x-transition:enter-start="opacity-0 translate-y-4"
+                    x-transition:enter-end="opacity-100 translate-y-0"
+                    x-transition:leave="transition ease-in duration-200"
+                    x-transition:leave-start="opacity-100 translate-y-0"
+                    x-transition:leave-end="opacity-0 translate-y-4"
+                    class="fixed inset-x-0 bottom-0 z-[60] bg-white rounded-t-2xl shadow-2xl"
+                    style="display:none"
+                    @close-mobile-actions.document="actionsOpen = false">
+                    <div class="p-4 pb-8">
+                        <!-- Drag handle -->
+                        <div class="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4"></div>
+                        <!-- Slot de acciones del módulo activo (poblado por cada módulo via JS) -->
+                        <div id="mobile-module-actions-slot" class="flex flex-col gap-2"></div>
+                        <!-- Separador: solo visible cuando hay acciones -->
+                        <div id="mobile-actions-separator" class="border-t border-gray-100 my-3 hidden"></div>
+                        <!-- Usuario y logout -->
+                        <div class="flex items-center gap-3 px-3 py-2 mb-1">
+                            <div class="w-9 h-9 rounded-full bg-[#123456] text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                                {{ user_name[:2].upper() if user_name else '?' }}
+                            </div>
+                            <div class="min-w-0">
+                                <p class="text-[10px] text-gray-400 uppercase font-semibold tracking-wide">Conectado como</p>
+                                <p class="text-sm font-semibold text-gray-800 truncate">{{ user_name }}</p>
+                            </div>
+                        </div>
+                        <a href="/auth/logout"
+                            class="flex items-center gap-2 px-3 py-2.5 text-sm text-red-600 hover:bg-red-50 rounded-xl transition w-full">
+                            <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                            </svg>
+                            Cerrar sesión
+                        </a>
                     </div>
-                    <a href="/auth/logout"
-                        class="flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 rounded-lg transition w-full">
-                        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
-                        </svg>
-                        Cerrar sesión
-                    </a>
                 </div>
             </div>
         </header>
@@ -768,6 +794,24 @@
                         if (k.startsWith('draft_' + window.location.pathname)) localStorage.removeItem(k);
                     });
                 }
+            }
+        });
+
+        // === MOBILE HEADER ACTIONS SLOT ===
+        // Limpiar acciones al navegar entre módulos
+        document.body.addEventListener('htmx:beforeSwap', function(e) {
+            if (e.detail.target && e.detail.target.id === 'main-content') {
+                var slot = document.getElementById('mobile-module-actions-slot');
+                if (slot) slot.innerHTML = '';
+                var sep = document.getElementById('mobile-actions-separator');
+                if (sep) sep.classList.add('hidden');
+            }
+        });
+        // Cerrar bottom sheet al hacer click en cualquier acción del slot
+        document.addEventListener('click', function(e) {
+            var slot = document.getElementById('mobile-module-actions-slot');
+            if (slot && slot.contains(e.target) && e.target.closest('button, a')) {
+                document.dispatchEvent(new CustomEvent('close-mobile-actions'));
             }
         });
 

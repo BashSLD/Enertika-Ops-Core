@@ -30,57 +30,55 @@
     }
 </style>
 <div class="flex flex-col h-full relative">
-    <!-- MOVIL: barra compacta -->
-    <div class="md:hidden flex items-center justify-between sticky top-14 z-20 bg-gray-50 py-2 mb-2">
-        <span class="text-sm font-bold text-indigo-600">Simulación</span>
-        <div x-data="{ open: false }" class="relative">
-            <button @click="open = !open"
-                class="flex items-center gap-1 bg-indigo-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg">
-                Acciones
-                <svg class="h-3 w-3 transition-transform" :class="open && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-                </svg>
-            </button>
-            <div x-show="open" x-transition @click.outside="open = false"
-                class="absolute right-0 top-full mt-1 z-50 bg-white rounded-xl shadow-xl border border-gray-100 p-2 flex flex-col gap-2 min-w-[180px]">
-                {% set is_admin_or_manager = (role == 'ADMIN') or (role == 'MANAGER') %}
-                {% set can_view_metrics = is_admin_or_manager and (current_module_role in ['editor', 'admin']) %}
-                {% if can_view_metrics %}
-                <button hx-get="/simulacion/metricas-operativas" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
-                    class="bg-indigo-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                    </svg>
-                    Métricas Operativas
-                </button>
-                {% endif %}
-                {% if is_admin_or_manager %}
-                <button onclick="document.getElementById('btn-sim-extraordinario').click()"
-                    class="bg-orange-600 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    Reg. Extraordinario
-                </button>
-                {% endif %}
-                <!-- Calculadora (todos los roles) -->
-                <button @click="open = false"
-                    hx-get="/shared/partials/calculadora-ventas?modulo=simulacion"
-                    hx-target="body"
-                    hx-swap="beforeend"
-                    hx-on::before-request="document.getElementById('modal-calculadora-ventas')?.remove()"
-                    class="bg-gray-700 text-white text-xs font-semibold py-1.5 px-3 rounded-lg flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M9 7H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M9 7h6M9 12h.01M12 12h.01M15 12h.01M9 15h.01M12 15h.01M15 15h.01M9 18h.01M12 18h.01M15 18h.01"/>
-                    </svg>
-                    Calculadora
-                </button>
-            </div>
-        </div>
+    <!-- MOVIL: template de acciones para el header (poblado via JS) -->
+    <div id="mobile-actions-template" style="display:none">
+        {% set is_admin_or_manager = (role == 'ADMIN') or (role == 'MANAGER') %}
+        {% set can_view_metrics = is_admin_or_manager and (current_module_role in ['editor', 'admin']) %}
+        {% if can_view_metrics %}
+        <button hx-get="/simulacion/metricas-operativas" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+            class="bg-indigo-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+            Métricas Operativas
+        </button>
+        {% endif %}
+        {% if is_admin_or_manager %}
+        <button onclick="document.getElementById('btn-sim-extraordinario').click()"
+            class="bg-orange-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            Reg. Extraordinario
+        </button>
+        {% endif %}
+        <button
+            hx-get="/shared/partials/calculadora-ventas?modulo=simulacion"
+            hx-target="body"
+            hx-swap="beforeend"
+            hx-on::before-request="document.getElementById('modal-calculadora-ventas')?.remove()"
+            class="bg-gray-700 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 7H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M9 7h6M9 12h.01M12 12h.01M15 12h.01M9 15h.01M12 15h.01M15 15h.01M9 18h.01M12 18h.01M15 18h.01"/>
+            </svg>
+            Calculadora
+        </button>
     </div>
+    <script>
+    (function() {
+        var tmpl = document.getElementById('mobile-actions-template');
+        var slot = document.getElementById('mobile-module-actions-slot');
+        if (!slot || !tmpl) return;
+        slot.innerHTML = '';
+        Array.from(tmpl.children).forEach(function(child) { slot.appendChild(child.cloneNode(true)); });
+        if (typeof htmx !== 'undefined') htmx.process(slot);
+        var sep = document.getElementById('mobile-actions-separator');
+        if (sep) sep.classList.toggle('hidden', slot.children.length === 0);
+    })();
+    </script>
     <!-- DESKTOP: Header with Actions -->
     <div
         class="glass-panel p-4 rounded-xl mb-4 hidden md:flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-l-4 border-indigo-500">
