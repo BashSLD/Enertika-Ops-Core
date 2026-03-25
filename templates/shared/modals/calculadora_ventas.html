@@ -23,12 +23,12 @@
         fmt(v, d) { return v !== null ? v.toLocaleString('es-MX', {minimumFractionDigits: d ?? 2, maximumFractionDigits: d ?? 2}) : '\u2014' },
         fmtCurrency(v) { return v !== null ? '$' + v.toLocaleString('es-MX', {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '\u2014' }
     }"
-    class="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/40 backdrop-blur-sm"
+    class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm"
     @keydown.escape.window="document.getElementById('modal-calculadora-ventas')?.remove()">
 
-    <div class="bg-white w-full sm:max-w-lg sm:mx-3 flex flex-col border border-gray-200 overflow-hidden
-                rounded-t-2xl sm:rounded-xl shadow-xl
-                max-h-[92dvh] sm:max-h-[85dvh]">
+    <div class="bg-white w-full max-w-lg mx-3 flex flex-col border border-gray-200 overflow-hidden
+                rounded-xl shadow-xl
+                max-h-[90dvh]">
 
         <!-- Header -->
         <div class="flex items-center justify-between px-4 py-3 sm:px-6 sm:py-4 border-b border-gray-200 flex-shrink-0"
