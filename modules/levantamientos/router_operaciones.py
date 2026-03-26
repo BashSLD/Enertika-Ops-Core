@@ -1393,15 +1393,19 @@ def register_operaciones_endpoints(router: APIRouter):
         await visitas_db_svc.update_notas_visita(conn, id_visita, notas.strip() if notas and notas.strip() else None)
         return HTMLResponse(
             content=(
-                '<div x-data="{show:true}" x-show="show" x-transition'
-                ' x-init="setTimeout(()=>show=false,3000)"'
+                '<div x-data="{show:true}"'
+                ' x-init="window.setTimeout(function(){show=false},3500)"'
+                ' x-show="show" x-transition'
                 ' class="pointer-events-auto max-w-sm w-full bg-slate-800 border border-emerald-500/60'
                 ' rounded-xl shadow-lg p-4 flex items-start gap-3">'
                 '<div class="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">'
                 '<i class="fas fa-check text-emerald-400 text-sm"></i></div>'
                 '<div class="flex-1 min-w-0">'
                 '<p class="text-sm font-semibold text-emerald-400">Notas guardadas</p>'
+                '<p class="text-xs text-slate-400 mt-0.5">Los cambios quedaron registrados.</p>'
                 '</div>'
+                '<button @click="show=false" class="text-slate-500 hover:text-white transition-colors flex-shrink-0 ml-2">'
+                '<i class="fas fa-times text-xs"></i></button>'
                 '</div>'
             ),
             status_code=200,
