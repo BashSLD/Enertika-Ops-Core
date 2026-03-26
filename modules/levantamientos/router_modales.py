@@ -523,6 +523,7 @@ def register_modal_endpoints(router: APIRouter):
         user_role = context.get("role")
         mod_role = context.get("module_roles", {}).get("levantamientos")
         can_edit = user_role == "ADMIN" or mod_role in ["editor", "admin"]
+        visita_cerrada = bool(visita.get("todos_completados", False))
 
         from .db_service_visitas import calcular_prorrateo
         total_viaticos = float(sum(v["monto"] for v in viaticos))
@@ -539,6 +540,7 @@ def register_modal_endpoints(router: APIRouter):
             "prorrateo": prorrateo,
             "total_viaticos": total_viaticos,
             "can_edit": can_edit,
+            "visita_cerrada": visita_cerrada,
         }
 
         is_htmx = request.headers.get("hx-request")

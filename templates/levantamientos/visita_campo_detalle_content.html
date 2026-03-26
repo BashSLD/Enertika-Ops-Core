@@ -1,7 +1,7 @@
 <!-- templates/levantamientos/visita_campo_detalle_content.html -->
 <!-- Página dedicada: gestionar Visita de Campo existente                         -->
 <!-- Variables: visita, levantamientos_visita, viaticos, usuarios, historial_envios -->
-<!--             to_configurados, cc_configurados, prorrateo, total_viaticos, can_edit -->
+<!--             to_configurados, cc_configurados, prorrateo, total_viaticos, can_edit, visita_cerrada -->
 <!-- GET /levantamientos/visitas-campo/{id_visita}/ui                              -->
 
 <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-2 pointer-events-none"></div>
@@ -36,7 +36,7 @@
         </div>
 
         <!-- Botón eliminar visita -->
-        {% if can_edit %}
+        {% if can_edit and not visita_cerrada %}
         <div>
             <div x-show="!confirmandoEliminar">
                 <button type="button" @click="confirmandoEliminar = true"
@@ -70,6 +70,20 @@
         {% endif %}
     </div>
 
+    <!-- Banner visita cerrada -->
+    {% if visita_cerrada %}
+    <div class="flex items-center gap-3 p-3 mb-4 bg-slate-700/40 border border-slate-500/40 rounded-lg">
+        <i class="fas fa-lock text-slate-400 flex-shrink-0"></i>
+        <div>
+            <p class="text-slate-300 text-sm font-medium">Visita cerrada</p>
+            <p class="text-slate-400 text-xs mt-0.5">
+                Todos los sitios han sido completados. Esta visita es de solo lectura.
+                El envío de viáticos sigue disponible si fue omitido.
+            </p>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Cuerpo 2 columnas -->
     <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
 
@@ -100,7 +114,7 @@
         <div class="lg:col-span-3 flex flex-col gap-4">
 
             <!-- Toggle sin viáticos -->
-            {% if can_edit %}
+            {% if can_edit and not visita_cerrada %}
             <div class="p-3 bg-slate-800/50 rounded-lg border border-slate-700/40 flex flex-wrap items-center gap-3">
                 <label class="flex items-center gap-2 cursor-pointer">
                     <input type="checkbox"
@@ -125,7 +139,7 @@
                     Viáticos del viaje
                 </h2>
 
-                {% if can_edit %}
+                {% if can_edit and not visita_cerrada %}
                 <form hx-post="/levantamientos/visitas-campo/{{ visita.id_visita }}/viaticos"
                       hx-target="#vc-tabla-viaticos-container" hx-swap="innerHTML"
                       hx-on::after-request="if(event.detail.successful) this.reset()">
@@ -344,7 +358,7 @@
                     <i class="fas fa-sticky-note text-amber-400"></i>
                     Notas
                 </h2>
-                {% if can_edit %}
+                {% if can_edit and not visita_cerrada %}
                 <form hx-patch="/levantamientos/visitas-campo/{{ visita.id_visita }}/notas"
                       hx-target="#toast-container"
                       hx-swap="afterbegin"

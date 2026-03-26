@@ -95,11 +95,15 @@
                     <td class="px-4 py-3 text-right text-gray-700 font-medium hidden lg:table-cell">
                         ${{ '{:,.2f}'.format(v.total_viaticos) }}
                     </td>
-                    <!-- Estatus enviada -->
+                    <!-- Estatus -->
                     <td class="px-4 py-3 text-center hidden sm:table-cell">
-                        {% if v.enviada %}
+                        {% if v.todos_completados %}
+                        <span class="bg-slate-100 text-slate-600 text-xs font-semibold px-2 py-0.5 rounded-full">
+                            Cerrada
+                        </span>
+                        {% elif v.enviada %}
                         <span class="bg-emerald-100 text-emerald-700 text-xs font-semibold px-2 py-0.5 rounded-full">
-                            Enviada
+                            Activa
                         </span>
                         {% else %}
                         <span class="bg-amber-100 text-amber-700 text-xs font-semibold px-2 py-0.5 rounded-full">

@@ -96,7 +96,19 @@ class VisitasCampoDBService:
                 v.created_at   AT TIME ZONE 'America/Mexico_City' AS created_at,
                 u.nombre AS creado_por_nombre,
                 (SELECT COUNT(*) FROM tb_visita_campo_levantamientos WHERE id_visita = v.id_visita) AS num_levantamientos,
-                (SELECT COALESCE(SUM(monto), 0) FROM tb_visita_campo_viaticos WHERE id_visita = v.id_visita) AS total_viaticos
+                (SELECT COALESCE(SUM(monto), 0) FROM tb_visita_campo_viaticos WHERE id_visita = v.id_visita) AS total_viaticos,
+                EXISTS(SELECT 1 FROM tb_visita_campo_envios e WHERE e.id_visita = v.id_visita) AS enviada,
+                (
+                    (SELECT COUNT(*) FROM tb_visita_campo_levantamientos WHERE id_visita = v.id_visita) > 0
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM tb_visita_campo_levantamientos vcl2
+                        JOIN tb_levantamientos l2 ON vcl2.id_levantamiento = l2.id_levantamiento
+                        JOIN tb_cat_estatus_levantamiento est ON l2.id_estatus_global = est.id
+                        WHERE vcl2.id_visita = v.id_visita
+                          AND est.codigo NOT IN ('completado', 'entregado')
+                    )
+                ) AS todos_completados
             FROM tb_visitas_campo v
             LEFT JOIN tb_usuarios u ON v.creado_por_id = u.id_usuario
             WHERE v.id_visita = $1
@@ -551,7 +563,18 @@ class VisitasCampoDBService:
                 v.created_at   AT TIME ZONE 'America/Mexico_City' AS created_at,
                 (SELECT COUNT(*) FROM tb_visita_campo_levantamientos WHERE id_visita = v.id_visita) AS num_levantamientos,
                 (SELECT COALESCE(SUM(monto), 0) FROM tb_visita_campo_viaticos WHERE id_visita = v.id_visita) AS total_viaticos,
-                EXISTS(SELECT 1 FROM tb_visita_campo_envios e WHERE e.id_visita = v.id_visita) AS enviada
+                EXISTS(SELECT 1 FROM tb_visita_campo_envios e WHERE e.id_visita = v.id_visita) AS enviada,
+                (
+                    (SELECT COUNT(*) FROM tb_visita_campo_levantamientos WHERE id_visita = v.id_visita) > 0
+                    AND NOT EXISTS (
+                        SELECT 1
+                        FROM tb_visita_campo_levantamientos vcl2
+                        JOIN tb_levantamientos l2 ON vcl2.id_levantamiento = l2.id_levantamiento
+                        JOIN tb_cat_estatus_levantamiento est ON l2.id_estatus_global = est.id
+                        WHERE vcl2.id_visita = v.id_visita
+                          AND est.codigo NOT IN ('completado', 'entregado')
+                    )
+                ) AS todos_completados
             FROM tb_visitas_campo v
             ORDER BY v.created_at DESC
         """)
