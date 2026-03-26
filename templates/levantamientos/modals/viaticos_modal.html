@@ -241,7 +241,7 @@
                     </template>
                     <input type="text" x-model="currentTo" @keydown="handleKeyTo($event)" @blur="addTo()"
                         class="flex-1 min-w-[180px] bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
-                        placeholder="correo@ejemplo.com + Enter" />
+                        placeholder="correo@ejemplo.com + Enter" list="usuarios-sistema-list" />
                 </div>
                 <p x-show="toError" class="text-red-400 text-xs mt-1">Debes ingresar al menos un destinatario.</p>
                 <p x-show="!toError" class="text-slate-500 text-xs mt-1">Puedes borrar el destinatario por defecto y
@@ -274,11 +274,19 @@
                     </template>
                     <input type="text" x-model="currentCc" @keydown="handleKeyCc($event)" @blur="addCc()"
                         class="flex-1 min-w-[180px] bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
-                        placeholder="correo@ejemplo.com + Enter" />
+                        placeholder="correo@ejemplo.com + Enter" list="usuarios-sistema-list" />
                 </div>
                 <p class="text-slate-500 text-xs mt-1">Presiona Enter, coma o punto y coma para agregar un correo.</p>
                 <input type="hidden" name="cc_adicionales" :value="tagsCc.join(';')" />
             </div>
+
+            {% if usuarios %}
+            <datalist id="usuarios-sistema-list">
+                {% for u in usuarios %}
+                <option value="{{ u.email }}">{{ u.nombre }}</option>
+                {% endfor %}
+            </datalist>
+            {% endif %}
 
             <div class="flex justify-end items-center gap-3">
                 <button type="button" id="btn-reenviar"

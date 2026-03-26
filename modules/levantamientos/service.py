@@ -234,7 +234,8 @@ class LevantamientoService:
                        l.created_at > NOW() - INTERVAL '48 hours'
                        AND a_check.id_levantamiento IS NULL
                        AND l.tecnico_asignado_id IS NULL
-                   THEN true ELSE false END AS es_nuevo
+                   THEN true ELSE false END AS es_nuevo,
+                   visita_info.nombre_visita as nombre_visita
             FROM tb_levantamientos l
             INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
             LEFT JOIN tb_sitios_oportunidad s ON l.id_sitio = s.id_sitio
@@ -245,13 +246,20 @@ class LevantamientoService:
             LEFT JOIN comentarios_count cc ON l.id_oportunidad = cc.id_oportunidad
             LEFT JOIN tiempo_en_estado te ON l.id_levantamiento = te.id_levantamiento
             LEFT JOIN asignaciones_check a_check ON l.id_levantamiento = a_check.id_levantamiento
-            -- LATERAL JOIN for Multiple Technicians
             LEFT JOIN LATERAL (
                 SELECT string_agg(u.nombre, ', ') as nombres
                 FROM tb_levantamiento_asignaciones la
                 JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
                 WHERE la.id_levantamiento = l.id_levantamiento
             ) techs ON true
+            LEFT JOIN LATERAL (
+                SELECT v.nombre AS nombre_visita
+                FROM tb_visita_campo_levantamientos vcl
+                JOIN tb_visitas_campo v ON vcl.id_visita = v.id_visita
+                WHERE vcl.id_levantamiento = l.id_levantamiento
+                ORDER BY v.created_at DESC
+                LIMIT 1
+            ) visita_info ON true
         WHERE l.id_estatus_global = ANY($1::int[])
           AND o.email_enviado = true
         ORDER BY l.created_at DESC

@@ -39,7 +39,7 @@
     <!-- Header -->
     <div class="mb-6 flex items-center gap-3">
         <button hx-get="/levantamientos/ui" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
-                class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 hover:border-slate-500 rounded-lg text-slate-300 hover:text-white transition-colors text-sm flex-shrink-0"
+                class="btn-volver flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm flex-shrink-0 transition-all"
                 title="Volver a Levantamientos">
             <i class="fas fa-arrow-left text-xs"></i>
             Volver
@@ -54,7 +54,8 @@
     </div>
 
     <!-- Formulario principal -->
-    <form hx-post="/levantamientos/visitas-campo"
+    <form id="form-crear-visita"
+          hx-post="/levantamientos/visitas-campo"
           hx-target="#toast-container"
           hx-swap="afterbegin"
           class="flex flex-col flex-1">
@@ -63,6 +64,7 @@
         <template x-for="levId in seleccionados" :key="levId">
             <input type="hidden" name="levantamiento_ids" :value="levId" />
         </template>
+        <input type="hidden" name="force_replace" value="false" />
 
         <!-- Cuerpo 2 columnas -->
         <div class="grid grid-cols-1 lg:grid-cols-5 gap-6 flex-1">
@@ -91,6 +93,39 @@
                             <input type="datetime-local" name="fecha_fin" class="vc-input" required />
                         </div>
                     </div>
+
+                    {% if can_assign %}
+                    <div class="grid grid-cols-2 gap-3 mt-3">
+                        <div>
+                            <label class="vc-label">Ingeniero responsable <span class="text-slate-500 text-xs">(opcional)</span></label>
+                            <select name="ingeniero_id" class="vc-input">
+                                <option value="" class="bg-slate-800">— Sin asignar —</option>
+                                {% for u in ingenieros %}
+                                <option value="{{ u.id_usuario }}" class="bg-slate-800">{{ u.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="vc-label">Acompañante <span class="text-slate-500 text-xs">(opcional)</span></label>
+                            <select name="acompaniante_id" class="vc-input">
+                                <option value="" class="bg-slate-800">— Ninguno —</option>
+                                {% for u in acompaniantes %}
+                                <option value="{{ u.id_usuario }}" class="bg-slate-800">{{ u.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- Notas del viaje -->
+                <div class="vc-section">
+                    <h2 class="vc-section-title">
+                        <i class="fas fa-sticky-note text-amber-400"></i>
+                        Notas <span class="text-slate-500 text-xs font-normal ml-1">(opcional)</span>
+                    </h2>
+                    <textarea name="notas" class="vc-input" rows="3"
+                              placeholder="Ej: Se solicitaron viáticos adicionales por cambio de ruta..."></textarea>
                 </div>
 
                 <!-- Selector levantamientos -->
@@ -153,7 +188,7 @@
             <div class="lg:col-span-2 flex flex-col gap-4">
 
                 <!-- Fechas individuales (dinámico) -->
-                <div x-show="seleccionados.length > 0" x-transition class="vc-section">
+                <div x-show="seleccionados.length > 0" x-transition x-cloak class="vc-section">
                     <h2 class="vc-section-title">
                         <i class="fas fa-calendar-day text-blue-400"></i>
                         Fecha por levantamiento
@@ -226,8 +261,14 @@
                 Cancelar
             </button>
             <button type="submit" class="btn btn-primary" :disabled="seleccionados.length === 0">
-                <i class="fas fa-check-circle mr-1"></i>
-                Crear Visita de Campo
+                <span id="crear-btn-content">
+                    <i class="fas fa-check-circle mr-1"></i>
+                    Crear Visita de Campo
+                </span>
+                <span id="crear-btn-loading">
+                    <i class="fas fa-spinner fa-spin mr-1"></i>
+                    Creando...
+                </span>
             </button>
         </div>
 
@@ -252,6 +293,30 @@
         color: white;
     }
     .vc-input:focus { outline: none; border-color: #3b82f6; }
+    .vc-input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+        filter: invert(1) brightness(1.5);
+        cursor: pointer;
+        opacity: 0.7;
+    }
+    .vc-input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover {
+        opacity: 1;
+    }
+    .btn-volver {
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(148, 163, 184, 0.45);
+        color: #cbd5e1;
+        box-shadow: 0 0 8px rgba(148, 163, 184, 0.15);
+    }
+    .btn-volver:hover {
+        background: rgba(30, 41, 59, 0.8);
+        border-color: rgba(226, 232, 240, 0.7);
+        color: #f1f5f9;
+        box-shadow: 0 0 14px rgba(226, 232, 240, 0.25);
+    }
+    #crear-btn-loading { display: none; }
+    #form-crear-visita.htmx-request #crear-btn-loading { display: inline; }
+    #form-crear-visita.htmx-request #crear-btn-content { display: none; }
+    #form-crear-visita.htmx-request button[type="submit"] { opacity: 0.75; cursor: not-allowed; pointer-events: none; }
     .vc-section {
         background: rgba(30, 41, 59, 0.5);
         border: 1px solid rgba(100, 116, 139, 0.2);

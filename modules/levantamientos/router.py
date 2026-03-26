@@ -43,6 +43,8 @@ router = APIRouter(
 @router.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)
 async def get_levantamientos_ui(
     request: Request,
+    view: Optional[str] = None,
+    tab: Optional[str] = None,
     conn = Depends(get_db_connection),
     service: LevantamientoService = Depends(get_service),
     context = Depends(get_current_user_context),
@@ -55,6 +57,15 @@ async def get_levantamientos_ui(
     - Si viene desde sidebar (HTMX): retorna partial del Kanban
     - Si es carga directa (F5/URL): retorna dashboard completo
     """
+    if view == "graficas":
+        initial_partial_url = "/levantamientos/partials/graficas"
+    elif view == "lista":
+        initial_partial_url = f"/levantamientos/partials/lista?tab={tab or 'activos'}"
+    elif view == "visitas":
+        initial_partial_url = "/levantamientos/partials/visitas"
+    else:
+        initial_partial_url = "/levantamientos/partials/kanban"
+
     # HTMX Detection
     # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
@@ -78,7 +89,9 @@ async def get_levantamientos_ui(
         })
     else:
         # Carga completa de página
-        return templates.TemplateResponse(request, "levantamientos/dashboard.html", {"user_name": context.get("user_name"),
+        return templates.TemplateResponse(request, "levantamientos/dashboard.html", {
+            "initial_partial_url": initial_partial_url,
+            "user_name": context.get("user_name"),
             "role": context.get("role"),
             "module_roles": context.get("module_roles", {}),
             "current_module_role": context.get("module_roles", {}).get("levantamientos", "viewer")

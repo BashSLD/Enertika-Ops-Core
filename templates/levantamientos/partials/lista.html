@@ -5,7 +5,7 @@
 <div id="kanban-container" class="flex flex-col h-full">
     <!-- MOVIL: template de acciones para el header (poblado via JS) -->
     <div id="mobile-actions-template" style="display:none">
-        <button hx-get="/levantamientos/partials/graficas" hx-target="#kanban-container" hx-swap="outerHTML"
+        <button hx-get="/levantamientos/partials/graficas" hx-target="#kanban-container" hx-swap="outerHTML" hx-push-url="/levantamientos/ui?view=graficas"
             class="bg-emerald-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -13,7 +13,7 @@
             </svg>
             Gráficas
         </button>
-        <button hx-get="/levantamientos/partials/kanban" hx-target="#kanban-container" hx-swap="outerHTML"
+        <button hx-get="/levantamientos/partials/kanban" hx-target="#kanban-container" hx-swap="outerHTML" hx-push-url="/levantamientos/ui"
             class="bg-blue-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -47,7 +47,7 @@
         </div>
         <div class="flex gap-2 flex-wrap">
             <!-- Ver Gráficas -->
-            <button hx-get="/levantamientos/partials/graficas" hx-target="#kanban-container" hx-swap="outerHTML"
+            <button hx-get="/levantamientos/partials/graficas" hx-target="#kanban-container" hx-swap="outerHTML" hx-push-url="/levantamientos/ui?view=graficas"
                 class="bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold py-2 px-3 rounded-lg flex items-center gap-2 transition-all duration-200">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
@@ -57,7 +57,7 @@
                 Gráficas
             </button>
             <!-- Volver al Kanban -->
-            <button hx-get="/levantamientos/partials/kanban" hx-target="#kanban-container" hx-swap="outerHTML"
+            <button hx-get="/levantamientos/partials/kanban" hx-target="#kanban-container" hx-swap="outerHTML" hx-push-url="/levantamientos/ui"
                 class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold py-2 px-3 rounded-lg shadow-lg shadow-blue-600/30 flex items-center gap-2 transition-all duration-200">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
@@ -71,7 +71,7 @@
 
     <!-- Tabs Activos / Terminados / Cancelados -->
     <div class="flex gap-1 mb-3">
-        <button hx-get="/levantamientos/partials/lista?tab=activos" hx-target="#kanban-container" hx-swap="outerHTML"
+        <button hx-get="/levantamientos/partials/lista?tab=activos" hx-target="#kanban-container" hx-swap="outerHTML" hx-push-url="/levantamientos/ui?view=lista&tab=activos"
             class="px-4 py-2 text-sm font-semibold rounded-lg transition-colors
                 {{ 'bg-blue-600 text-white shadow' if tab == 'activos' else 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200' }}">
             Activos
@@ -79,7 +79,7 @@
             <span class="ml-1 bg-blue-500 text-white text-xs px-1.5 py-0.5 rounded-full">{{ levantamientos|length }}</span>
             {% endif %}
         </button>
-        <button hx-get="/levantamientos/partials/lista?tab=terminados" hx-target="#kanban-container" hx-swap="outerHTML"
+        <button hx-get="/levantamientos/partials/lista?tab=terminados" hx-target="#kanban-container" hx-swap="outerHTML" hx-push-url="/levantamientos/ui?view=lista&tab=terminados"
             class="px-4 py-2 text-sm font-semibold rounded-lg transition-colors
                 {{ 'bg-green-600 text-white shadow' if tab == 'terminados' else 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200' }}">
             Completados / Entregados
@@ -87,7 +87,7 @@
             <span class="ml-1 bg-green-500 text-white text-xs px-1.5 py-0.5 rounded-full">{{ levantamientos|length }}</span>
             {% endif %}
         </button>
-        <button hx-get="/levantamientos/partials/lista?tab=cancelados" hx-target="#kanban-container" hx-swap="outerHTML"
+        <button hx-get="/levantamientos/partials/lista?tab=cancelados" hx-target="#kanban-container" hx-swap="outerHTML" hx-push-url="/levantamientos/ui?view=lista&tab=cancelados"
             class="px-4 py-2 text-sm font-semibold rounded-lg transition-colors
                 {{ 'bg-red-600 text-white shadow' if tab == 'cancelados' else 'bg-white text-gray-600 hover:bg-gray-100 border border-gray-200' }}">
             Cancelados
@@ -156,7 +156,7 @@
 
             <!-- Limpiar -->
             <div>
-                <button type="button" hx-get="/levantamientos/partials/lista?tab={{ tab }}"
+                <button type="button" hx-get="/levantamientos/partials/lista?tab={{ tab }}" hx-push-url="/levantamientos/ui?view=lista&tab={{ tab }}"
                     hx-target="#kanban-container" hx-swap="outerHTML"
                     class="border border-gray-300 bg-white hover:bg-gray-50 text-gray-600 rounded-lg px-3 py-2 text-sm transition-colors flex items-center gap-1">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
@@ -222,7 +222,12 @@
                         <p class="font-semibold text-gray-800 text-sm leading-tight">
                             {{ lev.nombre_proyecto or lev.titulo_proyecto or '—' }}
                         </p>
-                        <p class="text-xs text-gray-400 mt-0.5">{{ lev.cliente_nombre }}</p>
+                        <div class="flex items-center gap-2 mt-0.5">
+                            <p class="text-xs text-gray-400">{{ lev.cliente_nombre }}</p>
+                            {% if lev.visita_nombre %}
+                            <span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 uppercase px-1.5 py-0.5 rounded shadow-sm" title="Visita a Campo">{{ lev.visita_nombre }}</span>
+                            {% endif %}
+                        </div>
                     </td>
 
                     <!-- Sitio -->

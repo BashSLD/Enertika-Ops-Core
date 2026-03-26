@@ -902,6 +902,11 @@ def register_operaciones_endpoints(router: APIRouter):
         fecha_inicio: str = Form(...),
         fecha_fin: str = Form(...),
         levantamiento_ids: List[UUID] = Form(default=[]),
+        ingeniero_id: Optional[UUID] = Form(None),
+        acompaniante_id: Optional[UUID] = Form(None),
+        notas: Optional[str] = Form(None),
+        force_replace: bool = Form(False),
+        keep_existing: bool = Form(False),
         conn=Depends(get_db_connection),
         db_svc: LevantamientosDBService = Depends(get_db_service),
         visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
@@ -976,6 +981,38 @@ def register_operaciones_endpoints(router: APIRouter):
                 "Devuelve los viáticos antes de agendar la visita de campo."
             )
 
+        # Verificar conflicto de ingeniero responsable previo
+        if ingeniero_id and not force_replace and not keep_existing:
+            n_conflictos = await visitas_db_svc.check_levantamientos_con_responsable(
+                conn, levantamiento_ids
+            )
+            if n_conflictos > 0:
+                sitios_txt = f"{n_conflictos} sitio{'s' if n_conflictos > 1 else ''}"
+                return HTMLResponse(
+                    content=(
+                        '<div x-data="{show:true}" x-show="show" x-transition'
+                        ' class="pointer-events-auto max-w-sm w-full bg-slate-800 border border-amber-500/60'
+                        ' rounded-xl shadow-lg p-4">'
+                        '<p class="text-sm font-semibold text-amber-400 mb-1">'
+                        f'<i class="fas fa-exclamation-triangle mr-1"></i>{sitios_txt} ya tienen ingeniero asignado</p>'
+                        '<p class="text-xs text-slate-300 mb-3">¿Deseas reemplazar el ingeniero en todos los sitios, o conservar los que ya están asignados?</p>'
+                        '<div class="flex gap-2">'
+                        '<button @click="show=false;'
+                        'let f=document.getElementById(\'form-crear-visita\');'
+                        'if(!f.querySelector(\'[name=keep_existing]\')){let i=document.createElement(\'input\');i.type=\'hidden\';i.name=\'keep_existing\';f.appendChild(i);}'
+                        'f.querySelector(\'[name=keep_existing]\').value=\'true\';'
+                        'f.dispatchEvent(new Event(\'submit\',{bubbles:true}))" '
+                        'class="flex-1 text-xs py-1.5 rounded-lg bg-slate-700 text-slate-300 hover:bg-slate-600">No, conservar</button>'
+                        '<button @click="show=false;'
+                        'document.getElementById(\'form-crear-visita\').querySelector(\'[name=force_replace]\').value=\'true\';'
+                        'document.getElementById(\'form-crear-visita\').dispatchEvent(new Event(\'submit\',{bubbles:true}))" '
+                        'class="flex-1 text-xs py-1.5 rounded-lg bg-amber-600 hover:bg-amber-500 text-white">Sí, reemplazar</button>'
+                        '</div>'
+                        '</div>'
+                    ),
+                    status_code=200,
+                )
+
         # Extraer viáticos iniciales del form (arrays paralelos) antes de la transacción
         viatico_conceptos = form_data.getlist("viatico_concepto")
         viatico_montos = form_data.getlist("viatico_monto")
@@ -1009,6 +1046,7 @@ def register_operaciones_endpoints(router: APIRouter):
                 levantamiento_ids=levantamiento_ids,
                 creado_por_id=context["user_db_id"],
                 fechas_individuales=fechas_individuales if fechas_individuales else None,
+                notas=notas.strip() if notas and notas.strip() else None,
             )
 
             id_visita = visita["id_visita"]
@@ -1019,10 +1057,17 @@ def register_operaciones_endpoints(router: APIRouter):
                     conn, levantamiento_ids, fechas_individuales, context["user_db_id"]
                 )
 
-            # Propagar creador de la visita como ingeniero responsable en cada levantamiento
+            # Propagar ingeniero responsable (seleccionado o creador por defecto)
+            ingeniero_efectivo = ingeniero_id or context["user_db_id"]
             await visitas_db_svc.propagar_ingeniero_visita(
-                conn, id_visita, context["user_db_id"], context["user_db_id"]
+                conn, id_visita, ingeniero_efectivo, context["user_db_id"], keep_existing=keep_existing
             )
+
+            # Propagar acompañante si fue seleccionado (y es distinto del ingeniero)
+            if acompaniante_id and acompaniante_id != ingeniero_efectivo:
+                await visitas_db_svc.propagar_acompaniante_visita(
+                    conn, id_visita, acompaniante_id, context["user_db_id"]
+                )
 
             for concepto, monto, usuario_id in viaticos_a_crear:
                 await visitas_db_svc.create_viatico_visita(
@@ -1329,6 +1374,38 @@ def register_operaciones_endpoints(router: APIRouter):
         opcionales_bool = viaticos_opcionales.lower() in ("true", "1", "on")
         await visitas_db_svc.update_visita_opcionalidad(conn, id_visita, opcionales_bool)
         return Response(status_code=200)
+
+    # ----------------------------------------------------------
+
+    @router.patch("/visitas-campo/{id_visita}/notas", include_in_schema=False)
+    async def update_notas_visita(
+        request: Request,
+        id_visita: UUID,
+        notas: Optional[str] = Form(None),
+        conn=Depends(get_db_connection),
+        visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        _=require_module_access("levantamientos", "editor"),
+    ):
+        """Guarda las notas de la visita de campo."""
+        visita = await visitas_db_svc.get_visita(conn, id_visita)
+        if not visita:
+            raise HTTPException(status_code=404, detail="Visita de campo no encontrada.")
+        await visitas_db_svc.update_notas_visita(conn, id_visita, notas.strip() if notas and notas.strip() else None)
+        return HTMLResponse(
+            content=(
+                '<div x-data="{show:true}" x-show="show" x-transition'
+                ' x-init="setTimeout(()=>show=false,3000)"'
+                ' class="pointer-events-auto max-w-sm w-full bg-slate-800 border border-emerald-500/60'
+                ' rounded-xl shadow-lg p-4 flex items-start gap-3">'
+                '<div class="flex-shrink-0 w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center">'
+                '<i class="fas fa-check text-emerald-400 text-sm"></i></div>'
+                '<div class="flex-1 min-w-0">'
+                '<p class="text-sm font-semibold text-emerald-400">Notas guardadas</p>'
+                '</div>'
+                '</div>'
+            ),
+            status_code=200,
+        )
 
     # ----------------------------------------------------------
 

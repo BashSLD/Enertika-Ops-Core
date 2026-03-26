@@ -100,7 +100,7 @@ class LevantamientosDBService:
         rows = await conn.fetch("""
             SELECT tecnico_id FROM tb_levantamiento_asignaciones WHERE id_levantamiento = $1
         """, id_levantamiento)
-        return [row['tecnico_id'] for row in rows]
+        return [str(row['tecnico_id']) for row in rows]
 
     async def check_asignaciones(self, conn, id_levantamiento: UUID) -> bool:
         """Verifica si hay técnicos asignados (pivote o legacy)."""
@@ -635,7 +635,8 @@ class LevantamientosDBService:
                 est.nombre   AS estatus_nombre,
                 est.color_hex AS estatus_color,
                 COALESCE(techs.nombres, u_tec.nombre) AS tecnico_nombre,
-                u_jefe.nombre AS jefe_nombre
+                u_jefe.nombre AS jefe_nombre,
+                visita_info.nombre_visita AS visita_nombre
             FROM tb_levantamientos l
             INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
             LEFT  JOIN tb_sitios_oportunidad s   ON l.id_sitio = s.id_sitio
@@ -648,6 +649,14 @@ class LevantamientosDBService:
                 JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
                 WHERE la.id_levantamiento = l.id_levantamiento
             ) techs ON true
+            LEFT JOIN LATERAL (
+                SELECT v.nombre AS nombre_visita
+                FROM tb_visita_campo_levantamientos vcl
+                JOIN tb_visitas_campo v ON vcl.id_visita = v.id_visita
+                WHERE vcl.id_levantamiento = l.id_levantamiento
+                ORDER BY v.created_at DESC
+                LIMIT 1
+            ) visita_info ON true
             WHERE {where_clause}
         """
 
@@ -729,7 +738,8 @@ class LevantamientosDBService:
                 est.nombre   AS estatus_nombre,
                 est.color_hex AS estatus_color,
                 COALESCE(techs.nombres, u_tec.nombre) AS tecnico_nombre,
-                u_jefe.nombre AS jefe_nombre
+                u_jefe.nombre AS jefe_nombre,
+                visita_info.nombre_visita AS visita_nombre
             FROM tb_levantamientos l
             INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
             LEFT  JOIN tb_sitios_oportunidad s   ON l.id_sitio = s.id_sitio
@@ -742,6 +752,14 @@ class LevantamientosDBService:
                 JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
                 WHERE la.id_levantamiento = l.id_levantamiento
             ) techs ON true
+            LEFT JOIN LATERAL (
+                SELECT v.nombre AS nombre_visita
+                FROM tb_visita_campo_levantamientos vcl
+                JOIN tb_visitas_campo v ON vcl.id_visita = v.id_visita
+                WHERE vcl.id_levantamiento = l.id_levantamiento
+                ORDER BY v.created_at DESC
+                LIMIT 1
+            ) visita_info ON true
             WHERE {where_clause}
         """
 
@@ -819,7 +837,8 @@ class LevantamientosDBService:
                 est.color_hex AS estatus_color,
                 COALESCE(techs.nombres, u_tec.nombre) AS tecnico_nombre,
                 u_jefe.nombre AS jefe_nombre,
-                u_sol.nombre  AS solicitado_por_nombre
+                u_sol.nombre  AS solicitado_por_nombre,
+                visita_info.nombre_visita AS visita_nombre
             FROM tb_levantamientos l
             INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
             LEFT  JOIN tb_sitios_oportunidad s   ON l.id_sitio = s.id_sitio
@@ -833,6 +852,14 @@ class LevantamientosDBService:
                 JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
                 WHERE la.id_levantamiento = l.id_levantamiento
             ) techs ON true
+            LEFT JOIN LATERAL (
+                SELECT v.nombre AS nombre_visita
+                FROM tb_visita_campo_levantamientos vcl
+                JOIN tb_visitas_campo v ON vcl.id_visita = v.id_visita
+                WHERE vcl.id_levantamiento = l.id_levantamiento
+                ORDER BY v.created_at DESC
+                LIMIT 1
+            ) visita_info ON true
             WHERE {where_clause}
         """
 

@@ -15,7 +15,7 @@
     <div class="mb-6 flex items-center justify-between gap-3 flex-wrap">
         <div class="flex items-center gap-3">
             <button hx-get="/levantamientos/ui" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
-                    class="flex items-center gap-1.5 px-3 py-1.5 bg-slate-700 hover:bg-slate-600 border border-slate-600 hover:border-slate-500 rounded-lg text-slate-300 hover:text-white transition-colors text-sm flex-shrink-0"
+                    class="btn-volver flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm flex-shrink-0 transition-all"
                     title="Volver a Levantamientos">
                 <i class="fas fa-arrow-left text-xs"></i>
                 Volver
@@ -119,7 +119,7 @@
             {% endif %}
 
             <!-- Viáticos -->
-            <div class="vc-section" x-show="!sinViaticos">
+            <div class="vc-section" x-show="!sinViaticos" x-cloak>
                 <h2 class="vc-section-title">
                     <i class="fas fa-money-bill-wave text-emerald-400"></i>
                     Viáticos del viaje
@@ -150,7 +150,7 @@
                                    step="0.01" min="0.01" placeholder="0.00" required />
                         </div>
                         <div class="col-span-2 flex items-end">
-                            <button type="submit" class="btn btn-success btn-sm w-full">
+                            <button type="submit" class="btn btn-success btn-sm w-full justify-center">
                                 <i class="fas fa-plus"></i> Agregar
                             </button>
                         </div>
@@ -164,7 +164,7 @@
             </div>
 
             <!-- Visita sin viáticos -->
-            <div class="vc-section" x-show="sinViaticos">
+            <div class="vc-section" x-show="sinViaticos" x-cloak>
                 <div class="flex items-center gap-3 text-slate-400 text-sm">
                     <i class="fas fa-info-circle text-amber-500"></i>
                     <span>Esta visita está marcada como
@@ -175,7 +175,7 @@
             </div>
 
             <!-- Prorrateo -->
-            <div class="vc-section" id="vc-prorrateo-container" x-show="!sinViaticos">
+            <div class="vc-section" id="vc-prorrateo-container" x-show="!sinViaticos" x-cloak>
                 <h2 class="vc-section-title">
                     <i class="fas fa-divide text-cyan-400"></i>
                     Prorrateo
@@ -272,7 +272,7 @@
                                        @keydown="handleKeyTo($event)"
                                        @blur="setTimeout(() => addTo(), 150)"
                                        class="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
-                                       placeholder="correo@ejemplo.com" />
+                                       placeholder="correo@ejemplo.com" list="usuarios-sistema-list" />
                                 <button type="button" @click.prevent="addTo()"
                                         class="ml-2 text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded transition-colors">
                                     Agregar
@@ -311,7 +311,7 @@
                                        @keydown="handleKeyCc($event)"
                                        @blur="setTimeout(() => addCc(), 150)"
                                        class="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
-                                       placeholder="correo@ejemplo.com" />
+                                       placeholder="correo@ejemplo.com" list="usuarios-sistema-list" />
                                 <button type="button" @click.prevent="addCc()"
                                         class="ml-2 text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded transition-colors">
                                     Agregar
@@ -320,6 +320,14 @@
                         </div>
                         <input type="hidden" name="cc_adicionales" :value="tagsCc.join(';')" />
                     </div>
+
+                    {% if usuarios %}
+                    <datalist id="usuarios-sistema-list">
+                        {% for u in usuarios %}
+                        <option value="{{ u.email }}">{{ u.nombre }}</option>
+                        {% endfor %}
+                    </datalist>
+                    {% endif %}
 
                     <div class="flex justify-end">
                         <button type="submit" class="btn btn-primary btn-sm">
@@ -330,6 +338,33 @@
             </div>
 
             <!-- Historial de envíos -->
+            <!-- Notas de la visita -->
+            <div class="vc-section" id="vc-notas-container">
+                <h2 class="vc-section-title">
+                    <i class="fas fa-sticky-note text-amber-400"></i>
+                    Notas
+                </h2>
+                {% if can_edit %}
+                <form hx-patch="/levantamientos/visitas-campo/{{ visita.id_visita }}/notas"
+                      hx-target="#toast-container"
+                      hx-swap="afterbegin"
+                      class="flex flex-col gap-2">
+                    <textarea name="notas" class="vc-input" rows="3"
+                              placeholder="Ej: Se solicitaron viáticos adicionales...">{{ visita.notas or '' }}</textarea>
+                    <button type="submit"
+                            class="self-end text-xs px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-500 text-white transition-colors">
+                        <i class="fas fa-save mr-1"></i>Guardar notas
+                    </button>
+                </form>
+                {% else %}
+                {% if visita.notas %}
+                <p class="text-sm text-slate-300 whitespace-pre-wrap">{{ visita.notas }}</p>
+                {% else %}
+                <p class="text-sm text-slate-500 italic">Sin notas.</p>
+                {% endif %}
+                {% endif %}
+            </div>
+
             <div class="vc-section">
                 <h2 class="vc-section-title">
                     <i class="fas fa-history text-purple-400"></i>
@@ -457,4 +492,16 @@
     .btn-success:hover { background: #047857; }
     .htmx-indicator { display: none; }
     .htmx-request .htmx-indicator { display: inline; }
+    .btn-volver {
+        background: rgba(15, 23, 42, 0.6);
+        border: 1px solid rgba(148, 163, 184, 0.45);
+        color: #cbd5e1;
+        box-shadow: 0 0 8px rgba(148, 163, 184, 0.15);
+    }
+    .btn-volver:hover {
+        background: rgba(30, 41, 59, 0.8);
+        border-color: rgba(226, 232, 240, 0.7);
+        color: #f1f5f9;
+        box-shadow: 0 0 14px rgba(226, 232, 240, 0.25);
+    }
 </style>

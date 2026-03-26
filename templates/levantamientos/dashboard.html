@@ -14,7 +14,7 @@
     {% include inner_template %}
     {% else %}
     <!-- Kanban Board -->
-    <div id="kanban-container" hx-get="/levantamientos/partials/kanban" hx-trigger="load" hx-swap="outerHTML"
+    <div id="kanban-container" hx-get="{{ initial_partial_url | default('/levantamientos/partials/kanban') }}" hx-trigger="load" hx-swap="outerHTML"
         class="flex-1">
         <!-- Loading spinner corporativo -->
         <div class="flex justify-center items-center h-full">
@@ -70,6 +70,5 @@
         margin-bottom: 0.5rem;
     }
 </style>
-
 
 {% endblock %}

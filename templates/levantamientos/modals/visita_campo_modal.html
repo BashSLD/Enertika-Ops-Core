@@ -392,7 +392,7 @@
                     <div class="flex flex-1 items-center min-w-[200px]">
                         <input type="text" x-model="currentTo" @keydown="handleKeyTo($event)" @blur="setTimeout(() => { addTo() }, 150)"
                             class="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
-                            placeholder="correo@ejemplo.com" />
+                            placeholder="correo@ejemplo.com" list="usuarios-sistema-list" />
                         <button type="button" @click.prevent="addTo()" class="ml-2 text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded transition-colors">
                             Agregar
                         </button>
@@ -426,7 +426,7 @@
                     <div class="flex flex-1 items-center min-w-[200px]">
                         <input type="text" x-model="currentCc" @keydown="handleKeyCc($event)" @blur="setTimeout(() => { addCc() }, 150)"
                             class="flex-1 bg-transparent border-none outline-none text-sm text-white placeholder-slate-500"
-                            placeholder="correo@ejemplo.com" />
+                            placeholder="correo@ejemplo.com" list="usuarios-sistema-list" />
                         <button type="button" @click.prevent="addCc()" class="ml-2 text-xs bg-slate-700 hover:bg-slate-600 text-white px-2 py-1 rounded transition-colors">
                             Agregar
                         </button>
@@ -434,6 +434,14 @@
                 </div>
                 <input type="hidden" name="cc_adicionales" :value="tagsCc.join(';')" />
             </div>
+
+            {% if usuarios %}
+            <datalist id="usuarios-sistema-list">
+                {% for u in usuarios %}
+                <option value="{{ u.email }}">{{ u.nombre }}</option>
+                {% endfor %}
+            </datalist>
+            {% endif %}
 
             <div class="flex justify-end">
                 <button type="submit" class="btn btn-primary btn-sm">

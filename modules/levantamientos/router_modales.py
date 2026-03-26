@@ -433,6 +433,7 @@ def register_modal_endpoints(router: APIRouter):
         id_levantamiento: List[UUID] = Query(default=[]),
         conn=Depends(get_db_connection),
         visitas_db_svc: VisitasCampoDBService = Depends(get_visitas_db_service),
+        service: LevantamientoService = Depends(get_service),
         context=Depends(get_current_user_context),
         _=require_module_access("levantamientos", "editor"),
     ):
@@ -443,6 +444,7 @@ def register_modal_endpoints(router: APIRouter):
         """
         levantamientos = await visitas_db_svc.get_levantamientos_disponibles(conn)
         preseleccionados = [str(uid) for uid in id_levantamiento]
+        usuarios = await service.get_usuarios_para_asignacion(conn)
 
         # JSON pre-serializado para Alpine (los asyncpg Records tienen campos datetime)
         import json as _json
@@ -461,10 +463,17 @@ def register_modal_endpoints(router: APIRouter):
             for lev in levantamientos
         ])
 
+        can_assign = (
+            context.get("role") == "ADMIN"
+            or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
+        )
         ctx = {
             "levantamientos_disponibles": levantamientos,
             "preseleccionados": preseleccionados,
             "lev_data_json": lev_data_json,
+            "ingenieros": usuarios["responsables"],
+            "acompaniantes": usuarios["acompaniantes"],
+            "can_assign": can_assign,
         }
 
         is_htmx = request.headers.get("hx-request")
@@ -486,7 +495,7 @@ def register_modal_endpoints(router: APIRouter):
 
     # ----------------------------------------------------------
 
-    @router.get("/visitas-campo/{id_visita}/ui", include_in_schema=False)
+    @router.api_route("/visitas-campo/{id_visita}/ui", methods=["GET", "HEAD"], include_in_schema=False)
     async def get_page_detalle_visita(
         request: Request,
         id_visita: UUID,

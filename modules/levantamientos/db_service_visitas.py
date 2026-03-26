@@ -46,6 +46,7 @@ class VisitasCampoDBService:
         levantamiento_ids: List[UUID],
         creado_por_id: UUID,
         fechas_individuales: Optional[Dict[str, datetime]] = None,
+        notas: Optional[str] = None,
     ) -> dict:
         """
         INSERT en tb_visitas_campo y luego INSERT batch en el pivot.
@@ -54,10 +55,10 @@ class VisitasCampoDBService:
         Retorna el registro completo de la visita recién creada.
         """
         row = await conn.fetchrow("""
-            INSERT INTO tb_visitas_campo (nombre, fecha_inicio, fecha_fin, creado_por_id)
-            VALUES ($1, $2, $3, $4)
-            RETURNING id_visita, nombre, fecha_inicio, fecha_fin, creado_por_id, created_at
-        """, nombre or None, fecha_inicio, fecha_fin, creado_por_id)
+            INSERT INTO tb_visitas_campo (nombre, fecha_inicio, fecha_fin, creado_por_id, notas)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id_visita, nombre, fecha_inicio, fecha_fin, creado_por_id, notas, created_at
+        """, nombre or None, fecha_inicio, fecha_fin, creado_por_id, notas or None)
 
         id_visita = row["id_visita"]
 
@@ -88,6 +89,7 @@ class VisitasCampoDBService:
             SELECT
                 v.id_visita,
                 v.nombre,
+                v.notas,
                 v.viaticos_opcionales,
                 v.fecha_inicio AT TIME ZONE 'America/Mexico_City' AS fecha_inicio,
                 v.fecha_fin    AT TIME ZONE 'America/Mexico_City' AS fecha_fin,
@@ -174,8 +176,9 @@ class VisitasCampoDBService:
         params: list = []
         where_conditions = [
             "o.email_enviado = true",
-            "est.es_estatus_final = FALSE",
+            "est.codigo IN ('pendiente', 'agendado', 'pospuesto')",
             self._SIN_VIATICOS_ENVIADOS,
+            "NOT EXISTS (SELECT 1 FROM tb_visita_campo_levantamientos vcl WHERE vcl.id_levantamiento = l.id_levantamiento)",
         ]
 
         if search:
@@ -555,7 +558,7 @@ class VisitasCampoDBService:
         return [dict(r) for r in rows]
 
     async def propagar_ingeniero_visita(
-        self, conn, id_visita: UUID, ingeniero_id: UUID, asignado_por_id: UUID
+        self, conn, id_visita: UUID, ingeniero_id: UUID, asignado_por_id: UUID, keep_existing: bool = False
     ) -> int:
         """
         Asigna ingeniero_id como responsable en tb_levantamiento_asignaciones
@@ -574,6 +577,20 @@ class VisitasCampoDBService:
         if not lev_ids:
             return 0
 
+        if keep_existing:
+            # Excluir los que ya tienen un responsable asignado
+            rows = await conn.fetch("""
+                SELECT l.id_levantamiento
+                FROM UNNEST($1::uuid[]) l(id_levantamiento)
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM tb_levantamiento_asignaciones la
+                    WHERE la.id_levantamiento = l.id_levantamiento AND la.es_responsable = true
+                )
+            """, lev_ids)
+            lev_ids = [r["id_levantamiento"] for r in rows]
+            if not lev_ids:
+                return 0
+
         await conn.execute("""
             UPDATE tb_levantamiento_asignaciones
             SET es_responsable = false
@@ -589,8 +606,8 @@ class VisitasCampoDBService:
         """, [(lev_id, ingeniero_id, asignado_por_id) for lev_id in lev_ids])
 
         logger.info(
-            "[VISITA] Ingeniero propagado a %d levantamientos de visita %s",
-            len(lev_ids), id_visita,
+            "[VISITA] Ingeniero propagado a %d levantamientos de visita %s (keep_existing=%s)",
+            len(lev_ids), id_visita, keep_existing
         )
         return len(lev_ids)
 
@@ -635,6 +652,63 @@ class VisitasCampoDBService:
         if count:
             logger.info(f"[SYNC] {count} levantamientos sincronizados como agendados")
         return count
+
+
+    async def check_levantamientos_con_responsable(
+        self, conn, levantamiento_ids: List[UUID]
+    ) -> int:
+        """
+        Retorna el número de levantamientos en la lista que ya tienen
+        un ingeniero responsable asignado (es_responsable=true).
+        """
+        if not levantamiento_ids:
+            return 0
+        count = await conn.fetchval("""
+            SELECT COUNT(DISTINCT id_levantamiento)
+            FROM tb_levantamiento_asignaciones
+            WHERE id_levantamiento = ANY($1::uuid[]) AND es_responsable = true
+        """, levantamiento_ids)
+        return count or 0
+
+    async def propagar_acompaniante_visita(
+        self, conn, id_visita: UUID, acompaniante_id: UUID, asignado_por_id: UUID
+    ) -> int:
+        """
+        Inserta acompaniante_id en tb_levantamiento_asignaciones con es_responsable=false
+        para todos los levantamientos de la visita.
+        No toca el responsable existente. Si ya estaba asignado, lo deja igual.
+        Retorna cantidad de levantamientos afectados.
+        """
+        lev_ids = [
+            r["id_levantamiento"]
+            for r in await conn.fetch(
+                "SELECT id_levantamiento FROM tb_visita_campo_levantamientos WHERE id_visita = $1",
+                id_visita,
+            )
+        ]
+        if not lev_ids:
+            return 0
+
+        await conn.executemany("""
+            INSERT INTO tb_levantamiento_asignaciones
+                (id_levantamiento, tecnico_id, asignado_por_id, es_responsable)
+            VALUES ($1, $2, $3, false)
+            ON CONFLICT (id_levantamiento, tecnico_id) DO NOTHING
+        """, [(lev_id, acompaniante_id, asignado_por_id) for lev_id in lev_ids])
+
+        logger.info(
+            "[VISITA] Acompañante propagado a %d levantamientos de visita %s",
+            len(lev_ids), id_visita,
+        )
+        return len(lev_ids)
+
+    async def update_notas_visita(
+        self, conn, id_visita: UUID, notas: Optional[str]
+    ) -> None:
+        """Actualiza el campo notas de tb_visitas_campo."""
+        await conn.execute("""
+            UPDATE tb_visitas_campo SET notas = $1 WHERE id_visita = $2
+        """, notas or None, id_visita)
 
 
 # ----------------------------------------------------------

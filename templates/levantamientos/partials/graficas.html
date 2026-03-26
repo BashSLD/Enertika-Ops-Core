@@ -5,14 +5,14 @@
 <div id="kanban-container" class="flex flex-col h-full">
     <!-- MOVIL: template de acciones para el header (poblado via JS) -->
     <div id="mobile-actions-template" style="display:none">
-        <button hx-get="/levantamientos/partials/lista?tab=activos" hx-target="#kanban-container" hx-swap="outerHTML"
+        <button hx-get="/levantamientos/partials/lista?tab=activos" hx-target="#kanban-container" hx-swap="outerHTML" hx-push-url="/levantamientos/ui?view=lista&tab=activos"
             class="bg-indigo-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 10h18M3 14h18M3 6h18M3 18h18" />
             </svg>
             Ver Lista
         </button>
-        <button hx-get="/levantamientos/partials/kanban" hx-target="#kanban-container" hx-swap="outerHTML"
+        <button hx-get="/levantamientos/partials/kanban" hx-target="#kanban-container" hx-swap="outerHTML" hx-push-url="/levantamientos/ui"
             class="bg-blue-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -45,7 +45,7 @@
         <div class="flex gap-2 flex-wrap">
             <!-- Ver Lista -->
             <button hx-get="/levantamientos/partials/lista?tab=activos"
-                hx-target="#kanban-container" hx-swap="outerHTML"
+                hx-target="#kanban-container" hx-swap="outerHTML" hx-push-url="/levantamientos/ui?view=lista&tab=activos"
                 class="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold py-2 px-3 rounded-lg flex items-center gap-2 transition-all duration-200">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -55,7 +55,7 @@
             </button>
             <!-- Volver al Kanban -->
             <button hx-get="/levantamientos/partials/kanban"
-                hx-target="#kanban-container" hx-swap="outerHTML"
+                hx-target="#kanban-container" hx-swap="outerHTML" hx-push-url="/levantamientos/ui"
                 class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-bold py-2 px-3 rounded-lg shadow-lg shadow-blue-600/30 flex items-center gap-2 transition-all duration-200">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
