@@ -834,45 +834,144 @@ class ReportesSimulacionService:
             for row in rows
         ]
     
+    # =========================================================================
+    # HELPERS PRIVADOS — construcción de dataclasses desde rows DB
+    # Usados por get_detalle_por_usuario para evitar recargar cats/umbrales
+    # por cada usuario en el loop.
+    # =========================================================================
+
+    def _build_metricas_generales(
+        self,
+        row: Optional[Dict],
+        u_interno,
+        u_compromiso,
+    ) -> MetricasGenerales:
+        if not row:
+            return MetricasGenerales(
+                umbrales_interno=u_interno,
+                umbrales_compromiso=u_compromiso,
+            )
+        return MetricasGenerales(
+            umbrales_interno=u_interno,
+            umbrales_compromiso=u_compromiso,
+            total_solicitudes=row['total_solicitudes'] or 0,
+            total_ofertas=row['total_ofertas'] or 0,
+            en_espera=row['en_espera'] or 0,
+            canceladas=row['canceladas'] or 0,
+            no_viables=row['no_viables'] or 0,
+            extraordinarias=row['extraordinarias'] or 0,
+            versiones=row['versiones'] or 0,
+            retrabajos=row['retrabajos'] or 0,
+            licitaciones=row['licitaciones'] or 0,
+            entregas_a_tiempo_interno=row['entregas_a_tiempo_interno'] or 0,
+            entregas_tarde_interno=row['entregas_tarde_interno'] or 0,
+            entregas_a_tiempo_compromiso=row['entregas_a_tiempo_compromiso'] or 0,
+            entregas_tarde_compromiso=row['entregas_tarde_compromiso'] or 0,
+            sin_fecha_entrega=row['sin_fecha_entrega'] or 0,
+            tiempo_promedio_horas=row['tiempo_promedio_horas'],
+            total_sitios=row['total_sitios'] or 0,
+            total_sitios_entregados=row['total_sitios_entregados'] or 0,
+            oportunidades_multisitio=row['oportunidades_multisitio'] or 0,
+            ganadas=row['ganadas'] or 0,
+            sim_adicionales_count=row['sim_adicionales_count'] or 0,
+        )
+
+    def _build_metricas_tech(
+        self,
+        rows: List[Dict],
+        u_interno,
+        u_compromiso,
+    ) -> List[MetricaTecnologia]:
+        return [
+            MetricaTecnologia(
+                id_tecnologia=row['id_tecnologia'],
+                nombre=row['nombre'],
+                umbrales_interno=u_interno,
+                umbrales_compromiso=u_compromiso,
+                total_solicitudes=row['total_solicitudes'] or 0,
+                total_ofertas=row['total_ofertas'] or 0,
+                entregas_a_tiempo_interno=row['entregas_a_tiempo_interno'] or 0,
+                entregas_tarde_interno=row['entregas_tarde_interno'] or 0,
+                entregas_a_tiempo_compromiso=row['entregas_a_tiempo_compromiso'] or 0,
+                entregas_tarde_compromiso=row['entregas_tarde_compromiso'] or 0,
+                extraordinarias=row['extraordinarias'] or 0,
+                versiones=row['versiones'] or 0,
+                retrabajados=row['retrabajos'] or 0,
+                licitaciones=row['licitaciones'] or 0,
+                tiempo_promedio_horas=float(row['tiempo_promedio_horas']) if row['tiempo_promedio_horas'] else None,
+                potencia_total_kwp=float(row['potencia_total_kwp'] or 0),
+                capacidad_total_kwh=float(row['capacidad_total_kwh'] or 0),
+                total_sitios=row['total_sitios'] or 0,
+            )
+            for row in rows
+        ]
+
+    def _build_tabla_contabilizacion(
+        self,
+        rows: List[Dict],
+        u_interno,
+        u_compromiso,
+    ) -> List[FilaContabilizacion]:
+        return [
+            FilaContabilizacion(
+                id_tipo_solicitud=row['id_tipo_solicitud'],
+                nombre=row['nombre'],
+                codigo_interno=row['codigo_interno'],
+                umbrales_interno=u_interno,
+                umbrales_compromiso=u_compromiso,
+                total=row['total'] or 0,
+                entregas_a_tiempo_interno=row['entregas_a_tiempo_interno'] or 0,
+                entregas_tarde_interno=row['entregas_tarde_interno'] or 0,
+                entregas_a_tiempo_compromiso=row['entregas_a_tiempo_compromiso'] or 0,
+                entregas_tarde_compromiso=row['entregas_tarde_compromiso'] or 0,
+                sin_fecha=row['sin_fecha'] or 0,
+                licitaciones=row['licitaciones'] or 0,
+                es_levantamiento=row['es_levantamiento'] or False,
+            )
+            for row in rows
+        ]
+
     async def get_detalle_por_usuario(self, conn, filtros: FiltrosReporte) -> List[DetalleUsuario]:
         """
         Obtiene métricas detalladas por cada usuario responsable.
-        
+
         Incluye:
         - Métricas generales del usuario
         - Métricas por tecnología
         - Tabla de contabilización personal
+
+        Optimización: catálogos y umbrales se cargan una sola vez antes del loop
+        en lugar de repetirlos por cada usuario (evita 12 queries de catálogo × N usuarios).
         """
-        # Primero obtener lista de usuarios con actividad en el período
         usuarios = await self.db.get_report_users_active(conn, asdict(filtros))
-        
+
         if not usuarios:
             return []
-        
+
+        # Cargar una sola vez para todo el loop
+        cats = await self.db.get_report_catalog_ids(conn)
+        u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
+        u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso")
+
         resultados = []
-        
+
         for usuario in usuarios:
-            # Crear filtro específico para este usuario
-            filtros_usuario = FiltrosReporte(
-                fecha_inicio=filtros.fecha_inicio,
-                fecha_fin=filtros.fecha_fin,
-                id_tecnologia=filtros.id_tecnologia,
-                id_tipo_solicitud=filtros.id_tipo_solicitud,
-                id_estatus=filtros.id_estatus,
-                responsable_id=usuario['id_usuario']
+            filtros_usuario = dc_replace(filtros, responsable_id=usuario['id_usuario'])
+            filtros_dict = asdict(filtros_usuario)
+
+            row = await self.db.get_report_metricas_generales_row(conn, filtros_dict, cats)
+            metricas_gen = self._build_metricas_generales(row, u_interno, u_compromiso)
+
+            rows_tech = await self.db.get_report_metricas_tech(conn, filtros_dict, cats)
+            metricas_tech = self._build_metricas_tech(rows_tech, u_interno, u_compromiso)
+
+            rows_contab = await self.db.get_report_tabla_contabilizacion(conn, filtros_dict, cats)
+            tabla_cont = self._build_tabla_contabilizacion(rows_contab, u_interno, u_compromiso)
+
+            tiempo_por_tipo = await self.db.get_report_tiempo_promedio_tipo(
+                conn, usuario['id_usuario'], filtros_dict, cats
             )
-            
-            # Reutilizar métodos existentes con filtro de usuario
-            metricas_gen = await self.get_metricas_generales(conn, filtros_usuario)
-            metricas_tech = await self.get_metricas_por_tecnologia(conn, filtros_usuario)
-            tabla_cont = await self.get_tabla_contabilizacion(conn, filtros_usuario)
-            
-            # Obtener tiempo promedio por tipo de solicitud
-            tiempo_por_tipo = await self.get_tiempo_promedio_por_tipo(
-                conn, usuario['id_usuario'], filtros
-            )
-            
-            # Crear objeto DetalleUsuario primero (sin resumen)
+
             detalle_usuario = DetalleUsuario(
                 usuario_id=usuario['id_usuario'],
                 nombre=usuario['nombre'],
@@ -880,30 +979,25 @@ class ReportesSimulacionService:
                 metricas_por_tecnologia=metricas_tech,
                 tabla_contabilizacion=tabla_cont,
                 tiempo_promedio_por_tipo=tiempo_por_tipo,
-                resumen_texto="",  # Se actualiza después
-                resumen_datos=None  # Se actualiza después
+                resumen_texto="",
+                resumen_datos=None,
             )
-            
-            # Obtener tiempo promedio global del usuario
+
             tiempo_promedio_global = await self.get_tiempo_promedio_global_usuario(
                 conn, usuario['id_usuario'], filtros
             )
-            
-            # Obtener motivo de retrabajo principal del usuario
+
             motivo_principal, _ = await self.get_motivo_retrabajo_principal(
                 conn, filtros, user_id=usuario['id_usuario']
             )
-            
-            # Generar resumen de datos estructurado
+
             detalle_usuario.resumen_datos = self.generar_resumen_usuario(
-                detalle_usuario, 
+                detalle_usuario,
                 filtros,
                 motivo_retrabajo_principal=motivo_principal,
-                tiempo_promedio_global_dias=tiempo_promedio_global
+                tiempo_promedio_global_dias=tiempo_promedio_global,
             )
-            # Legacy/Fallback (opcional, si queremos mantener el string)
-            # detalle_usuario.resumen_texto = self._render_resumen_usuario_legacy(detalle_usuario) # No longer needed based on requirements
-            
+
             resultados.append(detalle_usuario)
         
         return resultados
