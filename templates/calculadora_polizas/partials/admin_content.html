@@ -1,0 +1,158 @@
+<div class="h-full flex flex-col animate-fade-in-down gap-4">
+
+    <div class="glass-panel p-4 rounded-xl hidden md:flex justify-between items-center gap-3 border-l-4 border-amber-500">
+        <div>
+            <h2 class="text-2xl font-light text-gray-800">
+                <a href="/oym/ui" hx-get="/oym/ui" hx-target="#main-content" hx-push-url="true"
+                   class="text-gray-400 hover:text-blue-600 transition-colors">O&M</a>
+                <span class="text-gray-400 mx-1">/</span>
+                <a href="/calculadora-polizas/ui" hx-get="/calculadora-polizas/ui" hx-target="#main-content" hx-push-url="true"
+                   class="text-gray-400 hover:text-blue-600 transition-colors">Calculadora</a>
+                <span class="text-gray-400 mx-1">/</span>
+                <span class="font-bold text-amber-600">Precios y Costos</span>
+            </h2>
+            <p class="text-gray-500 text-sm mt-1">Solo visible para Manager y Admin de modulo</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+
+        {# PRECIOS POR ZONA #}
+        <div class="glass-card rounded-xl p-4 flex flex-col gap-3">
+            <h3 class="font-semibold text-gray-700 border-b pb-2 text-sm uppercase tracking-wider">Precio por Panel por Zona</h3>
+            {% for z in precios_zona %}
+            <div class="flex items-center gap-2"
+                 x-data="{ editing: false, val: {{ z.precio_por_panel_mxp }} }">
+                <span class="flex-1 text-sm text-gray-700">{{ z.zona }}</span>
+                <template x-if="!editing">
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-sm font-semibold text-gray-800" x-text="'$' + val.toFixed(2)"></span>
+                        <button @click="editing = true"
+                                class="text-xs text-gray-400 hover:text-blue-600 transition-colors px-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </template>
+                <template x-if="editing">
+                    <form hx-patch="/calculadora-polizas/admin/precios-zona/{{ z.zona | urlencode }}"
+                          hx-swap="none"
+                          @submit.prevent="
+                            htmx.ajax('PATCH', '/calculadora-polizas/admin/precios-zona/{{ z.zona | urlencode }}',
+                                {values: {precio: val}, swap: 'none'});
+                            editing = false;"
+                          class="flex items-center gap-1">
+                        <input type="number" x-model.number="val" step="0.01" min="0.01"
+                               class="w-20 border border-blue-400 rounded px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500">
+                        <button type="submit" class="text-green-600 hover:text-green-700">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </button>
+                        <button type="button" @click="editing = false" class="text-gray-400 hover:text-gray-600">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </form>
+                </template>
+            </div>
+            {% endfor %}
+        </div>
+
+        {# WATTABIT #}
+        <div class="glass-card rounded-xl p-4 flex flex-col gap-3">
+            <h3 class="font-semibold text-gray-700 border-b pb-2 text-sm uppercase tracking-wider">SAS Wattabit</h3>
+            {% for w in wattabit %}
+            <div class="flex items-center gap-2"
+                 x-data="{ editing: false, val: {{ w.precio_anual_mxp }} }">
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm text-gray-700 font-medium">{{ w.nombre }}</p>
+                    <p class="text-xs text-gray-400">{{ w.rango_min_kwp }} — {{ w.rango_max_kwp }} kWp</p>
+                </div>
+                <template x-if="!editing">
+                    <div class="flex items-center gap-1.5">
+                        <span class="text-sm font-semibold text-gray-800" x-text="'$' + val.toLocaleString('es-MX')"></span>
+                        <button @click="editing = true"
+                                class="text-xs text-gray-400 hover:text-blue-600 transition-colors px-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </template>
+                <template x-if="editing">
+                    <div class="flex items-center gap-1">
+                        <input type="number" x-model.number="val" step="1" min="1"
+                               class="w-20 border border-blue-400 rounded px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500">
+                        <button @click="
+                            htmx.ajax('PATCH', '/calculadora-polizas/admin/wattabit/{{ w.id }}',
+                                {values: {precio: val}, swap: 'none'});
+                            editing = false;"
+                                class="text-green-600 hover:text-green-700">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </button>
+                        <button @click="editing = false" class="text-gray-400 hover:text-gray-600">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                </template>
+            </div>
+            {% endfor %}
+        </div>
+
+        {# COSTOS FIJOS #}
+        <div class="glass-card rounded-xl p-4 flex flex-col gap-3">
+            <h3 class="font-semibold text-gray-700 border-b pb-2 text-sm uppercase tracking-wider">Costos Fijos</h3>
+            {% for cf in costos_fijos %}
+            <div class="flex items-start gap-2"
+                 x-data="{ editing: false, val: {{ cf.valor }} }">
+                <div class="flex-1 min-w-0">
+                    <p class="text-sm text-gray-700 font-medium">{{ cf.concepto }}</p>
+                    {% if cf.notas %}<p class="text-xs text-gray-400 leading-tight">{{ cf.notas }}</p>{% endif %}
+                </div>
+                <template x-if="!editing">
+                    <div class="flex items-center gap-1.5 flex-shrink-0">
+                        <span class="text-sm font-semibold text-gray-800" x-text="val"></span>
+                        <button @click="editing = true"
+                                class="text-xs text-gray-400 hover:text-blue-600 transition-colors px-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                            </svg>
+                        </button>
+                    </div>
+                </template>
+                <template x-if="editing">
+                    <div class="flex items-center gap-1 flex-shrink-0">
+                        <input type="number" x-model.number="val" step="0.0001" min="0"
+                               class="w-24 border border-blue-400 rounded px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500">
+                        <button @click="
+                            htmx.ajax('PATCH', '/calculadora-polizas/admin/costos-fijos/{{ cf.concepto }}',
+                                {values: {valor: val}, swap: 'none'});
+                            editing = false;"
+                                class="text-green-600 hover:text-green-700">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                            </svg>
+                        </button>
+                        <button @click="editing = false" class="text-gray-400 hover:text-gray-600">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                            </svg>
+                        </button>
+                    </div>
+                </template>
+            </div>
+            {% endfor %}
+        </div>
+
+    </div>
+</div>

@@ -1,0 +1,148 @@
+{% if error %}
+<div class="glass-card p-5 rounded-xl flex items-center gap-3 text-red-600 bg-red-50 border border-red-200">
+    <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+    </svg>
+    <p class="text-sm font-medium">{{ error }}</p>
+</div>
+
+{% elif not resultado %}
+<div class="glass-card p-5 rounded-xl flex flex-col items-center justify-center text-center text-gray-400 h-full min-h-48 gap-3">
+    <svg class="w-12 h-12 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M12 7h.01M9 7H7a2 2 0 00-2 2v9a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2"/>
+    </svg>
+    <p class="text-sm">Selecciona una planta y calcula para ver el resultado</p>
+</div>
+
+{% else %}
+<div class="glass-card p-5 rounded-xl flex flex-col gap-4 h-full">
+
+    {# Encabezado del resultado #}
+    <div class="flex items-start justify-between border-b pb-3">
+        <div>
+            <h3 class="font-semibold text-gray-800 text-base">{{ resultado.nombre_planta }}</h3>
+            <p class="text-xs text-gray-500 mt-0.5">
+                {{ resultado.zona }} &bull;
+                {{ resultado.potencia_kw }} kWp &bull;
+                {{ resultado.num_paneles }} paneles &bull;
+                <span class="font-medium {{ 'text-blue-600' if resultado.tipo_poliza == 'premium' else 'text-indigo-600' }}">
+                    {{ resultado.tipo_poliza | capitalize }}
+                </span>
+                &bull; {{ (resultado.utilidad * 100) | round(0) | int }}% utilidad
+            </p>
+        </div>
+        {# Boton guardar cotizacion #}
+        <form hx-post="/calculadora-polizas/cotizaciones/guardar"
+              hx-swap="none"
+              hx-vals='{"planta_id": "{{ resultado.planta_id }}", "tipo_poliza": "{{ resultado.tipo_poliza }}", "utilidad": "{{ resultado.utilidad }}"}'
+              class="flex-shrink-0">
+            <button type="submit"
+                    class="btn-secondary text-xs px-3 py-1.5 rounded-lg flex items-center gap-1.5 hover:bg-green-50 hover:border-green-400 hover:text-green-700 transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4"/>
+                </svg>
+                Guardar
+            </button>
+        </form>
+    </div>
+
+    {# Desglose de costos #}
+    <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Desglose de costos</p>
+        <table class="w-full text-sm">
+            <tbody class="divide-y divide-gray-100">
+                {% if resultado.tipo_poliza == 'premium' %}
+                <tr>
+                    <td class="py-1.5 text-gray-600">Mtto. Preventivo ({{ resultado.num_paneles }} pan. x 2 visitas)</td>
+                    <td class="py-1.5 text-right font-medium">${{ "{:,.2f}".format(resultado.mtto_principal) }}</td>
+                </tr>
+                <tr>
+                    <td class="py-1.5 text-gray-600">Mtto. Correctivo</td>
+                    <td class="py-1.5 text-right font-medium">${{ "{:,.2f}".format(resultado.mtto_fijo) }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td class="py-1.5 text-gray-600">Mtto. Diagnostico</td>
+                    <td class="py-1.5 text-right font-medium">${{ "{:,.2f}".format(resultado.mtto_principal) }}</td>
+                </tr>
+                {% endif %}
+                <tr>
+                    <td class="py-1.5 text-gray-600">SAS Wattabit ({{ resultado.nombre_wattabit }})</td>
+                    <td class="py-1.5 text-right font-medium">${{ "{:,.2f}".format(resultado.wattabit) }}</td>
+                </tr>
+                <tr>
+                    <td class="py-1.5 text-gray-600">Internet anual</td>
+                    <td class="py-1.5 text-right font-medium">${{ "{:,.2f}".format(resultado.internet) }}</td>
+                </tr>
+                <tr>
+                    <td class="py-1.5 text-gray-600">Gestion energetica ({{ resultado.num_paneles }} pan.)</td>
+                    <td class="py-1.5 text-right font-medium">${{ "{:,.2f}".format(resultado.gestion) }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    {# Totales #}
+    <div class="bg-gray-50 rounded-lg p-3 flex flex-col gap-1.5 text-sm">
+        <div class="flex justify-between text-gray-600">
+            <span>Sub Total (sin IVA, sin utilidad)</span>
+            <span class="font-medium">${{ "{:,.2f}".format(resultado.sub_total) }}</span>
+        </div>
+        <div class="flex justify-between text-gray-600">
+            <span>Sub Total con Utilidad ({{ (resultado.utilidad * 100) | round(0) | int }}%)</span>
+            <span class="font-medium">${{ "{:,.2f}".format(resultado.sub_total_utilidad) }}</span>
+        </div>
+        <div class="flex justify-between font-bold text-blue-700 text-base border-t border-gray-200 pt-1.5 mt-0.5">
+            <span>Total con IVA</span>
+            <span>${{ "{:,.2f}".format(resultado.total_final) }}</span>
+        </div>
+    </div>
+
+    {# Pesos #}
+    <div class="grid grid-cols-2 gap-2">
+        <div class="bg-blue-50 rounded-lg p-3 text-center">
+            <p class="text-xs text-gray-500 uppercase tracking-wide">Peso por kWp</p>
+            <p class="font-bold text-blue-700 text-lg">${{ "{:,.2f}".format(resultado.peso_kwp) }}</p>
+        </div>
+        <div class="bg-blue-50 rounded-lg p-3 text-center">
+            <p class="text-xs text-gray-500 uppercase tracking-wide">Peso por Panel</p>
+            <p class="font-bold text-blue-700 text-lg">${{ "{:,.2f}".format(resultado.peso_panel) }}</p>
+        </div>
+    </div>
+
+    {# Proyeccion 5 anos #}
+    <div>
+        <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Proyeccion (3% anual)</p>
+        <table class="w-full text-sm text-center">
+            <thead>
+                <tr class="text-xs text-gray-500 uppercase tracking-wide">
+                    <th class="pb-1 font-medium">Ano</th>
+                    <th class="pb-1 font-medium">Valor anual</th>
+                    <th class="pb-1 font-medium">Acumulado</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                <tr class="py-1">
+                    <td class="py-1.5 font-semibold text-gray-700">Ano 1</td>
+                    <td class="py-1.5">${{ "{:,.2f}".format(resultado.anio_1) }}</td>
+                    <td class="py-1.5">${{ "{:,.2f}".format(resultado.anio_1) }}</td>
+                </tr>
+                <tr>
+                    <td class="py-1.5 font-semibold text-gray-700">Ano 3</td>
+                    <td class="py-1.5">${{ "{:,.2f}".format(resultado.anio_3) }}</td>
+                    <td class="py-1.5 font-semibold text-gray-800">${{ "{:,.2f}".format(resultado.acumulado_1_3) }}</td>
+                </tr>
+                <tr>
+                    <td class="py-1.5 font-semibold text-gray-700">Ano 5</td>
+                    <td class="py-1.5">${{ "{:,.2f}".format(resultado.anio_5) }}</td>
+                    <td class="py-1.5 font-bold text-blue-700">${{ "{:,.2f}".format(resultado.acumulado_1_5) }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+</div>
+{% endif %}

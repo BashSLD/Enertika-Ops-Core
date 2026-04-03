@@ -1,0 +1,201 @@
+<div class="h-full flex flex-col animate-fade-in-down"
+     x-data="{
+        plantas: [],
+        planta: null,
+        planta_id: '',
+        tipo_poliza: 'premium',
+        utilidad: {{ utilidad_default }},
+        init() {
+            this.plantas = JSON.parse(this.$el.dataset.plantas || '[]');
+        },
+        seleccionarPlanta(id) {
+            this.planta_id = id;
+            this.planta = this.plantas.find(p => p.id === id) || null;
+        }
+     }"
+     data-plantas='{{ plantas | tojson }}'>
+
+    {# MOVIL: template de acciones #}
+    <div id="mobile-actions-template" style="display:none">
+        <a href="/calculadora-polizas/plantas/ui"
+           hx-get="/calculadora-polizas/plantas/ui" hx-target="#main-content" hx-push-url="true"
+           class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 5h2"/>
+            </svg>
+            Gestionar Plantas
+        </a>
+        {% if puede_admin %}
+        <a href="/calculadora-polizas/admin/ui"
+           hx-get="/calculadora-polizas/admin/ui" hx-target="#main-content" hx-push-url="true"
+           class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            Precios y Costos
+        </a>
+        {% endif %}
+    </div>
+    <script>
+    (function() {
+        var tmpl = document.getElementById('mobile-actions-template');
+        var slot = document.getElementById('mobile-module-actions-slot');
+        if (!slot || !tmpl) return;
+        slot.innerHTML = '';
+        Array.from(tmpl.children).forEach(function(child) { slot.appendChild(child.cloneNode(true)); });
+        if (typeof htmx !== 'undefined') htmx.process(slot);
+        var sep = document.getElementById('mobile-actions-separator');
+        if (sep) sep.classList.toggle('hidden', slot.children.length === 0);
+    })();
+    </script>
+
+    {# DESKTOP: Header del módulo #}
+    <div class="glass-panel p-4 rounded-xl mb-4 hidden md:flex flex-col md:flex-row justify-between md:items-center gap-3 border-l-4 border-blue-500">
+        <div>
+            <h2 class="text-2xl font-light text-gray-800">
+                Calculadora <span class="font-bold text-blue-600">Polizas</span>
+            </h2>
+            <p class="text-gray-500 text-sm mt-1">Premium y Estandar — proyeccion a 5 anos</p>
+        </div>
+        <div class="flex items-center gap-2">
+            {% if puede_editar %}
+            <a href="/calculadora-polizas/plantas/ui"
+               hx-get="/calculadora-polizas/plantas/ui" hx-target="#main-content" hx-push-url="true"
+               class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 5h2"/>
+                </svg>
+                Plantas
+            </a>
+            {% endif %}
+            {% if puede_admin %}
+            <a href="/calculadora-polizas/admin/ui"
+               hx-get="/calculadora-polizas/admin/ui" hx-target="#main-content" hx-push-url="true"
+               class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+                Precios
+            </a>
+            {% endif %}
+            <a href="/calculadora-polizas/cotizaciones/ui"
+               hx-get="/calculadora-polizas/cotizaciones/ui" hx-target="#main-content" hx-push-url="true"
+               class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                Historial
+            </a>
+        </div>
+    </div>
+
+    {# GRID: formulario + resultado #}
+    <div class="flex-1 grid grid-cols-1 lg:grid-cols-2 gap-4 min-h-0">
+
+        {# FORMULARIO #}
+        <div class="glass-card p-5 rounded-xl flex flex-col gap-4">
+            <h3 class="font-semibold text-gray-700 text-base border-b pb-2">Datos de la poliza</h3>
+
+            <form id="form-calcular"
+                  hx-post="/calculadora-polizas/api/calcular"
+                  hx-target="#resultado-container"
+                  hx-swap="innerHTML"
+                  hx-indicator="#calc-spinner"
+                  class="flex flex-col gap-4">
+
+                {# Planta #}
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Planta</label>
+                    <select name="planta_id" required
+                            @change="seleccionarPlanta($event.target.value)"
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
+                        <option value="">-- Seleccionar planta --</option>
+                        {% for p in plantas %}
+                        <option value="{{ p.id }}">{{ p.nombre }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+
+                {# Info auto-poblada de la planta #}
+                <div x-show="planta" class="grid grid-cols-3 gap-2 bg-blue-50 rounded-lg p-3 text-sm">
+                    <div>
+                        <p class="text-xs text-gray-500 uppercase tracking-wide">Zona</p>
+                        <p class="font-semibold text-gray-700" x-text="planta?.zona || '--'"></p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 uppercase tracking-wide">Potencia</p>
+                        <p class="font-semibold text-gray-700" x-text="planta?.potencia_kw ? planta.potencia_kw + ' kWp' : '--'"></p>
+                    </div>
+                    <div>
+                        <p class="text-xs text-gray-500 uppercase tracking-wide">Paneles</p>
+                        <p class="font-semibold text-gray-700" x-text="planta?.num_paneles || '--'"></p>
+                    </div>
+                </div>
+
+                {# Tipo de poliza #}
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Tipo de poliza</label>
+                    <div class="flex gap-3">
+                        <label class="flex-1 cursor-pointer">
+                            <input type="radio" name="tipo_poliza" value="premium" x-model="tipo_poliza" class="sr-only peer">
+                            <div class="text-center border-2 rounded-lg py-3 px-2 text-sm transition-colors duration-200
+                                        peer-checked:border-blue-500 peer-checked:bg-blue-50 peer-checked:text-blue-700 peer-checked:font-semibold
+                                        border-gray-200 text-gray-600 hover:border-blue-300">
+                                Premium
+                                <p class="text-xs font-normal opacity-75 mt-0.5">2 visitas/ano</p>
+                            </div>
+                        </label>
+                        <label class="flex-1 cursor-pointer">
+                            <input type="radio" name="tipo_poliza" value="estandar" x-model="tipo_poliza" class="sr-only peer">
+                            <div class="text-center border-2 rounded-lg py-3 px-2 text-sm transition-colors duration-200
+                                        peer-checked:border-indigo-500 peer-checked:bg-indigo-50 peer-checked:text-indigo-700 peer-checked:font-semibold
+                                        border-gray-200 text-gray-600 hover:border-indigo-300">
+                                Estandar
+                                <p class="text-xs font-normal opacity-75 mt-0.5">1 visita/ano</p>
+                            </div>
+                        </label>
+                    </div>
+                </div>
+
+                {# Utilidad #}
+                <div>
+                    <label class="flex justify-between text-sm font-medium text-gray-600 mb-1">
+                        <span>Utilidad</span>
+                        <span class="text-blue-600 font-semibold" x-text="Math.round(utilidad * 100) + '%'"></span>
+                    </label>
+                    <input type="range" name="utilidad" min="0" max="0.60" step="0.01"
+                           x-model.number="utilidad"
+                           class="w-full accent-blue-600">
+                    <div class="flex justify-between text-xs text-gray-400 mt-1">
+                        <span>0%</span><span>30%</span><span>60%</span>
+                    </div>
+                </div>
+
+                {# Submit #}
+                <button type="submit"
+                        class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 px-4 rounded-lg transition-colors duration-200 flex items-center justify-center gap-2">
+                    <span id="calc-spinner" class="htmx-indicator">
+                        <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                    </span>
+                    Calcular poliza
+                </button>
+            </form>
+        </div>
+
+        {# RESULTADO #}
+        <div id="resultado-container" class="flex flex-col">
+            {% include "calculadora_polizas/partials/resultado.html" %}
+        </div>
+
+    </div>
+</div>

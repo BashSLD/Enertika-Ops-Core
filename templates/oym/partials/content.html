@@ -31,14 +31,24 @@
             </h2>
             <p class="text-gray-500 text-sm mt-1">Operacion y Mantenimiento de plantas</p>
         </div>
-        <div class="relative w-full md:w-56">
-            <input type="text" name="q" placeholder="Buscar proyecto..."
-                hx-get="/oym/partials/proyectos" hx-trigger="keyup changed delay:500ms"
-                hx-target="#proyectos-list"
-                class="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
-            </svg>
+        <div class="flex items-center gap-2">
+            <div class="relative w-full md:w-56">
+                <input type="text" name="q" placeholder="Buscar proyecto..."
+                    hx-get="/oym/partials/proyectos" hx-trigger="keyup changed delay:500ms"
+                    hx-target="#proyectos-list"
+                    class="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+            </div>
+            <a href="/calculadora-polizas/ui" hx-get="/calculadora-polizas/ui" hx-target="#main-content" hx-push-url="true"
+               class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M12 7h.01M9 7H7a2 2 0 00-2 2v9a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2"/>
+                </svg>
+                Calculadora
+            </a>
         </div>
     </div>
 

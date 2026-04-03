@@ -80,6 +80,9 @@ app.include_router(ingenieria_router.router)
 from modules.oym import router as oym_router
 app.include_router(oym_router.router)
 
+from modules.calculadora_polizas import router as calculadora_polizas_router
+app.include_router(calculadora_polizas_router.router)
+
 from modules.finanzas import router as finanzas_router
 app.include_router(finanzas_router.router)
 

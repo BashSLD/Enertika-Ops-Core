@@ -179,7 +179,9 @@ class AdminService:
             # Comercial Config
             "comercial_popup_targets": config_dict.get("COMERCIAL_POPUP_TARGETS") or "",
             # Reporte Semanal
-            "reporte_semanal_destinatarios": config_dict.get("reporte_semanal_destinatarios") or ""
+            "reporte_semanal_destinatarios": config_dict.get("reporte_semanal_destinatarios") or "",
+            # Visita a Obra
+            "visita_obra_destinatarios": config_dict.get("visita_obra_destinatarios") or ""
         }
 
     async def update_global_config(self, conn, datos: ConfiguracionGlobalUpdate) -> None:
@@ -217,7 +219,9 @@ class AdminService:
             # Comercial Config
             ("COMERCIAL_POPUP_TARGETS", datos.comercial_popup_targets or ""),
             # Reporte Semanal
-            ("reporte_semanal_destinatarios", datos.reporte_semanal_destinatarios or "")
+            ("reporte_semanal_destinatarios", datos.reporte_semanal_destinatarios or ""),
+            # Visita a Obra
+            ("visita_obra_destinatarios", datos.visita_obra_destinatarios or "")
         ]
 
         for clave, valor in updates:

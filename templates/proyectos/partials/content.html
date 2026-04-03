@@ -15,6 +15,13 @@
             </svg>
             Materiales
         </a>
+        <button hx-get="/proyectos/partials/visita-obra-modal" hx-target="body" hx-swap="beforeend"
+            class="bg-[#00BABB] text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
+            <svg class="h-5 w-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            Visita a Obra
+        </button>
     </div>
     <script>
     (function() {
@@ -56,6 +63,14 @@
                 </svg>
                 Materiales
             </a>
+            <!-- Botón Visita a Obra -->
+            <button hx-get="/proyectos/partials/visita-obra-modal" hx-target="body" hx-swap="beforeend"
+                class="bg-[#00BABB] hover:bg-[#009a9b] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-sm">
+                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                Visita a Obra
+            </button>
             {# Filtro por area #}
             <select name="area" hx-get="/proyectos/partials/proyectos" hx-trigger="change" hx-target="#proyectos-list"
                 hx-include="[name='q'], [name='status']"

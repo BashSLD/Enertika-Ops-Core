@@ -1,0 +1,187 @@
+<div class="h-full flex flex-col animate-fade-in-down">
+
+    {# DESKTOP: Header #}
+    <div class="glass-panel p-4 rounded-xl mb-4 hidden md:flex flex-col md:flex-row justify-between md:items-center gap-3 border-l-4 border-blue-500">
+        <div>
+            <h2 class="text-2xl font-light text-gray-800">
+                <a href="/oym/ui" hx-get="/oym/ui" hx-target="#main-content" hx-push-url="true"
+                   class="text-gray-400 hover:text-blue-600 transition-colors">O&M</a>
+                <span class="text-gray-400 mx-1">/</span>
+                <a href="/calculadora-polizas/ui" hx-get="/calculadora-polizas/ui" hx-target="#main-content" hx-push-url="true"
+                   class="text-gray-400 hover:text-blue-600 transition-colors">Calculadora</a>
+                <span class="text-gray-400 mx-1">/</span>
+                <span class="font-bold text-blue-600">Plantas</span>
+            </h2>
+            <p class="text-gray-500 text-sm mt-1">Catalogo de plantas — {{ plantas | length }} registros</p>
+        </div>
+        <div class="flex items-center gap-2">
+            {# Buscador #}
+            <div class="relative w-full md:w-56">
+                <input type="text" name="q" value="{{ q }}" placeholder="Buscar planta..."
+                    hx-get="/calculadora-polizas/plantas/ui"
+                    hx-trigger="keyup changed delay:400ms"
+                    hx-target="#main-content"
+                    class="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
+                </svg>
+            </div>
+            {# Import Excel #}
+            <form hx-post="/calculadora-polizas/plantas/import-excel"
+                  hx-encoding="multipart/form-data"
+                  hx-target="#plantas-container"
+                  hx-swap="outerHTML">
+                <label class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 cursor-pointer hover:bg-green-50 hover:border-green-400 hover:text-green-700 transition-colors">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                    Importar Excel
+                    <input type="file" accept=".xlsx,.xls" class="hidden" name="archivo"
+                           onchange="this.closest('form').requestSubmit()">
+                </label>
+            </form>
+            {# Nueva planta #}
+            <button onclick="document.getElementById('modal-nueva-planta').classList.remove('hidden')"
+                    class="btn-primary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                Nueva planta
+            </button>
+        </div>
+    </div>
+
+    {% if import_msg %}
+    <div class="mb-3 px-4 py-2.5 rounded-lg text-sm font-medium
+                {{ 'bg-green-50 text-green-700 border border-green-200' if import_type == 'success' else 'bg-amber-50 text-amber-700 border border-amber-200' }}">
+        {{ import_msg }}
+    </div>
+    {% endif %}
+
+    {# TABLA DE PLANTAS #}
+    <div id="plantas-container" class="glass-card rounded-xl overflow-hidden flex-1">
+        {% if plantas %}
+        <div class="overflow-x-auto">
+            <table class="w-full text-sm">
+                <thead class="bg-gray-50 border-b border-gray-200">
+                    <tr>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">ID</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Nombre</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Zona</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">kWp</th>
+                        <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Paneles</th>
+                        <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Estado</th>
+                        <th class="px-4 py-3"></th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                {% for p in plantas %}
+                <tr class="hover:bg-gray-50 transition-colors {{ 'opacity-50' if not p.activa }}">
+                    <td class="px-4 py-3 font-mono text-xs text-gray-500">{{ p.id }}</td>
+                    <td class="px-4 py-3 font-medium text-gray-800">{{ p.nombre }}</td>
+                    <td class="px-4 py-3 text-gray-600">{{ p.zona }}</td>
+                    <td class="px-4 py-3 text-right text-gray-700">
+                        {% if p.potencia_kw %}{{ "{:,.1f}".format(p.potencia_kw) }}{% else %}<span class="text-gray-300">—</span>{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-right text-gray-700">
+                        {% if p.num_paneles %}{{ p.num_paneles }}{% else %}<span class="text-gray-300">—</span>{% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium
+                            {{ 'bg-green-100 text-green-700' if p.activa else 'bg-gray-100 text-gray-500' }}">
+                            {{ 'Activa' if p.activa else 'Inactiva' }}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-right">
+                        <button hx-post="/calculadora-polizas/plantas/{{ p.id }}/toggle"
+                                hx-target="#main-content"
+                                hx-confirm="{{ 'Desactivar' if p.activa else 'Activar' }} la planta {{ p.nombre }}?"
+                                class="text-xs text-gray-400 hover:text-blue-600 transition-colors px-2 py-1 rounded">
+                            {{ 'Desactivar' if p.activa else 'Activar' }}
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="flex flex-col items-center justify-center py-16 text-gray-400 gap-3">
+            <svg class="w-10 h-10 opacity-30" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 5h2"/>
+            </svg>
+            <p class="text-sm">
+                {% if q %}No se encontraron plantas con "{{ q }}"
+                {% else %}No hay plantas registradas. Importa un Excel para comenzar.{% endif %}
+            </p>
+        </div>
+        {% endif %}
+    </div>
+
+</div>
+
+{# MODAL NUEVA PLANTA #}
+<div id="modal-nueva-planta" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90dvh]">
+        <div class="flex items-center justify-between p-5 border-b">
+            <h3 class="font-semibold text-gray-800">Nueva Planta</h3>
+            <button onclick="document.getElementById('modal-nueva-planta').classList.add('hidden')"
+                    class="text-gray-400 hover:text-gray-600 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <form hx-post="/calculadora-polizas/plantas"
+              hx-target="#main-content"
+              hx-on::after-request="document.getElementById('modal-nueva-planta').classList.add('hidden')"
+              class="p-5 flex flex-col gap-4 overflow-y-auto">
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">ID <span class="text-red-500">*</span></label>
+                    <input type="text" name="id" required placeholder="MX-01"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 uppercase"
+                           style="text-transform:uppercase">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Zona <span class="text-red-500">*</span></label>
+                    <select name="zona" required
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 bg-white">
+                        <option value="">-- Seleccionar --</option>
+                        {% for zona in zonas %}
+                        <option value="{{ zona }}">{{ zona }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Nombre <span class="text-red-500">*</span></label>
+                <input type="text" name="nombre" required placeholder="Nombre de la planta"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Potencia (kWp)</label>
+                    <input type="number" name="potencia_kw" step="0.01" min="0" placeholder="0.00"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Num. paneles</label>
+                    <input type="number" name="num_paneles" min="0" placeholder="0"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <div class="flex gap-2 pt-2">
+                <button type="button"
+                        onclick="document.getElementById('modal-nueva-planta').classList.add('hidden')"
+                        class="flex-1 btn-secondary py-2 rounded-lg text-sm">Cancelar</button>
+                <button type="submit"
+                        class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg text-sm transition-colors">
+                    Guardar
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

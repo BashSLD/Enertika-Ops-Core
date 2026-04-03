@@ -234,6 +234,8 @@ async def update_global_config_endpoint(
     comercial_popup_targets: str = Form(""),
     # Reporte Semanal
     reporte_semanal_destinatarios: str = Form(""),
+    # Visita a Obra
+    visita_obra_destinatarios: str = Form(""),
     service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
@@ -286,7 +288,8 @@ async def update_global_config_endpoint(
             sim_penalizacion_retrabajos=sim_penalizacion_retrabajos,
             sim_volumen_max=sim_volumen_max,
             comercial_popup_targets=comercial_popup_targets,
-            reporte_semanal_destinatarios=reporte_semanal_destinatarios
+            reporte_semanal_destinatarios=reporte_semanal_destinatarios,
+            visita_obra_destinatarios=visita_obra_destinatarios
         )
     except ValueError as e:
         return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Error de Validación",
@@ -318,6 +321,56 @@ async def reset_simulation_config_endpoint(
     return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Valores Restaurados",
         "message": "Se han restablecido los valores por defecto para Simulación."
     })
+
+# --- CONFIGURACION DE BUZONES (mini-forms individuales) ---
+
+@router.post("/config/comercial", include_in_schema=False)
+async def update_config_comercial(
+    request: Request,
+    comercial_popup_targets: str = Form(""),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    """Guarda solo la configuracion de popup comercial."""
+    await service.db.upsert_global_config(conn, "COMERCIAL_POPUP_TARGETS", comercial_popup_targets)
+    ConfigService.invalidar_cache()
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {
+        "title": "Guardado", "message": "Configuracion comercial actualizada."
+    })
+
+
+@router.post("/config/reporte-semanal", include_in_schema=False)
+async def update_config_reporte_semanal(
+    request: Request,
+    reporte_semanal_destinatarios: str = Form(""),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    """Guarda solo los destinatarios del reporte semanal."""
+    await service.db.upsert_global_config(conn, "reporte_semanal_destinatarios", reporte_semanal_destinatarios)
+    ConfigService.invalidar_cache()
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {
+        "title": "Guardado", "message": "Destinatarios del reporte semanal actualizados."
+    })
+
+
+@router.post("/config/visita-obra", include_in_schema=False)
+async def update_config_visita_obra(
+    request: Request,
+    visita_obra_destinatarios: str = Form(""),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    """Guarda los destinatarios del email de Visita a Obra."""
+    await service.db.upsert_global_config(conn, "visita_obra_destinatarios", visita_obra_destinatarios)
+    ConfigService.invalidar_cache()
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {
+        "title": "Guardado", "message": "Destinatarios de Visita a Obra actualizados."
+    })
+
 
 # --- USER MANAGEMENT ENDPOINTS ---
 
