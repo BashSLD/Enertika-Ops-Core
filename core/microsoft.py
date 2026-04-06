@@ -358,9 +358,13 @@ class MicrosoftAuth:
 
             # 3. Send
             res_send = await self._http_client.post(f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{msg_id}/send", headers=headers)
-            return (True, "Enviado") if res_send.status_code == 202 else (False, res_send.text)
+            if res_send.status_code == 202:
+                return True, "Enviado"
+            logger.error("Heavy send fallo: status=%s body=%r", res_send.status_code, res_send.text)
+            return False, f"HTTP {res_send.status_code}: {res_send.text}"
         except Exception as e:
-            return False, str(e)
+            logger.error("Heavy send excepcion: %s", e, exc_info=True)
+            return False, str(e) or repr(e)
 
     async def _upload_session(self, headers, from_email, msg_id, file_data):
         name = file_data["name"]
@@ -372,24 +376,21 @@ class MicrosoftAuth:
             headers=headers,
             json={"AttachmentItem": {"attachmentType": "file", "name": name, "size": size}}
         )
-        if sess.status_code != 201: 
-            logger.error(f"Error creando sesión de upload: {sess.status_code} - {sess.text}")
-            return
-        
+        if sess.status_code != 201:
+            raise Exception(f"Upload session fallo: HTTP {sess.status_code} - {sess.text}")
+
         upload_url = sess.json()["uploadUrl"]
-        chunk_size = 327680 * 10 
-        
+        chunk_size = 327680 * 10
+
         for i in range(0, size, chunk_size):
             chunk = content[i:i+chunk_size]
             res = await self._http_client.put(upload_url, headers={
                 "Content-Length": str(len(chunk)),
                 "Content-Range": f"bytes {i}-{i+len(chunk)-1}/{size}"
             }, content=chunk)
-            
-            # CRÍTICO: Validar cada fragmento
+
             if not res.is_success:
-                logger.error(f"Fallo en fragmento {i}-{i+len(chunk)-1}: {res.status_code}")
-                raise Exception(f"Fallo en fragmento de subida: {res.text}")
+                raise Exception(f"Chunk {i}-{i+len(chunk)-1} fallo: HTTP {res.status_code} - {res.text[:200]}")
 
 def get_ms_auth():
     return MicrosoftAuth()
