@@ -44,19 +44,6 @@
             vertical-align: middle;
         }
 
-        .pdf-company-name {
-            font-size: 15pt;
-            font-weight: bold;
-            letter-spacing: 0.8px;
-            text-transform: uppercase;
-        }
-
-        .pdf-company-sub {
-            font-size: 8pt;
-            opacity: 0.85;
-            margin-top: 2px;
-        }
-
         .pdf-doc-title {
             font-size: 13pt;
             font-weight: 300;
@@ -144,6 +131,7 @@
 
     <!-- Running footer (WeasyPrint lo extrae y coloca en @bottom-center) -->
     <div id="footer-running">
+        <img src="logos/footer.png" alt="" style="height: 0.3cm; width: auto; vertical-align: middle; margin-right: 5px;">
         Enertika &mdash; Documento generado automaticamente &nbsp;|&nbsp;
         Pagina <span class="page-num"></span> de <span class="page-total"></span>
     </div>
@@ -153,8 +141,7 @@
         <table class="pdf-header-table">
             <tr>
                 <td>
-                    <div class="pdf-company-name">Enertika</div>
-                    <div class="pdf-company-sub">Soluciones Energeticas</div>
+                    <img src="logos/headerW.png" alt="Enertika" style="height: 0.75cm; width: auto; display: block;">
                 </td>
                 <td>
                     <div class="pdf-doc-title">{% block doc_title %}Reporte{% endblock %}</div>
