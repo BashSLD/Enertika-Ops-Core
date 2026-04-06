@@ -382,15 +382,18 @@ class MicrosoftAuth:
         upload_url = sess.json()["uploadUrl"]
         chunk_size = 327680 * 10
 
-        for i in range(0, size, chunk_size):
-            chunk = content[i:i+chunk_size]
-            res = await self._http_client.put(upload_url, headers={
-                "Content-Length": str(len(chunk)),
-                "Content-Range": f"bytes {i}-{i+len(chunk)-1}/{size}"
-            }, content=chunk)
+        # Cliente desechable para el blob: evita reutilizar conexiones stale del pool
+        # compartido con Graph API (dominios distintos causan ReadError intermitente)
+        async with httpx.AsyncClient(timeout=120.0) as blob_client:
+            for i in range(0, size, chunk_size):
+                chunk = content[i:i+chunk_size]
+                res = await blob_client.put(upload_url, headers={
+                    "Content-Length": str(len(chunk)),
+                    "Content-Range": f"bytes {i}-{i+len(chunk)-1}/{size}"
+                }, content=chunk)
 
-            if not res.is_success:
-                raise Exception(f"Chunk {i}-{i+len(chunk)-1} fallo: HTTP {res.status_code} - {res.text[:200]}")
+                if not res.is_success:
+                    raise Exception(f"Chunk {i}-{i+len(chunk)-1} fallo: HTTP {res.status_code} - {res.text[:200]}")
 
 def get_ms_auth():
     return MicrosoftAuth()
