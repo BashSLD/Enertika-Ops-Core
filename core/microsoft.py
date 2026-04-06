@@ -397,7 +397,7 @@ class MicrosoftAuth:
                         if not res.is_success:
                             raise Exception(f"Chunk {i}-{i+len(chunk)-1} fallo: HTTP {res.status_code} - {res.text[:200]}")
                 return  # todos los chunks subidos correctamente
-            except (httpx.ReadError, httpx.ConnectError) as exc:
+            except httpx.TransportError as exc:
                 if attempt == 2:
                     raise
                 logger.warning("Upload error de red (intento %d/3): %s — reintentando en %ds", attempt + 1, exc, 2 ** attempt)
