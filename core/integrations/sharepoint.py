@@ -247,5 +247,61 @@ class SharePointService:
         clean = re.sub(invalid_chars, '_', clean)
         return clean
 
+    async def upload_bytes_direct(
+        self,
+        content: bytes,
+        filename: str,
+        folder_path: str,
+    ) -> dict:
+        """
+        Sube bytes crudos a SharePoint usando self.drive_id / self.site_id ya resueltos.
+        No requiere conn — resolver config antes con _resolve_config() y asignar a self.
+        """
+        safe_filename = self._sanitize_filename(filename)
+        path = folder_path.strip("/")
+        encoded = urllib.parse.quote(f"{path}/{safe_filename}")
+
+        if self.drive_id:
+            url = f"{self.BASE_URL}/drives/{self.drive_id}/root:/{encoded}:/content"
+        elif self.site_id:
+            url = f"{self.BASE_URL}/sites/{self.site_id}/drive/root:/{encoded}:/content"
+        else:
+            raise ValueError("drive_id o site_id requerido — llamar _resolve_config primero")
+
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/octet-stream",
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.put(url, headers=headers, content=content)
+            if resp.status_code not in (200, 201):
+                raise Exception(f"Error subiendo {safe_filename}: HTTP {resp.status_code} - {resp.text[:200]}")
+            data = resp.json()
+            return {"id": data.get("id"), "webUrl": data.get("webUrl"), "name": data.get("name")}
+
+    async def get_folder_web_url(self, folder_path: str) -> str:
+        """
+        Obtiene el webUrl de una carpeta en SharePoint.
+        Retorna cadena vacia si no existe o hay error.
+        No requiere conn — usar self.drive_id / self.site_id ya resueltos.
+        """
+        path = folder_path.strip("/")
+        encoded = urllib.parse.quote(path)
+
+        if self.drive_id:
+            url = f"{self.BASE_URL}/drives/{self.drive_id}/root:/{encoded}"
+        elif self.site_id:
+            url = f"{self.BASE_URL}/sites/{self.site_id}/drive/root:/{encoded}"
+        else:
+            return ""
+
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 200:
+                return resp.json().get("webUrl", "")
+            return ""
+
+
 def get_sharepoint_service(access_token: str = None):
     return SharePointService(access_token)

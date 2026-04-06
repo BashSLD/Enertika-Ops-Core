@@ -20,6 +20,45 @@ logger = logging.getLogger("PDFRouter")
 router = APIRouter(prefix="/pdf", tags=["Reportes PDF"])
 
 
+async def _subir_fotos_sharepoint(
+    images_optimized: List[bytes],
+    folder_path: str,
+    app_token: str,
+    pool,
+) -> str:
+    """
+    Sube imagenes a SharePoint en batches de 5 concurrentes.
+    Retorna el webUrl de la carpeta, o cadena vacia si falla.
+    Config SP se resuelve una sola vez (regla asyncpg: no concurrent en mismo conn).
+    """
+    from core.integrations.sharepoint import SharePointService
+
+    sp = SharePointService(access_token=app_token)
+
+    async with pool.acquire() as conn:
+        config = await sp._resolve_config(conn)
+    sp.drive_id = config.get("drive_id") or sp.drive_id
+    sp.site_id = config.get("site_id") or sp.site_id
+
+    BATCH = 5
+    for batch_start in range(0, len(images_optimized), BATCH):
+        batch = images_optimized[batch_start:batch_start + BATCH]
+        tasks = [
+            sp.upload_bytes_direct(img, f"foto_{batch_start + j + 1:02d}.jpg", folder_path)
+            for j, img in enumerate(batch)
+        ]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        for j, result in enumerate(results):
+            if isinstance(result, Exception):
+                logger.warning(
+                    "[VISITA_SP] Error subiendo foto_%02d: %s",
+                    batch_start + j + 1,
+                    result,
+                )
+
+    return await sp.get_folder_web_url(folder_path)
+
+
 async def _enviar_email_visita_obra(
     pdf_bytes: bytes,
     filename: str,
@@ -29,6 +68,7 @@ async def _enviar_email_visita_obra(
 ) -> None:
     """
     Envía email con PDF e imágenes adjuntas al generar un reporte de Visita a Obra.
+    Si el envío completo falla, sube las fotos a SharePoint y envía email ligero con link.
     Se ejecuta como background task — los errores se loguean sin afectar la respuesta.
     """
     from core.database import get_db_pool
@@ -55,42 +95,38 @@ async def _enviar_email_visita_obra(
         logger.info("[VISITA_EMAIL] Sin destinatarios configurados, correo omitido")
         return
 
-    # Construir adjuntos: PDF + imágenes optimizadas
-    # Límite: 20MB en imágenes para no exceder el límite de recepción de servidores externos (25MB típico)
-    MAX_IMAGES_BYTES = 35 * 1024 * 1024
-    attachments: List[dict] = [
-        {
-            "name": filename,
-            "content_bytes": pdf_bytes,
-            "contentType": "application/pdf",
-        }
-    ]
-    acumulado = 0
-    omitidas = 0
-    for i, img_bytes in enumerate(images_optimized, 1):
-        if acumulado + len(img_bytes) > MAX_IMAGES_BYTES:
-            omitidas += 1
-            continue
-        attachments.append(
-            {
-                "name": f"foto_{i:02d}.jpg",
-                "content_bytes": img_bytes,
-                "contentType": "image/jpeg",
-            }
-        )
-        acumulado += len(img_bytes)
-    if omitidas:
-        logger.warning(
-            "[VISITA_EMAIL] %d foto(s) omitidas del correo por exceder limite de 35MB - proyecto=%s",
-            omitidas,
-            visita.id_proyecto,
-        )
-
     fecha_display = visita.fecha or "—"
     ubicacion_display = visita.ubicacion or "—"
     fotos_count = len(images_optimized)
+    subject = f"Visita a Obra: {visita.id_proyecto} — {visita.nombre_planta} (Visita No. {visita.numero_visita})"
 
-    html_body = f"""
+    def _build_html(sp_link: str = None) -> str:
+        if sp_link:
+            fila_fotos = f"""
+                <tr>
+                    <td style="padding: 8px 12px; font-weight: bold; background: #fef3c7; border: 1px solid #e5e7eb;">Fotografias</td>
+                    <td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #fef3c7;">
+                        <a href="{sp_link}" style="color: #0A2463; font-weight: bold;">
+                            Ver {fotos_count} fotografia{"s" if fotos_count != 1 else ""} en SharePoint
+                        </a>
+                    </td>
+                </tr>"""
+            nota_fotos = f"""
+            <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 10px 14px; margin-top: 16px; border-radius: 4px; font-size: 12px; color: #92400e;">
+                Las {fotos_count} fotografias no pudieron enviarse como adjuntos por el volumen de archivos.
+                Se encuentran disponibles en la carpeta de SharePoint indicada arriba.
+            </div>"""
+            pie = "El reporte PDF completo se encuentra adjunto. Las fotografias estan disponibles en SharePoint."
+        else:
+            fila_fotos = f"""
+                <tr>
+                    <td style="padding: 8px 12px; font-weight: bold; background: #f3f4f6; border: 1px solid #e5e7eb;">Fotografias adjuntas</td>
+                    <td style="padding: 8px 12px; border: 1px solid #e5e7eb;">{fotos_count} imagen{"es" if fotos_count != 1 else ""}</td>
+                </tr>"""
+            nota_fotos = ""
+            pie = "El reporte PDF completo y las fotografias se encuentran adjuntos."
+
+        return f"""
     <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
         <div style="background: #00BABB; padding: 20px 24px; border-radius: 8px 8px 0 0;">
             <h2 style="color: #ffffff; margin: 0; font-size: 18px;">Formato de Visita a Obra</h2>
@@ -122,20 +158,25 @@ async def _enviar_email_visita_obra(
                     <td style="padding: 8px 12px; font-weight: bold; background: #f3f4f6; border: 1px solid #e5e7eb;">Responsable de obra</td>
                     <td style="padding: 8px 12px; border: 1px solid #e5e7eb;">{visita.responsable_obra}</td>
                 </tr>
-                <tr>
-                    <td style="padding: 8px 12px; font-weight: bold; background: #f3f4f6; border: 1px solid #e5e7eb;">Fotografias adjuntas</td>
-                    <td style="padding: 8px 12px; border: 1px solid #e5e7eb;">{fotos_count} imagen{"es" if fotos_count != 1 else ""}</td>
-                </tr>
+                {fila_fotos}
             </table>
+            {nota_fotos}
             <p style="font-size: 12px; color: #9ca3af; margin-top: 20px;">
                 Este correo fue generado automaticamente por Enertika Ops Core.
-                El reporte PDF completo y las fotografias se encuentran adjuntos.
+                {pie}
             </p>
         </div>
     </div>
     """
 
-    subject = f"Visita a Obra: {visita.id_proyecto} — {visita.nombre_planta} (Visita No. {visita.numero_visita})"
+    # Adjuntos completos: PDF + todas las fotos
+    attachments_full: List[dict] = [
+        {"name": filename, "content_bytes": pdf_bytes, "contentType": "application/pdf"}
+    ]
+    for i, img_bytes in enumerate(images_optimized, 1):
+        attachments_full.append(
+            {"name": f"foto_{i:02d}.jpg", "content_bytes": img_bytes, "contentType": "image/jpeg"}
+        )
 
     try:
         ms_auth = MicrosoftAuth()
@@ -144,23 +185,56 @@ async def _enviar_email_visita_obra(
             logger.error("[VISITA_EMAIL] No se pudo obtener token de aplicacion")
             return
 
+        # Intento 1: email completo con fotos adjuntas
         success, msg = await ms_auth.send_email_with_attachments(
             access_token=app_token,
             from_email=from_email,
             subject=subject,
-            body=html_body,
+            body=_build_html(),
             recipients=destinatarios,
-            attachments_files=attachments,
+            attachments_files=attachments_full,
         )
         if success:
             logger.info(
-                "[VISITA_EMAIL] Correo enviado - proyecto=%s destinatarios=%d adjuntos=%d",
-                visita.id_proyecto,
-                len(destinatarios),
-                len(attachments),
+                "[VISITA_EMAIL] Correo enviado - proyecto=%s destinatarios=%d fotos=%d",
+                visita.id_proyecto, len(destinatarios), fotos_count,
+            )
+            return
+
+        # Intento 2 (fallback): subir fotos a SharePoint + email ligero con link
+        logger.warning(
+            "[VISITA_EMAIL] Envio con adjuntos fallo (%s) — activando fallback SharePoint",
+            msg,
+        )
+        sp_folder = f"Visitas a Obra/{visita.id_proyecto}/Visita_{visita.numero_visita}"
+        sp_link = ""
+        try:
+            sp_link = await _subir_fotos_sharepoint(images_optimized, sp_folder, app_token, pool)
+            logger.info(
+                "[VISITA_EMAIL] %d fotos subidas a SharePoint: %s",
+                fotos_count, sp_link or "(sin url)",
+            )
+        except Exception as sp_exc:
+            logger.error("[VISITA_EMAIL] Error subiendo fotos a SharePoint: %s", sp_exc, exc_info=True)
+
+        success2, msg2 = await ms_auth.send_email_with_attachments(
+            access_token=app_token,
+            from_email=from_email,
+            subject=subject,
+            body=_build_html(sp_link=sp_link or None),
+            recipients=destinatarios,
+            attachments_files=[
+                {"name": filename, "content_bytes": pdf_bytes, "contentType": "application/pdf"}
+            ],
+        )
+        if success2:
+            logger.info(
+                "[VISITA_EMAIL] Fallback enviado - proyecto=%s fotos_sharepoint=%s",
+                visita.id_proyecto, sp_link or "no disponible",
             )
         else:
-            logger.error("[VISITA_EMAIL] Fallo al enviar correo: %s", msg)
+            logger.error("[VISITA_EMAIL] Fallback tambien fallo: %s", msg2)
+
     except Exception as exc:
         logger.error("[VISITA_EMAIL] Error inesperado al enviar correo: %s", exc, exc_info=True)
 
