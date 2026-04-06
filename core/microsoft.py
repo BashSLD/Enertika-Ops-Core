@@ -201,42 +201,35 @@ class MicrosoftAuth:
             logger.error(f"Excepción buscando hilos candidatos: {e}")
             return []
 
-    async def reply_with_new_subject(self, access_token, thread_id, new_subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments):
+    async def reply_with_new_subject(self, access_token, from_email, thread_id, new_subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments):
         """
         Crea respuesta, PRESERVA el historial, AGREGA 'Re:' y envía.
         """
+        if not from_email:
+            return False, "Usuario sin email configurado"
+
         headers = self.get_headers(access_token)
-        
+
         # 1. Crear Respuesta (Draft vinculado)
-        # Esto genera un borrador que YA contiene el historial del correo anterior (el "thread")
-        url_reply = f"https://graph.microsoft.com/v1.0/me/messages/{thread_id}/createReply"
+        url_reply = f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{thread_id}/createReply"
         resp_reply = await self._http_client.post(url_reply, headers=headers)
-        if resp_reply.status_code != 201: 
+        if resp_reply.status_code != 201:
             return False, f"Error creando respuesta: {resp_reply.text}"
-            
+
         draft_data = resp_reply.json()
         draft_id = draft_data["id"]
-        
-        # --- CORRECCIÓN 1: RECUPERAR HISTORIAL ---
-        # Obtenemos el HTML que Microsoft generó automáticamente (que tiene el "From:...", "Sent:...", etc.)
+
         original_history_html = draft_data.get("body", {}).get("content", "")
-        
-        # VALIDACIÓN DE SEGURIDAD: Verificar que realmente tenemos historial
         len_history = len(original_history_html or "")
         logger.info(f"Creado borrador de respuesta. Longitud Historial: {len_history} caracteres.")
-        
+
         if not original_history_html or len_history < 50:
-            logger.error("Error Crítico: Microsoft retornó un borrador sin historial HTML (Cuerpo vacío o incompleto).")
-            # Intentar borrar el borrador corrupto para no dejar basura
-            await self._http_client.delete(f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}", headers=headers)
-            return False, "Error: Microsoft retornó un borrador sin historial. Intenta nuevamente."
-        
-        # Combinamos: Tu mensaje nuevo + Salto de línea + Historial original
-        # Nota: body.replace('\n', '<br>') convierte tus saltos de línea de texto a HTML
+            logger.error("Error Critico: Microsoft retorno un borrador sin historial HTML.")
+            await self._http_client.delete(f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{draft_id}", headers=headers)
+            return False, "Error: Microsoft retorno un borrador sin historial. Intenta nuevamente."
+
         full_body_html = f"{body.replace(chr(10), '<br>')}<br><br>{original_history_html}"
 
-        # --- CORRECCIÓN 2: AGREGAR "Re:" ---
-        # Si el asunto nuevo no empieza con Re:, se lo agregamos para mantener el estándar visual
         final_subject = new_subject
         if not final_subject.upper().startswith("RE:"):
             final_subject = f"Re: {final_subject}"
@@ -245,26 +238,23 @@ class MicrosoftAuth:
         patch_payload = {
             "subject": final_subject,
             "importance": importance,
-            "body": {
-                "contentType": "HTML", 
-                "content": full_body_html  # <--- Enviamos el cuerpo combinado
-            },
+            "body": {"contentType": "HTML", "content": full_body_html},
             "toRecipients": [{"emailAddress": {"address": e}} for e in recipients],
             "ccRecipients": [{"emailAddress": {"address": e}} for e in cc_recipients],
             "bccRecipients": [{"emailAddress": {"address": e}} for e in bcc_recipients]
         }
-        
-        resp_patch = await self._http_client.patch(f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}", headers=headers, json=patch_payload)
-        if resp_patch.status_code != 200: 
+
+        resp_patch = await self._http_client.patch(f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{draft_id}", headers=headers, json=patch_payload)
+        if resp_patch.status_code != 200:
             return False, f"Error actualizando borrador: {resp_patch.text}"
 
         # 3. Subir Adjuntos (si existen)
         if attachments:
             for f in attachments:
-                await self._upload_session(headers, draft_id, f)
+                await self._upload_session(headers, from_email, draft_id, f)
 
         # 4. Enviar
-        resp_send = await self._http_client.post(f"https://graph.microsoft.com/v1.0/me/messages/{draft_id}/send", headers=headers)
+        resp_send = await self._http_client.post(f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{draft_id}/send", headers=headers)
         
         if resp_send.status_code == 202:
             return True, "Enviado (Historial preservado)"
@@ -342,9 +332,12 @@ class MicrosoftAuth:
         # B: Envío Pesado (Draft + Upload)
         else:
             logger.info("Modo: Archivos Grandes (Draft + Upload)")
-            return await self._send_heavy_email(headers, subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments_files)
+            return await self._send_heavy_email(headers, from_email, subject, body, recipients, cc_recipients, bcc_recipients, importance, attachments_files)
 
-    async def _send_heavy_email(self, headers, subject, body, recipients, cc, bcc, importance, attachments):
+    async def _send_heavy_email(self, headers, from_email, subject, body, recipients, cc, bcc, importance, attachments):
+        if not from_email:
+            logger.error("[EMAIL] from_email vacio en modo heavy - usuario sin email en contexto")
+            return False, "Usuario sin email configurado"
         try:
             draft_payload = {
                 "subject": subject,
@@ -355,27 +348,27 @@ class MicrosoftAuth:
                 "bccRecipients": [{"emailAddress": {"address": e}} for e in bcc]
             }
             # 1. Draft
-            res = await self._http_client.post("https://graph.microsoft.com/v1.0/me/messages", headers=headers, json=draft_payload)
+            res = await self._http_client.post(f"https://graph.microsoft.com/v1.0/users/{from_email}/messages", headers=headers, json=draft_payload)
             if res.status_code != 201: return False, f"Error draft: {res.text}"
             msg_id = res.json()["id"]
 
             # 2. Upload
             for f in attachments:
-                await self._upload_session(headers, msg_id, f)
+                await self._upload_session(headers, from_email, msg_id, f)
 
             # 3. Send
-            res_send = await self._http_client.post(f"https://graph.microsoft.com/v1.0/me/messages/{msg_id}/send", headers=headers)
+            res_send = await self._http_client.post(f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{msg_id}/send", headers=headers)
             return (True, "Enviado") if res_send.status_code == 202 else (False, res_send.text)
         except Exception as e:
             return False, str(e)
 
-    async def _upload_session(self, headers, msg_id, file_data):
+    async def _upload_session(self, headers, from_email, msg_id, file_data):
         name = file_data["name"]
         content = file_data["content_bytes"]
         size = len(content)
-        
+
         sess = await self._http_client.post(
-            f"https://graph.microsoft.com/v1.0/me/messages/{msg_id}/attachments/createUploadSession",
+            f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{msg_id}/attachments/createUploadSession",
             headers=headers,
             json={"AttachmentItem": {"attachmentType": "file", "name": name, "size": size}}
         )

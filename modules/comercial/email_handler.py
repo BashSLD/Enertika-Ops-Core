@@ -252,6 +252,7 @@ class EmailHandler:
                 )
                 ok, msg = await ms_auth.reply_with_new_subject(
                     access_token=access_token,
+                    from_email=user_email,
                     thread_id=cid,
                     new_subject=subject,
                     body=body,
