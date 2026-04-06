@@ -1,3 +1,4 @@
+import asyncio
 import msal
 import httpx
 import base64
@@ -370,30 +371,37 @@ class MicrosoftAuth:
         name = file_data["name"]
         content = file_data["content_bytes"]
         size = len(content)
-
-        sess = await self._http_client.post(
-            f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{msg_id}/attachments/createUploadSession",
-            headers=headers,
-            json={"AttachmentItem": {"attachmentType": "file", "name": name, "size": size}}
-        )
-        if sess.status_code != 201:
-            raise Exception(f"Upload session fallo: HTTP {sess.status_code} - {sess.text}")
-
-        upload_url = sess.json()["uploadUrl"]
         chunk_size = 327680 * 10
 
-        # Cliente desechable para el blob: evita reutilizar conexiones stale del pool
-        # compartido con Graph API (dominios distintos causan ReadError intermitente)
-        async with httpx.AsyncClient(timeout=120.0) as blob_client:
-            for i in range(0, size, chunk_size):
-                chunk = content[i:i+chunk_size]
-                res = await blob_client.put(upload_url, headers={
-                    "Content-Length": str(len(chunk)),
-                    "Content-Range": f"bytes {i}-{i+len(chunk)-1}/{size}"
-                }, content=chunk)
+        for attempt in range(3):
+            # Crear nueva sesión de upload en cada intento (la URL expira)
+            sess = await self._http_client.post(
+                f"https://graph.microsoft.com/v1.0/users/{from_email}/messages/{msg_id}/attachments/createUploadSession",
+                headers=headers,
+                json={"AttachmentItem": {"attachmentType": "file", "name": name, "size": size}}
+            )
+            if sess.status_code != 201:
+                raise Exception(f"Upload session fallo: HTTP {sess.status_code} - {sess.text}")
 
-                if not res.is_success:
-                    raise Exception(f"Chunk {i}-{i+len(chunk)-1} fallo: HTTP {res.status_code} - {res.text[:200]}")
+            upload_url = sess.json()["uploadUrl"]
+
+            try:
+                # Cliente desechable para el blob: dominio distinto a Graph API
+                async with httpx.AsyncClient(timeout=120.0) as blob_client:
+                    for i in range(0, size, chunk_size):
+                        chunk = content[i:i+chunk_size]
+                        res = await blob_client.put(upload_url, headers={
+                            "Content-Length": str(len(chunk)),
+                            "Content-Range": f"bytes {i}-{i+len(chunk)-1}/{size}"
+                        }, content=chunk)
+                        if not res.is_success:
+                            raise Exception(f"Chunk {i}-{i+len(chunk)-1} fallo: HTTP {res.status_code} - {res.text[:200]}")
+                return  # todos los chunks subidos correctamente
+            except (httpx.ReadError, httpx.ConnectError) as exc:
+                if attempt == 2:
+                    raise
+                logger.warning("Upload error de red (intento %d/3): %s — reintentando en %ds", attempt + 1, exc, 2 ** attempt)
+                await asyncio.sleep(2 ** attempt)
 
 def get_ms_auth():
     return MicrosoftAuth()
