@@ -935,73 +935,81 @@ class ReportesSimulacionService:
         """
         Obtiene métricas detalladas por cada usuario responsable.
 
-        Incluye:
-        - Métricas generales del usuario
-        - Métricas por tecnología
-        - Tabla de contabilización personal
-
-        Optimización: catálogos y umbrales se cargan una sola vez antes del loop
-        en lugar de repetirlos por cada usuario (evita 12 queries de catálogo × N usuarios).
+        Fase 2 — batch SQL: 6 queries fijas independientemente del número de usuarios.
+        Antes: 1 + 6N queries. Ahora: ~9 queries fijas.
+        Mapeo en memoria por responsable_simulacion_id.
         """
         usuarios = await self.db.get_report_users_active(conn, asdict(filtros))
-
         if not usuarios:
             return []
 
-        # Cargar una sola vez para todo el loop
         cats = await self.db.get_report_catalog_ids(conn)
         u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
         u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso")
+        filtros_dict = asdict(filtros)
+
+        # 6 queries batch en lugar de 6N queries individuales
+        batch_metricas = await self.db.get_report_metricas_generales_batch(conn, filtros_dict, cats)
+        batch_tech = await self.db.get_report_metricas_tech_batch(conn, filtros_dict, cats)
+        batch_contab = await self.db.get_report_tabla_contabilizacion_batch(conn, filtros_dict, cats)
+        batch_tiempo_tipo = await self.db.get_report_tiempo_promedio_tipo_batch(conn, filtros_dict, cats)
+        batch_tiempo_global = await self.db.get_report_tiempo_promedio_global_batch(conn, filtros_dict)
+        batch_motivos = await self.db.get_report_motivo_retrabajo_batch(conn, filtros_dict)
+
+        # Mapear en memoria por user_id
+        map_metricas = {r['responsable_simulacion_id']: r for r in batch_metricas}
+
+        map_tech: Dict[Any, List[Dict]] = {}
+        for r in batch_tech:
+            map_tech.setdefault(r['responsable_simulacion_id'], []).append(r)
+
+        map_contab: Dict[Any, List[Dict]] = {}
+        for r in batch_contab:
+            map_contab.setdefault(r['responsable_simulacion_id'], []).append(r)
+
+        map_tiempo_tipo: Dict[Any, Dict[str, float]] = {}
+        for r in batch_tiempo_tipo:
+            uid = r['responsable_simulacion_id']
+            if uid not in map_tiempo_tipo:
+                map_tiempo_tipo[uid] = {}
+            map_tiempo_tipo[uid][r['tipo']] = round(float(r['dias_promedio']), 1)
+
+        map_tiempo_global = {
+            r['responsable_simulacion_id']: round(float(r['dias_promedio']), 1) if r['dias_promedio'] else None
+            for r in batch_tiempo_global
+        }
+        map_motivos = {r['responsable_simulacion_id']: r['motivo'] for r in batch_motivos}
 
         resultados = []
-
         for usuario in usuarios:
-            filtros_usuario = dc_replace(filtros, responsable_id=usuario['id_usuario'])
-            filtros_dict = asdict(filtros_usuario)
+            uid = usuario['id_usuario']
 
-            row = await self.db.get_report_metricas_generales_row(conn, filtros_dict, cats)
-            metricas_gen = self._build_metricas_generales(row, u_interno, u_compromiso)
-
-            rows_tech = await self.db.get_report_metricas_tech(conn, filtros_dict, cats)
-            metricas_tech = self._build_metricas_tech(rows_tech, u_interno, u_compromiso)
-
-            rows_contab = await self.db.get_report_tabla_contabilizacion(conn, filtros_dict, cats)
-            tabla_cont = self._build_tabla_contabilizacion(rows_contab, u_interno, u_compromiso)
-
-            tiempo_por_tipo = await self.db.get_report_tiempo_promedio_tipo(
-                conn, usuario['id_usuario'], filtros_dict, cats
-            )
+            metricas_gen = self._build_metricas_generales(map_metricas.get(uid), u_interno, u_compromiso)
+            metricas_tech = self._build_metricas_tech(map_tech.get(uid, []), u_interno, u_compromiso)
+            tabla_cont = self._build_tabla_contabilizacion(map_contab.get(uid, []), u_interno, u_compromiso)
 
             detalle_usuario = DetalleUsuario(
-                usuario_id=usuario['id_usuario'],
+                usuario_id=uid,
                 nombre=usuario['nombre'],
                 metricas_generales=metricas_gen,
                 metricas_por_tecnologia=metricas_tech,
                 tabla_contabilizacion=tabla_cont,
-                tiempo_promedio_por_tipo=tiempo_por_tipo,
+                tiempo_promedio_por_tipo=map_tiempo_tipo.get(uid, {}),
                 resumen_texto="",
                 resumen_datos=None,
-            )
-
-            tiempo_promedio_global = await self.get_tiempo_promedio_global_usuario(
-                conn, usuario['id_usuario'], filtros
-            )
-
-            motivo_principal, _ = await self.get_motivo_retrabajo_principal(
-                conn, filtros, user_id=usuario['id_usuario']
             )
 
             detalle_usuario.resumen_datos = self.generar_resumen_usuario(
                 detalle_usuario,
                 filtros,
-                motivo_retrabajo_principal=motivo_principal,
-                tiempo_promedio_global_dias=tiempo_promedio_global,
+                motivo_retrabajo_principal=map_motivos.get(uid),
+                tiempo_promedio_global_dias=map_tiempo_global.get(uid),
             )
 
             resultados.append(detalle_usuario)
-        
+
         return resultados
-    
+
     async def get_oportunidades_usuario_reporte(
         self,
         conn,
