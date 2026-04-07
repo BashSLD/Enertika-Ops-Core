@@ -162,7 +162,7 @@ async def _enviar_email_visita_obra(
             </table>
             {nota_fotos}
             <p style="font-size: 12px; color: #9ca3af; margin-top: 20px;">
-                Este correo fue generado automaticamente por Enertika Ops Core.
+                Este correo fue enviado desde ECO.
                 {pie}
             </p>
         </div>
