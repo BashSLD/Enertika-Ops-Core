@@ -28,11 +28,9 @@
 
         /* ============ HEADER CORPORATIVO ============ */
         .pdf-header {
-            background: linear-gradient(135deg, #0A2463 0%, #2D5A9E 55%, #3E92CC 100%);
-            padding: 10px 18px;
-            border-radius: 8px;
-            margin-bottom: 16px;
-            color: white;
+            padding: 8px 0 10px 0;
+            margin-bottom: 4px;
+            border-bottom: 2px solid #00BABB;
         }
 
         .pdf-header-table {
@@ -46,15 +44,16 @@
 
         .pdf-doc-title {
             font-size: 13pt;
-            font-weight: 300;
+            font-weight: 600;
             text-align: right;
+            color: #0A2463;
             margin-bottom: 3px;
         }
 
         .pdf-doc-date {
             font-size: 9pt;
             text-align: right;
-            opacity: 0.9;
+            color: #6b7280;
         }
 
         /* ============ FOOTER RUNNING (paginacion) ============ */
@@ -141,7 +140,7 @@
         <table class="pdf-header-table">
             <tr>
                 <td>
-                    <img src="logos/headerW.png" alt="Enertika" style="height: 0.75cm; width: auto; display: block;">
+                    <img src="logos/header.png" alt="Enertika" style="height: 0.85cm; width: auto; display: block;">
                 </td>
                 <td>
                     <div class="pdf-doc-title">{% block doc_title %}Reporte{% endblock %}</div>

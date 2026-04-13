@@ -67,11 +67,16 @@
                     const err = await resp.json().catch(() => ({}));
                     throw new Error(err.error || 'Error generando PDF');
                 }
+                const disposition = resp.headers.get('content-disposition') || '';
+                const cdParts = disposition.split('filename=');
+                const dlName = cdParts[1]
+                    ? cdParts[1].replace(/[^a-zA-Z0-9_.\-]/g, '')
+                    : `visita_obra_${this.form.nombre_planta || 'reporte'}.pdf`;
                 const blob = await resp.blob();
                 const url = URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = `visita_obra_${this.form.nombre_planta || 'reporte'}.pdf`;
+                a.download = dlName;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);

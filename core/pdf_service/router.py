@@ -302,7 +302,7 @@ async def generar_visita_obra(
                 "total_images": len(images_b64),
             },
         )
-    except (ValueError, Exception) as exc:
+    except Exception as exc:
         logger.error("Error generando PDF visita obra: %s", exc)
         return JSONResponse(status_code=500, content={"error": "Error generando PDF"})
 
@@ -318,6 +318,11 @@ async def generar_visita_obra(
             images_optimized,
             visita,
             from_email,
+        )
+    else:
+        logger.warning(
+            "[VISITA_EMAIL] Usuario sin email en contexto, correo omitido - proyecto=%s",
+            visita.id_proyecto,
         )
 
     return Response(
