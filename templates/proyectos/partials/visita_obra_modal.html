@@ -73,14 +73,30 @@
                     ? cdParts[1].replace(/[^a-zA-Z0-9_.\-]/g, '')
                     : `visita_obra_${this.form.nombre_planta || 'reporte'}.pdf`;
                 const blob = await resp.blob();
-                const url = URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = dlName;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
+                const isMobile = window.matchMedia('(pointer: coarse)').matches;
+                if (!isMobile && window.showSaveFilePicker) {
+                    try {
+                        const fh = await window.showSaveFilePicker({
+                            suggestedName: dlName,
+                            types: [{ description: 'PDF', accept: { 'application/pdf': ['.pdf'] } }]
+                        });
+                        const w = await fh.createWritable();
+                        await w.write(blob);
+                        await w.close();
+                    } catch (saveErr) {
+                        if (saveErr.name !== 'AbortError') throw saveErr;
+                        return;
+                    }
+                } else {
+                    const url = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = dlName;
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    URL.revokeObjectURL(url);
+                }
                 this.cerrar();
             } catch(e) {
                 alert('Error: ' + e.message);
