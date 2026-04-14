@@ -25,6 +25,8 @@ from fastapi import APIRouter, Depends, Request, Form, File, UploadFile, Query, 
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse, Response
 from typing import Optional
+from uuid import UUID
+import json
 import logging
 from datetime import datetime
 import pytz
@@ -63,6 +65,24 @@ def _base_ctx(context: dict, mod_role: str) -> dict:
     }
 
 
+def _parse_cotizacion_id(cotizacion_id: str) -> UUID:
+    try:
+        return UUID(cotizacion_id)
+    except ValueError:
+        raise HTTPException(404, "Cotizacion no encontrada")
+
+
+def _plantas_for_template(plantas_db: list) -> list:
+    return [
+        {
+            "id": p["id"], "nombre": p["nombre"], "zona": p["zona"],
+            "potencia_kw": float(p["potencia_kw"]) if p["potencia_kw"] else None,
+            "num_paneles": p["num_paneles"],
+        }
+        for p in plantas_db
+    ]
+
+
 # ============================================================
 # UI PRINCIPAL
 # ============================================================
@@ -77,14 +97,7 @@ async def get_calculadora_ui(
 ):
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     plantas_db = await service.db.get_plantas_dropdown(conn)
-    plantas = [
-        {
-            "id": p["id"], "nombre": p["nombre"], "zona": p["zona"],
-            "potencia_kw": float(p["potencia_kw"]) if p["potencia_kw"] else None,
-            "num_paneles": p["num_paneles"]
-        }
-        for p in plantas_db
-    ]
+    plantas = _plantas_for_template(plantas_db)
     costos = await service.db.get_costos_fijos(conn)
 
     ctx = {
@@ -192,12 +205,11 @@ async def guardar_cotizacion(
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
-    import uuid as _uuid
     user_id = context.get("user_db_id")
     sol_id = None
     if solicitante_id and solicitante_id.strip():
         try:
-            sol_id = _uuid.UUID(solicitante_id)
+            sol_id = UUID(solicitante_id)
         except ValueError:
             pass
     try:
@@ -231,15 +243,8 @@ async def _build_cotizaciones_ctx(context, conn, service, page: int,
     cotizaciones = await service.db.get_cotizaciones(conn, limit=per_page, offset=offset, estatus_filter=ef)
     total = await service.db.count_cotizaciones(conn, estatus_filter=ef)
     resumen = await service.db.get_resumen_estatus(conn)
-
-    is_admin = context.get("role") == "ADMIN"
     return {
-        "user_name": context.get("user_name"),
-        "role": context.get("role"),
-        "module_roles": context.get("module_roles", {}),
-        "current_module_role": mod_role,
-        "puede_editar": mod_role in ("editor", "admin") or is_admin,
-        "puede_admin": mod_role == "admin" or is_admin or context.get("role") == "MANAGER",
+        **_base_ctx(context, mod_role),
         "cotizaciones": cotizaciones,
         "total": total,
         "page": page,
@@ -285,12 +290,7 @@ async def update_cotizacion_estatus(
             headers={"HX-Reswap": "none"},
         )
 
-    import uuid as _uuid
-    try:
-        uid = _uuid.UUID(cotizacion_id)
-    except ValueError:
-        raise HTTPException(404, "Cotizacion no encontrada")
-
+    uid = _parse_cotizacion_id(cotizacion_id)
     user_id = context.get("user_db_id")
     ok = await service.db.update_cotizacion_estatus(conn, uid, estatus, user_id)
     if not ok:
@@ -316,16 +316,10 @@ async def polizas_resumen(
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     cotizaciones = await service.db.get_cotizaciones(conn, limit=20, offset=0)
     resumen = await service.db.get_resumen_estatus(conn)
-    is_admin = context.get("role") == "ADMIN"
     return templates.TemplateResponse(
         request, f"{TPL}/partials/polizas_resumen.html",
         {
-            "user_name": context.get("user_name"),
-            "role": context.get("role"),
-            "module_roles": context.get("module_roles", {}),
-            "current_module_role": mod_role,
-            "puede_editar": mod_role in ("editor", "admin") or is_admin,
-            "puede_admin": mod_role == "admin" or is_admin or context.get("role") == "MANAGER",
+            **_base_ctx(context, mod_role),
             "cotizaciones": cotizaciones,
             "resumen": resumen,
         },
@@ -399,23 +393,13 @@ async def editar_cotizacion_modal(
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
-    import uuid as _uuid
-    try:
-        uid = _uuid.UUID(cotizacion_id)
-    except ValueError:
-        raise HTTPException(404, "Cotizacion no encontrada")
-
+    uid = _parse_cotizacion_id(cotizacion_id)
     cotizacion = await service.db.get_cotizacion_by_id(conn, uid)
     if not cotizacion:
         raise HTTPException(404, "Cotizacion no encontrada")
 
     plantas_db = await service.db.get_plantas_dropdown(conn)
-    plantas = [
-        {"id": p["id"], "nombre": p["nombre"], "zona": p["zona"],
-         "potencia_kw": float(p["potencia_kw"]) if p["potencia_kw"] else None,
-         "num_paneles": p["num_paneles"]}
-        for p in plantas_db
-    ]
+    plantas = _plantas_for_template(plantas_db)
     usuarios_comercial = await service.db.get_usuarios_comercial(conn)
 
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
@@ -447,17 +431,13 @@ async def update_cotizacion(
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
-    import uuid as _uuid
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
-    try:
-        uid = _uuid.UUID(cotizacion_id)
-    except ValueError:
-        raise HTTPException(404, "Cotizacion no encontrada")
+    uid = _parse_cotizacion_id(cotizacion_id)
 
     sol_id = None
     if solicitante_id and solicitante_id.strip():
         try:
-            sol_id = _uuid.UUID(solicitante_id)
+            sol_id = UUID(solicitante_id)
         except ValueError:
             pass
 
@@ -503,12 +483,7 @@ async def asignar_modal(
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
-    import uuid as _uuid
-    try:
-        uid = _uuid.UUID(cotizacion_id)
-    except ValueError:
-        raise HTTPException(404, "Cotizacion no encontrada")
-
+    uid = _parse_cotizacion_id(cotizacion_id)
     cotizacion = await service.db.get_cotizacion_by_id(conn, uid)
     if not cotizacion:
         raise HTTPException(404, "Cotizacion no encontrada")
@@ -536,23 +511,18 @@ async def asignar_cotizacion(
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
-    import uuid as _uuid
-
     if estatus not in {e.value for e in EstatusCotizacion}:
         return templates.TemplateResponse(
             request, "shared/toast.html",
             {"type": "error", "title": "Error", "message": "Estatus no valido"},
             headers={"HX-Reswap": "none"},
         )
-    try:
-        uid = _uuid.UUID(cotizacion_id)
-    except ValueError:
-        raise HTTPException(404, "Cotizacion no encontrada")
 
+    uid = _parse_cotizacion_id(cotizacion_id)
     sol_id = None
     if solicitante_id and solicitante_id.strip():
         try:
-            sol_id = _uuid.UUID(solicitante_id)
+            sol_id = UUID(solicitante_id)
         except ValueError:
             pass
 
@@ -562,7 +532,6 @@ async def asignar_cotizacion(
         raise HTTPException(404, "Cotizacion no encontrada")
 
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
-    is_admin = context.get("role") == "ADMIN"
     cotizaciones = await service.db.get_cotizaciones(conn, limit=20, offset=0)
     resumen = await service.db.get_resumen_estatus(conn)
     return templates.TemplateResponse(
@@ -816,35 +785,13 @@ async def descargar_pdf_poliza(
     service: CalculadoraService = Depends(get_service),
     pdf_service: PDFService = Depends(get_pdf_service),
 ):
-    cotizaciones = await service.db.get_cotizaciones(conn, limit=1, offset=0)
-    cotizacion = None
-    for c in cotizaciones:
-        if str(c["id"]) == cotizacion_id:
-            cotizacion = c
-            break
-
-    if cotizacion is None:
-        import uuid as _uuid
-        try:
-            uid = _uuid.UUID(cotizacion_id)
-        except ValueError:
-            raise HTTPException(404, "Cotizacion no encontrada")
-        row = await conn.fetchrow("""
-            SELECT c.id, c.planta_id, c.nombre_planta, c.tipo_poliza, c.utilidad,
-                   c.sub_total, c.sub_total_utilidad, c.total_final,
-                   c.resultado_json, c.creado_por, c.created_at,
-                   u.nombre AS creado_por_nombre
-            FROM tb_calculadora_cotizaciones c
-            LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
-            WHERE c.id = $1
-        """, uid)
-        if not row:
-            raise HTTPException(404, "Cotizacion no encontrada")
-        cotizacion = dict(row)
+    uid = _parse_cotizacion_id(cotizacion_id)
+    cotizacion = await service.db.get_cotizacion_by_id(conn, uid)
+    if not cotizacion:
+        raise HTTPException(404, "Cotizacion no encontrada")
 
     resultado = cotizacion["resultado_json"]
     if isinstance(resultado, str):
-        import json
         resultado = json.loads(resultado)
 
     planta = None

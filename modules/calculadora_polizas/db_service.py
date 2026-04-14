@@ -1,6 +1,7 @@
 # modules/calculadora/db_service.py
 from uuid import UUID, uuid4
 from typing import Optional
+import json
 import logging
 
 logger = logging.getLogger("CalculadoraPolizas.DBService")
@@ -173,7 +174,6 @@ class CalculadoraDBService:
         return [dict(r) for r in rows]
 
     async def save_cotizacion(self, conn, data: dict) -> UUID:
-        import json
         new_id = uuid4()
         await conn.execute("""
             INSERT INTO tb_calculadora_cotizaciones
@@ -315,7 +315,6 @@ class CalculadoraDBService:
         return dict(row) if row else None
 
     async def update_cotizacion_full(self, conn, cotizacion_id, data: dict) -> bool:
-        import json
         result = await conn.execute("""
             UPDATE tb_calculadora_cotizaciones
             SET planta_id         = $2,
