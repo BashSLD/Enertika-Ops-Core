@@ -1,5 +1,11 @@
-<div class="h-full flex flex-col animate-fade-in-down">
+{# Macros de estatus — usados en KPI cards, badges y selector #}
+{% macro badge_cls(e) %}{{ 'bg-gray-100 text-gray-600' if e == 'CREADA' else 'bg-blue-100 text-blue-700' if e == 'ENVIADA' else 'bg-amber-100 text-amber-700' if e == 'EN_NEGOCIACION' else 'bg-green-100 text-green-700' if e == 'ACEPTADA' else 'bg-red-100 text-red-700' if e == 'RECHAZADA' else 'bg-stone-100 text-stone-500' if e == 'VENCIDA' else 'bg-gray-100 text-gray-600' }}{% endmacro %}
+{% macro badge_dot(e) %}{{ 'bg-gray-400' if e == 'CREADA' else 'bg-blue-500' if e == 'ENVIADA' else 'bg-amber-500' if e == 'EN_NEGOCIACION' else 'bg-green-500' if e == 'ACEPTADA' else 'bg-red-500' if e == 'RECHAZADA' else 'bg-stone-400' if e == 'VENCIDA' else 'bg-gray-400' }}{% endmacro %}
+{% macro badge_label(e) %}{{ 'Creada' if e == 'CREADA' else 'Enviada' if e == 'ENVIADA' else 'En Negociacion' if e == 'EN_NEGOCIACION' else 'Aceptada' if e == 'ACEPTADA' else 'Rechazada' if e == 'RECHAZADA' else 'Vencida' if e == 'VENCIDA' else e }}{% endmacro %}
 
+<div id="cotizaciones-container" class="h-full flex flex-col animate-fade-in-down">
+
+    {# Header breadcrumb #}
     <div class="glass-panel p-4 rounded-xl mb-4 hidden md:flex justify-between items-center gap-3 border-l-4 border-blue-500">
         <div>
             <h2 class="text-2xl font-light text-gray-800">
@@ -9,13 +15,100 @@
                 <a href="/calculadora-polizas/ui" hx-get="/calculadora-polizas/ui" hx-target="#main-content" hx-push-url="true"
                    class="text-gray-400 hover:text-blue-600 transition-colors">Calculadora</a>
                 <span class="text-gray-400 mx-1">/</span>
-                <span class="font-bold text-blue-600">Historial</span>
+                <span class="font-bold text-blue-600">Polizas Generadas</span>
             </h2>
-            <p class="text-gray-500 text-sm mt-1">{{ total }} cotizaciones registradas</p>
+            <p class="text-gray-500 text-sm mt-1">{{ resumen.get('total', 0) }} polizas registradas en total</p>
         </div>
     </div>
 
+    {# KPI Cards — clickeables para filtrar #}
+    <div class="grid grid-cols-4 lg:grid-cols-7 gap-2 mb-4">
+
+        {# Total #}
+        <a href="/calculadora-polizas/cotizaciones/ui"
+           hx-get="/calculadora-polizas/cotizaciones/ui"
+           hx-target="#main-content" hx-push-url="true"
+           class="glass-card p-3 rounded-xl text-center transition-all hover:shadow-md {{ 'ring-2 ring-blue-500 shadow-md' if not estatus_filter else '' }}">
+            <p class="text-2xl font-bold text-blue-700">{{ resumen.get('total', 0) }}</p>
+            <p class="text-xs text-gray-500 mt-1 font-medium">Total</p>
+        </a>
+
+        {# CREADA #}
+        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=CREADA"
+           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=CREADA"
+           hx-target="#main-content" hx-push-url="true"
+           class="glass-card p-3 rounded-xl text-center transition-all hover:shadow-md {{ 'ring-2 ring-gray-400 shadow-md' if estatus_filter == 'CREADA' else '' }}">
+            <p class="text-2xl font-bold text-gray-600">{{ resumen.get('CREADA', 0) }}</p>
+            <div class="w-2 h-2 rounded-full bg-gray-400 mx-auto mt-1 mb-0.5"></div>
+            <p class="text-xs text-gray-500 font-medium">Creadas</p>
+        </a>
+
+        {# ENVIADA #}
+        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=ENVIADA"
+           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=ENVIADA"
+           hx-target="#main-content" hx-push-url="true"
+           class="glass-card p-3 rounded-xl text-center transition-all hover:shadow-md {{ 'ring-2 ring-blue-400 shadow-md' if estatus_filter == 'ENVIADA' else '' }}">
+            <p class="text-2xl font-bold text-blue-600">{{ resumen.get('ENVIADA', 0) }}</p>
+            <div class="w-2 h-2 rounded-full bg-blue-500 mx-auto mt-1 mb-0.5"></div>
+            <p class="text-xs text-gray-500 font-medium">Enviadas</p>
+        </a>
+
+        {# EN_NEGOCIACION #}
+        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=EN_NEGOCIACION"
+           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=EN_NEGOCIACION"
+           hx-target="#main-content" hx-push-url="true"
+           class="glass-card p-3 rounded-xl text-center transition-all hover:shadow-md {{ 'ring-2 ring-amber-400 shadow-md' if estatus_filter == 'EN_NEGOCIACION' else '' }}">
+            <p class="text-2xl font-bold text-amber-600">{{ resumen.get('EN_NEGOCIACION', 0) }}</p>
+            <div class="w-2 h-2 rounded-full bg-amber-500 mx-auto mt-1 mb-0.5"></div>
+            <p class="text-xs text-gray-500 font-medium leading-tight">En Negoc.</p>
+        </a>
+
+        {# ACEPTADA #}
+        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
+           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
+           hx-target="#main-content" hx-push-url="true"
+           class="glass-card p-3 rounded-xl text-center transition-all hover:shadow-md {{ 'ring-2 ring-green-400 shadow-md' if estatus_filter == 'ACEPTADA' else '' }}">
+            <p class="text-2xl font-bold text-green-600">{{ resumen.get('ACEPTADA', 0) }}</p>
+            <div class="w-2 h-2 rounded-full bg-green-500 mx-auto mt-1 mb-0.5"></div>
+            <p class="text-xs text-gray-500 font-medium">Aceptadas</p>
+        </a>
+
+        {# RECHAZADA #}
+        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=RECHAZADA"
+           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=RECHAZADA"
+           hx-target="#main-content" hx-push-url="true"
+           class="glass-card p-3 rounded-xl text-center transition-all hover:shadow-md {{ 'ring-2 ring-red-400 shadow-md' if estatus_filter == 'RECHAZADA' else '' }}">
+            <p class="text-2xl font-bold text-red-600">{{ resumen.get('RECHAZADA', 0) }}</p>
+            <div class="w-2 h-2 rounded-full bg-red-500 mx-auto mt-1 mb-0.5"></div>
+            <p class="text-xs text-gray-500 font-medium">Rechazadas</p>
+        </a>
+
+        {# VENCIDA #}
+        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=VENCIDA"
+           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=VENCIDA"
+           hx-target="#main-content" hx-push-url="true"
+           class="glass-card p-3 rounded-xl text-center transition-all hover:shadow-md {{ 'ring-2 ring-stone-400 shadow-md' if estatus_filter == 'VENCIDA' else '' }}">
+            <p class="text-2xl font-bold text-stone-500">{{ resumen.get('VENCIDA', 0) }}</p>
+            <div class="w-2 h-2 rounded-full bg-stone-400 mx-auto mt-1 mb-0.5"></div>
+            <p class="text-xs text-gray-500 font-medium">Vencidas</p>
+        </a>
+    </div>
+
+    {# Tabla de cotizaciones #}
     <div class="glass-card rounded-xl overflow-hidden flex-1">
+        {% if estatus_filter %}
+        <div class="px-4 py-2 bg-blue-50 border-b border-blue-100 flex items-center justify-between">
+            <span class="text-xs text-blue-700 font-medium flex items-center gap-1.5">
+                <div class="w-2 h-2 rounded-full {{ badge_dot(estatus_filter) }}"></div>
+                Filtrando por: <strong>{{ badge_label(estatus_filter) }}</strong> &mdash; {{ total }} resultado{{ 's' if total != 1 else '' }}
+            </span>
+            <a href="/calculadora-polizas/cotizaciones/ui"
+               hx-get="/calculadora-polizas/cotizaciones/ui"
+               hx-target="#main-content" hx-push-url="true"
+               class="text-xs text-blue-600 hover:text-blue-800 underline">Ver todas</a>
+        </div>
+        {% endif %}
+
         {% if cotizaciones %}
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
@@ -27,7 +120,9 @@
                         <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Sub Total</th>
                         <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Total c/IVA</th>
                         <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Utilidad</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Estatus</th>
                         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Creado por</th>
+                        <th class="px-4 py-3"></th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
@@ -46,23 +141,79 @@
                     <td class="px-4 py-3 text-right font-medium text-gray-700">${{ "{:,.2f}".format(c.sub_total_utilidad) }}</td>
                     <td class="px-4 py-3 text-right font-bold text-blue-700">${{ "{:,.2f}".format(c.total_final) }}</td>
                     <td class="px-4 py-3 text-center text-gray-600">{{ (c.utilidad * 100) | round(0) | int }}%</td>
+
+                    {# Columna estatus: selector para editor+, badge readonly para viewer #}
+                    <td class="px-4 py-3">
+                        {% if puede_editar %}
+                        <select
+                            name="estatus"
+                            hx-patch="/calculadora-polizas/cotizaciones/{{ c.id }}/estatus"
+                            hx-trigger="change"
+                            hx-target="#cotizaciones-container"
+                            hx-swap="outerHTML"
+                            hx-vals='{"estatus_filter": "{{ estatus_filter }}", "page": {{ page }}}'
+                            class="text-xs border border-gray-200 rounded-md px-1.5 py-1 bg-white focus:ring-1 focus:ring-blue-400 cursor-pointer min-w-[130px]">
+                            <option value="CREADA"         {{ 'selected' if c.estatus == 'CREADA' }}>Creada</option>
+                            <option value="ENVIADA"        {{ 'selected' if c.estatus == 'ENVIADA' }}>Enviada</option>
+                            <option value="EN_NEGOCIACION" {{ 'selected' if c.estatus == 'EN_NEGOCIACION' }}>En Negociacion</option>
+                            <option value="ACEPTADA"       {{ 'selected' if c.estatus == 'ACEPTADA' }}>Aceptada</option>
+                            <option value="RECHAZADA"      {{ 'selected' if c.estatus == 'RECHAZADA' }}>Rechazada</option>
+                            <option value="VENCIDA"        {{ 'selected' if c.estatus == 'VENCIDA' }}>Vencida</option>
+                        </select>
+                        {% else %}
+                        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium {{ badge_cls(c.estatus) }}">
+                            <span class="w-1.5 h-1.5 rounded-full {{ badge_dot(c.estatus) }}"></span>
+                            {{ badge_label(c.estatus) }}
+                        </span>
+                        {% endif %}
+                    </td>
+
                     <td class="px-4 py-3 text-gray-500 text-xs">{{ c.creado_por_nombre or '—' }}</td>
+                    <td class="px-4 py-3 text-right whitespace-nowrap">
+                        {% if puede_editar %}
+                        <button hx-get="/calculadora-polizas/cotizaciones/{{ c.id }}/editar-modal?estatus_filter={{ estatus_filter }}&page={{ page }}"
+                                hx-target="body"
+                                hx-swap="beforeend"
+                                hx-on::before-request="document.getElementById('modal-editar-cotizacion')?.remove()"
+                                title="Editar poliza"
+                                class="inline-flex items-center gap-1 text-xs text-gray-500 hover:text-gray-800 transition-colors px-2 py-1 rounded hover:bg-gray-100 mr-1">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                            </svg>
+                            Editar
+                        </button>
+                        {% endif %}
+                        <a href="/calculadora-polizas/cotizaciones/{{ c.id }}/pdf"
+                           target="_blank"
+                           title="Descargar propuesta PDF"
+                           class="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors px-2 py-1 rounded hover:bg-blue-50">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                            </svg>
+                            PDF
+                        </a>
+                    </td>
                 </tr>
                 {% endfor %}
                 </tbody>
             </table>
         </div>
+
         {# Paginacion #}
         {% if pages > 1 %}
         <div class="flex items-center justify-between px-4 py-3 border-t border-gray-100 text-sm">
             <p class="text-gray-500">Pagina {{ page }} de {{ pages }}</p>
             <div class="flex gap-1">
                 {% if page > 1 %}
-                <a hx-get="/calculadora-polizas/cotizaciones/ui?page={{ page - 1 }}" hx-target="#main-content"
+                <a hx-get="/calculadora-polizas/cotizaciones/ui?page={{ page - 1 }}{% if estatus_filter %}&estatus_filter={{ estatus_filter }}{% endif %}"
+                   hx-target="#main-content" hx-push-url="true"
                    class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 cursor-pointer">Anterior</a>
                 {% endif %}
                 {% if page < pages %}
-                <a hx-get="/calculadora-polizas/cotizaciones/ui?page={{ page + 1 }}" hx-target="#main-content"
+                <a hx-get="/calculadora-polizas/cotizaciones/ui?page={{ page + 1 }}{% if estatus_filter %}&estatus_filter={{ estatus_filter }}{% endif %}"
+                   hx-target="#main-content" hx-push-url="true"
                    class="px-3 py-1.5 rounded-lg border border-gray-200 text-gray-600 hover:bg-gray-50 cursor-pointer">Siguiente</a>
                 {% endif %}
             </div>
@@ -75,7 +226,15 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                     d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
             </svg>
-            <p class="text-sm">No hay cotizaciones guardadas aun</p>
+            {% if estatus_filter %}
+            <p class="text-sm">No hay polizas con estatus <strong>{{ badge_label(estatus_filter) }}</strong></p>
+            <a href="/calculadora-polizas/cotizaciones/ui"
+               hx-get="/calculadora-polizas/cotizaciones/ui"
+               hx-target="#main-content" hx-push-url="true"
+               class="text-xs text-blue-600 hover:underline">Ver todas las polizas</a>
+            {% else %}
+            <p class="text-sm">No hay polizas generadas aun</p>
+            {% endif %}
         </div>
         {% endif %}
     </div>

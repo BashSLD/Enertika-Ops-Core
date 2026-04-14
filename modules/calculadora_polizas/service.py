@@ -128,6 +128,8 @@ class CalculadoraService:
             "zona":        ["zona", "zone"],
             "potencia_kw": ["potencia_kw", "potencia", "kw", "kwp"],
             "num_paneles": ["num_paneles", "paneles", "panels", "cantidad_paneles"],
+            "cliente":     ["cliente", "client", "razon_social", "razón_social"],
+            "direccion":   ["direccion", "dirección", "address", "ubicacion", "ubicación"],
         }.items():
             for alias in aliases:
                 if alias in headers:
@@ -156,6 +158,14 @@ class CalculadoraService:
                 if "num_paneles" in col_map and row[col_map["num_paneles"]] is not None:
                     num_paneles = int(row[col_map["num_paneles"]])
 
+                cliente = None
+                if "cliente" in col_map and row[col_map["cliente"]] is not None:
+                    cliente = str(row[col_map["cliente"]]).strip() or None
+
+                direccion = None
+                if "direccion" in col_map and row[col_map["direccion"]] is not None:
+                    direccion = str(row[col_map["direccion"]]).strip() or None
+
                 existente = await self.db.get_planta_by_id(conn, planta_id)
                 await self.db.upsert_planta(conn, {
                     "id": planta_id,
@@ -163,6 +173,8 @@ class CalculadoraService:
                     "zona": zona,
                     "potencia_kw": potencia_kw,
                     "num_paneles": num_paneles,
+                    "cliente": cliente,
+                    "direccion": direccion,
                     "activa": True,
                 })
 
@@ -181,7 +193,8 @@ class CalculadoraService:
     # GUARDAR COTIZACIÓN
     # ----------------------------------------
 
-    async def guardar_cotizacion(self, conn, resultado: CalcularResponse, user_id) -> str:
+    async def guardar_cotizacion(self, conn, resultado: CalcularResponse, user_id,
+                                 solicitante_id=None) -> str:
         cotizacion_id = await self.db.save_cotizacion(conn, {
             "planta_id": resultado.planta_id,
             "nombre_planta": resultado.nombre_planta,
@@ -192,6 +205,7 @@ class CalculadoraService:
             "total_final": resultado.total_final,
             "resultado_json": resultado.model_dump(),
             "creado_por": user_id,
+            "solicitante_id": solicitante_id,
         })
         return str(cotizacion_id)
 

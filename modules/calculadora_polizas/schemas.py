@@ -12,6 +12,15 @@ class TipoPoliza(str, Enum):
     ESTANDAR = "estandar"
 
 
+class EstatusCotizacion(str, Enum):
+    CREADA = "CREADA"
+    ENVIADA = "ENVIADA"
+    EN_NEGOCIACION = "EN_NEGOCIACION"
+    ACEPTADA = "ACEPTADA"
+    RECHAZADA = "RECHAZADA"
+    VENCIDA = "VENCIDA"
+
+
 # ----------------------------------------
 # PLANTAS
 # ----------------------------------------
@@ -22,6 +31,8 @@ class PlantaBase(BaseModel):
     zona: str = Field(..., min_length=1, max_length=100)
     potencia_kw: Optional[Decimal] = None
     num_paneles: Optional[int] = None
+    cliente: Optional[str] = Field(None, max_length=200)
+    direccion: Optional[str] = Field(None, max_length=400)
     activa: bool = True
 
 
@@ -34,6 +45,8 @@ class PlantaUpdate(BaseModel):
     zona: Optional[str] = Field(None, min_length=1, max_length=100)
     potencia_kw: Optional[Decimal] = None
     num_paneles: Optional[int] = None
+    cliente: Optional[str] = Field(None, max_length=200)
+    direccion: Optional[str] = Field(None, max_length=400)
     activa: Optional[bool] = None
 
 
@@ -50,6 +63,8 @@ class PlantaDropdown(BaseModel):
     zona: str
     potencia_kw: Optional[float] = None
     num_paneles: Optional[int] = None
+    cliente: Optional[str] = None
+    direccion: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -171,6 +186,10 @@ class CotizacionRead(BaseModel):
     creado_por: Optional[UUID] = None
     creado_por_nombre: Optional[str] = None
     created_at: datetime
+    estatus: str = "CREADA"
+    estatus_updated_at: Optional[datetime] = None
+    solicitante_id: Optional[UUID] = None
+    solicitante_nombre: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 

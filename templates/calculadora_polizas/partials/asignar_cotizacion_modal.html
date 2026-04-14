@@ -1,0 +1,84 @@
+<div id="modal-asignar-cotizacion"
+     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+     x-data="{ cerrar() { document.getElementById('modal-asignar-cotizacion')?.remove(); } }"
+     @keydown.escape.window="cerrar()">
+
+    <div @click.away="cerrar()"
+         class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 scale-95"
+         x-transition:enter-end="opacity-100 scale-100">
+
+        {# Header #}
+        <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+            <div>
+                <h3 class="font-semibold text-gray-800 text-base">Actualizar poliza</h3>
+                <p class="text-xs text-gray-400 mt-0.5 truncate max-w-xs">{{ cotizacion.nombre_planta }}</p>
+            </div>
+            <button @click="cerrar()"
+                    class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        {# Formulario #}
+        <form id="form-asignar-cotizacion"
+              hx-patch="/calculadora-polizas/cotizaciones/{{ cotizacion.id }}/asignar"
+              hx-target="#polizas-tab-content"
+              hx-swap="innerHTML"
+              hx-indicator="#asignar-spinner"
+              hx-on::after-request="if(event.detail.successful) document.getElementById('modal-asignar-cotizacion')?.remove()"
+              class="px-5 py-4 flex flex-col gap-4">
+
+            {# Solicitante #}
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">
+                    Solicitante Comercial
+                    <span class="text-gray-400 font-normal">(opcional)</span>
+                </label>
+                <select name="solicitante_id"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
+                    <option value="">-- Sin asignar --</option>
+                    {% for u in usuarios_comercial %}
+                    <option value="{{ u.id }}" {{ 'selected' if cotizacion.solicitante_id and cotizacion.solicitante_id | string == u.id | string else '' }}>
+                        {{ u.nombre }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            {# Estatus #}
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Estatus</label>
+                <select name="estatus"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
+                    {% for val, label in [('CREADA','Creada'),('ENVIADA','Enviada'),('EN_NEGOCIACION','En Negociacion'),('ACEPTADA','Aceptada'),('RECHAZADA','Rechazada'),('VENCIDA','Vencida')] %}
+                    <option value="{{ val }}" {{ 'selected' if cotizacion.estatus == val else '' }}>{{ label }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+        </form>
+
+        {# Footer #}
+        <div class="px-5 py-4 border-t border-gray-200 flex items-center justify-end gap-2">
+            <button @click="cerrar()"
+                    class="btn-secondary text-sm px-4 py-2 rounded-lg">
+                Cancelar
+            </button>
+            <button type="submit" form="form-asignar-cotizacion"
+                    class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+                <span id="asignar-spinner" class="htmx-indicator">
+                    <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                </span>
+                Guardar cambios
+            </button>
+        </div>
+
+    </div>
+</div>
