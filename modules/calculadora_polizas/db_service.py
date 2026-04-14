@@ -15,7 +15,7 @@ class CalculadoraDBService:
 
     async def get_plantas_dropdown(self, conn) -> list:
         rows = await conn.fetch("""
-            SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion
+            SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, es_externa
             FROM tb_calculadora_plantas
             WHERE activa = TRUE
             ORDER BY nombre
@@ -25,7 +25,8 @@ class CalculadoraDBService:
     async def get_plantas_list(self, conn, q: Optional[str] = None) -> list:
         if q:
             rows = await conn.fetch("""
-                SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, activa, created_at, updated_at
+                SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion,
+                       es_externa, activa, created_at, updated_at
                 FROM tb_calculadora_plantas
                 WHERE nombre ILIKE $1 OR zona ILIKE $1 OR id ILIKE $1 OR cliente ILIKE $1
                 ORDER BY nombre
@@ -33,7 +34,8 @@ class CalculadoraDBService:
             """, f"%{q}%")
         else:
             rows = await conn.fetch("""
-                SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, activa, created_at, updated_at
+                SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion,
+                       es_externa, activa, created_at, updated_at
                 FROM tb_calculadora_plantas
                 ORDER BY nombre
                 LIMIT 500
@@ -42,7 +44,8 @@ class CalculadoraDBService:
 
     async def get_planta_by_id(self, conn, planta_id: str) -> Optional[dict]:
         row = await conn.fetchrow("""
-            SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, activa, created_at, updated_at
+            SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion,
+                   es_externa, activa, created_at, updated_at
             FROM tb_calculadora_plantas
             WHERE id = $1
         """, planta_id)
@@ -51,8 +54,9 @@ class CalculadoraDBService:
     async def upsert_planta(self, conn, planta: dict) -> bool:
         """Inserta o actualiza una planta. Retorna True si fue un INSERT nuevo, False si fue UPDATE."""
         row = await conn.fetchrow("""
-            INSERT INTO tb_calculadora_plantas (id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, activa, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
+            INSERT INTO tb_calculadora_plantas
+                (id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, es_externa, activa, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
             ON CONFLICT (id) DO UPDATE SET
                 nombre      = EXCLUDED.nombre,
                 zona        = EXCLUDED.zona,
@@ -60,12 +64,14 @@ class CalculadoraDBService:
                 num_paneles = EXCLUDED.num_paneles,
                 cliente     = EXCLUDED.cliente,
                 direccion   = EXCLUDED.direccion,
+                es_externa  = EXCLUDED.es_externa,
                 activa      = EXCLUDED.activa,
                 updated_at  = NOW()
             RETURNING (xmax = 0) AS was_insert
         """, planta["id"], planta["nombre"], planta["zona"],
              planta.get("potencia_kw"), planta.get("num_paneles"),
              planta.get("cliente"), planta.get("direccion"),
+             planta.get("es_externa", False),
              planta.get("activa", True))
         return bool(row["was_insert"])
 
@@ -181,14 +187,18 @@ class CalculadoraDBService:
             INSERT INTO tb_calculadora_cotizaciones
                 (id, planta_id, nombre_planta, tipo_poliza, utilidad,
                  sub_total, sub_total_utilidad, total_final, resultado_json,
-                 creado_por, solicitante_id, descuento_pct, descuento_anios)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                 creado_por, solicitante_id, descuento_pct, descuento_anios,
+                 fecha_inicio_poliza, fecha_fin_poliza,
+                 poliza_anterior_id, fecha_fin_poliza_anterior)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
         """, new_id,
              data.get("planta_id"), data["nombre_planta"], data["tipo_poliza"],
              data["utilidad"], data["sub_total"], data["sub_total_utilidad"],
              data["total_final"], json.dumps(data["resultado_json"]),
              data.get("creado_por"), data.get("solicitante_id"),
-             data.get("descuento_pct"), data.get("descuento_anios"))
+             data.get("descuento_pct"), data.get("descuento_anios"),
+             data.get("fecha_inicio_poliza"), data.get("fecha_fin_poliza"),
+             data.get("poliza_anterior_id"), data.get("fecha_fin_poliza_anterior"))
         return new_id
 
     async def get_cotizaciones(self, conn, limit: int = 100, offset: int = 0,
@@ -199,6 +209,7 @@ class CalculadoraDBService:
                 c.sub_total, c.sub_total_utilidad, c.total_final,
                 c.resultado_json, c.creado_por, c.created_at,
                 c.estatus, c.estatus_updated_at, c.solicitante_id,
+                c.fecha_inicio_poliza, c.fecha_fin_poliza,
                 u.nombre AS creado_por_nombre,
                 s.nombre AS solicitante_nombre
             FROM tb_calculadora_cotizaciones c
@@ -234,6 +245,7 @@ class CalculadoraDBService:
                 c.sub_total, c.sub_total_utilidad, c.total_final,
                 c.resultado_json, c.creado_por, c.created_at,
                 c.estatus, c.estatus_updated_at, c.solicitante_id,
+                c.fecha_inicio_poliza, c.fecha_fin_poliza,
                 u.nombre AS creado_por_nombre,
                 s.nombre AS solicitante_nombre
             FROM tb_calculadora_cotizaciones c
@@ -290,11 +302,15 @@ class CalculadoraDBService:
                    c.resultado_json, c.creado_por, c.created_at,
                    c.estatus, c.estatus_updated_at, c.updated_at,
                    c.solicitante_id, c.descuento_pct, c.descuento_anios,
+                   c.fecha_inicio_poliza, c.fecha_fin_poliza,
+                   c.poliza_anterior_id, c.fecha_fin_poliza_anterior,
+                   ant.fecha_fin_poliza AS anterior_fecha_fin,
                    u.nombre AS creado_por_nombre,
                    s.nombre AS solicitante_nombre
             FROM tb_calculadora_cotizaciones c
             LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
             LEFT JOIN tb_usuarios s ON s.id_usuario = c.solicitante_id
+            LEFT JOIN tb_calculadora_cotizaciones ant ON ant.id = c.poliza_anterior_id
             WHERE c.id = $1
         """, cotizacion_id)
         return dict(row) if row else None
@@ -302,25 +318,31 @@ class CalculadoraDBService:
     async def update_cotizacion_full(self, conn, cotizacion_id, data: dict) -> bool:
         result = await conn.execute("""
             UPDATE tb_calculadora_cotizaciones
-            SET planta_id          = $2,
-                nombre_planta      = $3,
-                tipo_poliza        = $4,
-                utilidad           = $5,
-                sub_total          = $6,
-                sub_total_utilidad = $7,
-                total_final        = $8,
-                resultado_json     = $9,
-                solicitante_id     = $10,
-                descuento_pct      = $11,
-                descuento_anios    = $12,
-                updated_at         = NOW()
+            SET planta_id                 = $2,
+                nombre_planta             = $3,
+                tipo_poliza               = $4,
+                utilidad                  = $5,
+                sub_total                 = $6,
+                sub_total_utilidad        = $7,
+                total_final               = $8,
+                resultado_json            = $9,
+                solicitante_id            = $10,
+                descuento_pct             = $11,
+                descuento_anios           = $12,
+                fecha_inicio_poliza       = $13,
+                fecha_fin_poliza          = $14,
+                poliza_anterior_id        = $15,
+                fecha_fin_poliza_anterior = $16,
+                updated_at                = NOW()
             WHERE id = $1
         """, cotizacion_id,
              data.get("planta_id"), data["nombre_planta"], data["tipo_poliza"],
              data["utilidad"], data["sub_total"], data["sub_total_utilidad"],
              data["total_final"], json.dumps(data["resultado_json"]),
              data.get("solicitante_id"),
-             data.get("descuento_pct"), data.get("descuento_anios"))
+             data.get("descuento_pct"), data.get("descuento_anios"),
+             data.get("fecha_inicio_poliza"), data.get("fecha_fin_poliza"),
+             data.get("poliza_anterior_id"), data.get("fecha_fin_poliza_anterior"))
         return result != "UPDATE 0"
 
     async def update_cotizacion_asignacion(self, conn, cotizacion_id, solicitante_id, estatus: str, user_id) -> bool:
@@ -335,10 +357,15 @@ class CalculadoraDBService:
         """, cotizacion_id, solicitante_id, estatus, user_id)
         return result != "UPDATE 0"
 
-    async def update_cotizacion_estatus(self, conn, cotizacion_id, estatus: str, user_id) -> bool:
+    async def update_cotizacion_estatus(self, conn, cotizacion_id, estatus: str, user_id,
+                                        fecha_inicio=None, fecha_fin=None) -> bool:
         result = await conn.execute("""
             UPDATE tb_calculadora_cotizaciones
-            SET estatus = $2, estatus_updated_at = NOW(), estatus_updated_by = $3
+            SET estatus              = $2,
+                estatus_updated_at   = NOW(),
+                estatus_updated_by   = $3,
+                fecha_inicio_poliza  = COALESCE($4, fecha_inicio_poliza),
+                fecha_fin_poliza     = COALESCE($5, fecha_fin_poliza)
             WHERE id = $1
-        """, cotizacion_id, estatus, user_id)
+        """, cotizacion_id, estatus, user_id, fecha_inicio, fecha_fin)
         return result != "UPDATE 0"

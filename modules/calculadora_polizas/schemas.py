@@ -1,6 +1,6 @@
 # modules/calculadora/schemas.py
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, date
 from uuid import UUID
 from decimal import Decimal
 from pydantic import BaseModel, Field, ConfigDict, field_validator
@@ -35,6 +35,7 @@ class PlantaBase(BaseModel):
     cliente: Optional[str] = Field(None, max_length=200)
     direccion: Optional[str] = Field(None, max_length=400)
     activa: bool = True
+    es_externa: bool = False
 
 
 class PlantaCreate(PlantaBase):
@@ -49,6 +50,7 @@ class PlantaUpdate(BaseModel):
     cliente: Optional[str] = Field(None, max_length=200)
     direccion: Optional[str] = Field(None, max_length=400)
     activa: Optional[bool] = None
+    es_externa: Optional[bool] = None
 
 
 class PlantaRead(PlantaBase):
@@ -66,6 +68,7 @@ class PlantaDropdown(BaseModel):
     num_paneles: Optional[int] = None
     cliente: Optional[str] = None
     direccion: Optional[str] = None
+    es_externa: bool = False
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -225,6 +228,10 @@ class CotizacionRead(BaseModel):
     estatus_updated_at: Optional[datetime] = None
     solicitante_id: Optional[UUID] = None
     solicitante_nombre: Optional[str] = None
+    fecha_inicio_poliza: Optional[date] = None
+    fecha_fin_poliza: Optional[date] = None
+    poliza_anterior_id: Optional[UUID] = None
+    fecha_fin_poliza_anterior: Optional[date] = None
 
     model_config = ConfigDict(from_attributes=True)
 

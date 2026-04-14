@@ -1,4 +1,4 @@
-<div id="modal-editar-cotizacion"
+<div id="modal-renovar-cotizacion"
      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
      x-data="{
          planta_id: '',
@@ -9,6 +9,9 @@
          tiene_descuento: false,
          descuento_display: '',
          descuento_anios: [],
+         fecha_inicio: '',
+         fecha_fin: '',
+         fecha_fin_anterior: '',
          get descuento_pct() { return this.descuento_display ? parseFloat(this.descuento_display) / 100 : 0; },
          toggleAnio(anio) {
              const idx = this.descuento_anios.indexOf(anio);
@@ -16,11 +19,10 @@
              else this.descuento_anios.splice(idx, 1);
          },
          anioActivo(anio) { return this.descuento_anios.includes(anio); },
-         tiene_vigencia: false,
-         es_renovacion: false,
-         fecha_inicio: '',
-         fecha_fin: '',
-         fecha_fin_anterior: '',
+         seleccionarPlanta(id) {
+             this.planta_id = id;
+             this.planta = this.plantas.find(p => p.id === id) || null;
+         },
          init() {
              this.plantas = JSON.parse(this.$el.dataset.plantas || '[]');
              this.planta_id = this.$el.dataset.plantaId || '';
@@ -33,18 +35,11 @@
                  this.descuento_display = String(Math.round(pct * 10000) / 100);
                  this.descuento_anios = JSON.parse(this.$el.dataset.descuentoAnios || '[]');
              }
-             this.fecha_inicio = this.$el.dataset.fechaInicio || '';
-             this.fecha_fin = this.$el.dataset.fechaFin || '';
+             this.fecha_inicio = this.$el.dataset.fechaHoy || '';
              this.fecha_fin_anterior = this.$el.dataset.fechaFinAnterior || '';
-             if (this.fecha_inicio || this.fecha_fin || this.fecha_fin_anterior) {
-                 this.tiene_vigencia = true;
-             }
-             if (this.fecha_fin_anterior) {
-                 this.es_renovacion = true;
-             }
          },
          cerrar() {
-             document.getElementById('modal-editar-cotizacion')?.remove();
+             document.getElementById('modal-renovar-cotizacion')?.remove();
          }
      }"
      data-plantas='{{ plantas | tojson }}'
@@ -53,9 +48,8 @@
      data-utilidad="{{ cotizacion.utilidad }}"
      data-descuento-pct="{{ cotizacion.descuento_pct or 0 }}"
      data-descuento-anios='{{ (cotizacion.descuento_anios or []) | tojson }}'
-     data-fecha-inicio="{{ cotizacion.fecha_inicio_poliza.isoformat() if cotizacion.fecha_inicio_poliza else '' }}"
-     data-fecha-fin="{{ cotizacion.fecha_fin_poliza.isoformat() if cotizacion.fecha_fin_poliza else '' }}"
-     data-fecha-fin-anterior="{{ cotizacion.fecha_fin_poliza_anterior.isoformat() if cotizacion.fecha_fin_poliza_anterior else '' }}"
+     data-fecha-hoy="{{ fecha_hoy }}"
+     data-fecha-fin-anterior="{{ cotizacion.fecha_fin_poliza.isoformat() if cotizacion.fecha_fin_poliza else '' }}"
      @keydown.escape.window="cerrar()">
 
     <div @click.away="cerrar()"
@@ -67,7 +61,7 @@
         {# Header #}
         <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between flex-shrink-0">
             <div>
-                <h3 class="font-semibold text-gray-800 text-base">Editar poliza</h3>
+                <h3 class="font-semibold text-gray-800 text-base">Renovar poliza</h3>
                 <p class="text-xs text-gray-400 mt-0.5 truncate max-w-xs">{{ cotizacion.nombre_planta }}</p>
             </div>
             <button @click="cerrar()"
@@ -78,32 +72,33 @@
             </button>
         </div>
 
-        {# Valores actuales (referencia) #}
+        {# Info de póliza anterior #}
         <div class="px-5 pt-4 pb-0 flex-shrink-0">
-            <div class="bg-blue-50 rounded-lg px-4 py-2.5 flex flex-wrap gap-x-5 gap-y-1 text-xs text-blue-700">
-                <span><span class="font-medium text-blue-500">Tipo actual:</span>
-                    {{ cotizacion.tipo_poliza | capitalize }}</span>
-                <span><span class="font-medium text-blue-500">Utilidad actual:</span>
-                    {{ (cotizacion.utilidad * 100) | round(0) | int }}%</span>
-                <span><span class="font-medium text-blue-500">Total actual:</span>
-                    ${{ "{:,.2f}".format(cotizacion.total_final) }}</span>
+            <div class="bg-teal-50 border border-teal-200 rounded-lg px-4 py-2.5 text-xs text-teal-700 flex items-start gap-2">
+                <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                <span>
+                    Nueva cotizacion vinculada a la poliza anterior
+                    <span class="font-mono font-semibold">{{ cotizacion.id | string | upper | truncate(8, True, '') }}</span>.
+                    Se creara como cotizacion independiente con estatus CREADA.
+                </span>
             </div>
         </div>
 
         {# Formulario #}
         <div class="flex-1 overflow-y-auto px-5 py-4">
-            <form id="form-editar-cotizacion"
-                  hx-put="/calculadora-polizas/cotizaciones/{{ cotizacion.id }}"
-                  hx-target="#cotizaciones-container"
-                  hx-swap="outerHTML"
-                  hx-indicator="#editar-spinner"
-                  hx-on::after-request="if(event.detail.successful) document.getElementById('modal-editar-cotizacion')?.remove()"
+            <form id="form-renovar-cotizacion"
+                  hx-post="/calculadora-polizas/cotizaciones/guardar"
+                  hx-swap="none"
+                  hx-on::after-request="if(event.detail.successful) { document.getElementById('modal-renovar-cotizacion')?.remove(); }"
                   class="flex flex-col gap-4">
 
-                <input type="hidden" name="estatus_filter" value="{{ estatus_filter }}">
-                <input type="hidden" name="page" value="{{ page }}">
-                {# planta_id se envía desde el input hidden reactivo de Alpine #}
+                {# Campos ocultos #}
+                <input type="hidden" name="poliza_anterior_id" value="{{ cotizacion.id }}">
                 <input type="hidden" name="planta_id" :value="planta_id">
+                <input type="hidden" name="descuento_pct" :value="tiene_descuento ? descuento_pct : 0">
 
                 {# Planta #}
                 <div>
@@ -119,7 +114,7 @@
                     </select>
                 </div>
 
-                {# Info de la planta seleccionada #}
+                {# Info planta #}
                 <div x-show="planta" class="grid grid-cols-3 gap-2 bg-blue-50 rounded-lg p-3 text-sm">
                     <div>
                         <p class="text-xs text-gray-500 uppercase tracking-wide">Zona</p>
@@ -135,7 +130,7 @@
                     </div>
                 </div>
 
-                {# Solicitante Comercial #}
+                {# Solicitante #}
                 <div>
                     <label class="block text-sm font-medium text-gray-600 mb-1">
                         Solicitante Comercial
@@ -191,47 +186,6 @@
                     </div>
                 </div>
 
-                {# Vigencia #}
-                <div class="border border-dashed border-gray-200 rounded-lg p-3 flex flex-col gap-3">
-                    <label class="flex items-center gap-2 cursor-pointer select-none">
-                        <input type="checkbox" x-model="tiene_vigencia"
-                               @change="if (!tiene_vigencia) { es_renovacion = false; }"
-                               class="w-4 h-4 rounded accent-blue-600">
-                        <span class="text-sm font-medium text-gray-600">Fechas de vigencia</span>
-                    </label>
-
-                    <div x-show="tiene_vigencia" x-transition class="flex flex-col gap-3">
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs font-medium text-gray-500 mb-1">Inicio de poliza</label>
-                                <input type="date" name="fecha_inicio_poliza"
-                                       x-model="fecha_inicio"
-                                       class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-medium text-gray-500 mb-1">Fin de poliza</label>
-                                <input type="date" name="fecha_fin_poliza"
-                                       x-model="fecha_fin"
-                                       class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500">
-                            </div>
-                        </div>
-
-                        <label class="flex items-center gap-2 cursor-pointer select-none">
-                            <input type="checkbox" x-model="es_renovacion"
-                                   @change="if (!es_renovacion) { fecha_fin_anterior = ''; }"
-                                   class="w-4 h-4 rounded accent-teal-600">
-                            <span class="text-sm text-gray-600">Es renovacion de una poliza anterior</span>
-                        </label>
-
-                        <div x-show="es_renovacion" x-transition>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Vencimiento de la poliza anterior</label>
-                            <input type="date" name="fecha_fin_poliza_anterior"
-                                   x-model="fecha_fin_anterior"
-                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-500">
-                        </div>
-                    </div>
-                </div>
-
                 {# Descuento #}
                 <div class="border border-dashed border-gray-200 rounded-lg p-3 flex flex-col gap-3">
                     <label class="flex items-center gap-2 cursor-pointer select-none">
@@ -240,9 +194,6 @@
                                class="w-4 h-4 rounded accent-green-600">
                         <span class="text-sm font-medium text-gray-600">Aplicar descuento</span>
                     </label>
-
-                    {# Input oculto único — siempre refleja el valor correcto #}
-                    <input type="hidden" name="descuento_pct" :value="tiene_descuento ? descuento_pct : 0">
 
                     <div x-show="tiene_descuento" x-transition class="flex flex-col gap-3">
                         <div class="flex items-center gap-2">
@@ -253,7 +204,6 @@
                                    class="w-28 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
                             <span class="text-sm text-gray-400">%</span>
                         </div>
-
                         <div>
                             <p class="text-xs font-medium text-gray-500 mb-1.5">Aplica en:</p>
                             <div class="flex gap-2">
@@ -276,6 +226,39 @@
                     </div>
                 </div>
 
+                {# Vigencia — siempre visible en renovación #}
+                <div class="border border-teal-200 bg-teal-50/40 rounded-lg p-3 flex flex-col gap-3">
+                    <p class="text-xs font-semibold text-teal-700 uppercase tracking-wide">Vigencia de la nueva poliza</p>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 mb-1">Inicio de poliza</label>
+                            <input type="date" name="fecha_inicio_poliza"
+                                   x-model="fecha_inicio"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-500">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-500 mb-1">Fin de poliza</label>
+                            <input type="date" name="fecha_fin_poliza"
+                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-500">
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">
+                            Vencimiento de la poliza anterior
+                            <span class="text-teal-600 font-normal">(para calcular garantia de produccion)</span>
+                        </label>
+                        <input type="date" name="fecha_fin_poliza_anterior"
+                               x-model="fecha_fin_anterior"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-500">
+                        <p class="text-xs text-gray-400 mt-1">
+                            Si la renovacion ocurre dentro de los 6 meses posteriores y la planta
+                            es instalacion Enertika, el PDF incluira la Garantia de produccion.
+                        </p>
+                    </div>
+                </div>
+
             </form>
         </div>
 
@@ -286,23 +269,21 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
                 </svg>
-                Al guardar se recalcularan los montos usando los precios y costos vigentes en este momento. Si los precios base fueron modificados desde que se creo esta cotizacion, los totales podrian variar.
+                Se creara una nueva cotizacion. Los montos se calcularan con los precios y costos vigentes al momento de guardar.
             </p>
             <div class="flex items-center justify-end gap-2">
-            <button @click="cerrar()"
-                    class="btn-secondary text-sm px-4 py-2 rounded-lg">
-                Cancelar
-            </button>
-            <button type="submit" form="form-editar-cotizacion"
-                    class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
-                <span id="editar-spinner" class="htmx-indicator">
-                    <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                <button @click="cerrar()"
+                        class="btn-secondary text-sm px-4 py-2 rounded-lg">
+                    Cancelar
+                </button>
+                <button type="submit" form="form-renovar-cotizacion"
+                        class="bg-teal-600 hover:bg-teal-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                     </svg>
-                </span>
-                Recalcular y guardar
-            </button>
+                    Crear renovacion
+                </button>
             </div>
         </div>
 

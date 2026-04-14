@@ -36,6 +36,7 @@
         {# Boton guardar cotizacion — abre modal con opcion de solicitante #}
         <button hx-get="/calculadora-polizas/partials/guardar-modal"
                 hx-vals='{"planta_id": "{{ resultado.planta_id }}", "tipo_poliza": "{{ resultado.tipo_poliza }}", "utilidad": "{{ resultado.utilidad }}", "descuento_pct": "{{ resultado.descuento_pct }}", "descuento_anios": "{{ resultado.descuento_anios | join(',') }}"}'
+                hx-include="#calc-fecha-fin-anterior"
                 hx-target="body"
                 hx-swap="beforeend"
                 hx-on::before-request="document.getElementById('modal-guardar-cotizacion')?.remove()"

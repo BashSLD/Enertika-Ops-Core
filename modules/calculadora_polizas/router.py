@@ -21,6 +21,8 @@ Endpoints:
 - GET  /calculadora-polizas/plantas/ui                  — CRUD plantas (editor+)
 - POST /calculadora-polizas/plantas/import-excel        — Import .xlsx (editor+)
 - POST /calculadora-polizas/plantas                     — Crear planta (editor+)
+- GET  /calculadora-polizas/plantas/{id}/editar-modal   — Modal edicion planta (editor+)
+- PUT  /calculadora-polizas/plantas/{id}                — Guardar edicion planta (editor+)
 - POST /calculadora-polizas/plantas/{id}/toggle         — Activar/desactivar (editor+)
 - GET  /calculadora-polizas/admin/ui                    — Editar precios/costos (manager+)
 - PATCH /calculadora-polizas/admin/precios-zona/{zona}
@@ -752,6 +754,79 @@ async def plantas_ui(
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
         return templates.TemplateResponse(request, f"{TPL}/partials/plantas_tabla.html", ctx)
     return templates.TemplateResponse(request, f"{TPL}/plantas.html", ctx)
+
+
+@router.get("/plantas/{planta_id}/editar-modal", include_in_schema=False)
+async def editar_planta_modal(
+    request: Request,
+    planta_id: str,
+    context=Depends(get_current_user_context),
+    _=require_module_access(SLUG, "editor"),
+    conn=Depends(get_db_connection),
+    service: CalculadoraService = Depends(get_service),
+):
+    planta = await service.db.get_planta_by_id(conn, planta_id)
+    if not planta:
+        raise HTTPException(404, "Planta no encontrada")
+    precios_zona = await service.db.get_precios_zona(conn)
+    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+    return templates.TemplateResponse(
+        request, f"{TPL}/partials/editar_planta_modal.html",
+        {
+            **_base_ctx(context, mod_role),
+            "planta": planta,
+            "zonas": sorted(precios_zona.keys()),
+        },
+    )
+
+
+@router.put("/plantas/{planta_id}", include_in_schema=False)
+async def actualizar_planta(
+    request: Request,
+    planta_id: str,
+    nombre: str = Form(...),
+    zona: str = Form(...),
+    potencia_kw: Optional[float] = Form(None),
+    num_paneles: Optional[int] = Form(None),
+    cliente: Optional[str] = Form(None),
+    direccion: Optional[str] = Form(None),
+    es_externa: Optional[str] = Form(None),
+    context=Depends(get_current_user_context),
+    _=require_module_access(SLUG, "editor"),
+    conn=Depends(get_db_connection),
+    service: CalculadoraService = Depends(get_service),
+):
+    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+    planta = await service.db.get_planta_by_id(conn, planta_id)
+    if not planta:
+        raise HTTPException(404, "Planta no encontrada")
+    try:
+        await service.db.upsert_planta(conn, {
+            "id": planta_id,
+            "nombre": nombre.strip(),
+            "zona": zona.strip(),
+            "potencia_kw": potencia_kw,
+            "num_paneles": num_paneles,
+            "cliente": cliente.strip() if cliente else None,
+            "direccion": direccion.strip() if direccion else None,
+            "es_externa": es_externa == "true",
+            "activa": planta["activa"],
+        })
+    except Exception as exc:
+        logger.error("Error actualizando planta %s: %s", planta_id, exc)
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"type": "error", "title": "Error", "message": "Error al actualizar la planta"},
+            headers={"HX-Reswap": "none"},
+        )
+
+    plantas = await service.db.get_plantas_list(conn)
+    precios_zona = await service.db.get_precios_zona(conn)
+    return templates.TemplateResponse(
+        request, f"{TPL}/partials/plantas_tabla.html",
+        {**_base_ctx(context, mod_role), "plantas": plantas,
+         "zonas": sorted(precios_zona.keys()), "q": ""},
+    )
 
 
 @router.post("/plantas", include_in_schema=False)

@@ -1,0 +1,102 @@
+<div id="modal-editar-planta"
+     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+     x-data="{ cerrar() { document.getElementById('modal-editar-planta')?.remove(); } }"
+     @keydown.escape.window="cerrar()">
+
+    <div @click.away="cerrar()"
+         class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 flex flex-col max-h-[90dvh]"
+         x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 scale-95"
+         x-transition:enter-end="opacity-100 scale-100">
+
+        <div class="flex items-center justify-between p-5 border-b flex-shrink-0">
+            <div>
+                <h3 class="font-semibold text-gray-800">Editar Planta</h3>
+                <p class="text-xs text-gray-500 mt-0.5 font-mono">{{ planta.id }}</p>
+            </div>
+            <button @click="cerrar()"
+                    class="text-gray-400 hover:text-gray-600 transition-colors p-1.5 rounded-lg hover:bg-gray-100">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        <form hx-put="/calculadora-polizas/plantas/{{ planta.id }}"
+              hx-target="#main-content"
+              hx-on::after-request="if(event.detail.successful) document.getElementById('modal-editar-planta')?.remove()"
+              class="p-5 flex flex-col gap-4 overflow-y-auto flex-1">
+
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Zona <span class="text-red-500">*</span></label>
+                <select name="zona" required
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 bg-white">
+                    <option value="">-- Seleccionar --</option>
+                    {% for zona in zonas %}
+                    <option value="{{ zona }}" {{ 'selected' if planta.zona == zona }}>{{ zona }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Nombre <span class="text-red-500">*</span></label>
+                <input type="text" name="nombre" required value="{{ planta.nombre }}"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Cliente</label>
+                <input type="text" name="cliente" value="{{ planta.cliente or '' }}"
+                       placeholder="Nombre del cliente o empresa"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Direccion del sitio</label>
+                <input type="text" name="direccion" value="{{ planta.direccion or '' }}"
+                       placeholder="Calle, colonia, municipio"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+            </div>
+
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Potencia (kWp)</label>
+                    <input type="number" name="potencia_kw" step="0.01" min="0"
+                           value="{{ planta.potencia_kw or '' }}"
+                           placeholder="0.00"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Num. paneles</label>
+                    <input type="number" name="num_paneles" min="0"
+                           value="{{ planta.num_paneles or '' }}"
+                           placeholder="0"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+
+            <label class="flex items-center gap-2.5 cursor-pointer select-none py-1">
+                <input type="checkbox" name="es_externa" value="true"
+                       {{ 'checked' if planta.es_externa }}
+                       class="w-4 h-4 rounded accent-amber-600">
+                <span class="text-sm text-gray-600">Planta externa (no instalada por Enertika)</span>
+            </label>
+
+            <div class="flex gap-2 pt-2 flex-shrink-0">
+                <button type="button" @click="cerrar()"
+                        class="flex-1 btn-secondary py-2 rounded-lg text-sm">Cancelar</button>
+                <button type="submit"
+                        class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
+                    <span class="htmx-indicator">
+                        <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                    </span>
+                    Guardar cambios
+                </button>
+            </div>
+
+        </form>
+    </div>
+</div>

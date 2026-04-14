@@ -9,6 +9,8 @@
         descuento_display: '',
         descuento_anios: [],
         get descuento_pct() { return this.descuento_display ? parseFloat(this.descuento_display) / 100 : 0; },
+        tiene_renovacion: false,
+        fecha_fin_poliza_anterior: '',
         toggleAnio(anio) {
             const idx = this.descuento_anios.indexOf(anio);
             if (idx === -1) this.descuento_anios.push(anio);
@@ -233,6 +235,28 @@
                         </div>
                     </div>
                 </div>
+
+                {# Renovacion #}
+                <div class="border border-dashed border-gray-200 rounded-lg p-3 flex flex-col gap-3">
+                    <label class="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" x-model="tiene_renovacion"
+                               @change="if (!tiene_renovacion) fecha_fin_poliza_anterior = ''"
+                               class="w-4 h-4 rounded accent-teal-600">
+                        <span class="text-sm font-medium text-gray-600">Es renovacion de poliza anterior</span>
+                    </label>
+                    <div x-show="tiene_renovacion" x-transition>
+                        <label class="block text-xs font-medium text-gray-500 mb-1">Vencimiento de la poliza anterior</label>
+                        <input type="date" x-model="fecha_fin_poliza_anterior"
+                               class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-500 focus:border-teal-500">
+                        <p class="text-xs text-gray-400 mt-1">
+                            Si la renovacion es dentro de 6 meses del vencimiento y la planta es instalacion Enertika,
+                            se incluye la Garantia de produccion en el PDF.
+                        </p>
+                    </div>
+                </div>
+                {# Hidden input — pasa fecha_fin_poliza_anterior al guardar-modal via hx-include #}
+                <input type="hidden" id="calc-fecha-fin-anterior" name="fecha_fin_poliza_anterior"
+                       :value="tiene_renovacion ? fecha_fin_poliza_anterior : ''">
 
                 {# Submit #}
                 <button type="submit"

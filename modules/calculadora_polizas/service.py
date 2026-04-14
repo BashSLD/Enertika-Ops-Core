@@ -1,6 +1,7 @@
 # modules/calculadora/service.py
 from typing import Optional
 from fastapi import Depends, HTTPException
+from datetime import date
 import logging
 import io
 
@@ -153,6 +154,7 @@ class CalculadoraService:
             "num_paneles": ["num_paneles", "paneles", "panels", "cantidad_paneles"],
             "cliente":     ["cliente", "client", "razon_social", "razón_social"],
             "direccion":   ["direccion", "dirección", "address", "ubicacion", "ubicación"],
+            "es_externa":  ["es_externa", "externa", "external"],
         }.items():
             for alias in aliases:
                 if alias in headers:
@@ -189,6 +191,11 @@ class CalculadoraService:
                 if "direccion" in col_map and row[col_map["direccion"]] is not None:
                     direccion = str(row[col_map["direccion"]]).strip() or None
 
+                es_externa = False
+                if "es_externa" in col_map and row[col_map["es_externa"]] is not None:
+                    val = str(row[col_map["es_externa"]]).strip().lower()
+                    es_externa = val in ("1", "true", "sí", "si", "yes", "x")
+
                 was_insert = await self.db.upsert_planta(conn, {
                     "id": planta_id,
                     "nombre": nombre,
@@ -197,6 +204,7 @@ class CalculadoraService:
                     "num_paneles": num_paneles,
                     "cliente": cliente,
                     "direccion": direccion,
+                    "es_externa": es_externa,
                     "activa": True,
                 })
 
@@ -215,8 +223,14 @@ class CalculadoraService:
     # GUARDAR COTIZACIÓN
     # ----------------------------------------
 
-    async def guardar_cotizacion(self, conn, resultado: CalcularResponse, user_id,
-                                 solicitante_id=None) -> str:
+    async def guardar_cotizacion(
+        self, conn, resultado: CalcularResponse, user_id,
+        solicitante_id=None,
+        fecha_inicio_poliza=None,
+        fecha_fin_poliza=None,
+        poliza_anterior_id=None,
+        fecha_fin_poliza_anterior=None,
+    ) -> str:
         cotizacion_id = await self.db.save_cotizacion(conn, {
             "planta_id": resultado.planta_id,
             "nombre_planta": resultado.nombre_planta,
@@ -230,9 +244,37 @@ class CalculadoraService:
             "solicitante_id": solicitante_id,
             "descuento_pct": resultado.descuento_pct if resultado.descuento_pct > 0 else None,
             "descuento_anios": resultado.descuento_anios if resultado.descuento_anios else None,
+            "fecha_inicio_poliza": fecha_inicio_poliza,
+            "fecha_fin_poliza": fecha_fin_poliza,
+            "poliza_anterior_id": poliza_anterior_id,
+            "fecha_fin_poliza_anterior": fecha_fin_poliza_anterior,
         })
         return str(cotizacion_id)
 
 
 def get_service() -> CalculadoraService:
     return CalculadoraService()
+
+
+def tiene_garantia_produccion(
+    tipo_poliza: str,
+    es_externa: bool,
+    fecha_inicio: Optional[date],
+    fecha_fin_anterior: Optional[date],
+) -> bool:
+    """True si el hito 'Garantia de produccion' aplica en el PDF.
+
+    Condiciones (todas deben cumplirse):
+    - Poliza premium
+    - Planta instalada por Enertika (es_externa = False)
+    - La renovation ocurre dentro de los 6 meses posteriores al vencimiento anterior
+    """
+    if tipo_poliza != "premium":
+        return False
+    if es_externa:
+        return False
+    if fecha_fin_anterior is None:
+        return False
+    inicio = fecha_inicio or date.today()
+    # 6 meses ≈ 183 días (contamos desde vencimiento anterior hasta inicio de nueva)
+    return (inicio - fecha_fin_anterior).days <= 183
