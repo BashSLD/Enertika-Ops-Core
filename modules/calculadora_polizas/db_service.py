@@ -181,13 +181,14 @@ class CalculadoraDBService:
             INSERT INTO tb_calculadora_cotizaciones
                 (id, planta_id, nombre_planta, tipo_poliza, utilidad,
                  sub_total, sub_total_utilidad, total_final, resultado_json,
-                 creado_por, solicitante_id)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                 creado_por, solicitante_id, descuento_pct, descuento_anios)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
         """, new_id,
              data.get("planta_id"), data["nombre_planta"], data["tipo_poliza"],
              data["utilidad"], data["sub_total"], data["sub_total_utilidad"],
              data["total_final"], json.dumps(data["resultado_json"]),
-             data.get("creado_por"), data.get("solicitante_id"))
+             data.get("creado_por"), data.get("solicitante_id"),
+             data.get("descuento_pct"), data.get("descuento_anios"))
         return new_id
 
     async def get_cotizaciones(self, conn, limit: int = 100, offset: int = 0,
@@ -288,7 +289,7 @@ class CalculadoraDBService:
                    c.sub_total, c.sub_total_utilidad, c.total_final,
                    c.resultado_json, c.creado_por, c.created_at,
                    c.estatus, c.estatus_updated_at, c.updated_at,
-                   c.solicitante_id,
+                   c.solicitante_id, c.descuento_pct, c.descuento_anios,
                    u.nombre AS creado_por_nombre,
                    s.nombre AS solicitante_nombre
             FROM tb_calculadora_cotizaciones c
@@ -301,22 +302,25 @@ class CalculadoraDBService:
     async def update_cotizacion_full(self, conn, cotizacion_id, data: dict) -> bool:
         result = await conn.execute("""
             UPDATE tb_calculadora_cotizaciones
-            SET planta_id         = $2,
-                nombre_planta     = $3,
-                tipo_poliza       = $4,
-                utilidad          = $5,
-                sub_total         = $6,
+            SET planta_id          = $2,
+                nombre_planta      = $3,
+                tipo_poliza        = $4,
+                utilidad           = $5,
+                sub_total          = $6,
                 sub_total_utilidad = $7,
-                total_final       = $8,
-                resultado_json    = $9,
-                solicitante_id    = $10,
-                updated_at        = NOW()
+                total_final        = $8,
+                resultado_json     = $9,
+                solicitante_id     = $10,
+                descuento_pct      = $11,
+                descuento_anios    = $12,
+                updated_at         = NOW()
             WHERE id = $1
         """, cotizacion_id,
              data.get("planta_id"), data["nombre_planta"], data["tipo_poliza"],
              data["utilidad"], data["sub_total"], data["sub_total_utilidad"],
              data["total_final"], json.dumps(data["resultado_json"]),
-             data.get("solicitante_id"))
+             data.get("solicitante_id"),
+             data.get("descuento_pct"), data.get("descuento_anios"))
         return result != "UPDATE 0"
 
     async def update_cotizacion_asignacion(self, conn, cotizacion_id, solicitante_id, estatus: str, user_id) -> bool:

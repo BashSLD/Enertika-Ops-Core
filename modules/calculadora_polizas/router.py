@@ -26,7 +26,7 @@ Endpoints:
 from fastapi import APIRouter, Depends, Request, Form, File, UploadFile, Query, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse, Response
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 import json
 import logging
@@ -145,6 +145,8 @@ async def calcular(
     planta_id: str = Form(...),
     tipo_poliza: str = Form(...),
     utilidad: float = Form(0.30),
+    descuento_pct: float = Form(0.0),
+    descuento_anios: List[int] = Form(default=[]),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG),
     conn=Depends(get_db_connection),
@@ -152,7 +154,10 @@ async def calcular(
 ):
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     try:
-        req = CalcularRequest(planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad)
+        req = CalcularRequest(
+            planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
+            descuento_pct=descuento_pct, descuento_anios=descuento_anios,
+        )
         resultado = await service.calcular(conn, req)
     except ValueError as exc:
         return templates.TemplateResponse(
@@ -177,6 +182,8 @@ async def guardar_modal(
     planta_id: str = Query(...),
     tipo_poliza: str = Query(...),
     utilidad: float = Query(0.30),
+    descuento_pct: float = Query(0.0),
+    descuento_anios: str = Query(""),   # lista como "3,5" o "" si no aplica
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG),
     conn=Depends(get_db_connection),
@@ -184,6 +191,7 @@ async def guardar_modal(
 ):
     usuarios_comercial = await service.db.get_usuarios_comercial(conn)
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
+    anios_list = [int(x) for x in descuento_anios.split(",") if x.strip().isdigit()]
     return templates.TemplateResponse(
         request, f"{TPL}/partials/guardar_cotizacion_modal.html",
         {
@@ -191,6 +199,8 @@ async def guardar_modal(
             "planta_id": planta_id,
             "tipo_poliza": tipo_poliza,
             "utilidad": utilidad,
+            "descuento_pct": descuento_pct,
+            "descuento_anios": anios_list,
             "usuarios_comercial": usuarios_comercial,
         },
     )
@@ -202,6 +212,8 @@ async def guardar_cotizacion(
     planta_id: str = Form(...),
     tipo_poliza: str = Form(...),
     utilidad: float = Form(0.30),
+    descuento_pct: float = Form(0.0),
+    descuento_anios: List[int] = Form(default=[]),
     solicitante_id: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG),
@@ -216,7 +228,10 @@ async def guardar_cotizacion(
         except ValueError:
             pass
     try:
-        req = CalcularRequest(planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad)
+        req = CalcularRequest(
+            planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
+            descuento_pct=descuento_pct, descuento_anios=descuento_anios,
+        )
         resultado = await service.calcular(conn, req)
         await service.guardar_cotizacion(conn, resultado, user_id, solicitante_id=sol_id)
     except ValueError as exc:
@@ -415,6 +430,8 @@ async def update_cotizacion(
     planta_id: str = Form(...),
     tipo_poliza: str = Form(...),
     utilidad: float = Form(0.30),
+    descuento_pct: float = Form(0.0),
+    descuento_anios: List[int] = Form(default=[]),
     solicitante_id: Optional[str] = Form(None),
     estatus_filter: str = Form(""),
     page: int = Form(1),
@@ -433,7 +450,10 @@ async def update_cotizacion(
             pass
 
     try:
-        req = CalcularRequest(planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad)
+        req = CalcularRequest(
+            planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
+            descuento_pct=descuento_pct, descuento_anios=descuento_anios,
+        )
         resultado = await service.calcular(conn, req)
     except ValueError as exc:
         return templates.TemplateResponse(
@@ -452,6 +472,8 @@ async def update_cotizacion(
         "total_final": resultado.total_final,
         "resultado_json": resultado.model_dump(),
         "solicitante_id": sol_id,
+        "descuento_pct": resultado.descuento_pct if resultado.descuento_pct > 0 else None,
+        "descuento_anios": resultado.descuento_anios if resultado.descuento_anios else None,
     })
     if not ok:
         raise HTTPException(404, "Cotizacion no encontrada")
@@ -835,10 +857,27 @@ async def descargar_pdf_poliza(
 
     factor = 1.03
     anio_1 = resultado.get("anio_1", resultado.get("sub_total_utilidad", 0))
+    descuento_pct = resultado.get("descuento_pct", 0.0)
+    descuento_anios = resultado.get("descuento_anios") or []
     proyeccion = [
-        {"anio": 1, "valor": round(anio_1, 2), "acumulado": round(anio_1, 2)},
-        {"anio": 3, "valor": round(anio_1 * (factor ** 2), 2), "acumulado": resultado.get("acumulado_1_3", 0)},
-        {"anio": 5, "valor": round(anio_1 * (factor ** 4), 2), "acumulado": resultado.get("acumulado_1_5", 0)},
+        {
+            "anio": 1,
+            "valor": round(anio_1, 2),
+            "acumulado": round(anio_1, 2),
+            "acumulado_desc": resultado.get("anio_1_desc") if 1 in descuento_anios else None,
+        },
+        {
+            "anio": 3,
+            "valor": round(anio_1 * (factor ** 2), 2),
+            "acumulado": resultado.get("acumulado_1_3", 0),
+            "acumulado_desc": resultado.get("acumulado_1_3_desc") if 3 in descuento_anios else None,
+        },
+        {
+            "anio": 5,
+            "valor": round(anio_1 * (factor ** 4), 2),
+            "acumulado": resultado.get("acumulado_1_5", 0),
+            "acumulado_desc": resultado.get("acumulado_1_5_desc") if 5 in descuento_anios else None,
+        },
     ]
 
     sub_total_utilidad = resultado.get("sub_total_utilidad", 0)
@@ -860,6 +899,9 @@ async def descargar_pdf_poliza(
         "total_final": total_final,
         "proyeccion": proyeccion,
         "mostrar_proyeccion": show_projection,
+        "descuento_pct": descuento_pct,
+        "descuento_anios": descuento_anios,
+        "descuento_monto": resultado.get("descuento_monto", 0.0),
     }
 
     pdf_bytes = await pdf_service.generate("poliza_oym.html", ctx)

@@ -802,24 +802,49 @@
 
     <div class="section-title">Inversion anual</div>
 
+    {% set dto_anio1 = descuento_pct > 0 and 1 in descuento_anios %}
+    {% if dto_anio1 %}
+    {% set anio1_sin_iva = proyeccion[0].acumulado_desc %}
+    {% set anio1_con_iva = anio1_sin_iva * 1.16 %}
+    {% else %}
+    {% set anio1_sin_iva = sub_total_utilidad %}
+    {% set anio1_con_iva = total_final %}
+    {% endif %}
+
     <div class="price-box">
         <div class="price-box-deco"></div>
         <div class="price-box-deco-2"></div>
         <div class="price-box-deco-3"></div>
         <div class="price-box-label" style="text-align:right;">Precio anual sin IVA</div>
+        {% if dto_anio1 %}
+        <div style="text-align:right; margin-bottom:2px;">
+            <span style="font-size:14pt; color:rgba(255,255,255,0.4); text-decoration:line-through;">
+                ${{ "{:,.2f}".format(sub_total_utilidad) }}
+            </span>
+            <span style="font-size:9pt; color:rgba(255,255,255,0.4);"> MXP</span>
+        </div>
+        {% endif %}
         <div style="text-align:right;">
-            <span class="price-box-amount">${{ "{:,.2f}".format(sub_total_utilidad) }}</span>
+            <span class="price-box-amount">${{ "{:,.2f}".format(anio1_sin_iva) }}</span>
             <span class="price-box-currency">MXP</span>
+            {% if dto_anio1 %}
+            <span style="display:inline-block; background:rgba(0,186,187,0.3); border:1px solid rgba(0,186,187,0.6);
+                         color:#00BABB; font-size:7.5pt; font-weight:700; letter-spacing:1px;
+                         padding:2px 8px; border-radius:10px; margin-left:8px; vertical-align:middle;">
+                {{ (descuento_pct * 100) | round(1) }}% dto.
+            </span>
+            {% endif %}
         </div>
         <table class="price-secondary-table">
             <tr>
                 <td class="price-secondary-col">
                     <div class="price-secondary-label">IVA (16%)</div>
-                    <div class="price-secondary-value">${{ "{:,.2f}".format(total_final - sub_total_utilidad) }} MXP</div>
+                    <div class="price-secondary-value">${{ "{:,.2f}".format(anio1_con_iva - anio1_sin_iva) }} MXP</div>
                 </td>
+                {% if not dto_anio1 %}<td style="width:34%;"></td>{% endif %}
                 <td class="price-secondary-col-mid">
                     <div class="price-secondary-label">Total anual con IVA</div>
-                    <div class="price-secondary-value">${{ "{:,.2f}".format(total_final) }} MXP</div>
+                    <div class="price-secondary-value">${{ "{:,.2f}".format(anio1_con_iva) }} MXP</div>
                 </td>
             </tr>
         </table>
@@ -828,13 +853,14 @@
     {% if mostrar_proyeccion %}
     <div style="margin-top:60px;" class="section-title">Opciones de contrato</div>
 
-    {% set iva = 0.16 %}
+    {% set tiene_dto = descuento_pct > 0 and descuento_anios %}
     <table class="proj-table mb-20">
         <thead>
             <tr>
                 <th>Contrato</th>
                 <th>Cuota anual sin IVA</th>
                 <th>Total sin IVA</th>
+                {% if tiene_dto %}<th style="color:#16a34a;">T. con Desc. (sin IVA)</th>{% endif %}
             </tr>
         </thead>
         <tbody>
@@ -843,6 +869,18 @@
                 <td><strong>{{ item.anio }} año{% if item.anio > 1 %}s{% endif %}</strong></td>
                 <td>${{ "{:,.2f}".format(item.valor) }} MXP</td>
                 <td>${{ "{:,.2f}".format(item.acumulado) }} MXP</td>
+                {% if tiene_dto %}
+                <td>
+                    {% if item.acumulado_desc is not none %}
+                    <strong style="color:#16a34a;">${{ "{:,.2f}".format(item.acumulado_desc) }} MXP</strong>
+                    <br><span style="font-size:7.5pt;color:#64748b;">
+                        ({{ (descuento_pct * 100) | round(1) }}% dto.)
+                    </span>
+                    {% else %}
+                    <span style="color:#94a3b8;">—</span>
+                    {% endif %}
+                </td>
+                {% endif %}
             </tr>
             {% endfor %}
         </tbody>

@@ -5,6 +5,16 @@
         planta_id: '',
         tipo_poliza: 'premium',
         utilidad: {{ utilidad_default }},
+        tiene_descuento: false,
+        descuento_display: '',
+        descuento_anios: [],
+        get descuento_pct() { return this.descuento_display ? parseFloat(this.descuento_display) / 100 : 0; },
+        toggleAnio(anio) {
+            const idx = this.descuento_anios.indexOf(anio);
+            if (idx === -1) this.descuento_anios.push(anio);
+            else this.descuento_anios.splice(idx, 1);
+        },
+        anioActivo(anio) { return this.descuento_anios.includes(anio); },
         init() {
             this.plantas = JSON.parse(this.$el.dataset.plantas || '[]');
         },
@@ -175,6 +185,52 @@
                            class="w-full accent-blue-600">
                     <div class="flex justify-between text-xs text-gray-400 mt-1">
                         <span>0%</span><span>30%</span><span>60%</span>
+                    </div>
+                </div>
+
+                {# Descuento #}
+                <div class="border border-dashed border-gray-200 rounded-lg p-3 flex flex-col gap-3">
+                    <label class="flex items-center gap-2 cursor-pointer select-none">
+                        <input type="checkbox" x-model="tiene_descuento"
+                               @change="if (!tiene_descuento) { descuento_display = ''; descuento_anios = []; }"
+                               class="w-4 h-4 rounded accent-green-600">
+                        <span class="text-sm font-medium text-gray-600">Aplicar descuento</span>
+                    </label>
+
+                    {# Input oculto único — siempre refleja el valor correcto #}
+                    <input type="hidden" name="descuento_pct" :value="tiene_descuento ? descuento_pct : 0">
+
+                    <div x-show="tiene_descuento" x-transition class="flex flex-col gap-3">
+                        {# Porcentaje #}
+                        <div class="flex items-center gap-2">
+                            <label class="text-sm text-gray-600 w-24 flex-shrink-0">% Descuento</label>
+                            <input type="number" x-model="descuento_display"
+                                   min="0.1" max="99" step="0.1" placeholder="ej. 10"
+                                   inputmode="decimal"
+                                   class="w-28 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                            <span class="text-sm text-gray-400">%</span>
+                        </div>
+
+                        {# Años donde aplica #}
+                        <div>
+                            <p class="text-xs font-medium text-gray-500 mb-1.5">Aplica en:</p>
+                            <div class="flex gap-2">
+                                <template x-for="anio in [1, 3, 5]" :key="anio">
+                                    <label class="cursor-pointer">
+                                        <input type="checkbox" name="descuento_anios"
+                                               :value="anio"
+                                               :checked="anioActivo(anio)"
+                                               @change="toggleAnio(anio)"
+                                               class="sr-only peer">
+                                        <div class="px-3 py-1.5 text-xs font-semibold rounded-lg border-2 transition-colors duration-150
+                                                    peer-checked:border-green-500 peer-checked:bg-green-50 peer-checked:text-green-700
+                                                    border-gray-200 text-gray-500 hover:border-green-300"
+                                             x-text="anio + ' año' + (anio > 1 ? 's' : '')">
+                                        </div>
+                                    </label>
+                                </template>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

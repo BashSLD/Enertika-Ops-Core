@@ -30,6 +30,10 @@
             <input type="hidden" name="planta_id" value="{{ planta_id }}">
             <input type="hidden" name="tipo_poliza" value="{{ tipo_poliza }}">
             <input type="hidden" name="utilidad" value="{{ utilidad }}">
+            <input type="hidden" name="descuento_pct" value="{{ descuento_pct }}">
+            {% for anio in descuento_anios %}
+            <input type="hidden" name="descuento_anios" value="{{ anio }}">
+            {% endfor %}
 
             {# Solicitante (opcional) #}
             <div>

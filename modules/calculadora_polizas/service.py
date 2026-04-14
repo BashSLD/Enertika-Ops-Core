@@ -75,6 +75,21 @@ class CalculadoraService:
                 valor *= (1 + factor)
             anos.append(round(valor, 2))
 
+        # Descuento por duración de contrato
+        descuento_pct = float(req.descuento_pct or 0.0)
+        descuento_anios = list(req.descuento_anios or [])
+        descuento_factor = 1.0 - descuento_pct
+        descuento_monto = round(sub_total_utilidad * descuento_pct, 2)
+
+        def _con_dto(valor_base: float, aplica: bool) -> float:
+            return round(valor_base * descuento_factor, 2) if aplica and descuento_pct > 0 else valor_base
+
+        anio_1_desc = _con_dto(anos[0], 1 in descuento_anios)
+        anio_3_desc = _con_dto(anos[2], 3 in descuento_anios)
+        anio_5_desc = _con_dto(anos[4], 5 in descuento_anios)
+        acumulado_1_3_desc = _con_dto(round(sum(anos[:3]), 2), 3 in descuento_anios)
+        acumulado_1_5_desc = _con_dto(round(sum(anos), 2), 5 in descuento_anios)
+
         return CalcularResponse(
             planta_id=planta["id"],
             nombre_planta=planta["nombre"],
@@ -99,6 +114,14 @@ class CalculadoraService:
             acumulado_1_3=round(sum(anos[:3]), 2),
             acumulado_1_5=round(sum(anos), 2),
             nombre_wattabit=wattabit_tier["nombre"],
+            descuento_pct=descuento_pct,
+            descuento_anios=descuento_anios,
+            descuento_monto=descuento_monto,
+            anio_1_desc=anio_1_desc,
+            anio_3_desc=anio_3_desc,
+            anio_5_desc=anio_5_desc,
+            acumulado_1_3_desc=acumulado_1_3_desc,
+            acumulado_1_5_desc=acumulado_1_5_desc,
         )
 
     # ----------------------------------------
@@ -205,6 +228,8 @@ class CalculadoraService:
             "resultado_json": resultado.model_dump(),
             "creado_por": user_id,
             "solicitante_id": solicitante_id,
+            "descuento_pct": resultado.descuento_pct if resultado.descuento_pct > 0 else None,
+            "descuento_anios": resultado.descuento_anios if resultado.descuento_anios else None,
         })
         return str(cotizacion_id)
 
