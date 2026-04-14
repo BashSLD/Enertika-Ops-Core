@@ -370,13 +370,14 @@ async def update_cotizacion_estatus(
 @router.get("/partials/polizas-resumen", include_in_schema=False)
 async def polizas_resumen(
     request: Request,
+    estatus_filter: Optional[str] = Query(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG),
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
-    cotizaciones = await service.db.get_cotizaciones(conn, limit=20, offset=0)
+    cotizaciones = await service.db.get_cotizaciones(conn, limit=20, offset=0, estatus_filter=estatus_filter)
     resumen = await service.db.get_resumen_estatus(conn)
     return templates.TemplateResponse(
         request, f"{TPL}/partials/polizas_resumen.html",
@@ -384,6 +385,7 @@ async def polizas_resumen(
             **_base_ctx(context, mod_role),
             "cotizaciones": cotizaciones,
             "resumen": resumen,
+            "estatus_filter": estatus_filter,
         },
     )
 
