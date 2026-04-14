@@ -248,14 +248,13 @@
                                     htmx.ajax('GET',
                                         '/calculadora-polizas/cotizaciones/{{ c.id }}/aceptar-modal?estatus_filter={{ estatus_filter }}&page={{ page }}',
                                         { target: 'body', swap: 'beforeend' });
+                                } else {
+                                    htmx.ajax('PATCH',
+                                        '/calculadora-polizas/cotizaciones/{{ c.id }}/estatus',
+                                        { target: '#cotizaciones-container', swap: 'outerHTML',
+                                          values: { estatus: $event.target.value, estatus_filter: '{{ estatus_filter }}', page: {{ page }} } });
                                 }
                             "
-                            name="estatus"
-                            hx-patch="/calculadora-polizas/cotizaciones/{{ c.id }}/estatus"
-                            hx-trigger="change[event.target.value !== 'ACEPTADA']"
-                            hx-target="#cotizaciones-container"
-                            hx-swap="outerHTML"
-                            hx-vals='{"estatus_filter": "{{ estatus_filter }}", "page": {{ page }}}'
                             class="text-xs border border-gray-200 rounded-md px-1.5 py-1 bg-white focus:ring-1 focus:ring-blue-400 cursor-pointer min-w-[130px]">
                             <option value="CREADA"         {{ 'selected' if c.estatus == 'CREADA' }}>Creada</option>
                             <option value="ENVIADA"        {{ 'selected' if c.estatus == 'ENVIADA' }}>Enviada</option>
@@ -315,7 +314,7 @@
                             </svg>
                             Editar
                         </button>
-                        {% if c.estatus == 'ACEPTADA' %}
+                        {% if c.estatus == 'ACEPTADA' or (c.fecha_fin_poliza and (c.fecha_fin_poliza - fecha_hoy).days <= 90) %}
                         <button hx-get="/calculadora-polizas/cotizaciones/{{ c.id }}/renovar-modal"
                                 hx-target="body"
                                 hx-swap="beforeend"

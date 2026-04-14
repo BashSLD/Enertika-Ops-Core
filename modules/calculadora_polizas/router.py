@@ -359,6 +359,7 @@ async def update_cotizacion_estatus(
     page: int = Form(1),
     fecha_inicio_poliza: Optional[str] = Form(None),
     fecha_fin_poliza: Optional[str] = Form(None),
+    anios_contratados: Optional[int] = Form(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG, "editor"),
     conn=Depends(get_db_connection),
@@ -378,6 +379,7 @@ async def update_cotizacion_estatus(
         conn, uid, estatus, user_id,
         fecha_inicio=_parse_date(fecha_inicio_poliza),
         fecha_fin=_parse_date(fecha_fin_poliza),
+        anios_contratados=anios_contratados,
     )
     if not ok:
         raise HTTPException(404, "Cotizacion no encontrada")

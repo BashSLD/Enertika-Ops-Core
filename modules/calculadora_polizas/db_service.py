@@ -337,6 +337,7 @@ class CalculadoraDBService:
                    c.solicitante_id, c.descuento_pct, c.descuento_anios,
                    c.fecha_inicio_poliza, c.fecha_fin_poliza,
                    c.poliza_anterior_id, c.fecha_fin_poliza_anterior,
+                   c.anios_contratados,
                    ant.fecha_fin_poliza AS anterior_fecha_fin,
                    u.nombre AS creado_por_nombre,
                    s.nombre AS solicitante_nombre
@@ -391,14 +392,16 @@ class CalculadoraDBService:
         return result != "UPDATE 0"
 
     async def update_cotizacion_estatus(self, conn, cotizacion_id, estatus: str, user_id,
-                                        fecha_inicio=None, fecha_fin=None) -> bool:
+                                        fecha_inicio=None, fecha_fin=None,
+                                        anios_contratados=None) -> bool:
         result = await conn.execute("""
             UPDATE tb_calculadora_cotizaciones
             SET estatus              = $2,
                 estatus_updated_at   = NOW(),
                 estatus_updated_by   = $3,
                 fecha_inicio_poliza  = COALESCE($4, fecha_inicio_poliza),
-                fecha_fin_poliza     = COALESCE($5, fecha_fin_poliza)
+                fecha_fin_poliza     = COALESCE($5, fecha_fin_poliza),
+                anios_contratados    = COALESCE($6, anios_contratados)
             WHERE id = $1
-        """, cotizacion_id, estatus, user_id, fecha_inicio, fecha_fin)
+        """, cotizacion_id, estatus, user_id, fecha_inicio, fecha_fin, anios_contratados)
         return result != "UPDATE 0"

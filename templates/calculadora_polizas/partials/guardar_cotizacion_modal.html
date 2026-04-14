@@ -1,16 +1,6 @@
 <div id="modal-guardar-cotizacion"
      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-     x-data="{
-         cerrar() { document.getElementById('modal-guardar-cotizacion')?.remove(); },
-         tiene_vigencia: false,
-         es_renovacion: false,
-         init() {
-             if ('{{ fecha_fin_poliza_anterior }}') {
-                 this.tiene_vigencia = true;
-                 this.es_renovacion = true;
-             }
-         },
-     }"
+     x-data="{ cerrar() { document.getElementById('modal-guardar-cotizacion')?.remove(); } }"
      @keydown.escape.window="cerrar()">
 
     <div @click.away="cerrar()"
@@ -34,7 +24,7 @@
         <form id="form-guardar-cotizacion"
               hx-post="/calculadora-polizas/cotizaciones/guardar"
               hx-swap="none"
-              hx-on::after-request="if(event.detail.successful) document.getElementById('modal-guardar-cotizacion')?.remove()"
+              hx-on::after-request="if(event.detail.successful) { document.getElementById('modal-guardar-cotizacion')?.remove(); htmx.ajax('GET', '/calculadora-polizas/cotizaciones/ui', {target: '#main-content', swap: 'innerHTML'}); history.pushState({}, '', '/calculadora-polizas/cotizaciones/ui'); }"
               class="px-5 py-4 flex flex-col gap-4 flex-1 overflow-y-auto">
 
             <input type="hidden" name="planta_id" value="{{ planta_id }}">
@@ -64,48 +54,6 @@
                 <p class="text-xs text-gray-400 mt-1">
                     El usuario de Comercial que solicito esta poliza podra verla en su modulo.
                 </p>
-            </div>
-
-            {# Vigencia (opcional) #}
-            <div class="border border-dashed border-gray-200 rounded-lg p-3 flex flex-col gap-3">
-                <label class="flex items-center gap-2 cursor-pointer select-none">
-                    <input type="checkbox" x-model="tiene_vigencia"
-                           @change="if (!tiene_vigencia) { es_renovacion = false; }"
-                           class="w-4 h-4 rounded accent-blue-600">
-                    <span class="text-sm font-medium text-gray-600">Agregar fechas de vigencia</span>
-                </label>
-
-                <div x-show="tiene_vigencia" x-transition class="flex flex-col gap-3">
-                    <div class="grid grid-cols-2 gap-3">
-                        <div>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Inicio de poliza</label>
-                            <input type="date" name="fecha_inicio_poliza"
-                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-medium text-gray-500 mb-1">Fin de poliza</label>
-                            <input type="date" name="fecha_fin_poliza"
-                                   class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500">
-                        </div>
-                    </div>
-
-                    <label class="flex items-center gap-2 cursor-pointer select-none">
-                        <input type="checkbox" x-model="es_renovacion"
-                               class="w-4 h-4 rounded accent-teal-600">
-                        <span class="text-sm text-gray-600">Es renovacion de una poliza anterior</span>
-                    </label>
-
-                    <div x-show="es_renovacion" x-transition>
-                        <label class="block text-xs font-medium text-gray-500 mb-1">Vencimiento de la poliza anterior</label>
-                        <input type="date" name="fecha_fin_poliza_anterior"
-                               value="{{ fecha_fin_poliza_anterior }}"
-                               class="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-teal-500">
-                        <p class="text-xs text-gray-400 mt-1">
-                            Si la renovacion ocurre dentro de los 6 meses posteriores al vencimiento
-                            y la planta es instalacion Enertika, se incluira la Garantia de produccion en el PDF.
-                        </p>
-                    </div>
-                </div>
             </div>
 
         </form>
