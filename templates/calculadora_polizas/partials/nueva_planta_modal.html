@@ -1,0 +1,81 @@
+{# Modal Nueva Planta — cargado via HTMX desde OyM u otras vistas #}
+<div id="modal-nueva-planta-oym"
+     class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
+     x-data x-init="$el.scrollIntoView && $nextTick(() => {})">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90dvh]">
+        <div class="flex items-center justify-between p-5 border-b">
+            <h3 class="font-semibold text-gray-800">Nueva Planta</h3>
+            <button onclick="document.getElementById('modal-nueva-planta-oym').remove()"
+                    class="text-gray-400 hover:text-gray-600 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <form hx-post="/calculadora-polizas/plantas"
+              hx-target="#modal-nueva-planta-oym"
+              hx-swap="outerHTML"
+              class="p-5 flex flex-col gap-4 overflow-y-auto">
+            <input type="hidden" name="next" value="oym">
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">ID <span class="text-red-500">*</span></label>
+                    <input type="text" name="id" required placeholder="MX-01"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                           style="text-transform:uppercase">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Zona <span class="text-red-500">*</span></label>
+                    <select name="zona" required
+                            class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 bg-white">
+                        <option value="">-- Seleccionar --</option>
+                        {% for zona in zonas %}
+                        <option value="{{ zona }}">{{ zona }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Nombre <span class="text-red-500">*</span></label>
+                <input type="text" name="nombre" required placeholder="Nombre de la planta"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Cliente</label>
+                <input type="text" name="cliente" placeholder="Nombre del cliente o empresa"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Direccion del sitio</label>
+                <input type="text" name="direccion" placeholder="Calle, colonia, municipio"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Potencia (kWp)</label>
+                    <input type="number" name="potencia_kw" step="0.01" min="0" placeholder="0.00"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Num. paneles</label>
+                    <input type="number" name="num_paneles" min="0" placeholder="0"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
+                </div>
+            </div>
+            <label class="flex items-center gap-2.5 cursor-pointer select-none py-1">
+                <input type="checkbox" name="es_externa" value="true"
+                       class="w-4 h-4 rounded accent-amber-600">
+                <span class="text-sm text-gray-600">Planta externa (no instalada por Enertika)</span>
+            </label>
+            <div class="flex gap-2 pt-2">
+                <button type="button"
+                        onclick="document.getElementById('modal-nueva-planta-oym').remove()"
+                        class="flex-1 btn-secondary py-2 rounded-lg text-sm">Cancelar</button>
+                <button type="submit"
+                        class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg text-sm transition-colors">
+                    Guardar
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

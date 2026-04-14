@@ -18,6 +18,7 @@ Endpoints:
 - GET  /calculadora-polizas/cotizaciones/{id}/cambiar-estatus-resumen-modal — Todos los estatus (editor+ oym, desde resumen)
 - PATCH /calculadora-polizas/cotizaciones/{id}/estatus-resumen — Actualizar estatus y refrescar resumen (editor+ oym)
 - PUT  /calculadora-polizas/cotizaciones/{id}           — Guardar edicion recalculada (editor+)
+- GET  /calculadora-polizas/plantas/nueva-modal          — Modal nueva planta desde OyM (editor+)
 - GET  /calculadora-polizas/plantas/ui                  — CRUD plantas (editor+)
 - POST /calculadora-polizas/plantas/import-excel        — Import .xlsx (editor+)
 - POST /calculadora-polizas/plantas                     — Crear planta (editor+)
@@ -731,6 +732,22 @@ async def asignar_cotizacion(
 # PLANTAS — CRUD (editor+)
 # ============================================================
 
+@router.get("/plantas/nueva-modal", include_in_schema=False)
+async def nueva_planta_modal(
+    request: Request,
+    context=Depends(get_current_user_context),
+    _=require_module_access(SLUG, "editor"),
+    conn=Depends(get_db_connection),
+    service: CalculadoraService = Depends(get_service),
+):
+    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+    precios_zona = await service.db.get_precios_zona(conn)
+    return templates.TemplateResponse(
+        request, f"{TPL}/partials/nueva_planta_modal.html",
+        {**_base_ctx(context, mod_role), "zonas": sorted(precios_zona.keys())},
+    )
+
+
 @router.get("/plantas/ui", include_in_schema=False)
 async def plantas_ui(
     request: Request,
@@ -840,6 +857,7 @@ async def crear_planta(
     cliente: Optional[str] = Form(None),
     direccion: Optional[str] = Form(None),
     es_externa: Optional[str] = Form(None),
+    next: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG, "editor"),
     conn=Depends(get_db_connection),
@@ -864,6 +882,11 @@ async def crear_planta(
             request, "shared/toast.html",
             {"type": "error", "title": "Error", "message": "Error al crear la planta"},
             headers={"HX-Reswap": "none"},
+        )
+
+    if next == "oym":
+        return templates.TemplateResponse(
+            request, f"{TPL}/partials/nueva_planta_oym_ok.html", {},
         )
 
     plantas = await service.db.get_plantas_list(conn)

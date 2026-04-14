@@ -1,0 +1,5 @@
+{# Respuesta al crear planta desde OyM: cierra el modal + toast exito #}
+<span></span>
+{% with type="success", title="Planta creada", message="La planta fue registrada correctamente." %}
+{% include "shared/toast.html" %}
+{% endwith %}
