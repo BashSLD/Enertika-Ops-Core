@@ -200,12 +200,16 @@ async def root(
             # Lista de módulos válidos (actualizar al agregar nuevos módulos)
             VALID_MODULES = {
                 "comercial", "simulacion", "levantamientos", "proyectos",
-                "construccion", "compras", "oym", "admin", "ingenieria", "finanzas"
+                "construccion", "compras", "oym", "admin", "ingenieria", "finanzas",
+                "calculadora_polizas"
             }
             
             if slug not in VALID_MODULES:
                 return None
             
+            if slug == "calculadora_polizas":
+                return "/calculadora-polizas/ui"
+                
             return f"/{slug}/ui"
         
         # 4. Si tiene módulo preferido y tiene acceso, ir ahí
