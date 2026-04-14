@@ -93,9 +93,9 @@
                     <td class="px-4 py-3">
                         {% if puede_editar %}
                         <button type="button"
-                                hx-get="/calculadora-polizas/cotizaciones/{{ c.id }}/asignar-modal"
+                                hx-get="/calculadora-polizas/cotizaciones/{{ c.id }}/cambiar-estatus-resumen-modal"
                                 hx-target="body" hx-swap="beforeend"
-                                hx-on::before-request="document.getElementById('modal-asignar-cotizacion')?.remove()"
+                                hx-on::before-request="document.getElementById('modal-cambiar-estatus-resumen')?.remove()"
                                 class="font-medium text-gray-800 hover:text-blue-600 hover:underline underline-offset-2 text-left transition-colors">
                             {{ c.nombre_planta }}
                         </button>

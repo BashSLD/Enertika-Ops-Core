@@ -11,7 +11,12 @@ Endpoints:
 - PATCH /calculadora-polizas/cotizaciones/{id}/estatus  — Actualizar estatus (editor+ oym)
 - GET  /calculadora-polizas/cotizaciones/{id}/asignar-modal — Decision ACEPTADA/RECHAZADA (editor+ comercial)
 - PATCH /calculadora-polizas/cotizaciones/{id}/asignar  — Guardar decision + email creador (editor+ comercial)
-- GET  /calculadora-polizas/cotizaciones/{id}/editar-modal — Modal edicion (editor+ oym)
+- GET  /calculadora-polizas/cotizaciones/{id}/editar-modal  — Modal edicion (editor+ oym)
+- GET  /calculadora-polizas/cotizaciones/{id}/renovar-modal — Modal renovacion (editor+ oym)
+- GET  /calculadora-polizas/cotizaciones/{id}/aceptar-modal — Modal fechas al aceptar (editor+ oym)
+- GET  /calculadora-polizas/cotizaciones/{id}/info-modal    — Modal informativo (viewer+ oym)
+- GET  /calculadora-polizas/cotizaciones/{id}/cambiar-estatus-resumen-modal — Todos los estatus (editor+ oym, desde resumen)
+- PATCH /calculadora-polizas/cotizaciones/{id}/estatus-resumen — Actualizar estatus y refrescar resumen (editor+ oym)
 - PUT  /calculadora-polizas/cotizaciones/{id}           — Guardar edicion recalculada (editor+)
 - GET  /calculadora-polizas/plantas/ui                  — CRUD plantas (editor+)
 - POST /calculadora-polizas/plantas/import-excel        — Import .xlsx (editor+)
@@ -30,7 +35,7 @@ from typing import Optional, List
 from uuid import UUID
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, date
 import pytz
 
 from core.database import get_db_connection
@@ -38,7 +43,7 @@ from core.security import get_current_user_context
 from core.permissions import require_module_access, require_manager_access, user_has_module_access
 from core.config import settings
 
-from .service import CalculadoraService, get_service
+from .service import CalculadoraService, get_service, tiene_garantia_produccion
 from .schemas import CalcularRequest, EstatusCotizacion
 from core.pdf_service.service import get_pdf_service, PDFService
 
@@ -184,6 +189,7 @@ async def guardar_modal(
     utilidad: float = Query(0.30),
     descuento_pct: float = Query(0.0),
     descuento_anios: str = Query(""),   # lista como "3,5" o "" si no aplica
+    fecha_fin_poliza_anterior: str = Query(""),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG),
     conn=Depends(get_db_connection),
@@ -202,6 +208,7 @@ async def guardar_modal(
             "descuento_pct": descuento_pct,
             "descuento_anios": anios_list,
             "usuarios_comercial": usuarios_comercial,
+            "fecha_fin_poliza_anterior": fecha_fin_poliza_anterior,
         },
     )
 
@@ -215,6 +222,10 @@ async def guardar_cotizacion(
     descuento_pct: float = Form(0.0),
     descuento_anios: List[int] = Form(default=[]),
     solicitante_id: Optional[str] = Form(None),
+    fecha_inicio_poliza: Optional[str] = Form(None),
+    fecha_fin_poliza: Optional[str] = Form(None),
+    poliza_anterior_id: Optional[str] = Form(None),
+    fecha_fin_poliza_anterior: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG),
     conn=Depends(get_db_connection),
@@ -227,13 +238,35 @@ async def guardar_cotizacion(
             sol_id = UUID(solicitante_id)
         except ValueError:
             pass
+
+    anterior_id = None
+    if poliza_anterior_id and poliza_anterior_id.strip():
+        try:
+            anterior_id = UUID(poliza_anterior_id)
+        except ValueError:
+            pass
+
+    def _parse_date(val: Optional[str]) -> Optional[date]:
+        if not val or not val.strip():
+            return None
+        try:
+            return date.fromisoformat(val.strip())
+        except ValueError:
+            return None
+
     try:
         req = CalcularRequest(
             planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
             descuento_pct=descuento_pct, descuento_anios=descuento_anios,
         )
         resultado = await service.calcular(conn, req)
-        await service.guardar_cotizacion(conn, resultado, user_id, solicitante_id=sol_id)
+        await service.guardar_cotizacion(
+            conn, resultado, user_id, solicitante_id=sol_id,
+            fecha_inicio_poliza=_parse_date(fecha_inicio_poliza),
+            fecha_fin_poliza=_parse_date(fecha_fin_poliza),
+            poliza_anterior_id=anterior_id,
+            fecha_fin_poliza_anterior=_parse_date(fecha_fin_poliza_anterior),
+        )
     except ValueError as exc:
         return templates.TemplateResponse(
             request, "shared/toast.html",
@@ -270,6 +303,7 @@ async def _build_cotizaciones_ctx(context, conn, service, page: int,
         "pages": max(1, -(-total // per_page)),
         "estatus_filter": estatus_filter or "",
         "resumen": resumen,
+        "fecha_hoy": date.today(),
     }
 
 
@@ -296,14 +330,28 @@ async def update_cotizacion_estatus(
     estatus: EstatusCotizacion = Form(...),
     estatus_filter: str = Form(""),
     page: int = Form(1),
+    fecha_inicio_poliza: Optional[str] = Form(None),
+    fecha_fin_poliza: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG, "editor"),
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
+    def _parse_date(val: Optional[str]) -> Optional[date]:
+        if not val:
+            return None
+        try:
+            return date.fromisoformat(val.strip())
+        except ValueError:
+            return None
+
     uid = _parse_cotizacion_id(cotizacion_id)
     user_id = context.get("user_db_id")
-    ok = await service.db.update_cotizacion_estatus(conn, uid, estatus, user_id)
+    ok = await service.db.update_cotizacion_estatus(
+        conn, uid, estatus, user_id,
+        fecha_inicio=_parse_date(fecha_inicio_poliza),
+        fecha_fin=_parse_date(fecha_fin_poliza),
+    )
     if not ok:
         raise HTTPException(404, "Cotizacion no encontrada")
 
@@ -324,6 +372,63 @@ async def polizas_resumen(
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
+    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+    cotizaciones = await service.db.get_cotizaciones(conn, limit=20, offset=0)
+    resumen = await service.db.get_resumen_estatus(conn)
+    return templates.TemplateResponse(
+        request, f"{TPL}/partials/polizas_resumen.html",
+        {
+            **_base_ctx(context, mod_role),
+            "cotizaciones": cotizaciones,
+            "resumen": resumen,
+        },
+    )
+
+
+# ============================================================
+# CAMBIAR ESTATUS DESDE RESUMEN OYM (todos los estatus)
+# ============================================================
+
+@router.get("/cotizaciones/{cotizacion_id}/cambiar-estatus-resumen-modal", include_in_schema=False)
+async def cambiar_estatus_resumen_modal(
+    request: Request,
+    cotizacion_id: str,
+    context=Depends(get_current_user_context),
+    _=require_module_access(SLUG, "editor"),
+    conn=Depends(get_db_connection),
+    service: CalculadoraService = Depends(get_service),
+):
+    uid = _parse_cotizacion_id(cotizacion_id)
+    cotizacion = await service.db.get_cotizacion_by_id(conn, uid)
+    if not cotizacion:
+        raise HTTPException(404, "Cotizacion no encontrada")
+
+    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+    return templates.TemplateResponse(
+        request, f"{TPL}/partials/cambiar_estatus_resumen_modal.html",
+        {
+            **_base_ctx(context, mod_role),
+            "cotizacion": cotizacion,
+        },
+    )
+
+
+@router.patch("/cotizaciones/{cotizacion_id}/estatus-resumen", include_in_schema=False)
+async def update_estatus_resumen(
+    request: Request,
+    cotizacion_id: str,
+    estatus: EstatusCotizacion = Form(...),
+    context=Depends(get_current_user_context),
+    _=require_module_access(SLUG, "editor"),
+    conn=Depends(get_db_connection),
+    service: CalculadoraService = Depends(get_service),
+):
+    uid = _parse_cotizacion_id(cotizacion_id)
+    user_id = context.get("user_db_id")
+    ok = await service.db.update_cotizacion_estatus(conn, uid, estatus, user_id)
+    if not ok:
+        raise HTTPException(404, "Cotizacion no encontrada")
+
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     cotizaciones = await service.db.get_cotizaciones(conn, limit=20, offset=0)
     resumen = await service.db.get_resumen_estatus(conn)
@@ -433,6 +538,10 @@ async def update_cotizacion(
     descuento_pct: float = Form(0.0),
     descuento_anios: List[int] = Form(default=[]),
     solicitante_id: Optional[str] = Form(None),
+    fecha_inicio_poliza: Optional[str] = Form(None),
+    fecha_fin_poliza: Optional[str] = Form(None),
+    poliza_anterior_id: Optional[str] = Form(None),
+    fecha_fin_poliza_anterior: Optional[str] = Form(None),
     estatus_filter: str = Form(""),
     page: int = Form(1),
     context=Depends(get_current_user_context),
@@ -448,6 +557,21 @@ async def update_cotizacion(
             sol_id = UUID(solicitante_id)
         except ValueError:
             pass
+
+    anterior_id = None
+    if poliza_anterior_id and poliza_anterior_id.strip():
+        try:
+            anterior_id = UUID(poliza_anterior_id)
+        except ValueError:
+            pass
+
+    def _parse_date(val: Optional[str]) -> Optional[date]:
+        if not val or not val.strip():
+            return None
+        try:
+            return date.fromisoformat(val.strip())
+        except ValueError:
+            return None
 
     try:
         req = CalcularRequest(
@@ -474,6 +598,10 @@ async def update_cotizacion(
         "solicitante_id": sol_id,
         "descuento_pct": resultado.descuento_pct if resultado.descuento_pct > 0 else None,
         "descuento_anios": resultado.descuento_anios if resultado.descuento_anios else None,
+        "fecha_inicio_poliza": _parse_date(fecha_inicio_poliza),
+        "fecha_fin_poliza": _parse_date(fecha_fin_poliza),
+        "poliza_anterior_id": anterior_id,
+        "fecha_fin_poliza_anterior": _parse_date(fecha_fin_poliza_anterior),
     })
     if not ok:
         raise HTTPException(404, "Cotizacion no encontrada")
@@ -636,6 +764,7 @@ async def crear_planta(
     num_paneles: Optional[int] = Form(None),
     cliente: Optional[str] = Form(None),
     direccion: Optional[str] = Form(None),
+    es_externa: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG, "editor"),
     conn=Depends(get_db_connection),
@@ -651,6 +780,7 @@ async def crear_planta(
             "num_paneles": num_paneles,
             "cliente": cliente.strip() if cliente else None,
             "direccion": direccion.strip() if direccion else None,
+            "es_externa": es_externa == "true",
             "activa": True,
         })
     except Exception as exc:
@@ -825,6 +955,94 @@ async def update_costo_fijo(
 
 
 # ============================================================
+# RENOVAR PÓLIZA (editor+)
+# ============================================================
+
+@router.get("/cotizaciones/{cotizacion_id}/renovar-modal", include_in_schema=False)
+async def renovar_cotizacion_modal(
+    request: Request,
+    cotizacion_id: str,
+    context=Depends(get_current_user_context),
+    _=require_module_access(SLUG, "editor"),
+    conn=Depends(get_db_connection),
+    service: CalculadoraService = Depends(get_service),
+):
+    uid = _parse_cotizacion_id(cotizacion_id)
+    cotizacion = await service.db.get_cotizacion_by_id(conn, uid)
+    if not cotizacion:
+        raise HTTPException(404, "Cotizacion no encontrada")
+
+    plantas_db = await service.db.get_plantas_dropdown(conn)
+    plantas = _plantas_for_template(plantas_db)
+    usuarios_comercial = await service.db.get_usuarios_comercial(conn)
+    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+
+    return templates.TemplateResponse(
+        request, f"{TPL}/partials/renovar_cotizacion_modal.html",
+        {
+            **_base_ctx(context, mod_role),
+            "cotizacion": cotizacion,
+            "plantas": plantas,
+            "usuarios_comercial": usuarios_comercial,
+            "fecha_hoy": date.today().isoformat(),
+        },
+    )
+
+
+@router.get("/cotizaciones/{cotizacion_id}/aceptar-modal", include_in_schema=False)
+async def aceptar_cotizacion_modal(
+    request: Request,
+    cotizacion_id: str,
+    estatus_filter: str = Query(""),
+    page: int = Query(1),
+    context=Depends(get_current_user_context),
+    _=require_module_access(SLUG, "editor"),
+    conn=Depends(get_db_connection),
+    service: CalculadoraService = Depends(get_service),
+):
+    uid = _parse_cotizacion_id(cotizacion_id)
+    cotizacion = await service.db.get_cotizacion_by_id(conn, uid)
+    if not cotizacion:
+        raise HTTPException(404, "Cotizacion no encontrada")
+    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+    return templates.TemplateResponse(
+        request, f"{TPL}/partials/aceptar_cotizacion_modal.html",
+        {
+            **_base_ctx(context, mod_role),
+            "cotizacion": cotizacion,
+            "cotizacion_id": str(uid),
+            "estatus_filter": estatus_filter,
+            "page": page,
+            "fecha_hoy": date.today().isoformat(),
+        },
+    )
+
+
+@router.get("/cotizaciones/{cotizacion_id}/info-modal", include_in_schema=False)
+async def cotizacion_info_modal(
+    request: Request,
+    cotizacion_id: str,
+    context=Depends(get_current_user_context),
+    _=require_module_access(SLUG),
+    conn=Depends(get_db_connection),
+    service: CalculadoraService = Depends(get_service),
+):
+    uid = _parse_cotizacion_id(cotizacion_id)
+    cotizacion = await service.db.get_cotizacion_by_id(conn, uid)
+    if not cotizacion:
+        raise HTTPException(404, "Cotizacion no encontrada")
+    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+    return templates.TemplateResponse(
+        request, f"{TPL}/partials/cotizacion_info_modal.html",
+        {
+            **_base_ctx(context, mod_role),
+            "cotizacion": cotizacion,
+            "fecha_hoy": date.today(),
+        },
+    )
+
+
+# ============================================================
 # PDF — PROPUESTA DE PÓLIZA
 # ============================================================
 
@@ -850,6 +1068,19 @@ async def descargar_pdf_poliza(
     planta = None
     if cotizacion.get("planta_id"):
         planta = await service.db.get_planta_by_id(conn, cotizacion["planta_id"])
+
+    # Garantía de producción: resolver fecha_fin anterior
+    es_externa = bool(planta.get("es_externa")) if planta else False
+    fecha_fin_ant = (
+        cotizacion.get("anterior_fecha_fin")   # del JOIN con póliza anterior en sistema
+        or cotizacion.get("fecha_fin_poliza_anterior")  # entrada manual
+    )
+    garantia_produccion = tiene_garantia_produccion(
+        tipo_poliza=cotizacion.get("tipo_poliza", ""),
+        es_externa=es_externa,
+        fecha_inicio=cotizacion.get("fecha_inicio_poliza"),
+        fecha_fin_anterior=fecha_fin_ant,
+    )
 
     tz = pytz.timezone("America/Mexico_City")
     _dt = cotizacion["created_at"].astimezone(tz) if cotizacion.get("created_at") else datetime.now(tz)
@@ -902,6 +1133,7 @@ async def descargar_pdf_poliza(
         "descuento_pct": descuento_pct,
         "descuento_anios": descuento_anios,
         "descuento_monto": resultado.get("descuento_monto", 0.0),
+        "garantia_produccion": garantia_produccion,
     }
 
     pdf_bytes = await pdf_service.generate("poliza_oym.html", ctx)
