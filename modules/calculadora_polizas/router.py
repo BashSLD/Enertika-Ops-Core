@@ -8,8 +8,10 @@ Endpoints:
 - POST /calculadora-polizas/api/calcular                — HTMX → resultado.html
 - POST /calculadora-polizas/cotizaciones/guardar        — Guarda cotización
 - GET  /calculadora-polizas/cotizaciones/ui             — Polizas Generadas
-- PATCH /calculadora-polizas/cotizaciones/{id}/estatus  — Actualizar estatus (editor+)
-- GET  /calculadora-polizas/cotizaciones/{id}/editar-modal — Modal edicion (editor+)
+- PATCH /calculadora-polizas/cotizaciones/{id}/estatus  — Actualizar estatus (editor+ oym)
+- GET  /calculadora-polizas/cotizaciones/{id}/asignar-modal — Decision ACEPTADA/RECHAZADA (editor+ comercial)
+- PATCH /calculadora-polizas/cotizaciones/{id}/asignar  — Guardar decision + email creador (editor+ comercial)
+- GET  /calculadora-polizas/cotizaciones/{id}/editar-modal — Modal edicion (editor+ oym)
 - PUT  /calculadora-polizas/cotizaciones/{id}           — Guardar edicion recalculada (editor+)
 - GET  /calculadora-polizas/plantas/ui                  — CRUD plantas (editor+)
 - POST /calculadora-polizas/plantas/import-excel        — Import .xlsx (editor+)
@@ -460,15 +462,17 @@ async def update_cotizacion(
 
 
 # ============================================================
-# ASIGNAR SOLICITANTE + ESTATUS (desde Comercial, editor+)
+# DECISION ACEPTADA/RECHAZADA (desde Comercial, editor+)
 # ============================================================
 
 @router.get("/cotizaciones/{cotizacion_id}/asignar-modal", include_in_schema=False)
 async def asignar_modal(
     request: Request,
     cotizacion_id: str,
+    page: int = Query(1, ge=1),
+    estatus_filter: str = Query(""),
     context=Depends(get_current_user_context),
-    _=require_module_access(SLUG, "editor"),
+    _=require_module_access("comercial", "editor"),
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
@@ -477,14 +481,14 @@ async def asignar_modal(
     if not cotizacion:
         raise HTTPException(404, "Cotizacion no encontrada")
 
-    usuarios_comercial = await service.db.get_usuarios_comercial(conn)
-    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+    comercial_role = context.get("module_roles", {}).get("comercial", "viewer")
     return templates.TemplateResponse(
         request, f"{TPL}/partials/asignar_cotizacion_modal.html",
         {
-            **_base_ctx(context, mod_role),
+            **_base_ctx(context, comercial_role),
             "cotizacion": cotizacion,
-            "usuarios_comercial": usuarios_comercial,
+            "page": page,
+            "estatus_filter": estatus_filter,
         },
     )
 
@@ -493,35 +497,80 @@ async def asignar_modal(
 async def asignar_cotizacion(
     request: Request,
     cotizacion_id: str,
-    solicitante_id: Optional[str] = Form(None),
-    estatus: EstatusCotizacion = Form(...),
+    estatus: str = Form(...),
+    page: int = Form(1),
+    estatus_filter: str = Form(""),
     context=Depends(get_current_user_context),
-    _=require_module_access(SLUG, "editor"),
+    _=require_module_access("comercial", "editor"),
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
+    from core.workflow.notification_service import NotificationService
+
+    if estatus not in {"ACEPTADA", "RECHAZADA"}:
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"type": "error", "title": "Error", "message": "Solo se permite Aceptada o Rechazada"},
+            headers={"HX-Reswap": "none"},
+        )
+
     uid = _parse_cotizacion_id(cotizacion_id)
-    sol_id = None
-    if solicitante_id and solicitante_id.strip():
-        try:
-            sol_id = UUID(solicitante_id)
-        except ValueError:
-            pass
+    cotizacion = await service.db.get_cotizacion_by_id(conn, uid)
+    if not cotizacion:
+        raise HTTPException(404, "Cotizacion no encontrada")
 
     user_id = context.get("user_db_id")
-    ok = await service.db.update_cotizacion_asignacion(conn, uid, sol_id, estatus, user_id)
+    ok = await service.db.update_cotizacion_estatus(conn, uid, estatus, user_id)
     if not ok:
         raise HTTPException(404, "Cotizacion no encontrada")
 
-    mod_role = context.get("module_roles", {}).get("oym", "viewer")
-    cotizaciones = await service.db.get_cotizaciones(conn, limit=20, offset=0)
-    resumen = await service.db.get_resumen_estatus(conn)
+    # Notificar al creador por email (fire-and-forget)
+    cotizacion_actualizada = {**cotizacion, "estatus": estatus}
+    try:
+        notif = NotificationService()
+        await notif.notify_poliza_estatus_change(
+            conn=conn,
+            cotizacion_id=uid,
+            cotizacion=cotizacion_actualizada,
+            nuevo_estatus=estatus,
+            changed_by_ctx=context,
+        )
+    except Exception as e:
+        logger.error(f"[ASIGNAR] Error al notificar poliza {uid}: {e}", exc_info=True)
+
+    # Reconstruir el listado del tab de Comercial con los mismos filtros activos
+    role = context.get("role", "USER")
+    es_admin_o_manager = role in ("ADMIN", "MANAGER")
+    es_admin_modulo = user_has_module_access("comercial", context, "admin")
+    ver_todas = es_admin_o_manager or es_admin_modulo
+
+    per_page = 50
+    offset = (page - 1) * per_page
+    ef = estatus_filter or None
+
+    cotizaciones = await service.db.get_cotizaciones_comercial(
+        conn, limit=per_page, offset=offset,
+        ver_todas=ver_todas, user_id=user_id, estatus_filter=ef,
+    )
+    total = await service.db.count_cotizaciones_comercial(
+        conn, ver_todas=ver_todas, user_id=user_id, estatus_filter=ef,
+    )
+
+    comercial_role = context.get("module_roles", {}).get("comercial", "viewer")
     return templates.TemplateResponse(
-        request, f"{TPL}/partials/polizas_resumen.html",
+        request, "comercial/partials/polizas_tab.html",
         {
-            **_base_ctx(context, mod_role),
+            "user_name": context.get("user_name"),
+            "role": role,
+            "module_roles": context.get("module_roles", {}),
+            "current_module_role": comercial_role,
             "cotizaciones": cotizaciones,
-            "resumen": resumen,
+            "total": total,
+            "page": page,
+            "per_page": per_page,
+            "pages": max(1, -(-total // per_page)),
+            "estatus_filter": estatus_filter,
+            "ver_todas": ver_todas,
         },
     )
 

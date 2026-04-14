@@ -12,7 +12,7 @@
         {# Header #}
         <div class="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
             <div>
-                <h3 class="font-semibold text-gray-800 text-base">Actualizar poliza</h3>
+                <h3 class="font-semibold text-gray-800 text-base">Actualizar estatus de poliza</h3>
                 <p class="text-xs text-gray-400 mt-0.5 truncate max-w-xs">{{ cotizacion.nombre_planta }}</p>
             </div>
             <button @click="cerrar()"
@@ -26,38 +26,52 @@
         {# Formulario #}
         <form id="form-asignar-cotizacion"
               hx-patch="/calculadora-polizas/cotizaciones/{{ cotizacion.id }}/asignar"
-              hx-target="#polizas-tab-content"
-              hx-swap="innerHTML"
+              hx-target="#polizas-comercial-container"
+              hx-swap="outerHTML"
               hx-indicator="#asignar-spinner"
               hx-on::after-request="if(event.detail.successful) document.getElementById('modal-asignar-cotizacion')?.remove()"
               class="px-5 py-4 flex flex-col gap-4">
 
-            {# Solicitante #}
-            <div>
-                <label class="block text-sm font-medium text-gray-600 mb-1">
-                    Solicitante Comercial
-                    <span class="text-gray-400 font-normal">(opcional)</span>
-                </label>
-                <select name="solicitante_id"
-                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
-                    <option value="">-- Sin asignar --</option>
-                    {% for u in usuarios_comercial %}
-                    <option value="{{ u.id }}" {{ 'selected' if cotizacion.solicitante_id and cotizacion.solicitante_id | string == u.id | string else '' }}>
-                        {{ u.nombre }}
-                    </option>
-                    {% endfor %}
-                </select>
+            {# Campos ocultos para reconstruir el listado #}
+            <input type="hidden" name="page" value="{{ page }}">
+            <input type="hidden" name="estatus_filter" value="{{ estatus_filter }}">
+
+            {# Estatus actual (informativo) #}
+            <div class="flex items-center gap-2 text-sm text-gray-500">
+                <span class="font-medium text-gray-600">Estatus actual:</span>
+                {% set ec = cotizacion.estatus %}
+                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium
+                    {{ 'bg-gray-100 text-gray-600' if ec == 'CREADA' else
+                       'bg-blue-100 text-blue-700' if ec == 'ENVIADA' else
+                       'bg-amber-100 text-amber-700' if ec == 'EN_NEGOCIACION' else
+                       'bg-green-100 text-green-700' if ec == 'ACEPTADA' else
+                       'bg-red-100 text-red-700' if ec == 'RECHAZADA' else
+                       'bg-stone-100 text-stone-500' }}">
+                    {{ 'Creada' if ec == 'CREADA' else
+                       'Enviada' if ec == 'ENVIADA' else
+                       'En Negociacion' if ec == 'EN_NEGOCIACION' else
+                       'Aceptada' if ec == 'ACEPTADA' else
+                       'Rechazada' if ec == 'RECHAZADA' else
+                       'Vencida' if ec == 'VENCIDA' else ec }}
+                </span>
             </div>
 
-            {# Estatus #}
+            {# Nuevo estatus #}
             <div>
-                <label class="block text-sm font-medium text-gray-600 mb-1">Estatus</label>
-                <select name="estatus"
+                <label class="block text-sm font-medium text-gray-600 mb-1">Nueva decision</label>
+                <select name="estatus" required
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
-                    {% for val, label in [('CREADA','Creada'),('ENVIADA','Enviada'),('EN_NEGOCIACION','En Negociacion'),('ACEPTADA','Aceptada'),('RECHAZADA','Rechazada'),('VENCIDA','Vencida')] %}
-                    <option value="{{ val }}" {{ 'selected' if cotizacion.estatus == val else '' }}>{{ label }}</option>
-                    {% endfor %}
+                    <option value="">-- Seleccionar --</option>
+                    <option value="ACEPTADA" {{ 'selected' if cotizacion.estatus == 'ACEPTADA' else '' }}>
+                        Aceptada
+                    </option>
+                    <option value="RECHAZADA" {{ 'selected' if cotizacion.estatus == 'RECHAZADA' else '' }}>
+                        Rechazada
+                    </option>
                 </select>
+                <p class="mt-1 text-xs text-gray-400">
+                    Se notificara al creador de la cotizacion por correo.
+                </p>
             </div>
 
         </form>
@@ -76,7 +90,7 @@
                         <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                     </svg>
                 </span>
-                Guardar cambios
+                Guardar decision
             </button>
         </div>
 

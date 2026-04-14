@@ -420,6 +420,69 @@ class NotificationService:
         except Exception as e:
             logger.error(f"[NOTIFY] Error inesperado en notify_opportunity_won {id_oportunidad}: {e}", exc_info=True)
 
+    async def notify_poliza_estatus_change(
+        self,
+        conn,
+        cotizacion_id,
+        cotizacion: dict,
+        nuevo_estatus: str,
+        changed_by_ctx: dict,
+    ):
+        """
+        Notifica cambio de estatus de poliza OyM al creador de la cotizacion.
+
+        Args:
+            conn: Conexion a base de datos
+            cotizacion_id: ID de la cotizacion (solo para logs)
+            cotizacion: Dict con datos de la cotizacion (creado_por, nombre_planta, etc.)
+            nuevo_estatus: 'ACEPTADA' o 'RECHAZADA'
+            changed_by_ctx: Contexto del usuario que realizo el cambio
+
+        TO: Creador de la cotizacion
+        CC: Correos configurados en tb_config_emails con trigger_value='CAMBIO_ESTATUS'
+        """
+        try:
+            creado_por = cotizacion.get("creado_por")
+            if not creado_por:
+                logger.warning(f"[NOTIFY] Poliza {cotizacion_id} sin creado_por — email no enviado")
+                return
+
+            creator = await conn.fetchrow(
+                "SELECT nombre, email FROM tb_usuarios WHERE id_usuario = $1",
+                creado_por,
+            )
+            if not creator or not creator["email"]:
+                logger.warning(f"[NOTIFY] Creador de poliza {cotizacion_id} sin email")
+                return
+
+            to_emails = {creator["email"]}
+            cc_emails = await self._get_cc_emails(conn, "CAMBIO_ESTATUS")
+
+            html = self._render_template(
+                "shared/emails/workflow/poliza_estatus_changed.html",
+                {
+                    "cotizacion": cotizacion,
+                    "nuevo_estatus": nuevo_estatus,
+                    "changed_by": changed_by_ctx.get("user_name", "Usuario"),
+                    "base_url": settings.APP_BASE_URL,
+                },
+            )
+
+            label = "Aceptada" if nuevo_estatus == "ACEPTADA" else "Rechazada"
+            subject = f"Poliza OyM {label}: {cotizacion.get('nombre_planta', '')}"
+
+            sender_config = await self._get_notification_sender(conn, "DEFAULT")
+            await self._send_email(to_emails, cc_emails, subject, html, sender_config["email"])
+
+            logger.info(f"[NOTIFY] Poliza {cotizacion_id} — estatus {nuevo_estatus} notificado a {creator['email'][:3]}***")
+
+        except asyncpg.PostgresError as e:
+            logger.error(f"[NOTIFY] Error BD en notify_poliza_estatus_change {cotizacion_id}: {e}", exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error(f"[NOTIFY] Error red/Graph API en notify_poliza_estatus_change {cotizacion_id}: {e}", exc_info=True)
+        except KeyError as e:
+            logger.error(f"[NOTIFY] Error datos faltantes en notify_poliza_estatus_change {cotizacion_id}: campo {e}", exc_info=True)
+
     # ===== MÉTODOS PRIVADOS =====
 
     async def _get_opportunity(self, conn, id_oportunidad: UUID) -> dict:

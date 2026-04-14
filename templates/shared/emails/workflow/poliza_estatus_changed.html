@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="es">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Decision sobre Poliza OyM</title>
+</head>
+
+<body
+    style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4; color: #333333;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <!-- Container Principal -->
+                <table width="600" cellpadding="0" cellspacing="0"
+                    style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+
+                    <!-- Header -->
+                    <tr>
+                        <td
+                            style="background-color: #123456; background: linear-gradient(135deg, #123456 0%, #00BABB 100%); padding: 30px 40px; text-align: center;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">
+                                Decision sobre Poliza O&amp;M
+                            </h1>
+                            <p style="margin: 10px 0 0 0; color: #E0F7F7; font-size: 14px;">
+                                El equipo comercial emitio una decision sobre tu cotizacion
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Contenido Principal -->
+                    <tr>
+                        <td style="padding: 40px;">
+
+                            <p style="margin: 0 0 30px 0; color: #666666; font-size: 15px; line-height: 1.6;">
+                                Se ha registrado una decision sobre la siguiente cotizacion de poliza OyM:
+                            </p>
+
+                            <!-- Card de Cotizacion -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #f9f9f9; border-left: 4px solid #00BABB; border-radius: 4px; margin-bottom: 30px;">
+                                <tr>
+                                    <td style="padding: 20px;">
+                                        <table width="100%" cellpadding="8" cellspacing="0">
+                                            <tr>
+                                                <td width="140"
+                                                    style="color: #123456; font-weight: 600; font-size: 14px; vertical-align: top;">
+                                                    Planta:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px; font-weight: 600;">
+                                                    {{ cotizacion.nombre_planta }}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    style="color: #123456; font-weight: 600; font-size: 14px; vertical-align: top;">
+                                                    Tipo de poliza:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px; text-transform: capitalize;">
+                                                    {{ cotizacion.tipo_poliza }}
+                                                </td>
+                                            </tr>
+                                            <tr>
+                                                <td
+                                                    style="color: #123456; font-weight: 600; font-size: 14px; vertical-align: top;">
+                                                    Total c/IVA:
+                                                </td>
+                                                <td style="color: #333333; font-size: 14px; font-weight: 700;">
+                                                    ${{ "{:,.2f}".format(cotizacion.total_final) }} MXN
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Decision Visual -->
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="border-radius: 6px; padding: 20px; margin-bottom: 30px;
+                                       background-color: {{ '#E8F5E9' if nuevo_estatus == 'ACEPTADA' else '#FFEBEE' }};">
+                                <tr>
+                                    <td align="center">
+                                        <div style="font-size: 13px; color: #666666; margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.5px;">
+                                            Decision
+                                        </div>
+                                        <div style="display: inline-block; padding: 12px 32px; border-radius: 24px; font-size: 18px; font-weight: 700;
+                                                    background-color: {{ '#2E7D32' if nuevo_estatus == 'ACEPTADA' else '#C62828' }};
+                                                    color: #ffffff;">
+                                            {{ 'Aceptada' if nuevo_estatus == 'ACEPTADA' else 'Rechazada' }}
+                                        </div>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Quien cambio -->
+                            <table width="100%" cellpadding="12" cellspacing="0" style="border-top: 1px solid #e0e0e0;">
+                                <tr>
+                                    <td style="color: #123456; font-weight: 600; font-size: 14px; width: 140px;">
+                                        Decision tomada por:
+                                    </td>
+                                    <td style="color: #666666; font-size: 14px;">
+                                        {{ changed_by }}
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- CTA -->
+                            <table width="100%" cellpadding="0" cellspacing="0" style="margin: 30px 0;">
+                                <tr>
+                                    <td align="center">
+                                        <a href="{{ base_url }}/comercial/ui?tab=polizas-oym"
+                                            style="display: inline-block; background-color: #00BABB; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-size: 15px; font-weight: 600; box-shadow: 0 2px 4px rgba(0,186,187,0.3);">
+                                            Ver polizas OyM
+                                        </a>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p
+                                style="margin: 30px 0 0 0; color: #666666; font-size: 14px; line-height: 1.6; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+                                Te notificamos porque eres el creador de esta cotizacion.
+                            </p>
+
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td
+                            style="background-color: #f8f9fa; padding: 25px 40px; text-align: center; border-top: 1px solid #e0e0e0;">
+                            <p style="margin: 0 0 5px 0; color: #00BABB; font-weight: 700; font-size: 16px;">
+                                ECO
+                            </p>
+                            <p style="margin: 0; color: #999999; font-size: 12px;">
+                                Sistema de Gestion de Operaciones
+                            </p>
+                            <p style="margin: 15px 0 0 0; color: #cccccc; font-size: 11px;">
+                                Este es un correo automatico. Por favor no responder.
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>
