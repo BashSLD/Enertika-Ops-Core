@@ -594,14 +594,14 @@
         .proj-table th {
             background: #0A2463;
             color: #fff;
-            padding: 9px 14px;
+            padding: 7px 12px;
             text-align: center;
             font-weight: 600;
             font-size: 9pt;
         }
 
         .proj-table td {
-            padding: 9px 14px;
+            padding: 7px 12px;
             text-align: center;
             border-bottom: 1px solid #e2e8f0;
             color: #374151;
@@ -851,7 +851,7 @@
     </div>
 
     {% if mostrar_proyeccion %}
-    <div style="margin-top:60px;" class="section-title">Opciones de contrato</div>
+    <div style="margin-top:28px;" class="section-title">Opciones de contrato</div>
 
     {% set tiene_dto = descuento_pct > 0 and descuento_anios %}
     <table class="proj-table mb-20">
@@ -873,9 +873,6 @@
                 <td>
                     {% if item.acumulado_desc is not none %}
                     <strong style="color:#16a34a;">${{ "{:,.2f}".format(item.acumulado_desc) }} MXP</strong>
-                    <br><span style="font-size:7.5pt;color:#64748b;">
-                        ({{ (descuento_pct * 100) | round(1) }}% dto.)
-                    </span>
                     {% else %}
                     <span style="color:#94a3b8;">—</span>
                     {% endif %}

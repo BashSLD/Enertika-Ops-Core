@@ -1,5 +1,5 @@
 <div class="h-full flex flex-col animate-fade-in-down"
-     x-data="{ activeTab: 'proyectos' }">
+     x-data="{ activeTab: '{{ active_tab }}' }">
 
     {# MOVIL: template de acciones para el header #}
     <div id="mobile-actions-template" style="display:none">
@@ -154,8 +154,14 @@
         </div>
     </div>
 
-    {# Tab Polizas — lazy load via HTMX al primer clic #}
-    <div x-show="activeTab === 'polizas'" class="flex-1 overflow-auto">
+    {# Tab Polizas — lazy load via HTMX al primer clic o al restaurar historial con este tab activo #}
+    <div x-show="activeTab === 'polizas'" class="flex-1 overflow-auto"
+         {% if active_tab == 'polizas' %}
+         hx-get="/calculadora-polizas/partials/polizas-resumen"
+         hx-target="#polizas-tab-content"
+         hx-swap="innerHTML"
+         hx-trigger="load once"
+         {% endif %}>
         <div id="polizas-tab-content">
             {# Placeholder: reemplazado por HTMX al primer clic del tab #}
             <div class="flex items-center justify-center py-16 text-gray-400 gap-3">

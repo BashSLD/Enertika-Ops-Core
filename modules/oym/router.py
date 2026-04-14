@@ -28,6 +28,7 @@ router = APIRouter(
 @router.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)
 async def get_oym_ui(
     request: Request,
+    tab: Optional[str] = Query(None),
     context=Depends(get_current_user_context),
     _=require_module_access("oym"),
     conn=Depends(get_db_connection),
@@ -39,6 +40,7 @@ async def get_oym_ui(
 
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     is_admin = context.get("role") == "ADMIN"
+    active_tab = tab if tab in ("proyectos", "polizas") else "proyectos"
 
     template_data = {
         "user_name": context.get("user_name"),
@@ -51,6 +53,7 @@ async def get_oym_ui(
         "area": "OYM",
         "area_origen": "CONSTRUCCION",
         "puede_recibir": mod_role in ("editor", "admin") or is_admin,
+        "active_tab": active_tab,
     }
 
     # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
