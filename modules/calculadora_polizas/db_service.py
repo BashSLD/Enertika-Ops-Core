@@ -48,8 +48,9 @@ class CalculadoraDBService:
         """, planta_id)
         return dict(row) if row else None
 
-    async def upsert_planta(self, conn, planta: dict) -> str:
-        await conn.execute("""
+    async def upsert_planta(self, conn, planta: dict) -> bool:
+        """Inserta o actualiza una planta. Retorna True si fue un INSERT nuevo, False si fue UPDATE."""
+        row = await conn.fetchrow("""
             INSERT INTO tb_calculadora_plantas (id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, activa, updated_at)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW())
             ON CONFLICT (id) DO UPDATE SET
@@ -61,11 +62,12 @@ class CalculadoraDBService:
                 direccion   = EXCLUDED.direccion,
                 activa      = EXCLUDED.activa,
                 updated_at  = NOW()
+            RETURNING (xmax = 0) AS was_insert
         """, planta["id"], planta["nombre"], planta["zona"],
              planta.get("potencia_kw"), planta.get("num_paneles"),
              planta.get("cliente"), planta.get("direccion"),
              planta.get("activa", True))
-        return planta["id"]
+        return bool(row["was_insert"])
 
     async def update_planta(self, conn, planta_id: str, campos: dict) -> bool:
         sets, params = [], [planta_id]
@@ -190,37 +192,21 @@ class CalculadoraDBService:
 
     async def get_cotizaciones(self, conn, limit: int = 100, offset: int = 0,
                                estatus_filter: Optional[str] = None) -> list:
-        if estatus_filter:
-            rows = await conn.fetch("""
-                SELECT
-                    c.id, c.planta_id, c.nombre_planta, c.tipo_poliza, c.utilidad,
-                    c.sub_total, c.sub_total_utilidad, c.total_final,
-                    c.resultado_json, c.creado_por, c.created_at,
-                    c.estatus, c.estatus_updated_at, c.solicitante_id,
-                    u.nombre AS creado_por_nombre,
-                    s.nombre AS solicitante_nombre
-                FROM tb_calculadora_cotizaciones c
-                LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
-                LEFT JOIN tb_usuarios s ON s.id_usuario = c.solicitante_id
-                WHERE c.estatus = $3
-                ORDER BY c.created_at DESC
-                LIMIT $1 OFFSET $2
-            """, limit, offset, estatus_filter)
-        else:
-            rows = await conn.fetch("""
-                SELECT
-                    c.id, c.planta_id, c.nombre_planta, c.tipo_poliza, c.utilidad,
-                    c.sub_total, c.sub_total_utilidad, c.total_final,
-                    c.resultado_json, c.creado_por, c.created_at,
-                    c.estatus, c.estatus_updated_at, c.solicitante_id,
-                    u.nombre AS creado_por_nombre,
-                    s.nombre AS solicitante_nombre
-                FROM tb_calculadora_cotizaciones c
-                LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
-                LEFT JOIN tb_usuarios s ON s.id_usuario = c.solicitante_id
-                ORDER BY c.created_at DESC
-                LIMIT $1 OFFSET $2
-            """, limit, offset)
+        rows = await conn.fetch("""
+            SELECT
+                c.id, c.planta_id, c.nombre_planta, c.tipo_poliza, c.utilidad,
+                c.sub_total, c.sub_total_utilidad, c.total_final,
+                c.resultado_json, c.creado_por, c.created_at,
+                c.estatus, c.estatus_updated_at, c.solicitante_id,
+                u.nombre AS creado_por_nombre,
+                s.nombre AS solicitante_nombre
+            FROM tb_calculadora_cotizaciones c
+            LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
+            LEFT JOIN tb_usuarios s ON s.id_usuario = c.solicitante_id
+            WHERE ($3::text IS NULL OR c.estatus = $3)
+            ORDER BY c.created_at DESC
+            LIMIT $1 OFFSET $2
+        """, limit, offset, estatus_filter)
         return [dict(r) for r in rows]
 
     async def get_cotizaciones_comercial(
@@ -279,12 +265,10 @@ class CalculadoraDBService:
         )
 
     async def count_cotizaciones(self, conn, estatus_filter: Optional[str] = None) -> int:
-        if estatus_filter:
-            return await conn.fetchval(
-                "SELECT COUNT(*) FROM tb_calculadora_cotizaciones WHERE estatus = $1",
-                estatus_filter,
-            )
-        return await conn.fetchval("SELECT COUNT(*) FROM tb_calculadora_cotizaciones")
+        return await conn.fetchval(
+            "SELECT COUNT(*) FROM tb_calculadora_cotizaciones WHERE ($1::text IS NULL OR estatus = $1)",
+            estatus_filter,
+        )
 
     async def get_resumen_estatus(self, conn) -> dict:
         rows = await conn.fetch("""

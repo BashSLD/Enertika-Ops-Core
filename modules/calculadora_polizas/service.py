@@ -166,8 +166,7 @@ class CalculadoraService:
                 if "direccion" in col_map and row[col_map["direccion"]] is not None:
                     direccion = str(row[col_map["direccion"]]).strip() or None
 
-                existente = await self.db.get_planta_by_id(conn, planta_id)
-                await self.db.upsert_planta(conn, {
+                was_insert = await self.db.upsert_planta(conn, {
                     "id": planta_id,
                     "nombre": nombre,
                     "zona": zona,
@@ -178,10 +177,10 @@ class CalculadoraService:
                     "activa": True,
                 })
 
-                if existente:
-                    actualizadas += 1
-                else:
+                if was_insert:
                     insertadas += 1
+                else:
+                    actualizadas += 1
 
             except Exception as exc:
                 errores.append(f"Fila {row_num}: {exc}")

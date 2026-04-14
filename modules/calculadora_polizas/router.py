@@ -33,7 +33,7 @@ import pytz
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
-from core.permissions import require_module_access, require_manager_access
+from core.permissions import require_module_access, require_manager_access, user_has_module_access
 from core.config import settings
 
 from .service import CalculadoraService, get_service
@@ -51,6 +51,12 @@ router = APIRouter(prefix="/calculadora-polizas", tags=["Modulo Calculadora Poli
 
 SLUG = "oym"          # sub-herramienta de O&M — hereda permisos del módulo oym
 TPL = "calculadora_polizas"
+
+_MESES_ES = {
+    1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
+    5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
+    9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
+}
 
 
 def _base_ctx(context: dict, mod_role: str) -> dict:
@@ -124,12 +130,7 @@ async def api_plantas(
     service: CalculadoraService = Depends(get_service),
 ):
     plantas = await service.db.get_plantas_dropdown(conn)
-    return JSONResponse([
-        {"id": p["id"], "nombre": p["nombre"], "zona": p["zona"],
-         "potencia_kw": float(p["potencia_kw"]) if p["potencia_kw"] else None,
-         "num_paneles": p["num_paneles"]}
-        for p in plantas
-    ])
+    return JSONResponse(_plantas_for_template(plantas))
 
 
 # ============================================================
@@ -275,7 +276,7 @@ async def cotizaciones_ui(
 async def update_cotizacion_estatus(
     request: Request,
     cotizacion_id: str,
-    estatus: str = Form(...),
+    estatus: EstatusCotizacion = Form(...),
     estatus_filter: str = Form(""),
     page: int = Form(1),
     context=Depends(get_current_user_context),
@@ -283,13 +284,6 @@ async def update_cotizacion_estatus(
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
-    if estatus not in {e.value for e in EstatusCotizacion}:
-        return templates.TemplateResponse(
-            request, "shared/toast.html",
-            {"type": "error", "title": "Error", "message": "Estatus no valido"},
-            headers={"HX-Reswap": "none"},
-        )
-
     uid = _parse_cotizacion_id(cotizacion_id)
     user_id = context.get("user_db_id")
     ok = await service.db.update_cotizacion_estatus(conn, uid, estatus, user_id)
@@ -340,7 +334,6 @@ async def polizas_comercial(
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
-    from core.permissions import user_has_module_access
     role = context.get("role", "USER")
     user_id = context.get("user_db_id")
     es_admin_o_manager = role in ("ADMIN", "MANAGER")
@@ -363,10 +356,7 @@ async def polizas_comercial(
     return templates.TemplateResponse(
         request, "comercial/partials/polizas_tab.html",
         {
-            "user_name": context.get("user_name"),
-            "role": role,
-            "module_roles": context.get("module_roles", {}),
-            "current_module_role": comercial_role,
+            **_base_ctx(context, comercial_role),
             "cotizaciones": cotizaciones,
             "total": total,
             "page": page,
@@ -431,7 +421,6 @@ async def update_cotizacion(
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
-    mod_role = context.get("module_roles", {}).get("oym", "viewer")
     uid = _parse_cotizacion_id(cotizacion_id)
 
     sol_id = None
@@ -505,19 +494,12 @@ async def asignar_cotizacion(
     request: Request,
     cotizacion_id: str,
     solicitante_id: Optional[str] = Form(None),
-    estatus: str = Form(...),
+    estatus: EstatusCotizacion = Form(...),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG, "editor"),
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
-    if estatus not in {e.value for e in EstatusCotizacion}:
-        return templates.TemplateResponse(
-            request, "shared/toast.html",
-            {"type": "error", "title": "Error", "message": "Estatus no valido"},
-            headers={"HX-Reswap": "none"},
-        )
-
     uid = _parse_cotizacion_id(cotizacion_id)
     sol_id = None
     if solicitante_id and solicitante_id.strip():
@@ -799,13 +781,8 @@ async def descargar_pdf_poliza(
         planta = await service.db.get_planta_by_id(conn, cotizacion["planta_id"])
 
     tz = pytz.timezone("America/Mexico_City")
-    _meses_es = {
-        1: "enero", 2: "febrero", 3: "marzo", 4: "abril",
-        5: "mayo", 6: "junio", 7: "julio", 8: "agosto",
-        9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
-    }
     _dt = cotizacion["created_at"].astimezone(tz) if cotizacion.get("created_at") else datetime.now(tz)
-    fecha_emision = f"{_dt.day} de {_meses_es[_dt.month]} de {_dt.year}"
+    fecha_emision = f"{_dt.day} de {_MESES_ES[_dt.month]} de {_dt.year}"
 
     factor = 1.03
     anio_1 = resultado.get("anio_1", resultado.get("sub_total_utilidad", 0))

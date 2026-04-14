@@ -186,7 +186,7 @@ class CotizacionRead(BaseModel):
     creado_por: Optional[UUID] = None
     creado_por_nombre: Optional[str] = None
     created_at: datetime
-    estatus: str = "CREADA"
+    estatus: EstatusCotizacion = EstatusCotizacion.CREADA
     estatus_updated_at: Optional[datetime] = None
     solicitante_id: Optional[UUID] = None
     solicitante_nombre: Optional[str] = None
