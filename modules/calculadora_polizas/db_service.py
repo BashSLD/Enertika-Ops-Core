@@ -202,7 +202,10 @@ class CalculadoraDBService:
         return new_id
 
     async def get_cotizaciones(self, conn, limit: int = 100, offset: int = 0,
-                               estatus_filter: Optional[str] = None) -> list:
+                               estatus_filter: Optional[str] = None,
+                               planta_filter: Optional[str] = None,
+                               tipo_filter: Optional[str] = None,
+                               solicitante_id_filter: Optional[str] = None) -> list:
         rows = await conn.fetch("""
             SELECT
                 c.id, c.planta_id, c.nombre_planta, c.tipo_poliza, c.utilidad,
@@ -216,10 +219,32 @@ class CalculadoraDBService:
             LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
             LEFT JOIN tb_usuarios s ON s.id_usuario = c.solicitante_id
             WHERE ($3::text IS NULL OR c.estatus = $3)
+              AND ($4::text IS NULL OR c.nombre_planta = $4)
+              AND ($5::text IS NULL OR c.tipo_poliza = $5)
+              AND ($6::text IS NULL OR c.solicitante_id::text = $6)
             ORDER BY c.created_at DESC
             LIMIT $1 OFFSET $2
-        """, limit, offset, estatus_filter)
+        """, limit, offset, estatus_filter, planta_filter, tipo_filter, solicitante_id_filter)
         return [dict(r) for r in rows]
+
+    async def get_polizas_filter_options(self, conn) -> dict:
+        plantas = await conn.fetch("""
+            SELECT DISTINCT nombre_planta
+            FROM tb_calculadora_cotizaciones
+            WHERE nombre_planta IS NOT NULL
+            ORDER BY nombre_planta
+        """)
+        solicitantes = await conn.fetch("""
+            SELECT DISTINCT c.solicitante_id::text, s.nombre AS solicitante_nombre
+            FROM tb_calculadora_cotizaciones c
+            JOIN tb_usuarios s ON s.id_usuario = c.solicitante_id
+            WHERE s.nombre IS NOT NULL
+            ORDER BY s.nombre
+        """)
+        return {
+            "plantas": [r["nombre_planta"] for r in plantas],
+            "solicitantes": [{"id": r["solicitante_id"], "nombre": r["solicitante_nombre"]} for r in solicitantes],
+        }
 
     async def get_cotizaciones_comercial(
         self, conn, limit: int = 50, offset: int = 0,
@@ -277,11 +302,19 @@ class CalculadoraDBService:
             f"SELECT COUNT(*) FROM tb_calculadora_cotizaciones {where}", *params
         )
 
-    async def count_cotizaciones(self, conn, estatus_filter: Optional[str] = None) -> int:
-        return await conn.fetchval(
-            "SELECT COUNT(*) FROM tb_calculadora_cotizaciones WHERE ($1::text IS NULL OR estatus = $1)",
-            estatus_filter,
-        )
+    async def count_cotizaciones(self, conn, estatus_filter: Optional[str] = None,
+                                planta_filter: Optional[str] = None,
+                                tipo_filter: Optional[str] = None,
+                                solicitante_id_filter: Optional[str] = None) -> int:
+        return await conn.fetchval("""
+            SELECT COUNT(*)
+            FROM tb_calculadora_cotizaciones c
+            LEFT JOIN tb_usuarios s ON s.id_usuario = c.solicitante_id
+            WHERE ($1::text IS NULL OR c.estatus = $1)
+              AND ($2::text IS NULL OR c.nombre_planta = $2)
+              AND ($3::text IS NULL OR c.tipo_poliza = $3)
+              AND ($4::text IS NULL OR c.solicitante_id::text = $4)
+        """, estatus_filter, planta_filter, tipo_filter, solicitante_id_filter)
 
     async def get_resumen_estatus(self, conn) -> dict:
         rows = await conn.fetch("""

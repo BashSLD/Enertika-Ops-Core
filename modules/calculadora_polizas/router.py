@@ -288,15 +288,29 @@ async def guardar_cotizacion(
 # POLIZAS GENERADAS (cotizaciones)
 # ============================================================
 
-async def _build_cotizaciones_ctx(context, conn, service, page: int,
-                                  estatus_filter: Optional[str]) -> dict:
+async def _build_cotizaciones_ctx(
+    context, conn, service, page: int,
+    estatus_filter: Optional[str],
+    planta_filter: Optional[str] = None,
+    tipo_filter: Optional[str] = None,
+    solicitante_id_filter: Optional[str] = None,
+) -> dict:
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     per_page = 50
     offset = (page - 1) * per_page
     ef = estatus_filter or None
-    cotizaciones = await service.db.get_cotizaciones(conn, limit=per_page, offset=offset, estatus_filter=ef)
-    total = await service.db.count_cotizaciones(conn, estatus_filter=ef)
+    pf = planta_filter or None
+    tf = tipo_filter or None
+    sf = solicitante_id_filter or None
+    cotizaciones = await service.db.get_cotizaciones(
+        conn, limit=per_page, offset=offset,
+        estatus_filter=ef, planta_filter=pf, tipo_filter=tf, solicitante_id_filter=sf,
+    )
+    total = await service.db.count_cotizaciones(
+        conn, estatus_filter=ef, planta_filter=pf, tipo_filter=tf, solicitante_id_filter=sf,
+    )
     resumen = await service.db.get_resumen_estatus(conn)
+    filter_options = await service.db.get_polizas_filter_options(conn)
     return {
         **_base_ctx(context, mod_role),
         "cotizaciones": cotizaciones,
@@ -305,6 +319,10 @@ async def _build_cotizaciones_ctx(context, conn, service, page: int,
         "per_page": per_page,
         "pages": max(1, -(-total // per_page)),
         "estatus_filter": estatus_filter or "",
+        "planta_filter": planta_filter or "",
+        "tipo_filter": tipo_filter or "",
+        "solicitante_id_filter": solicitante_id_filter or "",
+        "filter_options": filter_options,
         "resumen": resumen,
         "fecha_hoy": date.today(),
     }
@@ -315,12 +333,18 @@ async def cotizaciones_ui(
     request: Request,
     page: int = Query(1, ge=1),
     estatus_filter: Optional[str] = Query(None),
+    planta_filter: Optional[str] = Query(None),
+    tipo_filter: Optional[str] = Query(None),
+    solicitante_id_filter: Optional[str] = Query(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG),
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
-    ctx = await _build_cotizaciones_ctx(context, conn, service, page, estatus_filter)
+    ctx = await _build_cotizaciones_ctx(
+        context, conn, service, page,
+        estatus_filter, planta_filter, tipo_filter, solicitante_id_filter,
+    )
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
         return templates.TemplateResponse(request, f"{TPL}/partials/cotizaciones_tabla.html", ctx)
     return templates.TemplateResponse(request, f"{TPL}/cotizaciones.html", ctx)
@@ -371,21 +395,35 @@ async def update_cotizacion_estatus(
 async def polizas_resumen(
     request: Request,
     estatus_filter: Optional[str] = Query(None),
+    planta_filter: Optional[str] = Query(None),
+    tipo_filter: Optional[str] = Query(None),
+    solicitante_id_filter: Optional[str] = Query(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG),
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
-    cotizaciones = await service.db.get_cotizaciones(conn, limit=20, offset=0, estatus_filter=estatus_filter)
+    cotizaciones = await service.db.get_cotizaciones(
+        conn, limit=20, offset=0,
+        estatus_filter=estatus_filter,
+        planta_filter=planta_filter,
+        tipo_filter=tipo_filter,
+        solicitante_id_filter=solicitante_id_filter,
+    )
     resumen = await service.db.get_resumen_estatus(conn)
+    filter_options = await service.db.get_polizas_filter_options(conn)
     return templates.TemplateResponse(
         request, f"{TPL}/partials/polizas_resumen.html",
         {
             **_base_ctx(context, mod_role),
             "cotizaciones": cotizaciones,
             "resumen": resumen,
-            "estatus_filter": estatus_filter,
+            "estatus_filter": estatus_filter or "",
+            "planta_filter": planta_filter or "",
+            "tipo_filter": tipo_filter or "",
+            "solicitante_id_filter": solicitante_id_filter or "",
+            "filter_options": filter_options,
         },
     )
 
