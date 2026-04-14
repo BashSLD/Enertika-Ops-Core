@@ -1,7 +1,9 @@
-<div class="h-full flex flex-col animate-fade-in-down">
-    {# MOVIL: template de acciones para el header (poblado via JS) #}
+<div class="h-full flex flex-col animate-fade-in-down"
+     x-data="{ activeTab: 'proyectos' }">
+
+    {# MOVIL: template de acciones para el header #}
     <div id="mobile-actions-template" style="display:none">
-        <div class="relative w-full">
+        <div x-show="activeTab === 'proyectos'" class="relative w-full">
             <input type="text" name="q" placeholder="Buscar proyecto..."
                 hx-get="/oym/partials/proyectos" hx-trigger="keyup changed delay:500ms"
                 hx-target="#proyectos-list"
@@ -10,6 +12,16 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
             </svg>
         </div>
+        <a x-show="activeTab === 'polizas'"
+           href="/calculadora-polizas/ui"
+           hx-get="/calculadora-polizas/ui" hx-target="#main-content" hx-push-url="true"
+           class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M12 7h.01M9 7H7a2 2 0 00-2 2v9a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2"/>
+            </svg>
+            Nueva Poliza
+        </a>
     </div>
     <script>
     (function() {
@@ -23,6 +35,7 @@
         if (sep) sep.classList.toggle('hidden', slot.children.length === 0);
     })();
     </script>
+
     {# DESKTOP: Module Header #}
     <div class="glass-panel p-4 rounded-xl mb-4 hidden md:flex flex-col md:flex-row justify-between md:items-center gap-3 border-l-4 border-blue-500">
         <div>
@@ -32,7 +45,8 @@
             <p class="text-gray-500 text-sm mt-1">Operacion y Mantenimiento de plantas</p>
         </div>
         <div class="flex items-center gap-2">
-            <div class="relative w-full md:w-56">
+            {# Buscador — solo en tab Proyectos #}
+            <div x-show="activeTab === 'proyectos'" class="relative w-full md:w-56" x-transition>
                 <input type="text" name="q" placeholder="Buscar proyecto..."
                     hx-get="/oym/partials/proyectos" hx-trigger="keyup changed delay:500ms"
                     hx-target="#proyectos-list"
@@ -41,6 +55,18 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                 </svg>
             </div>
+            {# Nueva Poliza — solo en tab Polizas #}
+            <a x-show="activeTab === 'polizas'" x-transition
+               href="/calculadora-polizas/ui"
+               hx-get="/calculadora-polizas/ui" hx-target="#main-content" hx-push-url="true"
+               class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 4v16m8-8H4"/>
+                </svg>
+                Nueva Poliza
+            </a>
+            {# Calculadora — siempre visible #}
             <a href="/calculadora-polizas/ui" hx-get="/calculadora-polizas/ui" hx-target="#main-content" hx-push-url="true"
                class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -52,26 +78,78 @@
         </div>
     </div>
 
-    {# KPI Cards #}
-    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
-            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Plantas en Operacion</h3>
-            <div class="text-3xl font-bold text-blue-700 mt-2">{{ kpis.total_en_area }}</div>
+    {# Tabs #}
+    <div class="flex border-b border-gray-200 mb-4 gap-1">
+        <button @click="activeTab = 'proyectos'; history.pushState(null, '', '/oym/ui?tab=proyectos')"
+                :class="activeTab === 'proyectos'
+                    ? 'border-blue-500 text-blue-600 font-semibold bg-white'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="flex items-center gap-2 py-2.5 px-4 border-b-2 text-sm transition-colors duration-150 -mb-px">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 5h2"/>
+            </svg>
+            Proyectos
+            {% if kpis.pendientes_recepcion > 0 %}
+            <span class="bg-amber-100 text-amber-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">
+                {{ kpis.pendientes_recepcion }}
+            </span>
+            {% endif %}
+        </button>
+        <button @click="activeTab = 'polizas'; history.pushState(null, '', '/oym/ui?tab=polizas')"
+                hx-get="/calculadora-polizas/partials/polizas-resumen"
+                hx-target="#polizas-tab-content"
+                hx-swap="innerHTML"
+                hx-trigger="click once"
+                :class="activeTab === 'polizas'
+                    ? 'border-blue-500 text-blue-600 font-semibold bg-white'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="flex items-center gap-2 py-2.5 px-4 border-b-2 text-sm transition-colors duration-150 -mb-px">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            Polizas
+        </button>
+    </div>
+
+    {# Tab Proyectos #}
+    <div x-show="activeTab === 'proyectos'" class="flex-1 flex flex-col min-h-0">
+        {# KPI Cards #}
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+            <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
+                <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Plantas en Operacion</h3>
+                <div class="text-3xl font-bold text-blue-700 mt-2">{{ kpis.total_en_area }}</div>
+            </div>
+            <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300 {% if kpis.pendientes_recepcion > 0 %}ring-2 ring-amber-400{% endif %}">
+                <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Pendientes Recepcion</h3>
+                <div class="text-3xl font-bold text-amber-600 mt-2">{{ kpis.pendientes_recepcion }}</div>
+            </div>
+            <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
+                <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Rechazados (30d)</h3>
+                <div class="text-3xl font-bold text-red-600 mt-2">{{ kpis.rechazados_recientes }}</div>
+            </div>
         </div>
-        <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300 {% if kpis.pendientes_recepcion > 0 %}ring-2 ring-amber-400{% endif %}">
-            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Pendientes Recepcion</h3>
-            <div class="text-3xl font-bold text-amber-600 mt-2">{{ kpis.pendientes_recepcion }}</div>
-        </div>
-        <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
-            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Rechazados (30d)</h3>
-            <div class="text-3xl font-bold text-red-600 mt-2">{{ kpis.rechazados_recientes }}</div>
+        {# Projects List #}
+        <div class="glass-panel p-4 rounded-xl flex-1 overflow-auto">
+            <div id="proyectos-list">
+                {% include "shared/partials/lista_proyectos.html" %}
+            </div>
         </div>
     </div>
 
-    {# Projects List #}
-    <div class="glass-panel p-4 rounded-xl flex-1">
-        <div id="proyectos-list">
-            {% include "shared/partials/lista_proyectos.html" %}
+    {# Tab Polizas — lazy load via HTMX al primer clic #}
+    <div x-show="activeTab === 'polizas'" class="flex-1 overflow-auto">
+        <div id="polizas-tab-content">
+            {# Placeholder: reemplazado por HTMX al primer clic del tab #}
+            <div class="flex items-center justify-center py-16 text-gray-400 gap-3">
+                <svg class="animate-spin w-5 h-5 opacity-40" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+                <p class="text-sm">Cargando polizas...</p>
+            </div>
         </div>
     </div>
+
 </div>
