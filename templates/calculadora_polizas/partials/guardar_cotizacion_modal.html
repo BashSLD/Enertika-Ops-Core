@@ -37,6 +37,39 @@
             <input type="hidden" name="fecha_fin_poliza_anterior" value="{{ fecha_fin_poliza_anterior }}">
             {% endif %}
 
+            {# Vigencia de la propuesta #}
+            <div x-data="{
+                    opcion: {{ vigencia_dias_default if vigencia_dias_default in [15, 30, 45] else 'null' }},
+                    custom: {{ vigencia_dias_default if vigencia_dias_default not in [15, 30, 45] else 30 }},
+                    get dias() { return this.opcion !== null ? this.opcion : this.custom; }
+                 }">
+                <label class="block text-sm font-medium text-gray-600 mb-2">
+                    Vigencia de la propuesta
+                </label>
+                <div class="flex gap-2 flex-wrap">
+                    {% for d in [15, 30, 45] %}
+                    <button type="button"
+                            @click="opcion = {{ d }}"
+                            :class="opcion === {{ d }} ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'"
+                            class="px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors cursor-pointer">
+                        {{ d }} días
+                    </button>
+                    {% endfor %}
+                    <button type="button"
+                            @click="opcion = null"
+                            :class="opcion === null ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'"
+                            class="px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors cursor-pointer">
+                        Personalizado
+                    </button>
+                </div>
+                <div x-show="opcion === null" class="mt-2 flex items-center gap-2">
+                    <input type="number" x-model.number="custom" min="1" max="365"
+                           class="w-24 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    <span class="text-sm text-gray-500">días</span>
+                </div>
+                <input type="hidden" name="vigencia_cotizacion_dias" :value="dias">
+            </div>
+
             {# Solicitante (opcional) #}
             <div>
                 <label class="block text-sm font-medium text-gray-600 mb-1">

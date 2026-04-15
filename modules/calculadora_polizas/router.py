@@ -46,6 +46,7 @@ from core.database import get_db_connection
 from core.security import get_current_user_context
 from core.permissions import require_module_access, require_manager_access, user_has_module_access
 from core.config import settings
+from core.config_service import ConfigService
 
 from .service import CalculadoraService, get_service, tiene_garantia_produccion
 from .schemas import CalcularRequest, EstatusCotizacion
@@ -204,6 +205,9 @@ async def guardar_modal(
     service: CalculadoraService = Depends(get_service),
 ):
     usuarios_comercial = await service.db.get_usuarios_comercial(conn)
+    vigencia_dias_default = await ConfigService.get_global_config(
+        conn, "calc_poliza_vigencia_dias", 30, int
+    )
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     return templates.TemplateResponse(
         request, f"{TPL}/partials/guardar_cotizacion_modal.html",
@@ -217,6 +221,7 @@ async def guardar_modal(
             "descuento_pct_5": descuento_pct_5,
             "usuarios_comercial": usuarios_comercial,
             "fecha_fin_poliza_anterior": fecha_fin_poliza_anterior,
+            "vigencia_dias_default": vigencia_dias_default,
         },
     )
 
@@ -235,6 +240,7 @@ async def guardar_cotizacion(
     fecha_fin_poliza: Optional[str] = Form(None),
     poliza_anterior_id: Optional[str] = Form(None),
     fecha_fin_poliza_anterior: Optional[str] = Form(None),
+    vigencia_cotizacion_dias: int = Form(30),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG),
     conn=Depends(get_db_connection),
@@ -263,6 +269,9 @@ async def guardar_cotizacion(
         except ValueError:
             return None
 
+    if vigencia_cotizacion_dias < 1:
+        vigencia_cotizacion_dias = 30
+
     try:
         req = CalcularRequest(
             planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
@@ -277,6 +286,7 @@ async def guardar_cotizacion(
             fecha_fin_poliza=_parse_date(fecha_fin_poliza),
             poliza_anterior_id=anterior_id,
             fecha_fin_poliza_anterior=_parse_date(fecha_fin_poliza_anterior),
+            vigencia_cotizacion_dias=vigencia_cotizacion_dias,
         )
     except ValueError as exc:
         return templates.TemplateResponse(
@@ -434,6 +444,7 @@ async def polizas_resumen(
             "tipo_filter": tipo_filter or "",
             "solicitante_id_filter": solicitante_id_filter or "",
             "filter_options": filter_options,
+            "fecha_hoy": date.today(),
         },
     )
 
@@ -485,12 +496,19 @@ async def update_estatus_resumen(
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     cotizaciones = await service.db.get_cotizaciones(conn, limit=20, offset=0)
     resumen = await service.db.get_resumen_estatus(conn)
+    filter_options = await service.db.get_polizas_filter_options(conn)
     return templates.TemplateResponse(
         request, f"{TPL}/partials/polizas_resumen.html",
         {
             **_base_ctx(context, mod_role),
             "cotizaciones": cotizaciones,
             "resumen": resumen,
+            "estatus_filter": "",
+            "planta_filter": "",
+            "tipo_filter": "",
+            "solicitante_id_filter": "",
+            "filter_options": filter_options,
+            "fecha_hoy": date.today(),
         },
     )
 
@@ -1312,10 +1330,38 @@ async def admin_ui(
         "precios_zona": await service.db.get_precios_zona_list(conn),
         "wattabit": await service.db.get_wattabit_list(conn),
         "costos_fijos": await service.db.get_costos_fijos_list(conn),
+        "vigencia_dias": await ConfigService.get_global_config(conn, "calc_poliza_vigencia_dias", 30, int),
     }
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
         return templates.TemplateResponse(request, f"{TPL}/partials/admin_content.html", ctx)
     return templates.TemplateResponse(request, f"{TPL}/admin.html", ctx)
+
+
+@router.patch("/admin/vigencia-cotizacion", include_in_schema=False)
+async def update_vigencia_cotizacion(
+    request: Request,
+    dias: int = Form(...),
+    context=Depends(get_current_user_context),
+    _=require_manager_access(SLUG),
+    conn=Depends(get_db_connection),
+    service: CalculadoraService = Depends(get_service),
+):
+    if dias < 1:
+        raise ValueError("La vigencia debe ser al menos 1 dia")
+    await conn.execute(
+        "UPDATE tb_configuracion_global SET valor = $1 WHERE clave = 'calc_poliza_vigencia_dias'",
+        str(dias),
+    )
+    ConfigService.invalidar_cache()
+    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+    ctx = {
+        **_base_ctx(context, mod_role),
+        "precios_zona": await service.db.get_precios_zona_list(conn),
+        "wattabit": await service.db.get_wattabit_list(conn),
+        "costos_fijos": await service.db.get_costos_fijos_list(conn),
+        "vigencia_dias": dias,
+    }
+    return templates.TemplateResponse(request, f"{TPL}/partials/admin_content.html", ctx)
 
 
 @router.patch("/admin/precios-zona/{zona}", include_in_schema=False)
@@ -1564,6 +1610,7 @@ async def descargar_pdf_poliza(
         "descuento_anios": descuento_anios,
         "descuento_monto": resultado.get("descuento_monto", 0.0),
         "garantia_produccion": garantia_produccion,
+        "vigencia_cotizacion_dias": cotizacion.get("vigencia_cotizacion_dias") or 30,
     }
 
     pdf_bytes = await pdf_service.generate("poliza_oym.html", ctx)
