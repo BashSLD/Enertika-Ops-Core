@@ -179,22 +179,22 @@
                 </button>
             </li>
 
-            {# Tab: Pólizas #}
+            {# Tab: Incidencias #}
             <li class="shrink-0">
-                <button @click="activeTab = 'polizas'; history.pushState(null, '', '/oym/ui?tab=polizas'); updateOymTab('polizas', $el)"
-                        id="oym-tab-polizas"
-                        hx-get="/calculadora-polizas/partials/polizas-resumen"
-                        hx-target="#polizas-tab-content"
+                <button @click="activeTab = 'incidencias'; history.pushState(null, '', '/oym/ui?tab=incidencias'); updateOymTab('incidencias', $el)"
+                        id="oym-tab-incidencias"
+                        hx-get="/oym/partials/incidencias-kanban"
+                        hx-target="#incidencias-tab-content"
                         hx-swap="innerHTML"
                         hx-trigger="click once"
-                        :class="activeTab === 'polizas' ? 'glass-panel bg-white/60 active' : 'border-transparent hover:bg-white/40'"
+                        :class="activeTab === 'incidencias' ? 'glass-panel bg-white/60 active' : 'border-transparent hover:bg-white/40'"
                         class="oym-tab-link inline-flex items-center gap-2 p-3 rounded-t-lg transition-all group">
                     <svg class="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
                     </svg>
-                    <span :class="activeTab === 'polizas' ? 'font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-blue-800' : ''">
-                        Pólizas O&amp;M
+                    <span :class="activeTab === 'incidencias' ? 'font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-blue-800' : ''">
+                        Incidencias
                     </span>
                 </button>
             </li>
@@ -224,22 +224,22 @@
                 </button>
             </li>
 
-            {# Tab: Incidencias #}
+            {# Tab: Pólizas #}
             <li class="shrink-0">
-                <button @click="activeTab = 'incidencias'; history.pushState(null, '', '/oym/ui?tab=incidencias'); updateOymTab('incidencias', $el)"
-                        id="oym-tab-incidencias"
-                        hx-get="/oym/partials/incidencias-kanban"
-                        hx-target="#incidencias-tab-content"
+                <button @click="activeTab = 'polizas'; history.pushState(null, '', '/oym/ui?tab=polizas'); updateOymTab('polizas', $el)"
+                        id="oym-tab-polizas"
+                        hx-get="/calculadora-polizas/partials/polizas-resumen"
+                        hx-target="#polizas-tab-content"
                         hx-swap="innerHTML"
                         hx-trigger="click once"
-                        :class="activeTab === 'incidencias' ? 'glass-panel bg-white/60 active' : 'border-transparent hover:bg-white/40'"
+                        :class="activeTab === 'polizas' ? 'glass-panel bg-white/60 active' : 'border-transparent hover:bg-white/40'"
                         class="oym-tab-link inline-flex items-center gap-2 p-3 rounded-t-lg transition-all group">
                     <svg class="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                     </svg>
-                    <span :class="activeTab === 'incidencias' ? 'font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-blue-800' : ''">
-                        Incidencias
+                    <span :class="activeTab === 'polizas' ? 'font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-blue-800' : ''">
+                        Pólizas O&amp;M
                     </span>
                 </button>
             </li>
