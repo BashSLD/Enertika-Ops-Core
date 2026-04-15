@@ -307,35 +307,27 @@ async def guardar_cotizacion(
 # ============================================================
 
 async def _build_cotizaciones_ctx(
-    context, conn, service, page: int,
+    context, conn, service,
+    limit: int,
     estatus_filter: Optional[str],
     planta_filter: Optional[str] = None,
     tipo_filter: Optional[str] = None,
     solicitante_id_filter: Optional[str] = None,
 ) -> dict:
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
-    per_page = 50
-    offset = (page - 1) * per_page
-    ef = estatus_filter or None
-    pf = planta_filter or None
-    tf = tipo_filter or None
-    sf = solicitante_id_filter or None
     cotizaciones = await service.db.get_cotizaciones(
-        conn, limit=per_page, offset=offset,
-        estatus_filter=ef, planta_filter=pf, tipo_filter=tf, solicitante_id_filter=sf,
-    )
-    total = await service.db.count_cotizaciones(
-        conn, estatus_filter=ef, planta_filter=pf, tipo_filter=tf, solicitante_id_filter=sf,
+        conn, limit=limit,
+        estatus_filter=estatus_filter or None,
+        planta_filter=planta_filter or None,
+        tipo_filter=tipo_filter or None,
+        solicitante_id_filter=solicitante_id_filter or None,
     )
     resumen = await service.db.get_resumen_estatus(conn)
     filter_options = await service.db.get_polizas_filter_options(conn)
     return {
         **_base_ctx(context, mod_role),
         "cotizaciones": cotizaciones,
-        "total": total,
-        "page": page,
-        "per_page": per_page,
-        "pages": max(1, -(-total // per_page)),
+        "limit": limit,
         "estatus_filter": estatus_filter or "",
         "planta_filter": planta_filter or "",
         "tipo_filter": tipo_filter or "",
@@ -349,7 +341,7 @@ async def _build_cotizaciones_ctx(
 @router.get("/cotizaciones/ui", include_in_schema=False)
 async def cotizaciones_ui(
     request: Request,
-    page: int = Query(1, ge=1),
+    limit: int = Query(15, ge=0),
     estatus_filter: Optional[str] = Query(None),
     planta_filter: Optional[str] = Query(None),
     tipo_filter: Optional[str] = Query(None),
@@ -360,7 +352,7 @@ async def cotizaciones_ui(
     service: CalculadoraService = Depends(get_service),
 ):
     ctx = await _build_cotizaciones_ctx(
-        context, conn, service, page,
+        context, conn, service, limit,
         estatus_filter, planta_filter, tipo_filter, solicitante_id_filter,
     )
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
@@ -374,7 +366,7 @@ async def update_cotizacion_estatus(
     cotizacion_id: str,
     estatus: EstatusCotizacion = Form(...),
     estatus_filter: str = Form(""),
-    page: int = Form(1),
+    limit: int = Form(15),
     fecha_inicio_poliza: Optional[str] = Form(None),
     fecha_fin_poliza: Optional[str] = Form(None),
     anios_contratados: Optional[int] = Form(None),
@@ -402,8 +394,7 @@ async def update_cotizacion_estatus(
     if not ok:
         raise HTTPException(404, "Cotizacion no encontrada")
 
-    ef = estatus_filter or None
-    ctx = await _build_cotizaciones_ctx(context, conn, service, page, ef)
+    ctx = await _build_cotizaciones_ctx(context, conn, service, limit, estatus_filter or None)
     return templates.TemplateResponse(request, f"{TPL}/partials/cotizaciones_tabla.html", ctx)
 
 
@@ -414,6 +405,7 @@ async def update_cotizacion_estatus(
 @router.get("/partials/polizas-resumen", include_in_schema=False)
 async def polizas_resumen(
     request: Request,
+    limit: int = Query(15, ge=0),
     estatus_filter: Optional[str] = Query(None),
     planta_filter: Optional[str] = Query(None),
     tipo_filter: Optional[str] = Query(None),
@@ -425,11 +417,11 @@ async def polizas_resumen(
 ):
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     cotizaciones = await service.db.get_cotizaciones(
-        conn, limit=20, offset=0,
-        estatus_filter=estatus_filter,
-        planta_filter=planta_filter,
-        tipo_filter=tipo_filter,
-        solicitante_id_filter=solicitante_id_filter,
+        conn, limit=limit,
+        estatus_filter=estatus_filter or None,
+        planta_filter=planta_filter or None,
+        tipo_filter=tipo_filter or None,
+        solicitante_id_filter=solicitante_id_filter or None,
     )
     resumen = await service.db.get_resumen_estatus(conn)
     filter_options = await service.db.get_polizas_filter_options(conn)
@@ -439,6 +431,7 @@ async def polizas_resumen(
             **_base_ctx(context, mod_role),
             "cotizaciones": cotizaciones,
             "resumen": resumen,
+            "limit": limit,
             "estatus_filter": estatus_filter or "",
             "planta_filter": planta_filter or "",
             "tipo_filter": tipo_filter or "",
@@ -494,7 +487,7 @@ async def update_estatus_resumen(
         raise HTTPException(404, "Cotizacion no encontrada")
 
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
-    cotizaciones = await service.db.get_cotizaciones(conn, limit=20, offset=0)
+    cotizaciones = await service.db.get_cotizaciones(conn, limit=15)
     resumen = await service.db.get_resumen_estatus(conn)
     filter_options = await service.db.get_polizas_filter_options(conn)
     return templates.TemplateResponse(
@@ -503,6 +496,7 @@ async def update_estatus_resumen(
             **_base_ctx(context, mod_role),
             "cotizaciones": cotizaciones,
             "resumen": resumen,
+            "limit": 15,
             "estatus_filter": "",
             "planta_filter": "",
             "tipo_filter": "",
@@ -570,7 +564,7 @@ async def editar_cotizacion_modal(
     request: Request,
     cotizacion_id: str,
     estatus_filter: str = Query(""),
-    page: int = Query(1, ge=1),
+    limit: int = Query(15, ge=0),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG, "editor"),
     conn=Depends(get_db_connection),
@@ -594,7 +588,7 @@ async def editar_cotizacion_modal(
             "plantas": plantas,
             "usuarios_comercial": usuarios_comercial,
             "estatus_filter": estatus_filter,
-            "page": page,
+            "limit": limit,
         },
     )
 
@@ -728,7 +722,7 @@ async def update_cotizacion(
     fecha_fin_poliza_anterior: Optional[str] = Form(None),
     usar_snapshot: str = Form(""),
     estatus_filter: str = Form(""),
-    page: int = Form(1),
+    limit: int = Form(15),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG, "editor"),
     conn=Depends(get_db_connection),
@@ -833,8 +827,7 @@ async def update_cotizacion(
     if not ok:
         raise HTTPException(404, "Cotizacion no encontrada")
 
-    ef = estatus_filter or None
-    ctx = await _build_cotizaciones_ctx(context, conn, service, page, ef)
+    ctx = await _build_cotizaciones_ctx(context, conn, service, limit, estatus_filter or None)
     return templates.TemplateResponse(request, f"{TPL}/partials/cotizaciones_tabla.html", ctx)
 
 

@@ -8,26 +8,25 @@
      data-planta="{{ planta_filter }}"
      data-tipo="{{ tipo_filter }}"
      data-solicitante="{{ solicitante_id_filter }}"
+     data-limit="{{ limit }}"
      x-data="{
-         estatus: '',
-         planta: '',
-         tipo: '',
-         solicitante: '',
+         estatus: '', planta: '', tipo: '', solicitante: '', limit: 15,
+         sortBy: '', sortDir: 'asc',
          init() {
-             this.estatus = this.$el.dataset.estatus || '';
-             this.planta = this.$el.dataset.planta || '';
-             this.tipo = this.$el.dataset.tipo || '';
+             this.estatus     = this.$el.dataset.estatus     || '';
+             this.planta      = this.$el.dataset.planta      || '';
+             this.tipo        = this.$el.dataset.tipo        || '';
              this.solicitante = this.$el.dataset.solicitante || '';
+             this.limit       = parseInt(this.$el.dataset.limit) || 15;
          },
-         get hasFilters() {
-             return this.estatus || this.planta || this.tipo || this.solicitante;
-         },
+         get hasFilters() { return this.estatus || this.planta || this.tipo || this.solicitante; },
          apply() {
              const p = new URLSearchParams();
-             if (this.estatus) p.set('estatus_filter', this.estatus);
-             if (this.planta) p.set('planta_filter', this.planta);
-             if (this.tipo) p.set('tipo_filter', this.tipo);
+             if (this.estatus)     p.set('estatus_filter', this.estatus);
+             if (this.planta)      p.set('planta_filter', this.planta);
+             if (this.tipo)        p.set('tipo_filter', this.tipo);
              if (this.solicitante) p.set('solicitante_id_filter', this.solicitante);
+             if (this.limit)       p.set('limit', this.limit);
              htmx.ajax('GET', '/calculadora-polizas/partials/polizas-resumen?' + p.toString(), {
                  target: '#polizas-resumen-container', swap: 'outerHTML'
              });
@@ -35,6 +34,21 @@
          clearAll() {
              this.estatus = ''; this.planta = ''; this.tipo = ''; this.solicitante = '';
              this.apply();
+         },
+         sort(col) {
+             this.sortBy === col
+                 ? (this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc')
+                 : (this.sortBy = col, this.sortDir = 'asc');
+             const nums = new Set(['total','vigcot','vence']);
+             const rows = Array.from(this.$refs.tbody.querySelectorAll('tr'));
+             rows.sort((a, b) => {
+                 let av = a.dataset[col] ?? '', bv = b.dataset[col] ?? '';
+                 if (nums.has(col)) { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+                 if (av < bv) return this.sortDir === 'asc' ? -1 : 1;
+                 if (av > bv) return this.sortDir === 'asc' ? 1 : -1;
+                 return 0;
+             });
+             rows.forEach(r => this.$refs.tbody.appendChild(r));
          }
      }">
 
@@ -147,6 +161,17 @@
             </svg>
             Quitar filtros
         </button>
+
+        <div class="ml-auto flex items-center gap-1.5">
+            <label class="text-xs text-gray-500">Mostrar:</label>
+            <select x-model.number="limit" @change="apply()"
+                    class="text-xs border border-gray-300 rounded-lg px-2 py-1.5 bg-white text-gray-700 cursor-pointer hover:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-300 transition-colors">
+                <option value="15">15</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+                <option value="0">Todo</option>
+            </select>
+        </div>
     </div>
 
     {# Tabla de polizas #}
@@ -155,21 +180,40 @@
         <div class="overflow-x-auto">
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 border-b border-gray-200">
+                    {% macro sort_th(col, label, extra_cls='') %}
+                    <th class="px-4 py-3 {{ extra_cls }}">
+                        <button @click="sort('{{ col }}')"
+                                class="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 uppercase tracking-wider hover:text-gray-800 transition-colors">
+                            {{ label }}
+                            <span class="text-[10px] leading-none"
+                                  :class="sortBy === '{{ col }}' ? 'text-blue-500' : 'text-gray-300'"
+                                  x-text="sortBy === '{{ col }}' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'"></span>
+                        </button>
+                    </th>
+                    {% endmacro %}
                     <tr>
-                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Planta</th>
-                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Tipo</th>
-                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Estatus</th>
-                        <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Total c/IVA</th>
-                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Vig. Cotizacion</th>
-                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Creado por</th>
-                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden md:table-cell">Solicitado por</th>
-                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider hidden lg:table-cell">Vence Poliza</th>
+                        {{ sort_th('planta', 'Planta') }}
+                        {{ sort_th('tipo', 'Tipo') }}
+                        {{ sort_th('estatus', 'Estatus') }}
+                        {{ sort_th('total', 'Total c/IVA', 'text-right') }}
+                        {{ sort_th('vigcot', 'Vig. Cotizacion', 'hidden md:table-cell') }}
+                        {{ sort_th('creado', 'Creado por', 'hidden md:table-cell') }}
+                        {{ sort_th('solicitante', 'Solicitado por', 'hidden md:table-cell') }}
+                        {{ sort_th('vence', 'Vence Poliza', 'hidden lg:table-cell') }}
                         <th class="px-4 py-3"></th>
                     </tr>
                 </thead>
-                <tbody class="divide-y divide-gray-100">
+                <tbody class="divide-y divide-gray-100" x-ref="tbody">
                 {% for c in cotizaciones %}
-                <tr class="hover:bg-gray-50 transition-colors">
+                <tr class="hover:bg-gray-50 transition-colors"
+                    data-planta="{{ c.nombre_planta | lower }}"
+                    data-tipo="{{ c.tipo_poliza }}"
+                    data-estatus="{{ c.estatus }}"
+                    data-total="{{ c.total_final }}"
+                    data-vigcot="{{ (c.fecha_vencimiento_cotizacion - fecha_hoy).days if c.fecha_vencimiento_cotizacion else 9999 }}"
+                    data-creado="{{ c.creado_por_nombre | lower if c.creado_por_nombre else '' }}"
+                    data-solicitante="{{ c.solicitante_nombre | lower if c.solicitante_nombre else '' }}"
+                    data-vence="{{ (c.fecha_fin_poliza - fecha_hoy).days if c.fecha_fin_poliza else 9999 }}">
                     <td class="px-4 py-3">
                         {% if puede_editar %}
                         <button type="button"

@@ -205,12 +205,12 @@ class CalculadoraDBService:
              data.get("vigencia_cotizacion_dias"))
         return new_id
 
-    async def get_cotizaciones(self, conn, limit: int = 100, offset: int = 0,
+    async def get_cotizaciones(self, conn, limit: int = 15,
                                estatus_filter: Optional[str] = None,
                                planta_filter: Optional[str] = None,
                                tipo_filter: Optional[str] = None,
                                solicitante_id_filter: Optional[str] = None) -> list:
-        rows = await conn.fetch("""
+        query = """
             SELECT
                 c.id, c.planta_id, c.nombre_planta, c.tipo_poliza, c.utilidad,
                 c.sub_total, c.sub_total_utilidad, c.total_final,
@@ -225,13 +225,15 @@ class CalculadoraDBService:
             FROM tb_calculadora_cotizaciones c
             LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
             LEFT JOIN tb_usuarios s ON s.id_usuario = c.solicitante_id
-            WHERE ($3::text IS NULL OR c.estatus = $3)
-              AND ($4::text IS NULL OR c.nombre_planta = $4)
-              AND ($5::text IS NULL OR c.tipo_poliza = $5)
-              AND ($6::text IS NULL OR c.solicitante_id::text = $6)
+            WHERE ($1::text IS NULL OR c.estatus = $1)
+              AND ($2::text IS NULL OR c.nombre_planta = $2)
+              AND ($3::text IS NULL OR c.tipo_poliza = $3)
+              AND ($4::text IS NULL OR c.solicitante_id::text = $4)
             ORDER BY c.created_at DESC
-            LIMIT $1 OFFSET $2
-        """, limit, offset, estatus_filter, planta_filter, tipo_filter, solicitante_id_filter)
+        """
+        if limit > 0:
+            query += f" LIMIT {limit}"
+        rows = await conn.fetch(query, estatus_filter, planta_filter, tipo_filter, solicitante_id_filter)
         return [dict(r) for r in rows]
 
     async def get_polizas_filter_options(self, conn) -> dict:
