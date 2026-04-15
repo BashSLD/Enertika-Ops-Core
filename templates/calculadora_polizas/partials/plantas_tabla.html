@@ -261,10 +261,10 @@
                  ondragover="event.preventDefault(); this.classList.add('border-blue-500','bg-blue-50')"
                  ondragleave="this.classList.remove('border-blue-500','bg-blue-50')"
                  ondrop="handleImportDrop(event)"
-                 onclick="document.getElementById('import-file-input').click()">
+                 onclick="if (!_importFile) document.getElementById('import-file-input').click()">
 
                 <input type="file" id="import-file-input" accept=".xlsx,.xls"
-                       class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                       class="hidden"
                        onchange="handleImportFile(this.files[0])">
 
                 <div id="import-placeholder">
@@ -333,7 +333,7 @@ function handleImportDrop(event) {
     if (file) handleImportFile(file);
 }
 
-function handleImportFile(file) {
+async function handleImportFile(file) {
     if (!file) return;
     if (!file.name.match(/\.(xlsx|xls)$/i)) {
         alert('Solo se aceptan archivos .xlsx o .xls');
@@ -347,21 +347,29 @@ function handleImportFile(file) {
     document.getElementById('import-file-selected').classList.add('flex');
     document.getElementById('import-file-name').textContent = file.name;
 
-    // Lanzar preview vía HTMX/fetch
+    // Lanzar preview vía fetch (htmx.ajax no soporta FormData con archivos)
     const formData = new FormData();
     formData.append('archivo', file);
 
     document.getElementById('import-preview-zone').innerHTML =
         '<div class="flex justify-center py-4"><div class="spinner-enertika"></div></div>';
 
-    htmx.ajax('POST', '/calculadora-polizas/plantas/preview-excel', {
-        values: formData,
-        target: '#import-preview-zone',
-        swap: 'innerHTML',
-    });
+    try {
+        const resp = await fetch('/calculadora-polizas/plantas/preview-excel', {
+            method: 'POST',
+            body: formData,
+        });
+        const html = await resp.text();
+        const zone = document.getElementById('import-preview-zone');
+        zone.innerHTML = html;
+        htmx.process(zone);
+    } catch {
+        document.getElementById('import-preview-zone').innerHTML =
+            '<p class="text-sm text-red-600 text-center py-2">Error al procesar el archivo.</p>';
+    }
 }
 
-function confirmarImportPlantasExcel() {
+async function confirmarImportPlantasExcel() {
     if (!_importFile) return;
     const btn = document.getElementById('btn-confirmar-import');
     if (btn) {
@@ -372,13 +380,21 @@ function confirmarImportPlantasExcel() {
     const formData = new FormData();
     formData.append('archivo', _importFile);
 
-    htmx.ajax('POST', '/calculadora-polizas/plantas/import-excel', {
-        values: formData,
-        target: '#main-content',
-        swap: 'innerHTML',
-    });
-
     cerrarModalImport();
+
+    try {
+        const resp = await fetch('/calculadora-polizas/plantas/import-excel', {
+            method: 'POST',
+            body: formData,
+        });
+        const html = await resp.text();
+        const target = document.getElementById('main-content');
+        target.innerHTML = html;
+        htmx.process(target);
+    } catch {
+        // Recargar la página si el fetch falla para no quedar en estado inconsistente
+        window.location.reload();
+    }
 }
 
 // Cerrar al hacer click fuera del panel
