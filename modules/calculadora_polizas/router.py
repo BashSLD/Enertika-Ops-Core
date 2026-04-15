@@ -1564,8 +1564,16 @@ async def descargar_pdf_poliza(
 
     factor = 1.03
     anio_1 = resultado.get("anio_1", resultado.get("sub_total_utilidad", 0))
-    descuento_pct = resultado.get("descuento_pct", 0.0)
-    descuento_anios = resultado.get("descuento_anios") or []
+
+    # resultado_json usa descuento_pct_1/3/5 independientes (schema actual, mig 035+)
+    _dto_1 = resultado.get("descuento_pct_1") or 0.0
+    _dto_3 = resultado.get("descuento_pct_3") or 0.0
+    _dto_5 = resultado.get("descuento_pct_5") or 0.0
+    # descuento_anios: años que tienen descuento aplicado
+    descuento_anios = [y for y, pct in [(1, _dto_1), (3, _dto_3), (5, _dto_5)] if pct > 0]
+    # descuento_pct: porcentaje para el badge del price-box (año 1)
+    descuento_pct = _dto_1
+
     proyeccion = [
         {
             "anio": 1,
