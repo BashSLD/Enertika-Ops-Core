@@ -270,7 +270,19 @@
 
                     {# Vig. Cotizacion — validez de la propuesta #}
                     <td class="px-4 py-3">
-                        {% if c.fecha_vencimiento_cotizacion %}
+                        {% if c.estatus == 'ACEPTADA' %}
+                        <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 whitespace-nowrap">
+                            Aceptada
+                        </span>
+                        {% elif c.estatus == 'RECHAZADA' %}
+                        <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500 whitespace-nowrap">
+                            Rechazada
+                        </span>
+                        {% elif c.estatus == 'VENCIDA' %}
+                        <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500 whitespace-nowrap">
+                            Vencida
+                        </span>
+                        {% elif c.fecha_vencimiento_cotizacion %}
                             {% set vc_dias = (c.fecha_vencimiento_cotizacion - fecha_hoy).days %}
                             {% if vc_dias > 7 %}
                             <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 whitespace-nowrap">
