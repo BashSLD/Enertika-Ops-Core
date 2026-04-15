@@ -397,14 +397,22 @@ async def update_cotizacion_estatus(
 
     uid = _parse_cotizacion_id(cotizacion_id)
     user_id = context.get("user_db_id")
-    ok = await service.db.update_cotizacion_estatus(
-        conn, uid, estatus, user_id,
-        fecha_inicio=_parse_date(fecha_inicio_poliza),
-        fecha_fin=_parse_date(fecha_fin_poliza),
-        anios_contratados=anios_contratados,
-    )
-    if not ok:
-        raise HTTPException(404, "Cotizacion no encontrada")
+    rol_sistema = context.get("role", "USER")
+    mod_role = context.get("module_roles", {}).get(SLUG, "viewer")
+
+    try:
+        await service.cambiar_estatus_cotizacion(
+            conn, uid, estatus.value, user_id, rol_sistema, mod_role,
+            fecha_inicio=_parse_date(fecha_inicio_poliza),
+            fecha_fin=_parse_date(fecha_fin_poliza),
+            anios_contratados=anios_contratados,
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"type": "error", "title": "No permitido", "message": str(exc)},
+            headers={"HX-Reswap": "none"},
+        )
 
     ctx = await _build_cotizaciones_ctx(context, conn, service, limit, estatus_filter or None)
     return templates.TemplateResponse(request, f"{TPL}/partials/cotizaciones_tabla.html", ctx)
@@ -489,6 +497,7 @@ async def update_estatus_resumen(
     request: Request,
     cotizacion_id: str,
     estatus: EstatusCotizacion = Form(...),
+    motivo_cancelacion: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG, "editor"),
     conn=Depends(get_db_connection),
@@ -496,9 +505,20 @@ async def update_estatus_resumen(
 ):
     uid = _parse_cotizacion_id(cotizacion_id)
     user_id = context.get("user_db_id")
-    ok = await service.db.update_cotizacion_estatus(conn, uid, estatus, user_id)
-    if not ok:
-        raise HTTPException(404, "Cotizacion no encontrada")
+    rol_sistema = context.get("role", "USER")
+    mod_role = context.get("module_roles", {}).get(SLUG, "viewer")
+
+    try:
+        await service.cambiar_estatus_cotizacion(
+            conn, uid, estatus.value, user_id, rol_sistema, mod_role,
+            motivo=motivo_cancelacion,
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"type": "error", "title": "No permitido", "message": str(exc)},
+            headers={"HX-Reswap": "none"},
+        )
 
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     cotizaciones = await service.db.get_cotizaciones(conn, limit=15)
@@ -920,9 +940,19 @@ async def asignar_cotizacion(
         raise HTTPException(404, "Cotizacion no encontrada")
 
     user_id = context.get("user_db_id")
-    ok = await service.db.update_cotizacion_estatus(conn, uid, estatus, user_id)
-    if not ok:
-        raise HTTPException(404, "Cotizacion no encontrada")
+    rol_sistema = context.get("role", "USER")
+    mod_role = context.get("module_roles", {}).get("comercial", "viewer")
+
+    try:
+        await service.cambiar_estatus_cotizacion(
+            conn, uid, estatus, user_id, rol_sistema, mod_role,
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"type": "error", "title": "No permitido", "message": str(exc)},
+            headers={"HX-Reswap": "none"},
+        )
 
     # Notificar al creador por email (fire-and-forget)
     cotizacion_actualizada = {**cotizacion, "estatus": estatus}
@@ -1013,6 +1043,7 @@ async def plantas_ui(
         "plantas": plantas,
         "zonas": sorted(precios_zona.keys()),
         "q": q or "",
+        "today": date.today(),
     }
 
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
@@ -1089,7 +1120,7 @@ async def actualizar_planta(
     return templates.TemplateResponse(
         request, f"{TPL}/partials/plantas_tabla.html",
         {**_base_ctx(context, mod_role), "plantas": plantas,
-         "zonas": sorted(precios_zona.keys()), "q": ""},
+         "zonas": sorted(precios_zona.keys()), "q": "", "today": date.today()},
     )
 
 
@@ -1141,7 +1172,7 @@ async def crear_planta(
     return templates.TemplateResponse(
         request, f"{TPL}/partials/plantas_tabla.html",
         {**_base_ctx(context, mod_role), "plantas": plantas,
-         "zonas": sorted(precios_zona.keys()), "q": ""},
+         "zonas": sorted(precios_zona.keys()), "q": "", "today": date.today()},
     )
 
 
@@ -1163,7 +1194,7 @@ async def toggle_planta(
     return templates.TemplateResponse(
         request, f"{TPL}/partials/plantas_tabla.html",
         {**_base_ctx(context, mod_role), "plantas": plantas,
-         "zonas": sorted(precios_zona.keys()), "q": ""},
+         "zonas": sorted(precios_zona.keys()), "q": "", "today": date.today()},
     )
 
 
@@ -1331,7 +1362,7 @@ async def import_excel(
         request, f"{TPL}/partials/plantas_tabla.html",
         {**_base_ctx(context, mod_role), "plantas": plantas,
          "zonas": sorted(precios_zona.keys()), "q": "",
-         "import_msg": msg, "import_type": toast_type},
+         "today": date.today(), "import_msg": msg, "import_type": toast_type},
     )
 
 

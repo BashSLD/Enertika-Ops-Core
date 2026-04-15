@@ -67,6 +67,7 @@
                         <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">kWp</th>
                         <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Paneles</th>
                         <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Estado</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Poliza</th>
                         <th class="px-4 py-3"></th>
                     </tr>
                 </thead>
@@ -98,6 +99,60 @@
                             {% endif %}
                         </div>
                     </td>
+                    {# Columna Póliza #}
+                    <td class="px-4 py-3">
+                        {% set dias = p.poliza_vigente_dias %}
+                        {% if p.poliza_vigente_id %}
+                            {# Badge principal: cobertura vigente #}
+                            {% if dias is none %}
+                                {# Fecha fin no definida — activa indefinida #}
+                                <button hx-get="/calculadora-polizas/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
+                                        hx-target="body" hx-swap="beforeend"
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 hover:bg-green-200 transition-colors">
+                                    Activa
+                                </button>
+                            {% elif dias > 30 %}
+                                <button hx-get="/calculadora-polizas/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
+                                        hx-target="body" hx-swap="beforeend"
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 hover:bg-green-200 transition-colors">
+                                    Activa · {{ dias }} días
+                                </button>
+                            {% elif dias > 0 %}
+                                <button hx-get="/calculadora-polizas/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
+                                        hx-target="body" hx-swap="beforeend"
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors">
+                                    Vence en {{ dias }} días
+                                </button>
+                            {% else %}
+                                <button hx-get="/calculadora-polizas/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
+                                        hx-target="body" hx-swap="beforeend"
+                                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors">
+                                    Venció hace {{ (dias * -1) }} días
+                                </button>
+                            {% endif %}
+                            {# Chip renovación programada #}
+                            {% if p.poliza_proxima_id %}
+                            <button hx-get="/calculadora-polizas/cotizaciones/{{ p.poliza_proxima_id }}/info-modal"
+                                    hx-target="body" hx-swap="beforeend"
+                                    class="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-700 hover:bg-teal-200 transition-colors">
+                                Renovacion programada
+                            </button>
+                            {% endif %}
+                        {% elif p.poliza_proxima_id %}
+                            {# Solo hay póliza futura — no hay cobertura hoy #}
+                            {% set dias_para_inicio = (p.poliza_proxima_inicio - today).days if p.poliza_proxima_inicio else 0 %}
+                            <button hx-get="/calculadora-polizas/cotizaciones/{{ p.poliza_proxima_id }}/info-modal"
+                                    hx-target="body" hx-swap="beforeend"
+                                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors">
+                                Programada · inicia en {{ dias_para_inicio }} días
+                            </button>
+                        {% else %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-400">
+                                Sin poliza
+                            </span>
+                        {% endif %}
+                    </td>
+
                     <td class="px-4 py-3 text-right whitespace-nowrap">
                         <button hx-get="/calculadora-polizas/plantas/{{ p.id }}/editar-modal"
                                 hx-target="body"

@@ -1,6 +1,9 @@
 <div id="modal-cambiar-estatus-resumen"
      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-     x-data="{ cerrar() { document.getElementById('modal-cambiar-estatus-resumen')?.remove(); } }"
+     x-data="{
+         estatus: '{{ cotizacion.estatus }}',
+         cerrar() { document.getElementById('modal-cambiar-estatus-resumen')?.remove(); }
+     }"
      @keydown.escape.window="cerrar()">
 
     <div @click.away="cerrar()"
@@ -23,7 +26,38 @@
             </button>
         </div>
 
-        {# Formulario #}
+        {# Estatus actual #}
+        <div class="px-5 pt-4 pb-0 flex items-center gap-2 text-sm text-gray-500">
+            <span class="font-medium text-gray-600">Estatus actual:</span>
+            {% set ec = cotizacion.estatus %}
+            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium
+                {{ 'bg-gray-100 text-gray-600'    if ec == 'CREADA' else
+                   'bg-blue-100 text-blue-700'    if ec == 'ENVIADA' else
+                   'bg-amber-100 text-amber-700'  if ec == 'EN_NEGOCIACION' else
+                   'bg-green-100 text-green-700'  if ec == 'ACEPTADA' else
+                   'bg-red-100 text-red-700'      if ec in ('RECHAZADA','CANCELADA') else
+                   'bg-teal-100 text-teal-700'    if ec == 'TERMINADA' else
+                   'bg-stone-100 text-stone-500' }}">
+                {{ {'CREADA':'Creada','ENVIADA':'Enviada','EN_NEGOCIACION':'En Negociacion',
+                    'ACEPTADA':'Aceptada','RECHAZADA':'Rechazada','VENCIDA':'Vencida',
+                    'TERMINADA':'Terminada','CANCELADA':'Cancelada'}.get(ec, ec) }}
+            </span>
+        </div>
+
+        {# ── Estatus final: no hay transición posible ──────────────── #}
+        {% if cotizacion.estatus in ('TERMINADA', 'CANCELADA', 'VENCIDA') %}
+        <div class="px-5 py-5">
+            <div class="bg-gray-50 border border-gray-200 rounded-lg px-4 py-3 text-sm text-gray-500 text-center">
+                Esta poliza ya no puede cambiar de estatus.
+            </div>
+        </div>
+        <div class="px-5 py-4 border-t border-gray-200 flex justify-end">
+            <button @click="cerrar()" class="btn-secondary text-sm px-4 py-2 rounded-lg">Cerrar</button>
+        </div>
+
+        {# ── ACEPTADA → solo CANCELADA (requiere admin) ────────────── #}
+        {% elif cotizacion.estatus == 'ACEPTADA' %}
+        {% if puede_admin %}
         <form id="form-cambiar-estatus-resumen"
               hx-patch="/calculadora-polizas/cotizaciones/{{ cotizacion.id }}/estatus-resumen"
               hx-target="#polizas-resumen-container"
@@ -31,50 +65,80 @@
               hx-indicator="#cambiar-estatus-spinner"
               hx-on::after-request="if(event.detail.successful) document.getElementById('modal-cambiar-estatus-resumen')?.remove()"
               class="px-5 py-4 flex flex-col gap-4">
-
-            {# Estatus actual (informativo) #}
-            <div class="flex items-center gap-2 text-sm text-gray-500">
-                <span class="font-medium text-gray-600">Estatus actual:</span>
-                {% set ec = cotizacion.estatus %}
-                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium
-                    {{ 'bg-gray-100 text-gray-600' if ec == 'CREADA' else
-                       'bg-blue-100 text-blue-700' if ec == 'ENVIADA' else
-                       'bg-amber-100 text-amber-700' if ec == 'EN_NEGOCIACION' else
-                       'bg-green-100 text-green-700' if ec == 'ACEPTADA' else
-                       'bg-red-100 text-red-700' if ec == 'RECHAZADA' else
-                       'bg-stone-100 text-stone-500' }}">
-                    {{ 'Creada' if ec == 'CREADA' else
-                       'Enviada' if ec == 'ENVIADA' else
-                       'En Negociacion' if ec == 'EN_NEGOCIACION' else
-                       'Aceptada' if ec == 'ACEPTADA' else
-                       'Rechazada' if ec == 'RECHAZADA' else
-                       'Vencida' if ec == 'VENCIDA' else ec }}
-                </span>
+            <input type="hidden" name="estatus" value="CANCELADA">
+            <div class="bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 flex items-start gap-2">
+                <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <span>Vas a <strong>cancelar una poliza activa</strong>. Esta accion es irreversible. El cliente perdera la cobertura inmediatamente.</span>
             </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">
+                    Motivo de cancelacion <span class="text-red-500">*</span>
+                </label>
+                <textarea name="motivo_cancelacion" required rows="3"
+                          placeholder="Describe el motivo por el que se cancela la poliza..."
+                          class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-red-500 focus:border-red-500 resize-none"></textarea>
+            </div>
+        </form>
+        <div class="px-5 py-4 border-t border-gray-200 flex items-center justify-end gap-2">
+            <button @click="cerrar()" class="btn-secondary text-sm px-4 py-2 rounded-lg">Cancelar</button>
+            <button type="submit" form="form-cambiar-estatus-resumen"
+                    class="bg-red-600 hover:bg-red-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+                <span id="cambiar-estatus-spinner" class="htmx-indicator">
+                    <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                    </svg>
+                </span>
+                Confirmar cancelacion
+            </button>
+        </div>
+        {% else %}
+        <div class="px-5 py-5">
+            <div class="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-sm text-amber-700 text-center">
+                Solo administradores pueden cancelar una poliza activa.
+            </div>
+        </div>
+        <div class="px-5 py-4 border-t border-gray-200 flex justify-end">
+            <button @click="cerrar()" class="btn-secondary text-sm px-4 py-2 rounded-lg">Cerrar</button>
+        </div>
+        {% endif %}
 
-            {# Nuevo estatus — todos los valores #}
+        {# ── Flujo normal: mostrar transiciones permitidas ─────────── #}
+        {% else %}
+        {% set opciones = [] %}
+        {% if cotizacion.estatus == 'CREADA' %}
+            {% set opciones = [('ENVIADA','Enviada'),('EN_NEGOCIACION','En Negociacion'),('RECHAZADA','Rechazada')] %}
+        {% elif cotizacion.estatus == 'ENVIADA' %}
+            {% set opciones = [('CREADA','Creada'),('EN_NEGOCIACION','En Negociacion'),('ACEPTADA','Aceptada'),('RECHAZADA','Rechazada')] %}
+        {% elif cotizacion.estatus == 'EN_NEGOCIACION' %}
+            {% set opciones = [('ENVIADA','Enviada'),('ACEPTADA','Aceptada'),('RECHAZADA','Rechazada')] %}
+        {% elif cotizacion.estatus == 'RECHAZADA' %}
+            {% set opciones = [('CREADA','Creada')] %}
+        {% endif %}
+
+        <form id="form-cambiar-estatus-resumen"
+              hx-patch="/calculadora-polizas/cotizaciones/{{ cotizacion.id }}/estatus-resumen"
+              hx-target="#polizas-resumen-container"
+              hx-swap="outerHTML"
+              hx-indicator="#cambiar-estatus-spinner"
+              hx-on::after-request="if(event.detail.successful) document.getElementById('modal-cambiar-estatus-resumen')?.remove()"
+              class="px-5 py-4 flex flex-col gap-4">
             <div>
                 <label class="block text-sm font-medium text-gray-600 mb-1">Nuevo estatus</label>
                 <select name="estatus" required
                         class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
                     <option value="">-- Seleccionar --</option>
-                    <option value="CREADA"         {{ 'selected' if cotizacion.estatus == 'CREADA' }}>Creada</option>
-                    <option value="ENVIADA"        {{ 'selected' if cotizacion.estatus == 'ENVIADA' }}>Enviada</option>
-                    <option value="EN_NEGOCIACION" {{ 'selected' if cotizacion.estatus == 'EN_NEGOCIACION' }}>En Negociacion</option>
-                    <option value="ACEPTADA"       {{ 'selected' if cotizacion.estatus == 'ACEPTADA' }}>Aceptada</option>
-                    <option value="RECHAZADA"      {{ 'selected' if cotizacion.estatus == 'RECHAZADA' }}>Rechazada</option>
-                    <option value="VENCIDA"        {{ 'selected' if cotizacion.estatus == 'VENCIDA' }}>Vencida</option>
+                    {% for val, label in opciones %}
+                    <option value="{{ val }}">{{ label }}</option>
+                    {% endfor %}
                 </select>
             </div>
-
         </form>
-
-        {# Footer #}
         <div class="px-5 py-4 border-t border-gray-200 flex items-center justify-end gap-2">
-            <button @click="cerrar()"
-                    class="btn-secondary text-sm px-4 py-2 rounded-lg">
-                Cancelar
-            </button>
+            <button @click="cerrar()" class="btn-secondary text-sm px-4 py-2 rounded-lg">Cancelar</button>
             <button type="submit" form="form-cambiar-estatus-resumen"
                     class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
                 <span id="cambiar-estatus-spinner" class="htmx-indicator">
@@ -86,6 +150,7 @@
                 Guardar
             </button>
         </div>
+        {% endif %}
 
     </div>
 </div>

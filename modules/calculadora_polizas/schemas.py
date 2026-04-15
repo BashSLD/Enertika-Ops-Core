@@ -20,6 +20,8 @@ class EstatusCotizacion(str, Enum):
     ACEPTADA = "ACEPTADA"
     RECHAZADA = "RECHAZADA"
     VENCIDA = "VENCIDA"
+    TERMINADA = "TERMINADA"   # ciclo completo: fue renovada, sigue cubriendo hasta fecha_fin
+    CANCELADA = "CANCELADA"   # cancelación anticipada por cliente (requiere admin)
 
 
 # ----------------------------------------

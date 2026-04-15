@@ -379,6 +379,82 @@ class CalculadoraService:
         return ImportExcelResult(insertadas=insertadas, actualizadas=actualizadas, errores=errores)
 
     # ----------------------------------------
+    # CAMBIO DE ESTATUS (con validación de transiciones)
+    # ----------------------------------------
+
+    _ALLOWED_TRANSITIONS: dict = {
+        "CREADA":          {"ENVIADA", "EN_NEGOCIACION", "RECHAZADA"},
+        "ENVIADA":         {"CREADA", "EN_NEGOCIACION", "ACEPTADA", "RECHAZADA"},
+        "EN_NEGOCIACION":  {"ENVIADA", "ACEPTADA", "RECHAZADA"},
+        "ACEPTADA":        {"CANCELADA"},
+        "RECHAZADA":       {"CREADA"},
+        "VENCIDA":         set(),
+        "TERMINADA":       set(),
+        "CANCELADA":       set(),
+    }
+
+    async def cambiar_estatus_cotizacion(
+        self, conn, cotizacion_id, nuevo_estatus: str,
+        user_id, rol_sistema: str, mod_role: str,
+        motivo: Optional[str] = None,
+        fecha_inicio=None, fecha_fin=None,
+        anios_contratados=None,
+    ) -> None:
+        """
+        Cambia el estatus de una cotización aplicando las reglas de negocio:
+        - Transiciones permitidas por estatus actual
+        - CANCELADA: solo admin/manager, motivo obligatorio
+        - ACEPTADA: verifica solapamiento de fechas y termina la póliza anterior si es renovación
+        Lanza ValueError con mensaje legible si alguna validación falla.
+        """
+        cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
+        if not cotizacion:
+            raise ValueError("Cotizacion no encontrada")
+
+        estatus_actual = cotizacion["estatus"]
+        permitidos = self._ALLOWED_TRANSITIONS.get(estatus_actual, set())
+        if nuevo_estatus not in permitidos:
+            label = {
+                "TERMINADA": "Terminada", "CANCELADA": "Cancelada",
+                "VENCIDA": "Vencida",
+            }.get(estatus_actual, estatus_actual)
+            raise ValueError(f"Una poliza en estatus '{label}' no puede cambiar a '{nuevo_estatus}'")
+
+        if nuevo_estatus == "CANCELADA":
+            puede = rol_sistema in ("ADMIN", "MANAGER") or mod_role == "admin"
+            if not puede:
+                raise ValueError("Solo administradores pueden cancelar una poliza activa")
+            if not motivo or not motivo.strip():
+                raise ValueError("Se requiere un motivo para cancelar la poliza")
+
+        if nuevo_estatus == "ACEPTADA":
+            f_inicio = fecha_inicio or cotizacion.get("fecha_inicio_poliza")
+            f_fin = fecha_fin or cotizacion.get("fecha_fin_poliza")
+            planta_id = cotizacion.get("planta_id")
+
+            if planta_id and f_inicio and f_fin:
+                conflicto = await self.db.check_solapamiento_poliza(
+                    conn, planta_id, f_inicio, f_fin, exclude_id=cotizacion_id
+                )
+                if conflicto:
+                    raise ValueError(
+                        "Ya existe una poliza activa para esta planta en ese rango de fechas. "
+                        "Cancela o termina la poliza vigente antes de aceptar esta."
+                    )
+
+            poliza_anterior_id = cotizacion.get("poliza_anterior_id")
+            if poliza_anterior_id:
+                await self.db.terminar_poliza_anterior(conn, poliza_anterior_id, user_id)
+
+        await self.db.update_cotizacion_estatus(
+            conn, cotizacion_id, nuevo_estatus, user_id,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+            anios_contratados=anios_contratados,
+            motivo_cancelacion=motivo if nuevo_estatus == "CANCELADA" else None,
+        )
+
+    # ----------------------------------------
     # GUARDAR COTIZACIÓN
     # ----------------------------------------
 

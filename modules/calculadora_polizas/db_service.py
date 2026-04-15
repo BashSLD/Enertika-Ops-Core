@@ -23,23 +23,53 @@ class CalculadoraDBService:
         return [dict(r) for r in rows]
 
     async def get_plantas_list(self, conn, q: Optional[str] = None) -> list:
+        filter_clause = ""
+        params: list = []
         if q:
-            rows = await conn.fetch("""
-                SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion,
-                       es_externa, activa, created_at, updated_at
-                FROM tb_calculadora_plantas
-                WHERE nombre ILIKE $1 OR zona ILIKE $1 OR id ILIKE $1 OR cliente ILIKE $1
-                ORDER BY nombre
-                LIMIT 200
-            """, f"%{q}%")
-        else:
-            rows = await conn.fetch("""
-                SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion,
-                       es_externa, activa, created_at, updated_at
-                FROM tb_calculadora_plantas
-                ORDER BY nombre
-                LIMIT 500
-            """)
+            params.append(f"%{q}%")
+            filter_clause = (
+                "WHERE p.nombre ILIKE $1 OR p.zona ILIKE $1 "
+                "OR p.id ILIKE $1 OR p.cliente ILIKE $1"
+            )
+
+        query = f"""
+            SELECT
+                p.id, p.nombre, p.zona, p.potencia_kw, p.num_paneles, p.cliente, p.direccion,
+                p.es_externa, p.activa, p.created_at, p.updated_at,
+                -- Póliza con cobertura hoy (ACEPTADA o TERMINADA dentro de su rango de fechas)
+                vig.id::text              AS poliza_vigente_id,
+                vig.estatus               AS poliza_vigente_estatus,
+                vig.tipo_poliza           AS poliza_vigente_tipo,
+                vig.fecha_fin_poliza      AS poliza_vigente_fin,
+                (vig.fecha_fin_poliza - CURRENT_DATE)::int AS poliza_vigente_dias,
+                -- Próxima póliza programada (ACEPTADA con inicio futuro)
+                prox.id::text             AS poliza_proxima_id,
+                prox.fecha_inicio_poliza  AS poliza_proxima_inicio
+            FROM tb_calculadora_plantas p
+            LEFT JOIN LATERAL (
+                SELECT id, estatus, tipo_poliza, fecha_inicio_poliza, fecha_fin_poliza
+                FROM tb_calculadora_cotizaciones
+                WHERE planta_id = p.id
+                  AND estatus IN ('ACEPTADA', 'TERMINADA')
+                  AND fecha_inicio_poliza <= CURRENT_DATE
+                  AND (fecha_fin_poliza IS NULL OR fecha_fin_poliza >= CURRENT_DATE)
+                ORDER BY fecha_fin_poliza DESC NULLS LAST
+                LIMIT 1
+            ) vig ON TRUE
+            LEFT JOIN LATERAL (
+                SELECT id, fecha_inicio_poliza
+                FROM tb_calculadora_cotizaciones
+                WHERE planta_id = p.id
+                  AND estatus = 'ACEPTADA'
+                  AND fecha_inicio_poliza > CURRENT_DATE
+                ORDER BY fecha_inicio_poliza ASC
+                LIMIT 1
+            ) prox ON TRUE
+            {filter_clause}
+            ORDER BY p.nombre
+            LIMIT 500
+        """
+        rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]
 
     async def get_planta_by_id(self, conn, planta_id: str) -> Optional[dict]:
@@ -438,7 +468,8 @@ class CalculadoraDBService:
 
     async def update_cotizacion_estatus(self, conn, cotizacion_id, estatus: str, user_id,
                                         fecha_inicio=None, fecha_fin=None,
-                                        anios_contratados=None) -> bool:
+                                        anios_contratados=None,
+                                        motivo_cancelacion=None) -> bool:
         result = await conn.execute("""
             UPDATE tb_calculadora_cotizaciones
             SET estatus              = $2,
@@ -446,7 +477,53 @@ class CalculadoraDBService:
                 estatus_updated_by   = $3,
                 fecha_inicio_poliza  = COALESCE($4, fecha_inicio_poliza),
                 fecha_fin_poliza     = COALESCE($5, fecha_fin_poliza),
-                anios_contratados    = COALESCE($6, anios_contratados)
+                anios_contratados    = COALESCE($6, anios_contratados),
+                motivo_cancelacion   = COALESCE($7, motivo_cancelacion)
             WHERE id = $1
-        """, cotizacion_id, estatus, user_id, fecha_inicio, fecha_fin, anios_contratados)
+        """, cotizacion_id, estatus, user_id, fecha_inicio, fecha_fin,
+             anios_contratados, motivo_cancelacion)
         return result != "UPDATE 0"
+
+    async def terminar_poliza_anterior(self, conn, poliza_anterior_id, user_id) -> None:
+        """Marca la póliza anterior como TERMINADA al aceptar una renovación."""
+        await conn.execute("""
+            UPDATE tb_calculadora_cotizaciones
+            SET estatus            = 'TERMINADA',
+                estatus_updated_at = NOW(),
+                estatus_updated_by = $2
+            WHERE id = $1 AND estatus = 'ACEPTADA'
+        """, poliza_anterior_id, user_id)
+
+    async def check_solapamiento_poliza(self, conn, planta_id: str,
+                                         fecha_inicio, fecha_fin,
+                                         exclude_id=None) -> Optional[str]:
+        """
+        Retorna el id de una póliza existente (ACEPTADA o TERMINADA) cuyo rango
+        de fechas se solapa con [fecha_inicio, fecha_fin]. None si no hay solapamiento.
+        """
+        if exclude_id:
+            row = await conn.fetchrow("""
+                SELECT id::text
+                FROM tb_calculadora_cotizaciones
+                WHERE planta_id = $1
+                  AND estatus IN ('ACEPTADA', 'TERMINADA')
+                  AND id != $2
+                  AND fecha_inicio_poliza IS NOT NULL
+                  AND fecha_fin_poliza    IS NOT NULL
+                  AND fecha_inicio_poliza <= $4
+                  AND fecha_fin_poliza    >= $3
+                LIMIT 1
+            """, planta_id, exclude_id, fecha_inicio, fecha_fin)
+        else:
+            row = await conn.fetchrow("""
+                SELECT id::text
+                FROM tb_calculadora_cotizaciones
+                WHERE planta_id = $1
+                  AND estatus IN ('ACEPTADA', 'TERMINADA')
+                  AND fecha_inicio_poliza IS NOT NULL
+                  AND fecha_fin_poliza    IS NOT NULL
+                  AND fecha_inicio_poliza <= $3
+                  AND fecha_fin_poliza    >= $2
+                LIMIT 1
+            """, planta_id, fecha_inicio, fecha_fin)
+        return row["id"] if row else None
