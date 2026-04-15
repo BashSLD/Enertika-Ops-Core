@@ -853,7 +853,7 @@
     {% if mostrar_proyeccion %}
     <div style="margin-top:28px;" class="section-title">Opciones de contrato</div>
 
-    {% set tiene_dto = descuento_pct > 0 and descuento_anios %}
+    {% set tiene_dto = descuento_anios | length > 0 %}
     <table class="proj-table mb-20">
         <thead>
             <tr>

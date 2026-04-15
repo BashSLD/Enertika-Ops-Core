@@ -195,15 +195,25 @@ async def guardar_modal(
     planta_id: str = Query(...),
     tipo_poliza: str = Query(...),
     utilidad: float = Query(0.30),
-    descuento_pct_1: Optional[float] = Query(None),
-    descuento_pct_3: Optional[float] = Query(None),
-    descuento_pct_5: Optional[float] = Query(None),
+    descuento_pct_1: Optional[str] = Query(None),
+    descuento_pct_3: Optional[str] = Query(None),
+    descuento_pct_5: Optional[str] = Query(None),
     fecha_fin_poliza_anterior: str = Query(""),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG),
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
+    def _pct(v: Optional[str]) -> Optional[float]:
+        if not v:
+            return None
+        try:
+            f = float(v)
+            return f if f > 0 else None
+        except (ValueError, TypeError):
+            return None
+
+    d1, d3, d5 = _pct(descuento_pct_1), _pct(descuento_pct_3), _pct(descuento_pct_5)
     usuarios_comercial = await service.db.get_usuarios_comercial(conn)
     vigencia_dias_default = await ConfigService.get_global_config(
         conn, "calc_poliza_vigencia_dias", 30, int
@@ -216,9 +226,9 @@ async def guardar_modal(
             "planta_id": planta_id,
             "tipo_poliza": tipo_poliza,
             "utilidad": utilidad,
-            "descuento_pct_1": descuento_pct_1,
-            "descuento_pct_3": descuento_pct_3,
-            "descuento_pct_5": descuento_pct_5,
+            "descuento_pct_1": d1,
+            "descuento_pct_3": d3,
+            "descuento_pct_5": d5,
             "usuarios_comercial": usuarios_comercial,
             "fecha_fin_poliza_anterior": fecha_fin_poliza_anterior,
             "vigencia_dias_default": vigencia_dias_default,
@@ -766,6 +776,20 @@ async def update_cotizacion(
             planta_info = await service.db.get_planta_by_id(conn, planta_id)
             if planta_info:
                 nombre_planta = planta_info["nombre"]
+
+        # Actualizar descuentos en el snapshot: los precios base se conservan pero
+        # los porcentajes y montos con descuento se recalculan con los nuevos pcts.
+        def _apply_dto(base: float, pct: Optional[float]) -> float:
+            return round(base * (1.0 - pct), 2) if pct else base
+
+        snap_json["descuento_pct_1"] = descuento_pct_1
+        snap_json["descuento_pct_3"] = descuento_pct_3
+        snap_json["descuento_pct_5"] = descuento_pct_5
+        snap_json["anio_1_desc"] = _apply_dto(float(snap_json.get("anio_1", 0)), descuento_pct_1)
+        snap_json["anio_3_desc"] = _apply_dto(float(snap_json.get("anio_3", 0)), descuento_pct_3)
+        snap_json["anio_5_desc"] = _apply_dto(float(snap_json.get("anio_5", 0)), descuento_pct_5)
+        snap_json["acumulado_1_3_desc"] = _apply_dto(float(snap_json.get("acumulado_1_3", 0)), descuento_pct_3)
+        snap_json["acumulado_1_5_desc"] = _apply_dto(float(snap_json.get("acumulado_1_5", 0)), descuento_pct_5)
 
         ok = await service.db.update_cotizacion_full(conn, uid, {
             "planta_id": planta_id,
