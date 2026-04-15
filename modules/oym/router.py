@@ -6,6 +6,7 @@ from fastapi import APIRouter, Request, Depends, Query
 from fastapi.templating import Jinja2Templates
 from uuid import UUID
 from typing import Optional
+from datetime import date
 from core.config import settings
 
 from core.security import get_current_user_context
@@ -34,13 +35,26 @@ async def get_oym_ui(
     conn=Depends(get_db_connection),
     service: OyMService = Depends(get_service),
 ):
+    from modules.calculadora_polizas.db_service import CalculadoraDBService
+    _cal_db = CalculadoraDBService()
+
     kpis = await service.get_kpis(conn)
     proyectos = await service.get_proyectos(conn)
     pendientes = await service.get_pendientes_recepcion(conn)
 
+    # Badge del tab Plantas: contar pólizas que vencen en ≤30 días
+    _plantas = await _cal_db.get_plantas_list(conn)
+    _vence_pron = sum(
+        1 for p in _plantas
+        if p.get("poliza_vigente_id")
+        and p.get("poliza_vigente_dias") is not None
+        and 0 < p["poliza_vigente_dias"] <= 30
+    )
+    resumen_plantas = {"vence_pron": _vence_pron}
+
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     is_admin = context.get("role") == "ADMIN"
-    active_tab = tab if tab in ("proyectos", "polizas", "incidencias") else "proyectos"
+    active_tab = tab if tab in ("proyectos", "polizas", "incidencias", "plantas") else "proyectos"
 
     template_data = {
         "user_name": context.get("user_name"),
@@ -55,6 +69,7 @@ async def get_oym_ui(
         "puede_recibir": mod_role in ("editor", "admin") or is_admin,
         "puede_editar": mod_role in ("editor", "admin") or is_admin,
         "active_tab": active_tab,
+        "resumen_plantas": resumen_plantas,
     }
 
     # HX-History-Restore-Request: HTMX lo envía al restaurar historial (Back/Forward) — retornar full page
@@ -99,6 +114,68 @@ async def get_incidencias_kanban(
         request, "oym/partials/incidencias_kanban.html",
         {
             "puede_editar": mod_role in ("editor", "admin") or is_admin,
+        },
+    )
+
+
+@router.get("/partials/plantas-portfolio", include_in_schema=False)
+async def get_plantas_portfolio(
+    request: Request,
+    filtro: str = Query("todas"),
+    context=Depends(get_current_user_context),
+    _=require_module_access("oym"),
+    conn=Depends(get_db_connection),
+):
+    from modules.calculadora_polizas.db_service import CalculadoraDBService
+    db = CalculadoraDBService()
+    todas = await db.get_plantas_list(conn)
+
+    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+    is_admin = context.get("role") == "ADMIN"
+    puede_editar = mod_role in ("editor", "admin") or is_admin
+
+    def _dias(p):
+        return p.get("poliza_vigente_dias")
+
+    activas    = [p for p in todas if p.get("poliza_vigente_id") and (_dias(p) is None or _dias(p) > 30)]
+    vence_pron = [p for p in todas if p.get("poliza_vigente_id") and _dias(p) is not None and 0 < _dias(p) <= 30]
+    vencidas   = [p for p in todas if p.get("poliza_vigente_id") and _dias(p) is not None and _dias(p) <= 0]
+    sin_poliza = [p for p in todas if not p.get("poliza_vigente_id") and not p.get("poliza_proxima_id")]
+
+    resumen = {
+        "activas":    len(activas),
+        "vence_pron": len(vence_pron),
+        "vencidas":   len(vencidas),
+        "sin_poliza": len(sin_poliza),
+    }
+
+    filtro_map = {
+        "activas":    activas,
+        "vence_pron": vence_pron,
+        "vencidas":   vencidas,
+        "sin_poliza": sin_poliza,
+    }
+    plantas = filtro_map.get(filtro, todas)
+
+    # Ordenar por urgencia: vencidas → vence pronto (días asc) → activas → sin póliza
+    def _sort_key(p):
+        d = _dias(p)
+        if d is not None and d <= 0:        return (0, d)
+        if d is not None and d <= 30:       return (1, d)
+        if p.get("poliza_vigente_id"):      return (2, d or 999999)
+        if p.get("poliza_proxima_id"):      return (3, 0)
+        return (4, 0)
+
+    plantas = sorted(plantas, key=_sort_key)
+
+    return templates.TemplateResponse(
+        request, "oym/partials/plantas_portfolio.html",
+        {
+            "plantas": plantas,
+            "resumen": resumen,
+            "filtro": filtro,
+            "today": date.today(),
+            "puede_editar": puede_editar,
         },
     )
 

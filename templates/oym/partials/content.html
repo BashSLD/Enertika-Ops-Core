@@ -42,6 +42,17 @@
             </svg>
             Nueva Poliza
         </a>
+        <a x-show="activeTab === 'plantas'"
+           href="/calculadora-polizas/plantas/ui"
+           hx-get="/calculadora-polizas/plantas/ui" hx-target="#main-content" hx-push-url="true"
+           class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+            </svg>
+            Administrar Plantas
+        </a>
     </div>
     <script>
     (function() {
@@ -108,6 +119,18 @@
                 </svg>
                 Nueva Poliza
             </a>
+            {# Gestionar Plantas (admin) — solo en tab Plantas, solo editors #}
+            <a x-show="activeTab === 'plantas'" x-transition
+               href="/calculadora-polizas/plantas/ui"
+               hx-get="/calculadora-polizas/plantas/ui" hx-target="#main-content" hx-push-url="true"
+               class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/>
+                </svg>
+                Administrar
+            </a>
         </div>
     </div>
 
@@ -173,6 +196,31 @@
                     <span :class="activeTab === 'polizas' ? 'font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-blue-800' : ''">
                         Pólizas O&amp;M
                     </span>
+                </button>
+            </li>
+
+            {# Tab: Plantas #}
+            <li class="shrink-0">
+                <button @click="activeTab = 'plantas'; history.pushState(null, '', '/oym/ui?tab=plantas'); updateOymTab('plantas', $el)"
+                        id="oym-tab-plantas"
+                        hx-get="/oym/partials/plantas-portfolio"
+                        hx-target="#plantas-tab-content"
+                        hx-swap="innerHTML"
+                        hx-trigger="click once"
+                        :class="activeTab === 'plantas' ? 'glass-panel bg-white/60 active' : 'border-transparent hover:bg-white/40'"
+                        class="oym-tab-link inline-flex items-center gap-2 p-3 rounded-t-lg transition-all group">
+                    <svg class="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 5h2"/>
+                    </svg>
+                    <span :class="activeTab === 'plantas' ? 'font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-blue-800' : ''">
+                        Plantas
+                    </span>
+                    {% if resumen_plantas and resumen_plantas.vence_pron > 0 %}
+                    <span class="bg-amber-100 text-amber-700 text-xs font-semibold px-1.5 py-0.5 rounded-full leading-none">
+                        {{ resumen_plantas.vence_pron }}
+                    </span>
+                    {% endif %}
                 </button>
             </li>
 
@@ -256,6 +304,25 @@
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                 </svg>
                 <p class="text-sm">Cargando polizas...</p>
+            </div>
+        </div>
+    </div>
+
+    {# Tab Plantas — lazy load via HTMX #}
+    <div x-show="activeTab === 'plantas'" class="flex-1 overflow-auto"
+         {% if active_tab == 'plantas' %}
+         hx-get="/oym/partials/plantas-portfolio"
+         hx-target="#plantas-tab-content"
+         hx-swap="innerHTML"
+         hx-trigger="load once"
+         {% endif %}>
+        <div id="plantas-tab-content">
+            <div class="flex items-center justify-center py-16 text-gray-400 gap-3">
+                <svg class="animate-spin w-5 h-5 opacity-40" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+                <p class="text-sm">Cargando plantas...</p>
             </div>
         </div>
     </div>
