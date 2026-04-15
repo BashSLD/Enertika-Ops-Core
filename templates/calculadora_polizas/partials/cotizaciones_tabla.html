@@ -23,12 +23,12 @@
            hx-get="/calculadora-polizas/ui"
            hx-target="#main-content"
            hx-push-url="true"
-           class="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium transition-colors shadow-sm">
+           class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                       d="M12 4v16m8-8H4"/>
             </svg>
-            Generar poliza
+            Generar póliza
         </a>
     </div>
 
@@ -200,24 +200,21 @@
             <table class="w-full text-sm">
                 <thead class="bg-gray-50 border-b border-gray-200">
                     <tr>
-                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Fecha</th>
                         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Planta</th>
                         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Tipo</th>
                         <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Sub Total</th>
                         <th class="px-4 py-3 text-right text-xs font-semibold text-gray-500 uppercase tracking-wider">Total c/IVA</th>
                         <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wider">Utilidad</th>
                         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Estatus</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Vig. Cotizacion</th>
                         <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Creado por</th>
-                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Vigencia</th>
+                        <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Vence Poliza</th>
                         <th class="px-4 py-3"></th>
                     </tr>
                 </thead>
                 <tbody class="divide-y divide-gray-100">
                 {% for c in cotizaciones %}
                 <tr class="hover:bg-gray-50 transition-colors">
-                    <td class="px-4 py-3 text-gray-500 whitespace-nowrap text-xs">
-                        {{ c.created_at | time_mx if c.created_at else '—' }}
-                    </td>
                     <td class="px-4 py-3 font-medium text-gray-800">
                         <button hx-get="/calculadora-polizas/cotizaciones/{{ c.id }}/info-modal"
                                 hx-target="body"
@@ -271,7 +268,37 @@
                         {% endif %}
                     </td>
 
+                    {# Vig. Cotizacion — validez de la propuesta #}
+                    <td class="px-4 py-3">
+                        {% if c.fecha_vencimiento_cotizacion %}
+                            {% set vc_dias = (c.fecha_vencimiento_cotizacion - fecha_hoy).days %}
+                            {% if vc_dias > 7 %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 whitespace-nowrap">
+                                {{ vc_dias }} dias
+                            </span>
+                            {% elif vc_dias > 3 %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 whitespace-nowrap">
+                                {{ vc_dias }} dias
+                            </span>
+                            {% elif vc_dias > 0 %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 whitespace-nowrap">
+                                {{ vc_dias }} dia{{ 's' if vc_dias != 1 else '' }}
+                            </span>
+                            {% elif vc_dias == 0 %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 whitespace-nowrap">
+                                Hoy
+                            </span>
+                            {% else %}
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500 whitespace-nowrap">
+                                Vencida
+                            </span>
+                            {% endif %}
+                        {% else %}
+                        <span class="text-gray-300">—</span>
+                        {% endif %}
+                    </td>
                     <td class="px-4 py-3 text-gray-500 text-xs">{{ c.creado_por_nombre or '—' }}</td>
+                    {# Vence Poliza — vigencia del contrato de servicio #}
                     <td class="px-4 py-3">
                         {% if c.fecha_fin_poliza %}
                             {% set dias = (c.fecha_fin_poliza - fecha_hoy).days %}
@@ -314,7 +341,7 @@
                             </svg>
                             Editar
                         </button>
-                        {% if c.estatus == 'ACEPTADA' or (c.fecha_fin_poliza and (c.fecha_fin_poliza - fecha_hoy).days <= 90) %}
+                        {% if c.estatus == 'ACEPTADA' and (c.fecha_fin_poliza and (c.fecha_fin_poliza - fecha_hoy).days <= 90) %}
                         <button hx-get="/calculadora-polizas/cotizaciones/{{ c.id }}/renovar-modal"
                                 hx-target="body"
                                 hx-swap="beforeend"
