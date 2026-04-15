@@ -19,7 +19,7 @@
              this.solicitante = this.$el.dataset.solicitante || '';
              this.limit     = parseInt(this.$el.dataset.limit) || 15;
          },
-         get hasFilters() { return this.planta || this.tipo || this.solicitante; },
+         get hasFilters() { return this.estatus || this.planta || this.tipo || this.solicitante; },
          apply() {
              const p = new URLSearchParams();
              if (this.estatus)    p.set('estatus_filter', this.estatus);
@@ -31,7 +31,7 @@
              htmx.ajax('GET', url, { target: '#main-content', swap: 'innerHTML' });
              history.pushState({}, '', url);
          },
-         clearAll() { this.planta = ''; this.tipo = ''; this.solicitante = ''; this.apply(); },
+         clearAll() { this.estatus = ''; this.planta = ''; this.tipo = ''; this.solicitante = ''; this.apply(); },
          sort(col) {
              this.sortBy === col
                  ? (this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc')
@@ -76,77 +76,94 @@
         </a>
     </div>
 
-    {# KPI Cards — clickeables para filtrar #}
+    {# KPI Cards — fila única: 5 estatus activos + 2 alertas de vencimiento #}
     <div class="grid grid-cols-4 lg:grid-cols-7 gap-2 mb-4">
 
         {# Total #}
         <a href="/calculadora-polizas/cotizaciones/ui"
            hx-get="/calculadora-polizas/cotizaciones/ui"
            hx-target="#main-content" hx-push-url="true"
-           class="glass-card p-3 rounded-xl text-center border-b-2 border-blue-300 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-md active:scale-95 {{ 'ring-2 ring-blue-500 shadow-md' if not estatus_filter else '' }}">
-            <p class="text-2xl font-bold text-blue-700">{{ resumen.get('total', 0) }}</p>
-            <p class="text-xs text-gray-500 mt-1 font-medium">Total</p>
-        </a>
-
-        {# CREADA #}
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=CREADA"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=CREADA"
-           hx-target="#main-content" hx-push-url="true"
-           class="glass-card p-3 rounded-xl text-center border-b-2 border-gray-400 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-md active:scale-95 {{ 'ring-2 ring-gray-400 shadow-md' if estatus_filter == 'CREADA' else '' }}">
-            <p class="text-2xl font-bold text-gray-600">{{ resumen.get('CREADA', 0) }}</p>
-            <div class="w-2 h-2 rounded-full bg-gray-400 mx-auto mt-1 mb-0.5"></div>
-            <p class="text-xs text-gray-500 font-medium">Creadas</p>
+           class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-blue-300 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95 {{ 'ring-2 ring-blue-500 shadow-md' if not estatus_filter else '' }}">
+            <p class="text-xl font-bold text-blue-700 leading-tight">{{ resumen.get('total', 0) }}</p>
+            <p class="text-[10px] text-gray-500 font-medium">Total</p>
         </a>
 
         {# ENVIADA #}
         <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=ENVIADA"
            hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=ENVIADA"
            hx-target="#main-content" hx-push-url="true"
-           class="glass-card p-3 rounded-xl text-center border-b-2 border-blue-500 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-md active:scale-95 {{ 'ring-2 ring-blue-400 shadow-md' if estatus_filter == 'ENVIADA' else '' }}">
-            <p class="text-2xl font-bold text-blue-600">{{ resumen.get('ENVIADA', 0) }}</p>
-            <div class="w-2 h-2 rounded-full bg-blue-500 mx-auto mt-1 mb-0.5"></div>
-            <p class="text-xs text-gray-500 font-medium">Enviadas</p>
+           class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-blue-500 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95 {{ 'ring-2 ring-blue-400 shadow-md' if estatus_filter == 'ENVIADA' else '' }}">
+            <p class="text-xl font-bold text-blue-600 leading-tight">{{ resumen.get('ENVIADA', 0) }}</p>
+            <div class="w-1.5 h-1.5 rounded-full bg-blue-500 mx-auto mt-0.5 mb-px"></div>
+            <p class="text-[10px] text-gray-500 font-medium">Enviadas</p>
         </a>
 
         {# EN_NEGOCIACION #}
         <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=EN_NEGOCIACION"
            hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=EN_NEGOCIACION"
            hx-target="#main-content" hx-push-url="true"
-           class="glass-card p-3 rounded-xl text-center border-b-2 border-amber-500 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-md active:scale-95 {{ 'ring-2 ring-amber-400 shadow-md' if estatus_filter == 'EN_NEGOCIACION' else '' }}">
-            <p class="text-2xl font-bold text-amber-600">{{ resumen.get('EN_NEGOCIACION', 0) }}</p>
-            <div class="w-2 h-2 rounded-full bg-amber-500 mx-auto mt-1 mb-0.5"></div>
-            <p class="text-xs text-gray-500 font-medium leading-tight">En Negoc.</p>
+           class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-amber-500 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95 {{ 'ring-2 ring-amber-400 shadow-md' if estatus_filter == 'EN_NEGOCIACION' else '' }}">
+            <p class="text-xl font-bold text-amber-600 leading-tight">{{ resumen.get('EN_NEGOCIACION', 0) }}</p>
+            <div class="w-1.5 h-1.5 rounded-full bg-amber-500 mx-auto mt-0.5 mb-px"></div>
+            <p class="text-[10px] text-gray-500 font-medium leading-tight">En Negoc.</p>
         </a>
 
         {# ACEPTADA #}
         <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
            hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
            hx-target="#main-content" hx-push-url="true"
-           class="glass-card p-3 rounded-xl text-center border-b-2 border-green-500 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-md active:scale-95 {{ 'ring-2 ring-green-400 shadow-md' if estatus_filter == 'ACEPTADA' else '' }}">
-            <p class="text-2xl font-bold text-green-600">{{ resumen.get('ACEPTADA', 0) }}</p>
-            <div class="w-2 h-2 rounded-full bg-green-500 mx-auto mt-1 mb-0.5"></div>
-            <p class="text-xs text-gray-500 font-medium">Aceptadas</p>
+           class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-green-500 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95 {{ 'ring-2 ring-green-400 shadow-md' if estatus_filter == 'ACEPTADA' else '' }}">
+            <p class="text-xl font-bold text-green-600 leading-tight">{{ resumen.get('ACEPTADA', 0) }}</p>
+            <div class="w-1.5 h-1.5 rounded-full bg-green-500 mx-auto mt-0.5 mb-px"></div>
+            <p class="text-[10px] text-gray-500 font-medium">Aceptadas</p>
         </a>
 
         {# RECHAZADA #}
         <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=RECHAZADA"
            hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=RECHAZADA"
            hx-target="#main-content" hx-push-url="true"
-           class="glass-card p-3 rounded-xl text-center border-b-2 border-red-500 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-md active:scale-95 {{ 'ring-2 ring-red-400 shadow-md' if estatus_filter == 'RECHAZADA' else '' }}">
-            <p class="text-2xl font-bold text-red-600">{{ resumen.get('RECHAZADA', 0) }}</p>
-            <div class="w-2 h-2 rounded-full bg-red-500 mx-auto mt-1 mb-0.5"></div>
-            <p class="text-xs text-gray-500 font-medium">Rechazadas</p>
+           class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-red-500 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95 {{ 'ring-2 ring-red-400 shadow-md' if estatus_filter == 'RECHAZADA' else '' }}">
+            <p class="text-xl font-bold text-red-600 leading-tight">{{ resumen.get('RECHAZADA', 0) }}</p>
+            <div class="w-1.5 h-1.5 rounded-full bg-red-500 mx-auto mt-0.5 mb-px"></div>
+            <p class="text-[10px] text-gray-500 font-medium">Rechazadas</p>
         </a>
 
-        {# VENCIDA #}
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=VENCIDA"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=VENCIDA"
+        {# Pólizas ACEPTADAS por vencer (≤30 días) — chip de alerta #}
+        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
+           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
            hx-target="#main-content" hx-push-url="true"
-           class="glass-card p-3 rounded-xl text-center border-b-2 border-stone-400 cursor-pointer transition-all hover:-translate-y-1 hover:shadow-md active:scale-95 {{ 'ring-2 ring-stone-400 shadow-md' if estatus_filter == 'VENCIDA' else '' }}">
-            <p class="text-2xl font-bold text-stone-500">{{ resumen.get('VENCIDA', 0) }}</p>
-            <div class="w-2 h-2 rounded-full bg-stone-400 mx-auto mt-1 mb-0.5"></div>
-            <p class="text-xs text-gray-500 font-medium">Vencidas</p>
+           class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95
+               {{ 'border-orange-500 bg-orange-50/40 ring-2 ring-orange-400/60' if alertas.polizas_por_vencer > 0 else 'border-gray-200' }}">
+            <p class="text-xl font-bold leading-tight {{ 'text-orange-700' if alertas.polizas_por_vencer > 0 else 'text-gray-400' }}">{{ alertas.polizas_por_vencer }}</p>
+            {% if alertas.polizas_por_vencer > 0 %}
+            <div class="relative flex items-center justify-center mx-auto mt-0.5 mb-px w-3 h-1.5">
+                <div class="absolute w-1.5 h-1.5 rounded-full bg-orange-400 animate-ping opacity-60"></div>
+                <div class="w-1.5 h-1.5 rounded-full bg-orange-500"></div>
+            </div>
+            {% else %}
+            <div class="w-1.5 h-1.5 rounded-full mx-auto mt-0.5 mb-px bg-gray-300"></div>
+            {% endif %}
+            <p class="text-[10px] font-medium leading-tight {{ 'text-orange-600' if alertas.polizas_por_vencer > 0 else 'text-gray-400' }}">Póliza Vence</p>
         </a>
+
+        {# Cotizaciones por vencer (≤7 días) #}
+        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=COT_VENCE"
+           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=COT_VENCE"
+           hx-target="#main-content" hx-push-url="true"
+           class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95
+                {{ 'border-amber-400 bg-amber-50/40 ring-2 ring-amber-300/60' if alertas.cotizaciones_por_vencer > 0 else 'border-gray-200' }} {{ 'ring-offset-1 ring-amber-500' if estatus_filter == 'COT_VENCE' else '' }}">
+            <p class="text-xl font-bold leading-tight {{ 'text-amber-700' if alertas.cotizaciones_por_vencer > 0 else 'text-gray-400' }}">{{ alertas.cotizaciones_por_vencer }}</p>
+            {% if alertas.cotizaciones_por_vencer > 0 %}
+            <div class="relative flex items-center justify-center mx-auto mt-0.5 mb-px w-3 h-1.5">
+                <div class="absolute w-1.5 h-1.5 rounded-full bg-amber-300 animate-ping opacity-60"></div>
+                <div class="w-1.5 h-1.5 rounded-full bg-amber-400"></div>
+            </div>
+            {% else %}
+            <div class="w-1.5 h-1.5 rounded-full mx-auto mt-0.5 mb-px bg-gray-300"></div>
+            {% endif %}
+            <p class="text-[10px] font-medium leading-tight {{ 'text-amber-600' if alertas.cotizaciones_por_vencer > 0 else 'text-gray-400' }}">Cot. Vence</p>
+        </a>
+
     </div>
 
     {# Filtros: planta, tipo, solicitante + selector de limit #}

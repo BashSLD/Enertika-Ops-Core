@@ -20,6 +20,7 @@
          precios_cambios: [],
          montos_cambios: [],
          usar_snapshot: false,
+         precio_cambiado: false,
          seleccionarPlanta(id) {
              this.planta_id = id;
              this.planta = this.plantas.find(p => p.id === id) || null;
@@ -49,13 +50,17 @@
                      this.precios_cambios = data.precios_cambios || [];
                      this.montos_cambios = data.montos_cambios || [];
                      this.mostrando_advertencia = true;
+                     this.$nextTick(() => {
+                         const scrollbox = this.$el.querySelector('.overflow-y-auto');
+                         if (scrollbox) scrollbox.scrollTo({ top: scrollbox.scrollHeight, behavior: 'smooth' });
+                     });
                  } else {
                      this.usar_snapshot = false;
-                     this.$nextTick(() => htmx.trigger(document.getElementById('form-editar-cotizacion'), 'submit'));
+                     this.$nextTick(() => htmx.trigger(document.getElementById('form-editar-cotizacion'), 'do_guardar'));
                  }
              } catch(e) {
-                 this.usar_snapshot = false;
-                 this.$nextTick(() => htmx.trigger(document.getElementById('form-editar-cotizacion'), 'submit'));
+                 console.error('Error comparando precios:', e);
+                 $dispatch('notify', { type: 'error', title: 'Error de validación', message: 'No se pudieron comprobar los precios actuales. Revisa tu conexión o contacta a soporte.' });
              } finally {
                  this.comprobando = false;
              }
@@ -63,12 +68,12 @@
          confirmarRecalculo() {
              this.usar_snapshot = false;
              this.mostrando_advertencia = false;
-             this.$nextTick(() => htmx.trigger(document.getElementById('form-editar-cotizacion'), 'submit'));
+             this.$nextTick(() => htmx.trigger(document.getElementById('form-editar-cotizacion'), 'do_guardar'));
          },
          usarSnapshotOriginal() {
              this.usar_snapshot = true;
              this.mostrando_advertencia = false;
-             this.$nextTick(() => htmx.trigger(document.getElementById('form-editar-cotizacion'), 'submit'));
+             this.$nextTick(() => htmx.trigger(document.getElementById('form-editar-cotizacion'), 'do_guardar'));
          },
          init() {
              this.plantas = JSON.parse(this.$el.dataset.plantas || '[]');
@@ -92,6 +97,17 @@
              if (this.fecha_fin_anterior) {
                  this.es_renovacion = true;
              }
+
+             // Verificar proactivamente si los precios cambiaron desde que se generó la póliza
+             fetch('/calculadora-polizas/cotizaciones/' + this.cotizacionId + '/comparar-precios?'
+                 + new URLSearchParams({
+                     planta_id: this.planta_id,
+                     tipo_poliza: this.tipo_poliza,
+                     utilidad: this.utilidad,
+                 }))
+                 .then(r => r.json())
+                 .then(data => { if (data.tiene_cambios) this.precio_cambiado = true; })
+                 .catch((e) => console.error('Proactive fetch error:', e));
          },
          cerrar() {
              document.getElementById('modal-editar-cotizacion')?.remove();
@@ -144,10 +160,24 @@
 
         {# Formulario #}
         <div class="flex-1 overflow-y-auto px-5 py-4">
+            <div x-show="precio_cambiado && !mostrando_advertencia" x-transition
+                 class="mb-3 rounded-lg bg-amber-50 border border-amber-200 px-3 py-2.5 flex gap-2 items-start">
+                <svg class="w-4 h-4 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                <p class="text-xs text-amber-800 leading-relaxed">
+                    Los precios del catálogo han cambiado desde que se generó esta póliza.
+                    Al dar clic en <strong>"Actualizar"</strong> podrás elegir si recalcular con los nuevos precios o conservar los actuales.
+                </p>
+            </div>
+
             <form id="form-editar-cotizacion"
                   hx-put="/calculadora-polizas/cotizaciones/{{ cotizacion.id }}"
                   hx-target="#cotizaciones-container"
                   hx-swap="outerHTML"
+                  hx-trigger="do_guardar"
+                  @submit.prevent="verificarYGuardar()"
                   hx-indicator="#editar-spinner"
                   hx-on::after-request="if(event.detail.successful) document.getElementById('modal-editar-cotizacion')?.remove()"
                   class="flex flex-col gap-4">
@@ -442,7 +472,7 @@
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                         </svg>
                     </span>
-                    Actualizar
+                    <span x-text="precio_cambiado ? 'Revisar cambios' : 'Actualizar'"></span>
                 </button>
             </div>
 

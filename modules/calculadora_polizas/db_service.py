@@ -154,12 +154,12 @@ class CalculadoraDBService:
         """, wattabit_id, precio)
         return result != "UPDATE 0"
 
-    async def update_costo_fijo(self, conn, concepto: str, valor: float) -> bool:
+    async def update_costo_fijo(self, conn, concepto: str, valor: float, notas: Optional[str] = None) -> bool:
         result = await conn.execute("""
             UPDATE tb_calculadora_costos_fijos
-            SET valor = $2, updated_at = NOW()
+            SET valor = $2, notas = $3, updated_at = NOW()
             WHERE concepto = $1
-        """, concepto, valor)
+        """, concepto, valor, notas)
         return result != "UPDATE 0"
 
     # ----------------------------------------
@@ -225,7 +225,11 @@ class CalculadoraDBService:
             FROM tb_calculadora_cotizaciones c
             LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
             LEFT JOIN tb_usuarios s ON s.id_usuario = c.solicitante_id
-            WHERE ($1::text IS NULL OR c.estatus = $1)
+            WHERE ($1::text IS NULL 
+                   OR ($1::text = 'COT_VENCE' AND c.estatus IN ('CREADA', 'ENVIADA', 'EN_NEGOCIACION') 
+                       AND (c.created_at::date + COALESCE(c.vigencia_cotizacion_dias, 30) * INTERVAL '1 day')::date >= CURRENT_DATE 
+                       AND (c.created_at::date + COALESCE(c.vigencia_cotizacion_dias, 30) * INTERVAL '1 day')::date <= CURRENT_DATE + INTERVAL '7 days')
+                   OR c.estatus = $1)
               AND ($2::text IS NULL OR c.nombre_planta = $2)
               AND ($3::text IS NULL OR c.tipo_poliza = $3)
               AND ($4::text IS NULL OR c.solicitante_id::text = $4)
@@ -336,6 +340,33 @@ class CalculadoraDBService:
             result[r["estatus"]] = int(r["total"])
             result["total"] += int(r["total"])
         return result
+
+    async def get_alertas_vencimiento(self, conn) -> dict:
+        """Cuenta pólizas ACEPTADAS que vencen en ≤30 días y cotizaciones activas
+        cuya validez expira en ≤7 días. Una sola query para máxima eficiencia."""
+        row = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (
+                    WHERE estatus = 'ACEPTADA'
+                      AND fecha_fin_poliza IS NOT NULL
+                      AND fecha_fin_poliza >= CURRENT_DATE
+                      AND fecha_fin_poliza <= CURRENT_DATE + INTERVAL '30 days'
+                ) AS polizas_por_vencer,
+                COUNT(*) FILTER (
+                    WHERE estatus IN ('CREADA', 'ENVIADA', 'EN_NEGOCIACION')
+                      AND (created_at::date
+                           + COALESCE(vigencia_cotizacion_dias, 30) * INTERVAL '1 day'
+                          )::date >= CURRENT_DATE
+                      AND (created_at::date
+                           + COALESCE(vigencia_cotizacion_dias, 30) * INTERVAL '1 day'
+                          )::date <= CURRENT_DATE + INTERVAL '7 days'
+                ) AS cotizaciones_por_vencer
+            FROM tb_calculadora_cotizaciones
+        """)
+        return {
+            "polizas_por_vencer":    int(row["polizas_por_vencer"])    if row else 0,
+            "cotizaciones_por_vencer": int(row["cotizaciones_por_vencer"]) if row else 0,
+        }
 
     async def get_cotizacion_by_id(self, conn, cotizacion_id) -> Optional[dict]:
         row = await conn.fetchrow("""

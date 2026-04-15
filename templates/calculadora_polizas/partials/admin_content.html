@@ -14,6 +14,23 @@
             <p class="text-gray-500 text-sm mt-1">Solo visible para Manager y Admin de modulo</p>
         </div>
     </div>
+    <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 items-start">
+        <svg class="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <div>
+            <p class="text-sm font-semibold text-amber-800">Los cambios de precio no actualizan pólizas existentes</p>
+            <p class="text-xs text-amber-700 mt-1 leading-relaxed">
+                Cada póliza generada conserva los precios del momento de su creación (snapshot).
+                Si necesitas aplicar los nuevos precios a una póliza existente, ábrela en
+                <a href="/calculadora-polizas/cotizaciones/ui" 
+                   hx-get="/calculadora-polizas/cotizaciones/ui" hx-target="#main-content" hx-push-url="true"
+                   class="underline hover:text-amber-900">Pólizas Generadas</a>, 
+                entra al modal de edición y selecciona <strong>"Recalcular con precios actuales"</strong>.
+            </p>
+        </div>
+    </div>
 
     <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
@@ -113,10 +130,16 @@
             <h3 class="font-semibold text-gray-700 border-b pb-2 text-sm uppercase tracking-wider">Costos Fijos</h3>
             {% for cf in costos_fijos %}
             <div class="flex items-start gap-2"
-                 x-data="{ editing: false, val: {{ cf.valor }} }">
+                 x-data='{ editing: false, val: {{ cf.valor }}, notas: {{ (cf.notas or "") | tojson }} }'>
                 <div class="flex-1 min-w-0">
-                    <p class="text-sm text-gray-700 font-medium">{{ cf.concepto }}</p>
-                    {% if cf.notas %}<p class="text-xs text-gray-400 leading-tight">{{ cf.notas }}</p>{% endif %}
+                    <p class="text-sm text-gray-700 font-medium">{{ cf.concepto | replace('_', ' ') | title | replace(' Por ', ' por ') | replace('Iva', 'IVA') }}</p>
+                    <template x-if="!editing && notas">
+                        <p class="text-xs text-gray-400 leading-tight" x-text="notas"></p>
+                    </template>
+                    <template x-if="editing">
+                        <input type="text" x-model="notas" placeholder="Añadir notas..."
+                               class="w-full mt-1 border border-blue-400 rounded px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500">
+                    </template>
                 </div>
                 <template x-if="!editing">
                     <div class="flex items-center gap-1.5 flex-shrink-0">
@@ -131,19 +154,19 @@
                     </div>
                 </template>
                 <template x-if="editing">
-                    <div class="flex items-center gap-1 flex-shrink-0">
+                    <div class="flex items-center gap-1 flex-shrink-0 mt-0.5">
                         <input type="number" x-model.number="val" step="0.0001" min="0"
                                class="w-24 border border-blue-400 rounded px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500">
                         <button @click="
                             htmx.ajax('PATCH', '/calculadora-polizas/admin/costos-fijos/{{ cf.concepto }}',
-                                {values: {valor: val}, swap: 'none'});
+                                {values: {valor: val, notas: notas}, swap: 'none'});
                             editing = false;"
-                                class="text-green-600 hover:text-green-700">
+                                class="text-green-600 hover:text-green-700 p-1">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
                             </svg>
                         </button>
-                        <button @click="editing = false" class="text-gray-400 hover:text-gray-600">
+                        <button @click='editing = false; notas = {{ (cf.notas or "") | tojson }};' class="text-gray-400 hover:text-gray-600 p-1">
                             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
                             </svg>

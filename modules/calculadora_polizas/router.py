@@ -333,6 +333,7 @@ async def _build_cotizaciones_ctx(
         solicitante_id_filter=solicitante_id_filter or None,
     )
     resumen = await service.db.get_resumen_estatus(conn)
+    alertas = await service.db.get_alertas_vencimiento(conn)
     filter_options = await service.db.get_polizas_filter_options(conn)
     return {
         **_base_ctx(context, mod_role),
@@ -344,6 +345,7 @@ async def _build_cotizaciones_ctx(
         "solicitante_id_filter": solicitante_id_filter or "",
         "filter_options": filter_options,
         "resumen": resumen,
+        "alertas": alertas,
         "fecha_hoy": date.today(),
     }
 
@@ -434,6 +436,7 @@ async def polizas_resumen(
         solicitante_id_filter=solicitante_id_filter or None,
     )
     resumen = await service.db.get_resumen_estatus(conn)
+    alertas = await service.db.get_alertas_vencimiento(conn)
     filter_options = await service.db.get_polizas_filter_options(conn)
     return templates.TemplateResponse(
         request, f"{TPL}/partials/polizas_resumen.html",
@@ -441,6 +444,7 @@ async def polizas_resumen(
             **_base_ctx(context, mod_role),
             "cotizaciones": cotizaciones,
             "resumen": resumen,
+            "alertas": alertas,
             "limit": limit,
             "estatus_filter": estatus_filter or "",
             "planta_filter": planta_filter or "",
@@ -499,6 +503,7 @@ async def update_estatus_resumen(
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     cotizaciones = await service.db.get_cotizaciones(conn, limit=15)
     resumen = await service.db.get_resumen_estatus(conn)
+    alertas = await service.db.get_alertas_vencimiento(conn)
     filter_options = await service.db.get_polizas_filter_options(conn)
     return templates.TemplateResponse(
         request, f"{TPL}/partials/polizas_resumen.html",
@@ -506,6 +511,7 @@ async def update_estatus_resumen(
             **_base_ctx(context, mod_role),
             "cotizaciones": cotizaciones,
             "resumen": resumen,
+            "alertas": alertas,
             "limit": 15,
             "estatus_filter": "",
             "planta_filter": "",
@@ -1430,6 +1436,7 @@ async def update_costo_fijo(
     request: Request,
     concepto: str,
     valor: float = Form(...),
+    notas: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     _=require_manager_access(SLUG),
     conn=Depends(get_db_connection),
@@ -1437,7 +1444,7 @@ async def update_costo_fijo(
 ):
     if valor < 0:
         raise HTTPException(400, "El valor no puede ser negativo")
-    ok = await service.db.update_costo_fijo(conn, concepto, valor)
+    ok = await service.db.update_costo_fijo(conn, concepto, valor, notas)
     if not ok:
         raise HTTPException(404, f"Concepto '{concepto}' no encontrado")
     return templates.TemplateResponse(
