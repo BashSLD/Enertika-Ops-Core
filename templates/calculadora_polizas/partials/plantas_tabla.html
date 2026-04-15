@@ -26,21 +26,15 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                 </svg>
             </div>
-            {# Import Excel #}
-            <form hx-post="/calculadora-polizas/plantas/import-excel"
-                  hx-encoding="multipart/form-data"
-                  hx-target="#plantas-container"
-                  hx-swap="outerHTML">
-                <label class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 cursor-pointer hover:bg-green-50 hover:border-green-400 hover:text-green-700 transition-colors">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
-                    </svg>
-                    Importar Excel
-                    <input type="file" accept=".xlsx,.xls" class="hidden" name="archivo"
-                           onchange="this.closest('form').requestSubmit()">
-                </label>
-            </form>
+            {# Import Excel — abre modal #}
+            <button onclick="document.getElementById('modal-import-plantas').classList.remove('hidden')"
+                    class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 hover:bg-green-50 hover:border-green-400 hover:text-green-700 transition-colors">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                </svg>
+                Importar Excel
+            </button>
             {# Nueva planta #}
             <button onclick="document.getElementById('modal-nueva-planta').classList.remove('hidden')"
                     class="btn-primary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5">
@@ -218,3 +212,177 @@
         </form>
     </div>
 </div>
+
+{# ================================================================ #}
+{# MODAL IMPORTAR EXCEL                                             #}
+{# ================================================================ #}
+<div id="modal-import-plantas" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[92dvh]"
+         onclick="event.stopPropagation()">
+
+        {# Header #}
+        <div class="flex items-center justify-between p-5 border-b flex-shrink-0">
+            <div class="flex items-center gap-2">
+                <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                </svg>
+                <h3 class="font-semibold text-gray-800">Importar Plantas desde Excel</h3>
+            </div>
+            <button onclick="cerrarModalImport()" class="text-gray-400 hover:text-gray-600 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+
+        <div class="p-5 flex flex-col gap-4 overflow-y-auto">
+
+            {# Descarga plantilla #}
+            <div class="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-xl px-4 py-3">
+                <div>
+                    <p class="text-sm font-medium text-gray-700">¿Primera vez importando?</p>
+                    <p class="text-xs text-gray-500 mt-0.5">Descarga la plantilla con el formato y las zonas válidas.</p>
+                </div>
+                <a href="/calculadora-polizas/plantas/plantilla-excel"
+                   target="_blank"
+                   class="inline-flex items-center gap-2 text-sm font-semibold text-green-700 border border-green-300 bg-green-50 hover:bg-green-100 px-3 py-2 rounded-lg transition-colors whitespace-nowrap">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    Descargar Plantilla
+                </a>
+            </div>
+
+            {# Zona drag & drop #}
+            <div id="import-dropzone"
+                 class="relative border-2 border-dashed border-gray-300 rounded-xl p-8 text-center transition-colors hover:border-blue-400 hover:bg-blue-50/30 cursor-pointer"
+                 ondragover="event.preventDefault(); this.classList.add('border-blue-500','bg-blue-50')"
+                 ondragleave="this.classList.remove('border-blue-500','bg-blue-50')"
+                 ondrop="handleImportDrop(event)"
+                 onclick="document.getElementById('import-file-input').click()">
+
+                <input type="file" id="import-file-input" accept=".xlsx,.xls"
+                       class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10"
+                       onchange="handleImportFile(this.files[0])">
+
+                <div id="import-placeholder">
+                    <svg class="mx-auto h-10 w-10 text-gray-400 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                            d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/>
+                    </svg>
+                    <p class="text-sm text-gray-600">Arrastra tu Excel aquí o <span class="text-blue-600 font-semibold">haz clic</span></p>
+                    <p class="text-xs text-gray-400 mt-1">Formatos aceptados: .xlsx, .xls</p>
+                </div>
+
+                <div id="import-file-selected" class="hidden items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+                    <div class="flex items-center gap-2 text-blue-700">
+                        <svg class="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                        </svg>
+                        <span id="import-file-name" class="font-semibold text-sm"></span>
+                    </div>
+                    <button type="button" onclick="limpiarImportFile(event)"
+                            class="text-red-500 hover:text-red-700 hover:bg-red-100 rounded-full p-1 transition ml-3 flex-shrink-0">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            {# Zona de preview — se puebla con HTMX #}
+            <div id="import-preview-zone"></div>
+
+        </div>
+    </div>
+</div>
+
+{# ── Scripts del modal de importación ──────────────────────────── #}
+<script>
+// Archivo seleccionado actualmente (para re-enviar al confirmar)
+let _importFile = null;
+
+function cerrarModalImport() {
+    document.getElementById('modal-import-plantas').classList.add('hidden');
+    limpiarImportState();
+}
+
+function limpiarImportState() {
+    _importFile = null;
+    document.getElementById('import-file-input').value = '';
+    document.getElementById('import-placeholder').classList.remove('hidden');
+    document.getElementById('import-file-selected').classList.add('hidden');
+    document.getElementById('import-file-selected').classList.remove('flex');
+    document.getElementById('import-file-name').textContent = '';
+    document.getElementById('import-preview-zone').innerHTML = '';
+}
+
+function limpiarImportFile(event) {
+    event.stopPropagation();
+    event.preventDefault();
+    limpiarImportState();
+}
+
+function handleImportDrop(event) {
+    event.preventDefault();
+    document.getElementById('import-dropzone').classList.remove('border-blue-500', 'bg-blue-50');
+    const file = event.dataTransfer.files[0];
+    if (file) handleImportFile(file);
+}
+
+function handleImportFile(file) {
+    if (!file) return;
+    if (!file.name.match(/\.(xlsx|xls)$/i)) {
+        alert('Solo se aceptan archivos .xlsx o .xls');
+        return;
+    }
+    _importFile = file;
+
+    // Mostrar nombre del archivo
+    document.getElementById('import-placeholder').classList.add('hidden');
+    document.getElementById('import-file-selected').classList.remove('hidden');
+    document.getElementById('import-file-selected').classList.add('flex');
+    document.getElementById('import-file-name').textContent = file.name;
+
+    // Lanzar preview vía HTMX/fetch
+    const formData = new FormData();
+    formData.append('archivo', file);
+
+    document.getElementById('import-preview-zone').innerHTML =
+        '<div class="flex justify-center py-4"><div class="spinner-enertika"></div></div>';
+
+    htmx.ajax('POST', '/calculadora-polizas/plantas/preview-excel', {
+        values: formData,
+        target: '#import-preview-zone',
+        swap: 'innerHTML',
+    });
+}
+
+function confirmarImportPlantasExcel() {
+    if (!_importFile) return;
+    const btn = document.getElementById('btn-confirmar-import');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Importando...';
+    }
+
+    const formData = new FormData();
+    formData.append('archivo', _importFile);
+
+    htmx.ajax('POST', '/calculadora-polizas/plantas/import-excel', {
+        values: formData,
+        target: '#main-content',
+        swap: 'innerHTML',
+    });
+
+    cerrarModalImport();
+}
+
+// Cerrar al hacer click fuera del panel
+document.getElementById('modal-import-plantas').addEventListener('click', function(e) {
+    if (e.target === this) cerrarModalImport();
+});
+</script>

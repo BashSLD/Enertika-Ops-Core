@@ -40,7 +40,7 @@ async def get_oym_ui(
 
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     is_admin = context.get("role") == "ADMIN"
-    active_tab = tab if tab in ("proyectos", "polizas") else "proyectos"
+    active_tab = tab if tab in ("proyectos", "polizas", "incidencias") else "proyectos"
 
     template_data = {
         "user_name": context.get("user_name"),
@@ -53,6 +53,7 @@ async def get_oym_ui(
         "area": "OYM",
         "area_origen": "CONSTRUCCION",
         "puede_recibir": mod_role in ("editor", "admin") or is_admin,
+        "puede_editar": mod_role in ("editor", "admin") or is_admin,
         "active_tab": active_tab,
     }
 
@@ -82,6 +83,24 @@ async def get_proyectos_partial(
         "current_module_role": mod_role,
         "puede_recibir": mod_role in ("editor", "admin") or context.get("role") == "ADMIN",
     })
+
+
+@router.get("/partials/incidencias-kanban", include_in_schema=False)
+async def get_incidencias_kanban(
+    request: Request,
+    context=Depends(get_current_user_context),
+    _=require_module_access("oym"),
+    conn=Depends(get_db_connection),
+):
+    """Esqueleto del Kanban de Incidencias O&M."""
+    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+    is_admin = context.get("role") == "ADMIN"
+    return templates.TemplateResponse(
+        request, "oym/partials/incidencias_kanban.html",
+        {
+            "puede_editar": mod_role in ("editor", "admin") or is_admin,
+        },
+    )
 
 
 @router.get("/modal/recibir/{id_traspaso}", include_in_schema=False)

@@ -12,25 +12,33 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
             </svg>
         </div>
-        <button x-show="activeTab === 'polizas'"
-                hx-get="/calculadora-polizas/plantas/nueva-modal"
-                hx-target="body"
-                hx-swap="beforeend"
-                hx-on::before-request="document.getElementById('modal-nueva-planta-oym')?.remove()"
-                class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
+        <a x-show="activeTab === 'polizas'"
+           href="/calculadora-polizas/plantas/ui"
+           hx-get="/calculadora-polizas/plantas/ui" hx-target="#main-content" hx-push-url="true"
+           class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 5h2"/>
             </svg>
-            Nueva Planta
-        </button>
+            Gestionar Plantas
+        </a>
+        <a x-show="activeTab === 'polizas'"
+           href="/calculadora-polizas/cotizaciones/ui"
+           hx-get="/calculadora-polizas/cotizaciones/ui" hx-target="#main-content" hx-push-url="true"
+           class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+            Gestionar Pólizas
+        </a>
         <a x-show="activeTab === 'polizas'"
            href="/calculadora-polizas/ui"
            hx-get="/calculadora-polizas/ui" hx-target="#main-content" hx-push-url="true"
            class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M12 7h.01M9 7H7a2 2 0 00-2 2v9a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2"/>
+                    d="M12 4v16m8-8H4"/>
             </svg>
             Nueva Poliza
         </a>
@@ -67,19 +75,28 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                 </svg>
             </div>
-            {# Nueva Planta — solo en tab Polizas #}
-            <button x-show="activeTab === 'polizas'" x-transition
-                    hx-get="/calculadora-polizas/plantas/nueva-modal"
-                    hx-target="body"
-                    hx-swap="beforeend"
-                    hx-on::before-request="document.getElementById('modal-nueva-planta-oym')?.remove()"
-                    class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
+            {# Gestionar Plantas — solo en tab Polizas #}
+            <a x-show="activeTab === 'polizas'" x-transition
+               href="/calculadora-polizas/plantas/ui"
+               hx-get="/calculadora-polizas/plantas/ui" hx-target="#main-content" hx-push-url="true"
+               class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 5h2"/>
                 </svg>
-                Nueva Planta
-            </button>
+                Gestionar Plantas
+            </a>
+            {# Gestionar Pólizas — solo en tab Polizas #}
+            <a x-show="activeTab === 'polizas'" x-transition
+               href="/calculadora-polizas/cotizaciones/ui"
+               hx-get="/calculadora-polizas/cotizaciones/ui" hx-target="#main-content" hx-push-url="true"
+               class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                Gestionar Pólizas
+            </a>
             {# Nueva Poliza — solo en tab Polizas #}
             <a x-show="activeTab === 'polizas'" x-transition
                href="/calculadora-polizas/ui"
@@ -94,40 +111,109 @@
         </div>
     </div>
 
-    {# Tabs #}
-    <div class="flex border-b border-gray-200 mb-4 gap-1">
-        <button @click="activeTab = 'proyectos'; history.pushState(null, '', '/oym/ui?tab=proyectos')"
-                :class="activeTab === 'proyectos'
-                    ? 'border-blue-500 text-blue-600 font-semibold bg-white'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
-                class="flex items-center gap-2 py-2.5 px-4 border-b-2 text-sm transition-colors duration-150 -mb-px">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 5h2"/>
-            </svg>
-            Proyectos
-            {% if kpis.pendientes_recepcion > 0 %}
-            <span class="bg-amber-100 text-amber-700 text-xs font-semibold px-1.5 py-0.5 rounded-full">
-                {{ kpis.pendientes_recepcion }}
-            </span>
-            {% endif %}
-        </button>
-        <button @click="activeTab = 'polizas'; history.pushState(null, '', '/oym/ui?tab=polizas')"
-                hx-get="/calculadora-polizas/partials/polizas-resumen"
-                hx-target="#polizas-tab-content"
-                hx-swap="innerHTML"
-                hx-trigger="click once"
-                :class="activeTab === 'polizas'
-                    ? 'border-blue-500 text-blue-600 font-semibold bg-white'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
-                class="flex items-center gap-2 py-2.5 px-4 border-b-2 text-sm transition-colors duration-150 -mb-px">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-            </svg>
-            Polizas
-        </button>
+    {# Tabs — estilo glass-panel consistente con comercial/simulacion #}
+    <style>
+        .oym-tab-link {
+            position: relative;
+            overflow: hidden;
+        }
+        .oym-tab-link::before {
+            content: '';
+            position: absolute;
+            left: 0; right: 0; bottom: 0;
+            height: 0;
+            background: linear-gradient(to right, #3b82f6, #1d4ed8);
+            transition: height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 1;
+            border-top-left-radius: 4px;
+            border-top-right-radius: 4px;
+        }
+        .oym-tab-link.active::before { height: 4px; }
+        .oym-tabs-list { scrollbar-width: none; }
+        .oym-tabs-list::-webkit-scrollbar { display: none; }
+    </style>
+    <div class="mb-4 text-sm font-medium text-center text-gray-500 border-b border-gray-200/50">
+        <ul class="oym-tabs-list flex -mb-px gap-1 overflow-x-auto">
+
+            {# Tab: Proyectos #}
+            <li class="shrink-0">
+                <button @click="activeTab = 'proyectos'; history.pushState(null, '', '/oym/ui?tab=proyectos'); updateOymTab('proyectos', $el)"
+                        id="oym-tab-proyectos"
+                        :class="activeTab === 'proyectos' ? 'glass-panel bg-white/60 active' : 'border-transparent hover:bg-white/40'"
+                        class="oym-tab-link inline-flex items-center gap-2 p-3 rounded-t-lg transition-all group">
+                    <svg class="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 5h2"/>
+                    </svg>
+                    <span :class="activeTab === 'proyectos' ? 'font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-blue-800' : ''">
+                        Proyectos
+                    </span>
+                    {% if kpis.pendientes_recepcion > 0 %}
+                    <span class="bg-amber-100 text-amber-700 text-xs font-semibold px-1.5 py-0.5 rounded-full leading-none">
+                        {{ kpis.pendientes_recepcion }}
+                    </span>
+                    {% endif %}
+                </button>
+            </li>
+
+            {# Tab: Pólizas #}
+            <li class="shrink-0">
+                <button @click="activeTab = 'polizas'; history.pushState(null, '', '/oym/ui?tab=polizas'); updateOymTab('polizas', $el)"
+                        id="oym-tab-polizas"
+                        hx-get="/calculadora-polizas/partials/polizas-resumen"
+                        hx-target="#polizas-tab-content"
+                        hx-swap="innerHTML"
+                        hx-trigger="click once"
+                        :class="activeTab === 'polizas' ? 'glass-panel bg-white/60 active' : 'border-transparent hover:bg-white/40'"
+                        class="oym-tab-link inline-flex items-center gap-2 p-3 rounded-t-lg transition-all group">
+                    <svg class="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                    </svg>
+                    <span :class="activeTab === 'polizas' ? 'font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-blue-800' : ''">
+                        Pólizas O&amp;M
+                    </span>
+                </button>
+            </li>
+
+            {# Tab: Incidencias #}
+            <li class="shrink-0">
+                <button @click="activeTab = 'incidencias'; history.pushState(null, '', '/oym/ui?tab=incidencias'); updateOymTab('incidencias', $el)"
+                        id="oym-tab-incidencias"
+                        hx-get="/oym/partials/incidencias-kanban"
+                        hx-target="#incidencias-tab-content"
+                        hx-swap="innerHTML"
+                        hx-trigger="click once"
+                        :class="activeTab === 'incidencias' ? 'glass-panel bg-white/60 active' : 'border-transparent hover:bg-white/40'"
+                        class="oym-tab-link inline-flex items-center gap-2 p-3 rounded-t-lg transition-all group">
+                    <svg class="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+                    </svg>
+                    <span :class="activeTab === 'incidencias' ? 'font-bold bg-clip-text text-transparent bg-gradient-to-r from-blue-600 to-blue-800' : ''">
+                        Incidencias
+                    </span>
+                </button>
+            </li>
+
+        </ul>
     </div>
+    <script>
+    function updateOymTab(tabName, element) {
+        document.querySelectorAll('.oym-tab-link').forEach(function(el) {
+            el.classList.remove('glass-panel', 'bg-white/60', 'active');
+            el.classList.add('border-transparent', 'hover:bg-white/40');
+        });
+        element.classList.remove('border-transparent', 'hover:bg-white/40');
+        element.classList.add('glass-panel', 'bg-white/60', 'active');
+    }
+    // Activar visualmente el tab correcto al cargar
+    (function() {
+        var activeTabName = '{{ active_tab }}';
+        var el = document.getElementById('oym-tab-' + activeTabName);
+        if (el) updateOymTab(activeTabName, el);
+    })();
+    </script>
 
     {# Tab Proyectos #}
     <div x-show="activeTab === 'proyectos'" class="flex-1 flex flex-col min-h-0">
@@ -170,6 +256,25 @@
                     <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
                 </svg>
                 <p class="text-sm">Cargando polizas...</p>
+            </div>
+        </div>
+    </div>
+
+    {# Tab Incidencias — lazy load via HTMX #}
+    <div x-show="activeTab === 'incidencias'" class="flex-1 overflow-auto"
+         {% if active_tab == 'incidencias' %}
+         hx-get="/oym/partials/incidencias-kanban"
+         hx-target="#incidencias-tab-content"
+         hx-swap="innerHTML"
+         hx-trigger="load once"
+         {% endif %}>
+        <div id="incidencias-tab-content">
+            <div class="flex items-center justify-center py-16 text-gray-400 gap-3">
+                <svg class="animate-spin w-5 h-5 opacity-40" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                </svg>
+                <p class="text-sm">Cargando incidencias...</p>
             </div>
         </div>
     </div>
