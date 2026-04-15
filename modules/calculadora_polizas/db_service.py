@@ -345,7 +345,7 @@ class CalculadoraDBService:
                    c.descuento_pct_1, c.descuento_pct_3, c.descuento_pct_5,
                    c.fecha_inicio_poliza, c.fecha_fin_poliza,
                    c.poliza_anterior_id, c.fecha_fin_poliza_anterior,
-                   c.anios_contratados,
+                   c.anios_contratados, c.vigencia_cotizacion_dias,
                    ant.fecha_fin_poliza AS anterior_fecha_fin,
                    u.nombre AS creado_por_nombre,
                    s.nombre AS solicitante_nombre
