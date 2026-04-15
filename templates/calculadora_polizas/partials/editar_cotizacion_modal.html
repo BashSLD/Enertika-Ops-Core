@@ -6,33 +6,83 @@
          utilidad: 0.30,
          plantas: [],
          planta: null,
-         tiene_descuento: false,
-         descuento_display: '',
-         descuento_anios: [],
-         get descuento_pct() { return this.descuento_display ? parseFloat(this.descuento_display) / 100 : 0; },
-         toggleAnio(anio) {
-             const idx = this.descuento_anios.indexOf(anio);
-             if (idx === -1) this.descuento_anios.push(anio);
-             else this.descuento_anios.splice(idx, 1);
-         },
-         anioActivo(anio) { return this.descuento_anios.includes(anio); },
+         dto1_activo: false, dto1_display: '',
+         dto3_activo: false, dto3_display: '',
+         dto5_activo: false, dto5_display: '',
          tiene_vigencia: false,
          es_renovacion: false,
          fecha_inicio: '',
          fecha_fin: '',
          fecha_fin_anterior: '',
+         cotizacionId: '',
+         comprobando: false,
+         mostrando_advertencia: false,
+         precios_cambios: [],
+         montos_cambios: [],
+         usar_snapshot: false,
+         seleccionarPlanta(id) {
+             this.planta_id = id;
+             this.planta = this.plantas.find(p => p.id === id) || null;
+         },
+         formatMXN(val) {
+             return '$' + Number(val).toLocaleString('es-MX', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+         },
+         async verificarYGuardar() {
+             this.comprobando = true;
+             try {
+                 const params = new URLSearchParams({
+                     planta_id: this.planta_id,
+                     tipo_poliza: this.tipo_poliza,
+                     utilidad: this.utilidad,
+                     descuento_pct: 0,
+                     descuento_anios: '[]',
+                 });
+                 const resp = await fetch(
+                     '/calculadora-polizas/cotizaciones/' + this.cotizacionId + '/comparar-precios?' + params
+                 );
+                 const data = await resp.json();
+                 if (data.error) {
+                     alert(data.error);
+                     return;
+                 }
+                 if (data.tiene_cambios) {
+                     this.precios_cambios = data.precios_cambios || [];
+                     this.montos_cambios = data.montos_cambios || [];
+                     this.mostrando_advertencia = true;
+                 } else {
+                     this.usar_snapshot = false;
+                     this.$nextTick(() => htmx.trigger(document.getElementById('form-editar-cotizacion'), 'submit'));
+                 }
+             } catch(e) {
+                 this.usar_snapshot = false;
+                 this.$nextTick(() => htmx.trigger(document.getElementById('form-editar-cotizacion'), 'submit'));
+             } finally {
+                 this.comprobando = false;
+             }
+         },
+         confirmarRecalculo() {
+             this.usar_snapshot = false;
+             this.mostrando_advertencia = false;
+             this.$nextTick(() => htmx.trigger(document.getElementById('form-editar-cotizacion'), 'submit'));
+         },
+         usarSnapshotOriginal() {
+             this.usar_snapshot = true;
+             this.mostrando_advertencia = false;
+             this.$nextTick(() => htmx.trigger(document.getElementById('form-editar-cotizacion'), 'submit'));
+         },
          init() {
              this.plantas = JSON.parse(this.$el.dataset.plantas || '[]');
              this.planta_id = this.$el.dataset.plantaId || '';
              this.tipo_poliza = this.$el.dataset.tipoPoliza || 'premium';
              this.utilidad = parseFloat(this.$el.dataset.utilidad || '0.30');
+             this.cotizacionId = this.$el.dataset.cotizacionId || '';
              this.planta = this.plantas.find(p => p.id === this.planta_id) || null;
-             const pct = parseFloat(this.$el.dataset.descuentoPct || '0');
-             if (pct > 0) {
-                 this.tiene_descuento = true;
-                 this.descuento_display = String(Math.round(pct * 10000) / 100);
-                 this.descuento_anios = JSON.parse(this.$el.dataset.descuentoAnios || '[]');
-             }
+             const pct1 = parseFloat(this.$el.dataset.dto1 || '0');
+             if (pct1 > 0) { this.dto1_activo = true; this.dto1_display = String(Math.round(pct1 * 10000) / 100); }
+             const pct3 = parseFloat(this.$el.dataset.dto3 || '0');
+             if (pct3 > 0) { this.dto3_activo = true; this.dto3_display = String(Math.round(pct3 * 10000) / 100); }
+             const pct5 = parseFloat(this.$el.dataset.dto5 || '0');
+             if (pct5 > 0) { this.dto5_activo = true; this.dto5_display = String(Math.round(pct5 * 10000) / 100); }
              this.fecha_inicio = this.$el.dataset.fechaInicio || '';
              this.fecha_fin = this.$el.dataset.fechaFin || '';
              this.fecha_fin_anterior = this.$el.dataset.fechaFinAnterior || '';
@@ -51,11 +101,13 @@
      data-planta-id="{{ cotizacion.planta_id or '' }}"
      data-tipo-poliza="{{ cotizacion.tipo_poliza }}"
      data-utilidad="{{ cotizacion.utilidad }}"
-     data-descuento-pct="{{ cotizacion.descuento_pct or 0 }}"
-     data-descuento-anios='{{ (cotizacion.descuento_anios or []) | tojson }}'
+     data-dto1="{{ cotizacion.descuento_pct_1 or 0 }}"
+     data-dto3="{{ cotizacion.descuento_pct_3 or 0 }}"
+     data-dto5="{{ cotizacion.descuento_pct_5 or 0 }}"
      data-fecha-inicio="{{ cotizacion.fecha_inicio_poliza.isoformat() if cotizacion.fecha_inicio_poliza else '' }}"
      data-fecha-fin="{{ cotizacion.fecha_fin_poliza.isoformat() if cotizacion.fecha_fin_poliza else '' }}"
      data-fecha-fin-anterior="{{ cotizacion.fecha_fin_poliza_anterior.isoformat() if cotizacion.fecha_fin_poliza_anterior else '' }}"
+     data-cotizacion-id="{{ cotizacion.id }}"
      @keydown.escape.window="cerrar()">
 
     <div @click.away="cerrar()"
@@ -102,8 +154,8 @@
 
                 <input type="hidden" name="estatus_filter" value="{{ estatus_filter }}">
                 <input type="hidden" name="page" value="{{ page }}">
-                {# planta_id se envía desde el input hidden reactivo de Alpine #}
                 <input type="hidden" name="planta_id" :value="planta_id">
+                <input type="hidden" name="usar_snapshot" :value="usar_snapshot ? 'mantener' : ''">
 
                 {# Planta #}
                 <div>
@@ -232,78 +284,200 @@
                     </div>
                 </div>
 
-                {# Descuento #}
-                <div class="border border-dashed border-gray-200 rounded-lg p-3 flex flex-col gap-3">
-                    <label class="flex items-center gap-2 cursor-pointer select-none">
-                        <input type="checkbox" x-model="tiene_descuento"
-                               @change="if (!tiene_descuento) { descuento_display = ''; descuento_anios = []; }"
-                               class="w-4 h-4 rounded accent-green-600">
-                        <span class="text-sm font-medium text-gray-600">Aplicar descuento</span>
-                    </label>
+                {# Descuentos por año — porcentaje independiente para cada opcion #}
+                <div class="border border-dashed border-gray-200 rounded-lg p-3 flex flex-col gap-2">
+                    <p class="text-sm font-medium text-gray-600">Descuentos por opcion</p>
+                    <p class="text-xs text-gray-400 -mt-1">Porcentaje distinto por plazo. Deja en blanco si no aplica.</p>
 
-                    {# Input oculto único — siempre refleja el valor correcto #}
-                    <input type="hidden" name="descuento_pct" :value="tiene_descuento ? descuento_pct : 0">
+                    <input type="hidden" name="descuento_pct_1"
+                           :value="dto1_activo && dto1_display ? (parseFloat(dto1_display) / 100).toFixed(4) : ''">
+                    <input type="hidden" name="descuento_pct_3"
+                           :value="dto3_activo && dto3_display ? (parseFloat(dto3_display) / 100).toFixed(4) : ''">
+                    <input type="hidden" name="descuento_pct_5"
+                           :value="dto5_activo && dto5_display ? (parseFloat(dto5_display) / 100).toFixed(4) : ''">
 
-                    <div x-show="tiene_descuento" x-transition class="flex flex-col gap-3">
-                        <div class="flex items-center gap-2">
-                            <label class="text-sm text-gray-600 w-24 flex-shrink-0">% Descuento</label>
-                            <input type="number" x-model="descuento_display"
-                                   min="0.1" max="99" step="0.1" placeholder="ej. 10"
-                                   inputmode="decimal"
-                                   class="w-28 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
-                            <span class="text-sm text-gray-400">%</span>
-                        </div>
+                    <div class="flex items-center gap-2">
+                        <label class="flex items-center gap-1.5 cursor-pointer select-none w-20 flex-shrink-0">
+                            <input type="checkbox" x-model="dto1_activo"
+                                   @change="if (!dto1_activo) dto1_display = ''"
+                                   class="w-3.5 h-3.5 rounded accent-green-600">
+                            <span class="text-xs font-semibold text-gray-700">1 año</span>
+                        </label>
+                        <input type="number" x-model="dto1_display" x-show="dto1_activo" x-transition
+                               min="0.1" max="99" step="0.1" placeholder="ej. 5" inputmode="decimal"
+                               class="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                        <span class="text-xs text-gray-400" x-show="dto1_activo">%</span>
+                    </div>
 
-                        <div>
-                            <p class="text-xs font-medium text-gray-500 mb-1.5">Aplica en:</p>
-                            <div class="flex gap-2">
-                                <template x-for="anio in [1, 3, 5]" :key="anio">
-                                    <label class="cursor-pointer">
-                                        <input type="checkbox" name="descuento_anios"
-                                               :value="anio"
-                                               :checked="anioActivo(anio)"
-                                               @change="toggleAnio(anio)"
-                                               class="sr-only peer">
-                                        <div class="px-3 py-1.5 text-xs font-semibold rounded-lg border-2 transition-colors duration-150
-                                                    peer-checked:border-green-500 peer-checked:bg-green-50 peer-checked:text-green-700
-                                                    border-gray-200 text-gray-500 hover:border-green-300"
-                                             x-text="anio + ' año' + (anio > 1 ? 's' : '')">
-                                        </div>
-                                    </label>
-                                </template>
-                            </div>
-                        </div>
+                    <div class="flex items-center gap-2">
+                        <label class="flex items-center gap-1.5 cursor-pointer select-none w-20 flex-shrink-0">
+                            <input type="checkbox" x-model="dto3_activo"
+                                   @change="if (!dto3_activo) dto3_display = ''"
+                                   class="w-3.5 h-3.5 rounded accent-green-600">
+                            <span class="text-xs font-semibold text-gray-700">3 años</span>
+                        </label>
+                        <input type="number" x-model="dto3_display" x-show="dto3_activo" x-transition
+                               min="0.1" max="99" step="0.1" placeholder="ej. 10" inputmode="decimal"
+                               class="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                        <span class="text-xs text-gray-400" x-show="dto3_activo">%</span>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <label class="flex items-center gap-1.5 cursor-pointer select-none w-20 flex-shrink-0">
+                            <input type="checkbox" x-model="dto5_activo"
+                                   @change="if (!dto5_activo) dto5_display = ''"
+                                   class="w-3.5 h-3.5 rounded accent-green-600">
+                            <span class="text-xs font-semibold text-gray-700">5 años</span>
+                        </label>
+                        <input type="number" x-model="dto5_display" x-show="dto5_activo" x-transition
+                               min="0.1" max="99" step="0.1" placeholder="ej. 15" inputmode="decimal"
+                               class="w-24 border border-gray-300 rounded-lg px-2 py-1 text-sm focus:ring-2 focus:ring-green-500 focus:border-green-500">
+                        <span class="text-xs text-gray-400" x-show="dto5_activo">%</span>
                     </div>
                 </div>
 
             </form>
+
+            {# Panel de diferencias detectadas #}
+            <div x-show="mostrando_advertencia" x-transition class="mt-4 flex flex-col gap-3">
+
+                {# Precios unitarios que cambiaron #}
+                <template x-if="precios_cambios.length > 0">
+                    <div class="rounded-xl border border-amber-300 bg-amber-50 overflow-hidden">
+                        <div class="px-4 py-2.5 bg-amber-100 border-b border-amber-200 flex items-center gap-2">
+                            <svg class="w-3.5 h-3.5 text-amber-600 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            <p class="text-xs font-semibold text-amber-800">Precios modificados desde que se genero esta poliza</p>
+                        </div>
+                        <div class="px-4 py-3">
+                            <table class="w-full text-xs">
+                                <thead>
+                                    <tr class="text-amber-600 font-semibold border-b border-amber-200">
+                                        <th class="text-left pb-1.5">Concepto</th>
+                                        <th class="text-right pb-1.5">Snapshot</th>
+                                        <th class="text-right pb-1.5">Actual</th>
+                                        <th class="text-right pb-1.5">Diferencia</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-amber-100">
+                                    <template x-for="(c, i) in precios_cambios" :key="i">
+                                        <tr>
+                                            <td class="py-1.5 text-gray-700" x-text="c.etiqueta"></td>
+                                            <td class="py-1.5 text-right text-gray-500" x-text="formatMXN(c.original)"></td>
+                                            <td class="py-1.5 text-right font-medium"
+                                                :class="c.nuevo > c.original ? 'text-red-600' : 'text-green-600'"
+                                                x-text="formatMXN(c.nuevo)"></td>
+                                            <td class="py-1.5 text-right font-semibold"
+                                                :class="c.nuevo > c.original ? 'text-red-600' : 'text-green-600'"
+                                                x-text="(c.nuevo > c.original ? '+' : '') + formatMXN(c.nuevo - c.original)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </template>
+
+                {# Impacto en montos totales #}
+                <template x-if="montos_cambios.length > 0">
+                    <div class="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
+                        <div class="px-4 py-2.5 bg-gray-100 border-b border-gray-200">
+                            <p class="text-xs font-semibold text-gray-600">Impacto en montos de la poliza</p>
+                        </div>
+                        <div class="px-4 py-3">
+                            <table class="w-full text-xs">
+                                <thead>
+                                    <tr class="text-gray-500 font-semibold border-b border-gray-200">
+                                        <th class="text-left pb-1.5">Concepto</th>
+                                        <th class="text-right pb-1.5">Snapshot</th>
+                                        <th class="text-right pb-1.5">Nuevo calculo</th>
+                                        <th class="text-right pb-1.5">Diferencia</th>
+                                    </tr>
+                                </thead>
+                                <tbody class="divide-y divide-gray-100">
+                                    <template x-for="(c, i) in montos_cambios" :key="i">
+                                        <tr>
+                                            <td class="py-1.5 text-gray-700" x-text="c.etiqueta"></td>
+                                            <td class="py-1.5 text-right text-gray-500" x-text="formatMXN(c.original)"></td>
+                                            <td class="py-1.5 text-right font-medium"
+                                                :class="c.nuevo > c.original ? 'text-red-600' : 'text-green-600'"
+                                                x-text="formatMXN(c.nuevo)"></td>
+                                            <td class="py-1.5 text-right font-semibold"
+                                                :class="c.nuevo > c.original ? 'text-red-600' : 'text-green-600'"
+                                                x-text="(c.nuevo > c.original ? '+' : '') + formatMXN(c.nuevo - c.original)"></td>
+                                        </tr>
+                                    </template>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </template>
+
+            </div>
         </div>
 
         {# Footer #}
-        <div class="px-5 py-4 border-t border-gray-200 flex flex-col gap-3 flex-shrink-0">
-            <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
-                <svg class="w-3.5 h-3.5 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
-                </svg>
-                Al guardar se recalcularan los montos usando los precios y costos vigentes en este momento. Si los precios base fueron modificados desde que se creo esta cotizacion, los totales podrian variar.
-            </p>
-            <div class="flex items-center justify-end gap-2">
-            <button @click="cerrar()"
-                    class="btn-secondary text-sm px-4 py-2 rounded-lg">
-                Cancelar
-            </button>
-            <button type="submit" form="form-editar-cotizacion"
-                    class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
-                <span id="editar-spinner" class="htmx-indicator">
-                    <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
-                    </svg>
-                </span>
-                Recalcular y guardar
-            </button>
+        <div class="px-5 py-4 border-t border-gray-200 flex-shrink-0">
+
+            {# Footer normal #}
+            <div x-show="!mostrando_advertencia" class="flex items-center justify-end gap-2">
+                <button @click="cerrar()" class="btn-secondary text-sm px-4 py-2 rounded-lg">
+                    Cancelar
+                </button>
+                <button type="button"
+                        @click="verificarYGuardar()"
+                        :disabled="comprobando"
+                        class="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-2">
+                    <span x-show="comprobando">
+                        <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                    </span>
+                    <span id="editar-spinner" class="htmx-indicator">
+                        <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                        </svg>
+                    </span>
+                    Actualizar
+                </button>
             </div>
+
+            {# Footer con advertencia activa #}
+            <div x-show="mostrando_advertencia" class="flex flex-col gap-3">
+                <p class="text-xs text-gray-500">Elige como guardar esta poliza:</p>
+                <div class="flex items-center justify-end gap-2">
+                    <button @click="cerrar()" class="btn-secondary text-sm px-4 py-2 rounded-lg">
+                        Cancelar
+                    </button>
+                    <button type="button"
+                            @click="usarSnapshotOriginal()"
+                            class="border border-gray-300 bg-white hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5">
+                        <span id="editar-spinner-snap" class="htmx-indicator">
+                            <svg class="animate-spin h-4 w-4 text-gray-500" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                            </svg>
+                        </span>
+                        Mantener montos originales
+                    </button>
+                    <button type="button"
+                            @click="confirmarRecalculo()"
+                            class="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5">
+                        <span class="htmx-indicator">
+                            <svg class="animate-spin h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/>
+                            </svg>
+                        </span>
+                        Recalcular con precios actuales
+                    </button>
+                </div>
+            </div>
+
         </div>
 
     </div>

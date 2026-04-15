@@ -76,20 +76,19 @@ class CalculadoraService:
                 valor *= (1 + factor)
             anos.append(round(valor, 2))
 
-        # Descuento por duración de contrato
-        descuento_pct = float(req.descuento_pct or 0.0)
-        descuento_anios = list(req.descuento_anios or [])
-        descuento_factor = 1.0 - descuento_pct
-        descuento_monto = round(sub_total_utilidad * descuento_pct, 2)
+        # Descuento por duración de contrato (porcentaje independiente por opción)
+        pct_1 = float(req.descuento_pct_1 or 0.0)
+        pct_3 = float(req.descuento_pct_3 or 0.0)
+        pct_5 = float(req.descuento_pct_5 or 0.0)
 
-        def _con_dto(valor_base: float, aplica: bool) -> float:
-            return round(valor_base * descuento_factor, 2) if aplica and descuento_pct > 0 else valor_base
+        def _con_dto(valor_base: float, pct: float) -> float:
+            return round(valor_base * (1.0 - pct), 2) if pct > 0 else valor_base
 
-        anio_1_desc = _con_dto(anos[0], 1 in descuento_anios)
-        anio_3_desc = _con_dto(anos[2], 3 in descuento_anios)
-        anio_5_desc = _con_dto(anos[4], 5 in descuento_anios)
-        acumulado_1_3_desc = _con_dto(round(sum(anos[:3]), 2), 3 in descuento_anios)
-        acumulado_1_5_desc = _con_dto(round(sum(anos), 2), 5 in descuento_anios)
+        anio_1_desc = _con_dto(anos[0], pct_1)
+        anio_3_desc = _con_dto(anos[2], pct_3)
+        anio_5_desc = _con_dto(anos[4], pct_5)
+        acumulado_1_3_desc = _con_dto(round(sum(anos[:3]), 2), pct_3)
+        acumulado_1_5_desc = _con_dto(round(sum(anos), 2), pct_5)
 
         return CalcularResponse(
             planta_id=planta["id"],
@@ -115,15 +114,175 @@ class CalculadoraService:
             acumulado_1_3=round(sum(anos[:3]), 2),
             acumulado_1_5=round(sum(anos), 2),
             nombre_wattabit=wattabit_tier["nombre"],
-            descuento_pct=descuento_pct,
-            descuento_anios=descuento_anios,
-            descuento_monto=descuento_monto,
+            descuento_pct_1=req.descuento_pct_1,
+            descuento_pct_3=req.descuento_pct_3,
+            descuento_pct_5=req.descuento_pct_5,
             anio_1_desc=anio_1_desc,
             anio_3_desc=anio_3_desc,
             anio_5_desc=anio_5_desc,
             acumulado_1_3_desc=acumulado_1_3_desc,
             acumulado_1_5_desc=acumulado_1_5_desc,
         )
+
+    # ----------------------------------------
+    # PREVIEW EXCEL (sin guardar)
+    # ----------------------------------------
+
+    async def preview_plantas_excel(self, conn, contenido: bytes) -> dict:
+        """
+        Valida el Excel fila por fila sin guardar nada en BD.
+        Retorna un dict con:
+          - filas: list de dicts con estado 'nueva'|'actualiza'|'error'
+          - errores_globales: list de str (columnas faltantes, etc.)
+          - zonas_validas: list de str
+        """
+        try:
+            import openpyxl
+        except ImportError:
+            return {"filas": [], "errores_globales": ["openpyxl no está instalado en el servidor"], "zonas_validas": []}
+
+        precios_zona = await self.db.get_precios_zona(conn)
+        zonas_validas = set(precios_zona.keys())
+
+        try:
+            wb = openpyxl.load_workbook(io.BytesIO(contenido), read_only=True, data_only=True)
+        except Exception as exc:
+            return {"filas": [], "errores_globales": [f"No se pudo leer el archivo: {exc}"], "zonas_validas": sorted(zonas_validas)}
+
+        ws = wb.active
+
+        # Leer encabezados
+        header_row = next(ws.iter_rows(min_row=1, max_row=1), None)
+        if not header_row:
+            wb.close()
+            return {"filas": [], "errores_globales": ["El archivo está vacío"], "zonas_validas": sorted(zonas_validas)}
+
+        headers = [str(c.value).strip().lower() if c.value else "" for c in header_row]
+
+        col_map = {}
+        for campo, aliases in {
+            "id":          ["id", "codigo", "código"],
+            "nombre":      ["nombre", "planta", "name"],
+            "zona":        ["zona", "zone"],
+            "potencia_kw": ["potencia_kw", "potencia", "kw", "kwp"],
+            "num_paneles": ["num_paneles", "paneles", "panels", "cantidad_paneles"],
+            "cliente":     ["cliente", "client", "razon_social", "razón_social"],
+            "direccion":   ["direccion", "dirección", "address", "ubicacion", "ubicación"],
+            "es_externa":  ["es_externa", "externa", "external"],
+        }.items():
+            for alias in aliases:
+                if alias in headers:
+                    col_map[campo] = headers.index(alias)
+                    break
+
+        required = ["id", "nombre", "zona"]
+        missing = [f for f in required if f not in col_map]
+        if missing:
+            wb.close()
+            return {
+                "filas": [],
+                "errores_globales": [f"Columnas requeridas no encontradas en el Excel: {', '.join(missing)}. Descarga la plantilla para ver el formato correcto."],
+                "zonas_validas": sorted(zonas_validas),
+            }
+
+        filas = []
+        ids_en_excel = []  # para detectar duplicados dentro del mismo archivo
+
+        for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            planta_id_raw = row[col_map["id"]] if row[col_map["id"]] is not None else ""
+            nombre_raw    = row[col_map["nombre"]] if row[col_map["nombre"]] is not None else ""
+            zona_raw      = row[col_map["zona"]] if row[col_map["zona"]] is not None else ""
+
+            planta_id = str(planta_id_raw).strip().upper()
+            nombre    = str(nombre_raw).strip()
+            zona      = str(zona_raw).strip()
+
+            # Fila completamente vacía → saltar
+            if not planta_id and not nombre and not zona:
+                continue
+
+            errores_fila = []
+
+            if not planta_id:
+                errores_fila.append("ID vacío")
+            if not nombre:
+                errores_fila.append("Nombre vacío")
+            if not zona:
+                errores_fila.append("Zona vacía")
+            elif zona not in zonas_validas:
+                errores_fila.append(f"Zona '{zona}' no válida (válidas: {', '.join(sorted(zonas_validas))})")
+
+            potencia_kw = None
+            if "potencia_kw" in col_map and row[col_map["potencia_kw"]] is not None:
+                try:
+                    potencia_kw = float(row[col_map["potencia_kw"]])
+                    if potencia_kw < 0:
+                        errores_fila.append("Potencia no puede ser negativa")
+                except (ValueError, TypeError):
+                    errores_fila.append("Potencia no es un número válido")
+
+            num_paneles = None
+            if "num_paneles" in col_map and row[col_map["num_paneles"]] is not None:
+                try:
+                    num_paneles = int(row[col_map["num_paneles"]])
+                    if num_paneles < 0:
+                        errores_fila.append("Número de paneles no puede ser negativo")
+                except (ValueError, TypeError):
+                    errores_fila.append("Número de paneles no es un entero válido")
+
+            cliente = None
+            if "cliente" in col_map and row[col_map["cliente"]] is not None:
+                cliente = str(row[col_map["cliente"]]).strip() or None
+
+            direccion = None
+            if "direccion" in col_map and row[col_map["direccion"]] is not None:
+                direccion = str(row[col_map["direccion"]]).strip() or None
+
+            es_externa = False
+            if "es_externa" in col_map and row[col_map["es_externa"]] is not None:
+                val = str(row[col_map["es_externa"]]).strip().lower()
+                es_externa = val in ("1", "true", "sí", "si", "yes", "x")
+
+            # Determinar estado si no hay errores de campos requeridos
+            estado = "error" if errores_fila else "nueva"
+            es_duplicado_bd = False
+
+            if estado != "error" and planta_id:
+                existente = await self.db.get_planta_by_id(conn, planta_id)
+                if existente:
+                    estado = "actualiza"
+                    es_duplicado_bd = True
+
+            # Duplicado dentro del mismo archivo
+            es_duplicado_excel = planta_id in ids_en_excel
+            if es_duplicado_excel and estado != "error":
+                errores_fila.append(f"ID '{planta_id}' aparece más de una vez en el archivo")
+                estado = "error"
+
+            if planta_id:
+                ids_en_excel.append(planta_id)
+
+            filas.append({
+                "fila": row_num,
+                "id": planta_id,
+                "nombre": nombre,
+                "zona": zona,
+                "potencia_kw": potencia_kw,
+                "num_paneles": num_paneles,
+                "cliente": cliente,
+                "direccion": direccion,
+                "es_externa": es_externa,
+                "estado": estado,
+                "errores": errores_fila,
+                "es_duplicado_bd": es_duplicado_bd,
+            })
+
+        wb.close()
+        return {
+            "filas": filas,
+            "errores_globales": [],
+            "zonas_validas": sorted(zonas_validas),
+        }
 
     # ----------------------------------------
     # IMPORTACIÓN EXCEL
@@ -230,6 +389,7 @@ class CalculadoraService:
         fecha_fin_poliza=None,
         poliza_anterior_id=None,
         fecha_fin_poliza_anterior=None,
+        vigencia_cotizacion_dias: int = 30,
     ) -> str:
         cotizacion_id = await self.db.save_cotizacion(conn, {
             "planta_id": resultado.planta_id,
@@ -242,12 +402,16 @@ class CalculadoraService:
             "resultado_json": resultado.model_dump(),
             "creado_por": user_id,
             "solicitante_id": solicitante_id,
-            "descuento_pct": resultado.descuento_pct if resultado.descuento_pct > 0 else None,
-            "descuento_anios": resultado.descuento_anios if resultado.descuento_anios else None,
+            "descuento_pct": None,
+            "descuento_anios": None,
+            "descuento_pct_1": resultado.descuento_pct_1,
+            "descuento_pct_3": resultado.descuento_pct_3,
+            "descuento_pct_5": resultado.descuento_pct_5,
             "fecha_inicio_poliza": fecha_inicio_poliza,
             "fecha_fin_poliza": fecha_fin_poliza,
             "poliza_anterior_id": poliza_anterior_id,
             "fecha_fin_poliza_anterior": fecha_fin_poliza_anterior,
+            "vigencia_cotizacion_dias": vigencia_cotizacion_dias,
         })
         return str(cotizacion_id)
 

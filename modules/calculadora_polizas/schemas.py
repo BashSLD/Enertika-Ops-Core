@@ -122,8 +122,9 @@ class CalcularRequest(BaseModel):
     planta_id: str
     tipo_poliza: TipoPoliza
     utilidad: float = Field(default=0.30, ge=0.0, lt=1.0)
-    descuento_pct: float = Field(default=0.0, ge=0.0, le=0.9999)
-    descuento_anios: List[int] = Field(default_factory=list)
+    descuento_pct_1: Optional[float] = Field(default=None, ge=0.0, le=0.9999)
+    descuento_pct_3: Optional[float] = Field(default=None, ge=0.0, le=0.9999)
+    descuento_pct_5: Optional[float] = Field(default=None, ge=0.0, le=0.9999)
 
     @field_validator("utilidad", mode="before")
     @classmethod
@@ -132,27 +133,13 @@ class CalcularRequest(BaseModel):
             return 0.30
         return float(v)
 
-    @field_validator("descuento_pct", mode="before")
+    @field_validator("descuento_pct_1", "descuento_pct_3", "descuento_pct_5", mode="before")
     @classmethod
     def parse_descuento_pct(cls, v):
         if v is None or v == "":
-            return 0.0
-        return float(v)
-
-    @field_validator("descuento_anios", mode="before")
-    @classmethod
-    def parse_descuento_anios(cls, v):
-        if not v:
-            return []
-        if isinstance(v, (list, tuple)):
-            return [int(x) for x in v if str(x).strip().isdigit() or isinstance(x, int)]
-        if isinstance(v, str):
-            try:
-                parsed = _json.loads(v)
-                return [int(x) for x in parsed]
-            except Exception:
-                return [int(x.strip()) for x in v.split(",") if x.strip().isdigit()]
-        return []
+            return None
+        val = float(v)
+        return val if val > 0 else None
 
     model_config = ConfigDict(use_enum_values=True)
 
@@ -196,15 +183,15 @@ class CalcularResponse(BaseModel):
     # Etiqueta wattabit
     nombre_wattabit: str
 
-    # Descuento por duración de contrato
-    descuento_pct: float = 0.0
-    descuento_anios: List[int] = Field(default_factory=list)
-    descuento_monto: float = 0.0      # ahorro anual = sub_total_utilidad * pct
-    anio_1_desc: float = 0.0          # valor año 1 con descuento (si aplica)
-    anio_3_desc: float = 0.0          # valor año 3 con descuento (si aplica)
-    anio_5_desc: float = 0.0          # valor año 5 con descuento (si aplica)
-    acumulado_1_3_desc: float = 0.0   # acumulado 3 años con descuento (si aplica)
-    acumulado_1_5_desc: float = 0.0   # acumulado 5 años con descuento (si aplica)
+    # Descuento por duración de contrato (porcentaje independiente por opción)
+    descuento_pct_1: Optional[float] = None   # % para contrato 1 año
+    descuento_pct_3: Optional[float] = None   # % para contrato 3 años
+    descuento_pct_5: Optional[float] = None   # % para contrato 5 años
+    anio_1_desc: float = 0.0                  # valor año 1 con descuento (si aplica)
+    anio_3_desc: float = 0.0                  # valor año 3 con descuento (si aplica)
+    anio_5_desc: float = 0.0                  # valor año 5 con descuento (si aplica)
+    acumulado_1_3_desc: float = 0.0           # acumulado 3 años con descuento (si aplica)
+    acumulado_1_5_desc: float = 0.0           # acumulado 5 años con descuento (si aplica)
 
 
 # ----------------------------------------

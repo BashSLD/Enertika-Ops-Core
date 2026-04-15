@@ -12,12 +12,13 @@ Endpoints:
 - GET  /calculadora-polizas/cotizaciones/{id}/asignar-modal — Decision ACEPTADA/RECHAZADA (editor+ comercial)
 - PATCH /calculadora-polizas/cotizaciones/{id}/asignar  — Guardar decision + email creador (editor+ comercial)
 - GET  /calculadora-polizas/cotizaciones/{id}/editar-modal  — Modal edicion (editor+ oym)
+- GET  /calculadora-polizas/cotizaciones/{id}/comparar-precios — JSON diff snapshot vs precios actuales (editor+)
 - GET  /calculadora-polizas/cotizaciones/{id}/renovar-modal — Modal renovacion (editor+ oym)
 - GET  /calculadora-polizas/cotizaciones/{id}/aceptar-modal — Modal fechas al aceptar (editor+ oym)
 - GET  /calculadora-polizas/cotizaciones/{id}/info-modal    — Modal informativo (viewer+ oym)
 - GET  /calculadora-polizas/cotizaciones/{id}/cambiar-estatus-resumen-modal — Todos los estatus (editor+ oym, desde resumen)
 - PATCH /calculadora-polizas/cotizaciones/{id}/estatus-resumen — Actualizar estatus y refrescar resumen (editor+ oym)
-- PUT  /calculadora-polizas/cotizaciones/{id}           — Guardar edicion recalculada (editor+)
+- PUT  /calculadora-polizas/cotizaciones/{id}           — Guardar edicion; soporta usar_snapshot=mantener (editor+)
 - GET  /calculadora-polizas/plantas/nueva-modal          — Modal nueva planta desde OyM (editor+)
 - GET  /calculadora-polizas/plantas/ui                  — CRUD plantas (editor+)
 - POST /calculadora-polizas/plantas/import-excel        — Import .xlsx (editor+)
@@ -34,7 +35,7 @@ Endpoints:
 from fastapi import APIRouter, Depends, Request, Form, File, UploadFile, Query, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse, Response
-from typing import Optional, List
+from typing import Optional
 from uuid import UUID
 import json
 import logging
@@ -153,8 +154,9 @@ async def calcular(
     planta_id: str = Form(...),
     tipo_poliza: str = Form(...),
     utilidad: float = Form(0.30),
-    descuento_pct: float = Form(0.0),
-    descuento_anios: List[int] = Form(default=[]),
+    descuento_pct_1: Optional[float] = Form(None),
+    descuento_pct_3: Optional[float] = Form(None),
+    descuento_pct_5: Optional[float] = Form(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG),
     conn=Depends(get_db_connection),
@@ -164,7 +166,9 @@ async def calcular(
     try:
         req = CalcularRequest(
             planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
-            descuento_pct=descuento_pct, descuento_anios=descuento_anios,
+            descuento_pct_1=descuento_pct_1,
+            descuento_pct_3=descuento_pct_3,
+            descuento_pct_5=descuento_pct_5,
         )
         resultado = await service.calcular(conn, req)
     except ValueError as exc:
@@ -190,8 +194,9 @@ async def guardar_modal(
     planta_id: str = Query(...),
     tipo_poliza: str = Query(...),
     utilidad: float = Query(0.30),
-    descuento_pct: float = Query(0.0),
-    descuento_anios: str = Query(""),   # lista como "3,5" o "" si no aplica
+    descuento_pct_1: Optional[float] = Query(None),
+    descuento_pct_3: Optional[float] = Query(None),
+    descuento_pct_5: Optional[float] = Query(None),
     fecha_fin_poliza_anterior: str = Query(""),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG),
@@ -200,7 +205,6 @@ async def guardar_modal(
 ):
     usuarios_comercial = await service.db.get_usuarios_comercial(conn)
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
-    anios_list = [int(x) for x in descuento_anios.split(",") if x.strip().isdigit()]
     return templates.TemplateResponse(
         request, f"{TPL}/partials/guardar_cotizacion_modal.html",
         {
@@ -208,8 +212,9 @@ async def guardar_modal(
             "planta_id": planta_id,
             "tipo_poliza": tipo_poliza,
             "utilidad": utilidad,
-            "descuento_pct": descuento_pct,
-            "descuento_anios": anios_list,
+            "descuento_pct_1": descuento_pct_1,
+            "descuento_pct_3": descuento_pct_3,
+            "descuento_pct_5": descuento_pct_5,
             "usuarios_comercial": usuarios_comercial,
             "fecha_fin_poliza_anterior": fecha_fin_poliza_anterior,
         },
@@ -222,8 +227,9 @@ async def guardar_cotizacion(
     planta_id: str = Form(...),
     tipo_poliza: str = Form(...),
     utilidad: float = Form(0.30),
-    descuento_pct: float = Form(0.0),
-    descuento_anios: List[int] = Form(default=[]),
+    descuento_pct_1: Optional[float] = Form(None),
+    descuento_pct_3: Optional[float] = Form(None),
+    descuento_pct_5: Optional[float] = Form(None),
     solicitante_id: Optional[str] = Form(None),
     fecha_inicio_poliza: Optional[str] = Form(None),
     fecha_fin_poliza: Optional[str] = Form(None),
@@ -260,7 +266,9 @@ async def guardar_cotizacion(
     try:
         req = CalcularRequest(
             planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
-            descuento_pct=descuento_pct, descuento_anios=descuento_anios,
+            descuento_pct_1=descuento_pct_1,
+            descuento_pct_3=descuento_pct_3,
+            descuento_pct_5=descuento_pct_5,
         )
         resultado = await service.calcular(conn, req)
         await service.guardar_cotizacion(
@@ -573,6 +581,118 @@ async def editar_cotizacion_modal(
     )
 
 
+@router.get("/cotizaciones/{cotizacion_id}/comparar-precios", include_in_schema=False)
+async def comparar_precios_cotizacion(
+    cotizacion_id: str,
+    planta_id: str = Query(...),
+    tipo_poliza: str = Query(...),
+    utilidad: float = Query(0.30),
+    descuento_pct_1: Optional[float] = Query(None),
+    descuento_pct_3: Optional[float] = Query(None),
+    descuento_pct_5: Optional[float] = Query(None),
+    _=require_module_access(SLUG, "editor"),
+    conn=Depends(get_db_connection),
+    service: CalculadoraService = Depends(get_service),
+):
+    uid = _parse_cotizacion_id(cotizacion_id)
+    cotizacion = await service.db.get_cotizacion_by_id(conn, uid)
+    if not cotizacion:
+        raise HTTPException(404, "Cotizacion no encontrada")
+
+    try:
+        req = CalcularRequest(
+            planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
+            descuento_pct_1=descuento_pct_1,
+            descuento_pct_3=descuento_pct_3,
+            descuento_pct_5=descuento_pct_5,
+        )
+        nuevo = await service.calcular(conn, req)
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+
+    snapshot = cotizacion.get("resultado_json") or {}
+    if isinstance(snapshot, str):
+        snapshot = json.loads(snapshot)
+
+    snap_tipo = snapshot.get("tipo_poliza", tipo_poliza)
+    snap_paneles = int(snapshot.get("num_paneles") or 0)
+    snap_mtto_principal = float(snapshot.get("mtto_principal") or 0)
+    snap_mtto_fijo = float(snapshot.get("mtto_fijo") or 0)
+    snap_wattabit = float(snapshot.get("wattabit") or 0)
+    snap_internet = float(snapshot.get("internet") or 0)
+    snap_gestion = float(snapshot.get("gestion") or 0)
+
+    nuevo_paneles = nuevo.num_paneles
+
+    # Precios unitarios derivados del snapshot
+    if snap_tipo == "premium" and snap_paneles > 0:
+        snap_precio_panel = snap_mtto_principal / (snap_paneles * 2)
+    else:
+        snap_precio_panel = snap_mtto_principal  # costo fijo estandar
+    snap_gestion_panel = snap_gestion / snap_paneles if snap_paneles > 0 else 0
+
+    # Precios unitarios del nuevo calculo
+    if nuevo.tipo_poliza == "premium" and nuevo_paneles > 0:
+        nuevo_precio_panel = nuevo.mtto_principal / (nuevo_paneles * 2)
+    else:
+        nuevo_precio_panel = nuevo.mtto_principal
+    nuevo_gestion_panel = nuevo.gestion / nuevo_paneles if nuevo_paneles > 0 else 0
+
+    def _cambio(original: float, nuevo_val: float, etiqueta: str, unitario: bool = False):
+        if abs(original - nuevo_val) > 0.01:
+            return {"etiqueta": etiqueta, "original": original, "nuevo": nuevo_val, "unitario": unitario}
+        return None
+
+    precios_cambios = []
+
+    # Comparar precio unitario solo si el tipo de poliza no cambio entre snapshot y nuevo calculo
+    if snap_tipo == nuevo.tipo_poliza:
+        if snap_tipo == "premium":
+            d = _cambio(snap_precio_panel, nuevo_precio_panel,
+                        f"Precio por panel — zona {nuevo.zona}", unitario=True)
+            if d:
+                precios_cambios.append(d)
+            d = _cambio(snap_mtto_fijo, nuevo.mtto_fijo, "Mantenimiento correctivo fijo")
+            if d:
+                precios_cambios.append(d)
+        else:
+            d = _cambio(snap_precio_panel, nuevo_precio_panel, "Mantenimiento diagnostico estandar")
+            if d:
+                precios_cambios.append(d)
+
+    d = _cambio(snap_wattabit, nuevo.wattabit, f"Wattabit — {nuevo.nombre_wattabit}")
+    if d:
+        precios_cambios.append(d)
+
+    d = _cambio(snap_internet, nuevo.internet, "Internet anual")
+    if d:
+        precios_cambios.append(d)
+
+    if snap_paneles > 0 and nuevo_paneles > 0:
+        d = _cambio(snap_gestion_panel, nuevo_gestion_panel,
+                    "Gestion energetica por panel", unitario=True)
+        if d:
+            precios_cambios.append(d)
+
+    # Montos resultantes
+    montos_cambios = []
+    for campo, etiqueta in [
+        ("sub_total", "Sub total"),
+        ("sub_total_utilidad", "Sub total + utilidad"),
+        ("total_final", "Total final (con IVA)"),
+    ]:
+        d = _cambio(float(snapshot.get(campo) or 0), float(getattr(nuevo, campo)), etiqueta)
+        if d:
+            montos_cambios.append(d)
+
+    tiene_cambios = bool(precios_cambios or montos_cambios)
+    return JSONResponse({
+        "tiene_cambios": tiene_cambios,
+        "precios_cambios": precios_cambios,
+        "montos_cambios": montos_cambios,
+    })
+
+
 @router.put("/cotizaciones/{cotizacion_id}", include_in_schema=False)
 async def update_cotizacion(
     request: Request,
@@ -580,13 +700,15 @@ async def update_cotizacion(
     planta_id: str = Form(...),
     tipo_poliza: str = Form(...),
     utilidad: float = Form(0.30),
-    descuento_pct: float = Form(0.0),
-    descuento_anios: List[int] = Form(default=[]),
+    descuento_pct_1: Optional[float] = Form(None),
+    descuento_pct_3: Optional[float] = Form(None),
+    descuento_pct_5: Optional[float] = Form(None),
     solicitante_id: Optional[str] = Form(None),
     fecha_inicio_poliza: Optional[str] = Form(None),
     fecha_fin_poliza: Optional[str] = Form(None),
     poliza_anterior_id: Optional[str] = Form(None),
     fecha_fin_poliza_anterior: Optional[str] = Form(None),
+    usar_snapshot: str = Form(""),
     estatus_filter: str = Form(""),
     page: int = Form(1),
     context=Depends(get_current_user_context),
@@ -618,36 +740,78 @@ async def update_cotizacion(
         except ValueError:
             return None
 
-    try:
-        req = CalcularRequest(
-            planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
-            descuento_pct=descuento_pct, descuento_anios=descuento_anios,
-        )
-        resultado = await service.calcular(conn, req)
-    except ValueError as exc:
-        return templates.TemplateResponse(
-            request, "shared/toast.html",
-            {"type": "error", "title": "Error al recalcular", "message": str(exc)},
-            headers={"HX-Reswap": "none"},
-        )
+    if usar_snapshot == "mantener":
+        cotizacion_actual = await service.db.get_cotizacion_by_id(conn, uid)
+        if not cotizacion_actual:
+            raise HTTPException(404, "Cotizacion no encontrada")
 
-    ok = await service.db.update_cotizacion_full(conn, uid, {
-        "planta_id": resultado.planta_id,
-        "nombre_planta": resultado.nombre_planta,
-        "tipo_poliza": resultado.tipo_poliza,
-        "utilidad": resultado.utilidad,
-        "sub_total": resultado.sub_total,
-        "sub_total_utilidad": resultado.sub_total_utilidad,
-        "total_final": resultado.total_final,
-        "resultado_json": resultado.model_dump(),
-        "solicitante_id": sol_id,
-        "descuento_pct": resultado.descuento_pct if resultado.descuento_pct > 0 else None,
-        "descuento_anios": resultado.descuento_anios if resultado.descuento_anios else None,
-        "fecha_inicio_poliza": _parse_date(fecha_inicio_poliza),
-        "fecha_fin_poliza": _parse_date(fecha_fin_poliza),
-        "poliza_anterior_id": anterior_id,
-        "fecha_fin_poliza_anterior": _parse_date(fecha_fin_poliza_anterior),
-    })
+        snap_json = cotizacion_actual.get("resultado_json") or {}
+        if isinstance(snap_json, str):
+            snap_json = json.loads(snap_json)
+
+        nombre_planta = cotizacion_actual["nombre_planta"]
+        if planta_id != str(cotizacion_actual.get("planta_id") or ""):
+            planta_info = await service.db.get_planta_by_id(conn, planta_id)
+            if planta_info:
+                nombre_planta = planta_info["nombre"]
+
+        ok = await service.db.update_cotizacion_full(conn, uid, {
+            "planta_id": planta_id,
+            "nombre_planta": nombre_planta,
+            "tipo_poliza": tipo_poliza,
+            "utilidad": utilidad,
+            "sub_total": float(cotizacion_actual["sub_total"]),
+            "sub_total_utilidad": float(cotizacion_actual["sub_total_utilidad"]),
+            "total_final": float(cotizacion_actual["total_final"]),
+            "resultado_json": snap_json,
+            "solicitante_id": sol_id,
+            "descuento_pct": None,
+            "descuento_anios": None,
+            "descuento_pct_1": descuento_pct_1,
+            "descuento_pct_3": descuento_pct_3,
+            "descuento_pct_5": descuento_pct_5,
+            "fecha_inicio_poliza": _parse_date(fecha_inicio_poliza),
+            "fecha_fin_poliza": _parse_date(fecha_fin_poliza),
+            "poliza_anterior_id": anterior_id,
+            "fecha_fin_poliza_anterior": _parse_date(fecha_fin_poliza_anterior),
+        })
+    else:
+        try:
+            req = CalcularRequest(
+                planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
+                descuento_pct_1=descuento_pct_1,
+                descuento_pct_3=descuento_pct_3,
+                descuento_pct_5=descuento_pct_5,
+            )
+            resultado = await service.calcular(conn, req)
+        except ValueError as exc:
+            return templates.TemplateResponse(
+                request, "shared/toast.html",
+                {"type": "error", "title": "Error al recalcular", "message": str(exc)},
+                headers={"HX-Reswap": "none"},
+            )
+
+        ok = await service.db.update_cotizacion_full(conn, uid, {
+            "planta_id": resultado.planta_id,
+            "nombre_planta": resultado.nombre_planta,
+            "tipo_poliza": resultado.tipo_poliza,
+            "utilidad": resultado.utilidad,
+            "sub_total": resultado.sub_total,
+            "sub_total_utilidad": resultado.sub_total_utilidad,
+            "total_final": resultado.total_final,
+            "resultado_json": resultado.model_dump(),
+            "solicitante_id": sol_id,
+            "descuento_pct": None,
+            "descuento_anios": None,
+            "descuento_pct_1": resultado.descuento_pct_1,
+            "descuento_pct_3": resultado.descuento_pct_3,
+            "descuento_pct_5": resultado.descuento_pct_5,
+            "fecha_inicio_poliza": _parse_date(fecha_inicio_poliza),
+            "fecha_fin_poliza": _parse_date(fecha_fin_poliza),
+            "poliza_anterior_id": anterior_id,
+            "fecha_fin_poliza_anterior": _parse_date(fecha_fin_poliza_anterior),
+        })
+
     if not ok:
         raise HTTPException(404, "Cotizacion no encontrada")
 
@@ -959,6 +1123,132 @@ async def toggle_planta(
         request, f"{TPL}/partials/plantas_tabla.html",
         {**_base_ctx(context, mod_role), "plantas": plantas,
          "zonas": sorted(precios_zona.keys()), "q": ""},
+    )
+
+
+@router.get("/plantas/plantilla-excel", include_in_schema=False)
+async def plantilla_excel(
+    request: Request,
+    context=Depends(get_current_user_context),
+    _=require_module_access(SLUG, "editor"),
+    conn=Depends(get_db_connection),
+    service: CalculadoraService = Depends(get_service),
+):
+    """Genera y descarga un .xlsx con la plantilla de importación de plantas."""
+    try:
+        import openpyxl
+        from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    except ImportError:
+        raise HTTPException(500, "openpyxl no está instalado")
+
+    from fastapi.responses import StreamingResponse
+    import io as _io
+
+    precios_zona = await service.db.get_precios_zona(conn)
+    zonas_validas = sorted(precios_zona.keys())
+
+    wb = openpyxl.Workbook()
+
+    # ─── Hoja principal ────────────────────────────────────────────
+    ws = wb.active
+    ws.title = "Plantas"
+
+    headers = ["id", "nombre", "zona", "potencia_kw", "num_paneles", "cliente", "direccion", "es_externa"]
+    notas   = ["Ej: MX-01 (único, mayúsculas)", "Nombre completo de la planta", "Zona de precios (ver hoja Zonas)",
+               "Potencia en kWp (decimal)", "Cantidad de paneles (entero)", "Nombre del cliente/empresa",
+               "Dirección del sitio", "Escribe: SI si es externa, déjalo vacío si no"]
+
+    # Encabezado con estilo
+    header_fill = PatternFill("solid", fgColor="1E3A5F")
+    header_font = Font(color="FFFFFF", bold=True)
+    for col, (h, nota) in enumerate(zip(headers, notas), start=1):
+        cell = ws.cell(row=1, column=col, value=h)
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center")
+        cell.comment = None  # openpyxl no requiere Comment aquí
+        ws.cell(row=1, column=col).comment = None
+
+    # Fila de ejemplo (en gris claro)
+    ejemplo = ["MX-01", "Planta Ejemplo SA", zonas_validas[0] if zonas_validas else "ZONA1",
+               150.5, 300, "Cliente Ejemplo", "Calle Principal 123, Ciudad", ""]
+    ex_fill = PatternFill("solid", fgColor="F2F2F2")
+    for col, val in enumerate(ejemplo, start=1):
+        cell = ws.cell(row=2, column=col, value=val)
+        cell.fill = ex_fill
+        cell.font = Font(italic=True, color="888888")
+
+    # Ajustar anchos de columnas
+    anchos = [12, 35, 15, 14, 14, 25, 35, 14]
+    for col, ancho in enumerate(anchos, start=1):
+        ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = ancho
+
+    # ─── Hoja Zonas Válidas ────────────────────────────────────────
+    ws2 = wb.create_sheet("Zonas Válidas")
+    ws2.cell(row=1, column=1, value="Zona").font = Font(bold=True)
+    ws2.cell(row=1, column=2, value="Precio por panel (MXP)").font = Font(bold=True)
+    for i, zona in enumerate(zonas_validas, start=2):
+        ws2.cell(row=i, column=1, value=zona)
+        ws2.cell(row=i, column=2, value=precios_zona[zona])
+    ws2.column_dimensions["A"].width = 20
+    ws2.column_dimensions["B"].width = 25
+
+    # Serializar a bytes
+    buf = _io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=plantilla_plantas.xlsx"},
+    )
+
+
+@router.post("/plantas/preview-excel", include_in_schema=False)
+async def preview_excel(
+    request: Request,
+    archivo: UploadFile = File(...),
+    context=Depends(get_current_user_context),
+    _=require_module_access(SLUG, "editor"),
+    conn=Depends(get_db_connection),
+    service: CalculadoraService = Depends(get_service),
+):
+    """Valida el Excel fila por fila sin guardar. Retorna HTML con preview de la importación."""
+    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+
+    if not archivo.filename.endswith((".xlsx", ".xls")):
+        return templates.TemplateResponse(
+            request, f"{TPL}/partials/import_preview.html",
+            {
+                **_base_ctx(context, mod_role),
+                "filas": [],
+                "errores_globales": ["Solo se aceptan archivos .xlsx o .xls"],
+                "zonas_validas": [],
+                "resumen": None,
+            },
+        )
+
+    contenido = await archivo.read()
+    resultado = await service.preview_plantas_excel(conn, contenido)
+
+    filas = resultado["filas"]
+    resumen = {
+        "nuevas":      sum(1 for f in filas if f["estado"] == "nueva"),
+        "actualizadas": sum(1 for f in filas if f["estado"] == "actualiza"),
+        "errores":     sum(1 for f in filas if f["estado"] == "error"),
+        "total":       len(filas),
+    }
+
+    return templates.TemplateResponse(
+        request, f"{TPL}/partials/import_preview.html",
+        {
+            **_base_ctx(context, mod_role),
+            "filas": filas,
+            "errores_globales": resultado["errores_globales"],
+            "zonas_validas": resultado["zonas_validas"],
+            "resumen": resumen,
+        },
     )
 
 

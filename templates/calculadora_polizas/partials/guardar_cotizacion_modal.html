@@ -30,10 +30,9 @@
             <input type="hidden" name="planta_id" value="{{ planta_id }}">
             <input type="hidden" name="tipo_poliza" value="{{ tipo_poliza }}">
             <input type="hidden" name="utilidad" value="{{ utilidad }}">
-            <input type="hidden" name="descuento_pct" value="{{ descuento_pct }}">
-            {% for anio in descuento_anios %}
-            <input type="hidden" name="descuento_anios" value="{{ anio }}">
-            {% endfor %}
+            {% if descuento_pct_1 %}<input type="hidden" name="descuento_pct_1" value="{{ descuento_pct_1 }}">{% endif %}
+            {% if descuento_pct_3 %}<input type="hidden" name="descuento_pct_3" value="{{ descuento_pct_3 }}">{% endif %}
+            {% if descuento_pct_5 %}<input type="hidden" name="descuento_pct_5" value="{{ descuento_pct_5 }}">{% endif %}
             {% if fecha_fin_poliza_anterior %}
             <input type="hidden" name="fecha_fin_poliza_anterior" value="{{ fecha_fin_poliza_anterior }}">
             {% endif %}

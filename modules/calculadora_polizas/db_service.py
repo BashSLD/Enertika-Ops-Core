@@ -189,8 +189,10 @@ class CalculadoraDBService:
                  sub_total, sub_total_utilidad, total_final, resultado_json,
                  creado_por, solicitante_id, descuento_pct, descuento_anios,
                  fecha_inicio_poliza, fecha_fin_poliza,
-                 poliza_anterior_id, fecha_fin_poliza_anterior)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17)
+                 poliza_anterior_id, fecha_fin_poliza_anterior,
+                 descuento_pct_1, descuento_pct_3, descuento_pct_5,
+                 vigencia_cotizacion_dias)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
         """, new_id,
              data.get("planta_id"), data["nombre_planta"], data["tipo_poliza"],
              data["utilidad"], data["sub_total"], data["sub_total_utilidad"],
@@ -198,7 +200,9 @@ class CalculadoraDBService:
              data.get("creado_por"), data.get("solicitante_id"),
              data.get("descuento_pct"), data.get("descuento_anios"),
              data.get("fecha_inicio_poliza"), data.get("fecha_fin_poliza"),
-             data.get("poliza_anterior_id"), data.get("fecha_fin_poliza_anterior"))
+             data.get("poliza_anterior_id"), data.get("fecha_fin_poliza_anterior"),
+             data.get("descuento_pct_1"), data.get("descuento_pct_3"), data.get("descuento_pct_5"),
+             data.get("vigencia_cotizacion_dias"))
         return new_id
 
     async def get_cotizaciones(self, conn, limit: int = 100, offset: int = 0,
@@ -213,6 +217,9 @@ class CalculadoraDBService:
                 c.resultado_json, c.creado_por, c.created_at,
                 c.estatus, c.estatus_updated_at, c.solicitante_id,
                 c.fecha_inicio_poliza, c.fecha_fin_poliza,
+                c.vigencia_cotizacion_dias,
+                (c.created_at::date + COALESCE(c.vigencia_cotizacion_dias, 30) * INTERVAL '1 day')::date
+                    AS fecha_vencimiento_cotizacion,
                 u.nombre AS creado_por_nombre,
                 s.nombre AS solicitante_nombre
             FROM tb_calculadora_cotizaciones c
@@ -335,6 +342,7 @@ class CalculadoraDBService:
                    c.resultado_json, c.creado_por, c.created_at,
                    c.estatus, c.estatus_updated_at, c.updated_at,
                    c.solicitante_id, c.descuento_pct, c.descuento_anios,
+                   c.descuento_pct_1, c.descuento_pct_3, c.descuento_pct_5,
                    c.fecha_inicio_poliza, c.fecha_fin_poliza,
                    c.poliza_anterior_id, c.fecha_fin_poliza_anterior,
                    c.anios_contratados,
@@ -367,6 +375,9 @@ class CalculadoraDBService:
                 fecha_fin_poliza          = $14,
                 poliza_anterior_id        = $15,
                 fecha_fin_poliza_anterior = $16,
+                descuento_pct_1           = $17,
+                descuento_pct_3           = $18,
+                descuento_pct_5           = $19,
                 updated_at                = NOW()
             WHERE id = $1
         """, cotizacion_id,
@@ -376,7 +387,8 @@ class CalculadoraDBService:
              data.get("solicitante_id"),
              data.get("descuento_pct"), data.get("descuento_anios"),
              data.get("fecha_inicio_poliza"), data.get("fecha_fin_poliza"),
-             data.get("poliza_anterior_id"), data.get("fecha_fin_poliza_anterior"))
+             data.get("poliza_anterior_id"), data.get("fecha_fin_poliza_anterior"),
+             data.get("descuento_pct_1"), data.get("descuento_pct_3"), data.get("descuento_pct_5"))
         return result != "UPDATE 0"
 
     async def update_cotizacion_asignacion(self, conn, cotizacion_id, solicitante_id, estatus: str, user_id) -> bool:

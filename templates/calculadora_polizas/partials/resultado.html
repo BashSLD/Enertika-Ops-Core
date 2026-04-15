@@ -35,7 +35,7 @@
         </div>
         {# Boton guardar cotizacion — abre modal con opcion de solicitante #}
         <button hx-get="/calculadora-polizas/partials/guardar-modal"
-                hx-vals='{"planta_id": "{{ resultado.planta_id }}", "tipo_poliza": "{{ resultado.tipo_poliza }}", "utilidad": "{{ resultado.utilidad }}", "descuento_pct": "{{ resultado.descuento_pct }}", "descuento_anios": "{{ resultado.descuento_anios | join(',') }}"}'
+                hx-vals='{"planta_id": "{{ resultado.planta_id }}", "tipo_poliza": "{{ resultado.tipo_poliza }}", "utilidad": "{{ resultado.utilidad }}", "descuento_pct_1": "{{ resultado.descuento_pct_1 or '' }}", "descuento_pct_3": "{{ resultado.descuento_pct_3 or '' }}", "descuento_pct_5": "{{ resultado.descuento_pct_5 or '' }}"}'
                 hx-include="#calc-fecha-fin-anterior"
                 hx-target="body"
                 hx-swap="beforeend"
@@ -81,17 +81,22 @@
                     <td class="py-1.5 text-gray-600">Gestion energetica ({{ resultado.num_paneles }} pan.)</td>
                     <td class="py-1.5 text-right font-medium">${{ "{:,.2f}".format(resultado.gestion) }}</td>
                 </tr>
-                {% if resultado.descuento_pct > 0 and resultado.descuento_anios %}
+                {% if resultado.descuento_pct_1 %}
                 <tr class="border-t border-green-100">
-                    <td class="py-1.5 text-green-700 font-medium">
-                        Descuento ({{ (resultado.descuento_pct * 100) | round(1) }}%)
-                        <span class="text-xs text-green-500 font-normal ml-1">
-                            — aplica en contrato
-                            {% for a in resultado.descuento_anios %}{{ a }}{% if not loop.last %}, {% endif %}{% endfor %}
-                            año{% if resultado.descuento_anios | length > 1 %}s{% endif %}
-                        </span>
-                    </td>
-                    <td class="py-1.5 text-right font-semibold text-green-700">-${{ "{:,.2f}".format(resultado.descuento_monto) }}</td>
+                    <td class="py-1.5 text-green-700 font-medium">Descuento contrato 1 año ({{ (resultado.descuento_pct_1 * 100) | round(1) }}%)</td>
+                    <td class="py-1.5 text-right font-semibold text-green-700">-${{ "{:,.2f}".format(resultado.anio_1 - resultado.anio_1_desc) }}</td>
+                </tr>
+                {% endif %}
+                {% if resultado.descuento_pct_3 %}
+                <tr class="{% if not resultado.descuento_pct_1 %}border-t border-green-100{% endif %}">
+                    <td class="py-1.5 text-green-700 font-medium">Descuento contrato 3 años ({{ (resultado.descuento_pct_3 * 100) | round(1) }}%)</td>
+                    <td class="py-1.5 text-right font-semibold text-green-700">-${{ "{:,.2f}".format(resultado.acumulado_1_3 - resultado.acumulado_1_3_desc) }}</td>
+                </tr>
+                {% endif %}
+                {% if resultado.descuento_pct_5 %}
+                <tr class="{% if not resultado.descuento_pct_1 and not resultado.descuento_pct_3 %}border-t border-green-100{% endif %}">
+                    <td class="py-1.5 text-green-700 font-medium">Descuento contrato 5 años ({{ (resultado.descuento_pct_5 * 100) | round(1) }}%)</td>
+                    <td class="py-1.5 text-right font-semibold text-green-700">-${{ "{:,.2f}".format(resultado.acumulado_1_5 - resultado.acumulado_1_5_desc) }}</td>
                 </tr>
                 {% endif %}
             </tbody>
@@ -99,7 +104,7 @@
     </div>
 
     {# Totales #}
-    {% set dto_anio1 = resultado.descuento_pct > 0 and 1 in resultado.descuento_anios %}
+    {% set dto_anio1 = resultado.descuento_pct_1 %}
     <div class="bg-gray-50 rounded-lg p-3 flex flex-col gap-1.5 text-sm">
         <div class="flex justify-between text-gray-600">
             <span>Sub Total (sin IVA, sin utilidad)</span>
@@ -116,7 +121,7 @@
         {% if dto_anio1 %}
         {% set total_desc = resultado.anio_1_desc * 1.16 %}
         <div class="flex justify-between font-bold text-green-700 text-base">
-            <span>Total con IVA <span class="text-xs font-semibold">(c/ {{ (resultado.descuento_pct * 100) | round(1) }}% dto.)</span></span>
+            <span>Total con IVA <span class="text-xs font-semibold">(c/ {{ (resultado.descuento_pct_1 * 100) | round(1) }}% dto. 1 año)</span></span>
             <span>${{ "{:,.2f}".format(total_desc) }}</span>
         </div>
         {% endif %}
@@ -135,7 +140,7 @@
     </div>
 
     {# Proyeccion 5 años #}
-    {% set tiene_dto = resultado.descuento_pct > 0 and resultado.descuento_anios %}
+    {% set tiene_dto = resultado.descuento_pct_1 or resultado.descuento_pct_3 or resultado.descuento_pct_5 %}
     <div>
         <p class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Proyeccion (3% anual)</p>
         <table class="w-full text-sm text-center">
@@ -149,32 +154,47 @@
             </thead>
             <tbody class="divide-y divide-gray-100">
                 <tr class="py-1">
-                    <td class="py-1.5 font-semibold text-gray-700 text-left">Año 1</td>
+                    <td class="py-1.5 font-semibold text-gray-700 text-left">
+                        Año 1
+                        {% if resultado.descuento_pct_1 %}
+                        <span class="text-xs font-normal text-green-600">({{ (resultado.descuento_pct_1 * 100) | round(1) }}% dto.)</span>
+                        {% endif %}
+                    </td>
                     <td class="py-1.5">${{ "{:,.2f}".format(resultado.anio_1) }}</td>
                     <td class="py-1.5">${{ "{:,.2f}".format(resultado.anio_1) }}</td>
                     {% if tiene_dto %}
-                    <td class="py-1.5 {% if 1 in resultado.descuento_anios %}font-semibold text-green-700{% else %}text-gray-300{% endif %}">
-                        {% if 1 in resultado.descuento_anios %}-${{ "{:,.2f}".format(resultado.anio_1_desc) }}{% else %}—{% endif %}
+                    <td class="py-1.5 {% if resultado.descuento_pct_1 %}font-semibold text-green-700{% else %}text-gray-300{% endif %}">
+                        {% if resultado.descuento_pct_1 %}${{ "{:,.2f}".format(resultado.anio_1_desc) }}{% else %}—{% endif %}
                     </td>
                     {% endif %}
                 </tr>
                 <tr>
-                    <td class="py-1.5 font-semibold text-gray-700 text-left">Año 3</td>
+                    <td class="py-1.5 font-semibold text-gray-700 text-left">
+                        Año 3
+                        {% if resultado.descuento_pct_3 %}
+                        <span class="text-xs font-normal text-green-600">({{ (resultado.descuento_pct_3 * 100) | round(1) }}% dto.)</span>
+                        {% endif %}
+                    </td>
                     <td class="py-1.5">${{ "{:,.2f}".format(resultado.anio_3) }}</td>
                     <td class="py-1.5 font-semibold text-gray-800">${{ "{:,.2f}".format(resultado.acumulado_1_3) }}</td>
                     {% if tiene_dto %}
-                    <td class="py-1.5 {% if 3 in resultado.descuento_anios %}font-semibold text-green-700{% else %}text-gray-300{% endif %}">
-                        {% if 3 in resultado.descuento_anios %}${{ "{:,.2f}".format(resultado.acumulado_1_3_desc) }}{% else %}—{% endif %}
+                    <td class="py-1.5 {% if resultado.descuento_pct_3 %}font-semibold text-green-700{% else %}text-gray-300{% endif %}">
+                        {% if resultado.descuento_pct_3 %}${{ "{:,.2f}".format(resultado.acumulado_1_3_desc) }}{% else %}—{% endif %}
                     </td>
                     {% endif %}
                 </tr>
                 <tr>
-                    <td class="py-1.5 font-semibold text-gray-700 text-left">Año 5</td>
+                    <td class="py-1.5 font-semibold text-gray-700 text-left">
+                        Año 5
+                        {% if resultado.descuento_pct_5 %}
+                        <span class="text-xs font-normal text-green-600">({{ (resultado.descuento_pct_5 * 100) | round(1) }}% dto.)</span>
+                        {% endif %}
+                    </td>
                     <td class="py-1.5">${{ "{:,.2f}".format(resultado.anio_5) }}</td>
                     <td class="py-1.5 font-bold text-blue-700">${{ "{:,.2f}".format(resultado.acumulado_1_5) }}</td>
                     {% if tiene_dto %}
-                    <td class="py-1.5 {% if 5 in resultado.descuento_anios %}font-bold text-green-700{% else %}text-gray-300{% endif %}">
-                        {% if 5 in resultado.descuento_anios %}${{ "{:,.2f}".format(resultado.acumulado_1_5_desc) }}{% else %}—{% endif %}
+                    <td class="py-1.5 {% if resultado.descuento_pct_5 %}font-bold text-green-700{% else %}text-gray-300{% endif %}">
+                        {% if resultado.descuento_pct_5 %}${{ "{:,.2f}".format(resultado.acumulado_1_5_desc) }}{% else %}—{% endif %}
                     </td>
                     {% endif %}
                 </tr>
