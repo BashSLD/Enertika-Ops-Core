@@ -750,7 +750,7 @@ class BomDBService:
         rows = await conn.fetch("""
             SELECT id_proveedor, rfc, razon_social, nombre_comercial
             FROM tb_proveedores
-            WHERE is_active = TRUE
+            WHERE activo = TRUE
               AND (nombre_comercial ILIKE $1 OR razon_social ILIKE $1 OR rfc ILIKE $1)
             ORDER BY nombre_comercial
             LIMIT 15
@@ -840,7 +840,7 @@ class BomDBService:
         row = await conn.fetchrow("""
             SELECT id_usuario, nombre, email
             FROM tb_usuarios
-            WHERE rol_organizacional = 'director' AND activo = TRUE
+            WHERE rol_organizacional = 'director' AND is_active = TRUE
             LIMIT 1
         """)
         return dict(row) if row else None
