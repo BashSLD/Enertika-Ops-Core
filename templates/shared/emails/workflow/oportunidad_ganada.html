@@ -19,13 +19,10 @@
                     <!-- Header con Gradiente Enertika -->
                     <tr>
                         <td
-                            style="background: linear-gradient(135deg, #166534 0%, #16a34a 100%); padding: 30px 40px; text-align: center;">
+                            style="background: linear-gradient(135deg, #166534 0%, #16a34a 100%); padding: 30px 40px 20px 40px; text-align: center;">
                             <h1 style="margin: 0; color: #ffffff; font-size: 28px; font-weight: 600;">
                                 Oportunidad Ganada
                             </h1>
-                            <p style="margin: 10px 0 0 0; color: #dcfce7; font-size: 14px;">
-                                Esta oportunidad ha sido marcada como Ganada
-                            </p>
                         </td>
                     </tr>
 
@@ -34,10 +31,22 @@
                         <td style="padding: 40px;">
 
                             <!-- Mensaje Intro -->
-                            <p style="margin: 0 0 30px 0; color: #666666; font-size: 15px; line-height: 1.6;">
+                            <p style="margin: 0 0 24px 0; color: #666666; font-size: 15px; line-height: 1.6;">
                                 La siguiente oportunidad ha sido marcada como <strong style="color: #16a34a;">Ganada</strong>.
-                                El siguiente paso es crear el proyecto correspondiente en Projects Gate.
+                                Para continuar el flujo operativo en ECO, se requiere crear el proyecto y comenzar
+                                el traspaso entre áreas.
                             </p>
+
+                            {% if is_recordatorio and recordatorio_numero %}
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #fff7ed; border: 1px solid #fdba74; border-radius: 6px; margin-bottom: 20px;">
+                                <tr>
+                                    <td style="padding: 12px 16px; color: #9a3412; font-size: 13px; font-weight: 600;">
+                                        Recordatorio automático #{{ recordatorio_numero }}
+                                    </td>
+                                </tr>
+                            </table>
+                            {% endif %}
 
                             <!-- Card de Oportunidad -->
                             <table width="100%" cellpadding="0" cellspacing="0"
@@ -88,16 +97,16 @@
                                 </tr>
                             </table>
 
-                            <!-- Siguiente Paso -->
+                            <!-- Siguientes Pasos -->
                             <table width="100%" cellpadding="0" cellspacing="0"
                                 style="background-color: #fefce8; border: 1px solid #fde047; border-radius: 6px; margin-bottom: 30px;">
                                 <tr>
                                     <td style="padding: 16px 20px;">
                                         <p style="margin: 0; color: #854d0e; font-size: 14px; font-weight: 600;">
-                                            Accion requerida
+                                            Acciones requeridas
                                         </p>
-                                        <p style="margin: 6px 0 0 0; color: #92400e; font-size: 13px; line-height: 1.5;">
-                                            Crear el proyecto en Projects Gate para continuar con el flujo de trabajo.
+                                        <p style="margin: 8px 0 0 0; color: #92400e; font-size: 13px; line-height: 1.6;">
+                                            El siguiente paso es crear el proyecto en el módulo Proyectos para realizar el traspaso operativo entre áreas según el avance del proyecto, así como relacionar comprobantes de Compras al proyecto para mantener trazabilidad operativa y financiera.
                                         </p>
                                     </td>
                                 </tr>
@@ -107,9 +116,9 @@
                             <table width="100%" cellpadding="0" cellspacing="0" style="margin: 30px 0;">
                                 <tr>
                                     <td align="center">
-                                        <a href="{{ base_url }}/comercial/ui?tab=ganadas"
+                                        <a href="{{ base_url }}/proyectos/ui"
                                             style="display: inline-block; background-color: #16a34a; color: #ffffff; text-decoration: none; padding: 14px 32px; border-radius: 6px; font-size: 15px; font-weight: 600; box-shadow: 0 2px 4px rgba(22,163,74,0.3);">
-                                            Ver Oportunidades Ganadas
+                                            Ir a Proyectos
                                         </a>
                                     </td>
                                 </tr>

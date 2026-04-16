@@ -368,7 +368,7 @@
     </div>
 
     <div id="content-reportes" class="tab-content hidden">
-        {% with datos=reporte_datos, fecha_inicio=reporte_fecha_inicio, fecha_fin_display=reporte_fecha_fin_display, destinatarios_configurados=reporte_destinatarios_configurados %}
+        {% with datos=reporte_datos, fecha_inicio=reporte_fecha_inicio, fecha_fin_display=reporte_fecha_fin_display, destinatarios_configurados=reporte_destinatarios_configurados, recordatorios_monitor=recordatorios_monitor, recordatorios_monitor_updated_at=recordatorios_monitor_updated_at %}
         {% include "admin/partials/reporte_semanal.html" %}
         {% endwith %}
     </div>
@@ -579,7 +579,22 @@
             const contentType = response.headers.get('content-type') || '';
             if (contentType.includes('application/json')) {
                 const data = await response.json();
-                if (data && data.detail) return `${fallbackMessage}: ${data.detail}`;
+                if (data && data.detail) {
+                    if (typeof data.detail === 'string') {
+                        return `${fallbackMessage}: ${data.detail}`;
+                    }
+
+                    if (Array.isArray(data.detail)) {
+                        const firstDetail = data.detail[0];
+                        if (firstDetail && typeof firstDetail === 'object') {
+                            const msg = firstDetail.msg || JSON.stringify(firstDetail);
+                            return `${fallbackMessage}: ${msg}`;
+                        }
+                        return `${fallbackMessage}: ${JSON.stringify(data.detail)}`;
+                    }
+
+                    return `${fallbackMessage}: ${JSON.stringify(data.detail)}`;
+                }
             }
 
             const text = await response.text();
@@ -882,6 +897,7 @@
                         <p class="text-xs text-slate-600">Define autoridad transversal (solo uno por usuario).</p>
                         <select id="user-rol-organizacional" class="w-full rounded-lg border-gray-300 text-sm">
                             <option value="">Ninguno</option>
+                            <option value="jefe_comercial">Jefe Comercial</option>
                             <option value="jefe_ingenieria">Jefe de Ingeniería</option>
                             <option value="jefe_construccion">Jefe de Construcción</option>
                             <option value="director">Director</option>

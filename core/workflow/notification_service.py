@@ -18,6 +18,10 @@ from core.config import settings
 
 logger = logging.getLogger("NotificationService")
 
+OPPORTUNITY_WON_REMINDER_HOURS = 48
+OPPORTUNITY_WON_BASE_ROLES = ("jefe_comercial", "jefe_construccion")
+OPPORTUNITY_WON_DIRECTOR_ROLE = "director"
+
 class NotificationService:
     """
     Servicio centralizado para notificaciones por email.
@@ -378,47 +382,117 @@ class NotificationService:
         conn,
         id_oportunidad: UUID,
         won_by_ctx: dict,
-    ) -> None:
+        include_director: bool = True,
+        reminder_number: Optional[int] = None,
+    ) -> bool:
         """
         Envía notificación de oportunidad ganada.
 
-        TO y CC configurados en tb_config_emails con trigger_value='OPORTUNIDAD_GANADA'.
-        Si no hay destinatarios TO configurados, loguea warning y no lanza excepción
-        (el cierre de venta no debe fallar por falta de configuración de correo).
+        Destinatarios TO:
+        - Jefe Comercial
+        - Jefe de Construcción
+        - Director (solo si include_director=True)
+        - Propietario de la oportunidad
+
+        No usa reglas de tb_config_emails para este evento.
+
+        Returns:
+            bool: True si el correo se envió correctamente, False en caso contrario.
         """
         try:
-            to_emails = await self._get_emails_for_event(conn, 'OPORTUNIDAD_GANADA', 'TO')
-            cc_emails = await self._get_emails_for_event(conn, 'OPORTUNIDAD_GANADA', 'CC')
-
-            if not to_emails:
-                logger.warning(f"[NOTIFY] notify_opportunity_won: sin destinatarios TO configurados - Opp: {id_oportunidad}")
-                return
-
             opp = await self._get_opportunity(conn, id_oportunidad)
             if not opp:
                 logger.warning(f"[NOTIFY] notify_opportunity_won: oportunidad no encontrada {id_oportunidad}")
-                return
+                return False
+
+            to_emails = await self._get_opportunity_won_recipients(
+                conn=conn,
+                id_oportunidad=id_oportunidad,
+                owner_id=opp.get('creado_por_id'),
+                include_director=include_director,
+            )
+            cc_emails: Set[str] = set()
+
+            if not to_emails:
+                logger.warning(
+                    "[NOTIFY] notify_opportunity_won: sin destinatarios por rol organizacional/owner - Opp: %s",
+                    id_oportunidad,
+                )
+                return False
+
+            subject_prefix = f"Recordatorio #{reminder_number}: " if reminder_number else ""
 
             html = self._render_template('shared/emails/workflow/oportunidad_ganada.html', {
                 'oportunidad': opp,
                 'ganada_por': won_by_ctx.get('user_name', 'Sistema'),
+                'is_recordatorio': reminder_number is not None,
+                'recordatorio_numero': reminder_number,
                 'base_url': settings.APP_BASE_URL,
             })
 
-            subject = f"Oportunidad Ganada: {opp.get('op_id_estandar', '')} - {opp.get('cliente_nombre', '')}"
+            subject = (
+                f"{subject_prefix}Oportunidad Ganada: "
+                f"{opp.get('op_id_estandar', '')} - {opp.get('cliente_nombre', '')}"
+            )
             sender_config = await self._get_notification_sender(conn, 'COMERCIAL')
-            await self._send_email(to_emails, cc_emails, subject, html, sender_config['email'])
+            sent = await self._send_email(to_emails, cc_emails, subject, html, sender_config['email'])
 
-            logger.info(f"[NOTIFY] Oportunidad ganada notificada - Opp: {id_oportunidad}, TO: {len(to_emails)}")
+            if sent:
+                logger.info(
+                    "[NOTIFY] Oportunidad ganada notificada - Opp: %s, TO: %s, include_director=%s, reminder=%s",
+                    id_oportunidad,
+                    len(to_emails),
+                    include_director,
+                    reminder_number,
+                )
+            return sent
 
         except asyncpg.PostgresError as e:
             logger.error(f"[NOTIFY] Error BD en notify_opportunity_won {id_oportunidad}: {e}", exc_info=True)
+            return False
         except httpx.HTTPError as e:
             logger.error(f"[NOTIFY] Error red/Graph API en notify_opportunity_won {id_oportunidad}: {e}", exc_info=True)
+            return False
         except KeyError as e:
             logger.error(f"[NOTIFY] Error datos faltantes en notify_opportunity_won {id_oportunidad}: campo {e}", exc_info=True)
-        except Exception as e:
-            logger.error(f"[NOTIFY] Error inesperado en notify_opportunity_won {id_oportunidad}: {e}", exc_info=True)
+            return False
+
+    async def schedule_opportunity_won_reminders(self, conn, id_oportunidad: UUID) -> None:
+        """
+        Activa o reactiva el ciclo automático de recordatorios de oportunidad ganada.
+
+        - Crea registro si no existe.
+        - Reagenda el próximo envío a +48 horas.
+        - Mantiene histórico de recordatorios enviados en la tabla dedicada.
+        """
+        await conn.execute(
+            """
+            INSERT INTO tb_recordatorios_oportunidad_ganada (
+                id_oportunidad,
+                recordatorios_enviados,
+                ultimo_recordatorio_at,
+                proximo_recordatorio_at,
+                activo,
+                created_at,
+                updated_at
+            )
+            VALUES (
+                $1,
+                0,
+                NULL,
+                NOW() + ($2 * INTERVAL '1 hour'),
+                TRUE,
+                NOW(),
+                NOW()
+            )
+            ON CONFLICT (id_oportunidad) DO UPDATE
+            SET activo = TRUE,
+                proximo_recordatorio_at = NOW() + ($2 * INTERVAL '1 hour'),
+                updated_at = NOW()
+            """,
+            id_oportunidad,
+            OPPORTUNITY_WON_REMINDER_HOURS,
+        )
 
     async def notify_poliza_estatus_change(
         self,
@@ -506,6 +580,51 @@ class NotificationService:
         """
         row = await conn.fetchrow(query, id_oportunidad)
         return dict(row) if row else {}
+
+    async def _get_opportunity_won_recipients(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        owner_id: Optional[UUID],
+        include_director: bool,
+    ) -> Set[str]:
+        """
+        Obtiene destinatarios para oportunidad ganada por roles organizacionales + propietario.
+        """
+        roles = list(OPPORTUNITY_WON_BASE_ROLES)
+        if include_director:
+            roles.append(OPPORTUNITY_WON_DIRECTOR_ROLE)
+
+        role_rows = await conn.fetch(
+            """
+            SELECT email
+            FROM tb_usuarios
+            WHERE rol_organizacional = ANY($1::varchar[])
+              AND is_active = TRUE
+              AND email IS NOT NULL
+            """,
+            roles,
+        )
+
+        recipients = {r["email"].strip().lower() for r in role_rows if r["email"]}
+
+        if owner_id:
+            owner_email = await conn.fetchval(
+                "SELECT email FROM tb_usuarios WHERE id_usuario = $1",
+                owner_id,
+            )
+            if owner_email:
+                recipients.add(owner_email.strip().lower())
+
+        if not recipients:
+            logger.warning(
+                "[NOTIFY] Sin destinatarios para oportunidad ganada %s (roles=%s, owner=%s)",
+                id_oportunidad,
+                roles,
+                owner_id,
+            )
+
+        return recipients
     
     async def _get_comment_recipients(
         self, 
@@ -720,7 +839,7 @@ class NotificationService:
         subject: str,
         html_body: str,
         sender_email: str  # Email del usuario que ejecuta la accion
-    ):
+    ) -> bool:
         """
         Envía email usando Application-only token de Microsoft Graph.
         
@@ -733,7 +852,7 @@ class NotificationService:
         """
         if not to_emails:
             logger.info("[NOTIFY] No hay destinatarios, email no enviado")
-            return
+            return False
         
         # Evitar duplicados: quitar TO de CC
         cc_emails = cc_emails - to_emails
@@ -744,7 +863,7 @@ class NotificationService:
             
             if not app_token:
                 logger.error("[NOTIFY] No se pudo obtener token de aplicacion")
-                return
+                return False
             
             # Enviar email via Microsoft Graph API
             success, msg = await self.ms_auth.send_email_with_attachments(
@@ -759,6 +878,7 @@ class NotificationService:
             
             if success:
                 logger.info(f"[NOTIFY] Email enviado - TO: {len(to_emails)}, CC: {len(cc_emails)}")
+                return True
             else:
                 # Enmascarar PII en logs de error
                 masked_recipients = []
@@ -769,16 +889,16 @@ class NotificationService:
                     else:
                         masked_recipients.append("***@***")
                 logger.error(f"[NOTIFY] Error enviando email a {len(to_emails)} destinatarios (sample: {masked_recipients[0] if masked_recipients else 'N/A'}): {msg}")
-        
+                return False
+
         except httpx.HTTPError as e:
             # Error de red o API de Microsoft Graph
             logger.error(f"[NOTIFY] Error de red/Graph API al enviar email: {e}", exc_info=True)
+            return False
         except asyncpg.PostgresError as e:
             # Error de base de datos (si aplica)
             logger.error(f"[NOTIFY] Error de BD al enviar email: {e}", exc_info=True)
-        except Exception as e:
-            # Catch-all para errores inesperados
-            logger.error(f"[NOTIFY] Error inesperado al enviar email: {e}", exc_info=True)
+            return False
 
 
 def get_notification_service():

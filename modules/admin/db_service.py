@@ -90,7 +90,7 @@ class AdminDBService:
         )
 
     async def update_user_rol_organizacional(self, conn, user_id: UUID, rol: str) -> None:
-        """Actualiza el rol organizacional del usuario (jefe_ingenieria, jefe_construccion, director, o NULL)."""
+        """Actualiza el rol organizacional del usuario (jefe_comercial, jefe_ingenieria, jefe_construccion, director, o NULL)."""
         valor = rol if rol else None
         await conn.execute(
             "UPDATE tb_usuarios SET rol_organizacional = $1 WHERE id_usuario = $2",
@@ -454,6 +454,48 @@ class AdminDBService:
 
               (SELECT COUNT(*) FROM tb_oportunidades) AS total_oportunidades
         """, fecha_inicio, fecha_fin)
+        return dict(row)
+
+    async def get_recordatorios_oportunidad_monitor_data(self, conn) -> dict:
+        """
+        Obtiene métricas de monitor para recordatorios automáticos de oportunidades ganadas.
+        """
+        row = await conn.fetchrow(
+            """
+            SELECT
+              (
+                SELECT COUNT(*)
+                FROM tb_recordatorios_oportunidad_ganada r
+                WHERE r.activo = TRUE
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM tb_proyectos_gate p
+                    WHERE p.id_oportunidad = r.id_oportunidad
+                  )
+              ) AS pendientes_activos,
+              (
+                SELECT COUNT(*)
+                FROM tb_recordatorios_oportunidad_ganada r
+                WHERE r.activo = TRUE
+                  AND r.proximo_recordatorio_at <= NOW()
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM tb_proyectos_gate p
+                    WHERE p.id_oportunidad = r.id_oportunidad
+                  )
+              ) AS vencidos_por_enviar,
+              (
+                SELECT COUNT(*)
+                FROM tb_recordatorios_oportunidad_ganada_log
+                WHERE status = 'ENVIADO'
+              ) AS enviados_total,
+              (
+                SELECT COUNT(*)
+                FROM tb_recordatorios_oportunidad_ganada_log
+                WHERE status = 'NO_ENVIADO'
+              ) AS no_enviados_total
+            """
+        )
         return dict(row)
 
 

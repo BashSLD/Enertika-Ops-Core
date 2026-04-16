@@ -285,6 +285,7 @@
         /* Active state indicator */
         .module-link {
             position: relative;
+            min-height: 44px;
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         }
 
@@ -689,7 +690,7 @@
             <div class="pb-2 border-t border-blue-900/30 mt-2">
                 <div class="relative group">
                     <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend"
-                        class="module-link flex items-center gap-3 py-3 px-3 rounded-lg hover:bg-blue-800/50 transition-all duration-200 overflow-hidden w-full"
+                        class="module-link flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-blue-800/50 transition-all duration-200 overflow-hidden w-full"
                         :class="sidebarOpen ? 'justify-start' : 'justify-center'" title="Ayuda y Documentación">
                         <span class="module-icon text-lg">❓</span>
                         <span class="font-medium whitespace-nowrap" x-show="sidebarOpen">Ayuda</span>
@@ -707,7 +708,7 @@
             </div>
 
             <!-- TOGGLE BUTTON -->
-            <div class="flex justify-center py-2 border-t border-blue-900 bg-[#0E2A47] cursor-pointer hover:bg-blue-800/50 transition-colors"
+            <div class="flex justify-center items-center h-11 border-t border-blue-900 bg-[#0E2A47] cursor-pointer hover:bg-blue-800/50 transition-colors"
                 @click="sidebarOpen = !sidebarOpen">
                 <svg class="w-6 h-6 text-blue-300 transform transition-transform duration-300"
                     :class="sidebarOpen ? 'rotate-0' : 'rotate-180'" fill="none" stroke="currentColor"
@@ -721,7 +722,7 @@
             <div class="p-2 bg-[#0E2A47] border-t border-blue-900">
                 <div class="relative group">
                     <a href="/auth/logout"
-                        class="flex items-center gap-2 w-full py-2 px-3 rounded-lg bg-red-900/20 text-red-200 hover:bg-red-900/40 transition-all duration-200 text-sm overflow-hidden">
+                        class="flex items-center gap-2 w-full min-h-[44px] py-2 px-3 rounded-lg bg-red-900/20 text-red-200 hover:bg-red-900/40 transition-all duration-200 text-sm overflow-hidden">
                         <span class="text-lg">🚪</span>
                         <span class="whitespace-nowrap" x-show="sidebarOpen">Cerrar Sesión</span>
                     </a>

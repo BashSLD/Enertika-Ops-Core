@@ -21,7 +21,7 @@ from .schemas import OportunidadCreateCompleta, DetalleBessCreate
 from .service import ComercialService, get_comercial_service
 from .email_handler import EmailHandler, get_email_handler
 from .file_utils import validate_file_size
-from .db_service import QUERY_GET_NOTIFICACION_GANADA_AT, QUERY_GET_PROYECTO_FOR_OPORTUNIDAD, QUERY_BUSCAR_OPORTUNIDADES_PARA_RELACIONAR
+from .db_service import QUERY_BUSCAR_OPORTUNIDADES_PARA_RELACIONAR
 
 from core.workflow.service import get_workflow_service
 
@@ -1159,63 +1159,3 @@ async def cierre_venta(
         )
 
 
-# ----------------------------------------
-# Endpoint: Reenviar Notificación Oportunidad Ganada
-# ----------------------------------------
-
-@router.post("/reenviar-notificacion-ganada/{id_oportunidad}")
-async def reenviar_notificacion_ganada(
-    request: Request,
-    id_oportunidad: UUID,
-    service: ComercialService = Depends(get_comercial_service),
-    conn = Depends(get_db_connection),
-    user_context = Depends(get_current_user_context),
-    _ = require_module_access("comercial", "editor")
-):
-    """
-    Reenvía la notificación de oportunidad ganada.
-
-    Solo disponible si la oportunidad está en estado Ganada y no tiene proyecto creado.
-    Actualiza notificacion_ganada_at tras el envío.
-    """
-    try:
-        await service.reenviar_notificacion_ganada(conn, id_oportunidad, user_context)
-
-        notificacion_ganada_at = await conn.fetchval(QUERY_GET_NOTIFICACION_GANADA_AT, id_oportunidad)
-        tiene_proyecto = bool(await conn.fetchrow(QUERY_GET_PROYECTO_FOR_OPORTUNIDAD, id_oportunidad))
-
-        return templates.TemplateResponse(
-            request, "shared/modals/partials/boton_reenvio_notificacion.html",
-            {                "id_oportunidad": id_oportunidad,
-                "notificacion_ganada_at": notificacion_ganada_at,
-                "tiene_proyecto": tiene_proyecto,
-                "toast": {"type": "success", "title": "Enviado", "message": "Recordatorio reenviado correctamente."},
-            }
-        )
-
-    except ValueError as ve:
-        return templates.TemplateResponse(
-            request, "shared/toast.html",
-            {                "type": "error",
-                "title": "No permitido",
-                "message": str(ve),
-            }
-        )
-    except asyncpg.PostgresError as e:
-        logger.error(f"Error BD en reenvio notificacion ganada {id_oportunidad}: {e}", exc_info=True)
-        return templates.TemplateResponse(
-            request, "shared/toast.html",
-            {                "type": "error",
-                "title": "Error",
-                "message": "Error de base de datos al reenviar la notificación.",
-            }
-        )
-    except Exception as e:
-        logger.error(f"Error en reenvio notificacion ganada {id_oportunidad}: {e}", exc_info=True)
-        return templates.TemplateResponse(
-            request, "shared/toast.html",
-            {                "type": "error",
-                "title": "Error",
-                "message": "Ocurrió un error al reenviar el recordatorio.",
-            }
-        )

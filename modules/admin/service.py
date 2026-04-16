@@ -452,7 +452,7 @@ class AdminService:
         Args:
             conn: Conexión a la base de datos
             user_id: ID del usuario
-            rol: jefe_ingenieria | jefe_construccion | director | '' (ninguno)
+            rol: jefe_comercial | jefe_ingenieria | jefe_construccion | director | '' (ninguno)
         """
         if rol not in ROLES_ORGANIZACIONALES_VALIDOS:
             raise ValueError(f"Rol organizacional inválido: {rol}")
@@ -669,6 +669,18 @@ class AdminService:
         await notif._send_email(destinatarios, set(), subject, html, sender["email"])
         logger.info(f"[REPORTE_SEMANAL] Enviado a {len(destinatarios)} destinatarios")
         return True
+
+    async def get_recordatorios_oportunidad_monitor(self, conn) -> dict:
+        """
+        Retorna resumen para monitor operativo de recordatorios automáticos.
+        """
+        data = await self.db.get_recordatorios_oportunidad_monitor_data(conn)
+        return {
+            "pendientes_activos": int(data.get("pendientes_activos", 0) or 0),
+            "vencidos_por_enviar": int(data.get("vencidos_por_enviar", 0) or 0),
+            "enviados_total": int(data.get("enviados_total", 0) or 0),
+            "no_enviados_total": int(data.get("no_enviados_total", 0) or 0),
+        }
 
 
 def get_admin_service():

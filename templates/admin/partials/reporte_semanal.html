@@ -8,6 +8,33 @@
         </p>
     </div>
 
+    {% if recordatorios_monitor %}
+    <div class="mb-8">
+        <div class="flex items-center justify-between mb-3">
+            <h3 class="text-sm font-semibold text-gray-700 uppercase tracking-wide">Monitor Recordatorios Oportunidad Ganada</h3>
+            <span class="text-xs text-gray-500">Actualizado: {{ recordatorios_monitor_updated_at.strftime('%d/%m/%Y %H:%M') }}</span>
+        </div>
+        <div class="grid grid-cols-2 gap-4">
+            <div class="bg-emerald-50 border-l-4 border-emerald-500 rounded-lg p-4">
+                <div class="text-2xl font-bold text-emerald-700">{{ recordatorios_monitor.pendientes_activos }}</div>
+                <div class="text-xs font-medium text-gray-700 mt-1">Pendientes activos</div>
+            </div>
+            <div class="bg-amber-50 border-l-4 border-amber-500 rounded-lg p-4">
+                <div class="text-2xl font-bold text-amber-700">{{ recordatorios_monitor.vencidos_por_enviar }}</div>
+                <div class="text-xs font-medium text-gray-700 mt-1">Vencidos por enviar</div>
+            </div>
+            <div class="bg-teal-50 border-l-4 border-teal-500 rounded-lg p-4">
+                <div class="text-2xl font-bold text-teal-700">{{ recordatorios_monitor.enviados_total }}</div>
+                <div class="text-xs font-medium text-gray-700 mt-1">Enviados (histórico)</div>
+            </div>
+            <div class="bg-rose-50 border-l-4 border-rose-500 rounded-lg p-4">
+                <div class="text-2xl font-bold text-rose-700">{{ recordatorios_monitor.no_enviados_total }}</div>
+                <div class="text-xs font-medium text-gray-700 mt-1">No enviados (histórico)</div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Métricas -->
     <div class="grid grid-cols-2 gap-4 mb-8">
 

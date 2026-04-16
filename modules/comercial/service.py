@@ -83,8 +83,6 @@ from .db_service import (
     QUERY_GET_CONVERSION_PENDIENTE,
     QUERY_CLEAR_CONVERSION_PENDIENTE,
     QUERY_UPDATE_NOTIFICACION_GANADA_AT,
-    QUERY_GET_PROYECTO_FOR_OPORTUNIDAD,
-    QUERY_GET_NOTIFICACION_GANADA_AT,
     QUERY_GET_PROGRESO_GATE,
     QUERY_GET_JEFE_BY_ROL_ORG,
     QUERY_GET_EQUIPO_PROYECTO_ACTIVO,
@@ -1746,12 +1744,19 @@ class ComercialService:
 
         # Enviar notificación email (no bloquear si falla)
         try:
-            await self.workflow_notif_service.notify_opportunity_won(
+            sent = await self.workflow_notif_service.notify_opportunity_won(
                 conn=conn,
                 id_oportunidad=id_oportunidad,
                 won_by_ctx=user_context,
+                include_director=True,
             )
-            await conn.execute(QUERY_UPDATE_NOTIFICACION_GANADA_AT, id_oportunidad)
+            if sent:
+                await conn.execute(QUERY_UPDATE_NOTIFICACION_GANADA_AT, id_oportunidad)
+
+            await self.workflow_notif_service.schedule_opportunity_won_reminders(
+                conn=conn,
+                id_oportunidad=id_oportunidad,
+            )
         except asyncpg.PostgresError as e:
             logger.error(f"Error BD al registrar notificacion ganada {id_oportunidad}: {e}", exc_info=True)
         except Exception as e:
@@ -1763,40 +1768,6 @@ class ComercialService:
             "sitios_ganados": sitios_ganados_count,
             "sitios_perdidos": sitios_perdidos_count
         }
-
-    async def reenviar_notificacion_ganada(
-        self,
-        conn,
-        id_oportunidad: UUID,
-        user_context: dict
-    ) -> None:
-        """
-        Reenvía la notificación de oportunidad ganada.
-
-        Raises:
-            ValueError: Si la oportunidad no está en estado Ganada o ya tiene proyecto.
-        """
-        cats = await self.get_catalog_ids(conn)
-        estatus_map = cats.get("estatus", {})
-        id_ganada = estatus_map.get("ganada")
-
-        if not id_ganada:
-            raise ValueError("Error de configuración: falta estatus 'ganada' en catálogo")
-
-        current_status = await conn.fetchval(QUERY_GET_OP_ESTATUS, id_oportunidad)
-        if current_status != id_ganada:
-            raise ValueError("La oportunidad no está en estado Ganada")
-
-        proyecto_row = await conn.fetchrow(QUERY_GET_PROYECTO_FOR_OPORTUNIDAD, id_oportunidad)
-        if proyecto_row:
-            raise ValueError("No se puede reenviar: el proyecto ya fue creado")
-
-        await self.workflow_notif_service.notify_opportunity_won(
-            conn=conn,
-            id_oportunidad=id_oportunidad,
-            won_by_ctx=user_context,
-        )
-        await conn.execute(QUERY_UPDATE_NOTIFICACION_GANADA_AT, id_oportunidad)
 
     async def get_paso2_data(self, conn, id_oportunidad: UUID) -> Optional[dict]:
         """Recupera datos mínimos para renderizar el formulario de Paso 2."""

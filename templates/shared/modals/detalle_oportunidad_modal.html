@@ -237,7 +237,18 @@
                 <p class="text-xs text-green-700 mb-3">
                     El siguiente paso es crear el proyecto en Projects Gate.
                 </p>
-                {% include "shared/modals/partials/boton_reenvio_notificacion.html" %}
+                {% if notificacion_ganada_at %}
+                <p class="text-xs text-gray-600 mb-2">
+                    Ultimo envio: {{ notificacion_ganada_at | time_mx }}
+                </p>
+                {% endif %}
+                {% if tiene_proyecto %}
+                <p class="text-xs text-gray-500">El proyecto ya fue creado en Projects Gate.</p>
+                {% else %}
+                <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                    Los recordatorios se envian automaticamente cada 48 horas hasta que se cree el proyecto.
+                </p>
+                {% endif %}
             </div>
             {% endif %}
 

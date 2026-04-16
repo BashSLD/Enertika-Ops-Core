@@ -415,3 +415,181 @@ async def refresh_tipo_cambio_periodically(interval_seconds: int = 3600):
             logger.error("[TIPO_CAMBIO] Error de BD en tarea periodica: %s", e)
         except Exception as e:
             logger.error("[TIPO_CAMBIO] Error inesperado en tarea periodica: %s", e)
+
+
+async def check_recordatorios_oportunidad_ganada_periodically(interval_seconds: int = 3600):
+    """
+    Tarea periódica (cada hora) para recordatorios automáticos de oportunidades ganadas.
+
+    Reglas:
+    - Reenvío cada 48 horas mientras no exista proyecto en tb_proyectos_gate.
+    - Director incluido solo en los primeros 3 recordatorios.
+    - Destinatarios por rol_organizacional + propietario de la oportunidad.
+    """
+    logger.info("[OPP_GANADA_REMINDER] Tarea inicializada (intervalo: %sh)", interval_seconds // 3600)
+
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            from core.database import get_db_pool
+            from core.workflow.notification_service import get_notification_service
+
+            pool = await get_db_pool()
+            notif_service = get_notification_service()
+
+            async with pool.acquire() as conn:
+                ganada_id = await conn.fetchval(
+                    """
+                    SELECT id
+                    FROM tb_cat_estatus_oportunidades
+                    WHERE LOWER(nombre) = 'ganada'
+                    LIMIT 1
+                    """
+                )
+                if not ganada_id:
+                    logger.warning("[OPP_GANADA_REMINDER] No se encontró estatus 'ganada' en catálogo")
+                    continue
+
+                # Cerrar ciclos donde ya existe proyecto
+                await conn.execute(
+                    """
+                    UPDATE tb_recordatorios_oportunidad_ganada r
+                    SET activo = FALSE,
+                        updated_at = NOW()
+                    WHERE r.activo = TRUE
+                      AND EXISTS (
+                          SELECT 1
+                          FROM tb_proyectos_gate p
+                          WHERE p.id_oportunidad = r.id_oportunidad
+                      )
+                    """
+                )
+
+                # Claim de lotes para evitar doble envío entre workers
+                due_rows = await conn.fetch(
+                    """
+                    WITH candidatos AS (
+                        SELECT r.id_oportunidad
+                        FROM tb_recordatorios_oportunidad_ganada r
+                        JOIN tb_oportunidades o ON o.id_oportunidad = r.id_oportunidad
+                        WHERE r.activo = TRUE
+                          AND r.proximo_recordatorio_at <= NOW()
+                          AND o.id_estatus_global = $1
+                          AND NOT EXISTS (
+                              SELECT 1
+                              FROM tb_proyectos_gate p
+                              WHERE p.id_oportunidad = r.id_oportunidad
+                          )
+                        ORDER BY r.proximo_recordatorio_at ASC
+                        LIMIT 25
+                        FOR UPDATE SKIP LOCKED
+                    )
+                    UPDATE tb_recordatorios_oportunidad_ganada r
+                    SET proximo_recordatorio_at = NOW() + INTERVAL '10 minutes',
+                        updated_at = NOW()
+                    FROM candidatos c
+                    WHERE r.id_oportunidad = c.id_oportunidad
+                    RETURNING r.id_oportunidad, r.recordatorios_enviados
+                    """,
+                    ganada_id,
+                )
+
+                if not due_rows:
+                    logger.debug("[OPP_GANADA_REMINDER] Sin recordatorios pendientes")
+                    continue
+
+                for row in due_rows:
+                    id_oportunidad = row["id_oportunidad"]
+                    reminder_count = int(row["recordatorios_enviados"] or 0)
+
+                    proyecto_exists = await conn.fetchval(
+                        "SELECT 1 FROM tb_proyectos_gate WHERE id_oportunidad = $1",
+                        id_oportunidad,
+                    )
+                    if proyecto_exists:
+                        await conn.execute(
+                            """
+                            UPDATE tb_recordatorios_oportunidad_ganada
+                            SET activo = FALSE,
+                                updated_at = NOW()
+                            WHERE id_oportunidad = $1
+                            """,
+                            id_oportunidad,
+                        )
+                        continue
+
+                    include_director = reminder_count < 3
+                    reminder_number = reminder_count + 1
+
+                    sent = await notif_service.notify_opportunity_won(
+                        conn=conn,
+                        id_oportunidad=id_oportunidad,
+                        won_by_ctx={"user_name": "Sistema"},
+                        include_director=include_director,
+                        reminder_number=reminder_number,
+                    )
+
+                    if sent:
+                        await conn.execute(
+                            """
+                            UPDATE tb_recordatorios_oportunidad_ganada
+                            SET recordatorios_enviados = recordatorios_enviados + 1,
+                                ultimo_recordatorio_at = NOW(),
+                                proximo_recordatorio_at = NOW() + INTERVAL '48 hours',
+                                updated_at = NOW()
+                            WHERE id_oportunidad = $1
+                            """,
+                            id_oportunidad,
+                        )
+                        await conn.execute(
+                            """
+                            UPDATE tb_oportunidades
+                            SET notificacion_ganada_at = NOW() AT TIME ZONE 'America/Mexico_City'
+                            WHERE id_oportunidad = $1
+                            """,
+                            id_oportunidad,
+                        )
+                        await conn.execute(
+                            """
+                            INSERT INTO tb_recordatorios_oportunidad_ganada_log (
+                                id_oportunidad,
+                                numero_recordatorio,
+                                incluye_director,
+                                status,
+                                created_at
+                            ) VALUES ($1, $2, $3, 'ENVIADO', NOW())
+                            """,
+                            id_oportunidad,
+                            reminder_number,
+                            include_director,
+                        )
+                    else:
+                        await conn.execute(
+                            """
+                            UPDATE tb_recordatorios_oportunidad_ganada
+                            SET proximo_recordatorio_at = NOW() + INTERVAL '48 hours',
+                                updated_at = NOW()
+                            WHERE id_oportunidad = $1
+                            """,
+                            id_oportunidad,
+                        )
+                        await conn.execute(
+                            """
+                            INSERT INTO tb_recordatorios_oportunidad_ganada_log (
+                                id_oportunidad,
+                                numero_recordatorio,
+                                incluye_director,
+                                status,
+                                error_message,
+                                created_at
+                            ) VALUES ($1, $2, $3, 'NO_ENVIADO', 'No se enviaron destinatarios o fallo de envío', NOW())
+                            """,
+                            id_oportunidad,
+                            reminder_number,
+                            include_director,
+                        )
+
+        except asyncpg.PostgresError as e:
+            logger.error("[OPP_GANADA_REMINDER] Error de BD: %s", e)
+        except Exception as e:
+            logger.error("[OPP_GANADA_REMINDER] Error inesperado: %s", e, exc_info=True)

@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, datetime
 from fastapi import APIRouter, Request, Depends, HTTPException, Form, Header
 from fastapi.responses import HTMLResponse, Response
 from typing import Optional
@@ -46,6 +46,7 @@ async def admin_dashboard(
     catalogos = await service.get_catalogos_reglas(conn)
     global_config = await service.get_global_config(conn)
     reporte = await service.generar_reporte_semanal(conn)
+    recordatorios_monitor = await service.get_recordatorios_oportunidad_monitor(conn)
     tc_actual = await tc_service.get_tasa_actual(conn)
     tc_historial = await tc_service.get_historial(conn, limit=30)
 
@@ -64,6 +65,8 @@ async def admin_dashboard(
         "reporte_fecha_inicio": reporte["fecha_inicio"],
         "reporte_fecha_fin_display": reporte["fecha_fin"] - timedelta(days=1),
         "reporte_destinatarios_configurados": bool(global_config.get("reporte_semanal_destinatarios", "").strip()),
+        "recordatorios_monitor": recordatorios_monitor,
+        "recordatorios_monitor_updated_at": datetime.now(),
         # Tipo de cambio
         "tipo_cambio_actual": tc_actual,
         "tipo_cambio_historial": tc_historial,
@@ -425,7 +428,7 @@ async def update_user_modules(
 async def update_preferred_module(
     request: Request,
     user_id: UUID,
-    modulo_slug: str = Form(...),
+    modulo_slug: Optional[str] = Form(None),
     context = Depends(get_current_user_context),
     service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection),
@@ -495,7 +498,7 @@ async def update_rol_organizacional(
     conn = Depends(get_db_connection),
     _ = require_module_access("admin", "admin")
 ):
-    """Actualiza el rol organizacional del usuario (jefe_ingenieria, jefe_construccion, director, o ninguno)."""
+    """Actualiza el rol organizacional del usuario (jefe_comercial, jefe_ingenieria, jefe_construccion, director, o ninguno)."""
     try:
         await service.update_user_rol_organizacional(conn, user_id, rol_organizacional)
         return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "OK",
