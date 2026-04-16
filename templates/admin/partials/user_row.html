@@ -1,7 +1,8 @@
 <tr id="user-{{ u.id_usuario }}" class="{% if u.is_active is false %}bg-gray-100 text-gray-500{% endif %}"
     data-simulation-flag="{{ u.puede_asignarse_simulacion|default(false)|lower }}"
     data-levantamiento-flag="{{ u.puede_asignarse_levantamientos|default(false)|lower }}"
-    data-rol-organizacional="{{ u.rol_organizacional or '' }}">
+    data-rol-organizacional="{{ u.rol_organizacional or '' }}"
+    data-department-name="{{ u.department or '' }}">
     <td
         class="px-6 py-4 whitespace-nowrap font-medium {% if u.is_active is false %}text-gray-500{% else %}text-gray-900{% endif %}">
         {{ u.nombre }}
@@ -69,8 +70,11 @@
             {% if u.is_active is not false %}
             <!-- Editar Permisos -->
             <button
-                onclick="openPermissionsModal('{{ u.id_usuario }}', '{{ u.nombre }}', '{{ u.modulo_preferido or "" }}')"
-                class="text-[#00BABB] hover:text-[#009999] font-bold transition-colors duration-200"
+                type="button"
+                class="open-permissions-btn text-[#00BABB] hover:text-[#009999] font-bold transition-colors duration-200"
+                data-user-id="{{ u.id_usuario }}"
+                data-user-name="{{ u.nombre }}"
+                data-user-pref="{{ u.modulo_preferido or '' }}"
                 title="Editar Permisos">
                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"

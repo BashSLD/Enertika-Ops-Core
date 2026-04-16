@@ -439,9 +439,11 @@ async def update_preferred_module(
 
 @router.get("/users/{user_id}/modules")
 async def get_user_modules(
-    user_id: UUID, 
+    user_id: UUID,
+    _context = Depends(get_current_user_context),
     service: AdminService = Depends(get_admin_service),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
 ):
     """Obtiene los módulos asignados a un usuario."""
     return await service.get_user_modules(conn, user_id)

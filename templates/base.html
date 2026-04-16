@@ -368,11 +368,39 @@
 <body class="bg-gray-100 font-sans text-gray-900">
 
     <div class="flex h-screen overflow-hidden" x-data="{
-            sidebarOpen: localStorage.getItem('sidebarOpen') !== 'false',
+            sidebarOpen: false,
             mobileMenuOpen: false,
             notificationsOpen: false,
-            moduleNames: {comercial:'Comercial',simulacion:'Simulación',levantamientos:'Levantamientos',proyectos:'Proyectos',compras:'Compras',ingenieria:'Ingeniería',construccion:'Construcción',finanzas:'Finanzas',oym:'O & M',admin:'Admin',materials:'Materiales'}
-        }" x-init="$watch('sidebarOpen', val => localStorage.setItem('sidebarOpen', val))">
+            moduleNames: {comercial:'Comercial',simulacion:'Simulación',levantamientos:'Levantamientos',proyectos:'Proyectos',compras:'Compras',ingenieria:'Ingeniería',construccion:'Construcción',finanzas:'Finanzas',oym:'O & M',admin:'Admin',materials:'Materiales'},
+            moduleGroupBySlug: {comercial:'operaciones',simulacion:'operaciones',levantamientos:'operaciones',proyectos:'proyectos',ingenieria:'proyectos',construccion:'proyectos',compras:'proyectos',finanzas:'proyectos',oym:'mantenimiento',admin:'admin'},
+            groupOpen: {operaciones: true, proyectos: true, mantenimiento: true, admin: true},
+            saveGroupState() {
+                localStorage.setItem('sidebarGroupOpen', JSON.stringify(this.groupOpen));
+            },
+            toggleGroup(groupKey) {
+                this.groupOpen[groupKey] = !this.groupOpen[groupKey];
+                this.saveGroupState();
+            },
+            setActiveGroupBySlug(slug) {
+                const groupKey = this.moduleGroupBySlug[slug];
+                if (groupKey) {
+                    this.groupOpen[groupKey] = true;
+                    this.saveGroupState();
+                }
+            },
+            loadSidebarState() {
+                try {
+                    const savedGroups = JSON.parse(localStorage.getItem('sidebarGroupOpen') || '{}');
+                    this.groupOpen = { ...this.groupOpen, ...savedGroups };
+                } catch (_) { }
+
+                const match = window.location.pathname.match(/^\/([^\/]+)/);
+                if (match && match[1]) {
+                    this.setActiveGroupBySlug(match[1]);
+                }
+            }
+        }" x-init="loadSidebarState()"
+        @sidebar-active-module-changed.window="setActiveGroupBySlug($event.detail.slug)">
 
         {% if user_name %}
         <!-- MOBILE HEADER -->
@@ -455,8 +483,8 @@
             ]">
 
             <!-- LOGO & USER SECTION -->
-            <div class="p-4 border-b border-blue-900 bg-[#0E2A47] flex flex-col items-center justify-center transition-all duration-300"
-                :class="sidebarOpen ? 'h-32' : 'h-32'">
+            <div class="p-3 border-b border-blue-900 bg-[#0E2A47] flex flex-col items-center justify-center transition-all duration-300"
+                :class="sidebarOpen ? 'h-24' : 'h-24'">
 
                 <!-- Expanded: Full Title -->
                 <h1 x-show="sidebarOpen" x-transition:enter="transition ease-out duration-200"
@@ -474,7 +502,7 @@
                 </div>
 
                 <!-- USER INFO CON NOTIFICACIONES -->
-                <div class="mt-3 flex items-center justify-center relative" x-data="{ open: false }">
+                <div class="mt-2 flex items-center justify-center relative" x-data="{ open: false }">
                     <!-- Expanded: Full Name Badge con Click -->
                     <button x-show="sidebarOpen" @click="open = !open"
                         class="user-badge px-3 py-1 bg-blue-900/50 rounded-full text-xs font-mono text-blue-200 border border-blue-800 whitespace-nowrap max-w-[180px] transition-all duration-200 hover:bg-blue-900/70 cursor-pointer relative">
@@ -521,100 +549,139 @@
             </div>
 
             <!-- NAVIGATION -->
-            <nav class="flex-1 space-y-1 overflow-y-auto overflow-x-hidden text-sm transition-all duration-300 py-4"
+            <nav class="flex-1 space-y-1 overflow-y-auto overflow-x-hidden text-sm transition-all duration-300 py-3"
                 :class="sidebarOpen ? 'px-3 custom-scrollbar' : 'px-2 no-scrollbar'">
-
-                {% set module_groups = {
-                'OPERACIONES': [
+                {% set module_groups = [
+                {
+                "key": "operaciones",
+                "name": "OPERACIONES",
+                "modules": [
                 {"slug": "comercial", "name": "Comercial", "icon": "💼", "url": "/comercial/ui"},
                 {"slug": "simulacion", "name": "Simulación", "icon": "⚡", "url": "/simulacion/ui"},
                 {"slug": "levantamientos", "name": "Levantamientos", "icon": "📋", "url": "/levantamientos/ui"}
-                ],
-                'PROYECTOS': [
+                ]
+                },
+                {
+                "key": "proyectos",
+                "name": "PROYECTOS",
+                "modules": [
                 {"slug": "proyectos", "name": "Proyectos", "icon": "📁", "url": "/proyectos/ui"},
                 {"slug": "ingenieria", "name": "Ingeniería", "icon": "🏗️", "url": "/ingenieria/ui"},
                 {"slug": "construccion", "name": "Construcción", "icon": "🚧", "url": "/construccion/ui"},
                 {"slug": "compras", "name": "Compras", "icon": "🛒", "url": "/compras/ui"},
                 {"slug": "finanzas", "name": "Finanzas", "icon": "💰", "url": "/finanzas/ui"}
-                ],
-                'MANTENIMIENTO': [
+                ]
+                },
+                {
+                "key": "mantenimiento",
+                "name": "MANTENIMIENTO",
+                "modules": [
                 {"slug": "oym", "name": "O & M", "icon": "🔧", "url": "/oym/ui"}
                 ]
-                } %}
+                }
+                ] %}
 
-                {% for group_name, modules in module_groups.items() %}
-                <!-- Group Header (Solo visible cuando está expandido) -->
-                <div x-show="sidebarOpen" class="group-header mt-4 first:mt-0">
-                    {{ group_name }}
-                </div>
+                {% for group in module_groups %}
+                <section class="rounded-lg bg-blue-950/20 border border-blue-900/40 overflow-hidden mb-2">
+                    <button x-show="sidebarOpen" @click="toggleGroup('{{ group.key }}')"
+                        class="w-full flex items-center justify-between px-3 py-2.5 hover:bg-blue-900/40 transition-colors">
+                        <span class="text-[11px] font-semibold tracking-[0.12em] text-[#7fd9da]">{{ group.name }}</span>
+                        <svg class="w-4 h-4 text-[#7fd9da] transition-transform duration-200"
+                            :class="groupOpen.{{ group.key }} ? 'rotate-90' : 'rotate-0'" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd"
+                                d="M6.293 4.293a1 1 0 011.414 0L13.414 10l-5.707 5.707a1 1 0 01-1.414-1.414L10.586 10 6.293 5.707a1 1 0 010-1.414z"
+                                clip-rule="evenodd" />
+                        </svg>
+                    </button>
 
-                <!-- Divider visual cuando está colapsado -->
-                <div x-show="!sidebarOpen" class="my-3 border-t border-blue-900/30"></div>
+                    <div x-show="groupOpen.{{ group.key }} || !sidebarOpen" x-transition.opacity>
+                        {% for module in group.modules %}
+                        {% set has_access = (role == 'ADMIN') or (module.slug in (module_roles or {})) %}
+                        {% if has_access %}
+                        <div class="relative group">
+                            <a href="#" hx-get="{{ module.url }}" hx-target="#main-content" hx-swap="innerHTML"
+                                hx-push-url="true"
+                                @click="mobileMenuOpen = false; $store.activeModule.slug = '{{ module.slug }}'; setActiveGroupBySlug('{{ module.slug }}')"
+                                class="module-link flex items-center gap-3 py-2.5 px-3 rounded-lg transition-all duration-200 overflow-hidden"
+                                :class="[$store.activeModule.slug === '{{ module.slug }}' ? 'active' : '', sidebarOpen ? 'justify-start' : 'justify-center']"
+                                x-init="if (window.location.pathname.includes('{{ module.slug }}')) { $store.activeModule.slug = '{{ module.slug }}'; setActiveGroupBySlug('{{ module.slug }}'); }">
 
-                {% for module in modules %}
-                {% set has_access = (role == 'ADMIN') or (module.slug in (module_roles or {})) %}
+                                <span class="module-icon text-lg">{{ module.icon }}</span>
 
-                <div class="relative group">
-                    {% if has_access %}
-                    <!-- MÓDULO CON ACCESO -->
-                    <a href="#" hx-get="{{ module.url }}" hx-target="#main-content" hx-swap="innerHTML"
-                        hx-push-url="true"
-                        @click="mobileMenuOpen = false; $store.activeModule.slug = '{{ module.slug }}'"
-                        class="module-link flex items-center gap-3 py-3 px-3 rounded-lg transition-all duration-200 overflow-hidden"
-                        :class="[$store.activeModule.slug === '{{ module.slug }}' ? 'active' : '', sidebarOpen ? 'justify-start' : 'justify-center']"
-                        x-init="if (window.location.pathname.includes('{{ module.slug }}')) $store.activeModule.slug = '{{ module.slug }}'">
-
-                        <span class="module-icon text-lg">{{ module.icon }}</span>
-
-                        <span class="font-medium whitespace-nowrap transition-opacity duration-200" x-show="sidebarOpen"
-                            x-transition:enter="transition ease-out duration-100" x-transition:enter-start="opacity-0"
-                            x-transition:enter-end="opacity-100">
-                            {{ module.name }}
-                        </span>
-                    </a>
-                    {% else %}
-                    <!-- MÓDULO BLOQUEADO -->
-                    <div class="flex items-center gap-3 py-3 px-3 rounded-lg opacity-40 overflow-hidden">
-                        <span class="text-lg">{{ module.icon }}</span>
-                        <span class="font-medium text-gray-400 whitespace-nowrap" x-show="sidebarOpen">
-                            {{ module.name }}
-                        </span>
-                        <span class="ml-auto text-xs" x-show="sidebarOpen">🔒</span>
-                    </div>
-                    {% endif %}
-
-                    <!-- TOOLTIP (Solo visible cuando está colapsado) -->
-                    <div x-show="!sidebarOpen"
-                        class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
-                        {{ module.name }}
-                        {% if not has_access %}<span class="ml-1 text-xs text-gray-400">(Bloqueado)</span>{% endif %}
-                        <!-- Flecha del Tooltip (Color ajustado al gradiente dark) -->
-                        <div
-                            class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-[#1f2937]">
+                                <span class="font-medium whitespace-nowrap transition-opacity duration-200"
+                                    x-show="sidebarOpen" x-transition:enter="transition ease-out duration-100"
+                                    x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100">
+                                    {{ module.name }}
+                                </span>
+                            </a>
+                            <div x-show="!sidebarOpen"
+                                class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
+                                {{ module.name }}
+                                <div
+                                    class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-[#1f2937]">
+                                </div>
+                            </div>
                         </div>
+                        {% endif %}
+                        {% endfor %}
+
+                        {% for module in group.modules %}
+                        {% set has_access = (role == 'ADMIN') or (module.slug in (module_roles or {})) %}
+                        {% if not has_access %}
+                        <div class="relative group">
+                            <div
+                                class="flex items-center gap-3 py-2 px-3 rounded-lg opacity-35 hover:opacity-55 transition-opacity overflow-hidden">
+                                <span class="text-lg">{{ module.icon }}</span>
+                                <span class="font-medium text-gray-300 whitespace-nowrap text-sm" x-show="sidebarOpen">
+                                    {{ module.name }}
+                                </span>
+                                <span class="ml-auto text-[10px] text-gray-300" x-show="sidebarOpen">🔒</span>
+                            </div>
+                            <div x-show="!sidebarOpen"
+                                class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
+                                {{ module.name }}
+                                <span class="ml-1 text-xs text-gray-400">(Bloqueado)</span>
+                                <div
+                                    class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-[#1f2937]">
+                                </div>
+                            </div>
+                        </div>
+                        {% endif %}
+                        {% endfor %}
                     </div>
-                </div>
-                {% endfor %}
+                </section>
                 {% endfor %}
 
                 {% if role == 'ADMIN' %}
-                <div class="my-4 border-t border-blue-900/30"></div>
-                <div class="relative group">
-                    <a href="/admin/ui"
-                        class="module-link flex items-center gap-3 py-3 px-3 rounded-lg bg-blue-900/20 hover:bg-blue-800/50 text-yellow-100 border border-transparent hover:border-yellow-500/30 transition-all duration-200 overflow-hidden"
-                        :class="sidebarOpen ? 'justify-start' : 'justify-center'">
-                        <span class="module-icon text-lg">⚙️</span>
-                        <span class="font-medium whitespace-nowrap" x-show="sidebarOpen">Admin</span>
-                    </a>
-                    <div x-show="!sidebarOpen"
-                        class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
-                        Admin
-                        <!-- Flecha del Tooltip (Color ajustado) -->
-                        <div
-                            class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-[#1f2937]">
+                <section class="rounded-lg bg-blue-950/20 border border-blue-900/40 overflow-hidden">
+                    <button x-show="sidebarOpen" @click="toggleGroup('admin')"
+                        class="w-full flex items-center justify-between px-3 py-2.5 hover:bg-blue-900/40 transition-colors">
+                        <span class="text-[11px] font-semibold tracking-[0.12em] text-[#7fd9da]">ADMIN</span>
+                        <svg class="w-4 h-4 text-[#7fd9da] transition-transform duration-200"
+                            :class="groupOpen.admin ? 'rotate-90' : 'rotate-0'" viewBox="0 0 20 20" fill="currentColor">
+                            <path fill-rule="evenodd"
+                                d="M6.293 4.293a1 1 0 011.414 0L13.414 10l-5.707 5.707a1 1 0 01-1.414-1.414L10.586 10 6.293 5.707a1 1 0 010-1.414z"
+                                clip-rule="evenodd" />
+                        </svg>
+                    </button>
+                    <div x-show="groupOpen.admin || !sidebarOpen" x-transition.opacity class="relative group">
+                        <a href="/admin/ui"
+                            @click="mobileMenuOpen = false; $store.activeModule.slug = 'admin'; setActiveGroupBySlug('admin')"
+                            class="module-link flex items-center gap-3 py-2.5 px-3 rounded-lg bg-blue-900/20 hover:bg-blue-800/50 text-yellow-100 border border-transparent hover:border-yellow-500/30 transition-all duration-200 overflow-hidden"
+                            :class="sidebarOpen ? 'justify-start' : 'justify-center'"
+                            x-init="if (window.location.pathname.includes('/admin/')) { $store.activeModule.slug = 'admin'; setActiveGroupBySlug('admin'); }">
+                            <span class="module-icon text-lg">⚙️</span>
+                            <span class="font-medium whitespace-nowrap" x-show="sidebarOpen">Admin</span>
+                        </a>
+                        <div x-show="!sidebarOpen"
+                            class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
+                            Admin
+                            <div
+                                class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-[#1f2937]">
+                            </div>
                         </div>
                     </div>
-                </div>
+                </section>
                 {% endif %}
             </nav>
 
@@ -842,6 +909,10 @@
                         store.slug = slug;
                     }
                 }
+
+                document.dispatchEvent(new CustomEvent('sidebar-active-module-changed', {
+                    detail: { slug: slug }
+                }));
             }
         }
 

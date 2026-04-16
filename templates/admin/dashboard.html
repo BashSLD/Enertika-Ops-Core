@@ -557,22 +557,62 @@
         document.getElementById('permissions-modal').classList.remove('hidden');
     }
 
+    function openPermissionsModalFromButton(button) {
+        const userId = button.dataset.userId || '';
+        const userName = button.dataset.userName || '';
+        const userPref = button.dataset.userPref || '';
+        if (!userId) return;
+        openPermissionsModal(userId, userName, userPref);
+    }
+
     function closePermissionsModal() {
+        const overlay = document.getElementById('perms-loading-overlay');
+        if (overlay && !overlay.classList.contains('hidden')) {
+            return;
+        }
         document.getElementById('permissions-modal').classList.add('hidden');
         currentUserId = null;
+    }
+
+    async function getErrorMessage(response, fallbackMessage) {
+        try {
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                const data = await response.json();
+                if (data && data.detail) return `${fallbackMessage}: ${data.detail}`;
+            }
+
+            const text = await response.text();
+            if (text && text.trim()) return `${fallbackMessage}.`;
+        } catch (_) {
+            // No-op
+        }
+
+        return `${fallbackMessage}.`;
+    }
+
+    async function postForm(url, formData, fallbackMessage) {
+        const response = await fetch(url, { method: 'POST', body: formData });
+        if (!response.ok) {
+            const message = await getErrorMessage(response, fallbackMessage);
+            throw new Error(message);
+        }
+        return response;
     }
 
     async function loadUserPermissions(userId) {
         try {
             const userRow = document.getElementById(`user-${userId}`);
-            const deptCell = userRow ? userRow.querySelector('td:nth-child(3)') : null;
-            const currentDeptName = deptCell ? deptCell.textContent.trim() : '';
+            const currentDeptName = userRow ? (userRow.dataset.departmentName || '') : '';
 
             const deptSelect = document.getElementById('user-department');
             const foundDept = allDepartments.find(d => d.nombre === currentDeptName);
-            if (foundDept) deptSelect.value = foundDept.slug;
+            deptSelect.value = foundDept ? foundDept.slug : '';
 
             const resp = await fetch(`/admin/users/${userId}/modules`);
+            if (!resp.ok) {
+                throw new Error('No fue posible cargar módulos del usuario');
+            }
             const permisos = await resp.json();
 
             const tbody = document.getElementById('modules-list');
@@ -654,41 +694,42 @@
             if (deptSlug) {
                 const fd = new FormData();
                 fd.append('department_slug', deptSlug);
-                await fetch(`/admin/users/${currentUserId}/department`, { method: 'POST', body: fd });
+                await postForm(`/admin/users/${currentUserId}/department`, fd, 'No se pudo guardar el departamento');
             }
 
             const form = document.getElementById('permissions-form');
-            await fetch(`/admin/users/${currentUserId}/modules`, { method: 'POST', body: new FormData(form) });
+            await postForm(`/admin/users/${currentUserId}/modules`, new FormData(form), 'No se pudieron guardar los roles de módulos');
 
             const pref = document.getElementById('user-preferred-module').value;
             const fdPref = new FormData();
             fdPref.append('modulo_slug', pref);
-            await fetch(`/admin/users/${currentUserId}/preferred-module`, { method: 'POST', body: fdPref });
+            await postForm(`/admin/users/${currentUserId}/preferred-module`, fdPref, 'No se pudo guardar el módulo de inicio');
 
             // Guardar flag de simulación
             const simFlag = document.getElementById('user-simulation-flag').checked;
             const fdSim = new FormData();
             fdSim.append('puede_asignarse_simulacion', simFlag ? 'true' : 'false');
-            await fetch(`/admin/users/${currentUserId}/simulation-flag`, { method: 'POST', body: fdSim });
+            await postForm(`/admin/users/${currentUserId}/simulation-flag`, fdSim, 'No se pudo guardar el permiso de simulación');
 
             // Guardar flag de levantamientos
             const levFlag = document.getElementById('user-levantamiento-flag').checked;
             const fdLev = new FormData();
             fdLev.append('puede_asignarse_levantamientos', levFlag ? 'true' : 'false');
-            await fetch(`/admin/users/${currentUserId}/levantamiento-flag`, { method: 'POST', body: fdLev });
+            await postForm(`/admin/users/${currentUserId}/levantamiento-flag`, fdLev, 'No se pudo guardar el permiso de levantamientos');
 
             // Guardar rol organizacional
             const rolOrg = document.getElementById('user-rol-organizacional').value;
             const fdRol = new FormData();
             fdRol.append('rol_organizacional', rolOrg);
-            await fetch(`/admin/users/${currentUserId}/rol-organizacional`, { method: 'POST', body: fdRol });
+            await postForm(`/admin/users/${currentUserId}/rol-organizacional`, fdRol, 'No se pudo guardar el rol organizacional');
 
             // Mostrar éxito y recargar
             setTimeout(() => location.reload(), 500);
 
         } catch (e) {
+            msgDiv.innerHTML = `<div class="text-red-600 font-semibold">${e.message || 'Error al guardar cambios.'}</div>`;
+        } finally {
             overlay.classList.add('hidden');
-            msgDiv.innerHTML = '<div class="text-red-600 font-bold">❗ Error al guardar. Intenta de nuevo.</div>';
         }
     }
 
@@ -772,6 +813,25 @@
         // Scroll suave a la tabla
         document.querySelector('#users-tbody').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
+
+    document.addEventListener('click', (event) => {
+        const openBtn = event.target.closest('.open-permissions-btn');
+        if (openBtn) {
+            openPermissionsModalFromButton(openBtn);
+            return;
+        }
+
+        const modal = document.getElementById('permissions-modal');
+        if (modal && event.target === modal) {
+            closePermissionsModal();
+        }
+    });
+
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape') {
+            closePermissionsModal();
+        }
+    });
 </script>
 
 <div id="permissions-modal"
@@ -794,18 +854,74 @@
             <div id="perms-response" class="mb-4"></div>
 
             <form id="permissions-form" class="space-y-6">
-                <div>
-                    <label class="block text-sm font-bold text-gray-700">Departamento</label>
-                    <select id="user-department" class="w-full rounded-lg border-gray-300">
-                        <option value="">-- Seleccionar --</option>
-                        {% for d in departments %}
-                        <option value="{{ d.slug }}">{{ d.nombre }}</option>
-                        {% endfor %}
-                    </select>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700">Departamento</label>
+                        <select id="user-department" class="w-full rounded-lg border-gray-300">
+                            <option value="">-- Seleccionar --</option>
+                            {% for d in departments %}
+                            <option value="{{ d.slug }}">{{ d.nombre }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700">Módulo Inicio</label>
+                        <select id="user-preferred-module" class="w-full rounded-lg border-gray-300"></select>
+                    </div>
                 </div>
 
+                <section class="rounded-xl border border-slate-200 bg-slate-50/70 p-4 md:p-5 space-y-4">
+                    <div>
+                        <h4 class="text-sm font-bold text-[#123456]">Responsabilidades del usuario</h4>
+                        <p class="text-xs text-slate-600 mt-1">Define la jerarquía organizacional y los permisos de asignación operativa.</p>
+                    </div>
+
+                    <div class="rounded-lg border border-slate-200 bg-white p-4 space-y-2">
+                        <label for="user-rol-organizacional" class="block text-sm font-semibold text-slate-800">Rol organizacional</label>
+                        <p class="text-xs text-slate-600">Define autoridad transversal (solo uno por usuario).</p>
+                        <select id="user-rol-organizacional" class="w-full rounded-lg border-gray-300 text-sm">
+                            <option value="">Ninguno</option>
+                            <option value="jefe_ingenieria">Jefe de Ingeniería</option>
+                            <option value="jefe_construccion">Jefe de Construcción</option>
+                            <option value="director">Director</option>
+                        </select>
+                    </div>
+
+                    <div class="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
+                        <div>
+                            <h5 class="text-sm font-semibold text-slate-800">Permisos de asignación</h5>
+                            <p class="text-xs text-slate-600">Habilita asignación fuera de su departamento.</p>
+                        </div>
+
+                        <label for="user-simulation-flag" class="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 cursor-pointer hover:bg-slate-100 transition-colors">
+                            <div>
+                                <span class="text-sm font-semibold text-slate-800 block">Puede asignarse a Simulación</span>
+                                <span class="text-xs text-slate-600">Permite ser responsable de simulaciones fuera del departamento de Simulación.</span>
+                            </div>
+                            <span class="relative inline-flex h-6 w-11 shrink-0 items-center">
+                                <input type="checkbox" id="user-simulation-flag" class="peer sr-only">
+                                <span class="absolute inset-0 rounded-full bg-slate-300 transition-colors peer-checked:bg-[#00BABB]"></span>
+                                <span class="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"></span>
+                            </span>
+                        </label>
+
+                        <label for="user-levantamiento-flag" class="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 cursor-pointer hover:bg-slate-100 transition-colors">
+                            <div>
+                                <span class="text-sm font-semibold text-slate-800 block">Puede asignarse a Levantamientos</span>
+                                <span class="text-xs text-slate-600">Permite ser asignado como ingeniero o acompa&ntilde;ante en levantamientos de sitio.</span>
+                            </div>
+                            <span class="relative inline-flex h-6 w-11 shrink-0 items-center">
+                                <input type="checkbox" id="user-levantamiento-flag" class="peer sr-only">
+                                <span class="absolute inset-0 rounded-full bg-slate-300 transition-colors peer-checked:bg-[#00BABB]"></span>
+                                <span class="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"></span>
+                            </span>
+                        </label>
+                    </div>
+                </section>
+
                 <div>
-                    <label class="block text-sm font-bold text-gray-700 mb-2">Módulos</label>
+                    <label class="block text-sm font-bold text-gray-700 mb-2">Asignación de módulos</label>
                     <table class="w-full text-sm border">
                         <thead class="bg-gray-100">
                             <tr>
@@ -815,49 +931,6 @@
                         </thead>
                         <tbody id="modules-list"></tbody>
                     </table>
-                </div>
-
-                <div>
-                    <label class="block text-sm font-bold text-gray-700">Módulo Inicio</label>
-                    <select id="user-preferred-module" class="w-full rounded-lg border-gray-300"></select>
-                </div>
-
-                <!-- Rol Organizacional -->
-                <div class="bg-indigo-50 border border-indigo-200 rounded-lg p-4">
-                    <label class="block text-sm font-bold text-gray-700 mb-1">Rol Organizacional</label>
-                    <p class="text-xs text-gray-500 mb-2">Define el rol jerárquico global del usuario (excluyente — solo uno por persona).</p>
-                    <select id="user-rol-organizacional" class="w-full rounded-lg border-gray-300 text-sm">
-                        <option value="">Ninguno</option>
-                        <option value="jefe_ingenieria">Jefe de Ingeniería</option>
-                        <option value="jefe_construccion">Jefe de Construcción</option>
-                        <option value="director">Director</option>
-                    </select>
-                </div>
-
-                <!-- Flag Asignación Simulación -->
-                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
-                    <label class="flex items-center gap-3 cursor-pointer">
-                        <input type="checkbox" id="user-simulation-flag"
-                            class="w-5 h-5 rounded text-[#00BABB] focus:ring-[#00BABB]">
-                        <div>
-                            <span class="text-sm font-bold text-gray-700">Puede asignarse a Simulación</span>
-                            <span class="text-gray-500 text-xs block">Permitir ser responsable de simulaciones aunque no
-                                esté en el departamento Simulación</span>
-                        </div>
-                    </label>
-                </div>
-
-                <!-- Flag Asignación Levantamientos -->
-                <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
-                    <label class="flex items-center gap-3 cursor-pointer">
-                        <input type="checkbox" id="user-levantamiento-flag"
-                            class="w-5 h-5 rounded text-amber-500 focus:ring-amber-500">
-                        <div>
-                            <span class="text-sm font-bold text-gray-700">Puede asignarse a Levantamientos</span>
-                            <span class="text-gray-500 text-xs block">Permitir ser asignado como ingeniero o acompañante
-                                en levantamientos de sitio</span>
-                        </div>
-                    </label>
                 </div>
 
                 <div class="flex justify-end gap-3 pt-4">

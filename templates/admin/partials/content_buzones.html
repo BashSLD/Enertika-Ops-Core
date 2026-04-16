@@ -29,97 +29,105 @@
     <div id="config-correos-modal"></div>
 
     <!-- Configuración Comercial -->
-<div class="bg-white rounded-lg shadow-md p-6 mt-6">
-    <div class="mb-4">
-        <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
-            </svg>
-            Configuración Comercial
-        </h2>
-        <p class="text-sm text-gray-600 mt-1">Correos que reciben el popup de oportunidades ganadas</p>
+    <div class="bg-white rounded-lg shadow-md p-6 mt-6">
+        <div class="mb-4">
+            <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
+                </svg>
+                Configuración Comercial
+            </h2>
+            <p class="text-sm text-gray-600 mt-1">Correos que reciben el popup de recordatorio al crear oportunidad</p>
+        </div>
+        <form hx-post="/admin/config/comercial" hx-target="#buzones-msg-comercial" hx-swap="innerHTML">
+            <div class="bg-green-50 p-4 rounded-lg border border-green-200">
+                <label class="block text-sm font-bold text-gray-700 mb-1">Usuarios Objetivo Popup (Emails)</label>
+                <textarea name="comercial_popup_targets" rows="2" placeholder="email1@enertika.com, email2@enertika.com"
+                    class="w-full rounded-lg border-gray-300 focus:ring-green-500 focus:border-green-500 text-sm">{{ config_global.comercial_popup_targets }}</textarea>
+                <p class="text-xs text-gray-500 mt-1">Lista de correos separados por comas. Si está vacío, el popup no
+                    se mostrará a nadie.</p>
+            </div>
+            <div class="flex justify-between items-center mt-4">
+                <div id="buzones-msg-comercial"></div>
+                <button type="submit"
+                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
+                    Guardar
+                </button>
+            </div>
+        </form>
     </div>
-    <form hx-post="/admin/config/comercial" hx-target="#buzones-msg-comercial" hx-swap="innerHTML">
-        <div class="bg-green-50 p-4 rounded-lg border border-green-200">
-            <label class="block text-sm font-bold text-gray-700 mb-1">Usuarios Objetivo Popup (Emails)</label>
-            <textarea name="comercial_popup_targets" rows="2"
-                placeholder="email1@enertika.com, email2@enertika.com"
-                class="w-full rounded-lg border-gray-300 focus:ring-green-500 focus:border-green-500 text-sm">{{ config_global.comercial_popup_targets }}</textarea>
-            <p class="text-xs text-gray-500 mt-1">Lista de correos separados por comas. Si está vacío, el popup no se mostrará a nadie.</p>
-        </div>
-        <div class="flex justify-between items-center mt-4">
-            <div id="buzones-msg-comercial"></div>
-            <button type="submit" class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
-                Guardar
-            </button>
-        </div>
-    </form>
-</div>
 
-<!-- Reporte Semanal de Actividad -->
-<div class="bg-white rounded-lg shadow-md p-6 mt-6">
-    <div class="mb-4">
-        <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
-            <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-teal-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-            </svg>
-            Reporte Semanal de Actividad
-        </h2>
-        <p class="text-sm text-gray-600 mt-1">Destinatarios del reporte automático enviado cada viernes</p>
+    <!-- Reporte Semanal de Actividad -->
+    <div class="bg-white rounded-lg shadow-md p-6 mt-6">
+        <div class="mb-4">
+            <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-teal-600" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                </svg>
+                Reporte Semanal de Actividad
+            </h2>
+            <p class="text-sm text-gray-600 mt-1">Destinatarios del reporte automático enviado cada viernes</p>
+        </div>
+        <form hx-post="/admin/config/reporte-semanal" hx-target="#buzones-msg-semanal" hx-swap="innerHTML">
+            <div class="bg-teal-50 p-4 rounded-lg border border-teal-200">
+                <label class="block text-sm font-bold text-gray-700 mb-1">Destinatarios del Reporte (Emails)</label>
+                <input type="text" name="reporte_semanal_destinatarios"
+                    value="{{ config_global.reporte_semanal_destinatarios }}"
+                    placeholder="gerente@enertika.mx; director@enertika.mx"
+                    class="w-full rounded-lg border-gray-300 focus:ring-teal-500 focus:border-teal-500 text-sm">
+                <p class="text-xs text-gray-500 mt-1">Emails separados por punto y coma (<code>;</code>). Se envía
+                    automaticamente cada viernes a las 3pm via GitHub Actions.</p>
+            </div>
+            <div class="flex justify-between items-center mt-4">
+                <div id="buzones-msg-semanal"></div>
+                <button type="submit"
+                    class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
+                    Guardar
+                </button>
+            </div>
+        </form>
     </div>
-    <form hx-post="/admin/config/reporte-semanal" hx-target="#buzones-msg-semanal" hx-swap="innerHTML">
-        <div class="bg-teal-50 p-4 rounded-lg border border-teal-200">
-            <label class="block text-sm font-bold text-gray-700 mb-1">Destinatarios del Reporte (Emails)</label>
-            <input type="text" name="reporte_semanal_destinatarios"
-                value="{{ config_global.reporte_semanal_destinatarios }}"
-                placeholder="gerente@enertika.mx; director@enertika.mx"
-                class="w-full rounded-lg border-gray-300 focus:ring-teal-500 focus:border-teal-500 text-sm">
-            <p class="text-xs text-gray-500 mt-1">Emails separados por punto y coma (<code>;</code>). Se envía automaticamente cada viernes a las 3pm via GitHub Actions.</p>
-        </div>
-        <div class="flex justify-between items-center mt-4">
-            <div id="buzones-msg-semanal"></div>
-            <button type="submit" class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
-                Guardar
-            </button>
-        </div>
-    </form>
-</div>
 
-<!-- Visita a Obra — destinatarios del email con PDF -->
-<div class="bg-white rounded-lg shadow-md p-6 mt-6">
-    <div class="mb-4">
-        <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
-            <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-            </svg>
-            Visita a Obra — Envio de Reporte
-        </h2>
-        <p class="text-sm text-gray-600 mt-1">
-            Al generar un reporte de visita a obra, se envía automáticamente un correo con el PDF y las fotografías adjuntas.
-            El remitente es el usuario que genera el reporte.
-        </p>
-    </div>
-    <form hx-post="/admin/config/visita-obra" hx-target="#buzones-msg-visita" hx-swap="innerHTML">
-        <div class="bg-[#e6fafa] p-4 rounded-lg border border-[#00BABB]/30">
-            <label class="block text-sm font-bold text-gray-700 mb-1">Destinatarios del reporte (Emails)</label>
-            <input type="text" name="visita_obra_destinatarios"
-                value="{{ config_global.visita_obra_destinatarios }}"
-                placeholder="construccion@enertika.mx; gerencia@enertika.mx"
-                class="w-full rounded-lg border-gray-300 focus:ring-[#00BABB] focus:border-[#00BABB] text-sm">
-            <p class="text-xs text-gray-500 mt-1">
-                Emails separados por punto y coma (<code>;</code>).
-                Si está vacío, no se envía correo al generar el PDF.
+    <!-- Visita a Obra — destinatarios del email con PDF -->
+    <div class="bg-white rounded-lg shadow-md p-6 mt-6">
+        <div class="mb-4">
+            <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Visita a Obra — Envio de Reporte
+            </h2>
+            <p class="text-sm text-gray-600 mt-1">
+                Al generar un reporte de visita a obra, se envía automáticamente un correo con el PDF y las fotografías
+                adjuntas.
+                El remitente es el usuario que genera el reporte.
             </p>
         </div>
-        <div class="flex justify-between items-center mt-4">
-            <div id="buzones-msg-visita"></div>
-            <button type="submit" class="bg-[#00BABB] hover:bg-[#009a9b] text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
-                Guardar
-            </button>
-        </div>
-    </form>
-</div>
+        <form hx-post="/admin/config/visita-obra" hx-target="#buzones-msg-visita" hx-swap="innerHTML">
+            <div class="bg-[#e6fafa] p-4 rounded-lg border border-[#00BABB]/30">
+                <label class="block text-sm font-bold text-gray-700 mb-1">Destinatarios del reporte (Emails)</label>
+                <input type="text" name="visita_obra_destinatarios"
+                    value="{{ config_global.visita_obra_destinatarios }}"
+                    placeholder="construccion@enertika.mx; gerencia@enertika.mx"
+                    class="w-full rounded-lg border-gray-300 focus:ring-[#00BABB] focus:border-[#00BABB] text-sm">
+                <p class="text-xs text-gray-500 mt-1">
+                    Emails separados por punto y coma (<code>;</code>).
+                    Si está vacío, no se envía correo al generar el PDF.
+                </p>
+            </div>
+            <div class="flex justify-between items-center mt-4">
+                <div id="buzones-msg-visita"></div>
+                <button type="submit"
+                    class="bg-[#00BABB] hover:bg-[#009a9b] text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
+                    Guardar
+                </button>
+            </div>
+        </form>
+    </div>
 
 </div>{# fin #content-buzones #}
