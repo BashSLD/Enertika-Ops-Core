@@ -21,6 +21,24 @@
         </div>
     </div>
 
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <div class="glass-panel rounded-lg px-3 py-2 border border-cyan-100">
+            <p class="text-[11px] uppercase tracking-wide text-cyan-700 font-semibold">Zona 1</p>
+            <p class="text-xl font-bold text-cyan-800 leading-tight">{{ resumen_zonas.zona_1 }}</p>
+            <p class="text-xs text-gray-500">Plantas asignadas</p>
+        </div>
+        <div class="glass-panel rounded-lg px-3 py-2 border border-indigo-100">
+            <p class="text-[11px] uppercase tracking-wide text-indigo-700 font-semibold">Zona 2</p>
+            <p class="text-xl font-bold text-indigo-800 leading-tight">{{ resumen_zonas.zona_2 }}</p>
+            <p class="text-xs text-gray-500">Plantas asignadas</p>
+        </div>
+        <div class="glass-panel rounded-lg px-3 py-2 border border-gray-200">
+            <p class="text-[11px] uppercase tracking-wide text-gray-600 font-semibold">Sin asignar</p>
+            <p class="text-xl font-bold text-gray-700 leading-tight">{{ resumen_zonas.sin_asignar }}</p>
+            <p class="text-xs text-gray-500">Pendientes de zona</p>
+        </div>
+    </div>
+
     {# Grid Kanban #}
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 flex-1">
 

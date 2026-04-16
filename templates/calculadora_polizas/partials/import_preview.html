@@ -53,6 +53,19 @@
         </div>
     </div>
 
+    {# Aviso si hay filas con póliza legacy #}
+    {% set con_poliza = filas | selectattr('tiene_poliza') | list | length %}
+    {% if con_poliza > 0 %}
+    <div class="flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 text-xs text-emerald-800">
+        <svg class="w-4 h-4 flex-shrink-0 mt-0.5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+        </svg>
+        <span><strong>{{ con_poliza }} planta{{ 's' if con_poliza != 1 else '' }}</strong>
+        con datos de póliza — se crearán cotizaciones legacy (montos en $0) listas para renovar desde O&M.</span>
+    </div>
+    {% endif %}
+
     {% if resumen.actualizadas > 0 %}
     <div class="flex items-start gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800">
         <svg class="w-4 h-4 flex-shrink-0 mt-0.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -82,8 +95,10 @@
                     <th class="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">ID</th>
                     <th class="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Nombre</th>
                     <th class="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Zona</th>
+                    <th class="px-3 py-2 text-left font-semibold text-cyan-600 uppercase tracking-wide">Zona Incidencia</th>
                     <th class="px-3 py-2 text-right font-semibold text-gray-500 uppercase tracking-wide">kWp</th>
                     <th class="px-3 py-2 text-right font-semibold text-gray-500 uppercase tracking-wide">Paneles</th>
+                    <th class="px-3 py-2 text-left font-semibold text-emerald-600 uppercase tracking-wide">Póliza</th>
                     <th class="px-3 py-2 text-left font-semibold text-gray-500 uppercase tracking-wide">Nota</th>
                 </tr>
             </thead>
@@ -108,8 +123,24 @@
                 <td class="px-3 py-2 font-mono text-gray-700">{{ fila.id or '—' }}</td>
                 <td class="px-3 py-2 text-gray-800 font-medium max-w-[180px] truncate" title="{{ fila.nombre }}">{{ fila.nombre or '—' }}</td>
                 <td class="px-3 py-2 text-gray-600">{{ fila.zona or '—' }}</td>
+                <td class="px-3 py-2 text-cyan-700">{{ fila.zona_incidencia or '—' }}</td>
                 <td class="px-3 py-2 text-right text-gray-600">{{ "{:,.1f}".format(fila.potencia_kw) if fila.potencia_kw else '—' }}</td>
                 <td class="px-3 py-2 text-right text-gray-600">{{ fila.num_paneles if fila.num_paneles is not none else '—' }}</td>
+                <td class="px-3 py-2 whitespace-nowrap">
+                    {% if fila.tiene_poliza %}
+                    <span class="inline-flex flex-col gap-0.5">
+                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium bg-emerald-100 text-emerald-700 capitalize">
+                            {{ fila.tipo_poliza }}
+                        </span>
+                        <span class="text-gray-400 text-xs">
+                            {{ fila.fecha_inicio_poliza.strftime('%d/%m/%Y') if fila.fecha_inicio_poliza else '' }}
+                            – {{ fila.fecha_fin_poliza.strftime('%d/%m/%Y') if fila.fecha_fin_poliza else '' }}
+                        </span>
+                    </span>
+                    {% else %}
+                    <span class="text-gray-300">—</span>
+                    {% endif %}
+                </td>
                 <td class="px-3 py-2 text-gray-500 max-w-[200px]">
                     {% if fila.errores %}
                     <span class="text-red-600">{{ fila.errores | join('; ') }}</span>

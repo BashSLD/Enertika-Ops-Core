@@ -2,7 +2,7 @@
      x-data="{
         plantas: [],
         planta: null,
-        planta_id: '',
+        planta_id: '{{ planta_id_default or '' }}',
         tipo_poliza: 'premium',
         utilidad: {{ utilidad_default }},
         dto1_activo: false, dto1_display: '',
@@ -12,6 +12,9 @@
         fecha_fin_poliza_anterior: '',
         init() {
             this.plantas = JSON.parse(this.$el.dataset.plantas || '[]');
+            if (this.planta_id) {
+                this.seleccionarPlanta(this.planta_id);
+            }
         },
         seleccionarPlanta(id) {
             this.planta_id = id;
@@ -127,7 +130,7 @@
                 {# Planta #}
                 <div>
                     <label class="block text-sm font-medium text-gray-600 mb-1">Planta</label>
-                    <select name="planta_id" required
+                    <select name="planta_id" required x-model="planta_id"
                             @change="seleccionarPlanta($event.target.value)"
                             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
                         <option value="">-- Seleccionar planta --</option>

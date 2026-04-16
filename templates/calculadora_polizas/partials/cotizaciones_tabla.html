@@ -284,9 +284,16 @@
                         </button>
                     </td>
                     <td class="px-4 py-3">
-                        <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium
-                            {{ 'bg-blue-100 text-blue-700' if c.tipo_poliza == 'premium' else 'bg-indigo-100 text-indigo-700' }}">
-                            {{ c.tipo_poliza | capitalize }}
+                        <span class="inline-flex items-center gap-1 flex-wrap">
+                            <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium
+                                {{ 'bg-blue-100 text-blue-700' if c.tipo_poliza == 'premium' else 'bg-indigo-100 text-indigo-700' }}">
+                                {{ c.tipo_poliza | capitalize }}
+                            </span>
+                            {% if c.es_legacy %}
+                            <span class="inline-flex px-1.5 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-500 border border-gray-200">
+                                Legacy
+                            </span>
+                            {% endif %}
                         </span>
                     </td>
                     <td class="px-4 py-3 text-right font-medium text-gray-700">${{ "{:,.2f}".format(c.sub_total_utilidad) }}</td>

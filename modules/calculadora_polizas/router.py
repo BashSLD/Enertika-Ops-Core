@@ -70,6 +70,19 @@ _MESES_ES = {
     9: "septiembre", 10: "octubre", 11: "noviembre", 12: "diciembre",
 }
 
+_ZONAS_INCIDENCIA_VALIDAS = {"Zona 1", "Zona 2"}
+
+
+def _normalize_zona_incidencia(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    valor = value.strip()
+    if not valor:
+        return None
+    if valor not in _ZONAS_INCIDENCIA_VALIDAS:
+        raise ValueError("Zona Operativa / Incidencias no válida. Usa: Zona 1 o Zona 2")
+    return valor
+
 
 def _base_ctx(context: dict, mod_role: str) -> dict:
     is_admin = context.get("role") == "ADMIN"
@@ -108,6 +121,7 @@ def _plantas_for_template(plantas_db: list) -> list:
 @router.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)
 async def get_calculadora_ui(
     request: Request,
+    planta_id: Optional[str] = Query(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG),
     conn=Depends(get_db_connection),
@@ -123,6 +137,7 @@ async def get_calculadora_ui(
         "plantas": plantas,
         "utilidad_default": costos.get("utilidad_default", 0.30),
         "resultado": None,
+        "planta_id_default": planta_id or "",
     }
 
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
@@ -803,28 +818,53 @@ async def update_cotizacion(
             if planta_info:
                 nombre_planta = planta_info["nombre"]
 
-        # Actualizar descuentos en el snapshot: los precios base se conservan pero
-        # los porcentajes y montos con descuento se recalculan con los nuevos pcts.
+        # Precios del catálogo congelados en el snapshot; solo se recalculan
+        # los montos dependientes de utilidad/descuentos que el usuario puede cambiar.
+        costos = await service.db.get_costos_fijos(conn)
+        iva = costos.get("iva", 0.16)
+        factor = costos.get("incremento_anual", 0.03)
+
+        snap_sub_total = float(snap_json.get("sub_total", cotizacion_actual["sub_total"]))
+        snap_sub_total_utilidad = round(snap_sub_total / (1.0 - utilidad), 2)
+        snap_total_final = round(snap_sub_total_utilidad * (1.0 + iva), 2)
+
+        # Proyección a 5 años con la nueva utilidad (mismo factor de crecimiento que el original)
+        _a1 = round(snap_sub_total_utilidad, 2)
+        _a2 = round(_a1 * (1 + factor), 2)
+        _a3 = round(_a1 * (1 + factor) ** 2, 2)
+        _a4 = round(_a1 * (1 + factor) ** 3, 2)
+        _a5 = round(_a1 * (1 + factor) ** 4, 2)
+        _acum_3 = round(_a1 + _a2 + _a3, 2)
+        _acum_5 = round(_a1 + _a2 + _a3 + _a4 + _a5, 2)
+
         def _apply_dto(base: float, pct: Optional[float]) -> float:
             return round(base * (1.0 - pct), 2) if pct else base
 
+        snap_json["utilidad"] = utilidad
+        snap_json["sub_total_utilidad"] = snap_sub_total_utilidad
+        snap_json["total_final"] = snap_total_final
+        snap_json["anio_1"] = _a1
+        snap_json["anio_3"] = _a3
+        snap_json["anio_5"] = _a5
+        snap_json["acumulado_1_3"] = _acum_3
+        snap_json["acumulado_1_5"] = _acum_5
         snap_json["descuento_pct_1"] = descuento_pct_1
         snap_json["descuento_pct_3"] = descuento_pct_3
         snap_json["descuento_pct_5"] = descuento_pct_5
-        snap_json["anio_1_desc"] = _apply_dto(float(snap_json.get("anio_1", 0)), descuento_pct_1)
-        snap_json["anio_3_desc"] = _apply_dto(float(snap_json.get("anio_3", 0)), descuento_pct_3)
-        snap_json["anio_5_desc"] = _apply_dto(float(snap_json.get("anio_5", 0)), descuento_pct_5)
-        snap_json["acumulado_1_3_desc"] = _apply_dto(float(snap_json.get("acumulado_1_3", 0)), descuento_pct_3)
-        snap_json["acumulado_1_5_desc"] = _apply_dto(float(snap_json.get("acumulado_1_5", 0)), descuento_pct_5)
+        snap_json["anio_1_desc"] = _apply_dto(_a1, descuento_pct_1)
+        snap_json["anio_3_desc"] = _apply_dto(_a3, descuento_pct_3)
+        snap_json["anio_5_desc"] = _apply_dto(_a5, descuento_pct_5)
+        snap_json["acumulado_1_3_desc"] = _apply_dto(_acum_3, descuento_pct_3)
+        snap_json["acumulado_1_5_desc"] = _apply_dto(_acum_5, descuento_pct_5)
 
         ok = await service.db.update_cotizacion_full(conn, uid, {
             "planta_id": planta_id,
             "nombre_planta": nombre_planta,
             "tipo_poliza": tipo_poliza,
             "utilidad": utilidad,
-            "sub_total": float(cotizacion_actual["sub_total"]),
-            "sub_total_utilidad": float(cotizacion_actual["sub_total_utilidad"]),
-            "total_final": float(cotizacion_actual["total_final"]),
+            "sub_total": snap_sub_total,
+            "sub_total_utilidad": snap_sub_total_utilidad,
+            "total_final": snap_total_final,
             "resultado_json": snap_json,
             "solicitante_id": sol_id,
             "descuento_pct": None,
@@ -1086,6 +1126,7 @@ async def actualizar_planta(
     cliente: Optional[str] = Form(None),
     direccion: Optional[str] = Form(None),
     es_externa: Optional[str] = Form(None),
+    zona_incidencia: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG, "editor"),
     conn=Depends(get_db_connection),
@@ -1096,6 +1137,7 @@ async def actualizar_planta(
     if not planta:
         raise HTTPException(404, "Planta no encontrada")
     try:
+        zona_incidencia_clean = _normalize_zona_incidencia(zona_incidencia)
         await service.db.upsert_planta(conn, {
             "id": planta_id,
             "nombre": nombre.strip(),
@@ -1106,7 +1148,15 @@ async def actualizar_planta(
             "direccion": direccion.strip() if direccion else None,
             "es_externa": es_externa == "true",
             "activa": planta["activa"],
+            "id_proyecto": planta.get("id_proyecto"),
+            "zona_incidencia": zona_incidencia_clean,
         })
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"type": "error", "title": "Validación", "message": str(exc)},
+            headers={"HX-Reswap": "none"},
+        )
     except Exception as exc:
         logger.error("Error actualizando planta %s: %s", planta_id, exc)
         return templates.TemplateResponse(
@@ -1135,6 +1185,7 @@ async def crear_planta(
     cliente: Optional[str] = Form(None),
     direccion: Optional[str] = Form(None),
     es_externa: Optional[str] = Form(None),
+    zona_incidencia: Optional[str] = Form(None),
     next: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG, "editor"),
@@ -1143,6 +1194,7 @@ async def crear_planta(
 ):
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     try:
+        zona_incidencia_clean = _normalize_zona_incidencia(zona_incidencia)
         await service.db.upsert_planta(conn, {
             "id": id.strip().upper(),
             "nombre": nombre.strip(),
@@ -1153,7 +1205,15 @@ async def crear_planta(
             "direccion": direccion.strip() if direccion else None,
             "es_externa": es_externa == "true",
             "activa": True,
+            "id_proyecto": None,
+            "zona_incidencia": zona_incidencia_clean,
         })
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"type": "error", "title": "Validación", "message": str(exc)},
+            headers={"HX-Reswap": "none"},
+        )
     except Exception as exc:
         logger.error("Error creando planta: %s", exc)
         return templates.TemplateResponse(
@@ -1225,25 +1285,39 @@ async def plantilla_excel(
     ws = wb.active
     ws.title = "Plantas"
 
-    headers = ["id", "nombre", "zona", "potencia_kw", "num_paneles", "cliente", "direccion", "es_externa"]
-    notas   = ["Ej: MX-01 (único, mayúsculas)", "Nombre completo de la planta", "Zona de precios (ver hoja Zonas)",
-               "Potencia en kWp (decimal)", "Cantidad de paneles (entero)", "Nombre del cliente/empresa",
-               "Dirección del sitio", "Escribe: SI si es externa, déjalo vacío si no"]
+    headers = [
+        "id", "nombre", "zona", "potencia_kw", "num_paneles",
+        "cliente", "direccion", "es_externa",
+        "zona_incidencia",
+        "tipo_poliza", "fecha_inicio_poliza", "fecha_fin_poliza",
+    ]
+    notas = [
+        "Ej: MX-01 (único, mayúsculas)", "Nombre completo de la planta", "Zona de precios (ver hoja Zonas)",
+        "Potencia en kWp (decimal)", "Cantidad de paneles (entero)", "Nombre del cliente/empresa",
+        "Dirección del sitio", "Escribe: SI si es externa, déjalo vacío si no",
+        "Opcional: Zona 1 o Zona 2",
+        "Opcional: premium o estandar (solo si ya tiene póliza activa)",
+        "Opcional: fecha inicio póliza (AAAA-MM-DD)",
+        "Opcional: fecha fin póliza (AAAA-MM-DD)",
+    ]
 
-    # Encabezado con estilo
-    header_fill = PatternFill("solid", fgColor="1E3A5F")
-    header_font = Font(color="FFFFFF", bold=True)
-    for col, (h, nota) in enumerate(zip(headers, notas), start=1):
+    # Encabezado con estilo — columnas de póliza en color distinto
+    header_fill      = PatternFill("solid", fgColor="1E3A5F")
+    header_fill_pol  = PatternFill("solid", fgColor="065F46")   # verde oscuro para póliza
+    header_font      = Font(color="FFFFFF", bold=True)
+    for col, (h, _) in enumerate(zip(headers, notas), start=1):
         cell = ws.cell(row=1, column=col, value=h)
-        cell.fill = header_fill
+        cell.fill = header_fill_pol if col > 8 else header_fill
         cell.font = header_font
         cell.alignment = Alignment(horizontal="center")
-        cell.comment = None  # openpyxl no requiere Comment aquí
-        ws.cell(row=1, column=col).comment = None
 
     # Fila de ejemplo (en gris claro)
-    ejemplo = ["MX-01", "Planta Ejemplo SA", zonas_validas[0] if zonas_validas else "ZONA1",
-               150.5, 300, "Cliente Ejemplo", "Calle Principal 123, Ciudad", ""]
+    ejemplo = [
+        "MX-01", "Planta Ejemplo SA", zonas_validas[0] if zonas_validas else "ZONA1",
+        150.5, 300, "Cliente Ejemplo", "Calle Principal 123, Ciudad", "",
+        "Zona 1",
+        "premium", "2024-01-01", "2025-12-31",
+    ]
     ex_fill = PatternFill("solid", fgColor="F2F2F2")
     for col, val in enumerate(ejemplo, start=1):
         cell = ws.cell(row=2, column=col, value=val)
@@ -1251,9 +1325,14 @@ async def plantilla_excel(
         cell.font = Font(italic=True, color="888888")
 
     # Ajustar anchos de columnas
-    anchos = [12, 35, 15, 14, 14, 25, 35, 14]
+    anchos = [12, 35, 15, 14, 14, 25, 35, 14, 16, 14, 20, 20]
     for col, ancho in enumerate(anchos, start=1):
         ws.column_dimensions[openpyxl.utils.get_column_letter(col)].width = ancho
+
+    # Nota informativa sobre columnas opcionales de póliza
+    ws.cell(row=4, column=10, value="* Las columnas zona_incidencia, tipo_poliza, fecha_inicio_poliza y fecha_fin_poliza son opcionales.")
+    ws.cell(row=4, column=10).font = Font(italic=True, color="065F46", size=9)
+    ws.merge_cells(start_row=4, start_column=10, end_row=4, end_column=12)
 
     # ─── Hoja Zonas Válidas ────────────────────────────────────────
     ws2 = wb.create_sheet("Zonas Válidas")
@@ -1306,10 +1385,11 @@ async def preview_excel(
 
     filas = resultado["filas"]
     resumen = {
-        "nuevas":      sum(1 for f in filas if f["estado"] == "nueva"),
+        "nuevas":       sum(1 for f in filas if f["estado"] == "nueva"),
         "actualizadas": sum(1 for f in filas if f["estado"] == "actualiza"),
-        "errores":     sum(1 for f in filas if f["estado"] == "error"),
-        "total":       len(filas),
+        "errores":      sum(1 for f in filas if f["estado"] == "error"),
+        "total":        len(filas),
+        "con_poliza":   sum(1 for f in filas if f.get("tiene_poliza")),
     }
 
     return templates.TemplateResponse(
@@ -1342,8 +1422,9 @@ async def import_excel(
         )
 
     contenido = await archivo.read()
+    user_id = context.get("user_id")
     try:
-        resultado = await service.importar_plantas_excel(conn, contenido)
+        resultado = await service.importar_plantas_excel(conn, contenido, user_id=user_id)
     except ValueError as exc:
         return templates.TemplateResponse(
             request, "shared/toast.html",
@@ -1352,6 +1433,8 @@ async def import_excel(
         )
 
     msg = f"{resultado.insertadas} plantas nuevas, {resultado.actualizadas} actualizadas"
+    if resultado.polizas_legacy:
+        msg += f", {resultado.polizas_legacy} pólizas legacy creadas"
     if resultado.errores:
         msg += f". {len(resultado.errores)} con errores."
     toast_type = "success" if not resultado.errores else "warning"

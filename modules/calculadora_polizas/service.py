@@ -10,6 +10,19 @@ from .schemas import CalcularRequest, CalcularResponse, ImportExcelResult
 
 logger = logging.getLogger("CalculadoraPolizas.Service")
 
+ZONAS_INCIDENCIA_VALIDAS = {"Zona 1", "Zona 2"}
+
+
+def _parse_zona_incidencia(raw_value) -> Optional[str]:
+    if raw_value is None:
+        return None
+    zona_incidencia = str(raw_value).strip()
+    if not zona_incidencia:
+        return None
+    if zona_incidencia not in ZONAS_INCIDENCIA_VALIDAS:
+        raise ValueError("zona_incidencia no válida (usa: Zona 1 o Zona 2)")
+    return zona_incidencia
+
 
 class CalculadoraService:
 
@@ -161,14 +174,18 @@ class CalculadoraService:
 
         col_map = {}
         for campo, aliases in {
-            "id":          ["id", "codigo", "código"],
-            "nombre":      ["nombre", "planta", "name"],
-            "zona":        ["zona", "zone"],
-            "potencia_kw": ["potencia_kw", "potencia", "kw", "kwp"],
-            "num_paneles": ["num_paneles", "paneles", "panels", "cantidad_paneles"],
-            "cliente":     ["cliente", "client", "razon_social", "razón_social"],
-            "direccion":   ["direccion", "dirección", "address", "ubicacion", "ubicación"],
-            "es_externa":  ["es_externa", "externa", "external"],
+            "id":                  ["id", "codigo", "código"],
+            "nombre":              ["nombre", "planta", "name"],
+            "zona":                ["zona", "zone"],
+            "potencia_kw":         ["potencia_kw", "potencia", "kw", "kwp"],
+            "num_paneles":         ["num_paneles", "paneles", "panels", "cantidad_paneles"],
+            "cliente":             ["cliente", "client", "razon_social", "razón_social"],
+            "direccion":           ["direccion", "dirección", "address", "ubicacion", "ubicación"],
+            "es_externa":          ["es_externa", "externa", "external"],
+            "zona_incidencia":     ["zona_incidencia", "zona incidencia", "zona operativa", "zona operativa / incidencias"],
+            "tipo_poliza":         ["tipo_poliza", "tipo poliza", "tipo de poliza", "tipo de póliza"],
+            "fecha_inicio_poliza": ["fecha_inicio_poliza", "fecha_inicio", "inicio_poliza", "fecha inicio poliza"],
+            "fecha_fin_poliza":    ["fecha_fin_poliza", "fecha_fin", "fin_poliza", "fecha fin poliza"],
         }.items():
             for alias in aliases:
                 if alias in headers:
@@ -243,6 +260,59 @@ class CalculadoraService:
                 val = str(row[col_map["es_externa"]]).strip().lower()
                 es_externa = val in ("1", "true", "sí", "si", "yes", "x")
 
+            zona_incidencia = None
+            if "zona_incidencia" in col_map:
+                try:
+                    zona_incidencia = _parse_zona_incidencia(row[col_map["zona_incidencia"]])
+                except ValueError as exc:
+                    errores_fila.append(str(exc))
+
+            # Columnas de póliza legacy (opcionales)
+            tipo_poliza_raw = None
+            if "tipo_poliza" in col_map and row[col_map["tipo_poliza"]] is not None:
+                tipo_poliza_raw = str(row[col_map["tipo_poliza"]]).strip().lower()
+                if tipo_poliza_raw not in ("premium", "estandar", "estándar"):
+                    errores_fila.append(f"tipo_poliza '{tipo_poliza_raw}' no válido (usa: premium o estandar)")
+                    tipo_poliza_raw = None
+                elif tipo_poliza_raw == "estándar":
+                    tipo_poliza_raw = "estandar"
+
+            fecha_inicio_poliza = None
+            if "fecha_inicio_poliza" in col_map and row[col_map["fecha_inicio_poliza"]] is not None:
+                raw = row[col_map["fecha_inicio_poliza"]]
+                if isinstance(raw, date):
+                    fecha_inicio_poliza = raw
+                else:
+                    try:
+                        from datetime import datetime as _dt
+                        fecha_inicio_poliza = _dt.strptime(str(raw).strip(), "%Y-%m-%d").date()
+                    except ValueError:
+                        errores_fila.append(f"fecha_inicio_poliza '{raw}' no tiene formato AAAA-MM-DD")
+
+            fecha_fin_poliza = None
+            if "fecha_fin_poliza" in col_map and row[col_map["fecha_fin_poliza"]] is not None:
+                raw = row[col_map["fecha_fin_poliza"]]
+                if isinstance(raw, date):
+                    fecha_fin_poliza = raw
+                else:
+                    try:
+                        from datetime import datetime as _dt
+                        fecha_fin_poliza = _dt.strptime(str(raw).strip(), "%Y-%m-%d").date()
+                    except ValueError:
+                        errores_fila.append(f"fecha_fin_poliza '{raw}' no tiene formato AAAA-MM-DD")
+
+            # Validaciones cruzadas de póliza
+            tiene_poliza = tipo_poliza_raw or fecha_inicio_poliza or fecha_fin_poliza
+            if tiene_poliza:
+                if not tipo_poliza_raw:
+                    errores_fila.append("tipo_poliza es requerido cuando se indican fechas de póliza")
+                if not fecha_inicio_poliza:
+                    errores_fila.append("fecha_inicio_poliza es requerida cuando se indica póliza")
+                if not fecha_fin_poliza:
+                    errores_fila.append("fecha_fin_poliza es requerida cuando se indica póliza")
+                if fecha_inicio_poliza and fecha_fin_poliza and fecha_fin_poliza <= fecha_inicio_poliza:
+                    errores_fila.append("fecha_fin_poliza debe ser posterior a fecha_inicio_poliza")
+
             # Determinar estado si no hay errores de campos requeridos
             estado = "error" if errores_fila else "nueva"
             es_duplicado_bd = False
@@ -272,6 +342,11 @@ class CalculadoraService:
                 "cliente": cliente,
                 "direccion": direccion,
                 "es_externa": es_externa,
+                "zona_incidencia": zona_incidencia,
+                "tipo_poliza": tipo_poliza_raw,
+                "fecha_inicio_poliza": fecha_inicio_poliza,
+                "fecha_fin_poliza": fecha_fin_poliza,
+                "tiene_poliza": bool(tiene_poliza and not errores_fila),
                 "estado": estado,
                 "errores": errores_fila,
                 "es_duplicado_bd": es_duplicado_bd,
@@ -288,7 +363,7 @@ class CalculadoraService:
     # IMPORTACIÓN EXCEL
     # ----------------------------------------
 
-    async def importar_plantas_excel(self, conn, contenido: bytes) -> ImportExcelResult:
+    async def importar_plantas_excel(self, conn, contenido: bytes, user_id=None) -> ImportExcelResult:
         try:
             import openpyxl
         except ImportError:
@@ -299,6 +374,7 @@ class CalculadoraService:
 
         insertadas = 0
         actualizadas = 0
+        polizas_legacy = 0
         errores = []
 
         # Leer encabezados de la primera fila
@@ -306,14 +382,18 @@ class CalculadoraService:
 
         col_map = {}
         for campo, aliases in {
-            "id":          ["id", "codigo", "código"],
-            "nombre":      ["nombre", "planta", "name"],
-            "zona":        ["zona", "zone"],
-            "potencia_kw": ["potencia_kw", "potencia", "kw", "kwp"],
-            "num_paneles": ["num_paneles", "paneles", "panels", "cantidad_paneles"],
-            "cliente":     ["cliente", "client", "razon_social", "razón_social"],
-            "direccion":   ["direccion", "dirección", "address", "ubicacion", "ubicación"],
-            "es_externa":  ["es_externa", "externa", "external"],
+            "id":                  ["id", "codigo", "código"],
+            "nombre":              ["nombre", "planta", "name"],
+            "zona":                ["zona", "zone"],
+            "potencia_kw":         ["potencia_kw", "potencia", "kw", "kwp"],
+            "num_paneles":         ["num_paneles", "paneles", "panels", "cantidad_paneles"],
+            "cliente":             ["cliente", "client", "razon_social", "razón_social"],
+            "direccion":           ["direccion", "dirección", "address", "ubicacion", "ubicación"],
+            "es_externa":          ["es_externa", "externa", "external"],
+            "zona_incidencia":     ["zona_incidencia", "zona incidencia", "zona operativa", "zona operativa / incidencias"],
+            "tipo_poliza":         ["tipo_poliza", "tipo poliza", "tipo de poliza", "tipo de póliza"],
+            "fecha_inicio_poliza": ["fecha_inicio_poliza", "fecha_inicio", "inicio_poliza", "fecha inicio poliza"],
+            "fecha_fin_poliza":    ["fecha_fin_poliza", "fecha_fin", "fin_poliza", "fecha fin poliza"],
         }.items():
             for alias in aliases:
                 if alias in headers:
@@ -327,7 +407,7 @@ class CalculadoraService:
 
         for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
             try:
-                planta_id = str(row[col_map["id"]]).strip() if row[col_map["id"]] is not None else ""
+                planta_id = str(row[col_map["id"]]).strip().upper() if row[col_map["id"]] is not None else ""
                 nombre = str(row[col_map["nombre"]]).strip() if row[col_map["nombre"]] is not None else ""
                 zona = str(row[col_map["zona"]]).strip() if row[col_map["zona"]] is not None else ""
 
@@ -355,6 +435,37 @@ class CalculadoraService:
                     val = str(row[col_map["es_externa"]]).strip().lower()
                     es_externa = val in ("1", "true", "sí", "si", "yes", "x")
 
+                zona_incidencia = None
+                if "zona_incidencia" in col_map:
+                    zona_incidencia = _parse_zona_incidencia(row[col_map["zona_incidencia"]])
+
+                # Columnas de póliza legacy (opcionales)
+                tipo_poliza = None
+                if "tipo_poliza" in col_map and row[col_map["tipo_poliza"]] is not None:
+                    tp = str(row[col_map["tipo_poliza"]]).strip().lower()
+                    if tp == "estándar":
+                        tp = "estandar"
+                    if tp in ("premium", "estandar"):
+                        tipo_poliza = tp
+
+                fecha_inicio_poliza = None
+                if "fecha_inicio_poliza" in col_map and row[col_map["fecha_inicio_poliza"]] is not None:
+                    raw = row[col_map["fecha_inicio_poliza"]]
+                    if isinstance(raw, date):
+                        fecha_inicio_poliza = raw
+                    else:
+                        from datetime import datetime as _dt
+                        fecha_inicio_poliza = _dt.strptime(str(raw).strip(), "%Y-%m-%d").date()
+
+                fecha_fin_poliza = None
+                if "fecha_fin_poliza" in col_map and row[col_map["fecha_fin_poliza"]] is not None:
+                    raw = row[col_map["fecha_fin_poliza"]]
+                    if isinstance(raw, date):
+                        fecha_fin_poliza = raw
+                    else:
+                        from datetime import datetime as _dt
+                        fecha_fin_poliza = _dt.strptime(str(raw).strip(), "%Y-%m-%d").date()
+
                 was_insert = await self.db.upsert_planta(conn, {
                     "id": planta_id,
                     "nombre": nombre,
@@ -365,6 +476,8 @@ class CalculadoraService:
                     "direccion": direccion,
                     "es_externa": es_externa,
                     "activa": True,
+                    "id_proyecto": None,
+                    "zona_incidencia": zona_incidencia,
                 })
 
                 if was_insert:
@@ -372,11 +485,45 @@ class CalculadoraService:
                 else:
                     actualizadas += 1
 
+                # Crear cotización legacy si se proporcionaron datos de póliza completos
+                if tipo_poliza and fecha_inicio_poliza and fecha_fin_poliza:
+                    solapamiento = await self.db.check_solapamiento_poliza(
+                        conn, planta_id, fecha_inicio_poliza, fecha_fin_poliza
+                    )
+                    if solapamiento:
+                        errores.append(
+                            f"Fila {row_num}: la planta '{planta_id}' ya tiene una póliza activa "
+                            f"que se solapa con {fecha_inicio_poliza} – {fecha_fin_poliza} (id: {solapamiento})"
+                        )
+                    else:
+                        await self.db.save_cotizacion(conn, {
+                            "planta_id": planta_id,
+                            "nombre_planta": nombre,
+                            "tipo_poliza": tipo_poliza,
+                            "utilidad": 0.0,
+                            "sub_total": 0.0,
+                            "sub_total_utilidad": 0.0,
+                            "total_final": 0.0,
+                            "resultado_json": {},
+                            "creado_por": user_id,
+                            "solicitante_id": None,
+                            "fecha_inicio_poliza": fecha_inicio_poliza,
+                            "fecha_fin_poliza": fecha_fin_poliza,
+                            "estatus": "ACEPTADA",
+                            "es_legacy": True,
+                        })
+                        polizas_legacy += 1
+
             except Exception as exc:
                 errores.append(f"Fila {row_num}: {exc}")
 
         wb.close()
-        return ImportExcelResult(insertadas=insertadas, actualizadas=actualizadas, errores=errores)
+        return ImportExcelResult(
+            insertadas=insertadas,
+            actualizadas=actualizadas,
+            errores=errores,
+            polizas_legacy=polizas_legacy,
+        )
 
     # ----------------------------------------
     # CAMBIO DE ESTATUS (con validación de transiciones)

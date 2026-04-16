@@ -224,6 +224,15 @@
                 </div>
             </div>
             <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">Zona Operativa / Incidencias</label>
+                <select name="zona_incidencia"
+                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 bg-white">
+                    <option value="">-- No asignada --</option>
+                    <option value="Zona 1">Zona 1</option>
+                    <option value="Zona 2">Zona 2</option>
+                </select>
+            </div>
+            <div>
                 <label class="block text-sm font-medium text-gray-600 mb-1">Nombre <span class="text-red-500">*</span></label>
                 <input type="text" name="nombre" required placeholder="Nombre de la planta"
                        class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500">
@@ -437,13 +446,21 @@ async function confirmarImportPlantasExcel() {
 
     cerrarModalImport();
 
+    const target = document.getElementById('main-content');
+    target.innerHTML = `
+        <div class="flex flex-col items-center justify-center py-32 h-full animate-fade-in-down w-full text-center">
+            <div class="w-12 h-12 border-4 border-blue-200 border-t-blue-600 rounded-full animate-spin"></div>
+            <p class="mt-4 text-gray-600 font-medium text-lg">Importando plantas y políticas...</p>
+            <p class="text-sm text-gray-400 mt-1">Este proceso puede demorar dependiendo de la cantidad de registros.</p>
+        </div>
+    `;
+
     try {
         const resp = await fetch('/calculadora-polizas/plantas/import-excel', {
             method: 'POST',
             body: formData,
         });
         const html = await resp.text();
-        const target = document.getElementById('main-content');
         target.innerHTML = html;
         htmx.process(target);
     } catch {

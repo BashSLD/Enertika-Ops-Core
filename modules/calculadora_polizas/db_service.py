@@ -15,7 +15,7 @@ class CalculadoraDBService:
 
     async def get_plantas_dropdown(self, conn) -> list:
         rows = await conn.fetch("""
-            SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, es_externa
+            SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, es_externa, id_proyecto, zona_incidencia
             FROM tb_calculadora_plantas
             WHERE activa = TRUE
             ORDER BY nombre
@@ -36,6 +36,7 @@ class CalculadoraDBService:
             SELECT
                 p.id, p.nombre, p.zona, p.potencia_kw, p.num_paneles, p.cliente, p.direccion,
                 p.es_externa, p.activa, p.created_at, p.updated_at,
+                p.id_proyecto, p.zona_incidencia,
                 -- Póliza con cobertura hoy (ACEPTADA o TERMINADA dentro de su rango de fechas)
                 vig.id::text              AS poliza_vigente_id,
                 vig.estatus               AS poliza_vigente_estatus,
@@ -75,7 +76,7 @@ class CalculadoraDBService:
     async def get_planta_by_id(self, conn, planta_id: str) -> Optional[dict]:
         row = await conn.fetchrow("""
             SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion,
-                   es_externa, activa, created_at, updated_at
+                   es_externa, activa, created_at, updated_at, id_proyecto, zona_incidencia
             FROM tb_calculadora_plantas
             WHERE id = $1
         """, planta_id)
@@ -83,26 +84,35 @@ class CalculadoraDBService:
 
     async def upsert_planta(self, conn, planta: dict) -> bool:
         """Inserta o actualiza una planta. Retorna True si fue un INSERT nuevo, False si fue UPDATE."""
+        
+        # Validar conversion de string vacío a nulo para UUID
+        id_proyecto = planta.get("id_proyecto")
+        if id_proyecto == "":
+            id_proyecto = None
+            
         row = await conn.fetchrow("""
             INSERT INTO tb_calculadora_plantas
-                (id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, es_externa, activa, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+                (id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, es_externa, activa, id_proyecto, zona_incidencia, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
             ON CONFLICT (id) DO UPDATE SET
-                nombre      = EXCLUDED.nombre,
-                zona        = EXCLUDED.zona,
-                potencia_kw = EXCLUDED.potencia_kw,
-                num_paneles = EXCLUDED.num_paneles,
-                cliente     = EXCLUDED.cliente,
-                direccion   = EXCLUDED.direccion,
-                es_externa  = EXCLUDED.es_externa,
-                activa      = EXCLUDED.activa,
-                updated_at  = NOW()
+                nombre          = EXCLUDED.nombre,
+                zona            = EXCLUDED.zona,
+                potencia_kw     = EXCLUDED.potencia_kw,
+                num_paneles     = EXCLUDED.num_paneles,
+                cliente         = EXCLUDED.cliente,
+                direccion       = EXCLUDED.direccion,
+                es_externa      = EXCLUDED.es_externa,
+                activa          = EXCLUDED.activa,
+                id_proyecto     = EXCLUDED.id_proyecto,
+                zona_incidencia = EXCLUDED.zona_incidencia,
+                updated_at      = NOW()
             RETURNING (xmax = 0) AS was_insert
         """, planta["id"], planta["nombre"], planta["zona"],
              planta.get("potencia_kw"), planta.get("num_paneles"),
              planta.get("cliente"), planta.get("direccion"),
              planta.get("es_externa", False),
-             planta.get("activa", True))
+             planta.get("activa", True),
+             id_proyecto, planta.get("zona_incidencia"))
         return bool(row["was_insert"])
 
     async def update_planta(self, conn, planta_id: str, campos: dict) -> bool:
@@ -221,8 +231,8 @@ class CalculadoraDBService:
                  fecha_inicio_poliza, fecha_fin_poliza,
                  poliza_anterior_id, fecha_fin_poliza_anterior,
                  descuento_pct_1, descuento_pct_3, descuento_pct_5,
-                 vigencia_cotizacion_dias)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21)
+                 vigencia_cotizacion_dias, estatus, es_legacy)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23)
         """, new_id,
              data.get("planta_id"), data["nombre_planta"], data["tipo_poliza"],
              data["utilidad"], data["sub_total"], data["sub_total_utilidad"],
@@ -232,7 +242,9 @@ class CalculadoraDBService:
              data.get("fecha_inicio_poliza"), data.get("fecha_fin_poliza"),
              data.get("poliza_anterior_id"), data.get("fecha_fin_poliza_anterior"),
              data.get("descuento_pct_1"), data.get("descuento_pct_3"), data.get("descuento_pct_5"),
-             data.get("vigencia_cotizacion_dias"))
+             data.get("vigencia_cotizacion_dias"),
+             data.get("estatus", "CREADA"),
+             data.get("es_legacy", False))
         return new_id
 
     async def get_cotizaciones(self, conn, limit: int = 15,
@@ -247,7 +259,7 @@ class CalculadoraDBService:
                 c.resultado_json, c.creado_por, c.created_at,
                 c.estatus, c.estatus_updated_at, c.solicitante_id,
                 c.fecha_inicio_poliza, c.fecha_fin_poliza,
-                c.vigencia_cotizacion_dias,
+                c.vigencia_cotizacion_dias, c.es_legacy,
                 (c.created_at::date + COALESCE(c.vigencia_cotizacion_dias, 30) * INTERVAL '1 day')::date
                     AS fecha_vencimiento_cotizacion,
                 u.nombre AS creado_por_nombre,
@@ -408,7 +420,7 @@ class CalculadoraDBService:
                    c.descuento_pct_1, c.descuento_pct_3, c.descuento_pct_5,
                    c.fecha_inicio_poliza, c.fecha_fin_poliza,
                    c.poliza_anterior_id, c.fecha_fin_poliza_anterior,
-                   c.anios_contratados, c.vigencia_cotizacion_dias,
+                   c.anios_contratados, c.vigencia_cotizacion_dias, c.es_legacy,
                    ant.fecha_fin_poliza AS anterior_fecha_fin,
                    u.nombre AS creado_por_nombre,
                    s.nombre AS solicitante_nombre

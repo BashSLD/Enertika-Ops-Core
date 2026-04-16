@@ -166,6 +166,15 @@ class TransferService:
                 conn, traspaso['id_proyecto'], traspaso['area_destino']
             )
 
+            if traspaso.get("area_destino") == "OYM":
+                try:
+                    await self._ensure_oym_planta_for_project(conn, traspaso["id_proyecto"])
+                except Exception:
+                    logger.exception(
+                        "No se pudo asegurar planta OYM para proyecto %s",
+                        traspaso.get("proyecto_id_estandar") or traspaso.get("id_proyecto"),
+                    )
+
             logger.info(
                 "Traspaso aceptado: %s, proyecto=%s, por=%s",
                 id_traspaso, traspaso.get('proyecto_id_estandar'), user_name
@@ -181,6 +190,74 @@ class TransferService:
         except asyncpg.PostgresError:
             logger.exception("Error de BD al aceptar traspaso")
             raise
+
+    async def _ensure_oym_planta_for_project(self, conn, id_proyecto: UUID) -> Optional[str]:
+        """
+        Crea una planta en Calculadora/OyM al recibir un proyecto en OYM.
+        Idempotente: si ya existe una planta vinculada al proyecto, no crea otra.
+        """
+        from modules.calculadora_polizas.db_service import CalculadoraDBService
+
+        existente = await self.db.get_planta_by_id_proyecto(conn, id_proyecto)
+        if existente:
+            return existente.get("id")
+
+        proyecto = await self.db.get_proyecto_para_auto_planta(conn, id_proyecto)
+        if not proyecto:
+            logger.warning("Proyecto no encontrado para auto-alta de planta: %s", id_proyecto)
+            return None
+
+        calc_db = CalculadoraDBService()
+        precios_zona = await calc_db.get_precios_zona(conn)
+        if not precios_zona:
+            logger.warning(
+                "No hay zonas configuradas en tb_calculadora_precios_zona; no se crea planta para %s",
+                proyecto.get("proyecto_id_estandar") or id_proyecto,
+            )
+            return None
+
+        zona_default = sorted(precios_zona.keys())[0]
+
+        proyecto_std = (proyecto.get("proyecto_id_estandar") or str(id_proyecto)).strip().upper()
+        base_id = "PL-" + "".join(ch if ch.isalnum() or ch in ("-", "_") else "-" for ch in proyecto_std)
+        base_id = "-".join(segment for segment in base_id.split("-") if segment)
+        if not base_id:
+            base_id = f"PL-{str(id_proyecto)[:8].upper()}"
+
+        candidate_id = base_id
+        suffix = 2
+        while await calc_db.get_planta_by_id(conn, candidate_id):
+            candidate_id = f"{base_id}-{suffix}"
+            suffix += 1
+
+        nombre = (
+            (proyecto.get("nombre_proyecto") or "").strip()
+            or (proyecto.get("nombre_corto") or "").strip()
+            or proyecto_std
+        )
+        cliente = (proyecto.get("cliente_nombre") or "").strip() or None
+        direccion = (proyecto.get("direccion_obra") or "").strip() or None
+
+        await calc_db.upsert_planta(conn, {
+            "id": candidate_id,
+            "nombre": nombre,
+            "zona": zona_default,
+            "potencia_kw": None,
+            "num_paneles": None,
+            "cliente": cliente,
+            "direccion": direccion,
+            "es_externa": False,
+            "activa": True,
+            "id_proyecto": id_proyecto,
+            "zona_incidencia": None,
+        })
+
+        logger.info(
+            "Planta auto-creada para OYM: planta=%s proyecto=%s",
+            candidate_id,
+            proyecto.get("proyecto_id_estandar") or id_proyecto,
+        )
+        return candidate_id
 
     async def rechazar_traspaso(
         self, conn, id_traspaso: UUID,

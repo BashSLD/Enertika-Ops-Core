@@ -229,3 +229,4 @@ class ImportExcelResult(BaseModel):
     insertadas: int
     actualizadas: int
     errores: List[str]
+    polizas_legacy: int = 0

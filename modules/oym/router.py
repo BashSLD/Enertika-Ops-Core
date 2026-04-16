@@ -108,12 +108,24 @@ async def get_incidencias_kanban(
     conn=Depends(get_db_connection),
 ):
     """Esqueleto del Kanban de Incidencias O&M."""
+    from modules.calculadora_polizas.db_service import CalculadoraDBService
+
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     is_admin = context.get("role") == "ADMIN"
+    db = CalculadoraDBService()
+    plantas = await db.get_plantas_list(conn)
+
+    resumen_zonas = {
+        "zona_1": sum(1 for p in plantas if p.get("zona_incidencia") == "Zona 1"),
+        "zona_2": sum(1 for p in plantas if p.get("zona_incidencia") == "Zona 2"),
+        "sin_asignar": sum(1 for p in plantas if p.get("zona_incidencia") not in ("Zona 1", "Zona 2")),
+    }
+
     return templates.TemplateResponse(
         request, "oym/partials/incidencias_kanban.html",
         {
             "puede_editar": mod_role in ("editor", "admin") or is_admin,
+            "resumen_zonas": resumen_zonas,
         },
     )
 

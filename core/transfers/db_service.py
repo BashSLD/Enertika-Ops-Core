@@ -282,6 +282,34 @@ class TransferDBService:
         """, id_traspaso)
         return dict(row) if row else None
 
+    async def get_proyecto_para_auto_planta(
+        self, conn, id_proyecto: UUID
+    ) -> Optional[Dict[str, Any]]:
+        row = await conn.fetchrow("""
+            SELECT
+                p.id_proyecto,
+                p.proyecto_id_estandar,
+                p.nombre_corto,
+                o.nombre_proyecto,
+                o.cliente_nombre,
+                o.direccion_obra
+            FROM tb_proyectos_gate p
+            LEFT JOIN tb_oportunidades o ON p.id_oportunidad = o.id_oportunidad
+            WHERE p.id_proyecto = $1
+        """, id_proyecto)
+        return dict(row) if row else None
+
+    async def get_planta_by_id_proyecto(
+        self, conn, id_proyecto: UUID
+    ) -> Optional[Dict[str, Any]]:
+        row = await conn.fetchrow("""
+            SELECT id, nombre, zona, cliente, direccion, id_proyecto, zona_incidencia
+            FROM tb_calculadora_plantas
+            WHERE id_proyecto = $1
+            LIMIT 1
+        """, id_proyecto)
+        return dict(row) if row else None
+
     async def get_historial_traspasos(
         self, conn, id_proyecto: UUID
     ) -> List[Dict[str, Any]]:
