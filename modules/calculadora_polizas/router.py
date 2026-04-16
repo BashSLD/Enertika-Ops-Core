@@ -27,6 +27,7 @@ Endpoints:
 - PUT  /calculadora-polizas/plantas/{id}                — Guardar edicion planta (editor+)
 - POST /calculadora-polizas/plantas/{id}/toggle         — Activar/desactivar (editor+)
 - GET  /calculadora-polizas/admin/ui                    — Editar precios/costos (manager+)
+- POST /calculadora-polizas/admin/precios-zona
 - PATCH /calculadora-polizas/admin/precios-zona/{zona}
 - PATCH /calculadora-polizas/admin/wattabit/{id}
 - PATCH /calculadora-polizas/admin/costos-fijos/{concepto}
@@ -39,6 +40,7 @@ from typing import Optional
 from uuid import UUID
 import json
 import logging
+import re
 from datetime import datetime, date
 import pytz
 
@@ -82,6 +84,27 @@ def _normalize_zona_incidencia(value: Optional[str]) -> Optional[str]:
     if valor not in _ZONAS_INCIDENCIA_VALIDAS:
         raise ValueError("Zona Operativa / Incidencias no válida. Usa: Zona 1 o Zona 2")
     return valor
+
+
+def _normalize_zona_catalogo(value: str) -> str:
+    valor = re.sub(r"\s+", " ", (value or "").strip())
+    if not valor:
+        raise ValueError("El nombre de zona es obligatorio")
+    if len(valor) > 100:
+        raise ValueError("El nombre de zona no puede exceder 100 caracteres")
+    return valor
+
+
+async def _build_admin_ctx(context: dict, conn, service: CalculadoraService, admin_notice: Optional[str] = None) -> dict:
+    mod_role = context.get("module_roles", {}).get("oym", "viewer")
+    return {
+        **_base_ctx(context, mod_role),
+        "precios_zona": await service.db.get_precios_zona_list(conn),
+        "wattabit": await service.db.get_wattabit_list(conn),
+        "costos_fijos": await service.db.get_costos_fijos_list(conn),
+        "vigencia_dias": await ConfigService.get_global_config(conn, "calc_poliza_vigencia_dias", 30, int),
+        "admin_notice": admin_notice,
+    }
 
 
 def _base_ctx(context: dict, mod_role: str) -> dict:
@@ -1463,14 +1486,7 @@ async def admin_ui(
     conn=Depends(get_db_connection),
     service: CalculadoraService = Depends(get_service),
 ):
-    mod_role = context.get("module_roles", {}).get("oym", "viewer")
-    ctx = {
-        **_base_ctx(context, mod_role),
-        "precios_zona": await service.db.get_precios_zona_list(conn),
-        "wattabit": await service.db.get_wattabit_list(conn),
-        "costos_fijos": await service.db.get_costos_fijos_list(conn),
-        "vigencia_dias": await ConfigService.get_global_config(conn, "calc_poliza_vigencia_dias", 30, int),
-    }
+    ctx = await _build_admin_ctx(context, conn, service)
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
         return templates.TemplateResponse(request, f"{TPL}/partials/admin_content.html", ctx)
     return templates.TemplateResponse(request, f"{TPL}/admin.html", ctx)
@@ -1492,14 +1508,44 @@ async def update_vigencia_cotizacion(
         str(dias),
     )
     ConfigService.invalidar_cache()
-    mod_role = context.get("module_roles", {}).get("oym", "viewer")
-    ctx = {
-        **_base_ctx(context, mod_role),
-        "precios_zona": await service.db.get_precios_zona_list(conn),
-        "wattabit": await service.db.get_wattabit_list(conn),
-        "costos_fijos": await service.db.get_costos_fijos_list(conn),
-        "vigencia_dias": dias,
-    }
+    ctx = await _build_admin_ctx(context, conn, service)
+    ctx["vigencia_dias"] = dias
+    return templates.TemplateResponse(request, f"{TPL}/partials/admin_content.html", ctx)
+
+
+@router.post("/admin/precios-zona", include_in_schema=False)
+async def create_precio_zona(
+    request: Request,
+    zona: str = Form(...),
+    precio: float = Form(...),
+    context=Depends(get_current_user_context),
+    _=require_manager_access(SLUG),
+    conn=Depends(get_db_connection),
+    service: CalculadoraService = Depends(get_service),
+):
+    if precio <= 0:
+        raise HTTPException(400, "El precio debe ser mayor a 0")
+
+    zona_normalizada = _normalize_zona_catalogo(zona)
+    created = await service.db.create_precio_zona(conn, zona_normalizada, precio)
+    if not created:
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {
+                "type": "warning",
+                "title": "Zona duplicada",
+                "message": f"La zona '{zona_normalizada}' ya existe en el catálogo",
+            },
+            headers={"HX-Reswap": "none"},
+        )
+
+    ctx = await _build_admin_ctx(
+        context,
+        conn,
+        service,
+        admin_notice=f"Zona '{zona_normalizada}' agregada correctamente",
+    )
     return templates.TemplateResponse(request, f"{TPL}/partials/admin_content.html", ctx)
 
 

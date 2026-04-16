@@ -1,4 +1,38 @@
-<div class="h-full flex flex-col animate-fade-in-down gap-4">
+<div class="h-full flex flex-col gap-4 animate-fade-in-down"
+     x-data="{
+        storageKey: 'calc-polizas-admin-sections-v1',
+        sections: { zona: true, wattabit: true, costos: true, vigencia: true },
+        init() {
+            try {
+                const saved = localStorage.getItem(this.storageKey);
+                if (saved) {
+                    const parsed = JSON.parse(saved);
+                    this.sections = {
+                        zona: !!parsed.zona,
+                        wattabit: !!parsed.wattabit,
+                        costos: !!parsed.costos,
+                        vigencia: !!parsed.vigencia,
+                    };
+                    return;
+                }
+            } catch (e) {}
+            this.sections = {
+                zona: false,
+                wattabit: false,
+                costos: false,
+                vigencia: false,
+            };
+            this.persist();
+        },
+        toggle(name) {
+            this.sections[name] = !this.sections[name];
+            this.persist();
+        },
+        persist() {
+            try { localStorage.setItem(this.storageKey, JSON.stringify(this.sections)); } catch (e) {}
+        }
+     }"
+     x-init="init()">
 
     <div class="glass-panel p-4 rounded-xl hidden md:flex justify-between items-center gap-3 border-l-4 border-amber-500">
         <div>
@@ -14,210 +48,320 @@
             <p class="text-gray-500 text-sm mt-1">Solo visible para Manager y Admin de modulo</p>
         </div>
     </div>
-    <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 items-start">
+
+    <section class="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3 items-start">
         <svg class="w-5 h-5 text-amber-500 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
         </svg>
         <div>
-            <p class="text-sm font-semibold text-amber-800">Los cambios de precio no actualizan pólizas existentes</p>
+            <p class="text-sm font-semibold text-amber-800">Los cambios de precio no actualizan polizas existentes</p>
             <p class="text-xs text-amber-700 mt-1 leading-relaxed">
-                Cada póliza generada conserva los precios del momento de su creación (snapshot).
-                Si necesitas aplicar los nuevos precios a una póliza existente, ábrela en
-                <a href="/calculadora-polizas/cotizaciones/ui" 
-                   hx-get="/calculadora-polizas/cotizaciones/ui" hx-target="#main-content" hx-push-url="true"
-                   class="underline hover:text-amber-900">Pólizas Generadas</a>, 
-                entra al modal de edición y selecciona <strong>"Recalcular con precios actuales"</strong>.
+                Cada poliza conserva el snapshot del momento de su creacion. Para aplicar nuevos precios,
+                abre una poliza en
+                <a href="/calculadora-polizas/cotizaciones/ui" hx-get="/calculadora-polizas/cotizaciones/ui" hx-target="#main-content" hx-push-url="true" class="underline hover:text-amber-900">Polizas Generadas</a>
+                y selecciona <strong>"Recalcular con precios actuales"</strong>.
             </p>
         </div>
-    </div>
+    </section>
 
-    <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    {% if admin_notice %}
+    <section class="bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3 text-sm text-emerald-800">
+        {{ admin_notice }}
+    </section>
+    {% endif %}
 
-        {# PRECIOS POR ZONA #}
-        <div class="glass-card rounded-xl p-4 flex flex-col gap-3">
-            <h3 class="font-semibold text-gray-700 border-b pb-2 text-sm uppercase tracking-wider">Precio por Panel por Zona</h3>
-            {% for z in precios_zona %}
-            <div class="flex items-center gap-2"
-                 x-data="{ editing: false, val: {{ z.precio_por_panel_mxp }} }">
-                <span class="flex-1 text-sm text-gray-700">{{ z.zona }}</span>
-                <template x-if="!editing">
-                    <div class="flex items-center gap-1.5">
-                        <span class="text-sm font-semibold text-gray-800" x-text="'$' + val.toFixed(2)"></span>
-                        <button @click="editing = true"
-                                class="text-xs text-gray-400 hover:text-blue-600 transition-colors px-1">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
-                            </svg>
-                        </button>
-                    </div>
-                </template>
-                <template x-if="editing">
-                    <form hx-patch="/calculadora-polizas/admin/precios-zona/{{ z.zona | urlencode }}"
-                          hx-swap="none"
-                          @submit.prevent="
-                            htmx.ajax('PATCH', '/calculadora-polizas/admin/precios-zona/{{ z.zona | urlencode }}',
-                                {values: {precio: val}, swap: 'none'});
-                            editing = false;"
-                          class="flex items-center gap-1">
-                        <input type="number" x-model.number="val" step="0.01" min="0.01"
-                               class="w-20 border border-blue-400 rounded px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500">
-                        <button type="submit" class="text-green-600 hover:text-green-700">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                            </svg>
-                        </button>
-                        <button type="button" @click="editing = false" class="text-gray-400 hover:text-gray-600">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                            </svg>
-                        </button>
-                    </form>
-                </template>
-            </div>
-            {% endfor %}
-        </div>
+    <section class="space-y-3">
 
-        {# WATTABIT #}
-        <div class="glass-card rounded-xl p-4 flex flex-col gap-3">
-            <h3 class="font-semibold text-gray-700 border-b pb-2 text-sm uppercase tracking-wider">SAS Wattabit</h3>
-            {% for w in wattabit %}
-            <div class="flex items-center gap-2"
-                 x-data="{ editing: false, val: {{ w.precio_anual_mxp }} }">
-                <div class="flex-1 min-w-0">
-                    <p class="text-sm text-gray-700 font-medium">{{ w.nombre }}</p>
-                    <p class="text-xs text-gray-400">{{ w.rango_min_kwp }} — {{ w.rango_max_kwp }} kWp</p>
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-3 items-start">
+
+        <article class="rounded-xl border border-slate-200 bg-white shadow-sm h-full flex flex-col">
+            <button type="button" @click="toggle('zona')"
+                    class="w-full px-4 py-3 flex items-center justify-between gap-3 text-left border-b border-slate-200">
+                <div>
+                    <p class="text-xs uppercase tracking-wider text-slate-500">Categoria 01</p>
+                    <h3 class="text-sm font-semibold text-slate-800">Precio por Panel por Zona</h3>
                 </div>
-                <template x-if="!editing">
-                    <div class="flex items-center gap-1.5">
-                        <span class="text-sm font-semibold text-gray-800" x-text="'$' + val.toLocaleString('es-MX')"></span>
-                        <button @click="editing = true"
-                                class="text-xs text-gray-400 hover:text-blue-600 transition-colors px-1">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
-                            </svg>
-                        </button>
-                    </div>
-                </template>
-                <template x-if="editing">
-                    <div class="flex items-center gap-1">
-                        <input type="number" x-model.number="val" step="1" min="1"
-                               class="w-20 border border-blue-400 rounded px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500">
-                        <button @click="
-                            htmx.ajax('PATCH', '/calculadora-polizas/admin/wattabit/{{ w.id }}',
-                                {values: {precio: val}, swap: 'none'});
-                            editing = false;"
-                                class="text-green-600 hover:text-green-700">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                            </svg>
-                        </button>
-                        <button @click="editing = false" class="text-gray-400 hover:text-gray-600">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                            </svg>
-                        </button>
-                    </div>
-                </template>
-            </div>
-            {% endfor %}
-        </div>
-
-        {# COSTOS FIJOS #}
-        <div class="glass-card rounded-xl p-4 flex flex-col gap-3">
-            <h3 class="font-semibold text-gray-700 border-b pb-2 text-sm uppercase tracking-wider">Costos Fijos</h3>
-            {% for cf in costos_fijos %}
-            <div class="flex items-start gap-2"
-                 x-data='{ editing: false, val: {{ cf.valor }}, notas: {{ (cf.notas or "") | tojson }} }'>
-                <div class="flex-1 min-w-0">
-                    <p class="text-sm text-gray-700 font-medium">{{ cf.concepto | replace('_', ' ') | title | replace(' Por ', ' por ') | replace('Iva', 'IVA') }}</p>
-                    <template x-if="!editing && notas">
-                        <p class="text-xs text-gray-400 leading-tight" x-text="notas"></p>
-                    </template>
-                    <template x-if="editing">
-                        <input type="text" x-model="notas" placeholder="Añadir notas..."
-                               class="w-full mt-1 border border-blue-400 rounded px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500">
-                    </template>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-medium bg-slate-100 text-slate-600 px-2 py-1 rounded-md">{{ precios_zona | length }} registros</span>
+                    <svg class="w-4 h-4 text-slate-500 transition-transform" :class="sections.zona ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
                 </div>
-                <template x-if="!editing">
-                    <div class="flex items-center gap-1.5 flex-shrink-0">
-                        <span class="text-sm font-semibold text-gray-800" x-text="val"></span>
-                        <button @click="editing = true"
-                                class="text-xs text-gray-400 hover:text-blue-600 transition-colors px-1">
-                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
-                            </svg>
+            </button>
+
+            <div x-show="sections.zona" x-transition class="p-4 flex-1 min-h-0">
+                <div class="space-y-4"
+                     x-data="{
+                        nuevaZona: '',
+                        nuevoPrecio: '',
+                        zonaNormalizada: '',
+                        mostrarConfirmacion: false,
+                        errorAlta: '',
+                        normalizarZona(valor) { return (valor || '').trim().replace(/\s+/g, ' '); },
+                        abrirConfirmacion() {
+                            this.errorAlta = '';
+                            this.zonaNormalizada = this.normalizarZona(this.nuevaZona);
+                            const precioNumerico = parseFloat(this.nuevoPrecio);
+                            if (!this.zonaNormalizada) { this.errorAlta = 'Captura un nombre de zona valido'; return; }
+                            if (!(precioNumerico > 0)) { this.errorAlta = 'El precio debe ser mayor a 0'; return; }
+                            this.nuevoPrecio = precioNumerico.toFixed(2);
+                            this.mostrarConfirmacion = true;
+                        },
+                        confirmarAlta() {
+                            this.mostrarConfirmacion = false;
+                            htmx.ajax('POST', '/calculadora-polizas/admin/precios-zona', {
+                                target: '#main-content',
+                                swap: 'innerHTML',
+                                values: { zona: this.zonaNormalizada, precio: this.nuevoPrecio },
+                            });
+                        }
+                     }">
+                <div class="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                    <p class="text-xs text-slate-600">Agregar zona. El nombre se normaliza automaticamente y no puede renombrarse desde esta vista.</p>
+                    <div class="mt-2 grid grid-cols-1 md:grid-cols-3 gap-2">
+                        <input type="text" x-model="nuevaZona" placeholder="Nombre de zona"
+                               class="md:col-span-2 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400">
+                        <input type="number" x-model="nuevoPrecio" step="0.01" min="0.01" placeholder="Precio por panel"
+                               class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400">
+                    </div>
+                    <div class="mt-2 flex items-center justify-between gap-2">
+                        <p class="text-xs text-red-600" x-text="errorAlta" x-show="errorAlta"></p>
+                        <button type="button" @click="abrirConfirmacion()"
+                                class="ml-auto bg-slate-800 hover:bg-slate-900 text-white text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">
+                            Agregar zona
                         </button>
                     </div>
-                </template>
-                <template x-if="editing">
-                    <div class="flex items-center gap-1 flex-shrink-0 mt-0.5">
-                        <input type="number" x-model.number="val" step="0.0001" min="0"
-                               class="w-24 border border-blue-400 rounded px-2 py-0.5 text-xs focus:ring-1 focus:ring-blue-500">
-                        <button @click="
-                            htmx.ajax('PATCH', '/calculadora-polizas/admin/costos-fijos/{{ cf.concepto }}',
-                                {values: {valor: val, notas: notas}, swap: 'none'});
-                            editing = false;"
-                                class="text-green-600 hover:text-green-700 p-1">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
-                            </svg>
-                        </button>
-                        <button @click='editing = false; notas = {{ (cf.notas or "") | tojson }};' class="text-gray-400 hover:text-gray-600 p-1">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
-                            </svg>
-                        </button>
+                </div>
+
+                <div class="divide-y divide-slate-100 max-h-80 overflow-y-auto pr-1">
+                    {% for z in precios_zona %}
+                    <div class="py-2.5 flex items-center gap-2" x-data="{ editing: false, val: {{ z.precio_por_panel_mxp }} }">
+                        <span class="flex-1 text-sm text-slate-700">{{ z.zona }}</span>
+                        <template x-if="!editing">
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-sm font-semibold text-slate-900" x-text="'$' + val.toFixed(2)"></span>
+                                <button @click="editing = true" class="text-slate-400 hover:text-slate-700 px-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </template>
+                        <template x-if="editing">
+                            <form @submit.prevent="htmx.ajax('PATCH', '/calculadora-polizas/admin/precios-zona/{{ z.zona | urlencode }}', { values: { precio: val }, swap: 'none' }); editing = false;"
+                                  class="flex items-center gap-1">
+                                <input type="number" x-model.number="val" step="0.01" min="0.01"
+                                       class="w-24 border border-slate-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-slate-400">
+                                <button type="submit" class="text-emerald-600 hover:text-emerald-700">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
+                                    </svg>
+                                </button>
+                                <button type="button" @click="editing = false" class="text-slate-400 hover:text-slate-600">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                                    </svg>
+                                </button>
+                            </form>
+                        </template>
                     </div>
-                </template>
+                    {% endfor %}
+                </div>
+
+                <div x-show="mostrarConfirmacion" x-transition.opacity class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+                <div class="bg-white rounded-xl shadow-xl w-full max-w-md p-4">
+                    <h4 class="text-sm font-semibold text-slate-800">Confirmar nuevo registro</h4>
+                    <p class="text-xs text-slate-600 mt-2 leading-relaxed">
+                        Se guardara como <strong x-text="zonaNormalizada"></strong>. Actualmente no se puede renombrar desde esta seccion.
+                    </p>
+                    <p class="text-xs text-slate-500 mt-2">Si necesitas otro nombre, crea una zona nueva y reasigna plantas manualmente.</p>
+                    <div class="mt-4 flex justify-end gap-2">
+                        <button type="button" @click="mostrarConfirmacion = false" class="px-3 py-1.5 text-xs border border-slate-300 rounded hover:bg-slate-50">Cancelar</button>
+                        <button type="button" @click="confirmarAlta()" class="px-3 py-1.5 text-xs bg-emerald-600 text-white rounded hover:bg-emerald-700">Confirmar</button>
+                    </div>
+                </div>
+                </div>
+                </div>
             </div>
-            {% endfor %}
-        </div>
+        </article>
 
-    </div>
-
-    {# VIGENCIA DE PROPUESTA #}
-    <div class="glass-card rounded-xl p-4"
-         x-data="{
-             opcion: {{ vigencia_dias if vigencia_dias in [15, 30, 45] else 'null' }},
-             custom: {{ vigencia_dias if vigencia_dias not in [15, 30, 45] else 30 }},
-             get dias() { return this.opcion !== null ? this.opcion : this.custom; },
-             save() {
-                 htmx.ajax('PATCH', '/calculadora-polizas/admin/vigencia-cotizacion',
-                     { values: { dias: this.dias }, target: '#cotizaciones-container', swap: 'none' });
-             }
-         }">
-        <h3 class="font-semibold text-gray-700 border-b pb-2 text-sm uppercase tracking-wider mb-3">Vigencia de Propuesta</h3>
-        <p class="text-xs text-gray-500 mb-3">Cuantos dias es valida la cotizacion desde la fecha de emision. Aplica al PDF y se puede cambiar al guardar.</p>
-        <div class="flex gap-2 flex-wrap">
-            {% for d in [15, 30, 45] %}
-            <button type="button"
-                    @click="opcion = {{ d }}; save()"
-                    :class="opcion === {{ d }} ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'"
-                    class="px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors cursor-pointer">
-                {{ d }} días
+        <article class="rounded-xl border border-slate-200 bg-white shadow-sm h-full flex flex-col">
+            <button type="button" @click="toggle('wattabit')" class="w-full px-4 py-3 flex items-center justify-between gap-3 text-left border-b border-slate-200">
+                <div>
+                    <p class="text-xs uppercase tracking-wider text-slate-500">Categoria 02</p>
+                    <h3 class="text-sm font-semibold text-slate-800">SAS Wattabit</h3>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-medium bg-slate-100 text-slate-600 px-2 py-1 rounded-md">{{ wattabit | length }} registros</span>
+                    <svg class="w-4 h-4 text-slate-500 transition-transform" :class="sections.wattabit ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </div>
             </button>
-            {% endfor %}
-            <button type="button"
-                    @click="opcion = null"
-                    :class="opcion === null ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-gray-600 border-gray-300 hover:border-blue-400'"
-                    class="px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors cursor-pointer">
-                Personalizado
-            </button>
-        </div>
-        <div x-show="opcion === null" class="mt-3 flex items-center gap-2">
-            <input type="number" x-model.number="custom" min="1" max="365"
-                   @change="save()"
-                   class="w-24 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-            <span class="text-sm text-gray-500">días</span>
-        </div>
-        <p class="text-xs text-gray-400 mt-3">
-            Configuracion actual:
-            <span class="font-semibold text-gray-600" x-text="dias + ' días'"></span>
-        </p>
-    </div>
+            <div x-show="sections.wattabit" x-transition class="p-4 flex-1 min-h-0">
+                <div class="divide-y divide-slate-100 max-h-80 overflow-y-auto pr-1">
+                    {% for w in wattabit %}
+                    <div class="py-2.5 flex items-center gap-2" x-data="{ editing: false, val: {{ w.precio_anual_mxp }} }">
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm text-slate-700 font-medium">{{ w.nombre }}</p>
+                            <p class="text-xs text-slate-400">{{ w.rango_min_kwp }} - {{ w.rango_max_kwp }} kWp</p>
+                        </div>
+                        <template x-if="!editing">
+                            <div class="flex items-center gap-1.5">
+                                <span class="text-sm font-semibold text-slate-900" x-text="'$' + val.toLocaleString('es-MX')"></span>
+                                <button @click="editing = true" class="text-slate-400 hover:text-slate-700 px-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </template>
+                        <template x-if="editing">
+                            <div class="flex items-center gap-1">
+                                <input type="number" x-model.number="val" step="1" min="1" class="w-24 border border-slate-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-slate-400">
+                                <button @click="htmx.ajax('PATCH', '/calculadora-polizas/admin/wattabit/{{ w.id }}', { values: { precio: val }, swap: 'none' }); editing = false;" class="text-emerald-600 hover:text-emerald-700">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                </button>
+                                <button @click="editing = false" class="text-slate-400 hover:text-slate-600">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </article>
 
+        <article class="rounded-xl border border-slate-200 bg-white shadow-sm h-full flex flex-col">
+            <button type="button" @click="toggle('costos')" class="w-full px-4 py-3 flex items-center justify-between gap-3 text-left border-b border-slate-200">
+                <div>
+                    <p class="text-xs uppercase tracking-wider text-slate-500">Categoria 03</p>
+                    <h3 class="text-sm font-semibold text-slate-800">Costos Fijos</h3>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-medium bg-slate-100 text-slate-600 px-2 py-1 rounded-md">{{ costos_fijos | length }} registros</span>
+                    <svg class="w-4 h-4 text-slate-500 transition-transform" :class="sections.costos ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </div>
+            </button>
+            <div x-show="sections.costos" x-transition class="p-4 flex-1 min-h-0">
+                <div class="divide-y divide-slate-100 max-h-80 overflow-y-auto pr-1">
+                    {% for cf in costos_fijos %}
+                    <div class="py-2.5 flex items-start gap-2"
+                         x-data='{ editing: false, val: {{ cf.valor }}, notas: {{ (cf.notas or "") | tojson }} }'>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm text-slate-700 font-medium">{{ cf.concepto | replace('_', ' ') | title | replace(' Por ', ' por ') | replace('Iva', 'IVA') }}</p>
+                            <template x-if="!editing && notas"><p class="text-xs text-slate-400 leading-tight" x-text="notas"></p></template>
+                            <template x-if="editing">
+                                <input type="text" x-model="notas" placeholder="Notas"
+                                       class="w-full mt-1 border border-slate-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-slate-400">
+                            </template>
+                        </div>
+                        <template x-if="!editing">
+                            <div class="flex items-center gap-1.5 flex-shrink-0">
+                                <span class="text-sm font-semibold text-slate-900" x-text="val"></span>
+                                <button @click="editing = true" class="text-slate-400 hover:text-slate-700 px-1">
+                                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/>
+                                    </svg>
+                                </button>
+                            </div>
+                        </template>
+                        <template x-if="editing">
+                            <div class="flex items-center gap-1 flex-shrink-0 mt-0.5">
+                                <input type="number" x-model.number="val" step="0.0001" min="0"
+                                       class="w-24 border border-slate-300 rounded px-2 py-1 text-xs focus:ring-1 focus:ring-slate-400">
+                                <button @click="htmx.ajax('PATCH', '/calculadora-polizas/admin/costos-fijos/{{ cf.concepto }}', { values: { valor: val, notas: notas }, swap: 'none' }); editing = false;"
+                                        class="text-emerald-600 hover:text-emerald-700 p-1">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                                </button>
+                                <button @click="editing = false; notas = {{ (cf.notas or '') | tojson }};" class="text-slate-400 hover:text-slate-600 p-1">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+                        </template>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </article>
+
+        <article class="rounded-xl border border-slate-200 bg-white shadow-sm h-full flex flex-col">
+            <button type="button" @click="toggle('vigencia')" class="w-full px-4 py-3 flex items-center justify-between gap-3 text-left border-b border-slate-200">
+                <div>
+                    <p class="text-xs uppercase tracking-wider text-slate-500">Categoria 04</p>
+                    <h3 class="text-sm font-semibold text-slate-800">Vigencia de Propuesta</h3>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="text-xs font-medium bg-slate-100 text-slate-600 px-2 py-1 rounded-md">{{ vigencia_dias }} dias</span>
+                    <svg class="w-4 h-4 text-slate-500 transition-transform" :class="sections.vigencia ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                    </svg>
+                </div>
+            </button>
+
+            <div x-show="sections.vigencia" x-transition class="p-4 flex-1"
+                 x-data="{
+                    opcion: {{ vigencia_dias if vigencia_dias in [15, 30, 45] else 'null' }},
+                    custom: {{ vigencia_dias if vigencia_dias not in [15, 30, 45] else 30 }},
+                    estado: 'Guardado',
+                    hora: '',
+                    get dias() { return this.opcion !== null ? this.opcion : this.custom; },
+                    async save() {
+                        if (!this.dias || this.dias < 1) return;
+                        this.estado = 'Guardando...';
+                        try {
+                            const body = new URLSearchParams({ dias: String(this.dias) });
+                            const resp = await fetch('/calculadora-polizas/admin/vigencia-cotizacion', {
+                                method: 'PATCH',
+                                headers: {
+                                    'Content-Type': 'application/x-www-form-urlencoded',
+                                    'HX-Request': 'true',
+                                },
+                                body,
+                            });
+                            if (!resp.ok) throw new Error('error');
+                            this.estado = 'Guardado automaticamente';
+                            this.hora = new Date().toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+                        } catch (e) {
+                            this.estado = 'No se pudo guardar';
+                        }
+                    }
+                 }">
+                <p class="text-xs text-slate-500">Se guarda automaticamente al cambiar. Aplica a la vigencia mostrada en PDF y cotizaciones nuevas.</p>
+                <div class="mt-3 flex gap-2 flex-wrap">
+                    {% for d in [15, 30, 45] %}
+                    <button type="button"
+                            @click="opcion = {{ d }}; save()"
+                            :class="opcion === {{ d }} ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-300 hover:border-slate-500'"
+                            class="px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors">
+                        {{ d }} dias
+                    </button>
+                    {% endfor %}
+                    <button type="button"
+                            @click="opcion = null"
+                            :class="opcion === null ? 'bg-slate-800 text-white border-slate-800' : 'bg-white text-slate-600 border-slate-300 hover:border-slate-500'"
+                            class="px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors">
+                        Personalizado
+                    </button>
+                </div>
+                <div x-show="opcion === null" class="mt-3 flex items-center gap-2">
+                    <input type="number" x-model.number="custom" min="1" max="365" @change="save()"
+                           class="w-24 border border-slate-300 rounded-lg px-3 py-1.5 text-sm focus:ring-2 focus:ring-slate-400 focus:border-slate-400">
+                    <span class="text-sm text-slate-500">dias</span>
+                </div>
+                <div class="mt-3 text-xs text-slate-500 flex items-center gap-2">
+                    <span x-text="estado"></span>
+                    <span x-show="hora">-</span>
+                    <span x-show="hora" x-text="hora"></span>
+                </div>
+            </div>
+        </article>
+
+        </div>
+
+    </section>
 </div>

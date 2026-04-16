@@ -186,6 +186,24 @@ class CalculadoraDBService:
         """, zona, precio)
         return result != "UPDATE 0"
 
+    async def create_precio_zona(self, conn, zona: str, precio: float) -> bool:
+        existente = await conn.fetchval(
+            "SELECT 1 FROM tb_calculadora_precios_zona WHERE lower(zona) = lower($1) LIMIT 1",
+            zona,
+        )
+        if existente:
+            return False
+
+        await conn.execute(
+            """
+            INSERT INTO tb_calculadora_precios_zona (zona, precio_por_panel_mxp, updated_at)
+            VALUES ($1, $2, NOW())
+            """,
+            zona,
+            precio,
+        )
+        return True
+
     async def update_wattabit(self, conn, wattabit_id: int, precio: float) -> bool:
         result = await conn.execute("""
             UPDATE tb_calculadora_wattabit
