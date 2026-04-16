@@ -92,7 +92,9 @@ def _base_ctx(context: dict, mod_role: str) -> dict:
         "module_roles": context.get("module_roles", {}),
         "current_module_role": mod_role,
         "puede_editar": mod_role in ("editor", "admin") or is_admin,
-        "puede_admin": mod_role == "admin" or is_admin or context.get("role") == "MANAGER",
+        "puede_admin": mod_role == "admin" or is_admin or (
+            context.get("role") == "MANAGER" and mod_role in ("editor", "admin")
+        ),
     }
 
 
