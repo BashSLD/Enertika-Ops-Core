@@ -181,7 +181,9 @@ class AdminService:
             # Reporte Semanal
             "reporte_semanal_destinatarios": config_dict.get("reporte_semanal_destinatarios") or "",
             # Visita a Obra
-            "visita_obra_destinatarios": config_dict.get("visita_obra_destinatarios") or ""
+            "visita_obra_destinatarios": config_dict.get("visita_obra_destinatarios") or "",
+            # Reporte Desarrollo CEO
+            "reporte_desarrollo_ceo_email": config_dict.get("reporte_desarrollo_ceo_email") or "",
         }
 
     async def update_global_config(self, conn, datos: ConfiguracionGlobalUpdate) -> None:
@@ -221,7 +223,9 @@ class AdminService:
             # Reporte Semanal
             ("reporte_semanal_destinatarios", datos.reporte_semanal_destinatarios or ""),
             # Visita a Obra
-            ("visita_obra_destinatarios", datos.visita_obra_destinatarios or "")
+            ("visita_obra_destinatarios", datos.visita_obra_destinatarios or ""),
+            # Reporte Desarrollo CEO
+            ("reporte_desarrollo_ceo_email", datos.reporte_desarrollo_ceo_email or ""),
         ]
 
         for clave, valor in updates:

@@ -47,6 +47,9 @@ class ConfiguracionGlobalUpdate(AdminBaseSchema):
     # 6. Visita a Obra — destinatarios del email con PDF adjunto
     visita_obra_destinatarios: Optional[str] = Field("", description="Emails separados por punto y coma")
 
+    # 7. Reporte de Desarrollo CEO — email del destinatario del reporte semanal de desarrollo
+    reporte_desarrollo_ceo_email: Optional[str] = Field("", description="Email del CEO para reporte de desarrollo")
+
     @field_validator('dias_fin_semana')
     @classmethod
     def validar_dias(cls, v):

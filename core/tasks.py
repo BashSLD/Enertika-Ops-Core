@@ -387,6 +387,72 @@ async def check_recordatorios_levantamientos_periodically(interval_seconds: int 
             logger.error("[LEV_RECORDATORIO] Error inesperado: %s", e, exc_info=True)
 
 
+async def send_reporte_desarrollo_ceo_periodically():
+    """
+    Tarea que envía el reporte de desarrollo semanal al CEO cada viernes a las 6:00 pm
+    hora de Mexico. Calcula el tiempo de espera dinamicamente y luego repite semanal.
+    """
+    from datetime import datetime, timedelta
+    from zoneinfo import ZoneInfo
+
+    def _segundos_hasta_viernes_6pm() -> float:
+        mx = ZoneInfo("America/Mexico_City")
+        now = datetime.now(mx)
+        dias_hasta_viernes = (4 - now.weekday()) % 7
+        if dias_hasta_viernes == 0 and now.hour >= 18:
+            dias_hasta_viernes = 7
+        target = now.replace(hour=18, minute=0, second=0, microsecond=0)
+        if dias_hasta_viernes > 0:
+            target += timedelta(days=dias_hasta_viernes)
+        return max((target - now).total_seconds(), 0)
+
+    logger.info("[CEO_REPORT] Tarea inicializada")
+
+    while True:
+        espera = _segundos_hasta_viernes_6pm()
+        logger.info("[CEO_REPORT] Proximo envio en %.1f horas", espera / 3600)
+        await asyncio.sleep(espera)
+
+        try:
+            from core.database import get_db_pool
+            from core.microsoft import MicrosoftAuth
+            from core.config_service import ConfigService
+            from core.weekly_report.service import generar_y_enviar_reporte_ceo
+
+            pool = await get_db_pool()
+            ms_auth = MicrosoftAuth()
+
+            async with pool.acquire() as conn:
+                ceo_email = await ConfigService.get_global_config(
+                    conn, "reporte_desarrollo_ceo_email", "", str
+                )
+                sender_row = await conn.fetchrow(
+                    "SELECT email_remitente FROM tb_correos_notificaciones "
+                    "WHERE departamento = 'DEFAULT' AND activo = true LIMIT 1"
+                )
+
+            if not ceo_email:
+                logger.warning(
+                    "[CEO_REPORT] Sin email de CEO configurado — agregar en Admin > Correos"
+                )
+            elif not sender_row:
+                logger.error("[CEO_REPORT] Sin remitente DEFAULT en tb_correos_notificaciones")
+            else:
+                await generar_y_enviar_reporte_ceo(
+                    ms_auth=ms_auth,
+                    sender_email=sender_row["email_remitente"],
+                    ceo_email=ceo_email,
+                )
+
+        except asyncpg.PostgresError as e:
+            logger.error("[CEO_REPORT] Error de BD: %s", e)
+        except Exception as e:
+            logger.error("[CEO_REPORT] Error inesperado: %s", e, exc_info=True)
+
+        # Esperar 1 hora antes de recalcular (evita doble ejecucion en el mismo viernes)
+        await asyncio.sleep(3600)
+
+
 async def refresh_tipo_cambio_periodically(interval_seconds: int = 3600):
     """
     Tarea en segundo plano que refresca el tipo de cambio USD/MXN desde Banxico.

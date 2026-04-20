@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<style>
+    @page {
+        size: Letter portrait;
+        margin: 0;
+    }
+
+    @page :first {
+        margin: 0;
+    }
+
+    @page cover {
+        margin: 0;
+    }
+
+    @page content {
+        margin: 16mm 16mm 20mm 16mm;
+        @bottom-center {
+            content: "Reporte de Desarrollo ECO | Semana del {{ semana_label }}";
+            font-family: Arial, sans-serif;
+            font-size: 8pt;
+            color: #8a9aa9;
+        }
+        @bottom-right {
+            content: "Pag. " counter(page);
+            font-family: Arial, sans-serif;
+            font-size: 8pt;
+            color: #8a9aa9;
+        }
+    }
+
+    body {
+        font-family: Arial, Helvetica, sans-serif;
+        color: #0e2a47;
+        margin: 0;
+        padding: 0;
+        font-size: 9.8pt;
+        background: #f4f6f8;
+    }
+
+    .serif {
+        font-family: Georgia, "Times New Roman", serif;
+    }
+
+    .mono {
+        font-family: "Courier New", monospace;
+    }
+
+    .metric-value {
+        font-variant-numeric: tabular-nums;
+    }
+
+    .cover {
+        page: cover;
+        height: 279mm;
+        width: 100%;
+        background: linear-gradient(145deg, #0e2a47 0%, #173a5c 58%, #00babb 100%);
+        position: relative;
+        overflow: hidden;
+        page-break-after: always;
+    }
+
+    .cover-radial {
+        position: absolute;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+    }
+
+    .cover-radial.one {
+        width: 180mm;
+        height: 180mm;
+        top: -75mm;
+        right: -70mm;
+    }
+
+    .cover-radial.two {
+        width: 140mm;
+        height: 140mm;
+        bottom: -60mm;
+        left: -55mm;
+        background: rgba(0, 186, 187, 0.22);
+    }
+
+    .cover-content {
+        position: relative;
+        z-index: 1;
+        padding: 32mm 24mm 20mm 24mm;
+        color: #ffffff;
+    }
+
+    .cover-tag {
+        font-size: 8.5pt;
+        letter-spacing: 2.4px;
+        text-transform: uppercase;
+        color: #9ce8e8;
+        margin-bottom: 10mm;
+    }
+
+    .cover-title {
+        font-size: 31pt;
+        font-weight: 700;
+        line-height: 1.08;
+        margin-bottom: 5mm;
+    }
+
+    .cover-title em {
+        font-style: italic;
+        color: #8ff3f3;
+    }
+
+    .cover-subtitle {
+        font-size: 13pt;
+        color: #d2f5f5;
+        margin-bottom: 15mm;
+    }
+
+    .hero-note {
+        max-width: 120mm;
+        font-size: 10pt;
+        line-height: 1.55;
+        color: rgba(255, 255, 255, 0.86);
+        margin-bottom: 12mm;
+    }
+
+    .cover-kpis {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .cover-kpis td {
+        width: 25%;
+        vertical-align: top;
+        padding-right: 7mm;
+    }
+
+    .cover-kpi-val {
+        font-size: 27pt;
+        line-height: 1;
+        font-weight: 700;
+    }
+
+    .cover-kpi-lbl {
+        font-size: 8pt;
+        color: rgba(255, 255, 255, 0.7);
+        margin-top: 1.3mm;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+    }
+
+    .teal { color: #83efef; }
+    .green { color: #8ef0c0; }
+    .amber { color: #ffd580; }
+    .soft { color: #f5fafb; }
+
+    .cover-bar {
+        margin-top: 14mm;
+        border-top: 1px solid rgba(255, 255, 255, 0.24);
+        padding-top: 6mm;
+        font-size: 8.6pt;
+        color: rgba(255, 255, 255, 0.68);
+    }
+
+    .content-page {
+        page: content;
+    }
+
+    .section {
+        background: #ffffff;
+        border: 1px solid #e4e8ec;
+        border-radius: 8px;
+        padding: 6mm;
+        margin-bottom: 5mm;
+    }
+
+    .section-title {
+        font-size: 12.8pt;
+        font-weight: 700;
+        color: #0e2a47;
+        margin: 0;
+    }
+
+    .section-id {
+        font-size: 7.9pt;
+        text-transform: uppercase;
+        letter-spacing: 0.09em;
+        color: #7d8ea1;
+        margin-bottom: 1.5mm;
+    }
+
+    .section-head {
+        border-bottom: 1px solid #e4e8ec;
+        padding-bottom: 3mm;
+        margin-bottom: 4mm;
+    }
+
+    .overview-text {
+        font-size: 9.4pt;
+        line-height: 1.55;
+        color: #45607a;
+        margin: 0 0 4mm 0;
+    }
+
+    .overview-text strong {
+        color: #0e2a47;
+    }
+
+    .kpi-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 4mm;
+    }
+
+    .kpi-cell {
+        width: 25%;
+        background: #fbfcfd;
+        border: 1px solid #e4e8ec;
+        border-top: 3px solid #00babb;
+        border-radius: 6px;
+        padding: 4mm;
+        vertical-align: top;
+    }
+
+    .kpi-cell-wrap {
+        padding-right: 3mm;
+    }
+
+    .kpi-cell-wrap:last-child {
+        padding-right: 0;
+    }
+
+    .kpi-cell.green { border-top-color: #10b981; }
+    .kpi-cell.amber { border-top-color: #f59e0b; }
+    .kpi-cell.gray { border-top-color: #94a3b8; }
+
+    .kpi-number {
+        font-size: 21pt;
+        font-weight: 700;
+        color: #0e2a47;
+        line-height: 1;
+    }
+
+    .kpi-number.teal { color: #008788; }
+    .kpi-number.green { color: #10b981; }
+    .kpi-number.amber { color: #d97706; }
+    .kpi-number.gray { color: #64748b; }
+
+    .kpi-label {
+        font-size: 8.1pt;
+        color: #6f8195;
+        margin-top: 1.7mm;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .stack {
+        margin-top: 3.5mm;
+        border: 1px solid #e4e8ec;
+        border-radius: 999px;
+        overflow: hidden;
+        height: 6mm;
+        font-size: 0;
+        white-space: nowrap;
+    }
+
+    .stack-seg {
+        display: inline-block;
+        height: 100%;
+    }
+
+    .stack-feat { background: #10b981; }
+    .stack-fix { background: #f59e0b; }
+    .stack-other { background: #94a3b8; }
+
+    .stack-legend {
+        margin-top: 1.8mm;
+        font-size: 7.8pt;
+        color: #6f8195;
+    }
+
+    .legend-dot {
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        margin-right: 1mm;
+        vertical-align: middle;
+    }
+
+    .modulo-block {
+        margin-bottom: 5mm;
+        break-inside: avoid;
+        border: 1px solid #e4e8ec;
+        border-radius: 7px;
+        overflow: hidden;
+        background: #ffffff;
+    }
+
+    .modulo-header {
+        background: #0e2a47;
+        color: #ffffff;
+        padding: 2.3mm 4mm;
+        font-size: 9.6pt;
+        font-weight: 700;
+    }
+
+    .modulo-sub {
+        display: block;
+        font-size: 7.4pt;
+        color: #9fc0dd;
+        font-weight: 400;
+        margin-top: 0.7mm;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+    }
+
+    .modulo-count {
+        float: right;
+        font-size: 7.8pt;
+        font-weight: 400;
+        color: #a9d4d6;
+    }
+
+    .modulo-table {
+        width: 100%;
+        border-collapse: collapse;
+    }
+
+    .modulo-table th {
+        font-size: 7.6pt;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        color: #7d8ea1;
+        text-align: left;
+        background: #f9fbfc;
+        padding: 2.2mm 4mm;
+        border-bottom: 1px solid #e4e8ec;
+    }
+
+    .modulo-table th:last-child,
+    .modulo-table td:last-child {
+        width: 100%;
+    }
+
+    .cambio-row {
+        border-bottom: 1px solid #edf1f4;
+    }
+
+    .cambio-row:last-child {
+        border-bottom: none;
+    }
+
+    .cambio-row td {
+        padding: 2.2mm 4mm;
+        vertical-align: top;
+    }
+
+    .cambio-row-alt {
+        background: #fbfdff;
+    }
+
+    .badge {
+        display: inline-block;
+        font-size: 7pt;
+        font-weight: 700;
+        padding: 1.2pt 5pt;
+        border-radius: 999px;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        white-space: nowrap;
+    }
+
+    .badge-feat { color: #065f46; background: #d1fae5; }
+    .badge-fix { color: #92400e; background: #fef3c7; }
+    .badge-perf { color: #1d4ed8; background: #dbeafe; }
+    .badge-refactor { color: #4f46e5; background: #e0e7ff; }
+    .badge-other { color: #334155; background: #e2e8f0; }
+
+    .cambio-desc {
+        font-size: 9pt;
+        color: #334155;
+        line-height: 1.45;
+    }
+
+    .no-activity {
+        color: #64748b;
+        font-size: 9.4pt;
+        padding: 4mm;
+        border: 1px dashed #cfd8e1;
+        border-radius: 7px;
+        background: #fafcfe;
+    }
+</style>
+</head>
+<body>
+
+{% set total_registrados = feats + fixes + otros %}
+
+<div class="cover">
+    <div class="cover-radial one"></div>
+    <div class="cover-radial two"></div>
+    <div class="cover-content">
+        <div class="cover-tag">Enertika Core Ops</div>
+        <div class="cover-title serif">Reporte <em>semanal</em> de desarrollo</div>
+        <div class="cover-subtitle">Semana del {{ semana_label }}</div>
+
+        <p class="hero-note">
+            Consolidado ejecutivo de avance de plataforma, estabilidad de entregas y cambios
+            implementados por modulo durante el periodo reportado.
+        </p>
+
+        <table class="cover-kpis">
+            <tr>
+                <td>
+                    <div class="cover-kpi-val teal metric-value">{{ total_commits }}</div>
+                    <div class="cover-kpi-lbl">Commits</div>
+                </td>
+                <td>
+                    <div class="cover-kpi-val green metric-value">{{ feats }}</div>
+                    <div class="cover-kpi-lbl">Funcionalidades</div>
+                </td>
+                <td>
+                    <div class="cover-kpi-val amber metric-value">{{ fixes }}</div>
+                    <div class="cover-kpi-lbl">Correcciones</div>
+                </td>
+                <td>
+                    <div class="cover-kpi-val soft metric-value">{{ modulos|length }}</div>
+                    <div class="cover-kpi-lbl">Modulos con actividad</div>
+                </td>
+            </tr>
+        </table>
+
+        <div class="cover-bar">
+            Generado automaticamente cada viernes &bull; ECO &mdash; Sistema de Operaciones
+        </div>
+    </div>
+</div>
+
+<div class="content-page">
+
+    <div class="section">
+        <div class="section-head">
+            <div class="section-id mono">Seccion 01 · Resumen ejecutivo</div>
+            <h2 class="section-title serif">Pulso semanal de entrega</h2>
+        </div>
+
+        <p class="overview-text">
+            Durante la semana reportada se registraron <strong>{{ total_commits }} commits</strong>,
+            con enfoque en funcionalidad nueva, correccion de incidencias y ajustes tecnicos para
+            mantener estabilidad en operacion.
+        </p>
+
+        <table class="kpi-table">
+            <tr>
+                <td class="kpi-cell-wrap">
+                    <div class="kpi-cell">
+                        <div class="kpi-number teal metric-value">{{ total_commits }}</div>
+                        <div class="kpi-label">Commits totales</div>
+                    </div>
+                </td>
+                <td class="kpi-cell-wrap">
+                    <div class="kpi-cell green">
+                        <div class="kpi-number green metric-value">{{ feats }}</div>
+                        <div class="kpi-label">Nuevas funcionalidades</div>
+                    </div>
+                </td>
+                <td class="kpi-cell-wrap">
+                    <div class="kpi-cell amber">
+                        <div class="kpi-number amber metric-value">{{ fixes }}</div>
+                        <div class="kpi-label">Correcciones</div>
+                    </div>
+                </td>
+                <td>
+                    <div class="kpi-cell gray">
+                        <div class="kpi-number gray metric-value">{{ otros }}</div>
+                        <div class="kpi-label">Otros cambios</div>
+                    </div>
+                </td>
+            </tr>
+        </table>
+
+        <div class="stack">
+            <span class="stack-seg stack-feat" style="width: {{ ((feats / total_registrados) * 100)|round(2) if total_registrados else 0 }}%;"></span>
+            <span class="stack-seg stack-fix" style="width: {{ ((fixes / total_registrados) * 100)|round(2) if total_registrados else 0 }}%;"></span>
+            <span class="stack-seg stack-other" style="width: {{ ((otros / total_registrados) * 100)|round(2) if total_registrados else 0 }}%;"></span>
+        </div>
+        <div class="stack-legend">
+            <span class="legend-dot" style="background:#10b981;"></span>Funcionalidades: {{ ((feats / total_registrados) * 100)|round(1) if total_registrados else 0 }}%
+            &nbsp;&nbsp;|&nbsp;&nbsp;
+            <span class="legend-dot" style="background:#f59e0b;"></span>Correcciones: {{ ((fixes / total_registrados) * 100)|round(1) if total_registrados else 0 }}%
+            &nbsp;&nbsp;|&nbsp;&nbsp;
+            <span class="legend-dot" style="background:#94a3b8;"></span>Otros: {{ ((otros / total_registrados) * 100)|round(1) if total_registrados else 0 }}%
+        </div>
+    </div>
+
+    <div class="section">
+        <div class="section-head">
+            <div class="section-id mono">Seccion 02 · Detalle por modulo</div>
+            <h2 class="section-title serif">Cambios implementados por frente</h2>
+        </div>
+
+        {% if modulos %}
+        {% for modulo, cambios in modulos.items() %}
+        <div class="modulo-block">
+            <div class="modulo-header">
+                {{ modulo }}
+                <span class="modulo-count">{{ cambios|length }} cambio{% if cambios|length != 1 %}s{% endif %}</span>
+                <span class="modulo-sub">Actividad registrada en el periodo</span>
+            </div>
+            <table class="modulo-table">
+                <tr>
+                    <th style="width:30mm;">Tipo</th>
+                    <th>Descripcion</th>
+                </tr>
+                {% for cambio in cambios %}
+                <tr class="cambio-row {% if loop.index is odd %}cambio-row-alt{% endif %}">
+                    <td>
+                        {% if cambio.tipo == 'feat' %}
+                        <span class="badge badge-feat">Funcionalidad</span>
+                        {% elif cambio.tipo == 'fix' %}
+                        <span class="badge badge-fix">Correccion</span>
+                        {% elif cambio.tipo == 'perf' %}
+                        <span class="badge badge-perf">Optimizacion</span>
+                        {% elif cambio.tipo == 'refactor' %}
+                        <span class="badge badge-refactor">Refactorizacion</span>
+                        {% else %}
+                        <span class="badge badge-other">{{ cambio.tipo_label }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span class="cambio-desc">{{ cambio.descripcion }}</span>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+        </div>
+        {% endfor %}
+
+        {% else %}
+        <div class="no-activity">Sin actividad de desarrollo registrada esta semana.</div>
+        {% endif %}
+    </div>
+
+</div>
+
+</body>
+</html>

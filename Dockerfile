@@ -10,6 +10,7 @@ RUN apt-get update && apt-get install -y \
     shared-mime-info \
     fonts-liberation \
     fontconfig \
+    git \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

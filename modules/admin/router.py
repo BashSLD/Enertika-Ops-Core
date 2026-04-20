@@ -375,6 +375,83 @@ async def update_config_visita_obra(
     })
 
 
+@router.post("/reportes/enviar-desarrollo-ceo", include_in_schema=False)
+async def enviar_reporte_desarrollo_ceo_manual(
+    request: Request,
+    fecha_desde: str = Form(...),
+    fecha_hasta: str = Form(...),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    """Envía el reporte de desarrollo CEO para un rango de fechas dado."""
+    from datetime import date as date_type
+    from core.microsoft import MicrosoftAuth
+    from core.config_service import ConfigService
+    from core.weekly_report.service import generar_y_enviar_reporte_ceo
+
+    def _error(msg: str, title: str = "Error"):
+        return templates.TemplateResponse(
+            request, "admin/partials/messages/error.html", {"title": title, "message": msg}
+        )
+
+    try:
+        since = date_type.fromisoformat(fecha_desde)
+        until = date_type.fromisoformat(fecha_hasta)
+        if until < since:
+            return _error("La fecha hasta debe ser igual o posterior a la fecha desde.", "Fechas inválidas")
+        from datetime import timedelta
+        until_exclusive = until + timedelta(days=1)
+    except ValueError:
+        return _error("Formato de fecha inválido.")
+
+    ceo_email = await ConfigService.get_global_config(conn, "reporte_desarrollo_ceo_email", "", str)
+    if not ceo_email:
+        return _error("Configura el email del CEO antes de enviar.", "Sin destinatario")
+
+    sender_row = await conn.fetchrow(
+        "SELECT email_remitente FROM tb_correos_notificaciones "
+        "WHERE departamento = 'DEFAULT' AND activo = true LIMIT 1"
+    )
+    if not sender_row:
+        return _error("No hay buzón DEFAULT activo configurado.", "Sin remitente")
+
+    ms_auth = MicrosoftAuth()
+    try:
+        enviado = await generar_y_enviar_reporte_ceo(
+            ms_auth=ms_auth,
+            sender_email=sender_row["email_remitente"],
+            ceo_email=ceo_email,
+            since=since,
+            until=until_exclusive,
+        )
+    except RuntimeError as e:
+        return _error(str(e), "Entorno no compatible")
+
+    if enviado:
+        return templates.TemplateResponse(request, "admin/partials/messages/success.html", {
+            "title": "Enviado",
+            "message": f"Reporte enviado a {ceo_email} ({fecha_desde} al {fecha_hasta})."
+        })
+    return _error("No hay commits en el rango seleccionado. No se envió ningún reporte.", "Sin actividad")
+
+
+@router.post("/config/reporte-desarrollo-ceo", include_in_schema=False)
+async def update_config_reporte_desarrollo_ceo(
+    request: Request,
+    reporte_desarrollo_ceo_email: str = Form(""),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    """Guarda el email del CEO para el reporte de desarrollo semanal."""
+    await service.db.upsert_global_config(conn, "reporte_desarrollo_ceo_email", reporte_desarrollo_ceo_email.strip())
+    ConfigService.invalidar_cache()
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {
+        "title": "Guardado", "message": "Email del CEO actualizado."
+    })
+
+
 # --- USER MANAGEMENT ENDPOINTS ---
 
 from uuid import UUID

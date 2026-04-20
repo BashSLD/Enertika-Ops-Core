@@ -142,6 +142,7 @@ from core.tasks import (
     refresh_tipo_cambio_periodically,
     check_recordatorios_levantamientos_periodically,
     check_recordatorios_oportunidad_ganada_periodically,
+    send_reporte_desarrollo_ceo_periodically,
 )
 
 async def start_background_tasks():
@@ -151,6 +152,7 @@ async def start_background_tasks():
     asyncio.create_task(refresh_tipo_cambio_periodically())
     asyncio.create_task(check_recordatorios_levantamientos_periodically())
     asyncio.create_task(check_recordatorios_oportunidad_ganada_periodically())
+    asyncio.create_task(send_reporte_desarrollo_ceo_periodically())
 
 # Actualizamos el on_startup
 app.router.on_startup.append(start_background_tasks)

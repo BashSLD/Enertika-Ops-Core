@@ -92,6 +92,83 @@
         </form>
     </div>
 
+    <!-- Reporte de Desarrollo CEO -->
+    <div class="bg-white rounded-lg shadow-md p-6 mt-6">
+        <div class="mb-4">
+            <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
+                <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                Reporte de Desarrollo CEO
+            </h2>
+            <p class="text-sm text-gray-600 mt-1">
+                Cada viernes a las 6:00 pm se envía automaticamente un reporte con el resumen de desarrollo de la semana
+                (nuevas funcionalidades, correcciones, modulos tocados) con un PDF adjunto detallado.
+            </p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            <!-- Columna izquierda: email -->
+            <form hx-post="/admin/config/reporte-desarrollo-ceo" hx-target="#buzones-msg-ceo" hx-swap="innerHTML">
+                <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-200 h-full flex flex-col justify-between">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Email del destinatario</label>
+                        <input type="email" name="reporte_desarrollo_ceo_email"
+                            value="{{ config_global.reporte_desarrollo_ceo_email }}"
+                            placeholder="ceo@enertika.mx"
+                            class="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+                        <p class="text-xs text-gray-500 mt-2">Un solo correo. Si esta vacio no se envía el reporte automatico los viernes.</p>
+                    </div>
+                    <div class="flex justify-between items-center mt-4">
+                        <div id="buzones-msg-ceo"></div>
+                        <button type="submit"
+                            class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow transition-colors text-sm">
+                            Guardar
+                        </button>
+                    </div>
+                </div>
+            </form>
+
+            <!-- Columna derecha: envío manual -->
+            <form hx-post="/admin/reportes/enviar-desarrollo-ceo"
+                  hx-target="#ceo-envio-feedback"
+                  hx-swap="innerHTML"
+                  hx-indicator="#ceo-envio-spinner">
+                <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 h-full flex flex-col justify-between">
+                    <div>
+                        <p class="text-sm font-bold text-gray-700 mb-3">Enviar reporte ahora</p>
+                        <div class="grid grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Desde</label>
+                                <input type="date" name="fecha_desde"
+                                    class="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                                    required>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Hasta</label>
+                                <input type="date" name="fecha_hasta"
+                                    class="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                                    required>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="mt-4">
+                        <div id="ceo-envio-feedback" class="mb-2"></div>
+                        <div class="flex items-center gap-3">
+                            <button type="submit"
+                                class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow transition-colors text-sm">
+                                Enviar
+                            </button>
+                            <span id="ceo-envio-spinner" class="htmx-indicator text-sm text-gray-500">Enviando...</span>
+                        </div>
+                    </div>
+                </div>
+            </form>
+
+        </div>
+    </div>
+
     <!-- Visita a Obra — destinatarios del email con PDF -->
     <div class="bg-white rounded-lg shadow-md p-6 mt-6">
         <div class="mb-4">

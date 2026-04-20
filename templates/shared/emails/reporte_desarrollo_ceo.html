@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Reporte de Desarrollo ECO</title>
+</head>
+<body style="margin:0;padding:0;font-family:'Segoe UI',Tahoma,Geneva,Verdana,sans-serif;background-color:#f4f4f4;color:#333333;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:20px 0;">
+<tr><td align="center">
+<table width="600" cellpadding="0" cellspacing="0"
+       style="background-color:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+
+    <!-- Header -->
+    <tr>
+        <td style="background:linear-gradient(135deg,#123456 0%,#00BABB 100%);padding:30px 40px;text-align:center;">
+            <h1 style="margin:0;color:#ffffff;font-size:22px;font-weight:600;">
+                Reporte de Desarrollo ECO
+            </h1>
+            <p style="margin:8px 0 0 0;color:#E0F7F7;font-size:14px;">
+                Semana del {{ semana_label }}
+            </p>
+        </td>
+    </tr>
+
+    <!-- Resumen de actividad -->
+    <tr>
+        <td style="padding:32px 40px 20px 40px;">
+
+            <p style="margin:0 0 24px 0;color:#555555;font-size:15px;line-height:1.6;">
+                A continuacion el resumen de desarrollo registrado en el sistema durante la semana.
+                Se adjunta el reporte detallado en PDF.
+            </p>
+
+            <!-- Tarjetas de resumen -->
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                <tr>
+                    <td width="31%" style="padding-right:8px;vertical-align:top;">
+                        <table width="100%" cellpadding="0" cellspacing="0"
+                               style="background-color:#f0fafa;border-left:4px solid #00BABB;border-radius:4px;">
+                            <tr><td style="padding:16px 18px;">
+                                <div style="font-size:28px;font-weight:700;color:#00BABB;line-height:1;">{{ total_commits }}</div>
+                                <div style="font-size:12px;color:#555555;margin-top:5px;font-weight:600;">Commits totales</div>
+                            </td></tr>
+                        </table>
+                    </td>
+                    <td width="31%" style="padding-right:8px;padding-left:8px;vertical-align:top;">
+                        <table width="100%" cellpadding="0" cellspacing="0"
+                               style="background-color:#f0f9f4;border-left:4px solid #10b981;border-radius:4px;">
+                            <tr><td style="padding:16px 18px;">
+                                <div style="font-size:28px;font-weight:700;color:#10b981;line-height:1;">{{ feats }}</div>
+                                <div style="font-size:12px;color:#555555;margin-top:5px;font-weight:600;">Nuevas funcionalidades</div>
+                            </td></tr>
+                        </table>
+                    </td>
+                    <td width="31%" style="padding-left:8px;vertical-align:top;">
+                        <table width="100%" cellpadding="0" cellspacing="0"
+                               style="background-color:#fff8f0;border-left:4px solid #f59e0b;border-radius:4px;">
+                            <tr><td style="padding:16px 18px;">
+                                <div style="font-size:28px;font-weight:700;color:#f59e0b;line-height:1;">{{ fixes }}</div>
+                                <div style="font-size:12px;color:#555555;margin-top:5px;font-weight:600;">Correcciones</div>
+                            </td></tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
+
+            <!-- Modulos tocados -->
+            {% if modulos %}
+            <table width="100%" cellpadding="0" cellspacing="0" style="margin-bottom:28px;">
+                <tr>
+                    <td style="padding-bottom:12px;">
+                        <span style="font-size:13px;font-weight:700;color:#123456;text-transform:uppercase;letter-spacing:0.5px;">
+                            Modulos con actividad esta semana
+                        </span>
+                    </td>
+                </tr>
+                {% for modulo, cambios in modulos.items() %}
+                <tr>
+                    <td style="padding-bottom:10px;">
+                        <table width="100%" cellpadding="0" cellspacing="0"
+                               style="border:1px solid #e5e7eb;border-radius:6px;overflow:hidden;">
+                            <!-- Cabecera modulo -->
+                            <tr>
+                                <td style="background-color:#f9fafb;padding:10px 16px;border-bottom:1px solid #e5e7eb;">
+                                    <span style="font-size:13px;font-weight:700;color:#374151;">{{ modulo }}</span>
+                                    <span style="float:right;font-size:11px;color:#9ca3af;">{{ cambios|length }} cambio{% if cambios|length != 1 %}s{% endif %}</span>
+                                </td>
+                            </tr>
+                            <!-- Lista de cambios -->
+                            {% for cambio in cambios %}
+                            <tr>
+                                <td style="padding:7px 16px;{% if not loop.last %}border-bottom:1px solid #f3f4f6;{% endif %}">
+                                    <table width="100%" cellpadding="0" cellspacing="0">
+                                        <tr>
+                                            <td width="110" style="vertical-align:top;">
+                                                {% if cambio.tipo == 'feat' %}
+                                                <span style="font-size:10px;font-weight:600;color:#059669;background:#d1fae5;padding:2px 7px;border-radius:10px;">funcionalidad</span>
+                                                {% elif cambio.tipo == 'fix' %}
+                                                <span style="font-size:10px;font-weight:600;color:#d97706;background:#fef3c7;padding:2px 7px;border-radius:10px;">correccion</span>
+                                                {% elif cambio.tipo == 'perf' %}
+                                                <span style="font-size:10px;font-weight:600;color:#2563eb;background:#dbeafe;padding:2px 7px;border-radius:10px;">optimizacion</span>
+                                                {% else %}
+                                                <span style="font-size:10px;font-weight:600;color:#6b7280;background:#f3f4f6;padding:2px 7px;border-radius:10px;">{{ cambio.tipo }}</span>
+                                                {% endif %}
+                                            </td>
+                                            <td style="font-size:13px;color:#374151;padding-left:10px;vertical-align:top;">
+                                                {{ cambio.descripcion }}
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </table>
+                    </td>
+                </tr>
+                {% endfor %}
+            </table>
+            {% endif %}
+
+            <p style="margin:0 0 8px 0;color:#9ca3af;font-size:12px;">
+                El reporte completo con todos los detalles se encuentra adjunto en PDF.
+            </p>
+
+        </td>
+    </tr>
+
+    <!-- Footer -->
+    <tr>
+        <td style="background-color:#f8f9fa;padding:20px 40px;text-align:center;border-top:1px solid #e0e0e0;">
+            <p style="margin:0 0 4px 0;color:#00BABB;font-weight:700;font-size:15px;">ECO</p>
+            <p style="margin:0;color:#999999;font-size:12px;">
+                Reporte de desarrollo generado automaticamente cada viernes a las 6:00 pm
+            </p>
+            <p style="margin:12px 0 0 0;color:#cccccc;font-size:11px;">
+                Este es un correo automatico. Por favor no responder.
+            </p>
+        </td>
+    </tr>
+
+</table>
+</td></tr>
+</table>
+</body>
+</html>
