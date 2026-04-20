@@ -174,7 +174,7 @@ class ComprasDBService:
         return dict(row) if row else None
 
     async def update_comprobante(self, conn, id_comprobante: UUID, updates: dict) -> bool:
-        allowed_fields = ['id_zona', 'id_proyecto', 'id_categoria', 'estatus', 'id_proveedor']
+        allowed_fields = ['id_zona', 'id_proyecto', 'id_categoria', 'id_proveedor']
         set_clauses = []
         params = []
         param_idx = 1

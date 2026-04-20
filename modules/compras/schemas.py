@@ -267,7 +267,6 @@ class ComprobanteUpdateForm(BaseModel):
     id_zona: Optional[int] = None
     id_proyecto: Optional[UUID] = None
     id_categoria: Optional[int] = None
-    estatus: Optional[EstatusComprobante] = None
     
     @field_validator('id_zona', 'id_categoria', mode='before')
     @classmethod

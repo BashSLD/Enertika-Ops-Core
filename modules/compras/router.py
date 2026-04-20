@@ -426,7 +426,7 @@ async def bulk_update_comprobantes(
     if id_categoria is not None and id_categoria > 0:
         updates["id_categoria"] = id_categoria
     
-    if estatus and estatus in ["PENDIENTE", "FACTURADO"]:
+    if estatus == "PENDIENTE":
         updates["estatus"] = estatus
     
     count = await service.bulk_update_comprobantes(conn, uuid_list, updates, user_context=context)
