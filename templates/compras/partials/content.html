@@ -43,13 +43,6 @@
             </svg>
             Relaciones
         </button>
-        <button onclick="abrirModalCrearProyecto()"
-            class="bg-purple-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
-            Crear Proyecto
-        </button>
     </div>
     <script>
     (function() {
@@ -134,15 +127,6 @@
                     Relaciones
                 </button>
 
-                <!-- Botón Crear Proyecto -->
-                <button onclick="abrirModalCrearProyecto()"
-                    class="ripple-effect bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-                    </svg>
-                    Crear Proyecto
-                </button>
             </div>
         </div>
     </div>
@@ -281,9 +265,6 @@
     <!-- Container para modal de edición (se carga dinámicamente) -->
     <div id="modal-editar-container"></div>
 
-    <!-- Container para modal de crear proyecto -->
-    <div id="modal-proyecto-container"></div>
-
     <!-- Container para modal de relaciones beneficiario-proveedor -->
     <div id="relaciones-container"></div>
 </div>
@@ -416,10 +397,5 @@
         // Update excel link
         document.getElementById('export-excel-btn').href = '/compras/export-excel?estatus=SIN_COMPLETAR';
     }
-    function abrirModalCrearProyecto() {
-        htmx.ajax('GET', '/projects/modal-crear', {
-            target: '#modal-proyecto-container',
-            swap: 'innerHTML'
-        });
-    }
+
 </script>
