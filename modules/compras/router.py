@@ -1037,3 +1037,86 @@ async def reabrir_comprobante(
     ).body.decode("utf-8")
 
     return HTMLResponse(content=panel_html + toast_html)
+
+
+# ========================================
+# ADMIN — BACKFILL TIPO CAMBIO MATERIALES
+# ========================================
+
+@router.post("/admin/backfill-tc-materiales")
+async def backfill_tc_materiales(
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    service: ComprasService = Depends(get_compras_service),
+    _ = require_module_access("compras", "admin")
+):
+    """
+    Backfill de tipo_cambio_xml en tb_materiales_historial desde XMLs en SharePoint.
+
+    Para cada factura XML ya confirmada que tenga historial de materiales sin TC,
+    descarga el XML de SharePoint, re-parsea el TipoCambio y actualiza los registros.
+
+    Returns:
+        JSON con resumen: actualizados, sin_tc_en_xml, errores
+    """
+    from .db_service import get_db_service
+    from core.integrations.sharepoint import get_sharepoint_service
+    from core.microsoft import get_ms_auth
+    from .xml_extractor import parse_cfdi_xml
+
+    db_svc = get_db_service()
+
+    rows = await db_svc.get_xml_attachments_for_backfill(conn)
+    if not rows:
+        return {"actualizados": 0, "sin_tc_en_xml": 0, "errores": 0, "mensaje": "No hay registros pendientes de backfill"}
+
+    # Obtener token de acceso para SharePoint
+    ms_auth = get_ms_auth()
+    try:
+        token_data = await ms_auth.get_application_token()
+        access_token = token_data.get("access_token")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"No se pudo obtener token MS: {e}")
+
+    sp = get_sharepoint_service(access_token)
+    config = await sp._resolve_config(conn)
+    sp.site_id = config.get("site_id")
+    sp.drive_id = config.get("drive_id")
+
+    actualizados = 0
+    sin_tc = 0
+    errores = 0
+
+    for row in rows:
+        drive_item_id = row.get("drive_item_id")
+        nombre_archivo = row.get("nombre_archivo") or "unknown.xml"
+        uuid_factura = row.get("uuid_factura")
+
+        if not drive_item_id or not uuid_factura:
+            errores += 1
+            continue
+
+        try:
+            xml_bytes = await sp.download_file_by_item_id(conn, drive_item_id)
+            cfdi = parse_cfdi_xml(xml_bytes, nombre_archivo)
+
+            if cfdi.tipo_cambio_xml:
+                updated = await db_svc.update_tc_materiales(conn, uuid_factura, cfdi.tipo_cambio_xml)
+                if updated > 0:
+                    actualizados += updated
+                    logger.info("TC backfill: %s -> %s (%d filas)", uuid_factura[:8], cfdi.tipo_cambio_xml, updated)
+                else:
+                    sin_tc += 1
+            else:
+                sin_tc += 1
+
+        except Exception as e:
+            logger.error("Error en backfill TC para %s (%s): %s", uuid_factura, nombre_archivo, e)
+            errores += 1
+
+    return {
+        "actualizados": actualizados,
+        "sin_tc_en_xml": sin_tc,
+        "errores": errores,
+        "total_procesados": len(rows),
+    }

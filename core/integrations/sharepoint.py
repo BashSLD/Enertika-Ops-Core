@@ -302,6 +302,25 @@ class SharePointService:
                 return resp.json().get("webUrl", "")
             return ""
 
+    async def download_file_by_item_id(self, conn, drive_item_id: str) -> bytes:
+        """Descarga el contenido de un archivo por su drive_item_id vía Graph API."""
+        config = await self._resolve_config(conn)
+        drive_id = config.get("drive_id")
+        site_id = config.get("site_id")
+
+        if drive_id:
+            url = f"{self.BASE_URL}/drives/{drive_id}/items/{drive_item_id}/content"
+        elif site_id:
+            url = f"{self.BASE_URL}/sites/{site_id}/drive/items/{drive_item_id}/content"
+        else:
+            raise ValueError("No hay drive_id ni site_id configurados para SharePoint")
+
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            resp.raise_for_status()
+            return resp.content
+
 
 def get_sharepoint_service(access_token: str = None):
     return SharePointService(access_token)

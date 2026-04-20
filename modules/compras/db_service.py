@@ -603,12 +603,14 @@ class ComprasDBService:
     async def guardar_conceptos_historial(
         self, conn, uuid_factura: str, id_comprobante: Optional[UUID],
         id_proveedor: UUID, conceptos: List[dict],
-        fecha_factura: date, user_id: UUID
+        fecha_factura: date, user_id: UUID,
+        tipo_cambio_xml: Optional[Decimal] = None
     ):
         """Guarda los conceptos/items del XML en tb_materiales_historial.
 
         Auto-categoriza por clave SAT: si existen items previamente
         categorizados con la misma clave_prod_serv, asigna la misma categoria.
+        tipo_cambio_xml: TC SAT-certificado de la factura (None si moneda=MXN).
         """
         # Batch: obtener categorias conocidas por clave SAT
         claves_sat = list(set(
@@ -627,7 +629,8 @@ class ComprasDBService:
                 uuid_factura, id_comprobante, id_proveedor,
                 c['descripcion'], c['cantidad'], c['valor_unitario'],
                 c['importe'], c.get('unidad'), clave_sat,
-                c.get('clave_unidad'), id_categoria, 'XML', fecha_factura, user_id
+                c.get('clave_unidad'), id_categoria, 'XML', fecha_factura,
+                tipo_cambio_xml, user_id
             ))
 
         if rows:
@@ -636,8 +639,9 @@ class ComprasDBService:
                     uuid_factura, id_comprobante, id_proveedor,
                     descripcion_proveedor, cantidad, precio_unitario,
                     importe, unidad, clave_prod_serv, clave_unidad,
-                    id_categoria, origen, fecha_factura, created_by_id
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                    id_categoria, origen, fecha_factura,
+                    tipo_cambio_xml, created_by_id
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                 ON CONFLICT (uuid_factura, descripcion_proveedor, cantidad, precio_unitario)
                 DO NOTHING
             """, rows)
@@ -1102,6 +1106,33 @@ class ComprasDBService:
     # ========================================
     # XML STAGING
     # ========================================
+
+    async def get_xml_attachments_for_backfill(self, conn) -> List[dict]:
+        """Retorna XMLs en SharePoint cuyos ítems en historial no tienen tipo_cambio_xml."""
+        rows = await conn.fetch("""
+            SELECT DISTINCT d.drive_item_id, d.nombre_archivo,
+                   d.metadata->>'uuid_factura' AS uuid_factura
+            FROM tb_documentos_attachments d
+            WHERE d.origen_slug = 'factura_xml'
+              AND d.activo = true
+              AND d.drive_item_id IS NOT NULL
+              AND EXISTS (
+                SELECT 1 FROM tb_materiales_historial m
+                WHERE m.uuid_factura = d.metadata->>'uuid_factura'
+                  AND m.tipo_cambio_xml IS NULL
+              )
+        """)
+        return [dict(r) for r in rows]
+
+    async def update_tc_materiales(
+        self, conn, uuid_factura: str, tipo_cambio: Decimal
+    ) -> int:
+        result = await conn.execute("""
+            UPDATE tb_materiales_historial
+            SET tipo_cambio_xml = $1
+            WHERE uuid_factura = $2 AND tipo_cambio_xml IS NULL
+        """, tipo_cambio, uuid_factura)
+        return int(result.split()[-1])
 
     async def upsert_xml_staging(
         self, conn, uuid_factura: str, emisor_rfc: str, emisor_nombre: str,

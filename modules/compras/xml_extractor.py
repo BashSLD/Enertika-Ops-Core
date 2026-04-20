@@ -71,16 +71,17 @@ def _safe_decimal(value, default=None) -> Optional[Decimal]:
         return default
 
 
-def _extract_pago_info(root: ET.Element) -> tuple[Optional[Decimal], str]:
+def _extract_pago_info(root: ET.Element) -> tuple[Optional[Decimal], str, Optional[Decimal]]:
     """
-    Para CFDI tipo P (complemento de pago), extrae el monto y moneda reales del pago.
+    Para CFDI tipo P (complemento de pago), extrae monto, moneda y tipo de cambio reales.
 
-    Estrategia: leer MonedaP y sumar Monto de cada nodo pago20:Pago.
+    Estrategia: leer MonedaP, sumar Monto y tomar TipoCambioP del primer nodo pago20:Pago.
     Si todos los pagos son en la misma moneda se devuelve esa moneda; si hay
     mezcla de monedas se devuelve MontoTotalPagos en MXN como fallback.
 
     Returns:
-        (total, moneda) — e.g. (Decimal("30760.41"), "USD")
+        (total, moneda, tipo_cambio) — e.g. (Decimal("30760.41"), "USD", Decimal("17.9697"))
+        tipo_cambio es None si moneda == MXN o si no está en el XML.
     """
     pago_nodes = _find_all_nodes(root, "Pago")
 
@@ -93,16 +94,23 @@ def _extract_pago_info(root: ET.Element) -> tuple[Optional[Decimal], str]:
                 Decimal("0"),
             )
             if total > 0:
-                return total, moneda
+                tipo_cambio = None
+                if moneda != "MXN":
+                    for nodo in pago_nodes:
+                        tc_raw = _get_attr(nodo, "TipoCambioP")
+                        if tc_raw and tc_raw != "1":
+                            tipo_cambio = _safe_decimal(tc_raw)
+                            break
+                return total, moneda, tipo_cambio
 
     # Fallback: MontoTotalPagos siempre en MXN
     totales_node = _find_node(root, "Totales")
     if totales_node is not None:
         monto = _safe_decimal(_get_attr(totales_node, "MontoTotalPagos"))
         if monto is not None:
-            return monto, "MXN"
+            return monto, "MXN", None
 
-    return None, "MXN"
+    return None, "MXN", None
 
 
 def _detect_tipo_factura(
@@ -234,9 +242,10 @@ def parse_cfdi_xml(content: bytes, filename: str) -> CfdiData:
     # Extraer tipo de comprobante (necesario para logica de total)
     tipo_comprobante = _get_attr(root, "TipoDeComprobante")
 
-    # Extraer total y moneda — para tipo P el nodo raiz siempre tiene Total="0" y Moneda="XXX"
+    # Extraer total, moneda y TC — para tipo P el nodo raiz siempre tiene Total="0" y Moneda="XXX"
+    tipo_cambio_xml: Optional[Decimal] = None
     if tipo_comprobante == "P":
-        total, moneda_pago = _extract_pago_info(root)
+        total, moneda_pago, tipo_cambio_xml = _extract_pago_info(root)
         if total is None:
             raise ValueError("CFDI tipo Pago sin monto en complemento pago20")
     else:
@@ -245,6 +254,11 @@ def parse_cfdi_xml(content: bytes, filename: str) -> CfdiData:
         if total is None:
             raise ValueError("XML sin monto total")
         moneda_pago = None  # se lee del nodo raiz abajo
+        moneda_raiz = _get_attr(root, "Moneda", "MXN")
+        if moneda_raiz != "MXN":
+            tc_raw = _get_attr(root, "TipoCambio")
+            if tc_raw and tc_raw != "1":
+                tipo_cambio_xml = _safe_decimal(tc_raw)
 
     # Extraer conceptos
     conceptos = _extract_conceptos(root)
@@ -272,6 +286,7 @@ def parse_cfdi_xml(content: bytes, filename: str) -> CfdiData:
         conceptos=conceptos,
         relacionados=relacionados,
         tipo_factura=tipo_factura,
+        tipo_cambio_xml=tipo_cambio_xml,
     )
 
     logger.info(

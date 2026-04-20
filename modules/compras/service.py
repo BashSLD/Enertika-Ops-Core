@@ -890,9 +890,11 @@ class ComprasService:
                 for c in conceptos
             ]
 
+            tc_xml = cfdi_data.get('tipo_cambio_xml')
             await db_svc.guardar_conceptos_historial(
                 conn, uuid_factura, id_comprobante, id_proveedor,
-                conceptos_dicts, fecha_factura, user_id
+                conceptos_dicts, fecha_factura, user_id,
+                tipo_cambio_xml=tc_xml
             )
 
         # 4. Guardar CFDI relacionados

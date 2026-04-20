@@ -392,6 +392,9 @@ class CfdiData(BaseModel):
     # Tipo detectado
     tipo_factura: TipoFactura = TipoFactura.NORMAL
 
+    # Tipo de cambio SAT-certificado al momento de timbrar (None si moneda=MXN)
+    tipo_cambio_xml: Optional[Decimal] = None
+
     @field_validator('total', 'subtotal', mode='before')
     @classmethod
     def convert_decimal(cls, v):
