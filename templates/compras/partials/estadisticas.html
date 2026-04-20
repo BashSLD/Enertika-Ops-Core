@@ -37,4 +37,10 @@
         <p class="text-xs text-gray-500 uppercase">Total USD</p>
         <p class="text-xl font-bold text-gray-800">${{ "{:,.2f}".format(estadisticas.total_usd) }}</p>
     </div>
+    {% if estadisticas.xml_pendientes is defined and estadisticas.xml_pendientes > 0 %}
+    <div class="bg-white rounded-lg shadow p-4 border-l-4 border-amber-400">
+        <p class="text-xs text-gray-500 uppercase">XMLs sin confirmar</p>
+        <p class="text-2xl font-bold text-amber-600">{{ estadisticas.xml_pendientes }}</p>
+    </div>
+    {% endif %}
 </div>

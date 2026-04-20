@@ -137,6 +137,14 @@
         };
 
         window.clearXmlUploadModal = function () {
+            if (window.__xmlToConfirm && window.__xmlToConfirm > 0) {
+                const n = window.__xmlToConfirm;
+                const label = n === 1 ? '1 XML sin confirmar' : n + ' XMLs sin confirmar';
+                if (!confirm('Tienes ' + label + '. Si cierras, perderás el progreso. ¿Deseas cerrar de todos modos?')) {
+                    return;
+                }
+            }
+            window.__xmlToConfirm = 0;
             xmlStoredFiles = [];
             if (xmlFileInput) xmlFileInput.value = '';
             if (xmlResultContainer) xmlResultContainer.innerHTML = '';

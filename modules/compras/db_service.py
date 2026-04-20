@@ -1099,6 +1099,38 @@ class ComprasDBService:
         """, estatus_anterior, id_comprobante)
         return True
 
+    # ========================================
+    # XML STAGING
+    # ========================================
+
+    async def upsert_xml_staging(
+        self, conn, uuid_factura: str, emisor_rfc: str, emisor_nombre: str,
+        monto: Decimal, moneda: str, tipo_factura: str, match_type: str, user_id: UUID
+    ):
+        await conn.execute("""
+            INSERT INTO tb_xml_staging
+                (uuid_factura, emisor_rfc, emisor_nombre, monto, moneda,
+                 tipo_factura, match_type, estado, uploaded_by_id, updated_at)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,'PENDIENTE',$8,NOW())
+            ON CONFLICT (uuid_factura) DO UPDATE SET
+                estado = 'PENDIENTE',
+                match_type = EXCLUDED.match_type,
+                updated_at = NOW()
+        """, uuid_factura, emisor_rfc, emisor_nombre, monto, moneda,
+            tipo_factura, match_type, user_id)
+
+    async def confirm_xml_staging(self, conn, uuid_factura: str):
+        await conn.execute("""
+            UPDATE tb_xml_staging SET estado = 'CONFIRMADO', updated_at = NOW()
+            WHERE uuid_factura = $1
+        """, uuid_factura)
+
+    async def get_xml_pendientes_count(self, conn) -> int:
+        val = await conn.fetchval(
+            "SELECT COUNT(*) FROM tb_xml_staging WHERE estado = 'PENDIENTE'"
+        )
+        return int(val or 0)
+
 
 def get_db_service():
     return ComprasDBService()

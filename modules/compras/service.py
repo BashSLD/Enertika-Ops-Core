@@ -523,6 +523,7 @@ class ComprasService:
             }
             
         stats = await db_svc.get_estadisticas(conn, filtros)
+        xml_pendientes = await db_svc.get_xml_pendientes_count(conn)
 
         return {
             "total": stats['total'],
@@ -532,7 +533,8 @@ class ComprasService:
             "parciales": stats.get('parciales', 0),
             "cerrados": stats.get('cerrados', 0),
             "total_mxn": float(stats['total_mxn']),
-            "total_usd": float(stats['total_usd'])
+            "total_usd": float(stats['total_usd']),
+            "xml_pendientes": xml_pendientes,
         }
 
 
@@ -628,6 +630,14 @@ class ComprasService:
             match_result.xml_content_b64 = base64.b64encode(content).decode('ascii')
 
             result.procesados.append(match_result)
+            try:
+                await db_svc.upsert_xml_staging(
+                    conn, cfdi.uuid, cfdi.emisor_rfc, cfdi.emisor_nombre,
+                    cfdi.total, cfdi.moneda, cfdi.tipo_factura.value,
+                    match_result.match_type, user_id
+                )
+            except Exception as e:
+                logger.warning("No se pudo registrar XML en staging: %s", e)
 
         logger.info(
             "XMLs procesados: %d OK, %d duplicados, %d errores",
@@ -945,6 +955,11 @@ class ComprasService:
             "Match confirmado: UUID=%s, Comprobante=%s, Proveedor=%s, Tipo=%s, Estatus=%s",
             uuid_factura[:8], id_comprobante, emisor_rfc, tipo_factura, nuevo_estatus
         )
+
+        try:
+            await db_svc.confirm_xml_staging(conn, uuid_factura)
+        except Exception as e:
+            logger.warning("No se pudo actualizar staging de XML: %s", e)
 
         return {
             "uuid_factura": uuid_factura,

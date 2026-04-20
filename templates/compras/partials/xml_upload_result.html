@@ -460,4 +460,7 @@
     {% endif %}
 
 </div>
+<script>
+  window.__xmlToConfirm = {{ (result.procesados | length) if result and result.procesados else 0 }};
+</script>
 {% endif %}
