@@ -1073,8 +1073,9 @@ async def backfill_tc_materiales(
     # Obtener token de acceso para SharePoint
     ms_auth = get_ms_auth()
     try:
-        token_data = await ms_auth.get_application_token()
-        access_token = token_data.get("access_token")
+        access_token = await ms_auth.get_application_token()
+        if not access_token:
+            raise ValueError("Token vacío")
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"No se pudo obtener token MS: {e}")
 

@@ -1118,7 +1118,7 @@ class ComprasDBService:
               AND d.drive_item_id IS NOT NULL
               AND EXISTS (
                 SELECT 1 FROM tb_materiales_historial m
-                WHERE m.uuid_factura = d.metadata->>'uuid_factura'
+                WHERE m.uuid_factura = (d.metadata->>'uuid_factura')::uuid
                   AND m.tipo_cambio_xml IS NULL
               )
         """)
@@ -1130,7 +1130,7 @@ class ComprasDBService:
         result = await conn.execute("""
             UPDATE tb_materiales_historial
             SET tipo_cambio_xml = $1
-            WHERE uuid_factura = $2 AND tipo_cambio_xml IS NULL
+            WHERE uuid_factura = $2::uuid AND tipo_cambio_xml IS NULL
         """, tipo_cambio, uuid_factura)
         return int(result.split()[-1])
 
