@@ -617,13 +617,21 @@ class ComprasDBService:
         cat_map = await self.get_categorias_by_claves_sat(conn, claves_sat) if claves_sat else {}
 
         auto_cat_count = 0
+        rows = []
         for c in conceptos:
             clave_sat = c.get('clave_prod_serv')
             id_categoria = cat_map.get(clave_sat) if clave_sat else None
             if id_categoria:
                 auto_cat_count += 1
+            rows.append((
+                uuid_factura, id_comprobante, id_proveedor,
+                c['descripcion'], c['cantidad'], c['valor_unitario'],
+                c['importe'], c.get('unidad'), clave_sat,
+                c.get('clave_unidad'), id_categoria, 'XML', fecha_factura, user_id
+            ))
 
-            await conn.execute("""
+        if rows:
+            await conn.executemany("""
                 INSERT INTO tb_materiales_historial (
                     uuid_factura, id_comprobante, id_proveedor,
                     descripcion_proveedor, cantidad, precio_unitario,
@@ -632,12 +640,7 @@ class ComprasDBService:
                 ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                 ON CONFLICT (uuid_factura, descripcion_proveedor, cantidad, precio_unitario)
                 DO NOTHING
-            """,
-                uuid_factura, id_comprobante, id_proveedor,
-                c['descripcion'], c['cantidad'], c['valor_unitario'],
-                c['importe'], c.get('unidad'), clave_sat,
-                c.get('clave_unidad'), id_categoria, 'XML', fecha_factura, user_id
-            )
+            """, rows)
 
         if auto_cat_count:
             logger.info(
@@ -649,17 +652,19 @@ class ComprasDBService:
         self, conn, uuid_factura: str, relacionados: List[dict]
     ):
         """Guarda los CFDI relacionados del XML."""
-        for rel in relacionados:
-            await conn.execute("""
-                INSERT INTO tb_cfdi_relacionados
-                    (uuid_factura, uuid_relacionado, tipo_relacion, tipo_relacion_desc)
-                VALUES ($1, $2, $3, $4)
-                ON CONFLICT (uuid_factura, uuid_relacionado, tipo_relacion)
-                DO NOTHING
-            """,
-                uuid_factura, rel['uuid'],
-                rel['tipo_relacion'], rel.get('tipo_relacion_desc')
-            )
+        if not relacionados:
+            return
+        rows = [
+            (uuid_factura, rel['uuid'], rel['tipo_relacion'], rel.get('tipo_relacion_desc'))
+            for rel in relacionados
+        ]
+        await conn.executemany("""
+            INSERT INTO tb_cfdi_relacionados
+                (uuid_factura, uuid_relacionado, tipo_relacion, tipo_relacion_desc)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (uuid_factura, uuid_relacionado, tipo_relacion)
+            DO NOTHING
+        """, rows)
 
     async def registrar_archivo_sharepoint(
         self, conn, id_comprobante: Optional[UUID], origen_slug: str,
@@ -946,6 +951,18 @@ class ComprasDBService:
 
         Retorna dict con nuevo estatus y monto_facturado.
         """
+        comprobante_row = await conn.fetchrow(
+            "SELECT estatus FROM tb_comprobantes_pago WHERE id_comprobante = $1",
+            id_comprobante
+        )
+        if not comprobante_row:
+            raise ValueError("Comprobante no encontrado")
+        if comprobante_row['estatus'] == 'CERRADO':
+            raise ValueError(
+                "No se puede desvincular una factura de un comprobante cerrado. "
+                "Reabre el comprobante primero."
+            )
+
         tolerancia = Decimal("0.50")
 
         # Eliminar de junction

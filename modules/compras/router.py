@@ -870,10 +870,7 @@ async def get_facturas_vinculadas(
     Lista las facturas vinculadas a un comprobante con barra de progreso.
     Incluye botones para cerrar remanente o desvincular facturas.
     """
-    from .db_service import get_db_service
-    db_svc = get_db_service()
-
-    comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+    comprobante = await service.get_comprobante_by_id(conn, id_comprobante)
     if not comprobante:
         raise HTTPException(status_code=404, detail="Comprobante no encontrado")
 
@@ -916,9 +913,7 @@ async def desvincular_factura(
         )
 
     # Retornar panel actualizado + toast
-    from .db_service import get_db_service
-    db_svc = get_db_service()
-    comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+    comprobante = await service.get_comprobante_by_id(conn, id_comprobante)
     facturas = await service.get_facturas_vinculadas(conn, id_comprobante)
 
     monto_total = float(comprobante.get('monto') or 0)
@@ -969,9 +964,7 @@ async def cerrar_remanente(
         )
 
     # Retornar panel actualizado + toast
-    from .db_service import get_db_service
-    db_svc = get_db_service()
-    comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+    comprobante = await service.get_comprobante_by_id(conn, id_comprobante)
     facturas = await service.get_facturas_vinculadas(conn, id_comprobante)
 
     monto_total = float(comprobante.get('monto') or 0)
@@ -1019,9 +1012,7 @@ async def reabrir_comprobante(
         )
 
     # Retornar panel actualizado + toast
-    from .db_service import get_db_service
-    db_svc = get_db_service()
-    comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+    comprobante = await service.get_comprobante_by_id(conn, id_comprobante)
     facturas = await service.get_facturas_vinculadas(conn, id_comprobante)
 
     monto_total = float(comprobante.get('monto') or 0)
