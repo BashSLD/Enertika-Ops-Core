@@ -1308,10 +1308,12 @@
             if (container) {
                 const div = document.createElement('div');
                 div.innerHTML = toastHtml;
-                container.appendChild(div.firstElementChild);
+                const toastEl = div.firstElementChild;
+                if (!toastEl) return;
+                container.appendChild(toastEl);
 
                 setTimeout(() => {
-                    if (div.firstElementChild) div.firstElementChild.remove();
+                    if (toastEl && toastEl.isConnected) toastEl.remove();
                 }, 5000);
             }
         }

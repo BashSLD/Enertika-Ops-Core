@@ -51,9 +51,7 @@
                 Esta poliza ya no puede cambiar de estatus.
             </div>
         </div>
-        <div class="px-5 py-4 border-t border-gray-200 flex justify-end">
-            <button @click="cerrar()" class="btn-secondary text-sm px-4 py-2 rounded-lg">Cerrar</button>
-        </div>
+        
 
         {# ── ACEPTADA → solo CANCELADA (requiere admin) ────────────── #}
         {% elif cotizacion.estatus == 'ACEPTADA' %}
@@ -101,9 +99,7 @@
                 Solo administradores pueden cancelar una poliza activa.
             </div>
         </div>
-        <div class="px-5 py-4 border-t border-gray-200 flex justify-end">
-            <button @click="cerrar()" class="btn-secondary text-sm px-4 py-2 rounded-lg">Cerrar</button>
-        </div>
+        
         {% endif %}
 
         {# ── Flujo normal: mostrar transiciones permitidas ─────────── #}
