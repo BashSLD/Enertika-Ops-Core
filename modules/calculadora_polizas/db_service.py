@@ -15,7 +15,7 @@ class CalculadoraDBService:
 
     async def get_plantas_dropdown(self, conn) -> list:
         rows = await conn.fetch("""
-            SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, es_externa, id_proyecto, zona_incidencia
+            SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, es_externa, id_proyecto, zona_incidencia, id_incidencia
             FROM tb_calculadora_plantas
             WHERE activa = TRUE
             ORDER BY nombre
@@ -36,7 +36,7 @@ class CalculadoraDBService:
             SELECT
                 p.id, p.nombre, p.zona, p.potencia_kw, p.num_paneles, p.cliente, p.direccion,
                 p.es_externa, p.activa, p.created_at, p.updated_at,
-                p.id_proyecto, p.zona_incidencia,
+                p.id_proyecto, p.zona_incidencia, p.id_incidencia,
                 -- Póliza con cobertura hoy (ACEPTADA o TERMINADA dentro de su rango de fechas)
                 vig.id::text              AS poliza_vigente_id,
                 vig.estatus               AS poliza_vigente_estatus,
@@ -76,11 +76,39 @@ class CalculadoraDBService:
     async def get_planta_by_id(self, conn, planta_id: str) -> Optional[dict]:
         row = await conn.fetchrow("""
             SELECT id, nombre, zona, potencia_kw, num_paneles, cliente, direccion,
-                   es_externa, activa, created_at, updated_at, id_proyecto, zona_incidencia
+                   es_externa, activa, created_at, updated_at, id_proyecto, zona_incidencia, id_incidencia
             FROM tb_calculadora_plantas
             WHERE id = $1
         """, planta_id)
         return dict(row) if row else None
+
+    async def get_plantas_by_mx_base(self, conn, base_id: str, exclude_id: Optional[str] = None) -> list:
+        rows = await conn.fetch(
+            """
+            SELECT id, nombre
+            FROM tb_calculadora_plantas
+            WHERE (id = $1 OR id LIKE ($1 || '-%'))
+              AND ($2::text IS NULL OR id <> $2)
+            ORDER BY id
+            """,
+            base_id,
+            exclude_id,
+        )
+        return [dict(r) for r in rows]
+
+    async def get_plantas_by_id_incidencia(self, conn, id_incidencia: str, exclude_id: Optional[str] = None) -> list:
+        rows = await conn.fetch(
+            """
+            SELECT id, nombre
+            FROM tb_calculadora_plantas
+            WHERE id_incidencia = $1
+              AND ($2::text IS NULL OR id <> $2)
+            ORDER BY id
+            """,
+            id_incidencia,
+            exclude_id,
+        )
+        return [dict(r) for r in rows]
 
     async def upsert_planta(self, conn, planta: dict) -> bool:
         """Inserta o actualiza una planta. Retorna True si fue un INSERT nuevo, False si fue UPDATE."""
@@ -92,8 +120,8 @@ class CalculadoraDBService:
             
         row = await conn.fetchrow("""
             INSERT INTO tb_calculadora_plantas
-                (id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, es_externa, activa, id_proyecto, zona_incidencia, updated_at)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NOW())
+                (id, nombre, zona, potencia_kw, num_paneles, cliente, direccion, es_externa, activa, id_proyecto, zona_incidencia, id_incidencia, updated_at)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, NOW())
             ON CONFLICT (id) DO UPDATE SET
                 nombre          = EXCLUDED.nombre,
                 zona            = EXCLUDED.zona,
@@ -105,6 +133,7 @@ class CalculadoraDBService:
                 activa          = EXCLUDED.activa,
                 id_proyecto     = EXCLUDED.id_proyecto,
                 zona_incidencia = EXCLUDED.zona_incidencia,
+                id_incidencia   = EXCLUDED.id_incidencia,
                 updated_at      = NOW()
             RETURNING (xmax = 0) AS was_insert
         """, planta["id"], planta["nombre"], planta["zona"],
@@ -112,7 +141,7 @@ class CalculadoraDBService:
              planta.get("cliente"), planta.get("direccion"),
              planta.get("es_externa", False),
              planta.get("activa", True),
-             id_proyecto, planta.get("zona_incidencia"))
+             id_proyecto, planta.get("zona_incidencia"), planta.get("id_incidencia"))
         return bool(row["was_insert"])
 
     async def update_planta(self, conn, planta_id: str, campos: dict) -> bool:
