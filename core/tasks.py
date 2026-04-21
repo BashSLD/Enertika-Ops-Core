@@ -526,10 +526,23 @@ async def check_recordatorios_oportunidad_ganada_periodically(interval_seconds: 
                     WHERE r.activo = TRUE
                       AND EXISTS (
                           SELECT 1
-                          FROM tb_proyectos_gate p
-                          WHERE p.id_oportunidad = r.id_oportunidad
+                          FROM tb_sitios_oportunidad s
+                          WHERE s.id_oportunidad = r.id_oportunidad
+                            AND s.id_estatus_global = $1
                       )
-                    """
+                      AND NOT EXISTS (
+                          SELECT 1
+                          FROM tb_sitios_oportunidad s
+                          WHERE s.id_oportunidad = r.id_oportunidad
+                            AND s.id_estatus_global = $1
+                            AND NOT EXISTS (
+                                SELECT 1
+                                FROM tb_proyectos_gate p
+                                WHERE p.id_sitio = s.id_sitio
+                            )
+                      )
+                    """,
+                    ganada_id,
                 )
 
                 # Claim de lotes para evitar doble envío entre workers
@@ -542,10 +555,22 @@ async def check_recordatorios_oportunidad_ganada_periodically(interval_seconds: 
                         WHERE r.activo = TRUE
                           AND r.proximo_recordatorio_at <= NOW()
                           AND o.id_estatus_global = $1
-                          AND NOT EXISTS (
+                          AND EXISTS (
                               SELECT 1
-                              FROM tb_proyectos_gate p
-                              WHERE p.id_oportunidad = r.id_oportunidad
+                              FROM tb_sitios_oportunidad s
+                              WHERE s.id_oportunidad = r.id_oportunidad
+                                AND s.id_estatus_global = $1
+                          )
+                          AND EXISTS (
+                              SELECT 1
+                              FROM tb_sitios_oportunidad s
+                              WHERE s.id_oportunidad = r.id_oportunidad
+                                AND s.id_estatus_global = $1
+                                AND NOT EXISTS (
+                                    SELECT 1
+                                    FROM tb_proyectos_gate p
+                                    WHERE p.id_sitio = s.id_sitio
+                                )
                           )
                         ORDER BY r.proximo_recordatorio_at ASC
                         LIMIT 25
@@ -569,11 +594,24 @@ async def check_recordatorios_oportunidad_ganada_periodically(interval_seconds: 
                     id_oportunidad = row["id_oportunidad"]
                     reminder_count = int(row["recordatorios_enviados"] or 0)
 
-                    proyecto_exists = await conn.fetchval(
-                        "SELECT 1 FROM tb_proyectos_gate WHERE id_oportunidad = $1",
+                    cobertura_completa = await conn.fetchval(
+                        """
+                        SELECT NOT EXISTS (
+                            SELECT 1
+                            FROM tb_sitios_oportunidad s
+                            WHERE s.id_oportunidad = $1
+                              AND s.id_estatus_global = $2
+                              AND NOT EXISTS (
+                                  SELECT 1
+                                  FROM tb_proyectos_gate p
+                                  WHERE p.id_sitio = s.id_sitio
+                              )
+                        )
+                        """,
                         id_oportunidad,
+                        ganada_id,
                     )
-                    if proyecto_exists:
+                    if cobertura_completa:
                         await conn.execute(
                             """
                             UPDATE tb_recordatorios_oportunidad_ganada

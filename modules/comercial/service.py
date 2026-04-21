@@ -1666,7 +1666,7 @@ class ComercialService:
         Args:
             conn: Conexión asyncpg
             id_oportunidad: UUID de la oportunidad
-            sitios_ganados: Lista de UUIDs de sitios ganados (vacía = todos ganados)
+            sitios_ganados: Lista de UUIDs de sitios ganados
             user_context: Contexto del usuario actual
             
         Returns:
@@ -1699,6 +1699,32 @@ class ComercialService:
         
         # Obtener cantidad de sitios para determinar lógica
         sitios_count = await conn.fetchval(QUERY_COUNT_SITIOS_BY_OP, id_oportunidad)
+
+        # Regla dura: en multisitio debe existir seleccion explicita de al menos un sitio
+        if sitios_count > 1 and (not sitios_ganados or len(sitios_ganados) == 0):
+            raise HTTPException(
+                status_code=400,
+                detail="Debes seleccionar al menos un sitio ganado para cerrar una oportunidad multisitio."
+            )
+
+        # Validar que los sitios seleccionados pertenezcan a la oportunidad
+        sitios_ganados = list(dict.fromkeys(sitios_ganados or []))
+        if sitios_ganados:
+            sitios_validos = await conn.fetchval(
+                """
+                SELECT COUNT(*)
+                FROM tb_sitios_oportunidad
+                WHERE id_oportunidad = $1
+                  AND id_sitio = ANY($2::uuid[])
+                """,
+                id_oportunidad,
+                sitios_ganados,
+            )
+            if int(sitios_validos or 0) != len(sitios_ganados):
+                raise HTTPException(
+                    status_code=400,
+                    detail="La selección contiene sitios inválidos para esta oportunidad."
+                )
         
         async with conn.transaction():
             if sitios_ganados and len(sitios_ganados) > 0:

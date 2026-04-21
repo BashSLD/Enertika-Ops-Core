@@ -218,10 +218,37 @@ async def get_detalle_oportunidad_modal(
         sitios = [dict(row) for row in sitios_rows]
 
     # 4. Datos para sección "Recordatorio de Proyecto" (solo relevante si status=Ganada)
-    tiene_proyecto = bool(await conn.fetchrow(
-        "SELECT id_proyecto FROM tb_proyectos_gate WHERE id_oportunidad = $1 LIMIT 1",
-        id_oportunidad
-    ))
+    progreso_proyectos = await conn.fetchrow(
+        """
+        SELECT
+            COUNT(*) FILTER (
+                WHERE s.id_estatus_global = (
+                    SELECT id
+                    FROM tb_cat_estatus_oportunidades
+                    WHERE LOWER(nombre) = 'ganada'
+                    LIMIT 1
+                )
+            ) AS sitios_ganados_total,
+            COUNT(*) FILTER (
+                WHERE s.id_estatus_global = (
+                    SELECT id
+                    FROM tb_cat_estatus_oportunidades
+                    WHERE LOWER(nombre) = 'ganada'
+                    LIMIT 1
+                )
+                AND p.id_proyecto IS NOT NULL
+            ) AS sitios_con_proyecto_total
+        FROM tb_sitios_oportunidad s
+        LEFT JOIN tb_proyectos_gate p ON p.id_sitio = s.id_sitio
+        WHERE s.id_oportunidad = $1
+        """,
+        id_oportunidad,
+    )
+    progreso_data = dict(progreso_proyectos) if progreso_proyectos else {}
+    sitios_ganados_total = int(progreso_data.get("sitios_ganados_total") or 0)
+    sitios_con_proyecto_total = int(progreso_data.get("sitios_con_proyecto_total") or 0)
+    tiene_proyecto = sitios_con_proyecto_total > 0
+    proyectos_completos = sitios_ganados_total > 0 and sitios_con_proyecto_total >= sitios_ganados_total
     notificacion_ganada_at = op.get('notificacion_ganada_at')
 
     return templates.TemplateResponse(request, "shared/modals/detalle_oportunidad_modal.html", {"op": op,
@@ -230,6 +257,9 @@ async def get_detalle_oportunidad_modal(
         "sitios": sitios,
         "show_solicitar_actions": source_module == "comercial",
         "tiene_proyecto": tiene_proyecto,
+        "proyectos_completos": proyectos_completos,
+        "sitios_ganados_total": sitios_ganados_total,
+        "sitios_con_proyecto_total": sitios_con_proyecto_total,
         "notificacion_ganada_at": notificacion_ganada_at,
     })
 

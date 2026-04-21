@@ -18,6 +18,7 @@ QUERY_GET_OPORTUNIDADES_LIST = """
         lev.id_levantamiento,
         u_tecnico.nombre as tecnico_asignado_nombre,
         pg.id_proyecto,
+        COALESCE(pg.proyectos_count, 0) as proyectos_count,
         pg.area_actual AS proyecto_area_actual
     FROM tb_oportunidades o
     LEFT JOIN tb_cat_estatus_oportunidades estatus ON o.id_estatus_global = estatus.id
@@ -34,7 +35,15 @@ QUERY_GET_OPORTUNIDADES_LIST = """
     ) lev ON o.id_oportunidad = lev.id_oportunidad
     LEFT JOIN tb_cat_estatus_levantamiento lev_estatus ON lev.id_estatus_global = lev_estatus.id
     LEFT JOIN tb_usuarios u_tecnico ON lev.tecnico_asignado_id = u_tecnico.id_usuario
-    LEFT JOIN tb_proyectos_gate pg ON pg.id_oportunidad = o.id_oportunidad
+    LEFT JOIN (
+        SELECT
+            p.id_oportunidad,
+            MIN(p.id_proyecto) AS id_proyecto,
+            COUNT(*)::int AS proyectos_count,
+            (ARRAY_AGG(p.area_actual ORDER BY p.fecha_inicio_area DESC NULLS LAST, p.created_at DESC NULLS LAST))[1] AS area_actual
+        FROM tb_proyectos_gate p
+        GROUP BY p.id_oportunidad
+    ) pg ON pg.id_oportunidad = o.id_oportunidad
     WHERE o.email_enviado = true
 """
 
@@ -416,13 +425,18 @@ QUERY_UPDATE_NOTIFICACION_GANADA_AT = """
 """
 
 QUERY_GET_PROYECTO_FOR_OPORTUNIDAD = """
-    SELECT id_proyecto FROM tb_proyectos_gate WHERE id_oportunidad = $1 LIMIT 1
+    SELECT id_proyecto
+    FROM tb_proyectos_gate
+    WHERE id_oportunidad = $1
+    ORDER BY created_at DESC
+    LIMIT 1
 """
 
 QUERY_GET_PROGRESO_GATE = """
     SELECT id_proyecto, area_actual, fecha_inicio_area, status_fase
     FROM tb_proyectos_gate
     WHERE id_oportunidad = $1
+    ORDER BY created_at DESC
     LIMIT 1
 """
 

@@ -1121,7 +1121,7 @@ async def delete_sitio_endpoint(
 async def cierre_venta(
     request: Request,
     id_oportunidad: UUID,
-    sitios_ganados: List[UUID] = Form(default=[]),  # Solo para multisitio (opcional)
+    sitios_ganados: List[UUID] = Form(default=[]),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
     user_context = Depends(get_current_user_context),
@@ -1132,7 +1132,7 @@ async def cierre_venta(
     
     Reglas de negocio:
     - Solo se puede ejecutar si status actual = Entregado
-    - Para multisitio: sitios_ganados define cuáles sitios se ganaron (el resto = Perdido)
+    - Para multisitio: sitios_ganados es obligatorio y define cuáles sitios se ganaron (el resto = Perdido)
     - Para unisitio: todos los sitios pasan a Ganada
     - Los KPIs ya fueron calculados en el paso anterior, se heredan
     """

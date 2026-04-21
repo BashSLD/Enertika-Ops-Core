@@ -88,7 +88,45 @@
                             class="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden">
 
                             <form hx-post="/comercial/cierre-venta/{{ op.id_oportunidad }}" hx-swap="none"
-                                x-data="{ loading: false }" @submit="loading = true"
+                                x-data="{
+                                    loading: false,
+                                    showWarningModal: false,
+                                    allSelected: false,
+                                    totalSitios() {
+                                        return this.$el.querySelectorAll('input[name=sitios_ganados]').length;
+                                    },
+                                    selectedSitios() {
+                                        return this.$el.querySelectorAll('input[name=sitios_ganados]:checked').length;
+                                    },
+                                    unselectedSitios() {
+                                        return Math.max(this.totalSitios() - this.selectedSitios(), 0);
+                                    },
+                                    setAllChecked(checked) {
+                                        this.$el.querySelectorAll('input[name=sitios_ganados]').forEach(cb => cb.checked = checked);
+                                        this.allSelected = checked;
+                                    },
+                                    updateSelectAll() {
+                                        const checkboxes = Array.from(this.$el.querySelectorAll('input[name=sitios_ganados]'));
+                                        this.allSelected = checkboxes.length > 0 && checkboxes.every(cb => cb.checked);
+                                    },
+                                    onSubmit() {
+                                        if (this.totalSitios() > 0) {
+                                            if (this.selectedSitios() === 0) {
+                                                return;
+                                            }
+                                            this.showWarningModal = true;
+                                            return;
+                                        }
+                                        this.loading = true;
+                                        this.$el.submit();
+                                    },
+                                    confirmSubmit() {
+                                        this.loading = true;
+                                        this.showWarningModal = false;
+                                        this.$el.submit();
+                                    }
+                                }"
+                                @submit.prevent="onSubmit()"
                                 class="divide-y divide-gray-100">
 
                                 <!-- Header del Dropdown -->
@@ -107,19 +145,7 @@
                                 <div class="p-4">
                                     {% if op.cantidad_sitios > 1 and sitios %}
                                     <!-- Multisitio: Selección de sitios ganados -->
-                                    <div class="mb-4" x-data="{ 
-                                        allSelected: true,
-                                        setAllChecked(checked) {
-                                            document.querySelectorAll('input[name=sitios_ganados]').forEach(cb => cb.checked = checked);
-                                            this.allSelected = checked;
-                                        },
-                                        updateSelectAll() {
-                                            const checkboxes = document.querySelectorAll('input[name=sitios_ganados]');
-                                            const allChecked = Array.from(checkboxes).every(cb => cb.checked);
-                                            this.allSelected = allChecked;
-                                        }
-                                    }"
-                                        x-init="$nextTick(() => document.querySelectorAll('input[name=sitios_ganados]').forEach(cb => cb.checked = true))">
+                                    <div class="mb-4">
                                         <label class="block text-sm font-medium text-gray-700 mb-2">
                                             <svg class="w-4 h-4 inline mr-1" fill="none" stroke="currentColor"
                                                 viewBox="0 0 24 24">
@@ -152,8 +178,11 @@
                                             </label>
                                             {% endfor %}
                                         </div>
+                                        <p x-show="selectedSitios() === 0" class="text-xs text-red-600 mt-2 font-medium">
+                                            Debes seleccionar al menos un sitio para continuar.
+                                        </p>
                                         <p class="text-xs text-gray-500 mt-2 italic">
-                                            ⚠️ Sitios <strong>no seleccionados</strong> quedarán como "Perdido"
+                                            Sitios <strong>no seleccionados</strong> quedarán como "Perdido".
                                         </p>
                                     </div>
                                     {% else %}
@@ -190,7 +219,7 @@
                                         class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
                                         Cancelar
                                     </button>
-                                    <button type="submit" :disabled="loading"
+                                    <button type="submit" :disabled="loading || (totalSitios() > 0 && selectedSitios() === 0)"
                                         class="px-4 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition shadow-sm flex items-center gap-1 disabled:opacity-70 disabled:cursor-not-allowed">
                                         <!-- Spinner (loading) -->
                                         <svg x-show="loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -202,8 +231,39 @@
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                 d="M5 13l4 4L19 7" />
                                         </svg>
-                                        <span x-text="loading ? 'Procesando...' : 'Confirmar Cierre'"></span>
+                                        <span x-text="loading ? 'Procesando...' : (totalSitios() > 0 ? 'Revisar y Confirmar' : 'Confirmar Cierre')"></span>
                                     </button>
+                                </div>
+
+                                <div x-show="showWarningModal" x-cloak
+                                    class="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                                    <div class="w-full max-w-md bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden">
+                                        <div class="px-5 py-4 bg-amber-50 border-b border-amber-200">
+                                            <h5 class="text-sm font-bold text-amber-900">Advertencia antes de cerrar</h5>
+                                            <p class="text-xs text-amber-700 mt-1">Revisa el impacto del cierre multisitio.</p>
+                                        </div>
+                                        <div class="px-5 py-4 space-y-3">
+                                            <p class="text-sm text-gray-800">
+                                                Sitios seleccionados como <strong>Ganada</strong>:
+                                                <strong x-text="selectedSitios()"></strong>
+                                            </p>
+                                            <p class="text-sm text-gray-800">
+                                                Sitios que se marcarán como <strong>Perdido</strong>:
+                                                <strong class="text-red-600" x-text="unselectedSitios()"></strong>
+                                            </p>
+                                            <p class="text-xs text-gray-500">Esta acción impacta el estatus de todos los sitios no seleccionados.</p>
+                                        </div>
+                                        <div class="px-5 py-3 bg-gray-50 border-t border-gray-200 flex justify-end gap-2">
+                                            <button type="button" @click="showWarningModal = false"
+                                                class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                                                Regresar
+                                            </button>
+                                            <button type="button" @click="confirmSubmit()"
+                                                class="px-3 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition">
+                                                Continuar y Cerrar
+                                            </button>
+                                        </div>
+                                    </div>
                                 </div>
                             </form>
                         </div>
@@ -242,11 +302,16 @@
                     Ultimo envio: {{ notificacion_ganada_at | time_mx }}
                 </p>
                 {% endif %}
-                {% if tiene_proyecto %}
-                <p class="text-xs text-gray-500">El proyecto ya fue creado en Projects Gate.</p>
+                {% if sitios_ganados_total is defined and sitios_ganados_total > 0 %}
+                <p class="text-xs text-gray-600 mb-2">
+                    Avance de proyectos: {{ sitios_con_proyecto_total }}/{{ sitios_ganados_total }} sitios ganados con proyecto.
+                </p>
+                {% endif %}
+                {% if (proyectos_completos is defined and proyectos_completos) or (proyectos_completos is not defined and tiene_proyecto) %}
+                <p class="text-xs text-gray-500">Todos los sitios ganados ya cuentan con proyecto en Projects Gate.</p>
                 {% else %}
                 <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                    Los recordatorios se envian automaticamente cada 48 horas hasta que se cree el proyecto.
+                    Los recordatorios se envian automaticamente cada 48 horas hasta que todos los sitios ganados tengan proyecto.
                 </p>
                 {% endif %}
             </div>
