@@ -252,7 +252,6 @@ async def get_analisis_detallado(
             "tecnologia": filtros.id_tecnologia,
             "tipo_solicitud": filtros.id_tipo_solicitud,
             "estatus": filtros.id_estatus,
-            "estatus": filtros.id_estatus,
             "usuario": str(filtros.responsable_id) if filtros.responsable_id else None
         },
         # Inyección de umbrales para evitar hardcodes en templates
