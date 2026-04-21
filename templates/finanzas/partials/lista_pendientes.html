@@ -11,22 +11,22 @@
     <table class="w-full text-sm">
         <thead>
             <tr class="text-left text-xs text-gray-500 uppercase tracking-wider border-b border-gray-200">
-                <th class="pb-2 pr-4">Proyecto</th>
-                <th class="pb-2 pr-4">Proveedor</th>
-                <th class="pb-2 pr-4">Monto</th>
-                <th class="pb-2 pr-4">Aprobado</th>
+                <th class="pb-2 pr-3">Proyecto</th>
+                <th class="pb-2 pr-3">Proveedor</th>
+                <th class="pb-2 pr-3">Monto</th>
+                <th class="pb-2 pr-3">Aprobado</th>
                 <th class="pb-2"></th>
             </tr>
         </thead>
         <tbody class="divide-y divide-gray-100" id="finanzas-pendientes-list">
             {% for a in pendientes %}
             <tr class="hover:bg-gray-50 transition-colors duration-100" id="finanzas-aut-{{ a.id }}">
-                <td class="py-3 pr-4">
+                <td class="py-2.5 pr-3">
                     <div class="font-medium text-gray-800">{{ a.proyecto_id_estandar or '—' }}</div>
                     <div class="text-xs text-gray-500">{{ a.nombre_proyecto or '' }}</div>
                 </td>
-                <td class="py-3 pr-4 text-gray-700">{{ a.nombre_proveedor or '—' }}</td>
-                <td class="py-3 pr-4">
+                <td class="py-2.5 pr-3 text-gray-700">{{ a.nombre_proveedor or '—' }}</td>
+                <td class="py-2.5 pr-3">
                     <span class="font-semibold text-gray-800">
                         {{ a.moneda }} ${{ "{:,.2f}".format(a.monto_total) }}
                     </span>
@@ -34,10 +34,10 @@
                     <div class="text-xs text-gray-400">TC {{ a.tipo_cambio_snapshot }}</div>
                     {% endif %}
                 </td>
-                <td class="py-3 pr-4 text-gray-500 text-xs">
+                <td class="py-2.5 pr-3 text-gray-500 text-xs">
                     {{ a.fecha_aprobacion_finanzas | time_mx if a.fecha_aprobacion_finanzas else '—' }}
                 </td>
-                <td class="py-3 text-right">
+                <td class="py-2.5 text-right">
                     {% if puede_registrar_pago %}
                     <button
                         hx-get="/finanzas/autorizaciones/{{ a.id }}/modal-pago"

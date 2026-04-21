@@ -4,14 +4,14 @@
 <div id="incidencias-kanban" class="flex flex-col gap-4 animate-fade-in-down">
 
     {# Header con acciones #}
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between gap-2">
         <div>
-            <p class="text-sm text-gray-500">Seguimiento de incidencias en plantas O&amp;M</p>
+            <p class="text-xs text-gray-500">Seguimiento de incidencias en plantas O&amp;M</p>
         </div>
         <div class="flex items-center gap-2">
             {% if puede_editar %}
             <button onclick="alert('Próximamente: Nueva Incidencia')"
-                    class="btn-primary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5">
+                    class="btn-primary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                 </svg>
@@ -45,7 +45,7 @@
         {# Columna 1: REPORTADA #}
         <div class="flex flex-col glass-panel rounded-xl shadow-sm border-t-4 border-red-400"
              x-data="{ open: true }">
-            <div class="p-4 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
+            <div class="p-3 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
                  @click="open = !open">
                 <h3 class="font-bold text-gray-700 flex justify-between items-center">
                     <span class="flex items-center gap-2">
@@ -59,7 +59,7 @@
                     <span class="bg-red-100 text-red-600 px-2.5 py-0.5 rounded-full text-sm font-bold">0</span>
                 </h3>
             </div>
-            <div class="p-3 flex-1 min-h-[200px]" x-show="open" x-transition>
+            <div class="p-3 flex-1 min-h-[160px]" x-show="open" x-transition>
                 {# Empty state #}
                 <div class="flex flex-col items-center justify-center h-full py-10 text-gray-300 gap-2">
                     <svg class="w-8 h-8 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -85,7 +85,7 @@
         {# Columna 2: EN REVISIÓN #}
         <div class="flex flex-col glass-panel rounded-xl shadow-sm border-t-4 border-amber-400"
              x-data="{ open: true }">
-            <div class="p-4 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
+            <div class="p-3 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
                  @click="open = !open">
                 <h3 class="font-bold text-gray-700 flex justify-between items-center">
                     <span class="flex items-center gap-2">
@@ -99,7 +99,7 @@
                     <span class="bg-amber-100 text-amber-600 px-2.5 py-0.5 rounded-full text-sm font-bold">0</span>
                 </h3>
             </div>
-            <div class="p-3 flex-1 min-h-[200px]" x-show="open" x-transition>
+            <div class="p-3 flex-1 min-h-[160px]" x-show="open" x-transition>
                 <div class="flex flex-col items-center justify-center h-full py-10 text-gray-300 gap-2">
                     <svg class="w-8 h-8 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
@@ -113,7 +113,7 @@
         {# Columna 3: EN PROCESO #}
         <div class="flex flex-col glass-panel rounded-xl shadow-sm border-t-4 border-blue-500"
              x-data="{ open: true }">
-            <div class="p-4 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
+            <div class="p-3 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
                  @click="open = !open">
                 <h3 class="font-bold text-gray-700 flex justify-between items-center">
                     <span class="flex items-center gap-2">
@@ -128,7 +128,7 @@
                     <span class="bg-blue-100 text-blue-600 px-2.5 py-0.5 rounded-full text-sm font-bold">0</span>
                 </h3>
             </div>
-            <div class="p-3 flex-1 min-h-[200px]" x-show="open" x-transition>
+            <div class="p-3 flex-1 min-h-[160px]" x-show="open" x-transition>
                 <div class="flex flex-col items-center justify-center h-full py-10 text-gray-300 gap-2">
                     <svg class="w-8 h-8 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
@@ -142,7 +142,7 @@
         {# Columna 4: RESUELTA #}
         <div class="flex flex-col glass-panel rounded-xl shadow-sm border-t-4 border-green-500"
              x-data="{ open: false }">
-            <div class="p-4 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
+            <div class="p-3 border-b border-gray-200/50 cursor-pointer hover:bg-white/50 transition-colors"
                  @click="open = !open">
                 <h3 class="font-bold text-gray-700 flex justify-between items-center">
                     <span class="flex items-center gap-2">
@@ -156,7 +156,7 @@
                     <span class="bg-green-100 text-green-600 px-2.5 py-0.5 rounded-full text-sm font-bold">0</span>
                 </h3>
             </div>
-            <div class="p-3 flex-1 min-h-[200px]" x-show="open" x-transition>
+            <div class="p-3 flex-1 min-h-[160px]" x-show="open" x-transition>
                 <div class="flex flex-col items-center justify-center h-full py-10 text-gray-300 gap-2">
                     <svg class="w-8 h-8 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
@@ -170,7 +170,7 @@
     </div>
 
     {# Nota de desarrollo #}
-    <div class="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 text-sm text-blue-700">
+    <div class="flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2 text-xs text-blue-700">
         <svg class="w-4 h-4 flex-shrink-0 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>

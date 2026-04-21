@@ -51,6 +51,7 @@ function initPdfCharts() {
             estatus: '{{ filtros_aplicados.estatus or '' }}',
             usuario: '{{ filtros_aplicados.usuario or '' }}'
         },
+        showFiltersPanel: false,
         init() {
             window._simFiltros = this.filtros;
             setTimeout(function() {
@@ -119,75 +120,123 @@ function initPdfCharts() {
         }
     </style>
 
-    <!-- Header & Filtros -->
-    <div class="flex flex-col gap-4">
-        <div>
-            <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Análisis Detallado - KPIs Duales</h1>
-            <p class="text-sm text-gray-600 mt-1">
-                Comparación de SLA Interno vs Compromiso Cliente
-                <span class="font-semibold text-gray-900 block sm:inline" x-text="formatDateRange()"></span>
-            </p>
-        </div>
+    <!-- Header y Filtros -->
+    <div class="flex flex-col gap-3">
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200">
+            <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
+                <div>
+                    <h1 class="text-xl sm:text-2xl font-bold text-gray-900">Análisis Detallado de Simulación</h1>
+                    <p class="text-sm text-gray-600 mt-1">
+                        Periodo analizado:
+                        <span class="font-semibold text-gray-900" x-text="formatDateRange()"></span>
+                    </p>
+                </div>
 
-        <div class="bg-white p-3 rounded-xl shadow-sm border border-gray-200 flex flex-col sm:flex-row sm:flex-wrap gap-3 items-start sm:items-center">
+                <div class="flex flex-wrap items-center gap-2">
+                    <div class="relative" @click.outside="showFiltersPanel = false">
+                        <button type="button" @click="showFiltersPanel = !showFiltersPanel"
+                            class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-semibold text-gray-700 transition-colors">
+                            <svg class="w-4 h-4 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                            </svg>
+                            Filtros
+                            <svg class="w-4 h-4 text-gray-500 transition-transform" :class="showFiltersPanel ? 'rotate-180' : ''"
+                                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
 
-            <div class="flex flex-col gap-1 w-full sm:w-auto">
-                <span class="text-xs text-gray-500 uppercase font-semibold">Rango de fechas</span>
-                <div class="flex items-center gap-2 bg-gray-50 rounded-lg p-2 border border-gray-200 w-full">
-                    <input type="date" x-model="filtros.fecha_inicio"
-                        class="text-sm border-0 bg-transparent p-0 focus:ring-0 text-gray-700 flex-1 min-w-0">
-                    <span class="text-gray-400 shrink-0">—</span>
-                    <input type="date" x-model="filtros.fecha_fin"
-                        class="text-sm border-0 bg-transparent p-0 focus:ring-0 text-gray-700 flex-1 min-w-0">
-                    <button @click="aplicarFiltros()" title="Aplicar rango"
-                        class="shrink-0 ml-1 px-2 py-0.5 bg-[#00BABB] hover:bg-[#009a9b] text-white text-xs font-semibold rounded transition-colors">
-                        Aplicar
+                        <div x-show="showFiltersPanel" x-cloak
+                            x-transition:enter="transition ease-out duration-150"
+                            x-transition:enter-start="opacity-0 -translate-y-1"
+                            x-transition:enter-end="opacity-100 translate-y-0"
+                            x-transition:leave="transition ease-in duration-100"
+                            x-transition:leave-start="opacity-100 translate-y-0"
+                            x-transition:leave-end="opacity-0 -translate-y-1"
+                            class="fixed left-4 right-4 top-20 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 z-40 md:absolute md:left-auto md:right-0 md:top-full md:mt-2 md:w-[44rem] md:max-w-[88vw]">
+                            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-end">
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio</label>
+                                    <input type="date" x-model="filtros.fecha_inicio"
+                                        class="w-full text-sm border-gray-300 rounded-md focus:ring-[#00BABB]">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Fecha Fin</label>
+                                    <input type="date" x-model="filtros.fecha_fin"
+                                        class="w-full text-sm border-gray-300 rounded-md focus:ring-[#00BABB]">
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Tecnología</label>
+                                    <select x-model="filtros.tecnologia" class="w-full text-sm border-gray-300 rounded-lg focus:ring-[#00BABB] focus:border-[#00BABB]">
+                                        <option value="">Todas</option>
+                                        {% for tech in catalogos.tecnologias %}
+                                        <option value="{{ tech.id }}">{{ tech.nombre }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Tipo</label>
+                                    <select x-model="filtros.tipo" class="w-full text-sm border-gray-300 rounded-lg focus:ring-[#00BABB] focus:border-[#00BABB]">
+                                        <option value="">Todos</option>
+                                        {% for tipo in catalogos.tipos_solicitud %}
+                                        <option value="{{ tipo.id }}">{{ tipo.nombre }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Estatus</label>
+                                    <select x-model="filtros.estatus" class="w-full text-sm border-gray-300 rounded-lg focus:ring-[#00BABB] focus:border-[#00BABB]">
+                                        <option value="">Todos</option>
+                                        {% for est in catalogos.estatus %}
+                                        <option value="{{ est.id }}">{{ est.nombre }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-xs font-medium text-gray-600 mb-1">Usuario</label>
+                                    <select x-model="filtros.usuario" class="w-full text-sm border-gray-300 rounded-lg focus:ring-[#00BABB] focus:border-[#00BABB]">
+                                        <option value="">Todos</option>
+                                        {% for user in catalogos.usuarios %}
+                                        <option value="{{ user.id_usuario }}">{{ user.nombre }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="flex justify-end gap-3 mt-3 pt-2 border-t border-gray-100">
+                                <button @click="aplicarFiltros(); showFiltersPanel = false" type="button"
+                                    class="px-3 py-1.5 bg-[#00BABB] hover:bg-[#009a9b] text-white text-sm font-semibold rounded transition-colors">
+                                    Aplicar
+                                </button>
+                                <button @click="limpiarFiltros(); showFiltersPanel = false" type="button"
+                                    class="text-sm text-gray-500 hover:text-red-500 underline">
+                                    Limpiar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button onclick="descargarPDFAnalisis(this)"
+                        class="flex items-center gap-1.5 px-3 py-1.5 bg-[#00BABB] text-white rounded-lg hover:bg-[#009a9b] text-sm font-medium transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        <span>Descargar PDF</span>
+                    </button>
+
+                    <button
+                        onclick="document.getElementById('modal-explicacion-metricas').classList.remove('hidden'); setTimeout(() => { document.getElementById('modal-explicacion-metricas').classList.remove('opacity-0'); document.querySelector('#modal-explicacion-metricas > div').classList.remove('scale-95'); }, 10);"
+                        class="flex items-center gap-1.5 px-3 py-1.5 bg-[#123456] text-white rounded-lg hover:bg-[#0d2440] text-sm font-medium transition-colors duration-200">
+                        <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                        <span>Métricas</span>
                     </button>
                 </div>
-                <p class="text-xs text-red-600 font-medium">Selecciona un rango para ver detalles</p>
             </div>
-
-            <div class="hidden sm:block h-8 w-px bg-gray-200"></div>
-
-            <div class="w-full sm:w-auto">
-                <span class="text-xs text-gray-500 uppercase font-semibold block sm:hidden mb-1">Tecnología</span>
-                <select x-model="filtros.tecnologia" @change="aplicarFiltros()"
-                    class="text-sm border-gray-300 rounded-lg focus:ring-[#00BABB] focus:border-[#00BABB] w-full sm:w-auto">
-                    <option value="">Todas las Tecnologías</option>
-                    {% for tech in catalogos.tecnologias %}
-                    <option value="{{ tech.id }}">{{ tech.nombre }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <button @click="limpiarFiltros()"
-                class="text-sm text-gray-500 hover:text-red-600 transition-colors flex items-center gap-1.5 border border-gray-200 rounded-lg px-3 py-2 sm:border-0 sm:p-0 w-full sm:w-auto justify-center sm:justify-start">
-                <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-                </svg>
-                Limpiar filtros
-            </button>
-
-            <!-- Botones Móvil dentro de Filtros -->
-            <div class="flex sm:hidden w-full gap-2 mt-2 pt-3 border-t border-gray-100">
-                <button onclick="descargarPDFAnalisis(this)"
-                    class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#00BABB] text-white rounded-lg hover:bg-[#009a9b] text-sm font-medium transition-colors duration-200 disabled:opacity-60 disabled:cursor-not-allowed">
-                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                    </svg>
-                    <span>PDF</span>
-                </button>
-                <button
-                    onclick="document.getElementById('modal-explicacion-metricas').classList.remove('hidden'); setTimeout(() => { document.getElementById('modal-explicacion-metricas').classList.remove('opacity-0'); document.querySelector('#modal-explicacion-metricas > div').classList.remove('scale-95'); }, 10);"
-                    class="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 bg-[#123456] text-white rounded-lg hover:bg-[#0d2440] text-sm font-medium transition-colors duration-200">
-                    <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span>Métricas</span>
-                </button>
-            </div>
+            <p class="text-xs text-gray-500 mt-2">Rango por defecto: del primer día del mes actual a hoy. Si seleccionas más de 12 meses, el sistema ajusta automáticamente el periodo a 364 días desde la fecha inicial.</p>
         </div>
     </div>
 

@@ -40,7 +40,7 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M12 4v16m8-8H4"/>
             </svg>
-            Nueva Poliza
+            Nueva Póliza
         </a>
         <a x-show="activeTab === 'plantas'"
            href="/calculadora-polizas/plantas/ui"
@@ -76,20 +76,20 @@
     </script>
 
     {# DESKTOP: Module Header #}
-    <div class="glass-panel p-4 rounded-xl mb-4 hidden md:flex flex-col md:flex-row justify-between md:items-center gap-3 border-l-4 border-blue-500">
+    <div class="glass-panel p-3 rounded-xl mb-3 hidden md:flex flex-col md:flex-row justify-between md:items-center gap-2.5 border-l-4 border-blue-500">
         <div>
-            <h2 class="text-2xl font-light text-gray-800">
-                Modulo <span class="font-bold text-blue-600">O&M</span>
+            <h2 class="text-xl font-light text-gray-800 leading-tight">
+                Módulo <span class="font-bold text-blue-600">O&amp;M</span>
             </h2>
-            <p class="text-gray-500 text-sm mt-1">Operacion y Mantenimiento de plantas</p>
+            <p class="text-gray-500 text-xs mt-0.5">Operación y mantenimiento de plantas</p>
         </div>
         <div class="flex items-center gap-2">
             {# Buscador — solo en tab Proyectos #}
-            <div x-show="activeTab === 'proyectos'" class="relative w-full md:w-56" x-transition>
+            <div x-show="activeTab === 'proyectos'" class="relative w-full md:w-52" x-transition>
                 <input type="text" name="q" placeholder="Buscar proyecto..."
                     hx-get="/oym/partials/proyectos" hx-trigger="keyup changed delay:500ms"
                     hx-target="#proyectos-list"
-                    class="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                    class="w-full pl-8 pr-3 py-1.5 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
                 <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
                 </svg>
@@ -98,7 +98,7 @@
             <a x-show="activeTab === 'polizas'" x-transition
                href="/calculadora-polizas/plantas/ui"
                hx-get="/calculadora-polizas/plantas/ui" hx-target="#main-content" hx-push-url="true"
-               class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
+               class="btn-secondary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 5h2"/>
@@ -109,29 +109,29 @@
             <a x-show="activeTab === 'polizas'" x-transition
                href="/calculadora-polizas/cotizaciones/ui"
                hx-get="/calculadora-polizas/cotizaciones/ui" hx-target="#main-content" hx-push-url="true"
-               class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
+               class="btn-secondary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
                 Gestionar Pólizas
             </a>
-            {# Nueva Poliza — solo en tab Polizas #}
+            {# Nueva Póliza — solo en tab Polizas #}
             <a x-show="activeTab === 'polizas'" x-transition
                href="/calculadora-polizas/ui"
                hx-get="/calculadora-polizas/ui" hx-target="#main-content" hx-push-url="true"
-               class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
+               class="btn-secondary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M12 4v16m8-8H4"/>
                 </svg>
-                Nueva Poliza
+                Nueva Póliza
             </a>
             {# Gestionar Plantas (admin) — solo en tab Plantas, solo editors #}
             <a x-show="activeTab === 'plantas'" x-transition
                href="/calculadora-polizas/plantas/ui"
                hx-get="/calculadora-polizas/plantas/ui" hx-target="#main-content" hx-push-url="true"
-               class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
+               class="btn-secondary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 5h2"/>
@@ -141,7 +141,7 @@
             {# Nueva Planta — solo en tab Plantas, solo editors #}
             <button x-show="activeTab === 'plantas'" x-transition
                hx-get="/calculadora-polizas/plantas/nueva-modal" hx-target="body" hx-swap="beforeend"
-               class="btn-secondary text-sm px-3 py-2 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 cursor-pointer">
+               class="btn-secondary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 cursor-pointer">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M12 4v16m8-8H4"/>
@@ -172,7 +172,7 @@
         .oym-tabs-list { scrollbar-width: none; }
         .oym-tabs-list::-webkit-scrollbar { display: none; }
     </style>
-    <div class="mb-4 text-sm font-medium text-center text-gray-500 border-b border-gray-200/50">
+    <div class="mb-3 text-sm font-medium text-center text-gray-500 border-b border-gray-200/50">
         <ul class="oym-tabs-list flex -mb-px gap-1 overflow-x-auto">
 
             {# Tab: Proyectos #}
@@ -180,7 +180,7 @@
                 <button @click="activeTab = 'proyectos'; history.pushState(null, '', '/oym/ui?tab=proyectos'); updateOymTab('proyectos', $el)"
                         id="oym-tab-proyectos"
                         :class="activeTab === 'proyectos' ? 'glass-panel bg-white/60 active' : 'border-transparent hover:bg-white/40'"
-                        class="oym-tab-link inline-flex items-center gap-2 p-3 rounded-t-lg transition-all group">
+                        class="oym-tab-link inline-flex items-center gap-2 px-3 py-2.5 rounded-t-lg transition-all group">
                     <svg class="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M21 13.255A23.931 23.931 0 0112 15c-3.183 0-6.22-.62-9-1.745M16 6V4a2 2 0 00-2-2h-4a2 2 0 00-2 2v2m4 6h.01M5 20h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
@@ -205,7 +205,7 @@
                         hx-swap="innerHTML"
                         hx-trigger="click once"
                         :class="activeTab === 'incidencias' ? 'glass-panel bg-white/60 active' : 'border-transparent hover:bg-white/40'"
-                        class="oym-tab-link inline-flex items-center gap-2 p-3 rounded-t-lg transition-all group">
+                        class="oym-tab-link inline-flex items-center gap-2 px-3 py-2.5 rounded-t-lg transition-all group">
                     <svg class="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
@@ -225,7 +225,7 @@
                         hx-swap="innerHTML"
                         hx-trigger="click once"
                         :class="activeTab === 'plantas' ? 'glass-panel bg-white/60 active' : 'border-transparent hover:bg-white/40'"
-                        class="oym-tab-link inline-flex items-center gap-2 p-3 rounded-t-lg transition-all group">
+                        class="oym-tab-link inline-flex items-center gap-2 px-3 py-2.5 rounded-t-lg transition-all group">
                     <svg class="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 5h2"/>
@@ -250,7 +250,7 @@
                         hx-swap="innerHTML"
                         hx-trigger="click once"
                         :class="activeTab === 'polizas' ? 'glass-panel bg-white/60 active' : 'border-transparent hover:bg-white/40'"
-                        class="oym-tab-link inline-flex items-center gap-2 p-3 rounded-t-lg transition-all group">
+                        class="oym-tab-link inline-flex items-center gap-2 px-3 py-2.5 rounded-t-lg transition-all group">
                     <svg class="w-4 h-4 group-hover:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
@@ -283,18 +283,18 @@
     {# Tab Proyectos #}
     <div x-show="activeTab === 'proyectos'" class="flex-1 flex flex-col min-h-0">
         {# KPI Cards #}
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-            <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
-                <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Plantas en Operacion</h3>
-                <div class="text-3xl font-bold text-blue-700 mt-2">{{ kpis.total_en_area }}</div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+            <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
+                <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Plantas en Operación</h3>
+                <div class="text-2xl font-bold text-blue-700 mt-1">{{ kpis.total_en_area }}</div>
             </div>
-            <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300 {% if kpis.pendientes_recepcion > 0 %}ring-2 ring-amber-400{% endif %}">
-                <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Pendientes Recepcion</h3>
-                <div class="text-3xl font-bold text-amber-600 mt-2">{{ kpis.pendientes_recepcion }}</div>
+            <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200 {% if kpis.pendientes_recepcion > 0 %}ring-2 ring-amber-400{% endif %}">
+                <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Pendientes recepción</h3>
+                <div class="text-2xl font-bold text-amber-600 mt-1">{{ kpis.pendientes_recepcion }}</div>
             </div>
-            <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
+            <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
                 <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Rechazados (30d)</h3>
-                <div class="text-3xl font-bold text-red-600 mt-2">{{ kpis.rechazados_recientes }}</div>
+                <div class="text-2xl font-bold text-red-600 mt-1">{{ kpis.rechazados_recientes }}</div>
             </div>
         </div>
         {# Projects List #}

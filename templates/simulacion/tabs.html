@@ -28,6 +28,26 @@
     .sim-tabs-list {
         scrollbar-width: none;
     }
+
+    .sim-action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .sim-action-label {
+        max-width: 0;
+        opacity: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        transition: max-width 0.2s ease, opacity 0.16s ease;
+    }
+
+    .sim-action-btn:hover .sim-action-label,
+    .sim-action-btn:focus-visible .sim-action-label {
+        max-width: 170px;
+        opacity: 1;
+    }
 </style>
 <div class="flex flex-col h-full relative">
     <!-- MOVIL: template de acciones para el header (poblado via JS) -->
@@ -42,16 +62,6 @@
                     d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
             </svg>
             Métricas Operativas
-        </button>
-        {% endif %}
-        {% if is_admin_or_manager %}
-        <button onclick="document.getElementById('btn-sim-extraordinario').click()"
-            class="bg-orange-600 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            Reg. Extraordinario
         </button>
         {% endif %}
         <button
@@ -81,127 +91,47 @@
     </script>
     <!-- DESKTOP: Header with Actions -->
     <div
-        class="glass-panel p-4 rounded-xl mb-4 hidden md:flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-l-4 border-indigo-500">
+        class="glass-panel p-3 rounded-xl mb-3 hidden md:flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 border-l-4 border-indigo-500">
         <div>
             <h2 class="text-2xl font-light text-gray-800">
                 Módulo <span class="font-bold text-indigo-600">Simulación</span>
             </h2>
-            <p class="text-gray-500 text-sm mt-1">Gestión de Simulaciones y Oportunidades</p>
+            <p class="text-gray-500 text-sm mt-0.5">Gestión de Simulaciones y Oportunidades</p>
         </div>
 
         {% set is_admin_or_manager = (role == 'ADMIN') or (role == 'MANAGER') %}
         {% set can_view_metrics = is_admin_or_manager and (current_module_role in ['editor', 'admin']) %}
 
-        <div class="flex flex-wrap gap-3">
+        <div class="flex flex-wrap gap-2.5">
 
             {% if can_view_metrics %}
             <!-- Botón: Métricas Operativas (Admin y Manager) -->
             <button hx-get="/simulacion/metricas-operativas" hx-target="#main-content" hx-swap="innerHTML"
                 hx-push-url="true"
-                class="ripple-effect bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold py-2 px-3 rounded-lg shadow-lg shadow-indigo-600/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
+                class="sim-action-btn ripple-effect bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-bold py-2 px-2.5 rounded-lg shadow-lg shadow-indigo-600/30 transition-all duration-200 ease-in-out transform hover:scale-105"
+                aria-label="Métricas Operativas">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                         d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                 </svg>
-                <span class="hidden sm:inline">Métricas Operativas</span>
+                <span class="sim-action-label">Métricas Operativas</span>
             </button>
             {% endif %}
-
-            {% if is_admin_or_manager %}
-            <!-- Botón: Registro Extraordinario (Solo ADMIN/MANAGER) con Popup Advertencia -->
-            <div x-data="{ showWarning: false }" class="relative">
-                <button id="btn-sim-extraordinario" @click="showWarning = true"
-                    class="ripple-effect bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold py-2 px-3 rounded-lg shadow-lg shadow-orange-600/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
-                        stroke="currentColor">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                    </svg>
-                    <span class="hidden sm:inline">Registro Extraordinario</span>
-                </button>
-
-                <!-- Popup de Advertencia -->
-                <div x-show="showWarning" x-transition @click.outside="showWarning = false"
-                    class="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-                    <div class="bg-white rounded-lg shadow-2xl max-w-md mx-4 p-6">
-                        <!-- Header -->
-                        <div class="flex items-center gap-3 mb-4">
-                            <div class="flex-shrink-0">
-                                <svg class="h-10 w-10 text-orange-500" fill="none" viewBox="0 0 24 24"
-                                    stroke="currentColor">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                                </svg>
-                            </div>
-                            <h3 class="text-lg font-bold text-gray-900">
-                                Registro Extraordinario
-                            </h3>
-                        </div>
-
-                        <!-- Contenido -->
-                        <div class="mb-6 space-y-3">
-                            <p class="text-sm text-gray-700">
-                                Esta opción ha sido diseñada para <strong>solicitudes enviadas fuera del
-                                    proceso de esta
-                                    aplicación</strong>.
-                            </p>
-
-                            <div class="bg-yellow-50 border-l-4 border-yellow-400 p-3 rounded">
-                                <p class="text-sm text-yellow-800">
-                                    <li class="flex items-start gap-2">
-                                        <svg class="w-4 h-4 text-yellow-600 mt-0.5" fill="none" stroke="currentColor"
-                                            viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z">
-                                            </path>
-                                        </svg>
-                                        <strong>Importante:</strong>
-                                    </li>
-                                </p>
-                                <ul class="text-sm text-yellow-700 mt-2 space-y-1 list-disc list-inside">
-                                    <li>Solo registra la solicitud, <strong>NO envía correo</strong></li>
-                                    <li>Si se da seguimiento después, se generará un <strong>correo nuevo sin hilo
-                                            histórico</strong></li>
-                                    <li>La fecha que ingreses define el cálculo del SLA</li>
-                                </ul>
-                            </div>
-                        </div>
-
-                        <!-- Botones -->
-                        <div class="flex gap-3">
-                            <button @click="showWarning = false"
-                                class="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium py-2 px-4 rounded-lg transition">
-                                Cancelar
-                            </button>
-                            <button hx-get="/simulacion/form-extraordinario" hx-target="#main-content"
-                                hx-swap="innerHTML" hx-push-url="true" @click="showWarning = false"
-                                class="flex-1 bg-orange-600 hover:bg-orange-700 text-white font-bold py-2 px-4 rounded-lg transition shadow-lg">
-                                Continuar
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            {% endif %}
             <!-- Calculadora (todos los roles) -->
-            <div class="relative group">
-                <button
-                    hx-get="/shared/partials/calculadora-ventas?modulo=simulacion"
-                    hx-target="body"
-                    hx-swap="beforeend"
-                    hx-on::before-request="document.getElementById('modal-calculadora-ventas')?.remove()"
-                    class="ripple-effect bg-gray-700 hover:bg-gray-800 text-white font-bold p-2 rounded-lg shadow-lg flex items-center transition-all duration-200 ease-in-out transform hover:scale-105"
-                    aria-label="Calculadora de ventas">
+            <button
+                hx-get="/shared/partials/calculadora-ventas?modulo=simulacion"
+                hx-target="body"
+                hx-swap="beforeend"
+                hx-on::before-request="document.getElementById('modal-calculadora-ventas')?.remove()"
+                class="sim-action-btn ripple-effect bg-gray-700 hover:bg-gray-800 text-white text-sm font-bold py-2 px-2.5 rounded-lg shadow-lg transition-all duration-200 ease-in-out transform hover:scale-105"
+                aria-label="Calculadora de ventas">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M9 7H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M9 7h6M9 12h.01M12 12h.01M15 12h.01M9 15h.01M12 15h.01M15 15h.01M9 18h.01M12 18h.01M15 18h.01"/>
                     </svg>
-                </button>
-                <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                    Calculadora
-                </div>
-            </div>
+                <span class="sim-action-label">Calculadora</span>
+            </button>
         </div>
     </div>
 
@@ -210,14 +140,14 @@
 
     <!-- Tabs Navigation -->
     <div
-        class="mb-6 text-sm font-medium text-center text-gray-500 border-b border-gray-200/50 dark:text-gray-400 dark:border-gray-700/50">
+        class="mb-3 text-sm font-medium text-center text-gray-500 border-b border-gray-200/50 dark:text-gray-400 dark:border-gray-700/50">
         <ul class="sim-tabs-list flex -mb-px gap-1 sm:gap-2 overflow-x-auto [&::-webkit-scrollbar]:hidden">
 
             <li class="shrink-0">
                 <a href="#" hx-get="/simulacion/partials/graphs" hx-target="#sim-tab-content" hx-swap="innerHTML"
                     hx-push-url="/simulacion/ui?tab=graphs" hx-include=".global-filter"
                     hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('graphs', this)"
-                    class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                    class="sim-tab-link inline-block px-3 py-2.5 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
@@ -234,7 +164,7 @@
                 <a href="#" hx-get="/simulacion/partials/cards?tab=activos" hx-target="#sim-tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=activos" hx-include=".global-filter"
                     hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('activos', this)"
-                    class="sim-tab-link inline-block p-3 rounded-t-lg active group glass-panel bg-white/60 transition-all"
+                    class="sim-tab-link inline-block px-3 py-2.5 rounded-t-lg active group glass-panel bg-white/60 transition-all"
                     aria-current="page">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-indigo-600" fill="none"
@@ -254,7 +184,7 @@
                 <a href="#" hx-get="/simulacion/partials/cards?tab=historial" hx-target="#sim-tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=historial" hx-include=".global-filter"
                     hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('historial', this)"
-                    class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                    class="sim-tab-link inline-block px-3 py-2.5 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
@@ -274,7 +204,7 @@
                 <a href="#" hx-get="/simulacion/partials/cards?tab=levantamientos" hx-target="#sim-tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=levantamientos" hx-include=".global-filter"
                     hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('levantamientos', this)"
-                    class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                    class="sim-tab-link inline-block px-3 py-2.5 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
@@ -291,7 +221,7 @@
                 <a href="#" hx-get="/simulacion/partials/cards?tab=monitoreo" hx-target="#sim-tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=monitoreo" hx-include=".global-filter"
                     hx-indicator="#sim-graphs-loading" onclick="updateSimTabContext('monitoreo', this)"
-                    class="sim-tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                    class="sim-tab-link inline-block px-3 py-2.5 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
@@ -312,7 +242,7 @@
     </div>
 
     <!-- Tab Content Area con loading mejorado -->
-    <div id="sim-tab-content" class="flex-1 overflow-y-auto p-2" hx-get="/simulacion/partials/cards?tab=activos"
+    <div id="sim-tab-content" class="flex-1 overflow-y-auto p-1.5" hx-get="/simulacion/partials/cards?tab=activos"
         hx-trigger="load" hx-include=".global-filter">
         <!-- Loading spinner corporativo -->
         <div class="flex justify-center items-center h-full">

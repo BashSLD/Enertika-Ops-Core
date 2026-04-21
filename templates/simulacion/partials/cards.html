@@ -24,10 +24,11 @@
     }
 }">
     <!-- Filters / Actions Bar -->
-    <div x-data="{ showFilters: false }" class="mb-4">
-        <div class="flex justify-between items-start gap-3">
-            <div class="flex flex-col">
-                <h3 class="text-lg font-bold text-gray-700">
+    {% set compact_tab_header = current_tab in ['historial', 'levantamientos'] %}
+    <div x-data="{ showFilters: false }" class="{{ 'mb-2' if compact_tab_header else 'mb-3' }}">
+        <div class="flex justify-between items-start gap-2.5 {{ 'lg:items-center' if compact_tab_header else '' }}">
+            <div class="{{ 'flex flex-col md:flex-row md:items-center md:gap-2' if compact_tab_header else 'flex flex-col' }}">
+                <h3 class="{{ 'text-sm font-semibold text-gray-600 lg:hidden' if compact_tab_header else 'text-base font-bold text-gray-700' }}">
                     {% if current_tab == 'activos' %}Solicitudes Activas
                     {% elif current_tab == 'historial' %}Ofertas Generadas
                     {% elif current_tab == 'levantamientos' %}Seguimiento de Levantamientos
@@ -37,16 +38,16 @@
 
                 <!-- Subtabs para Levantamientos -->
                 {% if current_tab == 'levantamientos' %}
-                <div class="flex gap-3 text-sm mt-2">
+                <div class="flex gap-1.5 text-xs mt-1 md:mt-0">
                     <button hx-get="/simulacion/partials/cards?tab=levantamientos&subtab=solicitados&limit={{ limit }}"
                         hx-target="#sim-tab-content"
-                        class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-blue-600 border border-blue-700 shadow-md' if not subtab or subtab == 'solicitados' else 'text-gray-600 bg-white border border-gray-300 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-500' }}">
+                        class="px-2 py-0.5 rounded-md transition-all {{ 'font-bold text-white bg-blue-600 border border-blue-700 shadow-md' if not subtab or subtab == 'solicitados' else 'text-gray-600 bg-white border border-gray-300 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-500' }}">
                         Solicitados
                     </button>
                     <span class="text-gray-300">|</span>
                     <button hx-get="/simulacion/partials/cards?tab=levantamientos&subtab=realizados&limit={{ limit }}"
                         hx-target="#sim-tab-content"
-                        class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-blue-600 border border-blue-700 shadow-md' if subtab == 'realizados' else 'text-gray-600 bg-white border border-gray-300 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-500' }}">
+                        class="px-2 py-0.5 rounded-md transition-all {{ 'font-bold text-white bg-blue-600 border border-blue-700 shadow-md' if subtab == 'realizados' else 'text-gray-600 bg-white border border-gray-300 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-500' }}">
                         Realizados
                     </button>
                 </div>
@@ -54,20 +55,70 @@
 
                 <!-- Subtabs para Historial -->
                 {% if current_tab == 'historial' %}
-                <div class="flex gap-3 text-sm mt-2">
+                <div class="flex gap-1.5 text-xs mt-1 md:mt-0">
                     <button hx-get="/simulacion/partials/cards?tab=historial&subtab=entregado&limit={{ limit }}"
                         hx-target="#sim-tab-content"
-                        class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-green-600 border border-green-700 shadow-md' if not subtab or subtab == 'entregado' else 'text-gray-600 bg-white border border-gray-300 hover:bg-green-50 hover:text-green-700 hover:border-green-500' }}">
+                        class="px-2 py-0.5 rounded-md transition-all {{ 'font-bold text-white bg-green-600 border border-green-700 shadow-md' if not subtab or subtab == 'entregado' else 'text-gray-600 bg-white border border-gray-300 hover:bg-green-50 hover:text-green-700 hover:border-green-500' }}">
                         Entregado
                     </button>
                     <span class="text-gray-300">|</span>
                     <button hx-get="/simulacion/partials/cards?tab=historial&subtab=cancelado_perdido&limit={{ limit }}"
                         hx-target="#sim-tab-content"
-                        class="px-3 py-1 rounded-md transition-all {{ 'font-bold text-white bg-red-600 border border-red-700 shadow-md' if subtab == 'cancelado_perdido' else 'text-gray-600 bg-white border border-gray-300 hover:bg-red-50 hover:text-red-700 hover:border-red-500' }}">
+                        class="px-2 py-0.5 rounded-md transition-all {{ 'font-bold text-white bg-red-600 border border-red-700 shadow-md' if subtab == 'cancelado_perdido' else 'text-gray-600 bg-white border border-gray-300 hover:bg-red-50 hover:text-red-700 hover:border-red-500' }}">
                         Cancelado - Perdido
                     </button>
                 </div>
                 {% endif %}
+
+                <!-- Selector de cantidad de registros y Buscador -->
+                <div :class="showFilters ? 'flex' : 'hidden md:flex'"
+                    class="flex-col md:flex-row items-center gap-2.5 {{ 'mt-1 md:mt-0 md:ml-2' if compact_tab_header else 'mt-2 md:mt-0' }}">
+                    <div class="relative w-full md:w-56">
+                        <span class="absolute inset-y-0 left-0 flex items-center pl-2">
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                            </svg>
+                        </span>
+                        <input type="text" id="search-input" name="q" hx-get="/simulacion/partials/cards"
+                            hx-trigger="keyup changed delay:500ms, search" hx-target="#sim-table-results"
+                            hx-select="#sim-table-results" hx-include="#limit-selector, .filter-select, #active_tab_input"
+                            value="{{ q or '' }}"
+                            class="w-full pl-8 pr-3 py-1 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all shadow-sm"
+                            placeholder="Buscar...">
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Tecnología:</label>
+                        <select name="filtro_tecnologia_id"
+                            class="filter-select w-32 md:w-36 px-2 py-1 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all shadow-sm"
+                            hx-get="/simulacion/partials/cards" hx-trigger="change" hx-target="#sim-tab-content"
+                            hx-include="#active_tab_input, #search-input, #limit-selector">
+                            <option value="">Todas</option>
+                            {% if catalogos and catalogos.tecnologias %}
+                            {% for t in catalogos.tecnologias %}
+                            <option value="{{ t.id }}" {{ 'selected' if filtro_tecnologia_id==t.id else '' }}>{{ t.nombre }}
+                            </option>
+                            {% endfor %}
+                            {% else %}
+                            <option value="" disabled>Cargando...</option>
+                            {% endif %}
+                        </select>
+                    </div>
+
+                    <div class="flex items-center gap-2">
+                        <label for="limit-selector"
+                            class="text-xs text-gray-600 font-medium font-bold whitespace-nowrap">Mostrar:</label>
+                        <select id="limit-selector" hx-get="/simulacion/partials/cards" hx-target="#sim-tab-content"
+                            hx-include="#active_tab_input, #search-input, .filter-select" name="limit"
+                            class="border border-gray-300 rounded px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="15" {{ 'selected' if limit==15 else '' }}>15 registros</option>
+                            <option value="50" {{ 'selected' if limit==50 else '' }}>50 registros</option>
+                            <option value="100" {{ 'selected' if limit==100 else '' }}>100 registros</option>
+                            <option value="0" {{ 'selected' if limit==0 else '' }}>Mostrar Todo</option>
+                        </select>
+                    </div>
+                </div>
             </div>
 
             <!-- Toggle filtros: solo visible en móvil -->
@@ -81,56 +132,6 @@
             </button>
         </div>
 
-        <!-- Selector de cantidad de registros y Buscador (colapsable en móvil) -->
-        <div :class="showFilters ? 'flex' : 'hidden md:flex'" class="flex-col md:flex-row items-center gap-3 mt-3 md:mt-0">
-            <!-- BUSCADOR REUBICADO -->
-            <div class="relative w-full md:w-64">
-                <span class="absolute inset-y-0 left-0 flex items-center pl-2">
-                    <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                    </svg>
-                </span>
-                <input type="text" id="search-input" name="q" hx-get="/simulacion/partials/cards"
-                    hx-trigger="keyup changed delay:500ms, search" hx-target="#sim-table-results"
-                    hx-select="#sim-table-results" hx-include="#limit-selector, .filter-select, #active_tab_input"
-                    value="{{ q or '' }}"
-                    class="w-full pl-8 pr-3 py-1 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all shadow-sm"
-                    placeholder="Buscar...">
-            </div>
-
-            <!-- TECH FILTER (Nuevo - Reubicado) -->
-            <div class="flex items-center gap-2">
-                <label class="text-xs font-bold text-gray-500 uppercase tracking-wider">Tecnología:</label>
-                <select name="filtro_tecnologia_id"
-                    class="filter-select w-32 md:w-40 px-2 py-1 bg-white border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 transition-all shadow-sm"
-                    hx-get="/simulacion/partials/cards" hx-trigger="change" hx-target="#sim-tab-content"
-                    hx-include="#active_tab_input, #search-input, #limit-selector">
-                    <option value="">Todas</option>
-                    {% if catalogos and catalogos.tecnologias %}
-                    {% for t in catalogos.tecnologias %}
-                    <option value="{{ t.id }}" {{ 'selected' if filtro_tecnologia_id==t.id else '' }}>{{ t.nombre }}
-                    </option>
-                    {% endfor %}
-                    {% else %}
-                    <option value="" disabled>Cargando...</option>
-                    {% endif %}
-                </select>
-            </div>
-
-            <div class="flex items-center gap-2">
-                <label for="limit-selector"
-                    class="text-sm text-gray-600 font-medium font-bold whitespace-nowrap">Mostrar:</label>
-                <select id="limit-selector" hx-get="/simulacion/partials/cards" hx-target="#sim-tab-content"
-                    hx-include="#active_tab_input, #search-input, .filter-select" name="limit"
-                    class="border border-gray-300 rounded px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="15" {{ 'selected' if limit==15 else '' }}>15 registros</option>
-                    <option value="50" {{ 'selected' if limit==50 else '' }}>50 registros</option>
-                    <option value="100" {{ 'selected' if limit==100 else '' }}>100 registros</option>
-                    <option value="0" {{ 'selected' if limit==0 else '' }}>Mostrar Todo</option>
-                </select>
-            </div>
-        </div>
     </div>
 
     <!-- Cards/Table -->

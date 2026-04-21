@@ -12,6 +12,7 @@
     charts: {},
     graficasData: null,
     isGeneratingPdf: false,
+    showReportFilters: false,
 
     init() {
         console.log('Initializing Dashboard');
@@ -144,10 +145,10 @@
         </div>
     </div>
     <!-- HEADER -->
-    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+    <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
             <div>
-                <h1 class="text-2xl font-bold text-gray-900 flex items-center gap-2">
+                <h1 class="text-xl font-bold text-gray-900 flex items-center gap-2">
                     <svg class="w-7 h-7 text-[#00BABB]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
@@ -158,35 +159,71 @@
                         x-text="formatDateRange()"></span></p>
             </div>
 
-            <!-- NUEVO: Botón Análisis Detallado -->
-
-
-            <div class="flex flex-wrap items-center gap-3 w-full lg:w-auto">
-                <div class="flex flex-wrap items-center gap-2 bg-gray-50 rounded-lg p-2">
-                    <input type="date" x-model="filtros.fecha_inicio"
-                        class="text-sm border-gray-300 rounded-md focus:ring-[#00BABB] min-w-0">
-                    <span class="text-gray-400">-</span>
-                    <input type="date" x-model="filtros.fecha_fin"
-                        class="text-sm border-gray-300 rounded-md focus:ring-[#00BABB] min-w-0">
-                    <button @click="aplicarFiltros()" title="Aplicar rango"
-                        class="px-3 py-1 bg-[#00BABB] hover:bg-[#009a9b] text-white text-xs font-semibold rounded transition-colors shrink-0">
-                        Aplicar
+            <div class="flex flex-wrap items-center gap-2 w-full lg:w-auto">
+                <div class="relative" @click.outside="showReportFilters = false">
+                    <button @click="showReportFilters = !showReportFilters" type="button"
+                        class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-semibold text-gray-700 transition-colors">
+                        <svg class="w-4 h-4 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                        </svg>
+                        Filtros
+                        <svg class="w-4 h-4 text-gray-500 transition-transform" :class="showReportFilters ? 'rotate-180' : ''"
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                        </svg>
                     </button>
+
+                    <div x-show="showReportFilters" x-cloak
+                        x-transition:enter="transition ease-out duration-150"
+                        x-transition:enter-start="opacity-0 -translate-y-1"
+                        x-transition:enter-end="opacity-100 translate-y-0"
+                        x-transition:leave="transition ease-in duration-100"
+                        x-transition:leave-start="opacity-100 translate-y-0"
+                        x-transition:leave-end="opacity-0 -translate-y-1"
+                        class="fixed left-4 right-4 top-20 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 z-40 md:absolute md:left-auto md:right-0 md:top-full md:mt-2 md:w-[44rem] md:max-w-[88vw]">
+                        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio</label>
+                                <input type="date" x-model="filtros.fecha_inicio"
+                                    class="w-full text-sm border-gray-300 rounded-md focus:ring-[#00BABB]">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Fecha Fin</label>
+                                <input type="date" x-model="filtros.fecha_fin"
+                                    class="w-full text-sm border-gray-300 rounded-md focus:ring-[#00BABB]">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Tecnología</label>
+                                <select x-model="filtros.tecnologia" @change="aplicarFiltros()"
+                                    class="w-full text-sm border-gray-300 rounded-lg focus:ring-[#00BABB]">
+                                    <option value="">Todas las Tecnologías</option>
+                                    {% for tech in catalogos.tecnologias %}<option value="{{ tech.id }}">{{ tech.nombre }}</option>{%
+                                    endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-medium text-gray-600 mb-1">Usuario</label>
+                                <select x-model="filtros.usuario" @change="aplicarFiltros()"
+                                    class="w-full text-sm border-gray-300 rounded-lg focus:ring-[#00BABB]">
+                                    <option value="">Todos los Usuarios</option>
+                                    {% for user in catalogos.usuarios %}<option value="{{ user.id_usuario }}">{{ user.nombre }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="flex items-center gap-2 lg:justify-end">
+                                <button @click="aplicarFiltros(); showReportFilters = false" type="button"
+                                    class="px-3 py-1.5 bg-[#00BABB] hover:bg-[#009a9b] text-white text-sm font-semibold rounded transition-colors shrink-0">
+                                    Aplicar
+                                </button>
+                                <button @click="limpiarFiltros(); showReportFilters = false" type="button"
+                                    class="text-sm text-gray-500 hover:text-red-500 underline">
+                                    Limpiar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
-                <select x-model="filtros.tecnologia" @change="aplicarFiltros()"
-                    class="text-sm border-gray-300 rounded-lg focus:ring-[#00BABB]">
-                    <option value="">Todas las Tecnologías</option>
-                    {% for tech in catalogos.tecnologias %}<option value="{{ tech.id }}">{{ tech.nombre }}</option>{%
-                    endfor %}
-                </select>
-                <select x-model="filtros.usuario" @change="aplicarFiltros()"
-                    class="text-sm border-gray-300 rounded-lg focus:ring-[#00BABB]">
-                    <option value="">Todos los Usuarios</option>
-                    {% for user in catalogos.usuarios %}<option value="{{ user.id_usuario }}">{{ user.nombre }}</option>
-                    {% endfor %}
-                </select>
-                <button @click="limpiarFiltros()"
-                    class="text-sm text-gray-500 hover:text-red-500 underline">Limpiar</button>
 
                 {% if role in ['ADMIN', 'MANAGER'] %}
                 <a href="/simulacion/reportes/analisis-detallado" hx-get="/simulacion/reportes/analisis-detallado"
@@ -208,21 +245,21 @@
     <div id="kpis-container">{% include "simulacion/reportes/partials/kpis_cards_duales.html" %}</div>
 
     <!-- GRÁFICAS -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4">Distribución por Estatus</h3>
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <h3 class="text-lg font-semibold text-gray-900 mb-3">Distribución por Estatus</h3>
             <div class="h-64"><canvas id="chart-estatus"></canvas></div>
         </div>
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4">Solicitudes por Mes</h3>
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <h3 class="text-lg font-semibold text-gray-900 mb-3">Solicitudes por Mes</h3>
             <div class="h-64"><canvas id="chart-mensual"></canvas></div>
         </div>
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4">Por Tecnología</h3>
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <h3 class="text-lg font-semibold text-gray-900 mb-3">Por Tecnología</h3>
             <div class="h-64"><canvas id="chart-tecnologia"></canvas></div>
         </div>
-        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h3 class="text-lg font-semibold text-gray-900 mb-4">Entregas: A Tiempo vs Fuera de Plazo</h3>
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 p-4">
+            <h3 class="text-lg font-semibold text-gray-900 mb-3">Entregas: A Tiempo vs Fuera de Plazo</h3>
             <div class="h-64"><canvas id="chart-kpi"></canvas></div>
         </div>
     </div>

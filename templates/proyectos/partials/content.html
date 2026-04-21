@@ -35,91 +35,112 @@
         if (sep) sep.classList.toggle('hidden', slot.children.length === 0);
     })();
     </script>
+
     {# DESKTOP: Module Header #}
-    <div
-        class="glass-panel p-4 rounded-xl mb-4 hidden md:flex flex-wrap gap-3 justify-between items-center border-l-4 border-blue-500">
+    <div class="glass-panel p-3 rounded-xl mb-3 hidden md:flex flex-wrap gap-3 justify-between items-center border-l-4 border-blue-500">
         <div>
-            <h2 class="text-2xl font-light text-gray-800">
-                Modulo <span class="font-bold text-blue-600">Proyectos</span>
+            <h2 class="text-xl font-light text-gray-800 leading-tight">
+                Módulo <span class="font-bold text-blue-600">Proyectos</span>
             </h2>
-            <p class="text-gray-500 text-sm mt-1">Vista global de la cartera de proyectos</p>
+            <p class="text-gray-500 text-xs mt-0.5">Vista global de la cartera de proyectos</p>
         </div>
-        <div class="flex flex-wrap gap-3 items-center">
+        <div class="flex flex-wrap gap-2 items-center">
             <button onclick="abrirModalCrearProyecto()"
-                class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-sm">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
-                    stroke="currentColor">
+                class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors flex items-center gap-1.5 shadow-sm">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                 </svg>
                 Crear Proyecto
             </button>
-            <!-- Botón Materiales -->
             <a href="/materials/ui" hx-get="/materials/ui" hx-target="#main-content" hx-push-url="true"
-                class="ripple-effect bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
-                    stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+                class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-1.5 px-3 text-sm rounded-lg shadow-sm flex items-center gap-1.5 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                 </svg>
                 Materiales
             </a>
-            <!-- Botón Visita a Obra -->
             <button hx-get="/proyectos/partials/visita-obra-modal" hx-target="body" hx-swap="beforeend"
-                class="bg-[#00BABB] hover:bg-[#009a9b] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 shadow-sm">
+                class="bg-[#00BABB] hover:bg-[#009a9b] text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition-colors flex items-center gap-1.5 shadow-sm">
                 <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
                 </svg>
                 Visita a Obra
             </button>
-            {# Filtro por area #}
-            <select name="area" hx-get="/proyectos/partials/proyectos" hx-trigger="change" hx-target="#proyectos-list"
-                hx-include="[name='q'], [name='status']"
-                class="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <option value="">Todas las areas</option>
-                <option value="INGENIERIA" {% if area=='INGENIERIA' %}selected{% endif %}>Ingenieria</option>
-                <option value="CONSTRUCCION" {% if area=='CONSTRUCCION' %}selected{% endif %}>Construccion</option>
-                <option value="OYM" {% if area=='OYM' %}selected{% endif %}>O&M</option>
-            </select>
-            {# Filtro por estatus traspaso #}
-            <select name="status" hx-get="/proyectos/partials/proyectos" hx-trigger="change" hx-target="#proyectos-list"
-                hx-include="[name='q'], [name='area']"
-                class="text-sm border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
-                <option value="">Todos los estatus</option>
-                <option value="EN_AREA">En area</option>
-                <option value="EN_TRANSITO">En transito</option>
-            </select>
-            {# Busqueda #}
-            <div class="relative">
-                <input type="text" name="q" placeholder="Buscar proyecto..." hx-get="/proyectos/partials/proyectos"
-                    hx-trigger="keyup changed delay:500ms" hx-target="#proyectos-list"
-                    hx-include="[name='area'], [name='status']"
-                    class="pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 w-full sm:w-56">
-                <svg class="w-4 h-4 text-gray-400 absolute left-2.5 top-2.5" fill="none" stroke="currentColor"
-                    viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-                </svg>
+        </div>
+    </div>
+
+    {# Filtros #}
+    <div class="glass-panel p-3 rounded-xl mb-4 border border-gray-200/70">
+        <div class="flex items-center justify-between gap-2">
+            <div>
+                <h3 class="text-sm font-semibold text-gray-800">Filtros</h3>
+                <p class="text-xs text-gray-500">Área, estatus y búsqueda de proyectos</p>
             </div>
+            <details class="relative group">
+                <summary class="list-none cursor-pointer inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-sm font-semibold text-gray-700">
+                    <svg class="w-4 h-4 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                    </svg>
+                    Filtros
+                    <svg class="w-4 h-4 text-gray-500 transition-transform group-open:rotate-180" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </summary>
+                <div class="absolute right-0 top-full mt-2 z-30 w-[20rem] sm:w-[30rem] max-w-[92vw] bg-white border border-gray-200 rounded-xl shadow-xl p-3">
+                    <form id="proyectos-filtros-form" class="grid grid-cols-1 sm:grid-cols-3 gap-3" hx-get="/proyectos/partials/proyectos" hx-target="#proyectos-list" hx-swap="innerHTML" hx-trigger="submit">
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1">Área</label>
+                            <select name="area" hx-get="/proyectos/partials/proyectos" hx-trigger="change" hx-target="#proyectos-list" hx-swap="innerHTML" hx-include="#proyectos-filtros-form"
+                                class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option value="">Todas las áreas</option>
+                                <option value="INGENIERIA" {% if area=='INGENIERIA' %}selected{% endif %}>Ingeniería</option>
+                                <option value="CONSTRUCCION" {% if area=='CONSTRUCCION' %}selected{% endif %}>Construcción</option>
+                                <option value="OYM" {% if area=='OYM' %}selected{% endif %}>O&M</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1">Estatus</label>
+                            <select name="status" hx-get="/proyectos/partials/proyectos" hx-trigger="change" hx-target="#proyectos-list" hx-swap="innerHTML" hx-include="#proyectos-filtros-form"
+                                class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                                <option value="">Todos los estatus</option>
+                                <option value="EN_AREA">En área</option>
+                                <option value="EN_TRANSITO">En tránsito</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs text-gray-600 mb-1">Buscar</label>
+                            <input type="text" name="q" placeholder="Proyecto, cliente..." hx-get="/proyectos/partials/proyectos"
+                                hx-trigger="keyup changed delay:400ms" hx-target="#proyectos-list" hx-swap="innerHTML" hx-include="#proyectos-filtros-form"
+                                class="w-full text-sm border border-gray-300 rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
+                        </div>
+                        <div class="sm:col-span-3 flex justify-end gap-2 pt-1 border-t border-gray-100">
+                            <button type="button" onclick="document.querySelector('#proyectos-filtros-form [name=\'area\']').value='';document.querySelector('#proyectos-filtros-form [name=\'status\']').value='';document.querySelector('#proyectos-filtros-form [name=\'q\']').value='';htmx.trigger(document.querySelector('#proyectos-filtros-form [name=\'area\']'),'change')"
+                                class="text-sm text-gray-500 hover:text-red-600 underline">Limpiar</button>
+                            <button type="submit" class="px-3 py-1.5 rounded-lg bg-[#00BABB] hover:bg-[#009a9b] text-white text-sm font-semibold">Aplicar</button>
+                        </div>
+                    </form>
+                </div>
+            </details>
         </div>
     </div>
 
     {# KPI Cards #}
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
             <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">Total Proyectos</h3>
-            <div class="text-3xl font-bold text-blue-700 mt-2">{{ kpis.total_proyectos }}</div>
+            <div class="text-2xl font-bold text-blue-700 mt-1">{{ kpis.total_proyectos }}</div>
         </div>
-        <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
-            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">En Ingenieria</h3>
-            <div class="text-3xl font-bold text-purple-700 mt-2">{{ kpis.por_area.get('INGENIERIA', 0) }}</div>
+        <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
+            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">En Ingeniería</h3>
+            <div class="text-2xl font-bold text-purple-700 mt-1">{{ kpis.por_area.get('INGENIERIA', 0) }}</div>
         </div>
-        <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
-            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">En Construccion</h3>
-            <div class="text-3xl font-bold text-amber-700 mt-2">{{ kpis.por_area.get('CONSTRUCCION', 0) }}</div>
+        <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
+            <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">En Construcción</h3>
+            <div class="text-2xl font-bold text-amber-700 mt-1">{{ kpis.por_area.get('CONSTRUCCION', 0) }}</div>
         </div>
-        <div class="glass-card p-4 rounded-xl hover:-translate-y-1 transition-transform duration-300">
+        <div class="glass-card p-3 rounded-xl hover:-translate-y-0.5 transition-transform duration-200">
             <h3 class="text-gray-500 text-xs font-bold uppercase tracking-wider">En O&M</h3>
-            <div class="text-3xl font-bold text-emerald-700 mt-2">{{ kpis.por_area.get('OYM', 0) }}</div>
+            <div class="text-2xl font-bold text-emerald-700 mt-1">{{ kpis.por_area.get('OYM', 0) }}</div>
         </div>
     </div>
 
@@ -129,6 +150,7 @@
             {% include "shared/partials/lista_proyectos.html" %}
         </div>
     </div>
+
     <!-- Container para modal de crear proyecto -->
     <div id="modal-proyecto-container"></div>
 </div>
