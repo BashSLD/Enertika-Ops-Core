@@ -1,7 +1,8 @@
 <div id="modal-editar-planta"
      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
      x-data="{ cerrar() { document.getElementById('modal-editar-planta')?.remove(); } }"
-     @keydown.escape.window="cerrar()">
+     @keydown.escape.window="cerrar()"
+     @plantaSaved.window="cerrar()">
 
     <div @click.away="cerrar()"
          class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 flex flex-col max-h-[90dvh]"
@@ -22,9 +23,8 @@
             </button>
         </div>
 
-        <form hx-put="/calculadora-polizas/plantas/{{ planta.id }}"
+        <form hx-put="/oym/plantas/{{ planta.id }}"
               hx-target="#main-content"
-              hx-on::after-request="if(event.detail.successful) document.getElementById('modal-editar-planta')?.remove()"
               class="p-5 flex flex-col gap-4 overflow-y-auto flex-1">
 
             <div>
@@ -52,6 +52,15 @@
                     <option value="Zona 1" {{ 'selected' if planta.zona_incidencia == 'Zona 1' }}>Zona 1</option>
                     <option value="Zona 2" {{ 'selected' if planta.zona_incidencia == 'Zona 2' }}>Zona 2</option>
                 </select>
+            </div>
+
+            <div>
+                <label class="block text-sm font-medium text-gray-600 mb-1">ID Incidencia</label>
+                <input type="text" name="id_incidencia" value="{{ planta.id_incidencia or '' }}"
+                       placeholder="MX-800##"
+                       class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 uppercase"
+                       style="text-transform:uppercase">
+                <p class="mt-1 text-xs text-gray-500">Opcional. Solo registrar cuando exista carpeta de incidencia.</p>
             </div>
 
             <div>
@@ -93,8 +102,14 @@
             </label>
 
             <div class="flex gap-2 pt-2 flex-shrink-0">
-                <button type="button" @click="cerrar()"
-                        class="flex-1 btn-secondary py-2 rounded-lg text-sm">Cancelar</button>
+                <button type="button"
+                        hx-post="/oym/plantas/{{ planta.id }}/toggle"
+                        hx-target="#main-content"
+                        hx-confirm="{{ 'Desactivar' if planta.activa else 'Activar' }} la planta {{ planta.nombre }}?"
+                        hx-on::before-request="document.getElementById('modal-editar-planta')?.remove()"
+                        class="px-3 py-2 rounded-lg text-sm font-medium border transition-colors focus:outline-none focus:ring-2 {{ 'text-amber-800 bg-amber-50 border-amber-200 hover:bg-amber-100 focus:ring-amber-500/30' if planta.activa else 'text-emerald-700 bg-emerald-50 border-emerald-200 hover:bg-emerald-100 focus:ring-emerald-500/30' }}">
+                    {{ 'Desactivar' if planta.activa else 'Activar' }}
+                </button>
                 <button type="submit"
                         class="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 rounded-lg text-sm transition-colors flex items-center justify-center gap-2">
                     <span class="htmx-indicator">

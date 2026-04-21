@@ -25,7 +25,7 @@
 
         {# Formulario #}
         <form id="form-aceptar-cotizacion"
-              hx-patch="/calculadora-polizas/cotizaciones/{{ cotizacion_id }}/estatus"
+              hx-patch="/oym/cotizaciones/{{ cotizacion_id }}/estatus"
               hx-target="#cotizaciones-container"
               hx-swap="outerHTML"
               hx-on::after-request="if(event.detail.successful) document.getElementById('modal-aceptar-cotizacion')?.remove()"

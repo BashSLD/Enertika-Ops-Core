@@ -90,7 +90,7 @@
         {# Formulario #}
         <div class="flex-1 overflow-y-auto px-5 py-4">
             <form id="form-renovar-cotizacion"
-                  hx-post="/calculadora-polizas/cotizaciones/guardar"
+                  hx-post="/oym/cotizaciones/guardar"
                   hx-swap="none"
                   hx-on::after-request="if(event.detail.successful) { document.getElementById('modal-renovar-cotizacion')?.remove(); }"
                   class="flex flex-col gap-4">

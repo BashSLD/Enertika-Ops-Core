@@ -7,8 +7,8 @@
                 <a href="/oym/ui" hx-get="/oym/ui" hx-target="#main-content" hx-push-url="true"
                    class="text-gray-400 hover:text-blue-600 transition-colors">O&M</a>
                 <span class="text-gray-400 mx-1">/</span>
-                <a href="/calculadora-polizas/ui" hx-get="/calculadora-polizas/ui" hx-target="#main-content" hx-push-url="true"
-                   class="text-gray-400 hover:text-blue-600 transition-colors">Calculadora</a>
+                <a href="/oym/ui?tab=plantas" hx-get="/oym/ui?tab=plantas" hx-target="#main-content" hx-push-url="true"
+                   class="text-gray-400 hover:text-blue-600 transition-colors">Gestión O&amp;M</a>
                 <span class="text-gray-400 mx-1">/</span>
                 <span class="font-bold text-blue-600">Plantas</span>
             </h2>
@@ -18,7 +18,7 @@
             {# Buscador #}
             <div class="relative w-full md:w-56">
                 <input type="text" name="q" value="{{ q }}" placeholder="Buscar planta..."
-                    hx-get="/calculadora-polizas/plantas/ui"
+                    hx-get="/oym/plantas/ui"
                     hx-trigger="keyup changed delay:400ms"
                     hx-target="#main-content"
                     class="w-full pl-8 pr-3 py-2 text-sm border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
@@ -106,25 +106,25 @@
                             {# Badge principal: cobertura vigente #}
                             {% if dias is none %}
                                 {# Fecha fin no definida — activa indefinida #}
-                                <button hx-get="/calculadora-polizas/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
+                                <button hx-get="/oym/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
                                         hx-target="body" hx-swap="beforeend"
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 hover:bg-green-200 transition-colors">
                                     Activa
                                 </button>
                             {% elif dias > 30 %}
-                                <button hx-get="/calculadora-polizas/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
+                                <button hx-get="/oym/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
                                         hx-target="body" hx-swap="beforeend"
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 hover:bg-green-200 transition-colors">
                                     Activa · {{ dias }} días
                                 </button>
                             {% elif dias > 0 %}
-                                <button hx-get="/calculadora-polizas/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
+                                <button hx-get="/oym/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
                                         hx-target="body" hx-swap="beforeend"
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors">
                                     Vence en {{ dias }} días
                                 </button>
                             {% else %}
-                                <button hx-get="/calculadora-polizas/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
+                                <button hx-get="/oym/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
                                         hx-target="body" hx-swap="beforeend"
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors">
                                     Venció hace {{ (dias * -1) }} días
@@ -132,7 +132,7 @@
                             {% endif %}
                             {# Chip renovación programada #}
                             {% if p.poliza_proxima_id %}
-                            <button hx-get="/calculadora-polizas/cotizaciones/{{ p.poliza_proxima_id }}/info-modal"
+                            <button hx-get="/oym/cotizaciones/{{ p.poliza_proxima_id }}/info-modal"
                                     hx-target="body" hx-swap="beforeend"
                                     class="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-700 hover:bg-teal-200 transition-colors">
                                 Renovacion programada
@@ -141,7 +141,7 @@
                         {% elif p.poliza_proxima_id %}
                             {# Solo hay póliza futura — no hay cobertura hoy #}
                             {% set dias_para_inicio = (p.poliza_proxima_inicio - today).days if p.poliza_proxima_inicio else 0 %}
-                            <button hx-get="/calculadora-polizas/cotizaciones/{{ p.poliza_proxima_id }}/info-modal"
+                            <button hx-get="/oym/cotizaciones/{{ p.poliza_proxima_id }}/info-modal"
                                     hx-target="body" hx-swap="beforeend"
                                     class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors">
                                 Programada · inicia en {{ dias_para_inicio }} días
@@ -154,19 +154,19 @@
                     </td>
 
                     <td class="px-4 py-3 text-right whitespace-nowrap">
-                        <button hx-get="/calculadora-polizas/plantas/{{ p.id }}/editar-modal"
+                        <div class="inline-flex items-center justify-end gap-2">
+                        <button hx-get="/oym/plantas/{{ p.id }}/editar-modal"
                                 hx-target="body"
                                 hx-swap="beforeend"
                                 hx-on::before-request="document.getElementById('modal-editar-planta')?.remove()"
-                                class="text-xs text-gray-400 hover:text-blue-600 transition-colors px-2 py-1 rounded hover:bg-gray-100 mr-1">
+                                title="Editar planta"
+                                class="inline-flex items-center gap-1 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-colors px-3 py-1.5 rounded-lg">
+                            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                            </svg>
                             Editar
                         </button>
-                        <button hx-post="/calculadora-polizas/plantas/{{ p.id }}/toggle"
-                                hx-target="#main-content"
-                                hx-confirm="{{ 'Desactivar' if p.activa else 'Activar' }} la planta {{ p.nombre }}?"
-                                class="text-xs text-gray-400 hover:text-blue-600 transition-colors px-2 py-1 rounded hover:bg-gray-100">
-                            {{ 'Desactivar' if p.activa else 'Activar' }}
-                        </button>
+                        </div>
                     </td>
                 </tr>
                 {% endfor %}
@@ -201,7 +201,7 @@
                 </svg>
             </button>
         </div>
-        <form hx-post="/calculadora-polizas/plantas"
+        <form hx-post="/oym/plantas"
               hx-target="#main-content"
               hx-on::after-request="document.getElementById('modal-nueva-planta').classList.add('hidden')"
               class="p-5 flex flex-col gap-4 overflow-y-auto">
@@ -308,7 +308,7 @@
                     <p class="text-sm font-medium text-gray-700">¿Primera vez importando?</p>
                     <p class="text-xs text-gray-500 mt-0.5">Descarga la plantilla con el formato y las zonas válidas.</p>
                 </div>
-                <a href="/calculadora-polizas/plantas/plantilla-excel"
+                <a href="/oym/plantas/plantilla-excel"
                    target="_blank"
                    class="inline-flex items-center gap-2 text-sm font-semibold text-green-700 border border-green-300 bg-green-50 hover:bg-green-100 px-3 py-2 rounded-lg transition-colors whitespace-nowrap">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -419,7 +419,7 @@ async function handleImportFile(file) {
         '<div class="flex justify-center py-4"><div class="spinner-enertika"></div></div>';
 
     try {
-        const resp = await fetch('/calculadora-polizas/plantas/preview-excel', {
+        const resp = await fetch('/oym/plantas/preview-excel', {
             method: 'POST',
             body: formData,
         });
@@ -456,7 +456,7 @@ async function confirmarImportPlantasExcel() {
     `;
 
     try {
-        const resp = await fetch('/calculadora-polizas/plantas/import-excel', {
+        const resp = await fetch('/oym/plantas/import-excel', {
             method: 'POST',
             body: formData,
         });

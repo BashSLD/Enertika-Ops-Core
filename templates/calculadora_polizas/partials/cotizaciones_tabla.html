@@ -27,7 +27,7 @@
              if (this.tipo)       p.set('tipo_filter', this.tipo);
              if (this.solicitante) p.set('solicitante_id_filter', this.solicitante);
              if (this.limit)      p.set('limit', this.limit);
-             const url = '/calculadora-polizas/cotizaciones/ui?' + p.toString();
+             const url = '/oym/cotizaciones/ui?' + p.toString();
              htmx.ajax('GET', url, { target: '#main-content', swap: 'innerHTML' });
              history.pushState({}, '', url);
          },
@@ -56,8 +56,8 @@
                 <a href="/oym/ui" hx-get="/oym/ui" hx-target="#main-content" hx-push-url="true"
                    class="text-gray-400 hover:text-blue-600 transition-colors">O&M</a>
                 <span class="text-gray-400 mx-1">/</span>
-                <a href="/calculadora-polizas/ui" hx-get="/calculadora-polizas/ui" hx-target="#main-content" hx-push-url="true"
-                   class="text-gray-400 hover:text-blue-600 transition-colors">Calculadora</a>
+                <a href="/oym/ui?tab=polizas" hx-get="/oym/ui?tab=polizas" hx-target="#main-content" hx-push-url="true"
+                   class="text-gray-400 hover:text-blue-600 transition-colors">Gestión O&amp;M</a>
                 <span class="text-gray-400 mx-1">/</span>
                 <span class="font-bold text-blue-600">Polizas Generadas</span>
             </h2>
@@ -80,8 +80,8 @@
     <div class="grid grid-cols-4 lg:grid-cols-7 gap-2 mb-4">
 
         {# Total #}
-        <a href="/calculadora-polizas/cotizaciones/ui"
-           hx-get="/calculadora-polizas/cotizaciones/ui"
+        <a href="/oym/cotizaciones/ui"
+           hx-get="/oym/cotizaciones/ui"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-blue-300 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95 {{ 'ring-2 ring-blue-500 shadow-md' if not estatus_filter else '' }}">
             <p class="text-xl font-bold text-blue-700 leading-tight">{{ resumen.get('total', 0) }}</p>
@@ -89,8 +89,8 @@
         </a>
 
         {# ENVIADA #}
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=ENVIADA"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=ENVIADA"
+        <a href="/oym/cotizaciones/ui?estatus_filter=ENVIADA"
+           hx-get="/oym/cotizaciones/ui?estatus_filter=ENVIADA"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-blue-500 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95 {{ 'ring-2 ring-blue-400 shadow-md' if estatus_filter == 'ENVIADA' else '' }}">
             <p class="text-xl font-bold text-blue-600 leading-tight">{{ resumen.get('ENVIADA', 0) }}</p>
@@ -99,8 +99,8 @@
         </a>
 
         {# EN_NEGOCIACION #}
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=EN_NEGOCIACION"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=EN_NEGOCIACION"
+        <a href="/oym/cotizaciones/ui?estatus_filter=EN_NEGOCIACION"
+           hx-get="/oym/cotizaciones/ui?estatus_filter=EN_NEGOCIACION"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-amber-500 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95 {{ 'ring-2 ring-amber-400 shadow-md' if estatus_filter == 'EN_NEGOCIACION' else '' }}">
             <p class="text-xl font-bold text-amber-600 leading-tight">{{ resumen.get('EN_NEGOCIACION', 0) }}</p>
@@ -109,8 +109,8 @@
         </a>
 
         {# ACEPTADA #}
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
+        <a href="/oym/cotizaciones/ui?estatus_filter=ACEPTADA"
+           hx-get="/oym/cotizaciones/ui?estatus_filter=ACEPTADA"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-green-500 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95 {{ 'ring-2 ring-green-400 shadow-md' if estatus_filter == 'ACEPTADA' else '' }}">
             <p class="text-xl font-bold text-green-600 leading-tight">{{ resumen.get('ACEPTADA', 0) }}</p>
@@ -119,8 +119,8 @@
         </a>
 
         {# RECHAZADA #}
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=RECHAZADA"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=RECHAZADA"
+        <a href="/oym/cotizaciones/ui?estatus_filter=RECHAZADA"
+           hx-get="/oym/cotizaciones/ui?estatus_filter=RECHAZADA"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-red-500 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95 {{ 'ring-2 ring-red-400 shadow-md' if estatus_filter == 'RECHAZADA' else '' }}">
             <p class="text-xl font-bold text-red-600 leading-tight">{{ resumen.get('RECHAZADA', 0) }}</p>
@@ -129,8 +129,8 @@
         </a>
 
         {# Pólizas ACEPTADAS por vencer (≤30 días) — chip de alerta #}
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
+        <a href="/oym/cotizaciones/ui?estatus_filter=ACEPTADA"
+           hx-get="/oym/cotizaciones/ui?estatus_filter=ACEPTADA"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95
                {{ 'border-orange-500 bg-orange-50/40 ring-2 ring-orange-400/60' if alertas.polizas_por_vencer > 0 else 'border-gray-200' }}">
@@ -147,8 +147,8 @@
         </a>
 
         {# Cotizaciones por vencer (≤7 días) #}
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=COT_VENCE"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=COT_VENCE"
+        <a href="/oym/cotizaciones/ui?estatus_filter=COT_VENCE"
+           hx-get="/oym/cotizaciones/ui?estatus_filter=COT_VENCE"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95
                 {{ 'border-amber-400 bg-amber-50/40 ring-2 ring-amber-300/60' if alertas.cotizaciones_por_vencer > 0 else 'border-gray-200' }} {{ 'ring-offset-1 ring-amber-500' if estatus_filter == 'COT_VENCE' else '' }}">
@@ -227,8 +227,8 @@
                 <div class="w-2 h-2 rounded-full {{ badge_dot(estatus_filter) }}"></div>
                 Filtrando por: <strong>{{ badge_label(estatus_filter) }}</strong> &mdash; {{ total }} resultado{{ 's' if total != 1 else '' }}
             </span>
-            <a href="/calculadora-polizas/cotizaciones/ui"
-               hx-get="/calculadora-polizas/cotizaciones/ui"
+            <a href="/oym/cotizaciones/ui"
+               hx-get="/oym/cotizaciones/ui"
                hx-target="#main-content" hx-push-url="true"
                class="text-xs text-blue-600 hover:text-blue-800 underline">Quitar filtro</a>
         </div>
@@ -275,7 +275,7 @@
                     data-creado="{{ c.creado_por_nombre | lower if c.creado_por_nombre else '' }}"
                     data-vence="{{ (c.fecha_fin_poliza - fecha_hoy).days if c.fecha_fin_poliza else 9999 }}">
                     <td class="px-4 py-3 font-medium text-gray-800">
-                        <button hx-get="/calculadora-polizas/cotizaciones/{{ c.id }}/info-modal"
+                        <button hx-get="/oym/cotizaciones/{{ c.id }}/info-modal"
                                 hx-target="body"
                                 hx-swap="beforeend"
                                 hx-on::before-request="document.getElementById('modal-cotizacion-info')?.remove()"
@@ -309,11 +309,11 @@
                                 if ($event.target.value === 'ACEPTADA') {
                                     $event.target.value = '{{ c.estatus }}';
                                     htmx.ajax('GET',
-                                        '/calculadora-polizas/cotizaciones/{{ c.id }}/aceptar-modal?estatus_filter={{ estatus_filter }}&limit={{ limit }}',
+                                        '/oym/cotizaciones/{{ c.id }}/aceptar-modal?estatus_filter={{ estatus_filter }}&limit={{ limit }}',
                                         { target: 'body', swap: 'beforeend' });
                                 } else {
                                     htmx.ajax('PATCH',
-                                        '/calculadora-polizas/cotizaciones/{{ c.id }}/estatus',
+                                        '/oym/cotizaciones/{{ c.id }}/estatus',
                                         { target: '#cotizaciones-container', swap: 'outerHTML',
                                           values: { estatus: $event.target.value, estatus_filter: '{{ estatus_filter }}', limit: {{ limit }} } });
                                 }
@@ -407,7 +407,7 @@
                     </td>
                     <td class="px-4 py-3 text-right whitespace-nowrap">
                         {% if puede_editar %}
-                        <button hx-get="/calculadora-polizas/cotizaciones/{{ c.id }}/editar-modal?estatus_filter={{ estatus_filter }}"
+                        <button hx-get="/oym/cotizaciones/{{ c.id }}/editar-modal?estatus_filter={{ estatus_filter }}"
                                 hx-target="body"
                                 hx-swap="beforeend"
                                 hx-on::before-request="document.getElementById('modal-editar-cotizacion')?.remove()"
@@ -420,7 +420,7 @@
                             Editar
                         </button>
                         {% if c.estatus == 'ACEPTADA' and (c.fecha_fin_poliza and (c.fecha_fin_poliza - fecha_hoy).days <= 90) %}
-                        <button hx-get="/calculadora-polizas/cotizaciones/{{ c.id }}/renovar-modal"
+                        <button hx-get="/oym/cotizaciones/{{ c.id }}/renovar-modal"
                                 hx-target="body"
                                 hx-swap="beforeend"
                                 hx-on::before-request="document.getElementById('modal-renovar-cotizacion')?.remove()"
@@ -434,7 +434,7 @@
                         </button>
                         {% endif %}
                         {% endif %}
-                        <a href="/calculadora-polizas/cotizaciones/{{ c.id }}/pdf"
+                        <a href="/oym/cotizaciones/{{ c.id }}/pdf"
                            target="_blank"
                            title="Descargar propuesta PDF"
                            class="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors px-2 py-1 rounded hover:bg-blue-50">
@@ -464,8 +464,8 @@
             </svg>
             {% if estatus_filter %}
             <p class="text-sm">No hay polizas con estatus <strong>{{ badge_label(estatus_filter) }}</strong></p>
-            <a href="/calculadora-polizas/cotizaciones/ui"
-               hx-get="/calculadora-polizas/cotizaciones/ui"
+            <a href="/oym/cotizaciones/ui"
+               hx-get="/oym/cotizaciones/ui"
                hx-target="#main-content" hx-push-url="true"
                class="text-xs text-blue-600 hover:underline">Ver todas las polizas</a>
             {% else %}

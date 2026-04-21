@@ -13,8 +13,8 @@
             </svg>
         </div>
         <a x-show="activeTab === 'polizas'"
-           href="/calculadora-polizas/plantas/ui"
-           hx-get="/calculadora-polizas/plantas/ui" hx-target="#main-content" hx-push-url="true"
+           href="/oym/plantas/ui"
+           hx-get="/oym/plantas/ui" hx-target="#main-content" hx-push-url="true"
            class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -23,8 +23,8 @@
             Gestionar Plantas
         </a>
         <a x-show="activeTab === 'polizas'"
-           href="/calculadora-polizas/cotizaciones/ui"
-           hx-get="/calculadora-polizas/cotizaciones/ui" hx-target="#main-content" hx-push-url="true"
+           href="/oym/cotizaciones/ui"
+           hx-get="/oym/cotizaciones/ui" hx-target="#main-content" hx-push-url="true"
            class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -43,8 +43,8 @@
             Nueva Póliza
         </a>
         <a x-show="activeTab === 'plantas'"
-           href="/calculadora-polizas/plantas/ui"
-           hx-get="/calculadora-polizas/plantas/ui" hx-target="#main-content" hx-push-url="true"
+           href="/oym/plantas/ui"
+           hx-get="/oym/plantas/ui" hx-target="#main-content" hx-push-url="true"
            class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -53,7 +53,7 @@
             Gestionar Plantas
         </a>
         <button x-show="activeTab === 'plantas'"
-           hx-get="/calculadora-polizas/plantas/nueva-modal" hx-target="body" hx-swap="beforeend"
+           hx-get="/oym/plantas/nueva-modal" hx-target="body" hx-swap="beforeend"
            class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg cursor-pointer">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -96,8 +96,8 @@
             </div>
             {# Gestionar Plantas — solo en tab Polizas #}
             <a x-show="activeTab === 'polizas'" x-transition
-               href="/calculadora-polizas/plantas/ui"
-               hx-get="/calculadora-polizas/plantas/ui" hx-target="#main-content" hx-push-url="true"
+               href="/oym/plantas/ui"
+               hx-get="/oym/plantas/ui" hx-target="#main-content" hx-push-url="true"
                class="btn-secondary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -107,8 +107,8 @@
             </a>
             {# Gestionar Pólizas — solo en tab Polizas #}
             <a x-show="activeTab === 'polizas'" x-transition
-               href="/calculadora-polizas/cotizaciones/ui"
-               hx-get="/calculadora-polizas/cotizaciones/ui" hx-target="#main-content" hx-push-url="true"
+               href="/oym/cotizaciones/ui"
+               hx-get="/oym/cotizaciones/ui" hx-target="#main-content" hx-push-url="true"
                class="btn-secondary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -129,8 +129,8 @@
             </a>
             {# Gestionar Plantas (admin) — solo en tab Plantas, solo editors #}
             <a x-show="activeTab === 'plantas'" x-transition
-               href="/calculadora-polizas/plantas/ui"
-               hx-get="/calculadora-polizas/plantas/ui" hx-target="#main-content" hx-push-url="true"
+               href="/oym/plantas/ui"
+               hx-get="/oym/plantas/ui" hx-target="#main-content" hx-push-url="true"
                class="btn-secondary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -140,7 +140,7 @@
             </a>
             {# Nueva Planta — solo en tab Plantas, solo editors #}
             <button x-show="activeTab === 'plantas'" x-transition
-               hx-get="/calculadora-polizas/plantas/nueva-modal" hx-target="body" hx-swap="beforeend"
+               hx-get="/oym/plantas/nueva-modal" hx-target="body" hx-swap="beforeend"
                class="btn-secondary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 cursor-pointer">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -245,7 +245,7 @@
             <li class="shrink-0">
                 <button @click="activeTab = 'polizas'; history.pushState(null, '', '/oym/ui?tab=polizas'); updateOymTab('polizas', $el)"
                         id="oym-tab-polizas"
-                        hx-get="/calculadora-polizas/partials/polizas-resumen"
+                        hx-get="/oym/partials/polizas-resumen"
                         hx-target="#polizas-tab-content"
                         hx-swap="innerHTML"
                         hx-trigger="click once"
@@ -308,7 +308,7 @@
     {# Tab Polizas — lazy load via HTMX al primer clic o al restaurar historial con este tab activo #}
     <div x-show="activeTab === 'polizas'" class="flex-1 overflow-auto"
          {% if active_tab == 'polizas' %}
-         hx-get="/calculadora-polizas/partials/polizas-resumen"
+         hx-get="/oym/partials/polizas-resumen"
          hx-target="#polizas-tab-content"
          hx-swap="innerHTML"
          hx-trigger="load once"

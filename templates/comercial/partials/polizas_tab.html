@@ -29,7 +29,7 @@
                           ('RECHAZADA', 'Rechazadas'), ('VENCIDA', 'Vencidas')] %}
         {% for val, label in filtros %}
         <a href="#"
-           hx-get="/calculadora-polizas/partials/polizas-comercial?page=1{% if val %}&amp;estatus_filter={{ val }}{% endif %}"
+           hx-get="/oym/partials/polizas-comercial?page=1{% if val %}&amp;estatus_filter={{ val }}{% endif %}"
            hx-target="#polizas-comercial-container"
            hx-swap="outerHTML"
            class="text-xs px-3 py-1 rounded-full border transition-colors
@@ -62,7 +62,7 @@
                     <td class="px-4 py-3">
                         {% if current_module_role in ('editor', 'admin') or role in ('ADMIN', 'MANAGER') %}
                         <button type="button"
-                                hx-get="/calculadora-polizas/cotizaciones/{{ c.id }}/asignar-modal?page={{ page }}{% if estatus_filter %}&amp;estatus_filter={{ estatus_filter }}{% endif %}"
+                                hx-get="/oym/cotizaciones/{{ c.id }}/asignar-modal?page={{ page }}{% if estatus_filter %}&amp;estatus_filter={{ estatus_filter }}{% endif %}"
                                 hx-target="body" hx-swap="beforeend"
                                 hx-on::before-request="document.getElementById('modal-asignar-cotizacion')?.remove()"
                                 class="font-medium text-gray-800 hover:text-blue-600 text-left transition-colors underline-offset-2 hover:underline">
@@ -92,7 +92,7 @@
                         {{ c.created_at | time_mx if c.created_at else '—' }}
                     </td>
                     <td class="px-4 py-3 text-right">
-                        <a href="/calculadora-polizas/cotizaciones/{{ c.id }}/pdf"
+                        <a href="/oym/cotizaciones/{{ c.id }}/pdf"
                            target="_blank"
                            title="Descargar PDF"
                            class="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors px-2 py-1 rounded hover:bg-blue-50">
@@ -115,13 +115,13 @@
             <p class="text-xs text-gray-400">{{ total }} polizas totales</p>
             <div class="flex gap-1">
                 {% if page > 1 %}
-                <a hx-get="/calculadora-polizas/partials/polizas-comercial?page={{ page - 1 }}{% if estatus_filter %}&amp;estatus_filter={{ estatus_filter }}{% endif %}"
+                <a hx-get="/oym/partials/polizas-comercial?page={{ page - 1 }}{% if estatus_filter %}&amp;estatus_filter={{ estatus_filter }}{% endif %}"
                    hx-target="#polizas-comercial-container" hx-swap="outerHTML"
                    class="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50">Ant</a>
                 {% endif %}
                 <span class="px-2 py-1 text-xs text-gray-500">{{ page }}/{{ pages }}</span>
                 {% if page < pages %}
-                <a hx-get="/calculadora-polizas/partials/polizas-comercial?page={{ page + 1 }}{% if estatus_filter %}&amp;estatus_filter={{ estatus_filter }}{% endif %}"
+                <a hx-get="/oym/partials/polizas-comercial?page={{ page + 1 }}{% if estatus_filter %}&amp;estatus_filter={{ estatus_filter }}{% endif %}"
                    hx-target="#polizas-comercial-container" hx-swap="outerHTML"
                    class="px-2 py-1 text-xs rounded border border-gray-200 text-gray-600 hover:bg-gray-50">Sig</a>
                 {% endif %}

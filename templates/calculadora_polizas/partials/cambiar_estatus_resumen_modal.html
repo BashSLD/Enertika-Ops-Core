@@ -57,7 +57,7 @@
         {% elif cotizacion.estatus == 'ACEPTADA' %}
         {% if puede_admin %}
         <form id="form-cambiar-estatus-resumen"
-              hx-patch="/calculadora-polizas/cotizaciones/{{ cotizacion.id }}/estatus-resumen"
+              hx-patch="/oym/cotizaciones/{{ cotizacion.id }}/estatus-resumen"
               hx-target="#polizas-resumen-container"
               hx-swap="outerHTML"
               hx-indicator="#cambiar-estatus-spinner"
@@ -116,7 +116,7 @@
         {% endif %}
 
         <form id="form-cambiar-estatus-resumen"
-              hx-patch="/calculadora-polizas/cotizaciones/{{ cotizacion.id }}/estatus-resumen"
+              hx-patch="/oym/cotizaciones/{{ cotizacion.id }}/estatus-resumen"
               hx-target="#polizas-resumen-container"
               hx-swap="outerHTML"
               hx-indicator="#cambiar-estatus-spinner"

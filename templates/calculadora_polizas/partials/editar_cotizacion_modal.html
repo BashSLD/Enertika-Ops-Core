@@ -39,7 +39,7 @@
                      descuento_anios: '[]',
                  });
                  const resp = await fetch(
-                     '/calculadora-polizas/cotizaciones/' + this.cotizacionId + '/comparar-precios?' + params
+                     '/oym/cotizaciones/' + this.cotizacionId + '/comparar-precios?' + params
                  );
                  const data = await resp.json();
                  if (data.error) {
@@ -99,7 +99,7 @@
              }
 
              // Verificar proactivamente si los precios cambiaron desde que se generó la póliza
-             fetch('/calculadora-polizas/cotizaciones/' + this.cotizacionId + '/comparar-precios?'
+             fetch('/oym/cotizaciones/' + this.cotizacionId + '/comparar-precios?'
                  + new URLSearchParams({
                      planta_id: this.planta_id,
                      tipo_poliza: this.tipo_poliza,
@@ -173,7 +173,7 @@
             </div>
 
             <form id="form-editar-cotizacion"
-                  hx-put="/calculadora-polizas/cotizaciones/{{ cotizacion.id }}"
+                  hx-put="/oym/cotizaciones/{{ cotizacion.id }}"
                   hx-target="#cotizaciones-container"
                   hx-swap="outerHTML"
                   hx-trigger="do_guardar"

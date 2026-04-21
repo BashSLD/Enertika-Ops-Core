@@ -27,7 +27,7 @@
              if (this.tipo)        p.set('tipo_filter', this.tipo);
              if (this.solicitante) p.set('solicitante_id_filter', this.solicitante);
              if (this.limit)       p.set('limit', this.limit);
-             htmx.ajax('GET', '/calculadora-polizas/partials/polizas-resumen?' + p.toString(), {
+             htmx.ajax('GET', '/oym/partials/polizas-resumen?' + p.toString(), {
                  target: '#polizas-resumen-container', swap: 'outerHTML'
              });
          },
@@ -55,16 +55,16 @@
     {# KPI cards — fila única: 5 estatus activos + 2 alertas de vencimiento #}
     <div class="grid grid-cols-4 lg:grid-cols-7 gap-2">
 
-        <a href="/calculadora-polizas/cotizaciones/ui"
-           hx-get="/calculadora-polizas/cotizaciones/ui"
+        <a href="/oym/cotizaciones/ui"
+           hx-get="/oym/cotizaciones/ui"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-blue-300 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95">
             <p class="text-xl font-bold text-blue-700 leading-tight">{{ resumen.get('total', 0) }}</p>
             <p class="text-[10px] text-gray-500 font-medium">Total</p>
         </a>
 
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=ENVIADA"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=ENVIADA"
+        <a href="/oym/cotizaciones/ui?estatus_filter=ENVIADA"
+           hx-get="/oym/cotizaciones/ui?estatus_filter=ENVIADA"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-blue-500 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95">
             <p class="text-xl font-bold text-blue-600 leading-tight">{{ resumen.get('ENVIADA', 0) }}</p>
@@ -72,8 +72,8 @@
             <p class="text-[10px] text-gray-500 font-medium">Enviadas</p>
         </a>
 
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=EN_NEGOCIACION"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=EN_NEGOCIACION"
+        <a href="/oym/cotizaciones/ui?estatus_filter=EN_NEGOCIACION"
+           hx-get="/oym/cotizaciones/ui?estatus_filter=EN_NEGOCIACION"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-amber-500 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95">
             <p class="text-xl font-bold text-amber-600 leading-tight">{{ resumen.get('EN_NEGOCIACION', 0) }}</p>
@@ -81,8 +81,8 @@
             <p class="text-[10px] text-gray-500 font-medium leading-tight">En Negoc.</p>
         </a>
 
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
+        <a href="/oym/cotizaciones/ui?estatus_filter=ACEPTADA"
+           hx-get="/oym/cotizaciones/ui?estatus_filter=ACEPTADA"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-green-500 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95">
             <p class="text-xl font-bold text-green-600 leading-tight">{{ resumen.get('ACEPTADA', 0) }}</p>
@@ -90,8 +90,8 @@
             <p class="text-[10px] text-gray-500 font-medium">Aceptadas</p>
         </a>
 
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=RECHAZADA"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=RECHAZADA"
+        <a href="/oym/cotizaciones/ui?estatus_filter=RECHAZADA"
+           hx-get="/oym/cotizaciones/ui?estatus_filter=RECHAZADA"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 border-red-500 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95">
             <p class="text-xl font-bold text-red-600 leading-tight">{{ resumen.get('RECHAZADA', 0) }}</p>
@@ -100,8 +100,8 @@
         </a>
 
         {# Pólizas ACEPTADAS por vencer (≤30 días) — chip de alerta #}
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=ACEPTADA"
+        <a href="/oym/cotizaciones/ui?estatus_filter=ACEPTADA"
+           hx-get="/oym/cotizaciones/ui?estatus_filter=ACEPTADA"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95
                {{ 'border-orange-500 bg-orange-50/40 ring-2 ring-orange-400/60' if alertas.polizas_por_vencer > 0 else 'border-gray-200' }}">
@@ -118,8 +118,8 @@
         </a>
 
         {# Cotizaciones por vencer (≤7 días) #}
-        <a href="/calculadora-polizas/cotizaciones/ui?estatus_filter=COT_VENCE"
-           hx-get="/calculadora-polizas/cotizaciones/ui?estatus_filter=COT_VENCE"
+        <a href="/oym/cotizaciones/ui?estatus_filter=COT_VENCE"
+           hx-get="/oym/cotizaciones/ui?estatus_filter=COT_VENCE"
            hx-target="#main-content" hx-push-url="true"
            class="glass-card py-1.5 px-2 rounded-lg text-center border-b-2 cursor-pointer transition-all hover:-translate-y-0.5 hover:shadow-md active:scale-95
                 {{ 'border-amber-400 bg-amber-50/40 ring-2 ring-amber-300/60' if alertas.cotizaciones_por_vencer > 0 else 'border-gray-200' }} {{ 'ring-offset-1 ring-amber-500' if estatus_filter == 'COT_VENCE' else '' }}">
@@ -236,7 +236,7 @@
                     <td class="px-4 py-3">
                         {% if puede_editar %}
                         <button type="button"
-                                hx-get="/calculadora-polizas/cotizaciones/{{ c.id }}/cambiar-estatus-resumen-modal"
+                                hx-get="/oym/cotizaciones/{{ c.id }}/cambiar-estatus-resumen-modal"
                                 hx-target="body" hx-swap="beforeend"
                                 hx-on::before-request="document.getElementById('modal-cambiar-estatus-resumen')?.remove()"
                                 class="font-medium text-gray-800 hover:text-blue-600 hover:underline underline-offset-2 text-left transition-colors">
@@ -312,7 +312,7 @@
                         {% endif %}
                     </td>
                     <td class="px-4 py-3 text-right">
-                        <a href="/calculadora-polizas/cotizaciones/{{ c.id }}/pdf"
+                        <a href="/oym/cotizaciones/{{ c.id }}/pdf"
                            target="_blank"
                            title="Descargar PDF"
                            class="inline-flex items-center gap-1 text-xs text-blue-600 hover:text-blue-800 transition-colors px-2 py-1 rounded hover:bg-blue-50">
