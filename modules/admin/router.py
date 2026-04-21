@@ -359,6 +359,24 @@ async def update_config_reporte_semanal(
     })
 
 
+@router.post("/config/reporte-semanal-activo", include_in_schema=False)
+async def toggle_reporte_semanal_activo(
+    request: Request,
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    _=require_module_access("admin"),
+):
+    """Alterna la habilitacion del envio automatico del reporte semanal."""
+    actual = await ConfigService.get_global_config(conn, "reporte_semanal_activo", "true", str)
+    nuevo = "false" if actual.lower() == "true" else "true"
+    await service.db.upsert_global_config(conn, "reporte_semanal_activo", nuevo)
+    ConfigService.invalidar_cache()
+    activo = nuevo == "true"
+    return templates.TemplateResponse(
+        request, "admin/partials/reporte_semanal_toggle.html", {"reporte_semanal_activo": activo}
+    )
+
+
 @router.post("/config/visita-obra", include_in_schema=False)
 async def update_config_visita_obra(
     request: Request,
@@ -752,6 +770,8 @@ async def reporte_semanal_page(
         conn, "reporte_semanal_destinatarios", "", str
     )
     destinatarios_configurados = bool(destinatarios_raw.strip())
+    activo_raw = await ConfigService.get_global_config(conn, "reporte_semanal_activo", "true", str)
+    reporte_semanal_activo = activo_raw.lower() == "true"
 
     from datetime import timedelta
     ctx = {
@@ -759,6 +779,7 @@ async def reporte_semanal_page(
         "fecha_inicio": reporte["fecha_inicio"],
         "fecha_fin_display": reporte["fecha_fin"] - timedelta(days=1),
         "destinatarios_configurados": destinatarios_configurados,
+        "reporte_semanal_activo": reporte_semanal_activo,
         **context,
     }
 
@@ -800,6 +821,10 @@ async def enviar_reporte_semanal_cron(
     """
     if not settings.CRON_SECRET or x_cron_secret != settings.CRON_SECRET:
         raise HTTPException(status_code=401, detail="No autorizado")
+
+    activo_raw = await ConfigService.get_global_config(conn, "reporte_semanal_activo", "true", str)
+    if activo_raw.lower() != "true":
+        return {"enviado": False, "motivo": "desactivado"}
 
     enviado = await service.enviar_reporte_semanal(conn)
     return {"enviado": enviado}

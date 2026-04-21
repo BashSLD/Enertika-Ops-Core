@@ -86,6 +86,15 @@ Levantamientos solicitados desde ECO
   {{ datos.levantamientos_activos }} levantamientos activos en seguimiento actualmente</pre>
     </div>
 
+    <!-- Envio automatico toggle -->
+    <div class="flex items-center justify-between mb-5 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+        <div>
+            <p class="text-sm font-medium text-gray-700">Envio automatico semanal</p>
+            <p class="text-xs text-gray-400 mt-0.5">Cron job: viernes 3pm — puede desactivarse sin tocar GitHub Actions</p>
+        </div>
+        {% include "admin/partials/reporte_semanal_toggle.html" %}
+    </div>
+
     <!-- Acción: Enviar correo -->
     <div class="flex items-center gap-4">
         <button
