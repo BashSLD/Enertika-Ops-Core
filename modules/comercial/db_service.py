@@ -38,7 +38,7 @@ QUERY_GET_OPORTUNIDADES_LIST = """
     LEFT JOIN (
         SELECT
             p.id_oportunidad,
-            MIN(p.id_proyecto) AS id_proyecto,
+            (ARRAY_AGG(p.id_proyecto ORDER BY p.created_at DESC NULLS LAST))[1] AS id_proyecto,
             COUNT(*)::int AS proyectos_count,
             (ARRAY_AGG(p.area_actual ORDER BY p.fecha_inicio_area DESC NULLS LAST, p.created_at DESC NULLS LAST))[1] AS area_actual
         FROM tb_proyectos_gate p

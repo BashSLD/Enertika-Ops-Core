@@ -8,7 +8,7 @@
 
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <!-- Modal Container - Adaptativo (Mobile/Tablet/Desktop) -->
-    <div class="bg-white rounded-xl shadow-2xl overflow-hidden w-full
+    <div class="bg-white rounded-xl shadow-2xl overflow-visible w-full
                 max-w-[95vw] sm:max-w-[600px] lg:max-w-[700px]
                 max-h-[90dvh] flex flex-col animate-scale-in" @click.stop>
 
@@ -85,13 +85,14 @@
                             x-transition:leave="transition ease-in duration-100"
                             x-transition:leave-start="opacity-100 transform scale-100"
                             x-transition:leave-end="opacity-0 transform scale-95" @click.away="showCierreMenu = false"
-                            class="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-hidden">
+                            class="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-visible">
 
                             <form hx-post="/comercial/cierre-venta/{{ op.id_oportunidad }}" hx-swap="none"
                                 x-data="{
                                     loading: false,
                                     showWarningModal: false,
                                     allSelected: false,
+                                    selectionError: false,
                                     totalSitios() {
                                         return this.$el.querySelectorAll('input[name=sitios_ganados]').length;
                                     },
@@ -108,10 +109,24 @@
                                     updateSelectAll() {
                                         const checkboxes = Array.from(this.$el.querySelectorAll('input[name=sitios_ganados]'));
                                         this.allSelected = checkboxes.length > 0 && checkboxes.every(cb => cb.checked);
+                                        if (this.selectedSitios() > 0) {
+                                            this.selectionError = false;
+                                        }
                                     },
                                     onSubmit() {
                                         if (this.totalSitios() > 0) {
                                             if (this.selectedSitios() === 0) {
+                                                this.selectionError = true;
+                                                if (typeof showToast === 'function') {
+                                                    showToast({
+                                                        title: 'Seleccion requerida',
+                                                        message: 'Debes seleccionar al menos un sitio para cerrar la oportunidad.',
+                                                        type: 'warning'
+                                                    });
+                                                }
+                                                if (this.$refs.sitiosBlock) {
+                                                    this.$refs.sitiosBlock.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                                }
                                                 return;
                                             }
                                             this.showWarningModal = true;
@@ -166,8 +181,9 @@
                                         </label>
 
                                         <!-- Lista de sitios con scroll (max 200px = ~6-7 sitios visibles) -->
-                                        <div
-                                            class="max-h-[200px] overflow-y-auto space-y-2 bg-gray-50 rounded-lg p-3 border border-gray-200">
+                                        <div x-ref="sitiosBlock"
+                                            :class="selectionError ? 'ring-2 ring-red-300 border-red-300 bg-red-50/40' : 'border-gray-200 bg-gray-50'"
+                                            class="max-h-[200px] overflow-y-auto space-y-2 rounded-lg p-3 border transition-colors duration-200">
                                             {% for sitio in sitios %}
                                             <label
                                                 class="flex items-center gap-2 py-1.5 px-2 hover:bg-gray-100 rounded cursor-pointer transition">
@@ -207,8 +223,7 @@
                                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                                     d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                                             </svg>
-                                            Esta acción habilitará la oportunidad para crear un proyecto en
-                                            <strong>Projects Gate</strong>.
+                                            Esta acción habilitará la oportunidad para crear un proyecto.
                                         </p>
                                     </div>
                                 </div>
@@ -235,36 +250,38 @@
                                     </button>
                                 </div>
 
-                                <div x-show="showWarningModal" x-cloak
-                                    class="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                                    <div class="w-full max-w-md bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden">
-                                        <div class="px-5 py-4 bg-amber-50 border-b border-amber-200">
-                                            <h5 class="text-sm font-bold text-amber-900">Advertencia antes de cerrar</h5>
-                                            <p class="text-xs text-amber-700 mt-1">Revisa el impacto del cierre multisitio.</p>
-                                        </div>
-                                        <div class="px-5 py-4 space-y-3">
-                                            <p class="text-sm text-gray-800">
-                                                Sitios seleccionados como <strong>Ganada</strong>:
-                                                <strong x-text="selectedSitios()"></strong>
-                                            </p>
-                                            <p class="text-sm text-gray-800">
-                                                Sitios que se marcarán como <strong>Perdido</strong>:
-                                                <strong class="text-red-600" x-text="unselectedSitios()"></strong>
-                                            </p>
-                                            <p class="text-xs text-gray-500">Esta acción impacta el estatus de todos los sitios no seleccionados.</p>
-                                        </div>
-                                        <div class="px-5 py-3 bg-gray-50 border-t border-gray-200 flex justify-end gap-2">
-                                            <button type="button" @click="showWarningModal = false"
-                                                class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
-                                                Regresar
-                                            </button>
-                                            <button type="button" @click="confirmSubmit()"
-                                                class="px-3 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition">
-                                                Continuar y Cerrar
-                                            </button>
+                                <template x-teleport="body">
+                                    <div x-show="showWarningModal" x-cloak @click.self="showWarningModal = false"
+                                        class="fixed inset-0 z-[10050] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+                                        <div class="w-full max-w-md bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden">
+                                            <div class="px-5 py-4 bg-amber-50 border-b border-amber-200">
+                                                <h5 class="text-sm font-bold text-amber-900">Advertencia antes de cerrar</h5>
+                                                <p class="text-xs text-amber-700 mt-1">Revisa el impacto del cierre multisitio.</p>
+                                            </div>
+                                            <div class="px-5 py-4 space-y-3">
+                                                <p class="text-sm text-gray-800">
+                                                    Sitios seleccionados como <strong>Ganada</strong>:
+                                                    <strong x-text="selectedSitios()"></strong>
+                                                </p>
+                                                <p class="text-sm text-gray-800">
+                                                    Sitios que se marcarán como <strong>Perdido</strong>:
+                                                    <strong class="text-red-600" x-text="unselectedSitios()"></strong>
+                                                </p>
+                                                <p class="text-xs text-gray-500">Esta acción impacta el estatus de todos los sitios no seleccionados.</p>
+                                            </div>
+                                            <div class="px-5 py-3 bg-gray-50 border-t border-gray-200 flex justify-end gap-2">
+                                                <button type="button" @click="showWarningModal = false"
+                                                    class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
+                                                    Regresar
+                                                </button>
+                                                <button type="button" @click="confirmSubmit()"
+                                                    class="px-3 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition">
+                                                    Continuar y Cerrar
+                                                </button>
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
+                                </template>
                             </form>
                         </div>
                     </div>
@@ -825,14 +842,6 @@
             <!-- Footer Informativo -->
 
 
-        </div>
-
-        <!-- FOOTER - Acciones -->
-        <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
-            <button type="button" @click="$el.closest('#modal-backdrop-detalle').remove()"
-                class="px-5 py-2.5 bg-gray-600 hover:bg-gray-700 text-white rounded-lg font-medium shadow-sm transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2">
-                Cerrar
-            </button>
         </div>
 
     </div>
