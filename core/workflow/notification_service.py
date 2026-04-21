@@ -134,7 +134,7 @@ class NotificationService:
         
         # Obtener datos del nuevo responsable
         new_resp = await conn.fetchrow(
-            "SELECT nombre, email FROM tb_usuarios WHERE id_usuario = $1",
+            "SELECT nombre, email FROM tb_usuarios WHERE id_usuario = $1 AND is_active = TRUE",
             new_responsable_id
         )
         
@@ -206,7 +206,7 @@ class NotificationService:
         
         # Obtener email del creador
         creator = await conn.fetchrow(
-            "SELECT nombre, email FROM tb_usuarios WHERE id_usuario = $1",
+            "SELECT nombre, email FROM tb_usuarios WHERE id_usuario = $1 AND is_active = TRUE",
             opp['creado_por_id']
         )
         
@@ -522,7 +522,7 @@ class NotificationService:
                 return
 
             creator = await conn.fetchrow(
-                "SELECT nombre, email FROM tb_usuarios WHERE id_usuario = $1",
+                "SELECT nombre, email FROM tb_usuarios WHERE id_usuario = $1 AND is_active = TRUE",
                 creado_por,
             )
             if not creator or not creator["email"]:
@@ -610,7 +610,7 @@ class NotificationService:
 
         if owner_id:
             owner_email = await conn.fetchval(
-                "SELECT email FROM tb_usuarios WHERE id_usuario = $1",
+                "SELECT email FROM tb_usuarios WHERE id_usuario = $1 AND is_active = TRUE",
                 owner_id,
             )
             if owner_email:
@@ -653,7 +653,7 @@ class NotificationService:
             return set()
         
         rows = await conn.fetch(
-            "SELECT id_usuario, email FROM tb_usuarios WHERE id_usuario = ANY($1::uuid[])",
+            "SELECT id_usuario, email FROM tb_usuarios WHERE id_usuario = ANY($1::uuid[]) AND is_active = TRUE",
             list(user_ids)
         )
         users_map = {str(r['id_usuario']): r['email'] for r in rows if r['email']}

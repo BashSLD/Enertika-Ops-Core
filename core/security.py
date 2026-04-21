@@ -41,17 +41,24 @@ async def get_current_user_context(
 
     # 3. Consultar DB para obtener ID interno, ROL, DEPARTAMENTO Y MÓDULO PREFERIDO
     row = await conn.fetchrow(
-        "SELECT id_usuario, nombre, rol_sistema, department, modulo_preferido, rol_organizacional FROM tb_usuarios WHERE email = $1",
+        "SELECT id_usuario, nombre, rol_sistema, department, modulo_preferido, rol_organizacional, is_active FROM tb_usuarios WHERE email = $1",
         final_email
     )
-    
-    
+
+    # Usuario desactivado — bloquear acceso sin revelar si la cuenta existe
+    if row and not row['is_active']:
+        from fastapi import HTTPException, status as http_status
+        raise HTTPException(
+            status_code=http_status.HTTP_403_FORBIDDEN,
+            detail="Tu cuenta ha sido desactivada. Contacta al administrador."
+        )
+
     user_db_id = None
-    role = "USER" 
+    role = "USER"
     db_dept = None
     db_name = None
     modulo_preferido = None
-    
+
     if row:
         user_db_id = row['id_usuario']
         role = row['rol_sistema'] or "USER"
