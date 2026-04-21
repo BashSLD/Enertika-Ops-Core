@@ -6,31 +6,34 @@ Endpoints:
 - GET  /calculadora-polizas/ui                          — Dashboard + calculadora
 - GET  /calculadora-polizas/api/plantas                 — JSON dropdown
 - POST /calculadora-polizas/api/calcular                — HTMX → resultado.html
-- POST /calculadora-polizas/cotizaciones/guardar        — Guarda cotización
-- GET  /calculadora-polizas/cotizaciones/ui             — Polizas Generadas
-- PATCH /calculadora-polizas/cotizaciones/{id}/estatus  — Actualizar estatus (editor+ oym)
-- GET  /calculadora-polizas/cotizaciones/{id}/asignar-modal — Decision ACEPTADA/RECHAZADA (editor+ comercial)
-- PATCH /calculadora-polizas/cotizaciones/{id}/asignar  — Guardar decision + email creador (editor+ comercial)
-- GET  /calculadora-polizas/cotizaciones/{id}/editar-modal  — Modal edicion (editor+ oym)
-- GET  /calculadora-polizas/cotizaciones/{id}/comparar-precios — JSON diff snapshot vs precios actuales (editor+)
-- GET  /calculadora-polizas/cotizaciones/{id}/renovar-modal — Modal renovacion (editor+ oym)
-- GET  /calculadora-polizas/cotizaciones/{id}/aceptar-modal — Modal fechas al aceptar (editor+ oym)
-- GET  /calculadora-polizas/cotizaciones/{id}/info-modal    — Modal informativo (viewer+ oym)
-- GET  /calculadora-polizas/cotizaciones/{id}/cambiar-estatus-resumen-modal — Todos los estatus (editor+ oym, desde resumen)
-- PATCH /calculadora-polizas/cotizaciones/{id}/estatus-resumen — Actualizar estatus y refrescar resumen (editor+ oym)
-- PUT  /calculadora-polizas/cotizaciones/{id}           — Guardar edicion; soporta usar_snapshot=mantener (editor+)
-- GET  /calculadora-polizas/plantas/nueva-modal          — Modal nueva planta desde OyM (editor+)
-- GET  /calculadora-polizas/plantas/ui                  — CRUD plantas (editor+)
-- POST /calculadora-polizas/plantas/import-excel        — Import .xlsx (editor+)
-- POST /calculadora-polizas/plantas                     — Crear planta (editor+)
-- GET  /calculadora-polizas/plantas/{id}/editar-modal   — Modal edicion planta (editor+)
-- PUT  /calculadora-polizas/plantas/{id}                — Guardar edicion planta (editor+)
-- POST /calculadora-polizas/plantas/{id}/toggle         — Activar/desactivar (editor+)
 - GET  /calculadora-polizas/admin/ui                    — Editar precios/costos (manager+)
 - POST /calculadora-polizas/admin/precios-zona
 - PATCH /calculadora-polizas/admin/precios-zona/{zona}
 - PATCH /calculadora-polizas/admin/wattabit/{id}
 - PATCH /calculadora-polizas/admin/costos-fijos/{concepto}
+
+Rutas de gestión OyM (prefijo /oym):
+- POST /oym/cotizaciones/guardar
+- GET  /oym/cotizaciones/ui
+- PATCH /oym/cotizaciones/{id}/estatus
+- GET  /oym/cotizaciones/{id}/asignar-modal
+- PATCH /oym/cotizaciones/{id}/asignar
+- GET  /oym/cotizaciones/{id}/editar-modal
+- GET  /oym/cotizaciones/{id}/comparar-precios
+- GET  /oym/cotizaciones/{id}/renovar-modal
+- GET  /oym/cotizaciones/{id}/aceptar-modal
+- GET  /oym/cotizaciones/{id}/info-modal
+- GET  /oym/cotizaciones/{id}/cambiar-estatus-resumen-modal
+- PATCH /oym/cotizaciones/{id}/estatus-resumen
+- PUT  /oym/cotizaciones/{id}
+- GET  /oym/partials/polizas-resumen
+- GET  /oym/plantas/nueva-modal
+- GET  /oym/plantas/ui
+- POST /oym/plantas/import-excel
+- POST /oym/plantas
+- GET  /oym/plantas/{id}/editar-modal
+- PUT  /oym/plantas/{id}
+- POST /oym/plantas/{id}/toggle
 """
 
 from fastapi import APIRouter, Depends, Request, Form, File, UploadFile, Query, HTTPException
@@ -62,6 +65,7 @@ from core.jinja_filters import register_timezone_filters
 register_timezone_filters(templates.env)
 
 router = APIRouter(prefix="/calculadora-polizas", tags=["Modulo Calculadora Polizas"])
+oym_router = APIRouter(prefix="/oym", tags=["Modulo O&M - Polizas y Plantas"])
 
 SLUG = "oym"          # sub-herramienta de O&M — hereda permisos del módulo oym
 TPL = "calculadora_polizas"
@@ -73,6 +77,8 @@ _MESES_ES = {
 }
 
 _ZONAS_INCIDENCIA_VALIDAS = {"Zona 1", "Zona 2"}
+_PATTERN_PLANTA_MX = re.compile(r"^(MX-50\d{3})(?:-(\d{2}))?$")
+_PATTERN_INCIDENCIA = re.compile(r"^MX-800\d{2,}$")
 
 
 def _normalize_zona_incidencia(value: Optional[str]) -> Optional[str]:
@@ -93,6 +99,99 @@ def _normalize_zona_catalogo(value: str) -> str:
     if len(valor) > 100:
         raise ValueError("El nombre de zona no puede exceder 100 caracteres")
     return valor
+
+
+def _to_bool_flag(value: Optional[str]) -> bool:
+    return str(value or "").strip().lower() in {"1", "true", "yes", "si", "on"}
+
+
+def _normalize_id_incidencia(value: Optional[str]) -> Optional[str]:
+    if value is None:
+        return None
+    normalized = value.strip().upper()
+    return normalized or None
+
+
+def _build_warning_message_from_ids(rows: list) -> str:
+    if not rows:
+        return ""
+    labels = [f"{row['id']} ({row['nombre']})" for row in rows[:5]]
+    suffix = "" if len(rows) <= 5 else f" y {len(rows) - 5} más"
+    return ", ".join(labels) + suffix
+
+
+async def _build_planta_warnings(
+    conn,
+    service: CalculadoraService,
+    planta_id: str,
+    id_incidencia: Optional[str],
+    *,
+    exclude_id: Optional[str] = None,
+    check_existing_exact_id: bool = False,
+) -> list:
+    warnings = []
+    planta_id_clean = (planta_id or "").strip().upper()
+    match = _PATTERN_PLANTA_MX.fullmatch(planta_id_clean)
+
+    if not match:
+        warnings.append(
+            "ID de planta con formato no estándar. Se recomienda MX-50### o MX-50###-NN (subproyecto)."
+        )
+        mx_raw = re.match(r"^MX-50(\d+)", planta_id_clean)
+        if mx_raw and len(mx_raw.group(1)) != 3:
+            warnings.append(
+                f"Posible inconsistencia en longitud del ID ({planta_id_clean}). Después de MX-50 deben venir 3 dígitos."
+            )
+    else:
+        base_id = match.group(1)
+        related = await service.db.get_plantas_by_mx_base(conn, base_id, exclude_id)
+        if related:
+            warnings.append(
+                "Ya existen plantas relacionadas al mismo ID base "
+                f"{base_id}: {_build_warning_message_from_ids(related)}"
+            )
+
+    if check_existing_exact_id:
+        existing = await service.db.get_planta_by_id(conn, planta_id_clean)
+        if existing:
+            warnings.append(
+                f"El ID {planta_id_clean} ya existe. Si confirmas, se actualizará la planta existente ({existing['nombre']})."
+            )
+
+    if id_incidencia:
+        if not _PATTERN_INCIDENCIA.fullmatch(id_incidencia):
+            warnings.append(
+                "ID de incidencia con formato no estándar. Se recomienda MX-800## (o más dígitos)."
+            )
+        duplicated_incidencia = await service.db.get_plantas_by_id_incidencia(conn, id_incidencia, exclude_id)
+        if duplicated_incidencia:
+            warnings.append(
+                "El ID de incidencia ya está asignado a otras plantas: "
+                f"{_build_warning_message_from_ids(duplicated_incidencia)}"
+            )
+
+    return warnings
+
+
+def _warning_confirmation_context(
+    endpoint: str,
+    method: str,
+    form_values: dict,
+    warnings: list,
+    *,
+    hx_target: str,
+    hx_swap: str,
+) -> dict:
+    payload = {k: "" if v is None else str(v) for k, v in form_values.items()}
+    payload["confirm_warnings"] = "true"
+    return {
+        "endpoint": endpoint,
+        "method": method,
+        "values": payload,
+        "warnings": warnings,
+        "hx_target": hx_target,
+        "hx_swap": hx_swap,
+    }
 
 
 async def _build_admin_ctx(context: dict, conn, service: CalculadoraService, admin_notice: Optional[str] = None) -> dict:
@@ -276,7 +375,7 @@ async def guardar_modal(
     )
 
 
-@router.post("/cotizaciones/guardar", include_in_schema=False)
+@oym_router.post("/cotizaciones/guardar", include_in_schema=False)
 async def guardar_cotizacion(
     request: Request,
     planta_id: str = Form(...),
@@ -390,7 +489,7 @@ async def _build_cotizaciones_ctx(
     }
 
 
-@router.get("/cotizaciones/ui", include_in_schema=False)
+@oym_router.get("/cotizaciones/ui", include_in_schema=False)
 async def cotizaciones_ui(
     request: Request,
     limit: int = Query(15, ge=0),
@@ -412,7 +511,7 @@ async def cotizaciones_ui(
     return templates.TemplateResponse(request, f"{TPL}/cotizaciones.html", ctx)
 
 
-@router.patch("/cotizaciones/{cotizacion_id}/estatus", include_in_schema=False)
+@oym_router.patch("/cotizaciones/{cotizacion_id}/estatus", include_in_schema=False)
 async def update_cotizacion_estatus(
     request: Request,
     cotizacion_id: str,
@@ -462,7 +561,7 @@ async def update_cotizacion_estatus(
 # RESUMEN EMBEBIDO (para tab en OyM)
 # ============================================================
 
-@router.get("/partials/polizas-resumen", include_in_schema=False)
+@oym_router.get("/partials/polizas-resumen", include_in_schema=False)
 async def polizas_resumen(
     request: Request,
     limit: int = Query(15, ge=0),
@@ -508,7 +607,7 @@ async def polizas_resumen(
 # CAMBIAR ESTATUS DESDE RESUMEN OYM (todos los estatus)
 # ============================================================
 
-@router.get("/cotizaciones/{cotizacion_id}/cambiar-estatus-resumen-modal", include_in_schema=False)
+@oym_router.get("/cotizaciones/{cotizacion_id}/cambiar-estatus-resumen-modal", include_in_schema=False)
 async def cambiar_estatus_resumen_modal(
     request: Request,
     cotizacion_id: str,
@@ -532,7 +631,7 @@ async def cambiar_estatus_resumen_modal(
     )
 
 
-@router.patch("/cotizaciones/{cotizacion_id}/estatus-resumen", include_in_schema=False)
+@oym_router.patch("/cotizaciones/{cotizacion_id}/estatus-resumen", include_in_schema=False)
 async def update_estatus_resumen(
     request: Request,
     cotizacion_id: str,
@@ -587,7 +686,7 @@ async def update_estatus_resumen(
 # PÓLIZAS PARA MÓDULO COMERCIAL
 # ============================================================
 
-@router.get("/partials/polizas-comercial", include_in_schema=False)
+@oym_router.get("/partials/polizas-comercial", include_in_schema=False)
 async def polizas_comercial(
     request: Request,
     page: int = Query(1, ge=1),
@@ -635,7 +734,7 @@ async def polizas_comercial(
 # EDITAR COTIZACIÓN (editor+)
 # ============================================================
 
-@router.get("/cotizaciones/{cotizacion_id}/editar-modal", include_in_schema=False)
+@oym_router.get("/cotizaciones/{cotizacion_id}/editar-modal", include_in_schema=False)
 async def editar_cotizacion_modal(
     request: Request,
     cotizacion_id: str,
@@ -669,7 +768,7 @@ async def editar_cotizacion_modal(
     )
 
 
-@router.get("/cotizaciones/{cotizacion_id}/comparar-precios", include_in_schema=False)
+@oym_router.get("/cotizaciones/{cotizacion_id}/comparar-precios", include_in_schema=False)
 async def comparar_precios_cotizacion(
     cotizacion_id: str,
     planta_id: str = Query(...),
@@ -781,7 +880,7 @@ async def comparar_precios_cotizacion(
     })
 
 
-@router.put("/cotizaciones/{cotizacion_id}", include_in_schema=False)
+@oym_router.put("/cotizaciones/{cotizacion_id}", include_in_schema=False)
 async def update_cotizacion(
     request: Request,
     cotizacion_id: str,
@@ -950,7 +1049,7 @@ async def update_cotizacion(
 # DECISION ACEPTADA/RECHAZADA (desde Comercial, editor+)
 # ============================================================
 
-@router.get("/cotizaciones/{cotizacion_id}/asignar-modal", include_in_schema=False)
+@oym_router.get("/cotizaciones/{cotizacion_id}/asignar-modal", include_in_schema=False)
 async def asignar_modal(
     request: Request,
     cotizacion_id: str,
@@ -978,7 +1077,7 @@ async def asignar_modal(
     )
 
 
-@router.patch("/cotizaciones/{cotizacion_id}/asignar", include_in_schema=False)
+@oym_router.patch("/cotizaciones/{cotizacion_id}/asignar", include_in_schema=False)
 async def asignar_cotizacion(
     request: Request,
     cotizacion_id: str,
@@ -1074,7 +1173,7 @@ async def asignar_cotizacion(
 # PLANTAS — CRUD (editor+)
 # ============================================================
 
-@router.get("/plantas/nueva-modal", include_in_schema=False)
+@oym_router.get("/plantas/nueva-modal", include_in_schema=False)
 async def nueva_planta_modal(
     request: Request,
     context=Depends(get_current_user_context),
@@ -1090,7 +1189,7 @@ async def nueva_planta_modal(
     )
 
 
-@router.get("/plantas/ui", include_in_schema=False)
+@oym_router.get("/plantas/ui", include_in_schema=False)
 async def plantas_ui(
     request: Request,
     q: Optional[str] = Query(None),
@@ -1116,7 +1215,7 @@ async def plantas_ui(
     return templates.TemplateResponse(request, f"{TPL}/plantas.html", ctx)
 
 
-@router.get("/plantas/{planta_id}/editar-modal", include_in_schema=False)
+@oym_router.get("/plantas/{planta_id}/editar-modal", include_in_schema=False)
 async def editar_planta_modal(
     request: Request,
     planta_id: str,
@@ -1140,7 +1239,7 @@ async def editar_planta_modal(
     )
 
 
-@router.put("/plantas/{planta_id}", include_in_schema=False)
+@oym_router.put("/plantas/{planta_id}", include_in_schema=False)
 async def actualizar_planta(
     request: Request,
     planta_id: str,
@@ -1152,6 +1251,8 @@ async def actualizar_planta(
     direccion: Optional[str] = Form(None),
     es_externa: Optional[str] = Form(None),
     zona_incidencia: Optional[str] = Form(None),
+    id_incidencia: Optional[str] = Form(None),
+    confirm_warnings: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG, "editor"),
     conn=Depends(get_db_connection),
@@ -1162,19 +1263,60 @@ async def actualizar_planta(
     if not planta:
         raise HTTPException(404, "Planta no encontrada")
     try:
+        nombre_clean = nombre.strip()
+        zona_clean = zona.strip()
+        cliente_clean = cliente.strip() if cliente else None
+        direccion_clean = direccion.strip() if direccion else None
         zona_incidencia_clean = _normalize_zona_incidencia(zona_incidencia)
+        id_incidencia_clean = _normalize_id_incidencia(id_incidencia)
+
+        warnings = await _build_planta_warnings(
+            conn,
+            service,
+            planta_id,
+            id_incidencia_clean,
+            exclude_id=planta_id,
+            check_existing_exact_id=False,
+        )
+
+        if warnings and not _to_bool_flag(confirm_warnings):
+            return templates.TemplateResponse(
+                request,
+                f"{TPL}/partials/plantas_warning_confirm_oob.html",
+                _warning_confirmation_context(
+                    endpoint=f"/oym/plantas/{planta_id}",
+                    method="put",
+                    form_values={
+                        "nombre": nombre_clean,
+                        "zona": zona_clean,
+                        "potencia_kw": potencia_kw,
+                        "num_paneles": num_paneles,
+                        "cliente": cliente_clean,
+                        "direccion": direccion_clean,
+                        "es_externa": "true" if es_externa == "true" else "",
+                        "zona_incidencia": zona_incidencia_clean,
+                        "id_incidencia": id_incidencia_clean,
+                    },
+                    warnings=warnings,
+                    hx_target="#main-content",
+                    hx_swap="innerHTML",
+                ),
+                headers={"HX-Reswap": "none"},
+            )
+
         await service.db.upsert_planta(conn, {
             "id": planta_id,
-            "nombre": nombre.strip(),
-            "zona": zona.strip(),
+            "nombre": nombre_clean,
+            "zona": zona_clean,
             "potencia_kw": potencia_kw,
             "num_paneles": num_paneles,
-            "cliente": cliente.strip() if cliente else None,
-            "direccion": direccion.strip() if direccion else None,
+            "cliente": cliente_clean,
+            "direccion": direccion_clean,
             "es_externa": es_externa == "true",
             "activa": planta["activa"],
             "id_proyecto": planta.get("id_proyecto"),
             "zona_incidencia": zona_incidencia_clean,
+            "id_incidencia": id_incidencia_clean,
         })
     except ValueError as exc:
         return templates.TemplateResponse(
@@ -1196,10 +1338,11 @@ async def actualizar_planta(
         request, f"{TPL}/partials/plantas_tabla.html",
         {**_base_ctx(context, mod_role), "plantas": plantas,
          "zonas": sorted(precios_zona.keys()), "q": "", "today": date.today()},
+        headers={"HX-Trigger": "plantaSaved"},
     )
 
 
-@router.post("/plantas", include_in_schema=False)
+@oym_router.post("/plantas", include_in_schema=False)
 async def crear_planta(
     request: Request,
     id: str = Form(...),
@@ -1212,6 +1355,7 @@ async def crear_planta(
     es_externa: Optional[str] = Form(None),
     zona_incidencia: Optional[str] = Form(None),
     next: Optional[str] = Form(None),
+    confirm_warnings: Optional[str] = Form(None),
     context=Depends(get_current_user_context),
     _=require_module_access(SLUG, "editor"),
     conn=Depends(get_db_connection),
@@ -1219,19 +1363,63 @@ async def crear_planta(
 ):
     mod_role = context.get("module_roles", {}).get("oym", "viewer")
     try:
+        id_clean = id.strip().upper()
+        nombre_clean = nombre.strip()
+        zona_clean = zona.strip()
+        cliente_clean = cliente.strip() if cliente else None
+        direccion_clean = direccion.strip() if direccion else None
         zona_incidencia_clean = _normalize_zona_incidencia(zona_incidencia)
+
+        warnings = await _build_planta_warnings(
+            conn,
+            service,
+            id_clean,
+            None,
+            exclude_id=None,
+            check_existing_exact_id=True,
+        )
+
+        if warnings and not _to_bool_flag(confirm_warnings):
+            hx_target = "#modal-nueva-planta-oym" if next == "oym" else "#main-content"
+            hx_swap = "outerHTML" if next == "oym" else "innerHTML"
+            return templates.TemplateResponse(
+                request,
+                f"{TPL}/partials/plantas_warning_confirm_oob.html",
+                _warning_confirmation_context(
+                    endpoint="/oym/plantas",
+                    method="post",
+                    form_values={
+                        "id": id_clean,
+                        "nombre": nombre_clean,
+                        "zona": zona_clean,
+                        "potencia_kw": potencia_kw,
+                        "num_paneles": num_paneles,
+                        "cliente": cliente_clean,
+                        "direccion": direccion_clean,
+                        "es_externa": "true" if es_externa == "true" else "",
+                        "zona_incidencia": zona_incidencia_clean,
+                        "next": next,
+                    },
+                    warnings=warnings,
+                    hx_target=hx_target,
+                    hx_swap=hx_swap,
+                ),
+                headers={"HX-Reswap": "none"},
+            )
+
         await service.db.upsert_planta(conn, {
-            "id": id.strip().upper(),
-            "nombre": nombre.strip(),
-            "zona": zona.strip(),
+            "id": id_clean,
+            "nombre": nombre_clean,
+            "zona": zona_clean,
             "potencia_kw": potencia_kw,
             "num_paneles": num_paneles,
-            "cliente": cliente.strip() if cliente else None,
-            "direccion": direccion.strip() if direccion else None,
+            "cliente": cliente_clean,
+            "direccion": direccion_clean,
             "es_externa": es_externa == "true",
             "activa": True,
             "id_proyecto": None,
             "zona_incidencia": zona_incidencia_clean,
+            "id_incidencia": None,
         })
     except ValueError as exc:
         return templates.TemplateResponse(
@@ -1261,7 +1449,7 @@ async def crear_planta(
     )
 
 
-@router.post("/plantas/{planta_id}/toggle", include_in_schema=False)
+@oym_router.post("/plantas/{planta_id}/toggle", include_in_schema=False)
 async def toggle_planta(
     request: Request,
     planta_id: str,
@@ -1283,7 +1471,7 @@ async def toggle_planta(
     )
 
 
-@router.get("/plantas/plantilla-excel", include_in_schema=False)
+@oym_router.get("/plantas/plantilla-excel", include_in_schema=False)
 async def plantilla_excel(
     request: Request,
     context=Depends(get_current_user_context),
@@ -1381,7 +1569,7 @@ async def plantilla_excel(
     )
 
 
-@router.post("/plantas/preview-excel", include_in_schema=False)
+@oym_router.post("/plantas/preview-excel", include_in_schema=False)
 async def preview_excel(
     request: Request,
     archivo: UploadFile = File(...),
@@ -1429,7 +1617,7 @@ async def preview_excel(
     )
 
 
-@router.post("/plantas/import-excel", include_in_schema=False)
+@oym_router.post("/plantas/import-excel", include_in_schema=False)
 async def import_excel(
     request: Request,
     archivo: UploadFile = File(...),
@@ -1620,7 +1808,7 @@ async def update_costo_fijo(
 # RENOVAR PÓLIZA (editor+)
 # ============================================================
 
-@router.get("/cotizaciones/{cotizacion_id}/renovar-modal", include_in_schema=False)
+@oym_router.get("/cotizaciones/{cotizacion_id}/renovar-modal", include_in_schema=False)
 async def renovar_cotizacion_modal(
     request: Request,
     cotizacion_id: str,
@@ -1651,7 +1839,7 @@ async def renovar_cotizacion_modal(
     )
 
 
-@router.get("/cotizaciones/{cotizacion_id}/aceptar-modal", include_in_schema=False)
+@oym_router.get("/cotizaciones/{cotizacion_id}/aceptar-modal", include_in_schema=False)
 async def aceptar_cotizacion_modal(
     request: Request,
     cotizacion_id: str,
@@ -1680,7 +1868,7 @@ async def aceptar_cotizacion_modal(
     )
 
 
-@router.get("/cotizaciones/{cotizacion_id}/info-modal", include_in_schema=False)
+@oym_router.get("/cotizaciones/{cotizacion_id}/info-modal", include_in_schema=False)
 async def cotizacion_info_modal(
     request: Request,
     cotizacion_id: str,
@@ -1708,7 +1896,7 @@ async def cotizacion_info_modal(
 # PDF — PROPUESTA DE PÓLIZA
 # ============================================================
 
-@router.get("/cotizaciones/{cotizacion_id}/pdf", include_in_schema=False)
+@oym_router.get("/cotizaciones/{cotizacion_id}/pdf", include_in_schema=False)
 async def descargar_pdf_poliza(
     cotizacion_id: str,
     show_projection: bool = Query(True),

@@ -1,0 +1,60 @@
+<div hx-swap-oob="beforeend:body">
+    <div id="modal-plantas-warning-confirm" class="fixed inset-0 z-[11000] flex items-center justify-center bg-black/60 px-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-5">
+            <div class="flex items-start justify-between gap-3 border-b pb-3">
+                <div>
+                    <h3 class="text-base font-semibold text-amber-700">Confirmar advertencias</h3>
+                    <p class="text-sm text-gray-600 mt-1">Se detectaron posibles inconsistencias. Revisa antes de guardar.</p>
+                </div>
+                <button type="button" onclick="document.getElementById('modal-plantas-warning-confirm')?.remove()"
+                        class="text-gray-400 hover:text-gray-600 rounded p-1">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            <ul class="mt-4 space-y-2 text-sm text-gray-700">
+                {% for warning in warnings %}
+                <li class="flex items-start gap-2">
+                    <span class="mt-1 inline-block w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                    <span>{{ warning }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+
+            {% if method == "put" %}
+            <form hx-put="{{ endpoint }}" hx-target="{{ hx_target }}" hx-swap="{{ hx_swap }}"
+                  hx-on::before-request="document.getElementById('modal-plantas-warning-confirm')?.remove()"
+                  class="mt-5 flex justify-end gap-2">
+            {% else %}
+            <form hx-post="{{ endpoint }}" hx-target="{{ hx_target }}" hx-swap="{{ hx_swap }}"
+                  hx-on::before-request="document.getElementById('modal-plantas-warning-confirm')?.remove()"
+                  class="mt-5 flex justify-end gap-2">
+            {% endif %}
+                {% for key, value in values.items() %}
+                <input type="hidden" name="{{ key }}" value="{{ value }}">
+                {% endfor %}
+                <button type="button" onclick="document.getElementById('modal-plantas-warning-confirm')?.remove()"
+                        class="px-3 py-2 text-sm border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50">
+                    Cancelar
+                </button>
+                <button type="submit"
+                        class="px-3 py-2 text-sm rounded-lg bg-amber-600 text-white hover:bg-amber-700">
+                    Confirmar y guardar
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+<script>
+    (function () {
+        var modals = document.querySelectorAll('#modal-plantas-warning-confirm');
+        if (modals.length <= 1) {
+            return;
+        }
+        for (var i = 0; i < modals.length - 1; i += 1) {
+            modals[i].remove();
+        }
+    })();
+</script>
