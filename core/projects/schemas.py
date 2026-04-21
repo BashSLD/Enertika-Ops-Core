@@ -11,7 +11,7 @@ from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 class ProyectoGateCreate(BaseModel):
     """Schema para creación de proyecto Gate."""
-    id_oportunidad: UUID = Field(..., description="Oportunidad ganada a vincular")
+    id_sitio: UUID = Field(..., description="Sitio ganado a vincular")
     prefijo: str = Field(default="MX", max_length=10, description="Prefijo del proyecto")
     consecutivo: int = Field(..., gt=0, description="Número consecutivo único")
     id_tecnologia: int = Field(..., gt=0, description="ID de tecnología")
@@ -65,9 +65,11 @@ class ProyectoGateListItem(BaseModel):
 
 
 class OportunidadGanadaItem(BaseModel):
-    """Schema para oportunidades ganadas disponibles."""
+    """Schema para sitios ganados disponibles."""
+    id_sitio: UUID
     id_oportunidad: UUID
     op_id_estandar: str
+    nombre_sitio: str
     nombre_proyecto: str
     cliente_nombre: str
     id_tecnologia: Optional[int] = None

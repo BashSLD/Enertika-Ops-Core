@@ -67,14 +67,14 @@ async def get_oportunidades_ganadas(
     context = Depends(get_current_user_context)
 ):
     """
-    Obtiene oportunidades GANADAS sin proyecto asignado.
+    Obtiene sitios GANADOS sin proyecto asignado.
     Para el dropdown del formulario de creación.
     """
     if not check_puede_crear_proyecto(context):
         raise HTTPException(status_code=403, detail="Sin permisos para esta acción")
     
-    oportunidades = await service.get_oportunidades_ganadas(conn)
-    return oportunidades
+    sitios = await service.get_sitios_ganados_sin_proyecto(conn)
+    return sitios
 
 
 @router.get("/tecnologias")
@@ -155,13 +155,13 @@ async def get_modal_crear_proyecto(
         raise HTTPException(status_code=403, detail="Sin permisos para crear proyectos")
     
     # Obtener datos para el formulario
-    oportunidades = await service.get_oportunidades_ganadas(conn)
+    sitios = await service.get_sitios_ganados_sin_proyecto(conn)
     tecnologias = await service.get_tecnologias(conn)
     siguiente_consecutivo = await service.get_siguiente_consecutivo_sugerido(conn)
     
     return templates.TemplateResponse(
         request, "shared/partials/modal_crear_proyecto.html",
-        {            "oportunidades": oportunidades,
+        {            "sitios": sitios,
             "tecnologias": tecnologias,
             "siguiente_consecutivo": siguiente_consecutivo
         }
@@ -175,7 +175,7 @@ async def get_modal_crear_proyecto(
 @router.post("/crear", response_class=HTMLResponse)
 async def crear_proyecto(
     request: Request,
-    id_oportunidad: UUID = Form(...),
+    id_sitio: UUID = Form(...),
     prefijo: str = Form(default="MX"),
     consecutivo: int = Form(...),
     id_tecnologia: int = Form(...),
@@ -198,7 +198,7 @@ async def crear_proyecto(
     try:
         proyecto = await service.crear_proyecto(
             conn=conn,
-            id_oportunidad=id_oportunidad,
+            id_sitio=id_sitio,
             prefijo=prefijo.upper().strip(),
             consecutivo=consecutivo,
             id_tecnologia=id_tecnologia,
@@ -257,7 +257,7 @@ async def crear_proyecto_json(
     
     proyecto = await service.crear_proyecto(
         conn=conn,
-        id_oportunidad=data.id_oportunidad,
+        id_sitio=data.id_sitio,
         prefijo=data.prefijo,
         consecutivo=data.consecutivo,
         id_tecnologia=data.id_tecnologia,

@@ -35,24 +35,25 @@
                 <form id="crear-proyecto-form" hx-post="/projects/crear" hx-target="#proyecto-result"
                     hx-swap="innerHTML" class="space-y-4">
 
-                    <!-- Oportunidad (Select) -->
+                    <!-- Sitio Ganado (Select) -->
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">
-                            Oportunidad Ganada <span class="text-red-500">*</span>
+                            Sitio Ganado <span class="text-red-500">*</span>
                         </label>
-                        <select name="id_oportunidad" required onchange="actualizarTecnologiaDesdeOportunidad(this)"
+                        <select name="id_sitio" required onchange="actualizarDesdeSitio(this)"
                             class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-                            <option value="">Seleccionar oportunidad...</option>
-                            {% for op in oportunidades %}
-                            <option value="{{ op.id_oportunidad }}" data-tecnologia="{{ op.id_tecnologia }}"
-                                data-nombre="{{ op.nombre_proyecto }}">
-                                {{ op.op_id_estandar }} - {{ op.cliente_nombre }} - {{ op.nombre_proyecto }}
+                            <option value="">Seleccionar sitio...</option>
+                            {% for sitio in sitios %}
+                            <option value="{{ sitio.id_sitio }}" data-tecnologia="{{ sitio.id_tecnologia }}"
+                                data-nombre-sitio="{{ sitio.nombre_sitio }}"
+                                data-op="{{ sitio.op_id_estandar }}">
+                                {{ sitio.op_id_estandar }} - {{ sitio.cliente_nombre }} - {{ sitio.nombre_sitio }}
                             </option>
                             {% endfor %}
                         </select>
-                        {% if not oportunidades %}
+                        {% if not sitios %}
                         <p class="mt-1 text-xs text-amber-600">
-                            ⚠️ No hay oportunidades ganadas sin proyecto asignado
+                            No hay sitios ganados sin proyecto asignado
                         </p>
                         {% endif %}
                     </div>
@@ -103,15 +104,15 @@
                         </select>
                     </div>
 
-                    <!-- Nombre Corto -->
+                    <!-- Nombre Corto (snapshot del sitio) -->
                     <div>
                         <label class="block text-sm font-medium text-gray-700 mb-1">
-                            Nombre Corto <span class="text-red-500">*</span>
+                            Nombre del Sitio (snapshot) <span class="text-red-500">*</span>
                         </label>
                         <input type="text" name="nombre_corto" id="nombre-corto-input"
-                            placeholder="Ej: Santa Teresa, Granja Norbertas" required maxlength="100"
-                            oninput="actualizarPreview()"
-                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                            placeholder="Selecciona un sitio" required maxlength="100" readonly
+                            class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm bg-gray-50 text-gray-700 cursor-not-allowed focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                        <p class="mt-1 text-xs text-gray-500">Se guarda como nombre histórico del proyecto y no cambia si el sitio se renombra después.</p>
                     </div>
 
                     <!-- Preview -->
@@ -135,7 +136,7 @@
                     class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
                     Cancelar
                 </button>
-                <button type="submit" form="crear-proyecto-form" id="btn-crear-proyecto" {% if not oportunidades
+                <button type="submit" form="crear-proyecto-form" id="btn-crear-proyecto" {% if not sitios
                     %}disabled{% endif %}
                     class="px-4 py-2 text-sm font-medium text-white bg-[#00BABB] rounded-lg hover:bg-[#009999] disabled:opacity-50 disabled:cursor-not-allowed">
                     Crear Proyecto
@@ -146,18 +147,18 @@
 </div>
 
 <script>
-    // Actualizar tecnología cuando se selecciona oportunidad
-    function actualizarTecnologiaDesdeOportunidad(select) {
+    // Actualizar datos cuando se selecciona sitio
+    function actualizarDesdeSitio(select) {
         const option = select.options[select.selectedIndex];
         const tecnologiaId = option.dataset.tecnologia;
-        const nombreProyecto = option.dataset.nombre;
+        const nombreSitio = option.dataset.nombreSitio;
 
         if (tecnologiaId) {
             document.getElementById('tecnologia-select').value = tecnologiaId;
         }
 
-        if (nombreProyecto) {
-            document.getElementById('nombre-corto-input').value = nombreProyecto;
+        if (nombreSitio) {
+            document.getElementById('nombre-corto-input').value = nombreSitio;
         }
 
         actualizarPreview();

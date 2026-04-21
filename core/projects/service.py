@@ -24,34 +24,42 @@ class ProjectsGateService:
     # ID del estatus "Ganada" en tb_cat_estatus_oportunidades
     ESTATUS_GANADA_ID = 7
     
-    async def get_oportunidades_ganadas(self, conn) -> List[Dict[str, Any]]:
+    async def get_sitios_ganados_sin_proyecto(self, conn) -> List[Dict[str, Any]]:
         """
-        Obtiene oportunidades marcadas como GANADAS que aún no tienen proyecto.
-        
+        Obtiene sitios GANADOS que aun no tienen proyecto asignado.
+
         Returns:
-            Lista de oportunidades disponibles para crear proyecto
+            Lista de sitios candidatos para crear proyecto.
         """
         query = """
-            SELECT 
-                o.id_oportunidad,
+            SELECT
+                s.id_sitio,
+                s.id_oportunidad,
+                COALESCE(NULLIF(TRIM(s.nombre_sitio), ''), 'Sitio sin nombre') AS nombre_sitio,
                 o.op_id_estandar,
                 o.nombre_proyecto,
                 o.cliente_nombre,
                 o.id_tecnologia,
-                t.nombre as tecnologia_nombre,
+                t.nombre AS tecnologia_nombre,
                 o.fecha_solicitud
-            FROM tb_oportunidades o
+            FROM tb_sitios_oportunidad s
+            JOIN tb_oportunidades o ON o.id_oportunidad = s.id_oportunidad
             LEFT JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
-            WHERE o.id_estatus_global = $1
-            AND NOT EXISTS (
-                SELECT 1 FROM tb_proyectos_gate p 
-                WHERE p.id_oportunidad = o.id_oportunidad
-            )
-            ORDER BY o.fecha_solicitud DESC
+            WHERE s.id_estatus_global = $1
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM tb_proyectos_gate p
+                  WHERE p.id_sitio = s.id_sitio
+              )
+            ORDER BY o.fecha_solicitud DESC, s.fecha_carga ASC
         """
-        
+
         rows = await conn.fetch(query, self.ESTATUS_GANADA_ID)
         return [dict(r) for r in rows]
+
+    async def get_oportunidades_ganadas(self, conn) -> List[Dict[str, Any]]:
+        """Compatibilidad: retorna sitios ganados sin proyecto."""
+        return await self.get_sitios_ganados_sin_proyecto(conn)
     
     async def get_tecnologias(self, conn) -> List[Dict[str, Any]]:
         """
@@ -96,7 +104,7 @@ class ProjectsGateService:
     async def crear_proyecto(
         self,
         conn,
-        id_oportunidad: UUID,
+        id_sitio: UUID,
         prefijo: str,
         consecutivo: int,
         id_tecnologia: int,
@@ -108,7 +116,7 @@ class ProjectsGateService:
         
         Args:
             conn: Conexión a BD
-            id_oportunidad: UUID de la oportunidad ganada
+            id_sitio: UUID del sitio ganado
             prefijo: Prefijo del proyecto (ej: MX)
             consecutivo: Número consecutivo único
             id_tecnologia: ID de la tecnología
@@ -121,32 +129,49 @@ class ProjectsGateService:
         Raises:
             HTTPException: Si hay errores de validación
         """
-        # 1. Validar que la oportunidad existe y está ganada
-        oportunidad = await conn.fetchrow("""
-            SELECT id_oportunidad, id_estatus_global, nombre_proyecto, cliente_nombre
-            FROM tb_oportunidades 
-            WHERE id_oportunidad = $1
-        """, id_oportunidad)
-        
-        if not oportunidad:
-            raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
-        
-        if oportunidad['id_estatus_global'] != self.ESTATUS_GANADA_ID:
+        # 1. Validar sitio ganado y obtener oportunidad padre
+        sitio = await conn.fetchrow("""
+            SELECT
+                s.id_sitio,
+                s.id_oportunidad,
+                s.id_estatus_global,
+                COALESCE(NULLIF(TRIM(s.nombre_sitio), ''), 'Sitio sin nombre') AS nombre_sitio,
+                o.id_estatus_global AS oportunidad_estatus,
+                o.nombre_proyecto,
+                o.cliente_nombre,
+                o.id_tecnologia AS oportunidad_id_tecnologia
+            FROM tb_sitios_oportunidad s
+            JOIN tb_oportunidades o ON o.id_oportunidad = s.id_oportunidad
+            WHERE s.id_sitio = $1
+        """, id_sitio)
+
+        if not sitio:
+            raise HTTPException(status_code=404, detail="Sitio no encontrado")
+
+        if sitio['id_estatus_global'] != self.ESTATUS_GANADA_ID:
+            raise HTTPException(
+                status_code=400,
+                detail="Solo se pueden crear proyectos de sitios GANADOS"
+            )
+
+        if sitio['oportunidad_estatus'] != self.ESTATUS_GANADA_ID:
             raise HTTPException(
                 status_code=400, 
-                detail="Solo se pueden crear proyectos de oportunidades GANADAS"
+                detail="La oportunidad padre no está en estatus GANADA"
             )
-        
-        # 2. Validar que no exista proyecto para esta oportunidad
+
+        # 2. Validar que no exista proyecto para este sitio
         existe_proyecto = await conn.fetchval("""
-            SELECT 1 FROM tb_proyectos_gate 
-            WHERE id_oportunidad = $1
-        """, id_oportunidad)
-        
+            SELECT 1
+            FROM tb_proyectos_gate
+            WHERE id_sitio = $1
+            LIMIT 1
+        """, id_sitio)
+
         if existe_proyecto:
             raise HTTPException(
                 status_code=400, 
-                detail="Ya existe un proyecto para esta oportunidad"
+                detail="Ya existe un proyecto para este sitio"
             )
         
         # 3. Validar consecutivo único
@@ -164,18 +189,24 @@ class ProjectsGateService:
         if not tecnologia_nombre:
             raise HTTPException(status_code=400, detail="Tecnología no válida")
         
-        # 5. Generar ID estándar
+        # 5. Congelar snapshot del nombre del sitio
+        nombre_sitio_snapshot = (sitio['nombre_sitio'] or '').strip()
+        if not nombre_sitio_snapshot:
+            raise HTTPException(status_code=400, detail="El sitio no tiene un nombre válido para crear proyecto")
+
+        # 6. Generar ID estándar
         proyecto_id_estandar = await self.generar_proyecto_id_estandar(
-            prefijo, consecutivo, tecnologia_nombre, nombre_corto
+            prefijo, consecutivo, tecnologia_nombre, nombre_sitio_snapshot
         )
-        
-        # 6. Insertar proyecto
+
+        # 7. Insertar proyecto
         new_id = uuid4()
-        
+
         await conn.execute("""
             INSERT INTO tb_proyectos_gate (
                 id_proyecto,
                 id_oportunidad,
+                id_sitio,
                 proyecto_id_estandar,
                 status_fase,
                 aprobacion_direccion,
@@ -187,11 +218,12 @@ class ProjectsGateService:
                 created_at,
                 created_by_id
             ) VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12
+                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13
             )
         """,
             new_id,
-            id_oportunidad,
+            sitio['id_oportunidad'],
+            id_sitio,
             proyecto_id_estandar,
             'INGENIERIA',  # Fase inicial
             True,          # Aprobado por defecto (creación manual implica aprobación)
@@ -199,14 +231,14 @@ class ProjectsGateService:
             prefijo,
             consecutivo,
             id_tecnologia,
-            nombre_corto,
+            nombre_sitio_snapshot,
             datetime.now(),
             user_id
         )
         
         logger.info(f"Proyecto creado: {proyecto_id_estandar} por usuario {user_id}")
         
-        # 7. Retornar proyecto creado
+        # 8. Retornar proyecto creado
         return await self.get_proyecto_by_id(conn, new_id)
     
     async def get_proyecto_by_id(self, conn, id_proyecto: UUID) -> Optional[Dict[str, Any]]:
@@ -220,11 +252,13 @@ class ProjectsGateService:
                 o.nombre_proyecto as oportunidad_nombre,
                 o.cliente_nombre,
                 o.op_id_estandar,
-                u.nombre as creado_por_nombre
+                u.nombre as creado_por_nombre,
+                s.nombre_sitio
             FROM tb_proyectos_gate p
             LEFT JOIN tb_cat_tecnologias t ON p.id_tecnologia = t.id
             LEFT JOIN tb_oportunidades o ON p.id_oportunidad = o.id_oportunidad
             LEFT JOIN tb_usuarios u ON p.created_by_id = u.id_usuario
+            LEFT JOIN tb_sitios_oportunidad s ON p.id_sitio = s.id_sitio
             WHERE p.id_proyecto = $1
         """, id_proyecto)
         
