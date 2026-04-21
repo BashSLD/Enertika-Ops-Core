@@ -19,7 +19,7 @@
     @page content {
         margin: 16mm 16mm 20mm 16mm;
         @bottom-center {
-            content: "Reporte de Desarrollo ECO | Semana del {{ semana_label }}";
+            content: "Reporte de Desarrollo ECO | {{ report_scope | default('Semana') }} del {{ semana_label }}";
             font-family: Arial, sans-serif;
             font-size: 8pt;
             color: #8a9aa9;
@@ -403,8 +403,8 @@
     <div class="cover-radial two"></div>
     <div class="cover-content">
         <div class="cover-tag">Enertika Core Ops</div>
-        <div class="cover-title serif">Reporte <em>semanal</em> de desarrollo</div>
-        <div class="cover-subtitle">Semana del {{ semana_label }}</div>
+        <div class="cover-title serif">Reporte <em>{{ report_scope_descriptor | default('semanal') }}</em> de desarrollo</div>
+        <div class="cover-subtitle">{{ report_scope | default('Semana') }} del {{ semana_label }}</div>
 
         <p class="hero-note">
             Consolidado ejecutivo de avance de plataforma, estabilidad de entregas y cambios
@@ -443,11 +443,11 @@
     <div class="section">
         <div class="section-head">
             <div class="section-id mono">Seccion 01 · Resumen ejecutivo</div>
-            <h2 class="section-title serif">Pulso semanal de entrega</h2>
+            <h2 class="section-title serif">Pulso de entrega</h2>
         </div>
 
         <p class="overview-text">
-            Durante la semana reportada se registraron <strong>{{ total_commits }} commits</strong>,
+            Durante {{ report_scope_phrase | default('el periodo') }} reportado se registraron <strong>{{ total_commits }} commits</strong>,
             con enfoque en funcionalidad nueva, correccion de incidencias y ajustes tecnicos para
             mantener estabilidad en operacion.
         </p>
@@ -495,6 +495,9 @@
         </div>
     </div>
 
+</div>
+
+<div class="content-page">
     <div class="section">
         <div class="section-head">
             <div class="section-id mono">Seccion 02 · Detalle por modulo</div>
@@ -539,10 +542,9 @@
         {% endfor %}
 
         {% else %}
-        <div class="no-activity">Sin actividad de desarrollo registrada esta semana.</div>
+        <div class="no-activity">Sin actividad de desarrollo registrada en el periodo.</div>
         {% endif %}
     </div>
-
 </div>
 
 </body>

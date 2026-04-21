@@ -18,7 +18,7 @@
                 Reporte de Desarrollo ECO
             </h1>
             <p style="margin:8px 0 0 0;color:#E0F7F7;font-size:14px;">
-                Semana del {{ semana_label }}
+                {{ report_scope | default('Semana') }} del {{ semana_label }}
             </p>
         </td>
     </tr>
@@ -28,7 +28,7 @@
         <td style="padding:32px 40px 20px 40px;">
 
             <p style="margin:0 0 24px 0;color:#555555;font-size:15px;line-height:1.6;">
-                A continuacion el resumen de desarrollo registrado en el sistema durante la semana.
+                A continuacion el resumen de desarrollo registrado en el sistema durante {{ report_scope_phrase | default('la semana') }}.
                 Se adjunta el reporte detallado en PDF.
             </p>
 
@@ -71,7 +71,7 @@
                 <tr>
                     <td style="padding-bottom:12px;">
                         <span style="font-size:13px;font-weight:700;color:#123456;text-transform:uppercase;letter-spacing:0.5px;">
-                            Modulos con actividad esta semana
+                            Modulos con actividad en {{ report_scope_phrase | default('el periodo') }}
                         </span>
                     </td>
                 </tr>

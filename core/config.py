@@ -64,6 +64,11 @@ class Settings(BaseSettings):
     # --- Tipo de Cambio Banxico ---
     BANXICO_TOKEN: str = os.getenv("BANXICO_TOKEN", "")
 
+    # --- GitHub API (reporte CEO en entornos sin .git) ---
+    GITHUB_TOKEN: str = os.getenv("GITHUB_TOKEN", "")
+    GITHUB_REPO: str = os.getenv("GITHUB_REPO", "")
+    GITHUB_BRANCH: str = os.getenv("GITHUB_BRANCH", "main")
+
     # --- PDF Generation ---
     PDF_MAX_IMAGE_WIDTH: int = int(os.getenv("PDF_MAX_IMAGE_WIDTH", "800"))
     PDF_IMAGE_QUALITY: int = int(os.getenv("PDF_IMAGE_QUALITY", "85"))

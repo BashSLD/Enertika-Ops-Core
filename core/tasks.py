@@ -417,23 +417,24 @@ async def send_reporte_desarrollo_ceo_periodically():
             from core.database import get_db_pool
             from core.microsoft import MicrosoftAuth
             from core.config_service import ConfigService
-            from core.weekly_report.service import generar_y_enviar_reporte_ceo
+            from core.weekly_report.service import generar_y_enviar_reporte_ceo, parse_ceo_recipients
 
             pool = await get_db_pool()
             ms_auth = MicrosoftAuth()
 
             async with pool.acquire() as conn:
-                ceo_email = await ConfigService.get_global_config(
+                ceo_emails_raw = await ConfigService.get_global_config(
                     conn, "reporte_desarrollo_ceo_email", "", str
                 )
+                ceo_recipients = parse_ceo_recipients(ceo_emails_raw)
                 sender_row = await conn.fetchrow(
                     "SELECT email_remitente FROM tb_correos_notificaciones "
                     "WHERE departamento = 'DEFAULT' AND activo = true LIMIT 1"
                 )
 
-            if not ceo_email:
+            if not ceo_recipients:
                 logger.warning(
-                    "[CEO_REPORT] Sin email de CEO configurado — agregar en Admin > Correos"
+                    "[CEO_REPORT] Sin destinatarios validos configurados — agregar en Admin > Correos"
                 )
             elif not sender_row:
                 logger.error("[CEO_REPORT] Sin remitente DEFAULT en tb_correos_notificaciones")
@@ -441,7 +442,7 @@ async def send_reporte_desarrollo_ceo_periodically():
                 await generar_y_enviar_reporte_ceo(
                     ms_auth=ms_auth,
                     sender_email=sender_row["email_remitente"],
-                    ceo_email=ceo_email,
+                    ceo_recipients=ceo_recipients,
                 )
 
         except asyncpg.PostgresError as e:

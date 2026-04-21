@@ -113,12 +113,12 @@
             <form hx-post="/admin/config/reporte-desarrollo-ceo" hx-target="#buzones-msg-ceo" hx-swap="innerHTML">
                 <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-200 h-full flex flex-col justify-between">
                     <div>
-                        <label class="block text-sm font-bold text-gray-700 mb-1">Email del destinatario</label>
-                        <input type="email" name="reporte_desarrollo_ceo_email"
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Emails destinatarios</label>
+                        <input type="text" name="reporte_desarrollo_ceo_email"
                             value="{{ config_global.reporte_desarrollo_ceo_email }}"
-                            placeholder="ceo@enertika.mx"
+                            placeholder="ceo@enertika.mx, direccion@enertika.mx"
                             class="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500 text-sm">
-                        <p class="text-xs text-gray-500 mt-2">Un solo correo. Si esta vacio no se envía el reporte automatico los viernes.</p>
+                        <p class="text-xs text-gray-500 mt-2">Captura uno o varios correos separados por coma o punto y coma. Si esta vacio no se envía el reporte automatico los viernes.</p>
                     </div>
                     <div class="flex justify-between items-center mt-4">
                         <div id="buzones-msg-ceo"></div>

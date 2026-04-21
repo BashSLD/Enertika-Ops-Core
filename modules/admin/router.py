@@ -388,7 +388,7 @@ async def enviar_reporte_desarrollo_ceo_manual(
     from datetime import date as date_type
     from core.microsoft import MicrosoftAuth
     from core.config_service import ConfigService
-    from core.weekly_report.service import generar_y_enviar_reporte_ceo
+    from core.weekly_report.service import generar_y_enviar_reporte_ceo, parse_ceo_recipients
 
     def _error(msg: str, title: str = "Error"):
         return templates.TemplateResponse(
@@ -405,9 +405,10 @@ async def enviar_reporte_desarrollo_ceo_manual(
     except ValueError:
         return _error("Formato de fecha inválido.")
 
-    ceo_email = await ConfigService.get_global_config(conn, "reporte_desarrollo_ceo_email", "", str)
-    if not ceo_email:
-        return _error("Configura el email del CEO antes de enviar.", "Sin destinatario")
+    ceo_recipients_raw = await ConfigService.get_global_config(conn, "reporte_desarrollo_ceo_email", "", str)
+    ceo_recipients = parse_ceo_recipients(ceo_recipients_raw)
+    if not ceo_recipients:
+        return _error("Configura al menos un destinatario valido antes de enviar.", "Sin destinatario")
 
     sender_row = await conn.fetchrow(
         "SELECT email_remitente FROM tb_correos_notificaciones "
@@ -421,7 +422,7 @@ async def enviar_reporte_desarrollo_ceo_manual(
         enviado = await generar_y_enviar_reporte_ceo(
             ms_auth=ms_auth,
             sender_email=sender_row["email_remitente"],
-            ceo_email=ceo_email,
+            ceo_recipients=ceo_recipients,
             since=since,
             until=until_exclusive,
         )
@@ -431,7 +432,10 @@ async def enviar_reporte_desarrollo_ceo_manual(
     if enviado:
         return templates.TemplateResponse(request, "admin/partials/messages/success.html", {
             "title": "Enviado",
-            "message": f"Reporte enviado a {ceo_email} ({fecha_desde} al {fecha_hasta})."
+            "message": (
+                f"Reporte enviado a {', '.join(ceo_recipients)} "
+                f"({fecha_desde} al {fecha_hasta})."
+            )
         })
     return _error("No hay commits en el rango seleccionado. No se envió ningún reporte.", "Sin actividad")
 
@@ -444,11 +448,11 @@ async def update_config_reporte_desarrollo_ceo(
     conn = Depends(get_db_connection),
     _ = require_module_access("admin"),
 ):
-    """Guarda el email del CEO para el reporte de desarrollo semanal."""
+    """Guarda uno o varios destinatarios del reporte de desarrollo semanal."""
     await service.db.upsert_global_config(conn, "reporte_desarrollo_ceo_email", reporte_desarrollo_ceo_email.strip())
     ConfigService.invalidar_cache()
     return templates.TemplateResponse(request, "admin/partials/messages/success.html", {
-        "title": "Guardado", "message": "Email del CEO actualizado."
+        "title": "Guardado", "message": "Destinatarios del reporte CEO actualizados."
     })
 
 
