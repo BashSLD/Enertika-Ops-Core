@@ -60,6 +60,26 @@
     .tab-link.active::before {
         height: 4px;
     }
+
+    .comercial-action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .comercial-action-label {
+        max-width: 0;
+        opacity: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        transition: max-width 0.2s ease, opacity 0.16s ease;
+    }
+
+    .comercial-action-btn:hover .comercial-action-label,
+    .comercial-action-btn:focus-visible .comercial-action-label {
+        max-width: 170px;
+        opacity: 1;
+    }
 </style>
 <div class="flex flex-col h-full">
     {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
@@ -120,38 +140,40 @@
     </script>
     <!-- DESKTOP: Header with Actions -->
     <div
-        class="glass-panel p-4 rounded-xl mb-4 hidden md:flex flex-col md:flex-row md:justify-between md:items-center gap-4 border-l-4 border-[#00BABB]">
+        class="glass-panel p-3 rounded-xl mb-3 hidden md:flex flex-col md:flex-row md:justify-between md:items-center gap-3 border-l-4 border-[#00BABB]">
         <div>
             <h2 class="text-2xl font-light text-gray-800">
                 Módulo <span class="font-bold text-[#00BABB]">Comercial</span>
             </h2>
-            <p class="text-gray-500 text-sm mt-1">Gestión de Oportunidades</p>
+            <p class="text-gray-500 text-sm mt-0.5">Gestión de Oportunidades</p>
         </div>
 
 
-        <div class="flex flex-wrap gap-3">
+        <div class="flex flex-wrap gap-2.5">
             {% if can_edit %}
             <!-- Botón 1: Nuevo Registro (Todos los editores) -->
             <button onclick="handleNewRecordClick()"
-                class="ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white text-sm font-bold py-2 px-3 rounded-lg shadow-lg shadow-[#00BABB]/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
+                class="comercial-action-btn ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white text-sm font-bold py-2 px-2.5 rounded-lg shadow-lg shadow-[#00BABB]/30 transition-all duration-200 ease-in-out transform hover:scale-105"
+                aria-label="Nuevo Registro">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                     stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                 </svg>
-                Nuevo Registro
+                <span class="comercial-action-label">Nuevo Registro</span>
             </button>
 
             {% if is_admin_or_manager %}
             <!-- Botón 2: Registro Extraordinario (Solo ADMIN/MANAGER) con Popup Advertencia -->
             <div x-data="{ showWarning: false }" class="relative">
                 <button id="btn-comercial-extraordinario" @click="showWarning = true"
-                    class="ripple-effect bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold py-2 px-3 rounded-lg shadow-lg shadow-orange-600/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
+                    class="comercial-action-btn ripple-effect bg-orange-600 hover:bg-orange-700 text-white text-sm font-bold py-2 px-2.5 rounded-lg shadow-lg shadow-orange-600/30 transition-all duration-200 ease-in-out transform hover:scale-105"
+                    aria-label="Registro Extraordinario">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    Registro Extraordinario
+                    <span class="comercial-action-label">Registro Extraordinario</span>
                 </button>
 
                 <!-- Popup de Advertencia -->
@@ -280,13 +302,14 @@
                 </div>
 
                 <button id="btn-comercial-especial" @click="showPopup = true; searchTerm = ''; errorMsg = ''"
-                    class="ripple-effect bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold py-2 px-3 rounded-lg shadow-lg shadow-purple-600/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
+                    class="comercial-action-btn ripple-effect bg-purple-600 hover:bg-purple-700 text-white text-sm font-bold py-2 px-2.5 rounded-lg shadow-lg shadow-purple-600/30 transition-all duration-200 ease-in-out transform hover:scale-105"
+                    aria-label="Solicitud Especial">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M5 3v4M3 5h4M6 17v4m-2-2h4m5-16l2.286 6.857L21 12l-5.714 2.143L13 21l-2.286-6.857L5 12l5.714-2.143L13 3z" />
                     </svg>
-                    Solicitud Especial
+                    <span class="comercial-action-label">Solicitud Especial</span>
                 </button>
 
                 <!-- Popup de Validación de Hilo -->
@@ -399,31 +422,190 @@
             </div>
             {% endif %}
             <!-- Calculadora (todos los roles) -->
-            <div class="relative group">
-                <button
-                    hx-get="/shared/partials/calculadora-ventas?modulo=comercial"
-                    hx-target="body"
-                    hx-swap="beforeend"
-                    hx-on::before-request="document.getElementById('modal-calculadora-ventas')?.remove()"
-                    class="ripple-effect bg-gray-700 hover:bg-gray-800 text-white font-bold p-2 rounded-lg shadow-lg flex items-center transition-all duration-200 ease-in-out transform hover:scale-105"
-                    aria-label="Calculadora de ventas">
+            <button
+                hx-get="/shared/partials/calculadora-ventas?modulo=comercial"
+                hx-target="body"
+                hx-swap="beforeend"
+                hx-on::before-request="document.getElementById('modal-calculadora-ventas')?.remove()"
+                class="comercial-action-btn ripple-effect bg-gray-700 hover:bg-gray-800 text-white text-sm font-bold py-2 px-2.5 rounded-lg shadow-lg transition-all duration-200 ease-in-out transform hover:scale-105"
+                aria-label="Calculadora de ventas">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M9 7H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M9 7h6M9 12h.01M12 12h.01M15 12h.01M9 15h.01M12 15h.01M15 15h.01M9 18h.01M12 18h.01M15 18h.01"/>
                     </svg>
-                </button>
-                <div class="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 bg-gray-900 text-white text-xs rounded whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                    Calculadora
-                </div>
-            </div>
+                <span class="comercial-action-label">Calculadora</span>
+            </button>
         </div>
     </div>
 
-    <!-- Global Filter Bar (Collapsible on Mobile) -->
-    <div x-data="{ showFilters: false }" class="mb-6">
-        <!-- Mobile Toggle Button -->
+    <!-- Global Filter Bar (Desktop Popover + Mobile Collapsible) -->
+    <div x-data="{
+        showFilters: false,
+        showDesktopFilters: false,
+        isDesktop: window.innerWidth >= 1024,
+        init() {
+            this.isDesktop = window.innerWidth >= 1024;
+        },
+        getActiveFiltersCount() {
+            const elements = document.querySelectorAll('.global-filter');
+            let count = 0;
+            elements.forEach(el => {
+                if (!el || el.disabled || el.id === 'active_tab_input' || el.name === 'q') return;
+                if ((el.value || '').toString().trim() !== '') count += 1;
+            });
+            return count;
+        },
+        clearFilters() {
+            document.querySelectorAll('.global-filter').forEach(el => {
+                if (!el || el.id === 'active_tab_input') return;
+                el.value = '';
+            });
+            document.querySelectorAll('input.global-filter[name=q]').forEach(el => {
+                if (typeof htmx !== 'undefined') htmx.trigger(el, 'search');
+            });
+        }
+    }" x-init="init()" class="mb-3" @keydown.escape.window="showDesktopFilters = false">
+        <input type="hidden" id="active_tab_input" name="tab" value="activos" class="global-filter">
+
+        <!-- Compact bar -->
+        <div class="flex items-center gap-2 glass-panel p-2.5 rounded-xl relative">
+            <div class="relative flex-1 min-w-[220px]">
+                <span class="absolute inset-y-0 left-0 flex items-center pl-3">
+                    <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </span>
+                <input type="text" name="q"
+                    class="global-filter w-full pl-9 pr-3 py-1 bg-white/60 backdrop-blur-sm border border-gray-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] transition-all"
+                    placeholder="Buscar empresa o proyecto..." hx-get="/comercial/partials/graphs"
+                    hx-trigger="keyup changed delay:500ms, search" hx-target="#tab-content"
+                    hx-include=".global-filter">
+            </div>
+
+            <div class="relative hidden lg:block" @click.outside="showDesktopFilters = false">
+                <button type="button" @click="showDesktopFilters = !showDesktopFilters"
+                    class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border border-gray-300 bg-white/70 hover:bg-white text-sm font-semibold text-gray-700 transition-colors">
+                    <svg class="w-4 h-4 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                    </svg>
+                    Filtros
+                    <span x-show="getActiveFiltersCount() > 0"
+                        class="inline-flex items-center justify-center min-w-[1.2rem] h-5 px-1.5 rounded-full bg-[#00BABB] text-white text-[11px] font-bold"
+                        x-text="getActiveFiltersCount()"></span>
+                    <svg class="w-4 h-4 text-gray-500 transition-transform" :class="showDesktopFilters ? 'rotate-180' : ''"
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+
+                <div x-show="showDesktopFilters" x-cloak
+                    x-transition:enter="transition ease-out duration-150"
+                    x-transition:enter-start="opacity-0 -translate-y-1"
+                    x-transition:enter-end="opacity-100 translate-y-0"
+                    x-transition:leave="transition ease-in duration-100"
+                    x-transition:leave-start="opacity-100 translate-y-0"
+                    x-transition:leave-end="opacity-0 -translate-y-1"
+                    class="absolute right-0 top-full mt-2 w-[38rem] max-w-[85vw] bg-white border border-gray-200 rounded-xl shadow-2xl z-40 p-3">
+                    <div class="grid grid-cols-2 gap-3 items-end">
+                        {% if role in ['ADMIN', 'MANAGER'] %}
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Solicitado por</label>
+                            <select name="filtro_usuario_id"
+                                :disabled="!isDesktop"
+                                class="global-filter w-full px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                                hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                                hx-include=".global-filter">
+                                <option value="">Todos</option>
+                                {% for u in catalogos.usuarios %}
+                                <option value="{{ u.id }}">{{ u.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% endif %}
+
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Tipo</label>
+                            <select name="filtro_tipo_id"
+                                :disabled="!isDesktop"
+                                class="global-filter w-full px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                                hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                                hx-include=".global-filter">
+                                <option value="">Todos</option>
+                                {% for t in catalogos.tipos_solicitud %}
+                                <option value="{{ t.id }}">{{ t.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Tecnología</label>
+                            <select name="filtro_tecnologia_id"
+                                :disabled="!isDesktop"
+                                class="global-filter w-full px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                                hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                                hx-include=".global-filter">
+                                <option value="">Todos</option>
+                                {% for t in catalogos.tecnologias %}
+                                <option value="{{ t.id }}">{{ t.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Estatus</label>
+                            <select name="filtro_estatus_id"
+                                :disabled="!isDesktop"
+                                class="global-filter w-full px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                                hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                                hx-include=".global-filter">
+                                <option value="">Todos</option>
+                                {% for s in catalogos.estatus_global %}
+                                <option value="{{ s.id }}">{{ s.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Desde</label>
+                            <input type="date" name="filtro_fecha_inicio"
+                                :disabled="!isDesktop"
+                                class="global-filter w-full px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                                hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                                hx-include=".global-filter">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Hasta</label>
+                            <input type="date" name="filtro_fecha_fin"
+                                :disabled="!isDesktop"
+                                class="global-filter w-full px-3 py-1.5 bg-white border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                                hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
+                                hx-include=".global-filter">
+                        </div>
+                    </div>
+
+                    <div class="flex justify-end mt-3 pt-2 border-t border-gray-100">
+                        <button type="button" @click="clearFilters()"
+                            class="text-sm text-[#00BABB] hover:text-teal-700 underline transition-colors">
+                            Limpiar filtros
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <button type="button" @click="clearFilters()"
+                class="hidden lg:inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-gray-300 bg-white/70 hover:bg-white text-sm text-gray-700 transition-colors">
+                <svg class="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Limpiar
+            </button>
+        </div>
+
+        <!-- Mobile toggle -->
         <button @click="showFilters = !showFilters"
-            class="w-full mb-2 flex items-center justify-between lg:hidden glass-panel p-4 rounded-lg text-gray-700 font-medium transition-colors hover:bg-white/80">
+            class="w-full mb-1.5 flex items-center justify-between lg:hidden glass-panel p-3.5 rounded-lg text-gray-700 font-medium transition-colors hover:bg-white/80">
             <span class="flex items-center gap-2">
                 <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -437,45 +619,17 @@
             </svg>
         </button>
 
-        <!-- Filter Container -->
-        <div class="glass-panel p-3 rounded-xl" :class="showFilters ? 'block' : 'hidden lg:block'"
+        <!-- Mobile filter container -->
+        <div class="glass-panel p-2.5 rounded-xl lg:hidden" :class="showFilters ? 'block' : 'hidden'"
             x-transition:enter="transition ease-out duration-200" x-transition:enter-start="opacity-0 -translate-y-2"
             x-transition:enter-end="opacity-100 translate-y-0">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
 
-            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-4 items-end">
-                <!-- 1. Search (Existing but moved into grid) -->
-                <div class="lg:col-span-1">
-                    <div class="flex justify-between items-center mb-1">
-                        <label
-                            class="block text-xs font-semibold text-gray-500 uppercase tracking-wider">Búsqueda</label>
-                        <button type="button"
-                            class="text-xs text-[#00BABB] hover:text-teal-700 underline cursor-pointer transition-colors"
-                            onclick="document.querySelectorAll('.global-filter:not(#active_tab_input)').forEach(el => el.value = ''); htmx.trigger('#search-input', 'search');">
-                            Limpiar Filtros
-                        </button>
-                    </div>
-                    <input type="hidden" id="active_tab_input" name="tab" value="activos" class="global-filter">
-                    <div class="relative">
-                        <span class="absolute inset-y-0 left-0 flex items-center pl-3">
-                            <svg class="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                    d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
-                            </svg>
-                        </span>
-                        <input type="text" id="search-input" name="q"
-                            class="global-filter w-full pl-10 pr-4 py-1 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] transition-all"
-                            placeholder="Empresa, Proyecto..." hx-get="/comercial/partials/graphs"
-                            hx-trigger="keyup changed delay:500ms, search" hx-target="#tab-content"
-                            hx-include=".global-filter">
-                    </div>
-                </div>
-
-                <!-- 2. User Filter (Admin/Manager only) -->
                 {% if role in ['ADMIN', 'MANAGER'] %}
                 <div>
-                    <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Solicitado
-                        Por</label>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Solicitado por</label>
                     <select name="filtro_usuario_id"
+                        :disabled="isDesktop"
                         class="global-filter w-full px-3 py-1 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                         hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                         hx-include=".global-filter">
@@ -485,15 +639,12 @@
                         {% endfor %}
                     </select>
                 </div>
-                {% else %}
-                <!-- Spacer if user hidden to keep grid aligned or just omit -->
-                <div class="hidden lg:block"></div>
                 {% endif %}
 
-                <!-- 3. Type Filter -->
                 <div>
                     <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Tipo</label>
                     <select name="filtro_tipo_id"
+                        :disabled="isDesktop"
                         class="global-filter w-full px-3 py-1 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                         hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                         hx-include=".global-filter">
@@ -504,11 +655,10 @@
                     </select>
                 </div>
 
-                <!-- 4. Technology Filter -->
                 <div>
-                    <label
-                        class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Tecnología</label>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Tecnología</label>
                     <select name="filtro_tecnologia_id"
+                        :disabled="isDesktop"
                         class="global-filter w-full px-3 py-1 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                         hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                         hx-include=".global-filter">
@@ -519,11 +669,10 @@
                     </select>
                 </div>
 
-                <!-- 4. Status Filter -->
                 <div>
-                    <label
-                        class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Estatus</label>
+                    <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Estatus</label>
                     <select name="filtro_estatus_id"
+                        :disabled="isDesktop"
                         class="global-filter w-full px-3 py-1 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                         hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                         hx-include=".global-filter">
@@ -534,25 +683,30 @@
                     </select>
                 </div>
 
-                <!-- 5. Date Range -->
-                <div class="flex gap-2 col-span-1 lg:col-span-1">
+                <div class="flex gap-2 col-span-1 md:col-span-2">
                     <div class="w-1/2">
-                        <label
-                            class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Desde</label>
+                        <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Desde</label>
                         <input type="date" name="filtro_fecha_inicio"
+                            :disabled="isDesktop"
                             class="global-filter w-full px-2 py-1 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                             hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                             hx-include=".global-filter">
                     </div>
                     <div class="w-1/2">
-                        <label
-                            class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Hasta</label>
+                        <label class="block text-xs font-semibold text-gray-500 mb-1 uppercase tracking-wider">Hasta</label>
                         <input type="date" name="filtro_fecha_fin"
+                            :disabled="isDesktop"
                             class="global-filter w-full px-2 py-1 bg-white/50 backdrop-blur-sm border border-gray-300 rounded-lg text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
                             hx-get="/comercial/partials/graphs" hx-trigger="change" hx-target="#tab-content"
                             hx-include=".global-filter">
                     </div>
+                </div>
 
+                <div class="col-span-1 md:col-span-2 flex justify-end">
+                    <button type="button" @click="clearFilters()"
+                        class="text-xs text-[#00BABB] hover:text-teal-700 underline cursor-pointer transition-colors">
+                        Limpiar filtros
+                    </button>
                 </div>
             </div>
         </div>
@@ -560,13 +714,13 @@
 
     <!-- Tabs Navigation -->
     <div
-        class="mb-4 text-sm font-medium text-center text-gray-500 border-b border-gray-200 dark:text-gray-400 dark:border-gray-700">
+        class="mb-3 text-sm font-medium text-center text-gray-500 border-b border-gray-200 dark:text-gray-400 dark:border-gray-700">
         <ul class="flex -mb-px overflow-x-auto [&::-webkit-scrollbar]:hidden">
             <li class="me-2 shrink-0">
                 <a href="#" hx-get="/comercial/partials/graphs" hx-target="#tab-content" hx-swap="innerHTML"
                     hx-push-url="/comercial/ui" hx-include=".global-filter" hx-indicator="#graph-loading-indicator"
                     onclick="updateTabContext('activos', this)"
-                    class="tab-link inline-block p-3 rounded-t-lg active group glass-panel bg-white/60 transition-all"
+                    class="tab-link inline-block px-3 py-2.5 rounded-t-lg active group glass-panel bg-white/60 transition-all"
                     aria-current="page">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-[#00BABB]" fill="none"
@@ -582,7 +736,7 @@
             <li class="me-2 shrink-0">
                 <a href="#" hx-get="/comercial/partials/cards?tab=activos" hx-target="#tab-content" hx-swap="innerHTML"
                     hx-push-url="?tab=activos" hx-include=".global-filter" hx-indicator="#graph-loading-indicator" onclick="updateTabContext('activos', this)"
-                    class="tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                    class="tab-link inline-block px-3 py-2.5 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
@@ -598,7 +752,7 @@
                 <a href="#" id="tab-historial" hx-get="/comercial/partials/cards?tab=historial" hx-target="#tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=historial" hx-include=".global-filter"
                     hx-indicator="#graph-loading-indicator" onclick="updateTabContext('historial', this)"
-                    class="tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                    class="tab-link inline-block px-3 py-2.5 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
@@ -614,7 +768,7 @@
                 <a href="#" hx-get="/comercial/partials/cards?tab=levantamientos" hx-target="#tab-content"
                     hx-swap="innerHTML" hx-push-url="?tab=levantamientos" hx-include=".global-filter"
                     hx-indicator="#graph-loading-indicator" onclick="updateTabContext('levantamientos', this)"
-                    class="tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                    class="tab-link inline-block px-3 py-2.5 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
@@ -629,7 +783,7 @@
             <li class="me-2 shrink-0">
                 <a href="#" hx-get="/comercial/partials/cards?tab=ganadas" hx-target="#tab-content" hx-swap="innerHTML"
                     hx-push-url="?tab=ganadas" hx-include=".global-filter" hx-indicator="#graph-loading-indicator" onclick="updateTabContext('ganadas', this)"
-                    class="tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                    class="tab-link inline-block px-3 py-2.5 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
@@ -644,7 +798,7 @@
             <li class="me-2 shrink-0">
                 <a href="#" hx-get="/comercial/partials/borradores" hx-target="#tab-content" hx-swap="innerHTML"
                     hx-push-url="?tab=borradores" hx-indicator="#graph-loading-indicator" onclick="updateTabContext('borradores', this)"
-                    class="tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                    class="tab-link inline-block px-3 py-2.5 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
@@ -669,7 +823,7 @@
                    hx-push-url="?tab=polizas-oym"
                    hx-indicator="#graph-loading-indicator"
                    onclick="updateTabContext('polizas-oym', this)"
-                   class="tab-link inline-block p-3 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
+                   class="tab-link inline-block px-3 py-2.5 border-b-2 border-transparent rounded-t-lg hover:bg-white/40 group transition-all">
                     <div class="flex items-center gap-2">
                         <svg xmlns="http://www.w3.org/2000/svg"
                             class="h-5 w-5 group-hover:scale-110 transition-transform" fill="none" viewBox="0 0 24 24"
@@ -696,7 +850,7 @@
 
     <!-- Tab Content Area -->
     <!-- Note: Initial content loaded via JS to respect URL tab parameter -->
-    <div id="tab-content" class="flex-1 overflow-y-auto p-2 relative">
+    <div id="tab-content" class="flex-1 overflow-y-auto p-1.5 relative">
         <!-- Contenido se carga via JavaScript -->
         <div class="flex items-center justify-center h-32">
             <div class="spinner-enertika"></div>

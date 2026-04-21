@@ -1,14 +1,119 @@
 <div class="bg-white rounded-lg shadow overflow-hidden">
     <!-- Contador de resultados -->
-    <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
+    <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex justify-between items-center gap-2"
+        x-data="{
+            showFilters: false,
+            getActiveFiltersCount() {
+                const form = document.getElementById('filtros-form');
+                if (!form) return 0;
+                let count = 0;
+                const fechaInicio = form.querySelector('input[name=fecha_inicio]');
+                const fechaFin = form.querySelector('input[name=fecha_fin]');
+                const zona = form.querySelector('select[name=id_zona]');
+                const categoria = form.querySelector('select[name=id_categoria]');
+                const estatus = form.querySelector('select[name=estatus]');
+                if (fechaInicio && fechaInicio.value) count += 1;
+                if (fechaFin && fechaFin.value) count += 1;
+                if (zona && zona.value) count += 1;
+                if (categoria && categoria.value) count += 1;
+                if (estatus && estatus.value && estatus.value !== 'SIN_COMPLETAR') count += 1;
+                return count;
+            }
+        }" @keydown.escape.window="showFilters = false">
         <span class="text-sm text-gray-600">
             Mostrando <strong>{{ comprobantes|length }}</strong> de <strong>{{ total }}</strong> comprobantes
         </span>
-        {% if pages > 1 %}
-        <span class="text-sm text-gray-500">
-            Página {{ page }} de {{ pages }}
-        </span>
-        {% endif %}
+        <div class="flex items-center gap-2">
+            {% if pages > 1 %}
+            <span class="text-sm text-gray-500">
+                Página {{ page }} de {{ pages }}
+            </span>
+            {% endif %}
+
+            <form id="filtros-form" hx-get="/compras/comprobantes" hx-target="#tabla-comprobantes" hx-swap="innerHTML"
+                hx-trigger="submit, change delay:500ms" class="relative" @click.outside="showFilters = false">
+                <button type="button" @click="showFilters = !showFilters"
+                    class="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-700 transition-colors">
+                    <svg class="w-4 h-4 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
+                    </svg>
+                    Filtros
+                    <span x-show="getActiveFiltersCount() > 0"
+                        class="inline-flex items-center justify-center min-w-[1.2rem] h-4.5 px-1 rounded-full bg-[#00BABB] text-white text-[10px] font-bold"
+                        x-text="getActiveFiltersCount()"></span>
+                    <svg class="w-3.5 h-3.5 text-gray-500 transition-transform" :class="showFilters ? 'rotate-180' : ''"
+                        fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                </button>
+
+                <div x-show="showFilters" x-cloak
+                    x-transition:enter="transition ease-out duration-150"
+                    x-transition:enter-start="opacity-0 -translate-y-1"
+                    x-transition:enter-end="opacity-100 translate-y-0"
+                    x-transition:leave="transition ease-in duration-100"
+                    x-transition:leave-start="opacity-100 translate-y-0"
+                    x-transition:leave-end="opacity-0 -translate-y-1"
+                    class="fixed left-4 right-4 top-20 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 z-40 md:absolute md:left-auto md:right-0 md:top-full md:mt-2 md:w-[42rem] md:max-w-[85vw]">
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio</label>
+                            <input type="date" name="fecha_inicio" value="{{ filtros.fecha_inicio }}" autocomplete="off"
+                                class="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600 mb-1">Fecha Fin</label>
+                            <input type="date" name="fecha_fin" value="{{ filtros.fecha_fin }}" autocomplete="off"
+                                class="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600 mb-1">Estatus</label>
+                            <select name="estatus" autocomplete="off"
+                                class="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                                <option value="SIN_COMPLETAR" {% if filtros.estatus=='SIN_COMPLETAR' %}selected{% endif %}>Pendiente + Parcial</option>
+                                <option value="PENDIENTE" {% if filtros.estatus=='PENDIENTE' %}selected{% endif %}>Solo pendiente</option>
+                                <option value="PARCIALMENTE_FACTURADO" {% if filtros.estatus=='PARCIALMENTE_FACTURADO' %}selected{% endif %}>Solo parcial</option>
+                                <option value="ANTICIPO" {% if filtros.estatus=='ANTICIPO' %}selected{% endif %}>Anticipo</option>
+                                <option value="FACTURADO" {% if filtros.estatus=='FACTURADO' %}selected{% endif %}>Facturado</option>
+                                <option value="CERRADO" {% if filtros.estatus=='CERRADO' %}selected{% endif %}>Cerrado</option>
+                                <option value="TODOS" {% if filtros.estatus=='TODOS' %}selected{% endif %}>Todos</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600 mb-1">Zona</label>
+                            <select name="id_zona" autocomplete="off"
+                                class="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                                <option value="">Todas</option>
+                                {% for zona in zonas %}
+                                <option value="{{ zona.id }}" {% if filtros.id_zona==zona.id %}selected{% endif %}>{{ zona.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600 mb-1">Categoría</label>
+                            <select name="id_categoria" autocomplete="off"
+                                class="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                                <option value="">Todas</option>
+                                {% for cat in categorias %}
+                                <option value="{{ cat.id }}" {% if filtros.id_categoria==cat.id %}selected{% endif %}>{{ cat.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                    </div>
+                    <div class="flex justify-end gap-3 mt-3 pt-2 border-t border-gray-100">
+                        <button type="submit"
+                            class="bg-[#123456] hover:bg-[#0d2640] text-white px-3 py-1.5 rounded-lg text-sm font-medium transition-colors">
+                            Filtrar
+                        </button>
+                        <a href="#" onclick="limpiarFiltros(); return false;"
+                            class="text-sm text-blue-600 hover:text-blue-800 underline decoration-blue-300 hover:decoration-blue-800 transition-colors">
+                            Limpiar
+                        </a>
+                    </div>
+                </div>
+            </form>
+        </div>
     </div>
 
     <!-- Tabla -->
@@ -16,39 +121,39 @@
         <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-[#123456]">
                 <tr>
-                    <th class="px-3 py-3 text-left">
+                    <th class="px-3 py-2.5 text-left">
                         <input type="checkbox" id="select-all" onchange="toggleSelectAll(this)"
                             class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
                     </th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
                         Fecha
                     </th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
                         Beneficiario
                     </th>
-                    <th class="px-4 py-3 text-right text-xs font-medium text-white uppercase tracking-wider">
+                    <th class="px-4 py-2.5 text-right text-xs font-medium text-white uppercase tracking-wider">
                         Monto
                     </th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
                         Comprador
                     </th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
                         Zona
                     </th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
                         Categoría
                     </th>
-                    <th class="px-4 py-3 text-left text-xs font-medium text-white uppercase tracking-wider">
+                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
                         Estatus
                     </th>
-                    <th class="px-4 py-3 text-center text-xs font-medium text-white uppercase tracking-wider">
+                    <th class="px-4 py-2.5 text-center text-xs font-medium text-white uppercase tracking-wider">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block" fill="none"
                             viewBox="0 0 24 24" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                 d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
                         </svg>
                     </th>
-                    <th class="px-4 py-3 text-center text-xs font-medium text-white uppercase tracking-wider">
+                    <th class="px-4 py-2.5 text-center text-xs font-medium text-white uppercase tracking-wider">
                         Acciones
                     </th>
                 </tr>
@@ -60,7 +165,7 @@
                 {% endfor %}
                 {% else %}
                 <tr>
-                    <td colspan="10" class="px-6 py-12 text-center">
+                    <td colspan="10" class="px-6 py-10 text-center">
                         <div class="flex flex-col items-center justify-center text-gray-500">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mb-4 text-gray-300" fill="none"
                                 viewBox="0 0 24 24" stroke="currentColor">

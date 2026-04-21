@@ -1,3 +1,24 @@
+<style>
+    .compras-action-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+    }
+
+    .compras-action-label {
+        max-width: 0;
+        opacity: 0;
+        overflow: hidden;
+        white-space: nowrap;
+        transition: max-width 0.2s ease, opacity 0.16s ease;
+    }
+
+    .compras-action-btn:hover .compras-action-label,
+    .compras-action-btn:focus-visible .compras-action-label {
+        max-width: 170px;
+        opacity: 1;
+    }
+</style>
 <div class="animate-fade-in-down px-4">
     {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
     <!-- MOVIL: template de acciones para el header (poblado via JS) -->
@@ -57,74 +78,79 @@
     })();
     </script>
     <!-- DESKTOP: Header -->
-    <div class="glass-panel rounded-xl shadow-lg p-4 border-l-4 border-[#00BABB] mb-4 hidden md:block">
-        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+    <div class="glass-panel rounded-xl shadow-lg p-3 border-l-4 border-[#00BABB] mb-3 hidden md:block">
+        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
             <div>
-                <h1 class="text-2xl font-light text-[#123456] mb-2">
+                <h1 class="text-2xl font-light text-[#123456] mb-1">
                     Módulo <span class="font-bold text-[#00BABB]">Compras</span>
                 </h1>
-                <p class="text-gray-500">
+                <p class="text-gray-500 text-sm">
                     Gestión de comprobantes de pago y relación con facturas
                 </p>
             </div>
 
             <!-- Acciones principales -->
-            <div class="flex flex-wrap gap-3">
+            <div class="flex flex-wrap gap-2.5">
                 {% if can_edit %}
                 <!-- Botón Upload PDFs -->
                 <button onclick="document.getElementById('upload-modal').classList.remove('hidden')"
-                    class="ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white font-bold py-2 px-3 text-sm rounded-lg shadow-lg shadow-[#00BABB]/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
+                    class="compras-action-btn ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white font-bold py-2 px-2.5 text-sm rounded-lg shadow-lg shadow-[#00BABB]/30 transition-all duration-200 ease-in-out transform hover:scale-105"
+                    aria-label="Cargar PDFs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
                     </svg>
-                    Cargar PDFs
+                    <span class="compras-action-label">Cargar PDFs</span>
                 </button>
 
                 <!-- Botón Upload XMLs -->
                 <button onclick="document.getElementById('upload-xml-modal').classList.remove('hidden')"
-                    class="ripple-effect bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-3 text-sm rounded-lg shadow-lg shadow-orange-500/30 flex items-center gap-2 transition-all duration-200 ease-in-out transform hover:scale-105">
+                    class="compras-action-btn ripple-effect bg-orange-500 hover:bg-orange-600 text-white font-bold py-2 px-2.5 text-sm rounded-lg shadow-lg shadow-orange-500/30 transition-all duration-200 ease-in-out transform hover:scale-105"
+                    aria-label="Cargar XMLs">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
                     </svg>
-                    Cargar XMLs
+                    <span class="compras-action-label">Cargar XMLs</span>
                 </button>
                 {% endif %}
 
                 <!-- Botón Export Excel -->
                 <a id="export-excel-btn"
                     href="/compras/export-excel?estatus=SIN_COMPLETAR&fecha_inicio={{ filtros.fecha_inicio }}&fecha_fin={{ filtros.fecha_fin }}"
-                    class="ripple-effect bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
+                    class="compras-action-btn ripple-effect bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-2.5 text-sm rounded-lg shadow transition-transform hover:scale-105"
+                    aria-label="Exportar Excel">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                     </svg>
-                    Exportar Excel
+                    <span class="compras-action-label">Exportar Excel</span>
                 </a>
                 <!-- Botón Materiales -->
                 <a href="/materials/ui" hx-get="/materials/ui" hx-target="#main-content" hx-push-url="true"
-                    class="ripple-effect bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
+                    class="compras-action-btn ripple-effect bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-2.5 text-sm rounded-lg shadow transition-transform hover:scale-105"
+                    aria-label="Materiales">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
                     </svg>
-                    Materiales
+                    <span class="compras-action-label">Materiales</span>
                 </a>
 
                 <!-- Botón Relaciones -->
                 <button hx-get="/compras/relaciones" hx-target="#relaciones-container" hx-swap="innerHTML"
-                    class="ripple-effect bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
+                    class="compras-action-btn ripple-effect bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-2.5 text-sm rounded-lg shadow transition-transform hover:scale-105"
+                    aria-label="Relaciones">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
                         stroke="currentColor">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
                     </svg>
-                    Relaciones
+                    <span class="compras-action-label">Relaciones</span>
                 </button>
 
             </div>
@@ -136,83 +162,15 @@
         {% include "compras/partials/estadisticas.html" %}
     </div>
 
-    <!-- Filtros -->
-    <div class="bg-white rounded-lg shadow p-4 mb-6">
-        <form id="filtros-form" hx-get="/compras/comprobantes" hx-target="#tabla-comprobantes" hx-swap="innerHTML"
-            hx-trigger="submit, change delay:500ms" class="flex flex-wrap gap-4 items-end">
-
-            <div class="flex-1 min-w-[150px]">
-                <label class="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio</label>
-                <input type="date" name="fecha_inicio" value="{{ filtros.fecha_inicio }}" autocomplete="off"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-            </div>
-
-            <div class="flex-1 min-w-[150px]">
-                <label class="block text-xs font-medium text-gray-600 mb-1">Fecha Fin</label>
-                <input type="date" name="fecha_fin" value="{{ filtros.fecha_fin }}" autocomplete="off"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-            </div>
-
-            <div class="flex-1 min-w-[140px]">
-                <label class="block text-xs font-medium text-gray-600 mb-1">Estatus</label>
-                <select name="estatus" autocomplete="off"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-                    <option value="SIN_COMPLETAR" {% if filtros.estatus=='SIN_COMPLETAR' %}selected{% endif %}>Pendiente + Parcial</option>
-                    <option value="PENDIENTE" {% if filtros.estatus=='PENDIENTE' %}selected{% endif %}>Solo pendiente</option>
-                    <option value="PARCIALMENTE_FACTURADO" {% if filtros.estatus=='PARCIALMENTE_FACTURADO' %}selected{% endif %}>Solo parcial</option>
-                    <option value="ANTICIPO" {% if filtros.estatus=='ANTICIPO' %}selected{% endif %}>Anticipo</option>
-                    <option value="FACTURADO" {% if filtros.estatus=='FACTURADO' %}selected{% endif %}>Facturado</option>
-                    <option value="CERRADO" {% if filtros.estatus=='CERRADO' %}selected{% endif %}>Cerrado</option>
-                    <option value="TODOS" {% if filtros.estatus=='TODOS' %}selected{% endif %}>Todos</option>
-                </select>
-            </div>
-
-            <div class="flex-1 min-w-[140px]">
-                <label class="block text-xs font-medium text-gray-600 mb-1">Zona</label>
-                <select name="id_zona" autocomplete="off"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-                    <option value="">Todas</option>
-                    {% for zona in zonas %}
-                    <option value="{{ zona.id }}" {% if filtros.id_zona==zona.id %}selected{% endif %}>{{ zona.nombre }}
-                    </option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div class="flex-1 min-w-[140px]">
-                <label class="block text-xs font-medium text-gray-600 mb-1">Categoría</label>
-                <select name="id_categoria" autocomplete="off"
-                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-                    <option value="">Todas</option>
-                    {% for cat in categorias %}
-                    <option value="{{ cat.id }}" {% if filtros.id_categoria==cat.id %}selected{% endif %}>{{ cat.nombre
-                        }}</option>
-                    {% endfor %}
-                </select>
-            </div>
-
-            <div class="flex items-center gap-3 pb-1">
-                <button type="submit"
-                    class="bg-[#123456] hover:bg-[#0d2640] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
-                    Filtrar
-                </button>
-                <a href="#" onclick="limpiarFiltros(); return false;"
-                    class="text-sm text-blue-600 hover:text-blue-800 underline decoration-blue-300 hover:decoration-blue-800 transition-colors">
-                    Limpiar
-                </a>
-            </div>
-        </form>
-    </div>
-
     <!-- Barra de acciones bulk (oculta por defecto) -->
-    <div id="bulk-actions" class="hidden bg-blue-50 border border-blue-200 rounded-lg p-4 mb-4">
-        <div class="flex items-center justify-between">
-            <span class="text-blue-800 font-medium">
+    <div id="bulk-actions" class="hidden bg-blue-50/90 border border-blue-200 rounded-lg p-3 mb-3">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-2.5">
+            <span class="text-blue-800 text-sm font-medium">
                 <span id="selected-count">0</span> comprobante(s) seleccionado(s)
             </span>
-            <div class="flex gap-3">
+            <div class="flex flex-wrap items-center gap-2">
                 <select id="bulk-zona"
-                    class="px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500">
+                    class="px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500">
                     <option value="">Asignar Zona...</option>
                     {% for zona in zonas %}
                     <option value="{{ zona.id }}">{{ zona.nombre }}</option>
@@ -220,7 +178,7 @@
                 </select>
 
                 <select id="bulk-categoria"
-                    class="px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500">
+                    class="px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500">
                     <option value="">Asignar Categoría...</option>
                     {% for cat in categorias %}
                     <option value="{{ cat.id }}">{{ cat.nombre }}</option>
@@ -228,18 +186,18 @@
                 </select>
 
                 <select id="bulk-estatus"
-                    class="px-3 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500">
+                    class="px-2.5 py-1.5 border border-gray-300 rounded text-sm focus:ring-2 focus:ring-blue-500">
                     <option value="">Cambiar Estatus...</option>
                     <option value="PENDIENTE">Revertir a Pendiente</option>
                 </select>
 
                 <button onclick="aplicarBulkUpdate()"
-                    class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors">
+                    class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded text-sm font-medium transition-colors">
                     Aplicar
                 </button>
 
                 <button onclick="cancelarSeleccion()"
-                    class="bg-gray-400 hover:bg-gray-500 text-white px-4 py-1.5 rounded text-sm font-medium transition-colors">
+                    class="bg-gray-400 hover:bg-gray-500 text-white px-3 py-1.5 rounded text-sm font-medium transition-colors">
                     Cancelar
                 </button>
             </div>
@@ -371,9 +329,11 @@
         document.getElementById('modal-editar-container').innerHTML = '';
     }
 
-    // Actualizar URL de export Excel cuando cambian filtros
-    document.getElementById('filtros-form').addEventListener('change', function () {
-        const formData = new FormData(this);
+    // Actualizar URL de export Excel cuando cambian filtros (delegado para sobrevivir HTMX swaps)
+    document.body.addEventListener('change', function (event) {
+        const form = event.target && event.target.closest && event.target.closest('#filtros-form');
+        if (!form) return;
+        const formData = new FormData(form);
         const params = new URLSearchParams(formData);
         document.getElementById('export-excel-btn').href = '/compras/export-excel?' + params.toString();
     });
