@@ -218,35 +218,33 @@ async def get_detalle_oportunidad_modal(
         sitios = [dict(row) for row in sitios_rows]
 
     # 4. Datos para sección "Recordatorio de Proyecto" (solo relevante si status=Ganada)
-    progreso_proyectos = await conn.fetchrow(
-        """
-        SELECT
-            COUNT(*) FILTER (
-                WHERE s.id_estatus_global = (
-                    SELECT id
-                    FROM tb_cat_estatus_oportunidades
-                    WHERE LOWER(nombre) = 'ganada'
-                    LIMIT 1
-                )
-            ) AS sitios_ganados_total,
-            COUNT(*) FILTER (
-                WHERE s.id_estatus_global = (
-                    SELECT id
-                    FROM tb_cat_estatus_oportunidades
-                    WHERE LOWER(nombre) = 'ganada'
-                    LIMIT 1
-                )
-                AND p.id_proyecto IS NOT NULL
-            ) AS sitios_con_proyecto_total
-        FROM tb_sitios_oportunidad s
-        LEFT JOIN tb_proyectos_gate p ON p.id_sitio = s.id_sitio
-        WHERE s.id_oportunidad = $1
-        """,
-        id_oportunidad,
-    )
-    progreso_data = dict(progreso_proyectos) if progreso_proyectos else {}
-    sitios_ganados_total = int(progreso_data.get("sitios_ganados_total") or 0)
-    sitios_con_proyecto_total = int(progreso_data.get("sitios_con_proyecto_total") or 0)
+    sitios_ganados_detalle = []
+    sitios_ganados_total = 0
+    sitios_con_proyecto_total = 0
+
+    if op.get('status_global', '').lower() == 'ganada':
+        ganada_rows = await conn.fetch(
+            """
+            SELECT
+                s.id_sitio,
+                s.nombre_sitio,
+                (p.id_proyecto IS NOT NULL) AS tiene_proyecto,
+                p.proyecto_id_estandar
+            FROM tb_sitios_oportunidad s
+            LEFT JOIN tb_proyectos_gate p ON p.id_sitio = s.id_sitio
+            WHERE s.id_oportunidad = $1
+              AND s.id_estatus_global = (
+                  SELECT id FROM tb_cat_estatus_oportunidades
+                  WHERE LOWER(nombre) = 'ganada' LIMIT 1
+              )
+            ORDER BY s.nombre_sitio
+            """,
+            id_oportunidad,
+        )
+        sitios_ganados_detalle = [dict(r) for r in ganada_rows]
+        sitios_ganados_total = len(sitios_ganados_detalle)
+        sitios_con_proyecto_total = sum(1 for s in sitios_ganados_detalle if s["tiene_proyecto"])
+
     tiene_proyecto = sitios_con_proyecto_total > 0
     proyectos_completos = sitios_ganados_total > 0 and sitios_con_proyecto_total >= sitios_ganados_total
     notificacion_ganada_at = op.get('notificacion_ganada_at')
@@ -260,6 +258,7 @@ async def get_detalle_oportunidad_modal(
         "proyectos_completos": proyectos_completos,
         "sitios_ganados_total": sitios_ganados_total,
         "sitios_con_proyecto_total": sitios_con_proyecto_total,
+        "sitios_ganados_detalle": sitios_ganados_detalle,
         "notificacion_ganada_at": notificacion_ganada_at,
     })
 

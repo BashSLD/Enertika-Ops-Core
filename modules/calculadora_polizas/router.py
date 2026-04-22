@@ -6,7 +6,7 @@ Endpoints:
 - GET  /calculadora-polizas/ui                          — Dashboard + calculadora
 - GET  /calculadora-polizas/api/plantas                 — JSON dropdown
 - POST /calculadora-polizas/api/calcular                — HTMX → resultado.html
-- GET  /calculadora-polizas/admin/ui                    — Editar precios/costos (manager+)
+- GET  /oym/polizas/configuracion/ui                    — Editar precios/costos (manager+)
 - POST /calculadora-polizas/admin/precios-zona
 - PATCH /calculadora-polizas/admin/precios-zona/{zona}
 - PATCH /calculadora-polizas/admin/wattabit/{id}
@@ -1666,7 +1666,7 @@ async def import_excel(
 # ADMIN — EDICIÓN DE PRECIOS/COSTOS (manager+)
 # ============================================================
 
-@router.get("/admin/ui", include_in_schema=False)
+@oym_router.get("/polizas/configuracion/ui", include_in_schema=False)
 async def admin_ui(
     request: Request,
     context=Depends(get_current_user_context),

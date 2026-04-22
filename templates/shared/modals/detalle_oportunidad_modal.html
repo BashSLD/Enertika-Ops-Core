@@ -87,35 +87,55 @@
                             x-transition:leave-end="opacity-0 transform scale-95" @click.away="showCierreMenu = false"
                             class="absolute right-0 mt-2 w-80 bg-white rounded-xl shadow-2xl border border-gray-200 z-50 overflow-visible">
 
-                            <form hx-post="/comercial/cierre-venta/{{ op.id_oportunidad }}" hx-swap="none"
-                                x-data="{
+                            <form x-data="{
                                     loading: false,
+                                    submitting: false,
                                     showWarningModal: false,
                                     allSelected: false,
                                     selectionError: false,
+                                    sitiosTotal: {{ sitios|length if sitios is defined else 0 }},
+                                    allSitios: [{% for sitio in sitios %}'{{ sitio.id_sitio }}'{% if not loop.last %}, {% endif %}{% endfor %}],
+                                    selectedSitios: [],
                                     totalSitios() {
-                                        return this.$el.querySelectorAll('input[name=sitios_ganados]').length;
-                                    },
-                                    selectedSitios() {
-                                        return this.$el.querySelectorAll('input[name=sitios_ganados]:checked').length;
+                                        return this.sitiosTotal;
                                     },
                                     unselectedSitios() {
-                                        return Math.max(this.totalSitios() - this.selectedSitios(), 0);
+                                        return Math.max(this.totalSitios() - this.selectedSitios.length, 0);
                                     },
                                     setAllChecked(checked) {
-                                        this.$el.querySelectorAll('input[name=sitios_ganados]').forEach(cb => cb.checked = checked);
+                                        this.selectedSitios = checked ? [...this.allSitios] : [];
                                         this.allSelected = checked;
+                                        if (checked) this.selectionError = false;
                                     },
                                     updateSelectAll() {
-                                        const checkboxes = Array.from(this.$el.querySelectorAll('input[name=sitios_ganados]'));
-                                        this.allSelected = checkboxes.length > 0 && checkboxes.every(cb => cb.checked);
-                                        if (this.selectedSitios() > 0) {
-                                            this.selectionError = false;
+                                        this.allSelected = this.totalSitios() > 0 && this.selectedSitios.length === this.totalSitios();
+                                        if (this.selectedSitios.length > 0) this.selectionError = false;
+                                    },
+                                    async doSubmit(sitiosGanados) {
+                                        const formData = new FormData();
+                                        sitiosGanados.forEach(id => formData.append('sitios_ganados', id));
+                                        try {
+                                            const resp = await fetch('/comercial/cierre-venta/{{ op.id_oportunidad }}', {
+                                                method: 'POST',
+                                                body: formData,
+                                                headers: { 'HX-Request': 'true' }
+                                            });
+                                            const redirect = resp.headers.get('HX-Redirect');
+                                            if (redirect) {
+                                                window.location.href = redirect;
+                                                return;
+                                            }
+                                        } catch (e) {}
+                                        this.submitting = false;
+                                        this.loading = false;
+                                        if (typeof showToast === 'function') {
+                                            showToast({ title: 'Error', message: 'No se pudo procesar el cierre de venta.', type: 'error' });
                                         }
                                     },
-                                    onSubmit() {
+                                    async onSubmit() {
+                                        if (this.submitting || this.loading) return;
                                         if (this.totalSitios() > 0) {
-                                            if (this.selectedSitios() === 0) {
+                                            if (this.selectedSitios.length === 0) {
                                                 this.selectionError = true;
                                                 if (typeof showToast === 'function') {
                                                     showToast({
@@ -132,16 +152,18 @@
                                             this.showWarningModal = true;
                                             return;
                                         }
+                                        this.submitting = true;
                                         this.loading = true;
-                                        this.$el.submit();
+                                        await this.doSubmit([]);
                                     },
-                                    confirmSubmit() {
+                                    async confirmSubmit() {
+                                        if (this.submitting || this.loading) return;
+                                        this.submitting = true;
                                         this.loading = true;
                                         this.showWarningModal = false;
-                                        this.$el.submit();
+                                        await this.doSubmit(this.selectedSitios);
                                     }
                                 }"
-                                @submit.prevent="onSubmit()"
                                 class="divide-y divide-gray-100">
 
                                 <!-- Header del Dropdown -->
@@ -174,7 +196,7 @@
                                         <label
                                             class="flex items-center gap-2 py-2 px-3 bg-emerald-100 rounded-lg mb-2 cursor-pointer border border-emerald-300 hover:bg-emerald-200 transition">
                                             <input type="checkbox" :checked="allSelected"
-                                                @click="setAllChecked(!allSelected)"
+                                                @click.prevent="setAllChecked(!allSelected)"
                                                 class="rounded border-emerald-400 text-emerald-600 focus:ring-emerald-500">
                                             <span class="text-sm font-semibold text-emerald-800">✓ Seleccionar todos los
                                                 sitios</span>
@@ -188,13 +210,13 @@
                                             <label
                                                 class="flex items-center gap-2 py-1.5 px-2 hover:bg-gray-100 rounded cursor-pointer transition">
                                                 <input type="checkbox" name="sitios_ganados"
-                                                    value="{{ sitio.id_sitio }}" @change="updateSelectAll()"
+                                                    value="{{ sitio.id_sitio }}" x-model="selectedSitios" @change="updateSelectAll()"
                                                     class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
                                                 <span class="text-sm text-gray-700">{{ sitio.nombre_sitio }}</span>
                                             </label>
                                             {% endfor %}
                                         </div>
-                                        <p x-show="selectedSitios() === 0" class="text-xs text-red-600 mt-2 font-medium">
+                                        <p x-show="selectedSitios.length === 0" class="text-xs text-red-600 mt-2 font-medium">
                                             Debes seleccionar al menos un sitio para continuar.
                                         </p>
                                         <p class="text-xs text-gray-500 mt-2 italic">
@@ -234,7 +256,7 @@
                                         class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
                                         Cancelar
                                     </button>
-                                    <button type="submit" :disabled="loading || (totalSitios() > 0 && selectedSitios() === 0)"
+                                    <button type="button" @click="onSubmit()" :disabled="loading || submitting || (totalSitios() > 0 && selectedSitios.length === 0)"
                                         class="px-4 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition shadow-sm flex items-center gap-1 disabled:opacity-70 disabled:cursor-not-allowed">
                                         <!-- Spinner (loading) -->
                                         <svg x-show="loading" class="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
@@ -261,8 +283,8 @@
                                             <div class="px-5 py-4 space-y-3">
                                                 <p class="text-sm text-gray-800">
                                                     Sitios seleccionados como <strong>Ganada</strong>:
-                                                    <strong x-text="selectedSitios()"></strong>
-                                                </p>
+                                                <strong x-text="selectedSitios.length"></strong>
+                                            </p>
                                                 <p class="text-sm text-gray-800">
                                                     Sitios que se marcarán como <strong>Perdido</strong>:
                                                     <strong class="text-red-600" x-text="unselectedSitios()"></strong>
@@ -270,11 +292,11 @@
                                                 <p class="text-xs text-gray-500">Esta acción impacta el estatus de todos los sitios no seleccionados.</p>
                                             </div>
                                             <div class="px-5 py-3 bg-gray-50 border-t border-gray-200 flex justify-end gap-2">
-                                                <button type="button" @click="showWarningModal = false"
+                                                <button type="button" @click="showWarningModal = false" :disabled="submitting || loading"
                                                     class="px-3 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 transition">
                                                     Regresar
                                                 </button>
-                                                <button type="button" @click="confirmSubmit()"
+                                                <button type="button" @click="confirmSubmit()" :disabled="submitting || loading"
                                                     class="px-3 py-2 text-sm font-bold text-white bg-emerald-600 rounded-lg hover:bg-emerald-700 transition">
                                                     Continuar y Cerrar
                                                 </button>
@@ -304,32 +326,70 @@
             <!-- Sección: Recordatorio de Proyecto (Visible solo cuando status=Ganada y can_edit_comercial) -->
             {% if can_edit_comercial and op.status_global|lower == 'ganada' %}
             <div class="bg-green-50 rounded-lg p-5 border border-green-100 border-l-4 border-l-green-500 shadow-sm">
-                <h4 class="text-sm font-bold text-green-800 uppercase tracking-wide mb-3 flex items-center gap-2">
-                    <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                            d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                    </svg>
-                    Recordatorio de Proyecto
-                </h4>
-                <p class="text-xs text-green-700 mb-3">
-                    El siguiente paso es crear el proyecto en Projects Gate.
-                </p>
+                <div class="flex items-start justify-between mb-3">
+                    <h4 class="text-sm font-bold text-green-800 uppercase tracking-wide flex items-center gap-2">
+                        <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M9 12l2 2 4-4M7.835 4.697a3.42 3.42 0 001.946-.806 3.42 3.42 0 014.438 0 3.42 3.42 0 001.946.806 3.42 3.42 0 013.138 3.138 3.42 3.42 0 00.806 1.946 3.42 3.42 0 010 4.438 3.42 3.42 0 00-.806 1.946 3.42 3.42 0 01-3.138 3.138 3.42 3.42 0 00-1.946.806 3.42 3.42 0 01-4.438 0 3.42 3.42 0 00-1.946-.806 3.42 3.42 0 01-3.138-3.138 3.42 3.42 0 00-.806-1.946 3.42 3.42 0 010-4.438 3.42 3.42 0 00.806-1.946 3.42 3.42 0 013.138-3.138z" />
+                        </svg>
+                        Proyectos por Sitio
+                    </h4>
+                    {% if sitios_ganados_total > 0 %}
+                    <span class="text-xs font-semibold px-2 py-0.5 rounded-full
+                        {% if proyectos_completos %}bg-green-200 text-green-800{% else %}bg-amber-100 text-amber-800{% endif %}">
+                        {{ sitios_con_proyecto_total }}/{{ sitios_ganados_total }}
+                    </span>
+                    {% endif %}
+                </div>
+
                 {% if notificacion_ganada_at %}
-                <p class="text-xs text-gray-600 mb-2">
-                    Ultimo envio: {{ notificacion_ganada_at | time_mx }}
-                </p>
+                <p class="text-xs text-gray-500 mb-3">Ultimo recordatorio: {{ notificacion_ganada_at | time_mx }}</p>
                 {% endif %}
-                {% if sitios_ganados_total is defined and sitios_ganados_total > 0 %}
-                <p class="text-xs text-gray-600 mb-2">
-                    Avance de proyectos: {{ sitios_con_proyecto_total }}/{{ sitios_ganados_total }} sitios ganados con proyecto.
-                </p>
-                {% endif %}
-                {% if (proyectos_completos is defined and proyectos_completos) or (proyectos_completos is not defined and tiene_proyecto) %}
-                <p class="text-xs text-gray-500">Todos los sitios ganados ya cuentan con proyecto en Projects Gate.</p>
+
+                {% if sitios_ganados_detalle %}
+                <div class="space-y-2">
+                    {% for sitio in sitios_ganados_detalle %}
+                    <div class="flex items-center justify-between py-2 px-3 bg-white rounded-lg border border-gray-200 shadow-sm">
+                        <div class="flex items-center gap-2 min-w-0">
+                            {% if sitio.tiene_proyecto %}
+                            <svg class="w-4 h-4 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+                            </svg>
+                            <div class="min-w-0">
+                                <p class="text-sm text-gray-700 truncate">{{ sitio.nombre_sitio }}</p>
+                                {% if sitio.proyecto_id_estandar %}
+                                <p class="text-xs text-gray-400 font-mono truncate">{{ sitio.proyecto_id_estandar }}</p>
+                                {% endif %}
+                            </div>
+                            {% else %}
+                            <svg class="w-4 h-4 text-amber-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                            <p class="text-sm text-gray-700 truncate">{{ sitio.nombre_sitio }}</p>
+                            {% endif %}
+                        </div>
+                        {% if not sitio.tiene_proyecto %}
+                        <button type="button"
+                            hx-get="/projects/modal-crear?id_sitio={{ sitio.id_sitio }}"
+                            hx-target="#modal-proyecto-container"
+                            hx-swap="innerHTML"
+                            class="flex-shrink-0 ml-2 px-2.5 py-1 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors">
+                            + Proyecto
+                        </button>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                </div>
                 {% else %}
-                <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                <p class="text-xs text-green-700">El siguiente paso es crear el proyecto en Projects Gate.</p>
+                {% endif %}
+
+                {% if not proyectos_completos and sitios_ganados_total > 0 %}
+                <p class="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 mt-3">
                     Los recordatorios se envian automaticamente cada 48 horas hasta que todos los sitios ganados tengan proyecto.
                 </p>
+                {% elif proyectos_completos %}
+                <p class="text-xs text-green-600 mt-3">Todos los sitios ganados cuentan con proyecto en Projects Gate.</p>
                 {% endif %}
             </div>
             {% endif %}

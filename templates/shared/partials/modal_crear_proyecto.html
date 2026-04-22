@@ -1,5 +1,5 @@
 <!-- Modal Crear Proyecto Gate -->
-<div class="fixed inset-0 z-50 overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+<div class="fixed inset-0 z-[10100] overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
     <!-- Overlay -->
     <div class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm transition-opacity animate-fade-in"
         onclick="cerrarModalProyecto()"></div>
@@ -46,7 +46,8 @@
                             {% for sitio in sitios %}
                             <option value="{{ sitio.id_sitio }}" data-tecnologia="{{ sitio.id_tecnologia }}"
                                 data-nombre-sitio="{{ sitio.nombre_sitio }}"
-                                data-op="{{ sitio.op_id_estandar }}">
+                                data-op="{{ sitio.op_id_estandar }}"
+                                {% if id_sitio_preseleccionado == sitio.id_sitio|string %}selected{% endif %}>
                                 {{ sitio.op_id_estandar }} - {{ sitio.cliente_nombre }} - {{ sitio.nombre_sitio }}
                             </option>
                             {% endfor %}
@@ -233,4 +234,12 @@
 
     // Validar consecutivo inicial
     validarConsecutivo(document.getElementById('consecutivo-input').value);
+
+    // Si hay sitio preseleccionado, disparar actualización de datos
+    {% if id_sitio_preseleccionado %}
+    const _preSelect = document.querySelector('select[name="id_sitio"]');
+    if (_preSelect && _preSelect.value) {
+        actualizarDesdeSitio(_preSelect);
+    }
+    {% endif %}
 </script>
