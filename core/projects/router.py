@@ -4,11 +4,12 @@ Router compartido para gestión de Proyectos Gate.
 Endpoints usados por múltiples módulos (Compras, Construcción, etc.)
 """
 
-from fastapi import APIRouter, Depends, Request, Form, HTTPException
+from fastapi import APIRouter, Depends, Request, Form, HTTPException, Query
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, JSONResponse
 from typing import Optional
 from uuid import UUID
+import asyncpg
 import logging
 
 from core.database import get_db_connection
@@ -52,8 +53,9 @@ def check_puede_crear_proyecto(context: dict) -> bool:
     
     compras_role = module_roles.get("compras", "")
     construccion_role = module_roles.get("construccion", "")
-    
-    return (compras_role in roles_permitidos) or (construccion_role in roles_permitidos)
+    comercial_role = module_roles.get("comercial", "")
+
+    return (compras_role in roles_permitidos) or (construccion_role in roles_permitidos) or (comercial_role in roles_permitidos)
 
 
 # ========================================
@@ -144,26 +146,29 @@ async def get_proyectos_lista(
 @router.get("/modal-crear", response_class=HTMLResponse)
 async def get_modal_crear_proyecto(
     request: Request,
+    id_sitio: Optional[UUID] = Query(default=None),
     conn = Depends(get_db_connection),
     service: ProjectsGateService = Depends(get_projects_gate_service),
     context = Depends(get_current_user_context)
 ):
     """
     Retorna el modal HTML para crear un proyecto.
+    Acepta id_sitio opcional para pre-seleccionar el sitio en el formulario.
     """
     if not check_puede_crear_proyecto(context):
         raise HTTPException(status_code=403, detail="Sin permisos para crear proyectos")
-    
-    # Obtener datos para el formulario
+
     sitios = await service.get_sitios_ganados_sin_proyecto(conn)
     tecnologias = await service.get_tecnologias(conn)
     siguiente_consecutivo = await service.get_siguiente_consecutivo_sugerido(conn)
-    
+
     return templates.TemplateResponse(
         request, "shared/partials/modal_crear_proyecto.html",
-        {            "sitios": sitios,
+        {
+            "sitios": sitios,
             "tecnologias": tecnologias,
-            "siguiente_consecutivo": siguiente_consecutivo
+            "siguiente_consecutivo": siguiente_consecutivo,
+            "id_sitio_preseleccionado": str(id_sitio) if id_sitio else None,
         }
     )
 
@@ -217,10 +222,13 @@ async def crear_proyecto(
     except HTTPException as e:
         return templates.TemplateResponse(
             request, "shared/partials/proyecto_creado_result.html",
-            {                "success": False,
-                "proyecto": None,
-                "mensaje": e.detail
-            }
+            {"success": False, "proyecto": None, "mensaje": e.detail}
+        )
+    except asyncpg.exceptions.UniqueViolationError:
+        return templates.TemplateResponse(
+            request, "shared/partials/proyecto_creado_result.html",
+            {"success": False, "proyecto": None,
+             "mensaje": "El ID de proyecto generado ya existe. Verifica el consecutivo."}
         )
     except Exception as e:
         logger.error(f"Error creando proyecto: {e}", exc_info=True)

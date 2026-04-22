@@ -199,6 +199,17 @@ class ProjectsGateService:
             prefijo, consecutivo, tecnologia_nombre, nombre_sitio_snapshot
         )
 
+        # 6.5. Validar que el ID estándar generado no exista (race condition / prefijo distinto)
+        existe_id = await conn.fetchval(
+            "SELECT 1 FROM tb_proyectos_gate WHERE proyecto_id_estandar = $1",
+            proyecto_id_estandar
+        )
+        if existe_id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Ya existe un proyecto con ID {proyecto_id_estandar}"
+            )
+
         # 7. Insertar proyecto
         new_id = uuid4()
 

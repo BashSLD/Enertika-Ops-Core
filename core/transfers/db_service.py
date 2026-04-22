@@ -289,6 +289,8 @@ class TransferDBService:
             SELECT
                 p.id_proyecto,
                 p.proyecto_id_estandar,
+                p.prefijo,
+                p.consecutivo,
                 p.nombre_corto,
                 o.nombre_proyecto,
                 o.cliente_nombre,

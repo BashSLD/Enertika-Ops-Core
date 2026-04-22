@@ -4,7 +4,6 @@ Logica de negocio compartida por Ingenieria, Construccion, OyM y Proyectos.
 """
 from uuid import UUID, uuid4
 from typing import Optional, List, Dict, Any, Set
-import re
 import asyncpg
 import logging
 
@@ -34,15 +33,6 @@ class TransferService:
 
     def __init__(self):
         self.db = get_transfer_db_service()
-
-    @staticmethod
-    def _extract_mx50_base_id(proyecto_id_estandar: str) -> Optional[str]:
-        if not proyecto_id_estandar:
-            return None
-        match = re.search(r"\bMX-50\d{3}\b", proyecto_id_estandar.upper())
-        if not match:
-            return None
-        return match.group(0)
 
     async def _build_unique_planta_id(self, conn, calc_db, base_id: str) -> str:
         if not await calc_db.get_planta_by_id(conn, base_id):
@@ -239,22 +229,22 @@ class TransferService:
 
         zona_default = sorted(precios_zona.keys())[0]
 
-        proyecto_std = (proyecto.get("proyecto_id_estandar") or "").strip().upper()
-        base_id = self._extract_mx50_base_id(proyecto_std)
-        if not base_id:
+        prefijo = (proyecto.get("prefijo") or "MX").strip().upper()
+        consecutivo = proyecto.get("consecutivo")
+        if not consecutivo:
             logger.warning(
-                "No se pudo extraer MX-50### de proyecto_id_estandar; proyecto=%s",
-                proyecto_std or id_proyecto,
+                "Proyecto sin consecutivo para auto-alta de planta: %s",
+                proyecto.get("proyecto_id_estandar") or id_proyecto,
             )
-            digits_seed = "".join(ch for ch in str(id_proyecto) if ch.isdigit())
-            digits_seed = (digits_seed + "000")[:3]
-            base_id = f"MX-50{digits_seed}"
+            return None
+        base_id = f"{prefijo}-{consecutivo}"
 
         candidate_id = await self._build_unique_planta_id(conn, calc_db, base_id)
 
+        proyecto_std = (proyecto.get("proyecto_id_estandar") or "").strip()
         nombre = (
-            (proyecto.get("nombre_proyecto") or "").strip()
-            or (proyecto.get("nombre_corto") or "").strip()
+            (proyecto.get("nombre_corto") or "").strip()
+            or (proyecto.get("nombre_proyecto") or "").strip()
             or proyecto_std
         )
         cliente = (proyecto.get("cliente_nombre") or "").strip() or None
