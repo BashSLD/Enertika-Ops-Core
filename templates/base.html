@@ -6,6 +6,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Enertika Core Ops{% endblock %}</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="manifest" href="/manifest.webmanifest">
+    <meta name="theme-color" content="#123456">
 
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
@@ -367,6 +369,10 @@
 </head>
 
 <body class="bg-gray-100 font-sans text-gray-900">
+
+    <div id="offline-indicator" class="hidden fixed top-0 inset-x-0 z-[120] bg-red-600 text-white text-center text-sm font-semibold py-2 px-4 shadow-md">
+        Sin conexion. Algunas funciones no estaran disponibles.
+    </div>
 
     <div class="flex h-screen overflow-hidden" x-data="{
             sidebarOpen: false,
@@ -1510,6 +1516,33 @@
                 }
             }
         });
+    </script>
+
+    <script>
+        (function () {
+            const offlineIndicator = document.getElementById('offline-indicator');
+            if (!offlineIndicator) return;
+
+            function updateConnectionStatus() {
+                if (navigator.onLine) {
+                    offlineIndicator.classList.add('hidden');
+                } else {
+                    offlineIndicator.classList.remove('hidden');
+                }
+            }
+
+            window.addEventListener('online', updateConnectionStatus);
+            window.addEventListener('offline', updateConnectionStatus);
+            updateConnectionStatus();
+
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function () {
+                    navigator.serviceWorker.register('/sw.js').catch(function (error) {
+                        console.error('SW registration failed:', error);
+                    });
+                });
+            }
+        })();
     </script>
 </body>
 

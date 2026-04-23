@@ -164,7 +164,7 @@ app.router.on_startup.append(start_background_tasks)
 
 from core.security import get_current_user_context
 from fastapi import Depends
-from fastapi.responses import RedirectResponse, JSONResponse
+from fastapi.responses import RedirectResponse, JSONResponse, FileResponse
 
 # Health check endpoint - simple, no dependencies
 @app.get("/health", tags=["Health"])
@@ -175,6 +175,33 @@ async def health_check():
 @app.get("/favicon.ico", include_in_schema=False)
 async def favicon():
     return RedirectResponse(url="/static/favicon.svg")
+
+
+@app.get("/manifest.webmanifest", include_in_schema=False)
+async def pwa_manifest():
+    return FileResponse(
+        "static/manifest.webmanifest",
+        media_type="application/manifest+json",
+        headers={"Cache-Control": "public, max-age=86400"}
+    )
+
+
+@app.get("/sw.js", include_in_schema=False)
+async def service_worker():
+    return FileResponse(
+        "static/sw.js",
+        media_type="application/javascript",
+        headers={"Cache-Control": "no-cache"}
+    )
+
+
+@app.get("/offline", include_in_schema=False)
+async def offline_page():
+    return FileResponse(
+        "static/offline.html",
+        media_type="text/html",
+        headers={"Cache-Control": "public, max-age=3600"}
+    )
 
 @app.get("/", tags=["Home"])
 async def root(
