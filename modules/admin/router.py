@@ -478,6 +478,24 @@ async def update_config_reporte_desarrollo_ceo(
     })
 
 
+@router.post("/config/reporte-desarrollo-ceo-activo", include_in_schema=False)
+async def toggle_reporte_ceo_activo(
+    request: Request,
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    _=require_module_access("admin"),
+):
+    """Alterna la habilitacion del envio automatico del reporte de desarrollo CEO."""
+    actual = await ConfigService.get_global_config(conn, "reporte_desarrollo_ceo_activo", "true", str)
+    nuevo = "false" if actual.lower() == "true" else "true"
+    await service.db.upsert_global_config(conn, "reporte_desarrollo_ceo_activo", nuevo)
+    ConfigService.invalidar_cache()
+    activo = nuevo == "true"
+    return templates.TemplateResponse(
+        request, "admin/partials/reporte_ceo_toggle.html", {"reporte_ceo_activo": activo}
+    )
+
+
 # --- USER MANAGEMENT ENDPOINTS ---
 
 from uuid import UUID

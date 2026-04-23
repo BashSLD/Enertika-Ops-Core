@@ -186,6 +186,7 @@ class AdminService:
             "visita_obra_destinatarios": config_dict.get("visita_obra_destinatarios") or "",
             # Reporte Desarrollo CEO
             "reporte_desarrollo_ceo_email": config_dict.get("reporte_desarrollo_ceo_email") or "",
+            "reporte_ceo_activo": config_dict.get("reporte_desarrollo_ceo_activo", "true").lower() == "true",
         }
 
     async def update_global_config(self, conn, datos: ConfiguracionGlobalUpdate) -> None:

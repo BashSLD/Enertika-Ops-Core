@@ -441,6 +441,7 @@ class AdminDBService:
               (SELECT COUNT(*) FROM tb_oportunidades o
                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
                WHERE e.es_estatus_final = false
+                 AND e.modulo_aplicable = 'SIMULACION'
               ) AS en_simulacion_activas,
 
               (SELECT COUNT(*) FROM tb_levantamientos

@@ -419,6 +419,9 @@ async def send_reporte_desarrollo_ceo_periodically():
             ms_auth = MicrosoftAuth()
 
             async with pool.acquire() as conn:
+                activo_raw = await ConfigService.get_global_config(
+                    conn, "reporte_desarrollo_ceo_activo", "true", str
+                )
                 ceo_emails_raw = await ConfigService.get_global_config(
                     conn, "reporte_desarrollo_ceo_email", "", str
                 )
@@ -428,7 +431,9 @@ async def send_reporte_desarrollo_ceo_periodically():
                     "WHERE departamento = 'DEFAULT' AND activo = true LIMIT 1"
                 )
 
-            if not ceo_recipients:
+            if activo_raw.lower() != "true":
+                logger.info("[CEO_REPORT] Envio automatico desactivado — omitiendo")
+            elif not ceo_recipients:
                 logger.warning(
                     "[CEO_REPORT] Sin destinatarios validos configurados — agregar en Admin > Correos"
                 )

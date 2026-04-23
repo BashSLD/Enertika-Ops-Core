@@ -1,0 +1,13 @@
+<div id="reporte-ceo-toggle" class="flex items-center gap-3">
+    <button
+        hx-post="/admin/config/reporte-desarrollo-ceo-activo"
+        hx-target="#reporte-ceo-toggle"
+        hx-swap="outerHTML"
+        title="{{ 'Desactivar envio automatico' if reporte_ceo_activo else 'Activar envio automatico' }}"
+        class="relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none {{ 'bg-indigo-500' if reporte_ceo_activo else 'bg-gray-300' }}">
+        <span class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 {{ 'translate-x-5' if reporte_ceo_activo else 'translate-x-0' }}"></span>
+    </button>
+    <span class="text-sm {{ 'text-gray-700 font-medium' if reporte_ceo_activo else 'text-gray-400' }}">
+        Envio automatico {% if reporte_ceo_activo %}activado{% else %}desactivado{% endif %}
+    </span>
+</div>
