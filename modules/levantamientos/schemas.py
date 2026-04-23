@@ -3,7 +3,7 @@
 from typing import Optional, List
 from datetime import datetime
 from uuid import UUID
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 
 class LevantamientoCreate(BaseModel):
     """Schema para que Comercial solicite un nuevo levantamiento."""
@@ -37,6 +37,13 @@ class AssignmentForm(BaseModel):
     jefe_area_id: Optional[UUID] = Field(default=None)
     responsable_id: Optional[UUID] = Field(default=None)
     observaciones: Optional[str] = Field(default=None)
+
+    @field_validator("jefe_area_id", "responsable_id", mode="before")
+    @classmethod
+    def empty_str_to_none(cls, v):
+        if v == "" or v is None:
+            return None
+        return v
 
 class ChangeStatusForm(BaseModel):
     """Schema para cambio de estado."""

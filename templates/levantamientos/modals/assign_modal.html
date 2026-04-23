@@ -1,11 +1,28 @@
 <!-- Variables: lev_data, responsables, acompaniantes, jefes, current_tecnico_ids (list), current_jefe_id, current_responsable_id (str), can_assign -->
 <div
-    x-data="{ responsableId: '', tecnicoIds: [] }"
+    x-data="{
+        responsableId: '', tecnicoIds: [], jefeId: '',
+        origResponsable: '', origTecnicos: [], origJefe: '',
+        get hasChanges() {
+            if (this.jefeId !== this.origJefe) return true;
+            if (this.responsableId !== this.origResponsable) return true;
+            var curr = [...this.tecnicoIds].sort().join(',');
+            var orig = [...this.origTecnicos].sort().join(',');
+            return curr !== orig;
+        }
+    }"
     x-init="
         responsableId = $el.dataset.currentResponsable || '';
-        try { tecnicoIds = JSON.parse($el.dataset.currentTecnicos || '[]').map(function(id){ return String(id); }); } catch(e) { tecnicoIds = []; }
+        origResponsable = responsableId;
+        jefeId = $el.dataset.currentJefe || '';
+        origJefe = jefeId;
+        try {
+            tecnicoIds = JSON.parse($el.dataset.currentTecnicos || '[]').map(function(id){ return String(id); });
+            origTecnicos = [...tecnicoIds];
+        } catch(e) { tecnicoIds = []; origTecnicos = []; }
     "
     data-current-responsable="{{ current_responsable_id or '' }}"
+    data-current-jefe="{{ current_jefe_id or '' }}"
     data-current-tecnicos='{{ current_tecnico_ids | tojson }}'
     class="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] mx-auto overflow-hidden animate-fade-in-up">
 
@@ -41,7 +58,7 @@
 
     <!-- Main Form Container -->
     <form hx-post="/levantamientos/assign/{{ id_levantamiento }}" hx-target="#kanban-container" hx-swap="outerHTML"
-        hx-on::after-request="if(event.detail.successful) setTimeout(() => closeModal(), 150)" class="flex flex-col flex-1 overflow-hidden">
+        hx-on::after-request="if(event.detail.successful) { origJefe = jefeId; origResponsable = responsableId; origTecnicos = [...tecnicoIds]; }" class="flex flex-col flex-1 overflow-hidden">
 
         <!-- Hidden inputs para submission real (manejados por Alpine) -->
         <input type="hidden" name="responsable_id" :value="responsableId">
@@ -74,12 +91,12 @@
             </div>
 
             <div class="space-y-5">
-                <!-- Jefe de Área -->
+                <!-- Responsable de Área -->
                 <div>
-                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Jefe de Área /
-                        Supervisor</label>
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Responsable de Área</label>
                     <div class="relative">
                         <select name="jefe_area_id" {% if not can_assign %}disabled{% endif %}
+                            @change="jefeId = $event.target.value"
                             class="w-full bg-white border border-gray-200 text-gray-700 py-2.5 pl-3 pr-8 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500 appearance-none shadow-sm cursor-pointer hover:border-blue-300 transition-colors disabled:bg-gray-100 disabled:cursor-not-allowed">
                             {% for j in jefes %}
                             <option value="{{ j.id_usuario }}" {% if current_jefe_id and
@@ -187,7 +204,7 @@
                 Cancelar
             </button>
             {% if can_assign %}
-            <button type="submit" :disabled="responsableId === ''"
+            <button type="submit" :disabled="!hasChanges"
                 class="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-lg shadow-blue-600/30 transition-all transform hover:scale-[1.02] flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none">
                 <span>
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"

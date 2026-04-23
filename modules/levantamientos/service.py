@@ -88,6 +88,7 @@ class LevantamientoService:
         estatus_pendiente_id = estatus_map['pendiente']
 
         now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
+        jefe_default_id = await self.get_jefe_default(conn)
         first_id = None
 
         for sitio in sitios:
@@ -103,11 +104,12 @@ class LevantamientoService:
                 INSERT INTO tb_levantamientos (
                     id_levantamiento, id_sitio, id_oportunidad,
                     solicitado_por_id, id_estatus_global,
+                    jefe_area_id,
                     fecha_solicitud, created_at, updated_at,
                     updated_by_id
-                ) VALUES ($1, $2, $3, $4, $6, $5, $5, $5, $4)
+                ) VALUES ($1, $2, $3, $4, $6, $7, $5, $5, $5, $4)
             """, new_id, id_sitio, id_oportunidad, opp['creado_por_id'],
-                opp['fecha_solicitud'] or now_mx, estatus_pendiente_id)
+                opp['fecha_solicitud'] or now_mx, estatus_pendiente_id, jefe_default_id)
 
             # Registrar en historial inicial
             await self._registrar_en_historial(
@@ -458,7 +460,16 @@ class LevantamientoService:
                 logger.info(f"[VIATICOS] Limpiados por cambio de responsable en levantamiento {id_levantamiento}")
 
         # 3. Registrar Historial
-        obs_text = observaciones or "Asignación de responsables actualizada"
+        jefe_cambio = jefe_id != current['jefe_area_id']
+        tecnico_cambio = set(tecnicos_ids) != set(old_tech_ids)
+        if observaciones:
+            obs_text = observaciones
+        elif jefe_cambio and not tecnico_cambio:
+            obs_text = "Responsable de Área actualizado"
+        elif tecnico_cambio and not jefe_cambio:
+            obs_text = "Ingenieros asignados actualizados"
+        else:
+            obs_text = "Asignación de responsables actualizada"
         metadata = {
             "tipo_cambio": "asignacion",
             "jefe_id": str(jefe_id) if jefe_id else None,
