@@ -6,6 +6,10 @@ import re
 import time
 import logging
 
+import redis.asyncio as aioredis
+
+from core.config import settings
+
 logger = logging.getLogger("ConfigService")
 
 @dataclass
@@ -39,19 +43,48 @@ class UmbralesKPI:
 
 class ConfigService:
     """Servicio para gestionar configuración global del sistema"""
-    
+
     # Cache con TTL: {key: (timestamp, value)}
     _cache_umbrales: Dict[str, Tuple[float, UmbralesKPI]] = {}
     _cache_global: Dict[str, Tuple[float, Any]] = {}
     _CACHE_TTL = 30.0  # 30 segundos de vida
     _cache_lock: asyncio.Lock = asyncio.Lock()
 
+    # Redis (caché compartida entre workers Gunicorn)
+    _redis: Optional[aioredis.Redis] = None
+    _REDIS_PREFIX = "eco:config:"
+    _REDIS_TTL_SECONDS = 30
+
     # Regex para validar nombres de tabla y columna (prevenir SQL injection)
     _VALID_IDENTIFIER = re.compile(r'^[a-z_][a-z0-9_]*$')
 
     @classmethod
+    def _get_redis(cls) -> Optional[aioredis.Redis]:
+        """Retorna cliente Redis si está configurado, None si no hay REDIS_URL."""
+        if cls._redis is None and settings.REDIS_URL:
+            cls._redis = aioredis.from_url(
+                settings.REDIS_URL,
+                encoding="utf-8",
+                decode_responses=True,
+            )
+        return cls._redis
+
+    @classmethod
     async def get_cached_value(cls, key: str, ttl: float = 30.0) -> Optional[Any]:
-        """Recupera valor del cache si no ha expirado. Thread-safe via asyncio.Lock."""
+        """
+        Recupera valor del cache. Usa Redis si está disponible, dict in-memory si no.
+        Thread-safe via asyncio.Lock para el dict in-memory.
+        """
+        redis = cls._get_redis()
+        if redis:
+            try:
+                cached = await redis.get(f"{cls._REDIS_PREFIX}{key}")
+                if cached is not None:
+                    return cached
+                return None
+            except Exception as e:
+                logger.debug("Redis get error, fallback a dict: %s", e)
+
         async with cls._cache_lock:
             if key in cls._cache_global:
                 ts, val = cls._cache_global[key]
@@ -63,7 +96,18 @@ class ConfigService:
 
     @classmethod
     async def set_cached_value(cls, key: str, value: Any):
-        """Guarda valor en cache con timestamp actual. Thread-safe via asyncio.Lock."""
+        """
+        Guarda valor en cache. Usa Redis si está disponible, dict in-memory si no.
+        Nota: Redis serializa todo como string; get_global_config re-castea el tipo.
+        """
+        redis = cls._get_redis()
+        if redis:
+            try:
+                await redis.set(f"{cls._REDIS_PREFIX}{key}", str(value), ex=cls._REDIS_TTL_SECONDS)
+                return
+            except Exception as e:
+                logger.debug("Redis set error, fallback a dict: %s", e)
+
         async with cls._cache_lock:
             cls._cache_global[key] = (time.time(), value)
 
@@ -193,19 +237,33 @@ class ConfigService:
     
     @classmethod
     def invalidar_cache(cls):
-        """Invalida el cache de umbrales (llamar al guardar cambios)"""
+        """Invalida el cache local. Con Redis las claves expiran solas (TTL 30s)."""
         cls._cache_umbrales.clear()
         cls._cache_global.clear()
+
+    @classmethod
+    def _cast_config_value(cls, valor: Any, tipo: type) -> Any:
+        """Castea un valor de configuración al tipo solicitado."""
+        if tipo == int:
+            return int(float(valor))
+        if tipo == float:
+            return float(valor)
+        if tipo == bool:
+            return str(valor).lower() in ('true', '1', 'si', 'yes')
+        return valor
 
     @classmethod
     async def get_global_config(cls, conn: asyncpg.Connection, clave: str, default: Any, tipo: type = str) -> Any:
         """
         Obtiene un valor de configuración global con cast de tipo.
-        Usa cache con TTL (30s).
+        Usa cache con TTL (30s). Con Redis el valor se almacena como str y se re-castea al leer.
         """
-        # Check cache
         cached = await cls.get_cached_value(f"CFG_{clave}")
-        if cached is not None: return cached
+        if cached is not None:
+            try:
+                return cls._cast_config_value(cached, tipo)
+            except (ValueError, TypeError):
+                pass  # valor corrupto en cache — releer de BD
 
         try:
             row = await conn.fetchrow("""
@@ -218,17 +276,8 @@ class ConfigService:
             valor = row['valor']
             if valor is None:
                 return default
-            
-            # Cast simple basado en el tipo solicitado
-            if tipo == int:
-                val_typed = int(float(valor)) # float first to handle "10.0"
-            elif tipo == float:
-                val_typed = float(valor)
-            elif tipo == bool:
-                val_typed = valor.lower() in ('true', '1', 'si', 'yes')
-            else:
-                val_typed = valor
 
+            val_typed = cls._cast_config_value(valor, tipo)
             await cls.set_cached_value(f"CFG_{clave}", val_typed)
             return val_typed
         except asyncpg.PostgresError as e:
