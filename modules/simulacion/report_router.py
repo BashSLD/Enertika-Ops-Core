@@ -466,6 +466,43 @@ from fastapi import Form as _Form, Response as _Response
 from core.pdf_service.service import PDFService, get_pdf_service
 
 
+async def _generar_pdf_response(
+    filtros: "FiltrosReporte",
+    charts: dict,
+    generado_por: str,
+    filename_prefix: str,
+    conn,
+    service: "ReportesSimulacionService",
+    pdf_service: "PDFService",
+) -> _Response:
+    datos = await service.get_all_report_data(conn, filtros)
+    filtros_ctx = {
+        "fecha_inicio": str(filtros.fecha_inicio),
+        "fecha_fin": str(filtros.fecha_fin),
+        "id_tecnologia": filtros.id_tecnologia,
+        "responsable_id": getattr(filtros, "responsable_id", None),
+    }
+    pdf_bytes = await pdf_service.generate(
+        "simulacion/reporte_analitica.html",
+        {
+            "filtros": filtros_ctx,
+            "kpis": datos.get("metricas"),
+            "charts": charts,
+            "tablas": datos,
+            "generado_por": generado_por,
+        },
+    )
+    filename = pdf_service.generate_filename(
+        filename_prefix,
+        f"{filtros.fecha_inicio}_{filtros.fecha_fin}",
+    )
+    return _Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
 @router.post("/pdf/generar")
 async def generar_reporte_pdf(
     filtros_json: str = _Form(...),
@@ -502,39 +539,57 @@ async def generar_reporte_pdf(
     )
 
     try:
-        datos = await service.get_all_report_data(conn, filtros)
-
-        filtros_ctx = {
-            "fecha_inicio": str(filtros.fecha_inicio),
-            "fecha_fin": str(filtros.fecha_fin),
-            "id_tecnologia": filtros.id_tecnologia,
-            "responsable_id": filtros.responsable_id if hasattr(filtros, "responsable_id") else None,
-        }
-
-        pdf_bytes = await pdf_service.generate(
-            "simulacion/reporte_analitica.html",
-            {
-                "filtros": filtros_ctx,
-                "kpis": datos.get("metricas"),
-                "charts": charts,
-                "tablas": datos,
-                "generado_por": context.get("user_name", ""),
-            },
+        return await _generar_pdf_response(
+            filtros=filtros,
+            charts=charts,
+            generado_por=context.get("user_name", ""),
+            filename_prefix="reporte_simulacion",
+            conn=conn,
+            service=service,
+            pdf_service=pdf_service,
         )
-
-        filename = pdf_service.generate_filename(
-            "reporte_simulacion",
-            f"{filtros.fecha_inicio}_{filtros.fecha_fin}",
-        )
-        return _Response(
-            content=pdf_bytes,
-            media_type="application/pdf",
-            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
-        )
-
     except asyncpg.PostgresError as exc:
         logger.error("DB error generando PDF simulacion: %s", exc)
         return JSONResponse(status_code=500, content={"success": False, "error": "Error de base de datos"})
     except ValueError as exc:
         logger.error("Error generando PDF simulacion: %s", exc)
         return JSONResponse(status_code=500, content={"success": False, "error": str(exc)})
+
+
+@router.post("/pdf/generar-automatico")
+async def generar_reporte_pdf_automatico(
+    fecha_inicio: str = _Form(...),
+    fecha_fin: str = _Form(default=""),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: ReportesSimulacionService = Depends(get_reportes_service),
+    pdf_service: PDFService = Depends(get_pdf_service),
+    _=require_module_access("simulacion"),
+):
+    """
+    Genera el PDF de simulación server-side sin captura del browser.
+    TODO: pasar charts cuando ReportesSimulacionService exponga get_graficas_pdf().
+    """
+    filtros = parse_filtros(
+        start_date=fecha_inicio,
+        end_date=fecha_fin or None,
+        tech_id="",
+        status_id="",
+        user_id="",
+    )
+    try:
+        return await _generar_pdf_response(
+            filtros=filtros,
+            charts={},
+            generado_por="Automatico",
+            filename_prefix="reporte_simulacion_auto",
+            conn=conn,
+            service=service,
+            pdf_service=pdf_service,
+        )
+    except asyncpg.PostgresError as exc:
+        logger.error("DB error generando PDF automatico: %s", exc)
+        return JSONResponse(status_code=500, content={"error": "Error de base de datos"})
+    except ValueError as exc:
+        logger.error("Error generando PDF automatico: %s", exc)
+        return JSONResponse(status_code=500, content={"error": str(exc)})
