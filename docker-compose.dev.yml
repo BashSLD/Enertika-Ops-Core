@@ -11,6 +11,21 @@ services:
       - .env
     environment:
       DEBUG_MODE: "True"
+      QUICKCHART_URL: "http://quickchart:3400"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      - quickchart
+      - redis
     dns:
       - 8.8.8.8
       - 8.8.4.4
+
+  quickchart:
+    image: ianw/quickchart
+    ports:
+      - "3400:3400"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
