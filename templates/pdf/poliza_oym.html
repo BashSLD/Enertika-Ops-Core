@@ -1,975 +1,1085 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-    <meta charset="UTF-8">
-    <style>
-        /* ====================================================
-           PAGE SETUP
-        ==================================================== */
-        @page {
-            size: Letter;
-            margin: 2cm 1.5cm 2.2cm 1.5cm;
-
-            @top-left {
-                content: element(page-header-logo);
-                vertical-align: bottom;
-                padding-bottom: 4px;
-            }
-
-            @top-right {
-                content: element(page-header-title);
-                vertical-align: bottom;
-                padding-bottom: 4px;
-                text-align: right;
-            }
-
-            @bottom-left {
-                content: element(page-footer-label);
-                border-top: 1px solid #e2e8f0;
-                padding-top: 4px;
-                vertical-align: top;
-            }
-
-            @bottom-right {
-                content: "Pagina " counter(page) " de " counter(pages);
-                font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-                font-size: 7pt;
-                color: #94a3b8;
-                border-top: 1px solid #e2e8f0;
-                padding-top: 4px;
-                vertical-align: top;
-                text-align: right;
-            }
-        }
-
-        @page :first {
-            margin: 0;
-
-            @top-left   { content: none; }
-            @top-right  { content: none; }
-            @bottom-left  { content: none; }
-            @bottom-right { content: none; }
-        }
-
-        /* ====================================================
-           RUNNING ELEMENTS (header + footer)
-        ==================================================== */
-        #page-header-logo {
-            position: running(page-header-logo);
-        }
-
-        #page-header-logo img {
-            height: 0.7cm;
-            width: auto;
-            display: block;
-        }
-
-        #page-header-title {
-            position: running(page-header-title);
-            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-            font-size: 8pt;
-            font-weight: 600;
-            color: #0A2463;
-            border-bottom: 2px solid #00BABB;
-            padding-bottom: 3px;
-        }
-
-        #page-footer-label {
-            position: running(page-footer-label);
-            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-            font-size: 7pt;
-            color: #94a3b8;
-            padding-top: 4px;
-        }
-
-        #page-footer-label img {
-            height: 0.25cm;
-            width: auto;
-            vertical-align: middle;
-            margin-right: 4px;
-        }
-
-        /* ====================================================
-           FONDO PÁGINAS DE CONTENIDO (position:fixed = todas las páginas)
-           La portada los oculta con su propio background oscuro (cover z-index > -1)
-        ==================================================== */
-        .bg-solar-grid {
-            position: fixed;
-            left: 0;
-            top: 0;
-            width: 21.59cm;
-            height: 27.94cm;
-            background-image:
-                repeating-linear-gradient(
-                    15deg,
-                    transparent, transparent 48px,
-                    rgba(0,186,187,0.03) 48px, rgba(0,186,187,0.03) 49px
-                ),
-                repeating-linear-gradient(
-                    75deg,
-                    transparent, transparent 28px,
-                    rgba(0,186,187,0.03) 28px, rgba(0,186,187,0.03) 29px
-                );
-            z-index: -1;
-        }
-
-        .bg-circle-tr {
-            position: fixed;
-            top: -3.5cm;
-            right: -3.5cm;
-            width: 11cm;
-            height: 11cm;
-            border-radius: 50%;
-            border: 2px solid rgba(0,186,187,0.07);
-            background: rgba(0,186,187,0.015);
-            z-index: -1;
-        }
-
-        .bg-circle-tr2 {
-            position: fixed;
-            top: -1cm;
-            right: -1cm;
-            width: 6.5cm;
-            height: 6.5cm;
-            border-radius: 50%;
-            border: 1.5px solid rgba(0,186,187,0.05);
-            z-index: -1;
-        }
-
-        .bg-circle-bl {
-            position: fixed;
-            bottom: -2.5cm;
-            left: 0.8cm;
-            width: 9cm;
-            height: 9cm;
-            border-radius: 50%;
-            border: 1.5px solid rgba(10,36,99,0.06);
-            z-index: -1;
-        }
-
-        /* ====================================================
-           RESET / BASE
-        ==================================================== */
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-        }
-
-        body {
-            font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
-            color: #1e293b;
-            font-size: 10pt;
-            line-height: 1.5;
-        }
-
-        /* ====================================================
-           PORTADA — FULL BLEED
-        ==================================================== */
-        .cover {
-            width: 100%;
-            height: 27.94cm;
-            background: linear-gradient(155deg, #07174a 0%, #0A2463 35%, #0f3285 65%, #133f92 100%);
-            display: block;
-            page-break-after: always;
-            position: relative;
-            overflow: hidden;
-        }
-
-        /* Círculos decorativos */
-        .deco-a {
-            position: absolute;
-            top: -3.5cm;
-            right: -3.5cm;
-            width: 13cm;
-            height: 13cm;
-            border-radius: 50%;
-            border: 1.5px solid rgba(255,255,255,0.07);
-            background: rgba(255,255,255,0.03);
-        }
-
-        .deco-b {
-            position: absolute;
-            top: 0.5cm;
-            right: 0.5cm;
-            width: 8cm;
-            height: 8cm;
-            border-radius: 50%;
-            border: 1.5px solid rgba(0,186,187,0.18);
-            background: rgba(0,186,187,0.05);
-        }
-
-        .deco-c {
-            position: absolute;
-            bottom: 2.5cm;
-            left: -3cm;
-            width: 11cm;
-            height: 11cm;
-            border-radius: 50%;
-            border: 1.5px solid rgba(255,255,255,0.06);
-        }
-
-        .deco-d {
-            position: absolute;
-            bottom: -2cm;
-            right: 2.5cm;
-            width: 7cm;
-            height: 7cm;
-            border-radius: 50%;
-            border: 1.5px solid rgba(0,186,187,0.1);
-        }
-
-        /* Línea diagonal decorativa */
-        .deco-line {
-            position: absolute;
-            top: 0;
-            right: 6cm;
-            width: 1px;
-            height: 100%;
-            background: rgba(0,186,187,0.12);
-        }
-
-        .cover-inner {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            padding: 3cm 3cm 3cm 3cm;
-        }
-
-        .cover-logo {
-            height: 0.9cm;
-            width: auto;
-            display: block;
-            margin-bottom: 3.5cm;
-        }
-
-        .cover-badge {
-            display: inline-block;
-            background: rgba(0,186,187,0.25);
-            border: 1px solid rgba(0,186,187,0.5);
-            color: #00BABB;
-            font-size: 8pt;
-            font-weight: 700;
-            letter-spacing: 2.5px;
-            text-transform: uppercase;
-            padding: 4px 14px;
-            border-radius: 20px;
-            margin-bottom: 0.6cm;
-        }
-
-        .cover-accent-line {
-            width: 1.2cm;
-            height: 3px;
-            background: #00BABB;
-            margin-bottom: 0.5cm;
-        }
-
-        .cover-title {
-            font-size: 32pt;
-            font-weight: 800;
-            color: #ffffff;
-            line-height: 1.05;
-            letter-spacing: -0.5px;
-            margin-bottom: 0.2cm;
-        }
-
-        .cover-subtitle {
-            font-size: 13pt;
-            font-weight: 300;
-            color: rgba(255,255,255,0.55);
-            margin-bottom: 2.5cm;
-        }
-
-        .cover-divider {
-            border: none;
-            border-top: 1px solid rgba(255,255,255,0.12);
-            margin-bottom: 0.7cm;
-        }
-
-        .cover-meta-grid {
-            width: 100%;
-            border-collapse: collapse;
-        }
-
-        .cover-meta-grid td {
-            vertical-align: top;
-            padding-right: 1.2cm;
-            padding-bottom: 0.3cm;
-            width: 33%;
-        }
-
-        .cover-meta-label {
-            display: block;
-            font-size: 7pt;
-            font-weight: 400;
-            color: rgba(255,255,255,0.45);
-            letter-spacing: 1.5px;
-            text-transform: uppercase;
-            margin-bottom: 2px;
-        }
-
-        .cover-meta-value {
-            font-size: 10.5pt;
-            font-weight: 500;
-            color: #ffffff;
-        }
-
-        .cover-meta-value.teal {
-            color: #00BABB;
-        }
-
-        .cover-bar {
-            position: absolute;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            height: 4px;
-            background: linear-gradient(90deg, #00BABB, #00e5e6 50%, #00BABB);
-        }
-
-        .cover-folio {
-            position: absolute;
-            bottom: 0.6cm;
-            right: 3cm;
-            font-size: 7.5pt;
-            color: rgba(255,255,255,0.35);
-            letter-spacing: 1px;
-        }
-
-        /* ====================================================
-           UTILIDADES GENERALES
-        ==================================================== */
-        .page-break {
-            page-break-before: always;
-        }
-
-        .section-title {
-            font-size: 12pt;
-            font-weight: 700;
-            color: #0A2463;
-            padding-left: 10px;
-            border-left: 4px solid #00BABB;
-            margin: 0 0 16px 0;
-            line-height: 1.2;
-        }
-
-        .mb-20 { margin-bottom: 20px; }
-        .mb-14 { margin-bottom: 14px; }
-
-        /* ====================================================
-           SECCIÓN 1 — DATOS DE LA INSTALACIÓN
-        ==================================================== */
-        .meta-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 20px;
-        }
-
-        .meta-table td {
-            padding: 8px 12px;
-            font-size: 10pt;
-            border-bottom: 1px solid #e2e8f0;
-            background: rgba(255,255,255,0.92);
-            vertical-align: top;
-        }
-
-        .meta-table td:first-child {
-            color: #64748b;
-            width: 28%;
-            font-weight: 500;
-            font-size: 9.5pt;
-        }
-
-        .meta-table td:last-child {
-            color: #0f172a;
-            font-weight: 600;
-        }
-
-        /* ====================================================
-           SECCIÓN 2 — PRECIO DESTACADO
-        ==================================================== */
-        .price-box {
-            background: linear-gradient(135deg, #0A2463 0%, #1a3a8a 100%);
-            border-radius: 10px;
-            padding: 16px 28px;
-            margin: 0 0 20px 0;
-            color: #fff;
-            position: relative;
-            overflow: hidden;
-        }
-
-        .price-box-deco {
-            position: absolute;
-            top: -1.8cm;
-            left: -1.8cm;
-            width: 5.5cm;
-            height: 5.5cm;
-            border-radius: 50%;
-            border: 1.5px solid rgba(0,186,187,0.22);
-            background: rgba(0,186,187,0.06);
-        }
-
-        .price-box-deco-2 {
-            position: absolute;
-            top: -0.5cm;
-            left: -0.5cm;
-            width: 3cm;
-            height: 3cm;
-            border-radius: 50%;
-            border: 1px solid rgba(0,186,187,0.14);
-        }
-
-        .price-box-deco-3 {
-            position: absolute;
-            bottom: -1.4cm;
-            right: -1.4cm;
-            width: 4.5cm;
-            height: 4.5cm;
-            border-radius: 50%;
-            border: 1px solid rgba(0,186,187,0.12);
-            background: rgba(0,186,187,0.04);
-        }
-
-        .price-box-amount {
-            font-size: 36pt;
-            font-weight: 800;
-            color: #fff;
-            line-height: 1;
-            letter-spacing: -1px;
-        }
-
-        .price-box-currency {
-            font-size: 13pt;
-            color: rgba(255,255,255,0.6);
-            font-weight: 300;
-            margin-left: 6px;
-        }
-
-        .price-box-label {
-            font-size: 8pt;
-            color: rgba(255,255,255,0.5);
-            letter-spacing: 1.5px;
-            text-transform: uppercase;
-            margin-bottom: 4px;
-        }
-
-        .price-secondary-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-        }
-
-        .price-secondary-label {
-            font-size: 7.5pt;
-            color: rgba(255,255,255,0.45);
-            letter-spacing: 1px;
-            text-transform: uppercase;
-            margin-bottom: 2px;
-        }
-
-        .price-secondary-value {
-            font-size: 11pt;
-            font-weight: 600;
-            color: #fff;
-        }
-
-        .price-secondary-col {
-            width: 33%;
-            padding: 12px 16px 4px 0;
-            vertical-align: top;
-        }
-
-        .price-secondary-col-mid {
-            width: 33%;
-            padding: 12px 16px 4px 16px;
-            vertical-align: top;
-            border-left: none;
-        }
-
-        .detail-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 0;
-        }
-
-        .detail-table tr {
-            border-bottom: 1px solid #e2e8f0;
-        }
-
-        .detail-table td {
-            padding: 9px 12px;
-            font-size: 9.5pt;
-            vertical-align: top;
-            background: rgba(255,255,255,0.92);
-        }
-
-        .detail-table td:first-child {
-            color: #475569;
-            width: 40%;
-            font-weight: 500;
-        }
-
-        .detail-table td:last-child {
-            color: #0f172a;
-            font-weight: 600;
-        }
-
-        /* ====================================================
-           SECCIÓN 3 — SERVICIOS
-        ==================================================== */
-        .services-table {
-            width: 100%;
-            border-collapse: separate;
-            border-spacing: 6px;
-            margin-bottom: 0;
-        }
-
-        .service-cell {
-            width: 50%;
-            vertical-align: top;
-            padding: 0;
-        }
-
-        .service-card {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-top: 3px solid #00BABB;
-            border-radius: 6px;
-            padding: 14px 16px;
-            height: 100%;
-        }
-
-        .service-card-title {
-            font-size: 10pt;
-            font-weight: 700;
-            color: #0A2463;
-            margin-bottom: 10px;
-            padding-bottom: 6px;
-            border-bottom: 1px solid #e2e8f0;
-            display: flex;
-            align-items: center;
-            gap: 7px;
-        }
-
-        .service-card-title svg {
-            flex-shrink: 0;
-            margin-right: 8px;
-        }
-
-        .service-item {
-            font-size: 9pt;
-            color: #374151;
-            padding: 3px 0 3px 16px;
-            position: relative;
-        }
-
-        .service-item::before {
-            content: "•";
-            position: absolute;
-            left: 0;
-            color: #00BABB;
-            font-weight: 700;
-        }
-
-        .service-card-wide {
-            background: #f8fafc;
-            border: 1px solid #e2e8f0;
-            border-top: 3px solid #00BABB;
-            border-radius: 6px;
-            padding: 14px 16px;
-        }
-
-        /* ====================================================
-           SECCIÓN 4 — PROYECCIÓN
-        ==================================================== */
-        .proj-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin: 0 0 16px 0;
-            font-size: 9.5pt;
-        }
-
-        .proj-table th {
-            background: #0A2463;
-            color: #fff;
-            padding: 7px 12px;
-            text-align: center;
-            font-weight: 600;
-            font-size: 9pt;
-        }
-
-        .proj-table td {
-            padding: 7px 12px;
-            text-align: center;
-            border-bottom: 1px solid #e2e8f0;
-            color: #374151;
-        }
-
-        .proj-table tr:nth-child(even) td {
-            background: #f8fafc;
-        }
-
-        .proj-table .highlight-row td {
-            background: #eff6ff;
-            font-weight: 700;
-            color: #0A2463;
-        }
-
-        .acum-table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-bottom: 18px;
-        }
-
-        .acum-table td {
-            padding: 9px 12px;
-            font-size: 9.5pt;
-            border-bottom: 1px solid #f1f5f9;
-        }
-
-        .acum-table td:first-child {
-            color: #475569;
-            font-weight: 500;
-            width: 45%;
-        }
-
-        .acum-table td:last-child {
-            color: #0A2463;
-            font-weight: 700;
-        }
-
-        .conditions-box {
-            background: #fffbeb;
-            border: 1px solid #fcd34d;
-            border-left: 3px solid #f59e0b;
-            border-radius: 4px;
-            padding: 10px 14px;
-            font-size: 8pt;
-            color: #92400e;
-        }
-
-        .conditions-box-title {
-            font-weight: 700;
-            margin-bottom: 4px;
-            color: #78350f;
-            font-size: 8.5pt;
-        }
-
-        .conditions-item {
-            padding: 1.5px 0 1.5px 14px;
-            position: relative;
-            line-height: 1.4;
-        }
-
-        .conditions-item::before {
-            content: "•";
-            position: absolute;
-            left: 4px;
-            color: #f59e0b;
-        }
-    </style>
+<meta charset="UTF-8">
+<style>
+  /* ====================================================
+     TOKENS (paleta oficial Enertika)
+  ==================================================== */
+  :root{
+    --enertika-primary: #123456;
+    --enertika-secondary: #00BABB;
+    --enertika-secondary-dark: #009999;
+    --enertika-dark: #0E2A47;
+    --enertika-secondary-light: #E0F7F7;
+
+    --ink: #0f172a;
+    --ink-2: #334155;
+    --mute: #64748b;
+    --rule: #e2e8f0;
+    --paper: #ffffff;
+    --bg-soft: #f8fafc;
+  }
+
+  /* ====================================================
+     PAGE SETUP
+  ==================================================== */
+  @page {
+    size: Letter;
+    margin: 2cm 1.5cm 2.2cm 1.5cm;
+
+    @top-left {
+      content: element(page-header-logo);
+      vertical-align: bottom;
+      padding-bottom: 4px;
+    }
+    @top-right {
+      content: element(page-header-title);
+      vertical-align: bottom;
+      padding-bottom: 4px;
+      text-align: right;
+    }
+    @bottom-left {
+      content: element(page-footer-label);
+      border-top: 1px solid #e2e8f0;
+      padding-top: 4px;
+      vertical-align: top;
+    }
+    @bottom-right {
+      content: "Página " counter(page) " de " counter(pages);
+      font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+      font-size: 7pt;
+      color: #94a3b8;
+      border-top: 1px solid #e2e8f0;
+      padding-top: 4px;
+      vertical-align: top;
+      text-align: right;
+    }
+  }
+
+  @page :first {
+    margin: 0;
+    @top-left   { content: none; }
+    @top-right  { content: none; }
+    @bottom-left  { content: none; }
+    @bottom-right { content: none; }
+  }
+
+  #page-header-logo {
+    position: running(page-header-logo);
+  }
+  #page-header-logo img {
+    height: 0.7cm;
+    width: auto;
+    display: block;
+  }
+  #page-header-title {
+    position: running(page-header-title);
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 8pt;
+    font-weight: 600;
+    color: var(--enertika-primary);
+    border-bottom: 2px solid var(--enertika-secondary);
+    padding-bottom: 3px;
+    letter-spacing: 0.3px;
+  }
+  #page-footer-label {
+    position: running(page-footer-label);
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    font-size: 7pt;
+    color: #94a3b8;
+    padding-top: 4px;
+  }
+  #page-footer-label img {
+    height: 0.25cm;
+    width: auto;
+    vertical-align: middle;
+    margin-right: 4px;
+  }
+
+  /* ====================================================
+     RESET / BASE
+  ==================================================== */
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
+    color: var(--ink);
+    font-size: 10pt;
+    line-height: 1.5;
+  }
+
+  /* ====================================================
+     PORTADA
+  ==================================================== */
+  .cover {
+    width: 100%;
+    height: 27.94cm;
+    background: linear-gradient(160deg, #071430 0%, var(--enertika-dark) 55%, var(--enertika-primary) 100%);
+    display: block;
+    page-break-after: always;
+    position: relative;
+    overflow: hidden;
+    color: #fff;
+  }
+
+  .cover-ring-a {
+    position: absolute;
+    top: -5cm;
+    right: -5cm;
+    width: 16cm;
+    height: 16cm;
+    border-radius: 50%;
+    border: 1px solid rgba(0,186,187,0.22);
+  }
+  .cover-ring-b {
+    position: absolute;
+    top: -2cm;
+    right: -2cm;
+    width: 10cm;
+    height: 10cm;
+    border-radius: 50%;
+    border: 1px solid rgba(0,186,187,0.35);
+    background: radial-gradient(circle at 30% 30%, rgba(0,186,187,0.15), transparent 65%);
+  }
+
+  .cover-inner {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    padding: 3cm 3cm 3cm 3cm;
+  }
+
+  .cover-logo {
+    height: 0.78cm;
+    max-width: 5cm;
+    width: auto;
+    display: block;
+    margin-bottom: 7.5cm;
+  }
+
+  /* Línea decorativa del kicker — span explícito, sin ::before */
+  .kicker-line {
+    display: inline-block;
+    width: 20px;
+    height: 2px;
+    background: var(--enertika-secondary);
+    vertical-align: middle;
+    margin-right: 8px;
+  }
+
+  .cover-kicker {
+    font-family: 'Courier New', monospace;
+    font-size: 9.5pt;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--enertika-secondary);
+    margin-bottom: 14px;
+  }
+
+  .cover-title {
+    font-size: 32pt;
+    font-weight: 700;
+    color: #ffffff;
+    line-height: 1.0;
+    letter-spacing: -0.5px;
+    margin-bottom: 10px;
+  }
+
+  .cover-subtitle {
+    font-size: 10pt;
+    font-weight: 300;
+    color: rgba(255,255,255,0.6);
+    margin-bottom: 1.4cm;
+  }
+
+  .cover-divider {
+    border: none;
+    border-top: 1px solid rgba(255,255,255,0.12);
+    margin-bottom: 0.6cm;
+  }
+
+  .cover-meta-grid {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .cover-meta-grid td {
+    vertical-align: top;
+    padding-right: 1.2cm;
+    padding-bottom: 0.3cm;
+    width: 33%;
+  }
+  .cover-meta-label {
+    display: block;
+    font-family: 'Courier New', monospace;
+    font-size: 7pt;
+    font-weight: 400;
+    color: rgba(255,255,255,0.45);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+  }
+  .cover-meta-value {
+    font-size: 10pt;
+    font-weight: 500;
+    color: #ffffff;
+  }
+  .cover-meta-value.teal { color: var(--enertika-secondary); }
+
+  .cover-bar {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 3px;
+    background: linear-gradient(90deg, var(--enertika-secondary), #00e5e6 50%, var(--enertika-secondary));
+  }
+  .cover-folio {
+    position: absolute;
+    bottom: 0.7cm;
+    left: 3cm;
+    right: 3cm;
+    display: table;
+    width: calc(100% - 6cm);
+    font-family: 'Courier New', monospace;
+    font-size: 7pt;
+    color: rgba(255,255,255,0.4);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .cover-folio > span:last-child {
+    float: right;
+  }
+
+  /* ====================================================
+     UTILIDADES
+  ==================================================== */
+  .page-break { page-break-before: always; }
+  .avoid-break { page-break-inside: avoid; }
+
+  .section-title {
+    font-size: 11pt;
+    font-weight: 700;
+    color: var(--enertika-primary);
+    padding-left: 10px;
+    border-left: 3px solid var(--enertika-secondary);
+    margin: 0 0 10px 0;
+    line-height: 1.2;
+    letter-spacing: 0.1px;
+  }
+
+  .section-sub {
+    font-size: 8.5pt;
+    color: var(--mute);
+    margin: -6px 0 10px 13px;
+    line-height: 1.4;
+  }
+
+  /* ====================================================
+     TIRA DE REFERENCIA — página 2 (compacta, sin tabla)
+  ==================================================== */
+  .ref-strip {
+    display: table;
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 28px;
+    padding: 14px 18px;
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-radius: 8px;
+  }
+  .ref-strip-cell {
+    display: table-cell;
+    vertical-align: top;
+    padding-right: 28px;
+  }
+  .ref-strip-label {
+    display: block;
+    font-family: 'Courier New', monospace;
+    font-size: 7pt;
+    color: var(--mute);
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+  }
+  .ref-strip-value {
+    font-size: 9.5pt;
+    font-weight: 600;
+    color: var(--ink);
+  }
+  .ref-strip-value.teal {
+    color: var(--enertika-secondary-dark);
+  }
+
+  /* ====================================================
+     SECCIÓN 1 — DATOS (filas más compactas)
+  ==================================================== */
+  .meta-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 16px;
+  }
+  .meta-table td {
+    padding: 5px 10px;
+    font-size: 9pt;
+    border-bottom: 1px solid var(--rule);
+    vertical-align: top;
+  }
+  .meta-table td:first-child {
+    color: var(--mute);
+    width: 32%;
+    font-weight: 500;
+    font-size: 8.5pt;
+  }
+  .meta-table td:last-child {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  /* ====================================================
+     CAJA DE PRECIO — compacta, sin texto redundante
+  ==================================================== */
+  .price-box {
+    background: var(--enertika-dark);
+    color: #fff;
+    padding: 14px 22px 16px;
+    margin: 0 0 16px 0;
+    position: relative;
+    overflow: hidden;
+    border-radius: 8px;
+  }
+
+  .price-box-tag {
+    font-family: 'Courier New', monospace;
+    font-size: 7.5pt;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    color: var(--enertika-secondary);
+    margin-bottom: 10px;
+    display: table;
+    width: 100%;
+  }
+  .price-box-tag::after {
+    content: "";
+    display: table-cell;
+    border-bottom: 1px solid rgba(0,186,187,0.3);
+    padding-left: 10px;
+  }
+
+  .price-box-old {
+    font-size: 11pt;
+    color: rgba(255,255,255,0.4);
+    text-decoration: line-through;
+    margin-bottom: 2px;
+    display: inline-block;
+  }
+  .price-box-old-unit {
+    font-size: 8pt;
+    color: rgba(255,255,255,0.4);
+    margin-left: 4px;
+  }
+
+  .price-box-amount-row {
+    text-align: right;
+    margin-bottom: 4px;
+  }
+  .price-box-currency-sign {
+    font-size: 18pt;
+    font-weight: 300;
+    color: rgba(255,255,255,0.5);
+    vertical-align: baseline;
+    margin-right: 2px;
+  }
+  .price-box-amount {
+    font-size: 36pt;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+    letter-spacing: -1px;
+    vertical-align: baseline;
+  }
+  .price-box-unit {
+    font-size: 9pt;
+    color: rgba(255,255,255,0.5);
+    margin-left: 5px;
+    font-family: 'Courier New', monospace;
+    letter-spacing: 1px;
+    vertical-align: baseline;
+  }
+
+  .price-box-disc-badge {
+    display: inline-block;
+    background: rgba(0,186,187,0.15);
+    border: 1px solid rgba(0,186,187,0.4);
+    color: var(--enertika-secondary);
+    font-family: 'Courier New', monospace;
+    font-size: 7pt;
+    font-weight: 700;
+    letter-spacing: 1.5px;
+    padding: 2px 7px;
+    border-radius: 2px;
+    margin-left: 8px;
+    vertical-align: middle;
+  }
+
+  .price-box-split {
+    display: table;
+    width: 100%;
+    border-top: 1px solid rgba(255,255,255,0.14);
+    padding-top: 10px;
+    margin-top: 10px;
+  }
+  .price-box-split > div {
+    display: table-cell;
+    width: 50%;
+    vertical-align: top;
+  }
+  .price-box-split > div + div {
+    border-left: 1px solid rgba(255,255,255,0.14);
+    padding-left: 18px;
+  }
+  .price-box-split .sl {
+    font-family: 'Courier New', monospace;
+    font-size: 7pt;
+    color: rgba(255,255,255,0.45);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 3px;
+  }
+  .price-box-split .sv {
+    font-size: 12pt;
+    font-weight: 600;
+    color: #fff;
+  }
+
+  /* ====================================================
+     PROYECCIÓN — 1, 3, 5 años
+     Alturas de barras en px calculadas por Jinja.
+     Área de barras = 150px − 28px×2 padding = 94px.
+     Barra máxima = 70px (24px libres para etiqueta superior).
+  ==================================================== */
+  .proj-wrap {
+    margin-bottom: 14px;
+  }
+  .proj-chart {
+    position: relative;
+    height: 150px;
+    padding: 28px 0 28px 0;
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    margin-bottom: 12px;
+  }
+  .proj-bars {
+    position: absolute;
+    left: 20px;
+    right: 20px;
+    top: 28px;
+    bottom: 28px;
+    display: flex;
+    align-items: flex-end;
+    gap: 16px;
+  }
+  .proj-bar-col {
+    flex: 1;
+    position: relative;
+    height: 94px;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+  }
+  .proj-bar {
+    width: 100%;
+    background: var(--enertika-secondary);
+    border-radius: 2px 2px 0 0;
+    position: relative;
+  }
+  .proj-bar.primary {
+    background: var(--enertika-primary);
+  }
+  .proj-bar-val {
+    position: absolute;
+    top: -20px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Courier New', monospace;
+    font-size: 8pt;
+    font-weight: 700;
+    color: var(--enertika-primary);
+    white-space: nowrap;
+  }
+  .proj-bar-yr {
+    position: absolute;
+    bottom: -22px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-family: 'Courier New', monospace;
+    font-size: 8pt;
+    color: var(--mute);
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+  }
+
+  .proj-cards {
+    display: table;
+    width: 100%;
+    border-spacing: 8px 0;
+    margin: 0 -8px;
+  }
+  .proj-cards > div {
+    display: table-cell;
+    width: 33.33%;
+    vertical-align: top;
+    padding: 12px 14px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+  }
+  .proj-card.featured {
+    border-left: 2px solid var(--enertika-secondary);
+    background: linear-gradient(180deg, var(--enertika-secondary-light) 0%, #ffffff 60%);
+  }
+  .proj-card-label {
+    font-family: 'Courier New', monospace;
+    font-size: 7pt;
+    color: var(--mute);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    display: table;
+    width: 100%;
+  }
+  .proj-card-label .reco {
+    float: right;
+    color: var(--enertika-secondary-dark);
+    font-weight: 700;
+  }
+  .proj-card-total {
+    font-size: 14pt;
+    font-weight: 700;
+    color: var(--enertika-primary);
+    letter-spacing: -0.3px;
+    line-height: 1;
+    margin-bottom: 2px;
+  }
+  .proj-card-total .unit {
+    font-family: 'Courier New', monospace;
+    font-size: 7.5pt;
+    font-weight: 500;
+    color: var(--mute);
+    margin-left: 3px;
+  }
+  .proj-card-old {
+    font-size: 8pt;
+    color: var(--mute);
+    text-decoration: line-through;
+    margin-bottom: 3px;
+    display: inline-block;
+  }
+  .proj-card-desc {
+    font-size: 8pt;
+    color: var(--ink-2);
+    line-height: 1.4;
+    margin-top: 5px;
+  }
+  .proj-card-desc b { color: var(--enertika-primary); font-weight: 700; }
+
+  .proj-note {
+    font-size: 8pt;
+    color: var(--ink-2);
+    line-height: 1.5;
+    margin-top: 10px;
+    padding: 8px 12px;
+    background: var(--enertika-secondary-light);
+    border-left: 2px solid var(--enertika-secondary);
+    border-radius: 2px;
+  }
+
+  /* ====================================================
+     SERVICIOS (compacto — 4 cards + condiciones en una hoja)
+  ==================================================== */
+  .services-grid {
+    width: 100%;
+    border-collapse: separate;
+    border-spacing: 0 7px;
+  }
+  .service-row td {
+    vertical-align: top;
+    padding: 0;
+  }
+  .service-card-v2 {
+    display: table;
+    width: 100%;
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--enertika-secondary);
+    border-radius: 2px;
+    padding: 10px 16px;
+  }
+  .service-card-v2 > .ico-col {
+    display: table-cell;
+    width: 44px;
+    vertical-align: top;
+    padding-right: 12px;
+  }
+  .service-card-v2 > .body-col {
+    display: table-cell;
+    vertical-align: top;
+  }
+  .service-ico {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--enertika-secondary-light);
+    border: 1px solid rgba(0,186,187,0.3);
+    display: table-cell;
+    vertical-align: middle;
+    text-align: center;
+    font-family: 'Courier New', monospace;
+    font-weight: 700;
+    font-size: 9pt;
+    color: var(--enertika-secondary-dark);
+  }
+  .service-kicker {
+    font-family: 'Courier New', monospace;
+    font-size: 6.5pt;
+    color: var(--mute);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  .service-title-v2 {
+    font-size: 10pt;
+    font-weight: 700;
+    color: var(--enertika-primary);
+    margin-bottom: 5px;
+    letter-spacing: -0.1px;
+  }
+  .service-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+  }
+  .service-list-item {
+    font-size: 8.5pt;
+    color: var(--ink-2);
+    padding: 2px 0 2px 12px;
+    position: relative;
+    line-height: 1.4;
+  }
+  .service-list-item::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 8px;
+    width: 4px;
+    height: 4px;
+    background: var(--enertika-secondary);
+    border-radius: 50%;
+  }
+  .service-freq {
+    display: inline-block;
+    font-family: 'Courier New', monospace;
+    font-size: 6.5pt;
+    font-weight: 700;
+    letter-spacing: 0.8px;
+    padding: 1px 5px;
+    background: var(--enertika-secondary-light);
+    color: var(--enertika-secondary-dark);
+    border-radius: 2px;
+    margin-left: 5px;
+    vertical-align: 1px;
+  }
+  .service-freq.low {
+    background: #f1f5f9;
+    color: var(--mute);
+  }
+
+  /* ====================================================
+     CONDICIONES
+  ==================================================== */
+  .conditions-box {
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--enertika-primary);
+    border-radius: 2px;
+    padding: 10px 14px;
+    font-size: 8pt;
+    color: var(--ink-2);
+    margin-top: 14px;
+  }
+  .conditions-box-title {
+    font-weight: 700;
+    margin-bottom: 5px;
+    color: var(--enertika-primary);
+    font-size: 8pt;
+    letter-spacing: 0.3px;
+    text-transform: uppercase;
+    font-family: 'Courier New', monospace;
+  }
+  .conditions-item {
+    padding: 2px 0 2px 12px;
+    position: relative;
+    line-height: 1.45;
+  }
+  .conditions-item::before {
+    content: "";
+    position: absolute;
+    left: 3px;
+    top: 8px;
+    width: 3px;
+    height: 3px;
+    background: var(--enertika-secondary);
+    border-radius: 50%;
+  }
+</style>
 </head>
 <body>
 
-    <!-- Fondo decorativo páginas de contenido -->
-    <div class="bg-solar-grid"></div>
-    <div class="bg-circle-tr"></div>
-    <div class="bg-circle-tr2"></div>
-    <div class="bg-circle-bl"></div>
+  <!-- RUNNING: header logo -->
+  <div id="page-header-logo">
+    <img src="logos/header.png" alt="Enertika">
+  </div>
 
-    <!-- RUNNING: header logo -->
-    <div id="page-header-logo">
-        <img src="logos/header.png" alt="Enertika">
-    </div>
+  <!-- RUNNING: header title -->
+  <div id="page-header-title">
+    Propuesta Póliza O&amp;M &mdash; {{ tipo_poliza | capitalize }}
+  </div>
 
-    <!-- RUNNING: header title -->
-    <div id="page-header-title">
-        Propuesta Poliza O&amp;M &mdash; {{ tipo_poliza | capitalize }}
-    </div>
+  <!-- RUNNING: footer label -->
+  <div id="page-footer-label">
+    <img src="logos/footer.png" alt="">
+    Enertika &mdash; Propuesta generada por: {{ ejecutivo }}
+  </div>
 
-    <!-- RUNNING: footer label -->
-    <div id="page-footer-label">
-        <img src="logos/footer.png" alt="">
-        Enertika &mdash; Propuesta generada por: {{ ejecutivo }}
-    </div>
+  <!-- ============================================================
+       PORTADA
+  ============================================================ -->
+  <div class="cover">
+    <div class="cover-ring-a"></div>
+    <div class="cover-ring-b"></div>
 
-    <!-- ============================================================
-         PORTADA
-    ============================================================ -->
-    <div class="cover">
-        <div class="deco-a"></div>
-        <div class="deco-b"></div>
-        <div class="deco-c"></div>
-        <div class="deco-d"></div>
-        <div class="deco-line"></div>
+    <div class="cover-inner">
+      <img src="logos/headerW.png" alt="Enertika" class="cover-logo">
 
-        <div class="cover-inner">
-            <img src="logos/headerW.png" alt="Enertika" class="cover-logo">
+      <div class="cover-kicker">
+        <span class="kicker-line"></span>Póliza {{ tipo_poliza | capitalize }}
+      </div>
 
-            <div class="cover-badge">Poliza {{ tipo_poliza | capitalize }}</div>
+      <div class="cover-title">
+        {% if cliente %}{{ cliente }}{% else %}{{ nombre_planta }}{% endif %}
+      </div>
+      <div class="cover-subtitle">Propuesta de mantenimiento y operación · O&amp;M</div>
 
-            <div class="cover-accent-line"></div>
+      <hr class="cover-divider">
 
-            <div class="cover-title">
-                {% if cliente %}{{ cliente }}{% else %}{{ nombre_planta }}{% endif %}
-            </div>
-            <div class="cover-subtitle">Propuesta de Poliza de Mantenimiento O&amp;M</div>
-
-            <hr class="cover-divider">
-
-            <table class="cover-meta-grid">
-                <tr>
-                    <td>
-                        <span class="cover-meta-label">Instalacion</span>
-                        <span class="cover-meta-value">{{ nombre_planta }}</span>
-                    </td>
-                    <td>
-                        <span class="cover-meta-label">Zona</span>
-                        <span class="cover-meta-value">{{ zona }}</span>
-                    </td>
-                    <td>
-                        <span class="cover-meta-label">Potencia instalada</span>
-                        <span class="cover-meta-value teal">{{ "{:,.1f}".format(potencia_kw) }} kWp</span>
-                    </td>
-                </tr>
-                <tr>
-                    <td>
-                        <span class="cover-meta-label">Paneles</span>
-                        <span class="cover-meta-value">{{ num_paneles }} unidades</span>
-                    </td>
-                    <td>
-                        <span class="cover-meta-label">Ejecutivo</span>
-                        <span class="cover-meta-value">{{ ejecutivo }}</span>
-                    </td>
-                    <td>
-                        <span class="cover-meta-label">Fecha de emision</span>
-                        <span class="cover-meta-value">{{ fecha_emision }}</span>
-                    </td>
-                </tr>
-            </table>
-        </div>
-
-        <div class="cover-folio">Folio {{ folio }} &nbsp;&bull;&nbsp; Vigencia {{ vigencia_cotizacion_dias }} dias</div>
-        <div class="cover-bar"></div>
-    </div>
-
-    <!-- ============================================================
-         PÁGINA 2 — DATOS + PRECIO
-    ============================================================ -->
-
-    <div class="section-title">Datos de la instalacion</div>
-
-    <table class="meta-table mb-20">
+      <table class="cover-meta-grid">
         <tr>
-            <td>Instalacion</td>
-            <td>{{ nombre_planta }}</td>
+          <td>
+            <span class="cover-meta-label">Instalación</span>
+            <span class="cover-meta-value">{{ nombre_planta }}</span>
+          </td>
+          <td>
+            <span class="cover-meta-label">Zona</span>
+            <span class="cover-meta-value">{{ zona }}</span>
+          </td>
+          <td>
+            <span class="cover-meta-label">Potencia instalada</span>
+            <span class="cover-meta-value teal">{{ "{:,.1f}".format(potencia_kw) }} kWp</span>
+          </td>
         </tr>
-        {% if cliente %}
         <tr>
-            <td>Cliente</td>
-            <td>{{ cliente }}</td>
+          <td>
+            <span class="cover-meta-label">Número de paneles</span>
+            <span class="cover-meta-value">{{ num_paneles }} unidades</span>
+          </td>
+          <td>
+            <span class="cover-meta-label">Ejecutivo</span>
+            <span class="cover-meta-value">{{ ejecutivo }}</span>
+          </td>
+          <td>
+            <span class="cover-meta-label">Fecha de emisión</span>
+            <span class="cover-meta-value">{{ fecha_emision }}</span>
+          </td>
         </tr>
-        {% endif %}
+        <tr>
+          <td>
+            <span class="cover-meta-label">Vigencia propuesta</span>
+            <span class="cover-meta-value">{{ vigencia_cotizacion_dias }} días</span>
+          </td>
+          <td></td>
+          <td></td>
+        </tr>
         {% if direccion %}
         <tr>
-            <td>Ubicacion del sitio</td>
-            <td>{{ direccion }}</td>
+          <td colspan="3" style="padding-top: 0;">
+            <span class="cover-meta-label">Ubicación del sitio</span>
+            <span class="cover-meta-value">{{ direccion }}</span>
+          </td>
         </tr>
         {% endif %}
-        <tr>
-            <td>Zona</td>
-            <td>{{ zona }}</td>
-        </tr>
-        <tr>
-            <td>Potencia instalada</td>
-            <td>{{ "{:,.1f}".format(potencia_kw) }} kWp</td>
-        </tr>
-        <tr>
-            <td>Numero de paneles</td>
-            <td>{{ num_paneles }} paneles</td>
-        </tr>
-        <tr>
-            <td>Monitoreo incluido</td>
-            <td>Wattabit {{ nombre_wattabit }}</td>
-        </tr>
-        <tr>
-            <td>Vigencia de la propuesta</td>
-            <td>{{ vigencia_cotizacion_dias }} dias naturales a partir de la fecha de emision</td>
-        </tr>
-    </table>
+      </table>
+    </div>
 
-    <div class="section-title">Inversion anual</div>
+    <div class="cover-folio">
+      <span>Folio · {{ folio }}</span>
+      <span>Vigencia · {{ vigencia_cotizacion_dias }} días</span>
+    </div>
+    <div class="cover-bar"></div>
+  </div>
 
-    {% set dto_anio1 = descuento_pct > 0 and 1 in descuento_anios %}
-    {% if dto_anio1 %}
+  <!-- ============================================================
+       PÁGINA 2 — PRECIO + PROYECCIÓN
+  ============================================================ -->
+
+  <div class="section-title" style="margin-top: 14px;">Datos de la instalación</div>
+  <div class="ref-strip">
+    <div class="ref-strip-cell">
+      <span class="ref-strip-label">Instalación</span>
+      <span class="ref-strip-value">{{ nombre_planta }}</span>
+    </div>
+    {% if cliente %}
+    <div class="ref-strip-cell">
+      <span class="ref-strip-label">Cliente</span>
+      <span class="ref-strip-value">{{ cliente }}</span>
+    </div>
+    {% endif %}
+    <div class="ref-strip-cell">
+      <span class="ref-strip-label">Potencia instalada</span>
+      <span class="ref-strip-value teal">{{ "{:,.1f}".format(potencia_kw) }} kWp</span>
+    </div>
+    <div class="ref-strip-cell">
+      <span class="ref-strip-label">Paneles</span>
+      <span class="ref-strip-value">{{ num_paneles }} uds.</span>
+    </div>
+    <div class="ref-strip-cell" style="padding-right:0;">
+      <span class="ref-strip-label">Zona</span>
+      <span class="ref-strip-value">{{ zona }}</span>
+    </div>
+  </div>
+
+  <!-- ======================== PRECIO ======================== -->
+  <div class="section-title" style="margin-top: 8px;">Inversión anual</div>
+
+  {% set dto_anio1 = descuento_pct > 0 and 1 in descuento_anios %}
+  {% if dto_anio1 %}
     {% set anio1_sin_iva = proyeccion[0].acumulado_desc %}
     {% set anio1_con_iva = anio1_sin_iva * 1.16 %}
-    {% else %}
+  {% else %}
     {% set anio1_sin_iva = sub_total_utilidad %}
     {% set anio1_con_iva = total_final %}
-    {% endif %}
+  {% endif %}
 
-    <div class="price-box">
-        <div class="price-box-deco"></div>
-        <div class="price-box-deco-2"></div>
-        <div class="price-box-deco-3"></div>
-        <div class="price-box-label" style="text-align:right;">Precio anual sin IVA</div>
+  <div class="price-box avoid-break">
+    <div class="price-box-tag">Año 1 · Precio sin IVA</div>
+
+    <div style="text-align: right;">
+      {% if dto_anio1 %}
+      <div style="margin-bottom: 2px;">
+        <span class="price-box-old">${{ "{:,.2f}".format(sub_total_utilidad) }}</span><span class="price-box-old-unit">MXP</span>
+      </div>
+      {% endif %}
+
+      <div class="price-box-amount-row">
+        <span class="price-box-currency-sign">$</span>
+        <span class="price-box-amount">{{ "{:,.2f}".format(anio1_sin_iva) }}</span>
+        <span class="price-box-unit">MXP</span>
         {% if dto_anio1 %}
-        <div style="text-align:right; margin-bottom:2px;">
-            <span style="font-size:14pt; color:rgba(255,255,255,0.4); text-decoration:line-through;">
-                ${{ "{:,.2f}".format(sub_total_utilidad) }}
-            </span>
-            <span style="font-size:9pt; color:rgba(255,255,255,0.4);"> MXP</span>
-        </div>
+        <span class="price-box-disc-badge">{{ (descuento_pct * 100) | round(1) }}% DTO.</span>
         {% endif %}
-        <div style="text-align:right;">
-            <span class="price-box-amount">${{ "{:,.2f}".format(anio1_sin_iva) }}</span>
-            <span class="price-box-currency">MXP</span>
-            {% if dto_anio1 %}
-            <span style="display:inline-block; background:rgba(0,186,187,0.3); border:1px solid rgba(0,186,187,0.6);
-                         color:#00BABB; font-size:7.5pt; font-weight:700; letter-spacing:1px;
-                         padding:2px 8px; border-radius:10px; margin-left:8px; vertical-align:middle;">
-                {{ (descuento_pct * 100) | round(1) }}% dto.
-            </span>
+      </div>
+    </div>
+
+    <div class="price-box-split">
+      <div>
+        <div class="sl">IVA · 16%</div>
+        <div class="sv">${{ "{:,.2f}".format(anio1_con_iva - anio1_sin_iva) }} <span style="font-size:8pt;color:rgba(255,255,255,0.5);font-weight:400;">MXP</span></div>
+      </div>
+      <div>
+        <div class="sl">Total año 1 con IVA</div>
+        <div class="sv">${{ "{:,.2f}".format(anio1_con_iva) }} <span style="font-size:8pt;color:rgba(255,255,255,0.5);font-weight:400;">MXP</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ======================== PROYECCIÓN (solo 1, 3, 5) ======================== -->
+  {% if mostrar_proyeccion %}
+
+  {% set anios_oferta = [1, 3, 5] %}
+  {% set proy_filtrada = proyeccion | selectattr('anio', 'in', anios_oferta) | list %}
+  {% set tiene_dto = descuento_anios | length > 0 %}
+
+  {# Máximo acumulado para escalar barras — altura máxima 70px #}
+  {% set max_total = namespace(v=0) %}
+  {% for item in proy_filtrada %}
+    {% set total_ref = item.acumulado_desc if (item.acumulado_desc is not none and tiene_dto) else item.acumulado %}
+    {% if total_ref > max_total.v %}{% set max_total.v = total_ref %}{% endif %}
+  {% endfor %}
+
+  <div class="section-title" style="margin-top: 24px;">Opciones de contrato</div>
+  <div class="section-sub">Contratar a más años fija la cuota y protege al cliente del ajuste anual del 3%.</div>
+
+  <div class="proj-wrap avoid-break">
+
+    <!-- GRÁFICA de barras con altura en px -->
+    <div class="proj-chart">
+      <div class="proj-bars">
+        {% for item in proy_filtrada %}
+          {% set total_ref = item.acumulado_desc if (item.acumulado_desc is not none and tiene_dto) else item.acumulado %}
+          {% set bar_h = ((total_ref / max_total.v) * 70) | round(0) | int if max_total.v > 0 else 4 %}
+          <div class="proj-bar-col">
+            <div class="proj-bar {% if item.anio == 5 %}primary{% endif %}" style="height: {{ bar_h }}px;">
+              <span class="proj-bar-val">${{ "{:,.0f}".format(total_ref) }}</span>
+              <span class="proj-bar-yr">{{ item.anio }} año{% if item.anio > 1 %}s{% endif %}</span>
+            </div>
+          </div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- TARJETAS de decisión -->
+    <div class="proj-cards">
+      {% for item in proy_filtrada %}
+        {% set total_ref = item.acumulado_desc if (item.acumulado_desc is not none and tiene_dto) else item.acumulado %}
+        {% set is_featured = (item.anio == 5) %}
+        <div class="proj-card {% if is_featured %}featured{% endif %}">
+          <div class="proj-card-label">
+            <span>{{ item.anio }} año{% if item.anio > 1 %}s{% endif %}</span>
+            {% if is_featured %}<span class="reco">Recomendado</span>{% endif %}
+          </div>
+          {% if item.acumulado_desc is not none and tiene_dto and item.acumulado_desc != item.acumulado %}
+          <div class="proj-card-old">${{ "{:,.2f}".format(item.acumulado) }}</div>
+          {% endif %}
+          <div class="proj-card-total">
+            ${{ "{:,.2f}".format(total_ref) }}<span class="unit">MXP</span>
+          </div>
+          <div class="proj-card-desc">
+            {% if item.anio == 1 %}
+              Cuota anual <b>${{ "{:,.0f}".format(item.valor) }}</b>. Sin compromiso multianual.
+            {% elif item.anio == 3 %}
+              Cuota promedio <b>${{ "{:,.0f}".format(item.acumulado / 3) }}</b>. Blinda 36 meses.
+            {% elif item.anio == 5 %}
+              Cuota promedio <b>${{ "{:,.0f}".format(item.acumulado / 5) }}</b>. Máxima protección tarifaria.
             {% endif %}
+          </div>
         </div>
-        <table class="price-secondary-table">
-            <tr>
-                <td class="price-secondary-col">
-                    <div class="price-secondary-label">IVA (16%)</div>
-                    <div class="price-secondary-value">${{ "{:,.2f}".format(anio1_con_iva - anio1_sin_iva) }} MXP</div>
-                </td>
-                {% if not dto_anio1 %}<td style="width:34%;"></td>{% endif %}
-                <td class="price-secondary-col-mid">
-                    <div class="price-secondary-label">Total anual con IVA</div>
-                    <div class="price-secondary-value">${{ "{:,.2f}".format(anio1_con_iva) }} MXP</div>
-                </td>
-            </tr>
-        </table>
+      {% endfor %}
     </div>
 
-    {% if mostrar_proyeccion %}
-    <div style="margin-top:28px;" class="section-title">Opciones de contrato</div>
+    <div class="proj-note">
+      La cuota incluye un ajuste del 3% por inflación a partir del segundo año. Contratar a más años
+      fija esa tasa, protegiendo al cliente de ajustes mayores en el mercado.
+    </div>
+  </div>
+  {% endif %}
 
-    {% set tiene_dto = descuento_anios | length > 0 %}
-    <table class="proj-table mb-20">
-        <thead>
-            <tr>
-                <th>Contrato</th>
-                <th>Cuota anual sin IVA</th>
-                <th>Total sin IVA</th>
-                {% if tiene_dto %}<th style="color:#16a34a;">T. con Desc. (sin IVA)</th>{% endif %}
-            </tr>
-        </thead>
-        <tbody>
-            {% for item in proyeccion %}
-            <tr {% if item.anio in [3, 5] %}class="highlight-row"{% endif %}>
-                <td><strong>{{ item.anio }} año{% if item.anio > 1 %}s{% endif %}</strong></td>
-                <td>${{ "{:,.2f}".format(item.valor) }} MXP</td>
-                <td>${{ "{:,.2f}".format(item.acumulado) }} MXP</td>
-                {% if tiene_dto %}
-                <td>
-                    {% if item.acumulado_desc is not none %}
-                    <strong style="color:#16a34a;">${{ "{:,.2f}".format(item.acumulado_desc) }} MXP</strong>
-                    {% else %}
-                    <span style="color:#94a3b8;">—</span>
-                    {% endif %}
-                </td>
-                {% endif %}
-            </tr>
-            {% endfor %}
-        </tbody>
-    </table>
-    <p style="font-size:8.5pt; color:#475569; margin:-6px 0 0 0; line-height:1.45;">
-        La cuota anual incluye un ajuste del 3% por inflacion a partir del segundo año,
-        reflejo del incremento en costos de operacion y materiales. Contratar a mas años
-        fija esa tasa, protegiendo al cliente de ajustes mayores en el mercado.
-    </p>
+  <!-- ============================================================
+       PÁGINA 3 — SERVICIOS + CONDICIONES
+  ============================================================ -->
+  <div class="page-break"></div>
+
+  <div class="section-title" style="margin-top: 14px;">Servicios incluidos</div>
+  <div class="section-sub">
+    {% if tipo_poliza == 'premium' %}
+    Plan Premium: atención integral con 2 visitas anuales de mantenimiento preventivo,
+    correctivo incluido y reportes ejecutivos.
+    {% else %}
+    Plan Básico: visita anual de diagnóstico con monitoreo continuo. Correctivo bajo presupuesto.
     {% endif %}
+  </div>
 
-    <!-- ============================================================
-         PÁGINA 3 — SERVICIOS
-    ============================================================ -->
-    <div class="page-break"></div>
-    <div class="section-title">Servicios incluidos</div>
+  <table class="services-grid">
+    <!-- 01 — Preventivo -->
+    <tr class="service-row"><td>
+      <div class="service-card-v2">
+        <div class="ico-col"><div class="service-ico">01</div></div>
+        <div class="body-col">
+          <div class="service-kicker">Criticidad alta · {{ tipo_poliza | capitalize }}</div>
+          <div class="service-title-v2">Mantenimiento preventivo</div>
+          <ul class="service-list">
+            {% if tipo_poliza == 'premium' %}
+            <li class="service-list-item">Limpieza integral de módulos fotovoltaicos<span class="service-freq">2×/año</span></li>
+            <li class="service-list-item">Revisión termográfica de inversores<span class="service-freq">2×/año</span></li>
+            <li class="service-list-item">Mantenimiento eléctrico de tableros y conexiones<span class="service-freq">1×/año</span></li>
+            <li class="service-list-item">Reporte fotográfico con hallazgos y acciones</li>
+            {% else %}
+            <li class="service-list-item">Visita anual de diagnóstico<span class="service-freq">1×/año</span></li>
+            <li class="service-list-item">Inspección visual de módulos fotovoltaicos</li>
+            <li class="service-list-item">Revisión de inversores</li>
+            {% endif %}
+          </ul>
+        </div>
+      </div>
+    </td></tr>
 
-    <table class="services-table">
-        <tr>
-            <td class="service-cell">
-                <div class="service-card">
-                    <div class="service-card-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00BABB" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>Mantenimiento preventivo</div>
-                    {% if tipo_poliza == 'premium' %}
-                    <div class="service-item">2 limpiezas anuales</div>
-                    <div class="service-item">Limpieza de modulos</div>
-                    <div class="service-item">Revision de inversores</div>
-                    <div class="service-item">Mantenimiento electrico</div>
-                    {% else %}
-                    <div class="service-item">Visita diagnostico anual</div>
-                    <div class="service-item">Inspeccion visual de modulos</div>
-                    <div class="service-item">Revision de inversores</div>
-                    {% endif %}
-                </div>
-            </td>
-            <td class="service-cell">
-                <div class="service-card">
-                    <div class="service-card-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00BABB" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><polygon points="13,2 3,14 12,14 11,22 21,10 12,10"/></svg>Gestion energetica</div>
-                    <div class="service-item">Acceso a Wattabit ({{ nombre_wattabit }})</div>
-                    <div class="service-item">Monitorizacion de la instalacion</div>
-                    <div class="service-item">Deteccion de incidencias</div>
-                </div>
-            </td>
-        </tr>
-        <tr>
-            <td class="service-cell">
-                <div class="service-card">
-                    <div class="service-card-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00BABB" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>Mantenimiento correctivo</div>
-                    {% if tipo_poliza == 'premium' %}
-                    <div class="service-item">Visita en caso de incidencia</div>
-                    <div class="service-item">Atencion de incidencias menores</div>
-                    <div class="service-item">Sin costo adicional por mano de obra</div>
-                    {% else %}
-                    <div class="service-item">Visita diagnostico incluida en preventivo</div>
-                    <div class="service-item">Correctivo adicional se presupuesta por separado</div>
-                    {% endif %}
-                </div>
-            </td>
-            <td class="service-cell">
-                <div class="service-card">
-                    <div class="service-card-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00BABB" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><line x1="10" y1="9" x2="8" y2="9"/></svg>Reportes y garantias</div>
-                    <div class="service-item">Reportes de generacion mensual</div>
-                    {% if tipo_poliza == 'premium' %}
-                    <div class="service-item">Reporte de mantenimiento preventivo</div>
-                    <div class="service-item">Reporte de mantenimiento correctivo</div>
-                    {% endif %}
-                    {% if garantia_produccion %}
-                    <div class="service-item">Garantia de produccion</div>
-                    {% endif %}
-                    <div class="service-item">Gestion de garantias de equipo</div>
-                </div>
-            </td>
-        </tr>
-        <tr>
-            <td class="service-cell">
-                <div class="service-card">
-                    <div class="service-card-title"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#00BABB" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg>Internet</div>
-                    <div class="service-item">Servicio de conexion a internet para el sistema de monitoreo (Wattabit)</div>
-                </div>
-            </td>
-            <td class="service-cell"></td>
-        </tr>
-    </table>
+    <!-- 02 — Correctivo -->
+    <tr class="service-row"><td>
+      <div class="service-card-v2">
+        <div class="ico-col"><div class="service-ico">02</div></div>
+        <div class="body-col">
+          <div class="service-kicker">Criticidad alta · Respuesta ante falla</div>
+          <div class="service-title-v2">Mantenimiento correctivo</div>
+          <ul class="service-list">
+            {% if tipo_poliza == 'premium' %}
+            <li class="service-list-item">Visita en sitio ante incidencia reportada<span class="service-freq">bajo demanda</span></li>
+            <li class="service-list-item">Atención de incidencias menores incluida</li>
+            <li class="service-list-item">Mano de obra sin costo adicional</li>
+            {% else %}
+            <li class="service-list-item">Visita diagnóstico incluida en preventivo</li>
+            <li class="service-list-item">Correctivo adicional presupuestado por separado<span class="service-freq low">bajo presupuesto</span></li>
+            {% endif %}
+          </ul>
+        </div>
+      </div>
+    </td></tr>
 
-    <div style="margin-top:160px;" class="conditions-box">
-        <div class="conditions-box-title">Condiciones de la propuesta</div>
-        <div class="conditions-item">Precios expresados en pesos mexicanos (MXP). IVA no incluido salvo donde se indique.</div>
-        <div class="conditions-item">El incremento anual del 3% aplica sobre el precio sin IVA a partir del segundo año.</div>
-        <div class="conditions-item">Cualquier servicio no contemplado en la poliza se presupuesta de forma independiente.</div>
-        <div class="conditions-item">La reposicion de componentes danados no esta incluida en la poliza.</div>
-        <div class="conditions-item">Vigencia de esta propuesta: {{ vigencia_cotizacion_dias }} dias naturales a partir de la fecha de emision.</div>
-        <div class="conditions-item">Condiciones de pago: a convenir.</div>
-    </div>
+    <!-- 03 — Gestión energética -->
+    <tr class="service-row"><td>
+      <div class="service-card-v2">
+        <div class="ico-col"><div class="service-ico">03</div></div>
+        <div class="body-col">
+          <div class="service-kicker">Operación · Monitoreo continuo</div>
+          <div class="service-title-v2">Gestión energética</div>
+          <ul class="service-list">
+            <li class="service-list-item">Acceso a plataforma Wattabit ({{ nombre_wattabit }})<span class="service-freq">24/7</span></li>
+            <li class="service-list-item">Monitorización remota de la instalación</li>
+            <li class="service-list-item">Detección automática de incidencias</li>
+            <li class="service-list-item">Servicio de conexión a internet para el sistema de monitoreo</li>
+          </ul>
+        </div>
+      </div>
+    </td></tr>
+
+    <!-- 04 — Reportes y garantías -->
+    <tr class="service-row"><td>
+      <div class="service-card-v2">
+        <div class="ico-col"><div class="service-ico">04</div></div>
+        <div class="body-col">
+          <div class="service-kicker">Documentación · Trazabilidad</div>
+          <div class="service-title-v2">Reportes y garantías</div>
+          <ul class="service-list">
+            <li class="service-list-item">Reportes de generación mensual<span class="service-freq">1×/mes</span></li>
+            {% if tipo_poliza == 'premium' %}
+            <li class="service-list-item">Reporte de mantenimiento preventivo</li>
+            <li class="service-list-item">Reporte de mantenimiento correctivo</li>
+            {% endif %}
+            {% if garantia_produccion %}
+            <li class="service-list-item">Garantía de producción</li>
+            {% endif %}
+            <li class="service-list-item">Gestión de garantías de equipo con fabricantes</li>
+          </ul>
+        </div>
+      </div>
+    </td></tr>
+  </table>
+
+  <!-- ======================== CONDICIONES ======================== -->
+  <div class="conditions-box avoid-break">
+    <div class="conditions-box-title">Condiciones de la propuesta</div>
+    <div class="conditions-item">Precios expresados en pesos mexicanos (MXP). IVA no incluido salvo donde se indique.</div>
+    <div class="conditions-item">El incremento anual del 3% aplica sobre el precio sin IVA a partir del segundo año.</div>
+    <div class="conditions-item">Cualquier servicio no contemplado en la póliza se presupuesta de forma independiente.</div>
+    <div class="conditions-item">La reposición de componentes dañados no está incluida en la póliza.</div>
+    <div class="conditions-item">Vigencia de esta propuesta: {{ vigencia_cotizacion_dias }} días naturales a partir de la fecha de emisión.</div>
+    <div class="conditions-item">Condiciones de pago: a convenir.</div>
+  </div>
 
 </body>
 </html>
