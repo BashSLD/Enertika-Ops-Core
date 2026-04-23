@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional, Any, Tuple
 import asyncpg
 import asyncio
+import json
 import re
 import time
 import logging
@@ -80,7 +81,10 @@ class ConfigService:
             try:
                 cached = await redis.get(f"{cls._REDIS_PREFIX}{key}")
                 if cached is not None:
-                    return cached
+                    try:
+                        return json.loads(cached)
+                    except (json.JSONDecodeError, TypeError):
+                        return cached
                 return None
             except Exception as e:
                 logger.debug("Redis get error, fallback a dict: %s", e)
@@ -103,7 +107,7 @@ class ConfigService:
         redis = cls._get_redis()
         if redis:
             try:
-                await redis.set(f"{cls._REDIS_PREFIX}{key}", str(value), ex=cls._REDIS_TTL_SECONDS)
+                await redis.set(f"{cls._REDIS_PREFIX}{key}", json.dumps(value, default=str), ex=cls._REDIS_TTL_SECONDS)
                 return
             except Exception as e:
                 logger.debug("Redis set error, fallback a dict: %s", e)
