@@ -74,4 +74,10 @@ class Settings(BaseSettings):
     PDF_IMAGE_QUALITY: int = int(os.getenv("PDF_IMAGE_QUALITY", "85"))
     PDF_MAX_UPLOAD_SIZE_MB: int = int(os.getenv("PDF_MAX_UPLOAD_SIZE_MB", "50"))
 
+    # --- QuickChart (chart rendering server-side) ---
+    QUICKCHART_URL: str = os.getenv("QUICKCHART_URL", "http://localhost:3400")
+
+    # --- Redis (caché compartida entre workers Gunicorn) ---
+    REDIS_URL: str = os.getenv("REDIS_URL", "")
+
 settings = Settings()

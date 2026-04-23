@@ -1,5 +1,6 @@
 # Archivo: main.py
 
+import asyncio
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -140,27 +141,9 @@ from core.projects import router as projects_router
 app.include_router(projects_router)
 
 # --- Background Tasks ---
-import asyncio
-from core.tasks import (
-    cleanup_temp_uploads_periodically,
-    check_levantamientos_sin_asignar_periodically,
-    refresh_tipo_cambio_periodically,
-    check_recordatorios_levantamientos_periodically,
-    check_recordatorios_oportunidad_ganada_periodically,
-    send_reporte_desarrollo_ceo_periodically,
-)
-
-async def start_background_tasks():
-    """Lanza tareas en segundo plano al inicio."""
-    asyncio.create_task(cleanup_temp_uploads_periodically())
-    asyncio.create_task(check_levantamientos_sin_asignar_periodically())
-    asyncio.create_task(refresh_tipo_cambio_periodically())
-    asyncio.create_task(check_recordatorios_levantamientos_periodically())
-    asyncio.create_task(check_recordatorios_oportunidad_ganada_periodically())
-    asyncio.create_task(send_reporte_desarrollo_ceo_periodically())
-
-# Actualizamos el on_startup
-app.router.on_startup.append(start_background_tasks)
+# Las tareas periódicas (CEO report, tipo cambio, recordatorios, limpieza, etc.)
+# corren en el Worker service independiente de Railway (worker.py).
+# Aquí solo iniciamos el monitor de SSE que necesita el proceso web.
 
 from core.security import get_current_user_context
 from fastapi import Depends
