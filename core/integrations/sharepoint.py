@@ -302,6 +302,77 @@ class SharePointService:
                 return resp.json().get("webUrl", "")
             return ""
 
+    async def list_folder_children(
+        self,
+        drive_id: str,
+        site_id: str,
+        folder_id: str | None = None,
+    ) -> list[dict]:
+        """
+        Lista las subcarpetas directas de una carpeta en SharePoint.
+        Si folder_id es None lista la raíz del drive.
+        Retorna lista de {id, name}.
+        """
+        if drive_id:
+            base = f"{self.BASE_URL}/drives/{drive_id}"
+        elif site_id:
+            base = f"{self.BASE_URL}/sites/{site_id}/drive"
+        else:
+            raise ValueError("drive_id o site_id requerido para listar carpetas")
+
+        if folder_id:
+            url = f"{base}/items/{folder_id}/children"
+        else:
+            url = f"{base}/root/children"
+
+        url += "?$select=id,name,folder&$filter=folder ne null&$orderby=name asc&$top=200"
+
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code != 200:
+                logger.error("Error listando carpetas SP: %s %s", resp.status_code, resp.text[:200])
+                resp.raise_for_status()
+            data = resp.json()
+            return [
+                {"id": item["id"], "name": item["name"]}
+                for item in data.get("value", [])
+                if "folder" in item
+            ]
+
+    async def upload_bytes_to_folder_id(
+        self,
+        content: bytes,
+        filename: str,
+        folder_id: str,
+        drive_id: str,
+        site_id: str,
+    ) -> dict:
+        """
+        Sube bytes a una carpeta identificada por su folder_id (no por ruta).
+        Usa conflictBehavior=rename para evitar colisiones.
+        """
+        safe_filename = self._sanitize_filename(filename)
+        encoded = urllib.parse.quote(safe_filename)
+
+        if drive_id:
+            url = f"{self.BASE_URL}/drives/{drive_id}/items/{folder_id}:/{encoded}:/content"
+        elif site_id:
+            url = f"{self.BASE_URL}/sites/{site_id}/drive/items/{folder_id}:/{encoded}:/content"
+        else:
+            raise ValueError("drive_id o site_id requerido")
+
+        headers = {
+            "Authorization": f"Bearer {self.access_token}",
+            "Content-Type": "application/octet-stream",
+        }
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.put(url, headers=headers, content=content)
+            if resp.status_code not in (200, 201):
+                raise Exception(f"Error subiendo {safe_filename}: HTTP {resp.status_code} - {resp.text[:200]}")
+            data = resp.json()
+            return {"id": data.get("id"), "webUrl": data.get("webUrl"), "name": data.get("name")}
+
     async def download_file_by_item_id(self, conn, drive_item_id: str) -> bytes:
         """Descarga el contenido de un archivo por su drive_item_id vía Graph API."""
         config = await self._resolve_config(conn)

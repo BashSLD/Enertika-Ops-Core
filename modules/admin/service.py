@@ -163,6 +163,8 @@ class AdminService:
             "sharepoint_drive_id": config_dict.get("SHAREPOINT_DRIVE_ID", ""),
             "sharepoint_base_folder": config_dict.get("SHAREPOINT_BASE_FOLDER", ""),
             "max_upload_size_mb": int(config_dict.get("MAX_UPLOAD_SIZE_MB", "500")),
+            "sp_visitas_site_id": config_dict.get("SP_VISITAS_SITE_ID", ""),
+            "sp_visitas_drive_id": config_dict.get("SP_VISITAS_DRIVE_ID", ""),
             # Simulation KPIS
             "sim_peso_compromiso": config_dict.get("sim_peso_compromiso", None),
             "sim_peso_interno": config_dict.get("sim_peso_interno", None),
@@ -204,6 +206,8 @@ class AdminService:
             ("SHAREPOINT_DRIVE_ID", datos.sharepoint_drive_id or ""),
             ("SHAREPOINT_BASE_FOLDER", datos.sharepoint_base_folder or ""),
             ("MAX_UPLOAD_SIZE_MB", str(datos.max_upload_size_mb)),
+            ("SP_VISITAS_SITE_ID", datos.sp_visitas_site_id or ""),
+            ("SP_VISITAS_DRIVE_ID", datos.sp_visitas_drive_id or ""),
             # Simulation KPI Config
             ("sim_peso_compromiso", str(datos.sim_peso_compromiso)),
             ("sim_peso_interno", str(datos.sim_peso_interno)),

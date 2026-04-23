@@ -107,6 +107,10 @@ app.include_router(bom_router)
 from core.pdf_service.router import router as pdf_router
 app.include_router(pdf_router)
 
+# Integraciones externas (SharePoint folder browser, etc.)
+from core.integrations.router import router as integraciones_router
+app.include_router(integraciones_router)
+
 # Tipo de Cambio USD/MXN (Banxico)
 from core.tipo_cambio.router import router as tipo_cambio_router
 app.include_router(tipo_cambio_router)

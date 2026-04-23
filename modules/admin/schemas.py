@@ -21,6 +21,8 @@ class ConfiguracionGlobalUpdate(AdminBaseSchema):
     sharepoint_drive_id: Optional[str] = Field(None, description="ID del Drive (Librería)")
     sharepoint_base_folder: Optional[str] = Field(None, description="Carpeta Raíz (Opcional)")
     max_upload_size_mb: int = Field(500, ge=10, le=5000, description="Límite en MB (10MB - 5GB)")
+    sp_visitas_site_id: Optional[str] = Field(None, description="Site ID SharePoint para Visitas a Obra")
+    sp_visitas_drive_id: Optional[str] = Field(None, description="Drive ID SharePoint para Visitas a Obra")
 
     # 3. Configuración KPIs Simulación (Scores)
     # Porcentajes (Weights) 0.0 - 1.0 (o escalado según lógica)

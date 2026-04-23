@@ -221,6 +221,8 @@ async def update_global_config_endpoint(
     sharepoint_drive_id: str = Form(""),
     sharepoint_base_folder: str = Form(""),
     max_upload_size_mb: int = Form(500),
+    sp_visitas_site_id: str = Form(""),
+    sp_visitas_drive_id: str = Form(""),
     # Simulation KPI Config (Defaults match constants.py)
     sim_peso_compromiso: float = Form(0.50),
     sim_peso_interno: float = Form(0.35),
@@ -278,6 +280,8 @@ async def update_global_config_endpoint(
             sharepoint_drive_id=sharepoint_drive_id,
             sharepoint_base_folder=sharepoint_base_folder,
             max_upload_size_mb=max_upload_size_mb,
+            sp_visitas_site_id=sp_visitas_site_id,
+            sp_visitas_drive_id=sp_visitas_drive_id,
             # Simulation KPIS
             sim_peso_compromiso=sim_peso_compromiso,
             sim_peso_interno=sim_peso_interno,

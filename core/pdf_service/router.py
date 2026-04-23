@@ -9,6 +9,7 @@ from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse, Response
+from fastapi.templating import Jinja2Templates
 
 from core.security import get_current_user_context
 from .image_processor import ImageProcessor
@@ -18,6 +19,7 @@ from .service import PDFService, get_pdf_service
 logger = logging.getLogger("PDFRouter")
 
 router = APIRouter(prefix="/pdf", tags=["Reportes PDF"])
+templates = Jinja2Templates(directory="templates")
 
 
 async def _subir_fotos_sharepoint(
@@ -239,11 +241,79 @@ async def _enviar_email_visita_obra(
         logger.error("[VISITA_EMAIL] Error inesperado al enviar correo: %s", exc, exc_info=True)
 
 
+@router.get("/visita-obra/modal", include_in_schema=False)
+async def get_visita_obra_modal(
+    request: Request,
+    context=Depends(get_current_user_context),
+):
+    """Modal compartido de Visita a Obra — accesible desde proyectos y construccion."""
+    return templates.TemplateResponse(
+        request, "shared/modals/visita_obra_modal.html",
+        {"user_name": context.get("user_name")}
+    )
+
+
+async def _guardar_pdf_sharepoint(
+    pdf_bytes: bytes,
+    filename: str,
+    sp_folder_id: str,
+    visita: VisitaObraData,
+) -> None:
+    """
+    Sube el PDF generado al folder elegido en el SharePoint de Visitas a Obra.
+    Se ejecuta como background task.
+    """
+    from core.database import get_db_pool
+    from core.microsoft import MicrosoftAuth
+    from core.integrations.sharepoint import SharePointService
+
+    try:
+        pool = await get_db_pool()
+    except Exception:
+        logger.warning("[VISITA_SP_PDF] Pool de BD no disponible, subida omitida")
+        return
+
+    try:
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT clave, valor FROM tb_configuracion_global WHERE clave IN ('SP_VISITAS_SITE_ID', 'SP_VISITAS_DRIVE_ID')"
+            )
+        config = {r["clave"]: (r["valor"] or "").strip() for r in rows}
+        site_id = config.get("SP_VISITAS_SITE_ID", "")
+        drive_id = config.get("SP_VISITAS_DRIVE_ID", "")
+
+        if not site_id and not drive_id:
+            logger.warning("[VISITA_SP_PDF] SP_VISITAS no configurado, subida omitida")
+            return
+
+        ms_auth = MicrosoftAuth()
+        app_token = await ms_auth.get_application_token()
+        if not app_token:
+            logger.error("[VISITA_SP_PDF] No se pudo obtener token de aplicacion")
+            return
+
+        sp = SharePointService(access_token=app_token)
+        result = await sp.upload_bytes_to_folder_id(
+            content=pdf_bytes,
+            filename=filename,
+            folder_id=sp_folder_id,
+            drive_id=drive_id,
+            site_id=site_id,
+        )
+        logger.info(
+            "[VISITA_SP_PDF] PDF subido a SharePoint - proyecto=%s url=%s",
+            visita.id_proyecto, result.get("webUrl", "(sin url)"),
+        )
+    except Exception as exc:
+        logger.error("[VISITA_SP_PDF] Error subiendo PDF a SharePoint: %s", exc, exc_info=True)
+
+
 @router.post("/visita-obra/generar")
 async def generar_visita_obra(
     request: Request,
     background_tasks: BackgroundTasks,
     data: str = Form(...),
+    sp_folder_id: str = Form(default=""),
     images: List[UploadFile] = File(default=[]),
     context=Depends(get_current_user_context),
     service: PDFService = Depends(get_pdf_service),
@@ -325,8 +395,24 @@ async def generar_visita_obra(
             visita.id_proyecto,
         )
 
+    # Guardar en SharePoint de Visitas si el usuario eligió carpeta destino
+    if sp_folder_id.strip():
+        background_tasks.add_task(
+            _guardar_pdf_sharepoint,
+            pdf_bytes,
+            filename,
+            sp_folder_id.strip(),
+            visita,
+        )
+
+    # Si el usuario eligió carpeta SP, el frontend descarta el blob (no descarga local)
+    # Enviamos igual los bytes para que el cliente pueda confirmar éxito del request
+    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    if sp_folder_id.strip():
+        headers["X-SP-Guardado"] = "1"
+
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers=headers,
     )

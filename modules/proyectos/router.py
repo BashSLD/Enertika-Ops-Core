@@ -84,7 +84,7 @@ async def get_visita_obra_modal(
     context=Depends(get_current_user_context),
     _=require_module_access("proyectos"),
 ):
-    return templates.TemplateResponse(request, "proyectos/partials/visita_obra_modal.html", {"user_name": context.get("user_name"),
+    return templates.TemplateResponse(request, "shared/modals/visita_obra_modal.html", {"user_name": context.get("user_name"),
     })
 
 
