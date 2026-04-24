@@ -522,13 +522,14 @@
             <!-- 7. Fecha Ideal Usuario (Nuevo Requerimiento) -->
             <div x-data="{
                 init() {
+                    const toLocalISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
                     const date = new Date();
                     date.setDate(date.getDate() + 7);
-                    this.val = date.toISOString().split('T')[0];
+                    this.val = toLocalISO(date);
                 },
                 get minDate() {
-                    const now = new Date();
-                    return now.toISOString().split('T')[0];
+                    const toLocalISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                    return toLocalISO(new Date());
                 },
                 val: ''
             }">
