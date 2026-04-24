@@ -21,6 +21,7 @@ from dataclasses import asdict
 from core.database import get_db_connection
 from core.security import get_current_user_context
 from core.permissions import require_module_access
+from core.timezone import today_mx
 
 from .report_service import (
     ReportesSimulacionService,
@@ -56,12 +57,12 @@ def parse_filtros(
 ) -> FiltrosReporte:
     """
     Parsea y valida los parámetros de filtro del request.
-    
+
     Defaults:
     - fecha_inicio: Primer día del mes actual
     - fecha_fin: Hoy
     """
-    today = date.today()
+    today = today_mx()
     
     # Fechas con defaults
     if start_date:
