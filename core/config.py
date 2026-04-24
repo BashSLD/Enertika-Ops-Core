@@ -44,7 +44,12 @@ class Settings(BaseSettings):
     
     SHAREPOINT_SITE_ID: str = os.getenv("SHAREPOINT_SITE_ID", "")
     SHAREPOINT_DRIVE_ID: str = os.getenv("SHAREPOINT_DRIVE_ID", "")
-    
+
+    # --- SAT Inbox (site SharePoint privado para XMLs SAT) ---
+    SP_SAT_SITE_ID: str = os.getenv("SP_SAT_SITE_ID", "")
+    SP_SAT_DRIVE_ID: str = os.getenv("SP_SAT_DRIVE_ID", "")
+    SP_SAT_BASE_FOLDER: str = os.getenv("SP_SAT_BASE_FOLDER", "SAT-Inbox")
+
     # --- URL Base de la Aplicación (para emails y links externos) ---
     APP_BASE_URL: str = os.getenv("APP_BASE_URL", "http://localhost:8001")
 
