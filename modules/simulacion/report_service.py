@@ -3,26 +3,25 @@
 Service Layer para Reportes de Simulación.
 
 Responsabilidades:
-- Queries SQL optimizados para métricas
+- Lógica de negocio y orquestación de datos para reportes
 - Cálculos de KPIs y agregaciones
-- Lógica de semáforos y clasificaciones
 - Preparación de datos para gráficas
 
 NO contiene:
-- Lógica HTTP (eso va en router.py)
-- Renderizado de templates
-- Manejo de requests/responses
+- Definición de dataclasses (ver report_models.py)
+- Queries SQL (ver db_service.py)
+- Lógica HTTP (ver report_router.py)
 """
 
-from datetime import datetime, date, timedelta
+from datetime import datetime, date
 from typing import List, Dict, Optional, Any, Tuple
 from uuid import UUID
 from zoneinfo import ZoneInfo
-from dataclasses import dataclass, field, asdict, replace as dc_replace
-from enum import Enum
+from dataclasses import asdict, replace as dc_replace
 import logging
-from dateutil.relativedelta import relativedelta
 import asyncio
+
+from dateutil.relativedelta import relativedelta
 
 from .constants import (
     UMBRAL_MIN_ENTREGAS,
@@ -33,610 +32,32 @@ from .constants import (
     MULTIPLICADOR_LICITACIONES,
     MULTIPLICADOR_ACTUALIZACIONES,
     PENALIZACION_RETRABAJOS,
-    VOLUMEN_MAX_NORMALIZACION
+    VOLUMEN_MAX_NORMALIZACION,
 )
-
+from .report_models import (
+    _MESES_ES,
+    UMBRAL_VERDE,
+    UMBRAL_AMBAR,
+    KPIMetricsMixin,
+    ConfiguracionScore,
+    MetricasGenerales,
+    MetricaTecnologia,
+    FilaContabilizacion,
+    ResumenUsuario,
+    DetalleUsuario,
+    MetricaUsuario,
+    ScoreUsuario,
+    FilaMensual,
+    DatosGrafica,
+    FiltrosReporte,
+    ResumenEjecutivo,
+    categorizar_usuario,
+    calcular_score_usuario,
+)
 from .db_service import SimulacionDBService
 from core.config_service import ConfigService, UmbralesKPI
 
 logger = logging.getLogger("ReportesSimulacion")
-
-_MESES_ES = ['', 'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
-             'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre']
-
-
-# =============================================================================
-# CONSTANTES
-# =============================================================================
-
-# Umbrales para semáforo
-# Umbrales por defecto (fallback)
-UMBRAL_VERDE = 90.0
-UMBRAL_AMBAR = 85.0
-# < 85% = Rojo
-
-
-# =============================================================================
-# DATACLASSES PARA RESPUESTAS TIPADAS
-# =============================================================================
-
-@dataclass
-class KPIMetricsMixin:
-    """
-    Mixin to centralize KPI percentage and semaphore logic.
-    Expected attributes in consuming classes:
-    - entregas_a_tiempo_interno: int
-    - entregas_tarde_interno: int
-    - entregas_a_tiempo_compromiso: int
-    - entregas_tarde_compromiso: int
-    - umbrales_interno: Optional[UmbralesKPI]
-    - umbrales_compromiso: Optional[UmbralesKPI]
-    """
-
-    @property
-    def porcentaje_a_tiempo_interno(self) -> float:
-        """% entregas a tiempo según KPI Interno."""
-        # Check for optional override (e.g., FilaContabilizacion)
-        if hasattr(self, 'es_levantamiento') and self.es_levantamiento:
-            return 0.0
-            
-        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_a_tiempo_interno / total_con_kpi) * 100, 1)
-    
-    @property
-    def porcentaje_tarde_interno(self) -> float:
-        """% entregas tarde según KPI Interno."""
-        if hasattr(self, 'es_levantamiento') and self.es_levantamiento:
-            return 0.0
-
-        total_con_kpi = self.entregas_a_tiempo_interno + self.entregas_tarde_interno
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_tarde_interno / total_con_kpi) * 100, 1)
-    
-    @property
-    def porcentaje_a_tiempo_compromiso(self) -> float:
-        """% entregas a tiempo según KPI Compromiso."""
-        if hasattr(self, 'es_levantamiento') and self.es_levantamiento:
-            return 0.0
-
-        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_a_tiempo_compromiso / total_con_kpi) * 100, 1)
-    
-    @property
-    def porcentaje_tarde_compromiso(self) -> float:
-        """% entregas tarde según KPI Compromiso."""
-        if hasattr(self, 'es_levantamiento') and self.es_levantamiento:
-            return 0.0
-
-        total_con_kpi = self.entregas_a_tiempo_compromiso + self.entregas_tarde_compromiso
-        if total_con_kpi == 0:
-            return 0.0
-        return round((self.entregas_tarde_compromiso / total_con_kpi) * 100, 1)
-
-    @property
-    def semaforo_interno(self) -> str:
-        if hasattr(self, 'es_levantamiento') and self.es_levantamiento:
-            return "gray"
-            
-        pct = self.porcentaje_a_tiempo_interno
-        if self.umbrales_interno:
-            return self.umbrales_interno.get_color(pct)
-        # Fallback
-        if pct >= UMBRAL_VERDE:
-            return "green"
-        elif pct >= UMBRAL_AMBAR:
-            return "amber"
-        return "red"
-
-    @property
-    def semaforo_compromiso(self) -> str:
-        if hasattr(self, 'es_levantamiento') and self.es_levantamiento:
-            return "gray"
-
-        pct = self.porcentaje_a_tiempo_compromiso
-        if self.umbrales_compromiso:
-            return self.umbrales_compromiso.get_color(pct)
-        # Fallback
-        if pct >= UMBRAL_VERDE:
-            return "green"
-        elif pct >= UMBRAL_AMBAR:
-            return "amber"
-        return "red"
-
-@dataclass
-class ConfiguracionScore:
-    """Configuración dinámica para cálculo de scores"""
-    umbral_min_entregas: int = UMBRAL_MIN_ENTREGAS
-    umbral_ratio_licitaciones: float = UMBRAL_RATIO_LICITACIONES
-    umbral_verde: float = UMBRAL_VERDE
-    umbral_ambar: float = UMBRAL_AMBAR
-    peso_compromiso: float = PESO_CUMPLIMIENTO_COMPROMISO
-    peso_interno: float = PESO_CUMPLIMIENTO_INTERNO
-    peso_volumen: float = PESO_VOLUMEN
-    mult_licitaciones: float = MULTIPLICADOR_LICITACIONES
-    mult_actualizaciones: float = MULTIPLICADOR_ACTUALIZACIONES
-    penalizacion_retrabajos: float = PENALIZACION_RETRABAJOS
-    volumen_max: int = VOLUMEN_MAX_NORMALIZACION
-
-
-@dataclass
-class MetricasGenerales(KPIMetricsMixin):
-    """Métricas principales del dashboard con KPIs duales."""
-    # Configuración dinámica
-    umbrales_interno: Optional[UmbralesKPI] = None
-    umbrales_compromiso: Optional[UmbralesKPI] = None
-
-    total_solicitudes: int = 0
-    total_ofertas: int = 0
-    en_espera: int = 0
-    canceladas: int = 0
-    no_viables: int = 0
-    extraordinarias: int = 0
-    
-    # SEPARACIÓN: Versiones vs Retrabajos
-    versiones: int = 0          # parent_id IS NOT NULL
-    retrabajos: int = 0         # es_retrabajo=true en sitios
-
-    licitaciones: int = 0
-
-    # Conteo de sitios (visibilidad multisitio)
-    total_sitios: int = 0
-    total_sitios_entregados: int = 0
-    oportunidades_multisitio: int = 0
-    
-    # KPI INTERNO (SLA del Sistema)
-    entregas_a_tiempo_interno: int = 0
-    entregas_tarde_interno: int = 0
-    
-    # KPI COMPROMISO (SLA del Cliente)
-    entregas_a_tiempo_compromiso: int = 0
-    entregas_tarde_compromiso: int = 0
-    
-    sin_fecha_entrega: int = 0
-    tiempo_promedio_horas: Optional[float] = None
-    ganadas: int = 0
-    sim_adicionales_count: int = 0
-
-    @property
-    def tiempo_promedio_dias(self) -> Optional[float]:
-        """Convierte horas a días para display."""
-        if self.tiempo_promedio_horas is None:
-            return None
-        return round(self.tiempo_promedio_horas / 24, 1)
-    
-    @property
-    def porcentaje_licitaciones(self) -> float:
-        """% de solicitudes que son licitaciones."""
-        if self.total_solicitudes == 0:
-            return 0.0
-        return round((self.licitaciones / self.total_solicitudes) * 100, 1)
-
-    @property
-    def promedio_sitios_por_oportunidad(self) -> float:
-        """Promedio de sitios individuales por solicitud."""
-        if self.total_solicitudes == 0:
-            return 0.0
-        return round(self.total_sitios / self.total_solicitudes, 1)
-
-
-@dataclass
-class MetricaTecnologia(KPIMetricsMixin):
-    """Métricas para una tecnología específica con KPIs duales."""
-    id_tecnologia: int
-    nombre: str
-    
-    # Configuración dinámica
-    umbrales_interno: Optional[UmbralesKPI] = None
-    umbrales_compromiso: Optional[UmbralesKPI] = None
-
-    total_solicitudes: int = 0
-    total_ofertas: int = 0
-    
-    # KPI Interno
-    entregas_a_tiempo_interno: int = 0
-    entregas_tarde_interno: int = 0
-    
-    # KPI Compromiso
-    entregas_a_tiempo_compromiso: int = 0
-    entregas_tarde_compromiso: int = 0
-    
-    extraordinarias: int = 0
-    versiones: int = 0
-    retrabajados: int = 0
-    licitaciones: int = 0
-    tiempo_promedio_horas: Optional[float] = None
-    potencia_total_kwp: float = 0.0
-    capacidad_total_kwh: float = 0.0
-    total_sitios: int = 0
-
-    @property
-    def porcentaje_licitaciones(self) -> float:
-        """% de solicitudes que son licitaciones."""
-        if self.total_solicitudes == 0:
-            return 0.0
-        return round((self.licitaciones / self.total_solicitudes) * 100, 1)
-
-
-
-@dataclass
-class FilaContabilizacion(KPIMetricsMixin):
-    """Fila de la tabla de contabilización con KPIs duales."""
-    id_tipo_solicitud: int
-    nombre: str
-    codigo_interno: str
-
-    # Configuración dinámica
-    umbrales_interno: Optional[UmbralesKPI] = None
-    umbrales_compromiso: Optional[UmbralesKPI] = None
-
-    total: int = 0
-    
-    # KPI Interno (Renamed to match Mixin)
-    entregas_a_tiempo_interno: int = 0
-    entregas_tarde_interno: int = 0
-    
-    # KPI Compromiso (Renamed to match Mixin)
-    entregas_a_tiempo_compromiso: int = 0
-    entregas_tarde_compromiso: int = 0
-    
-    # Alias para templates duales que usan en_plazo_*/fuera_plazo_*
-    @property
-    def en_plazo_interno(self) -> int:
-        return self.entregas_a_tiempo_interno
-
-    @property
-    def fuera_plazo_interno(self) -> int:
-        return self.entregas_tarde_interno
-
-    @property
-    def en_plazo_compromiso(self) -> int:
-        return self.entregas_a_tiempo_compromiso
-
-    @property
-    def fuera_plazo_compromiso(self) -> int:
-        return self.entregas_tarde_compromiso
-    
-    sin_fecha: int = 0
-    es_levantamiento: bool = False
-    licitaciones: int = 0  # ← Solicitudes que son licitaciones
-    
-    # Properties KPI Interno (Managed by Mixin)
-    
-    @property
-    def semaforo_interno_label(self) -> str:
-        if self.es_levantamiento:
-            return "No aplica"
-        pct = self.porcentaje_a_tiempo_interno
-        if self.umbrales_interno:
-            return self.umbrales_interno.get_label(pct)
-        return f"{pct}%"
-    
-    # Properties KPI Compromiso (Managed by Mixin)
-        
-    @property
-    def semaforo_compromiso_label(self) -> str:
-        if self.es_levantamiento:
-            return "No aplica"
-        pct = self.porcentaje_a_tiempo_compromiso
-        if self.umbrales_compromiso:
-            return self.umbrales_compromiso.get_label(pct)
-        return f"{pct}%"
-        
-    @property
-    def porcentaje_licitaciones(self) -> float:
-        """% de solicitudes que son licitaciones."""
-        if self.total == 0:
-            return 0.0
-        return round((self.licitaciones / self.total) * 100, 1)
-
-
-@dataclass
-class ResumenUsuario:
-    """Datos estructurados para resumen de usuario"""
-    nombre: str
-    total_ofertas: int
-    tecnologia_principal: Optional[Dict[str, Any]]  # {"nombre": "FV", "solicitudes": 30}
-    porcentaje_interno: float
-    porcentaje_compromiso: float
-    tiempo_promedio_por_tipo: List[Dict[str, Any]]  # [{"tipo": "COTIZACIÓN", "dias": 3.5}, ...]
-    licitaciones: int
-    porcentaje_licitaciones: float
-    extraordinarias: int
-    versiones: int
-    
-    # Campos adicionales
-    tiempo_promedio_global_dias: float = None
-    total_retrabajos: int = 0
-    porcentaje_retrabajos: float = 0.0
-    motivo_retrabajo_principal: str = None
-
-    # Conteo de sitios
-    total_sitios: int = 0
-    total_sitios_entregados: int = 0
-    oportunidades_multisitio: int = 0
-    promedio_sitios_por_oportunidad: float = 0.0
-
-
-@dataclass
-class DetalleUsuario:
-    """Métricas detalladas por usuario responsable."""
-    usuario_id: UUID
-    nombre: str
-    metricas_generales: MetricasGenerales = field(default_factory=MetricasGenerales)
-    metricas_por_tecnologia: List[MetricaTecnologia] = field(default_factory=list)
-    tabla_contabilizacion: List[FilaContabilizacion] = field(default_factory=list)
-    tiempo_promedio_por_tipo: Dict[str, float] = field(default_factory=dict)  # tipo_solicitud -> días promedio
-    resumen_texto: str = ""  # Legacy: Texto descriptivo (HTML string) - MANTENER por compatibilidad si es necesario
-    resumen_datos: Optional[ResumenUsuario] = None  # Nuevo objeto estructurado
-
-
-@dataclass
-class MetricaUsuario(KPIMetricsMixin):
-    """Métricas individuales mejoradas para reporte de usuario."""
-    usuario_id: UUID
-    nombre: str
-    total_solicitudes: int = 0
-    total_ofertas: int = 0
-    entregas_a_tiempo_compromiso: int = 0
-    entregas_tarde_compromiso: int = 0
-    entregas_a_tiempo_interno: int = 0
-    entregas_tarde_interno: int = 0
-    licitaciones: int = 0
-    versiones: int = 0
-    retrabajados: int = 0
-    resumen_texto: str = ""
-    tiempo_promedio_por_tipo: Dict[str, float] = field(default_factory=dict)
-    score: Optional['ScoreUsuario'] = None
-
-    # Conteo de sitios
-    total_sitios: int = 0
-    total_sitios_entregados: int = 0
-    oportunidades_multisitio: int = 0
-
-    # Requeridos por KPIMetricsMixin para semáforos
-    umbrales_interno: Optional[UmbralesKPI] = None
-    umbrales_compromiso: Optional[UmbralesKPI] = None
-
-    @property
-    def promedio_sitios_por_oportunidad(self) -> float:
-        """Promedio de sitios individuales por solicitud."""
-        if self.total_solicitudes == 0:
-            return 0.0
-        return round(self.total_sitios / self.total_solicitudes, 1)
-
-    @property
-    def porcentaje_licitaciones(self) -> float:
-        """% de solicitudes que son licitaciones."""
-        if self.total_solicitudes == 0:
-            return 0.0
-        return round((self.licitaciones / self.total_solicitudes) * 100, 1)
-
-
-@dataclass
-class ScoreUsuario:
-    """Score ponderado de desempeño del usuario"""
-    
-    # Componentes del score base
-    cumplimiento_compromiso: float  # 0.0 - 1.0
-    cumplimiento_interno: float     # 0.0 - 1.0
-    factor_volumen: float           # 0.0 - 1.0
-    
-    # Componentes del multiplicador
-    ratio_licitaciones: float       # 0.0 - 1.0
-    ratio_actualizaciones: float    # 0.0 - 1.0
-    ratio_retrabajos: float         # 0.0 - 1.0
-    
-    # Resultados
-    score_base: float = 0.0         # 0.0 - 1.0
-    multiplicador: float = 1.0      # 0.8 - 1.3 típico
-    score_final: float = 0.0        # 0.0 - 1.0
-    
-    # Metadata
-    entregas_total: int = 0
-    licitaciones_total: int = 0
-    actualizaciones_total: int = 0
-    retrabajos_total: int = 0
-    categoria: str = "evaluacion"
-    motivo_retrabajo_principal: str = None
-    config: Optional['ConfiguracionScore'] = field(default=None, repr=False)
-    
-    def calcular(self):
-        """Calcula score base, multiplicador y score final con config dinámica"""
-        
-        cfg = self.config or ConfiguracionScore()
-
-        # Score Base
-        self.score_base = (
-            self.cumplimiento_compromiso * cfg.peso_compromiso +
-            self.cumplimiento_interno * cfg.peso_interno +
-            self.factor_volumen * cfg.peso_volumen
-        )
-        
-        # Multiplicador de Complejidad
-        bonus_licitaciones = self.ratio_licitaciones * cfg.mult_licitaciones
-        bonus_actualizaciones = self.ratio_actualizaciones * cfg.mult_actualizaciones
-        penalizacion = self.ratio_retrabajos * cfg.penalizacion_retrabajos
-        
-        self.multiplicador = 1.0 + bonus_licitaciones + bonus_actualizaciones + penalizacion
-        
-        # Score Final (sin techo: el multiplicador puede llevar >1.0)
-        self.score_final = max(0.0, self.score_base * self.multiplicador)
-        
-        return self
-
-
-def categorizar_usuario(entregas: int, ratio_licitaciones: float, config: 'ConfiguracionScore' = None) -> str:
-    """
-    Categoriza al usuario según sus entregas y ratio de licitaciones.
-    """
-    cfg = config or ConfiguracionScore()
-    
-    if entregas < cfg.umbral_min_entregas:
-        return "evaluacion"
-    elif ratio_licitaciones >= cfg.umbral_ratio_licitaciones:
-        return "alta_complejidad"
-    else:
-        return "eficiencia"
-
-
-def calcular_score_usuario(usuario: MetricaUsuario, config: 'ConfiguracionScore' = None) -> ScoreUsuario:
-    """
-    Calcula el score ponderado de un usuario con configuración dinámica.
-    """
-    cfg = config or ConfiguracionScore()
-    
-    # Componente 1: Cumplimientos (ya están como % en usuario, normalizar a 0-1)
-    cumplimiento_compromiso = usuario.porcentaje_a_tiempo_compromiso / 100.0
-    cumplimiento_interno = usuario.porcentaje_a_tiempo_interno / 100.0
-    
-    # Componente 2: Factor volumen (normalizado 0-1)
-    # Usar config max volumen
-    factor_volumen = min(usuario.total_ofertas / cfg.volumen_max, 1.0)
-    
-    # Componente 3: Ratios de complejidad
-    ratio_licitaciones = usuario.licitaciones / usuario.total_solicitudes if usuario.total_solicitudes > 0 else 0.0
-    ratio_actualizaciones = usuario.versiones / usuario.total_solicitudes if usuario.total_solicitudes > 0 else 0.0
-    ratio_retrabajos = usuario.retrabajados / usuario.total_sitios if usuario.total_sitios > 0 else 0.0
-    
-    # Categorizar usuario
-    categoria = categorizar_usuario(usuario.total_ofertas, ratio_licitaciones, cfg)
-    
-    # Crear y calcular score
-    score = ScoreUsuario(
-        cumplimiento_compromiso=cumplimiento_compromiso,
-        cumplimiento_interno=cumplimiento_interno,
-        factor_volumen=factor_volumen,
-        ratio_licitaciones=ratio_licitaciones,
-        ratio_actualizaciones=ratio_actualizaciones,
-        ratio_retrabajos=ratio_retrabajos,
-        entregas_total=usuario.total_ofertas,
-        licitaciones_total=usuario.licitaciones,
-        actualizaciones_total=usuario.versiones,
-        retrabajos_total=usuario.retrabajados,
-        categoria=categoria,
-        config=cfg
-    ).calcular()
-    
-    return score
-
-
-@dataclass
-class FilaMensual:
-    """Fila del resumen mensual."""
-    metrica: str
-    valores: Dict[int, Any] = field(default_factory=dict)  # mes -> valor
-    total: Any = 0
-
-
-@dataclass
-class DatosGrafica:
-    """Datos estructurados para Chart.js."""
-    tipo: str  # 'pie', 'bar', 'line', 'doughnut'
-    labels: List[str] = field(default_factory=list)
-    datasets: List[Dict] = field(default_factory=list)
-    opciones: Dict = field(default_factory=dict)
-
-
-@dataclass 
-class FiltrosReporte:
-    """Filtros aplicables al reporte."""
-    fecha_inicio: date
-    fecha_fin: date
-    id_tecnologia: Optional[int] = None
-    id_tipo_solicitud: Optional[int] = None
-    id_estatus: Optional[int] = None
-    responsable_id: Optional[UUID] = None
-    incluir_levantamientos_en_kpi: bool = False  # Por defecto NO
-
-
-@dataclass
-class ResumenEjecutivo:
-    """Datos estructurados para el resumen ejecutivo"""
-    # Fechas
-    fecha_inicio_formatted: str
-    fecha_fin_formatted: str
-    
-    # Solicitudes
-    total_solicitudes: int
-    clasificadas: int  # Total - En Espera
-    en_espera: int
-    total_ofertas: int
-    
-    # Top tipos
-    top_tipos: List[Dict[str, Any]]  # [{"nombre": "COTIZACIÓN", "total": 150, "porcentaje": 39.0}, ...]
-    
-    # KPIs
-    porcentaje_cumplimiento_interno: float
-    entregas_a_tiempo_interno: int
-    total_entregas_interno: int
-    
-    porcentaje_cumplimiento_compromiso: float
-    entregas_a_tiempo_compromiso: int
-    total_entregas_compromiso: int
-    
-    # Mejor usuario
-    mejor_usuario: Optional[Dict[str, Any]]  # {"nombre": "Juan", "ofertas": 45, ...}
-    
-    # Métricas adicionales
-    licitaciones: int
-    porcentaje_licitaciones: float
-    extraordinarias: int
-    porcentaje_extraordinarias: float
-    versiones: int
-    porcentaje_versiones: float
-    
-    # Retrabajos
-    total_retrabajos: int = 0
-    porcentaje_retrabajos: float = 0.0
-    motivo_retrabajo_principal: str = None
-    conteo_motivo_principal: int = 0
-    
-    # Categorías de usuarios por desempeño
-    categorias_usuarios: Dict[str, List[MetricaUsuario]] = field(default_factory=dict)
-    mostrar_nota_alta_complejidad: bool = False
-    ratio_licitaciones_global: float = 0.0
-    umbral_licitaciones_pct: float = 10.0  # Default 10%
-
-    # === NUEVOS CAMPOS ===
-
-    # Gestión de demanda - desglose de diferencia
-    sin_fecha_sistema: int = 0
-    diferencia_explicacion: str = ""  # Ej: "14 canceladas, 3 no viables, 3 sin fecha"
-
-    # Análisis por tecnología (lista completa)
-    tecnologias_detalle: List[Dict[str, Any]] = field(default_factory=list)
-    # Estructura: [{"nombre": "FV", "solicitudes": 100, "pct_interno": 45.2, "pct_compromiso": 62.1}, ...]
-
-    mejor_tecnologia: Optional[Dict[str, Any]] = None  # {"nombre": "X", "pct_compromiso": Y}
-    peor_tecnologia: Optional[Dict[str, Any]] = None   # {"nombre": "X", "pct_compromiso": Y}
-
-    # Estacionalidad (solo se llena si hay >6 meses en el rango)
-    mostrar_estacionalidad: bool = False
-    mejor_mes: Optional[Dict[str, Any]] = None  # {"nombre": "Marzo", "pct_interno": X, "pct_compromiso": Y}
-    peor_mes: Optional[Dict[str, Any]] = None   # {"nombre": "Octubre", "pct_interno": X, "pct_compromiso": Y}
-
-    # Cantidad de meses en el rango (para decidir si mostrar estacionalidad)
-    meses_en_rango: int = 0
-
-    # Conteo de sitios global
-    total_sitios_global: int = 0
-    oportunidades_multisitio_global: int = 0
-
-    # Ganadas y simulaciones adicionales
-    ganadas: int = 0
-    sim_adicionales_count: int = 0
-    levantamiento_info: Optional[Dict[str, Any]] = None
-
-    # Motivos de cierre (canceladas + perdidas)
-    motivos_cierre: List[Dict[str, Any]] = field(default_factory=list)
-
-
-
 
 
 # =============================================================================
@@ -646,30 +67,26 @@ class ResumenEjecutivo:
 class ReportesSimulacionService:
     """
     Servicio para generación de reportes analíticos de Simulación.
-    
+
     Principios:
     - Queries optimizados con CTEs
     - Cálculos centralizados
     - Tipado estricto con dataclasses
     - Sin lógica HTTP
     """
-    
+
     def __init__(self):
         self.zona_mx = ZoneInfo("America/Mexico_City")
         self.db = SimulacionDBService()
-    
+
     # =========================================================================
     # MÉTODOS AUXILIARES
     # =========================================================================
-    
+
     def get_current_datetime_mx(self) -> datetime:
-        """Obtiene hora actual en México."""
         return datetime.now(self.zona_mx)
-        
-    # _get_catalog_ids removed/replaced by db_service call
 
     async def _get_score_config(self, conn) -> ConfiguracionScore:
-        """Obtiene configuración de scoring desde DB o defaults"""
         return ConfiguracionScore(
             umbral_min_entregas=await ConfigService.get_global_config(conn, "sim_umbral_min_entregas", UMBRAL_MIN_ENTREGAS, int),
             umbral_ratio_licitaciones=await ConfigService.get_global_config(conn, "sim_umbral_ratio_licitaciones", UMBRAL_RATIO_LICITACIONES, float),
@@ -681,45 +98,32 @@ class ReportesSimulacionService:
             penalizacion_retrabajos=await ConfigService.get_global_config(conn, "sim_penalizacion_retrabajos", PENALIZACION_RETRABAJOS, float),
             volumen_max=await ConfigService.get_global_config(conn, "sim_volumen_max", VOLUMEN_MAX_NORMALIZACION, int),
             umbral_verde=await ConfigService.get_global_config(conn, "sim_umbral_verde", UMBRAL_VERDE, float),
-            umbral_ambar=await ConfigService.get_global_config(conn, "sim_umbral_ambar", UMBRAL_AMBAR, float)
+            umbral_ambar=await ConfigService.get_global_config(conn, "sim_umbral_ambar", UMBRAL_AMBAR, float),
         )
 
     def calcular_semaforo(self, porcentaje: float, config: ConfiguracionScore = None) -> str:
-        """Determina color del semáforo según porcentaje."""
         u_verde = config.umbral_verde if config else UMBRAL_VERDE
         u_ambar = config.umbral_ambar if config else UMBRAL_AMBAR
-        
         if porcentaje >= u_verde:
             return "green"
         elif porcentaje >= u_ambar:
             return "amber"
         return "red"
-    
+
     # =========================================================================
     # QUERIES PRINCIPALES
     # =========================================================================
-    
+
     async def get_metricas_generales(self, conn, filtros: FiltrosReporte) -> MetricasGenerales:
-        """
-        Obtiene métricas agregadas principales CON KPIs DUALES.
-        Query optimizado que:
-        1. JOIN con tb_sitios_oportunidad para obtener KPIs a nivel sitio
-        2. Calcula ambos KPIs (Interno + Compromiso)
-        3. Separa Versiones (parent_id) de Retrabajos (es_retrabajo)
-        """
         cats = await self.db.get_report_catalog_ids(conn)
         row = await self.db.get_report_metricas_generales_row(conn, asdict(filtros), cats)
-        
-        # Cargar umbrales dinámicos
+
         u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
         u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso")
-        
+
         if not row:
-            return MetricasGenerales(
-                umbrales_interno=u_interno,
-                umbrales_compromiso=u_compromiso
-            )
-        
+            return MetricasGenerales(umbrales_interno=u_interno, umbrales_compromiso=u_compromiso)
+
         return MetricasGenerales(
             umbrales_interno=u_interno,
             umbrales_compromiso=u_compromiso,
@@ -742,41 +146,33 @@ class ReportesSimulacionService:
             total_sitios_entregados=row['total_sitios_entregados'] or 0,
             oportunidades_multisitio=row['oportunidades_multisitio'] or 0,
             ganadas=row['ganadas'] or 0,
-            sim_adicionales_count=row['sim_adicionales_count'] or 0
+            sim_adicionales_count=row['sim_adicionales_count'] or 0,
         )
-    
+
     async def get_motivo_retrabajo_principal(
-        self, 
-        conn, 
+        self,
+        conn,
         filtros: FiltrosReporte,
-        user_id: UUID = None
+        user_id: UUID = None,
     ) -> tuple:
-        """Obtiene el motivo de retrabajo más común"""
         row = await self.db.get_report_motivo_retrabajo(conn, asdict(filtros), user_id)
-        
         if row:
             return row['motivo'], row['conteo']
         return None, 0
-    
+
     async def get_tiempo_promedio_global_usuario(
-        self, 
-        conn, 
-        user_id: UUID, 
-        filtros: FiltrosReporte
+        self,
+        conn,
+        user_id: UUID,
+        filtros: FiltrosReporte,
     ) -> float:
-        """Calcula tiempo promedio global del usuario"""
         dias_promedio = await self.db.get_report_tiempo_promedio_global(conn, user_id, asdict(filtros))
         return round(dias_promedio, 1) if dias_promedio else None
-    
+
     async def get_metricas_por_tecnologia(self, conn, filtros: FiltrosReporte) -> List[MetricaTecnologia]:
-        """
-        Obtiene métricas desglosadas por cada tecnología con KPIs duales.
-        Usa CTE con join a tb_sitios_oportunidad para KPIs a nivel sitio.
-        """
         cats = await self.db.get_report_catalog_ids(conn)
         rows = await self.db.get_report_metricas_tech(conn, asdict(filtros), cats)
-        
-        # Cargar umbrales dinámicos
+
         u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
         u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso")
 
@@ -799,19 +195,15 @@ class ReportesSimulacionService:
                 tiempo_promedio_horas=float(row['tiempo_promedio_horas']) if row['tiempo_promedio_horas'] else None,
                 potencia_total_kwp=float(row['potencia_total_kwp'] or 0),
                 capacidad_total_kwh=float(row['capacidad_total_kwh'] or 0),
-                total_sitios=row['total_sitios'] or 0
+                total_sitios=row['total_sitios'] or 0,
             )
             for row in rows
         ]
-    
+
     async def get_tabla_contabilizacion(self, conn, filtros: FiltrosReporte) -> List[FilaContabilizacion]:
-        """
-        Genera la tabla de contabilización por tipo de solicitud con semáforos.
-        """
         cats = await self.db.get_report_catalog_ids(conn)
         rows = await self.db.get_report_tabla_contabilizacion(conn, asdict(filtros), cats)
-        
-        # Cargar umbrales dinámicos
+
         u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
         u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso")
 
@@ -829,11 +221,11 @@ class ReportesSimulacionService:
                 entregas_tarde_compromiso=row['entregas_tarde_compromiso'] or 0,
                 sin_fecha=row['sin_fecha'] or 0,
                 licitaciones=row['licitaciones'] or 0,
-                es_levantamiento=row['es_levantamiento'] or False
+                es_levantamiento=row['es_levantamiento'] or False,
             )
             for row in rows
         ]
-    
+
     # =========================================================================
     # HELPERS PRIVADOS — construcción de dataclasses desde rows DB
     # Usados por get_detalle_por_usuario para evitar recargar cats/umbrales
@@ -847,10 +239,7 @@ class ReportesSimulacionService:
         u_compromiso,
     ) -> MetricasGenerales:
         if not row:
-            return MetricasGenerales(
-                umbrales_interno=u_interno,
-                umbrales_compromiso=u_compromiso,
-            )
+            return MetricasGenerales(umbrales_interno=u_interno, umbrales_compromiso=u_compromiso)
         return MetricasGenerales(
             umbrales_interno=u_interno,
             umbrales_compromiso=u_compromiso,
@@ -933,11 +322,8 @@ class ReportesSimulacionService:
 
     async def get_detalle_por_usuario(self, conn, filtros: FiltrosReporte) -> List[DetalleUsuario]:
         """
-        Obtiene métricas detalladas por cada usuario responsable.
-
         Fase 2 — batch SQL: 6 queries fijas independientemente del número de usuarios.
         Antes: 1 + 6N queries. Ahora: ~9 queries fijas.
-        Mapeo en memoria por responsable_simulacion_id.
         """
         usuarios = await self.db.get_report_users_active(conn, asdict(filtros))
         if not usuarios:
@@ -948,7 +334,6 @@ class ReportesSimulacionService:
         u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso")
         filtros_dict = asdict(filtros)
 
-        # 6 queries batch en lugar de 6N queries individuales
         batch_metricas = await self.db.get_report_metricas_generales_batch(conn, filtros_dict, cats)
         batch_tech = await self.db.get_report_metricas_tech_batch(conn, filtros_dict, cats)
         batch_contab = await self.db.get_report_tabla_contabilizacion_batch(conn, filtros_dict, cats)
@@ -956,7 +341,6 @@ class ReportesSimulacionService:
         batch_tiempo_global = await self.db.get_report_tiempo_promedio_global_batch(conn, filtros_dict)
         batch_motivos = await self.db.get_report_motivo_retrabajo_batch(conn, filtros_dict)
 
-        # Mapear en memoria por user_id
         map_metricas = {r['responsable_simulacion_id']: r for r in batch_metricas}
 
         map_tech: Dict[Any, List[Dict]] = {}
@@ -1014,12 +398,8 @@ class ReportesSimulacionService:
         self,
         conn,
         usuario_id: UUID,
-        filtros: FiltrosReporte
+        filtros: FiltrosReporte,
     ) -> List[Dict[str, Any]]:
-        """
-        Lista individual de oportunidades trabajadas por un usuario en el período.
-        Usado en el modal de drill-down desde Performance por Usuario.
-        """
         filtros_usuario = dc_replace(filtros, responsable_id=usuario_id)
         return await self.db.get_report_oportunidades_usuario(conn, asdict(filtros_usuario))
 
@@ -1027,58 +407,34 @@ class ReportesSimulacionService:
         self,
         conn,
         user_id: UUID,
-        filtros: FiltrosReporte
+        filtros: FiltrosReporte,
     ) -> Dict[str, float]:
-        """
-        Obtiene tiempo promedio de elaboración agrupado por tipo de solicitud.
-        
-        Args:
-            conn: Conexión a base de datos
-            user_id: ID del usuario responsable
-            filtros: Filtros de fecha y otros criterios
-            
-        Returns:
-            Dict con nombre_tipo -> días promedio
-        """
-
         cats = await self.db.get_report_catalog_ids(conn)
         return await self.db.get_report_tiempo_promedio_tipo(conn, user_id, asdict(filtros), cats)
-    
+
     def generar_resumen_usuario(
-        self, 
+        self,
         usuario: 'DetalleUsuario',
         filtros: FiltrosReporte,
-        motivo_retrabajo_principal: str = None,  # ← AGREGADO
-        tiempo_promedio_global_dias: float = None  # ← AGREGADO
+        motivo_retrabajo_principal: str = None,
+        tiempo_promedio_global_dias: float = None,
     ) -> ResumenUsuario:
-        """Genera datos estructurados para resumen de usuario"""
-        
-        # Tecnología principal
         tech_principal = None
         if usuario.metricas_por_tecnologia:
-            # Filtrar techs con > 0 solicitudes
             techs_activas = [t for t in usuario.metricas_por_tecnologia if t.total_solicitudes > 0]
             if techs_activas:
                 tech = max(techs_activas, key=lambda x: x.total_solicitudes)
-                tech_principal = {
-                    "nombre": tech.nombre,
-                    "solicitudes": tech.total_solicitudes
-                }
-        
-        # Tiempo promedio por tipo (lista ordenada)
+                tech_principal = {"nombre": tech.nombre, "solicitudes": tech.total_solicitudes}
+
         tiempo_por_tipo = []
         if usuario.tiempo_promedio_por_tipo:
             tiempo_por_tipo = [
-                {
-                    "tipo": tipo,
-                    "dias": dias
-                }
+                {"tipo": tipo, "dias": dias}
                 for tipo, dias in sorted(usuario.tiempo_promedio_por_tipo.items(), key=lambda x: x[1])
             ]
-        
-        # Métricas generales shortcuts
+
         m = usuario.metricas_generales
-        
+
         return ResumenUsuario(
             nombre=usuario.nombre,
             total_ofertas=m.total_ofertas,
@@ -1090,7 +446,6 @@ class ReportesSimulacionService:
             porcentaje_licitaciones=round((m.licitaciones / m.total_solicitudes) * 100, 1) if m.total_solicitudes > 0 else 0,
             extraordinarias=m.extraordinarias,
             versiones=m.versiones,
-            # Campos adicionales de retrabajos
             tiempo_promedio_global_dias=tiempo_promedio_global_dias,
             total_retrabajos=m.retrabajos,
             porcentaje_retrabajos=round((m.retrabajos / m.total_sitios) * 100, 1) if m.total_sitios > 0 else 0,
@@ -1098,9 +453,9 @@ class ReportesSimulacionService:
             total_sitios=m.total_sitios,
             total_sitios_entregados=m.total_sitios_entregados,
             oportunidades_multisitio=m.oportunidades_multisitio,
-            promedio_sitios_por_oportunidad=m.promedio_sitios_por_oportunidad
+            promedio_sitios_por_oportunidad=m.promedio_sitios_por_oportunidad,
         )
-    
+
     async def generar_resumen_ejecutivo(
         self,
         conn,
@@ -1113,18 +468,12 @@ class ReportesSimulacionService:
         resumen_mensual: Dict[str, 'FilaMensual'] = None,
         motivos_cierre: List[Dict[str, Any]] = None,
     ) -> ResumenEjecutivo:
-        """
-        Genera SOLO DATOS para el resumen ejecutivo.
-        El renderizado HTML se hace en el template.
-        """
         def _fmt_fecha(d):
             return f"{d.day:02d} de {_MESES_ES[d.month]} de {d.year}"
 
-        # Formatear fechas
         fecha_inicio = _fmt_fecha(filtros.fecha_inicio)
         fecha_fin = _fmt_fecha(filtros.fecha_fin)
-        
-        # Top 3 tipos — excluir levantamientos del ranking, tratarlos por separado
+
         top_tipos = []
         levantamiento_info = None
         if filas_tipo:
@@ -1137,7 +486,7 @@ class ReportesSimulacionService:
                     {
                         "nombre": t.nombre,
                         "total": t.total,
-                        "porcentaje": round((t.total / metricas.total_sitios) * 100, 1)
+                        "porcentaje": round((t.total / metricas.total_sitios) * 100, 1),
                     }
                     for t in top_tipos_sorted
                 ]
@@ -1146,37 +495,31 @@ class ReportesSimulacionService:
                 total_con_lev = metricas.total_sitios + fila_lev.total
                 levantamiento_info = {
                     "total": fila_lev.total,
-                    "porcentaje": round((fila_lev.total / total_con_lev) * 100, 1) if total_con_lev > 0 else 0
+                    "porcentaje": round((fila_lev.total / total_con_lev) * 100, 1) if total_con_lev > 0 else 0,
                 }
-        
-        # Mejor usuario (por KPI Compromiso)
+
         mejor_usuario_data = None
         if usuarios:
-            # Filtrar usuarios con actividad en KPI compromiso
-            usuarios_con_kpi = [u for u in usuarios if (u.metricas_generales.entregas_a_tiempo_compromiso + u.metricas_generales.entregas_tarde_compromiso) > 0]
-            
+            usuarios_con_kpi = [
+                u for u in usuarios
+                if (u.metricas_generales.entregas_a_tiempo_compromiso + u.metricas_generales.entregas_tarde_compromiso) > 0
+            ]
             if usuarios_con_kpi:
-                # Encontrar el mejor usuario basado en porcentaje de compromiso
                 mejor_user = max(usuarios_con_kpi, key=lambda u: u.metricas_generales.porcentaje_a_tiempo_compromiso)
                 mejor_usuario_data = {
                     "nombre": mejor_user.nombre,
                     "ofertas": mejor_user.metricas_generales.total_ofertas,
                     "porcentaje_interno": mejor_user.metricas_generales.porcentaje_a_tiempo_interno,
-                    "porcentaje_compromiso": mejor_user.metricas_generales.porcentaje_a_tiempo_compromiso
+                    "porcentaje_compromiso": mejor_user.metricas_generales.porcentaje_a_tiempo_compromiso,
                 }
-        
-        # Calcular totales de entregas
+
         total_entregas_interno = metricas.entregas_a_tiempo_interno + metricas.entregas_tarde_interno
         total_entregas_compromiso = metricas.entregas_a_tiempo_compromiso + metricas.entregas_tarde_compromiso
-        
-        # =====================================================================
-        # NUEVO: Calcular scores y categorizar usuarios
-        # =====================================================================
+
         score_config = await self._get_score_config(conn)
-        
+
         usuarios_con_score = []
         for usuario in usuarios:
-            # Crear MetricaUsuario a partir de DetalleUsuario para calcular score
             metrica_usuario = MetricaUsuario(
                 usuario_id=usuario.usuario_id,
                 nombre=usuario.nombre,
@@ -1193,34 +536,26 @@ class ReportesSimulacionService:
                 total_sitios_entregados=usuario.metricas_generales.total_sitios_entregados,
                 oportunidades_multisitio=usuario.metricas_generales.oportunidades_multisitio,
             )
-            
-            # Calcular score
+
             score = calcular_score_usuario(metrica_usuario, score_config)
             metrica_usuario.score = score
-            
-            # Obtener motivo de retrabajo principal del usuario
+
             if metrica_usuario.retrabajados > 0:
                 motivo_usuario, _ = await self.get_motivo_retrabajo_principal(
                     conn, filtros, user_id=metrica_usuario.usuario_id
                 )
                 score.motivo_retrabajo_principal = motivo_usuario
-            
+
             usuarios_con_score.append(metrica_usuario)
-        
-        # Categorizar usuarios
+
         categorias = {
             "alta_complejidad": [u for u in usuarios_con_score if u.score and u.score.categoria == "alta_complejidad"],
             "eficiencia": [u for u in usuarios_con_score if u.score and u.score.categoria == "eficiencia"],
-            "evaluacion": [u for u in usuarios_con_score if u.score and u.score.categoria == "evaluacion"]
+            "evaluacion": [u for u in usuarios_con_score if u.score and u.score.categoria == "evaluacion"],
         }
-        
-        # Ordenar por score dentro de cada categoría
         for cat in categorias.values():
             cat.sort(key=lambda u: u.score.score_final if u.score else 0, reverse=True)
-        
-        # =====================================================================
-        # NUEVO: Gestión de demanda - explicación de diferencia
-        # =====================================================================
+
         diferencia = metricas.total_solicitudes - metricas.total_ofertas - metricas.en_espera
         partes_explicacion = []
         if metricas.canceladas > 0:
@@ -1229,49 +564,34 @@ class ReportesSimulacionService:
             partes_explicacion.append(f"{metricas.no_viables} no viables")
         if metricas.sin_fecha_entrega > 0:
             partes_explicacion.append(f"{metricas.sin_fecha_entrega} sin fecha")
-        diferencia_explicacion = ", ".join(partes_explicacion) if partes_explicacion else ""
+        diferencia_explicacion = ", ".join(partes_explicacion)
 
-        # =====================================================================
-        # NUEVO: Análisis por tecnología
-        # =====================================================================
         tecnologias_detalle = []
         mejor_tecnologia = None
         peor_tecnologia = None
 
         if metricas_tecnologia:
             for tech in metricas_tecnologia:
-                # Solo incluir tecnologías con actividad
                 if tech.total_solicitudes > 0:
-                    detalle = {
+                    tecnologias_detalle.append({
                         "nombre": tech.nombre,
                         "solicitudes": tech.total_solicitudes,
                         "ofertas": tech.total_ofertas,
                         "total_sitios": tech.total_sitios,
                         "pct_interno": tech.porcentaje_a_tiempo_interno,
-                        "pct_compromiso": tech.porcentaje_a_tiempo_compromiso
-                    }
-                    tecnologias_detalle.append(detalle)
-            
-            # Ordenar por solicitudes descendente
+                        "pct_compromiso": tech.porcentaje_a_tiempo_compromiso,
+                    })
             tecnologias_detalle.sort(key=lambda x: x["solicitudes"], reverse=True)
-            
-            # Encontrar mejor y peor por cumplimiento compromiso (mínimo 5 ofertas para ser considerado)
+
             techs_evaluables = [t for t in tecnologias_detalle if t["ofertas"] >= 5]
             if techs_evaluables:
                 mejor_tecnologia = max(techs_evaluables, key=lambda x: x["pct_compromiso"])
                 peor_tecnologia = min(techs_evaluables, key=lambda x: x["pct_compromiso"])
-                # Evitar que mejor y peor sean el mismo si solo hay una tecnología evaluable
                 if mejor_tecnologia == peor_tecnologia:
                     peor_tecnologia = None
 
-        # =====================================================================
-        # NUEVO: Estacionalidad (solo si >6 meses)
-        # =====================================================================
-        # Calcular cantidad de meses en el rango
-        
         delta = relativedelta(filtros.fecha_fin, filtros.fecha_inicio)
         meses_en_rango = delta.years * 12 + delta.months + 1
-
         mostrar_estacionalidad = meses_en_rango > 6
         mejor_mes = None
         peor_mes = None
@@ -1280,37 +600,30 @@ class ReportesSimulacionService:
                               'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
 
         if mostrar_estacionalidad and resumen_mensual:
-            # Extraer datos mensuales de KPI compromiso
             meses_data = []
-            
-            # resumen_mensual tiene estructura: {"metrica_nombre": FilaMensual}
-            # Necesitamos cruzar entregas_a_tiempo_compromiso con total evaluable por mes
-            
             fila_a_tiempo = resumen_mensual.get("entregas_a_tiempo_compromiso")
             fila_tarde = resumen_mensual.get("entregas_tarde_compromiso")
-            
+
             if fila_a_tiempo and fila_tarde:
                 for mes in fila_a_tiempo.valores.keys():
                     a_tiempo = fila_a_tiempo.valores.get(mes, 0) or 0
                     tarde = fila_tarde.valores.get(mes, 0) or 0
                     total = a_tiempo + tarde
-                    if total >= 5:  # Mínimo para considerar
+                    if total >= 5:
                         pct = round((a_tiempo / total) * 100, 1) if total > 0 else 0
                         meses_data.append({
                             "mes": mes,
                             "nombre": meses_nombres_full[mes],
                             "pct_compromiso": pct,
-                            "total": total
+                            "total": total,
                         })
-            
+
             if meses_data:
                 mejor_mes = max(meses_data, key=lambda x: x["pct_compromiso"])
                 peor_mes = min(meses_data, key=lambda x: x["pct_compromiso"])
-                # Evitar que mejor y peor sean el mismo
                 if mejor_mes["mes"] == peor_mes["mes"]:
                     peor_mes = None
-        
-        # Construir objeto de datos
+
         return ResumenEjecutivo(
             fecha_inicio_formatted=fecha_inicio,
             fecha_fin_formatted=fecha_fin,
@@ -1332,7 +645,6 @@ class ReportesSimulacionService:
             porcentaje_extraordinarias=round((metricas.extraordinarias / metricas.total_solicitudes) * 100, 1) if metricas.total_solicitudes > 0 else 0,
             versiones=metricas.versiones,
             porcentaje_versiones=round((metricas.versiones / metricas.total_solicitudes) * 100, 1) if metricas.total_solicitudes > 0 else 0,
-            # Retrabajos
             total_retrabajos=metricas.retrabajos,
             porcentaje_retrabajos=round((metricas.retrabajos / metricas.total_sitios) * 100, 1) if metricas.total_sitios > 0 else 0,
             motivo_retrabajo_principal=motivo_retrabajo_principal[0],
@@ -1341,8 +653,6 @@ class ReportesSimulacionService:
             mostrar_nota_alta_complejidad=len(categorias["alta_complejidad"]) > 0,
             ratio_licitaciones_global=round((metricas.licitaciones / metricas.total_solicitudes * 100) if metricas.total_solicitudes > 0 else 0, 1),
             umbral_licitaciones_pct=score_config.umbral_ratio_licitaciones * 100,
-
-            # === NUEVOS CAMPOS ===
             sin_fecha_sistema=metricas.sin_fecha_entrega,
             diferencia_explicacion=diferencia_explicacion,
             tecnologias_detalle=tecnologias_detalle,
@@ -1359,21 +669,14 @@ class ReportesSimulacionService:
             levantamiento_info=levantamiento_info,
             motivos_cierre=motivos_cierre or [],
         )
-    
+
     async def get_resumen_mensual(self, conn, filtros: FiltrosReporte) -> Dict[str, FilaMensual]:
-        """
-        Genera el resumen mensual tipo pivot con KPIs duales.
-        
-        Returns:
-            Dict con métricas como keys y FilaMensual como values
-        """
         cats = await self.db.get_report_catalog_ids(conn)
         rows = await self.db.get_report_resumen_mensual(conn, asdict(filtros), cats)
-        
-        # Inicializar estructura de respuesta con nuevas métricas
+
         metricas_nombres = [
             'solicitudes_recibidas',
-            'ofertas_generadas', 
+            'ofertas_generadas',
             'porcentaje_en_plazo_interno',
             'porcentaje_fuera_plazo_interno',
             'entregas_a_tiempo_interno',
@@ -1390,40 +693,35 @@ class ReportesSimulacionService:
             'extraordinarias',
             'versiones',
             'retrabajos',
-            'total_sitios'
+            'total_sitios',
         ]
-        
+
         resultado = {nombre: FilaMensual(metrica=nombre) for nombre in metricas_nombres}
-        
-        # Procesar filas
+
         for row in rows:
             mes = row['mes']
-            
-            # Calcular porcentajes KPI INTERNO
+
             total_kpi_interno = (row['entregas_a_tiempo_interno'] or 0) + (row['entregas_tarde_interno'] or 0)
             pct_interno = round((row['entregas_a_tiempo_interno'] or 0) / total_kpi_interno * 100, 1) if total_kpi_interno > 0 else 0
-            
-            # Calcular porcentajes KPI COMPROMISO
+
             total_kpi_compromiso = (row['entregas_a_tiempo_compromiso'] or 0) + (row['entregas_tarde_compromiso'] or 0)
             pct_compromiso = round((row['entregas_a_tiempo_compromiso'] or 0) / total_kpi_compromiso * 100, 1) if total_kpi_compromiso > 0 else 0
             pct_tarde = round((row['entregas_tarde_compromiso'] or 0) / total_kpi_compromiso * 100, 1) if total_kpi_compromiso > 0 else 0
-            
+
             resultado['solicitudes_recibidas'].valores[mes] = row['solicitudes_recibidas'] or 0
             resultado['ofertas_generadas'].valores[mes] = row['ofertas_generadas'] or 0
-            
-            # KPIs Internos (Porcentajes y Conteos)
+
             resultado['porcentaje_en_plazo_interno'].valores[mes] = pct_interno
             resultado['porcentaje_fuera_plazo_interno'].valores[mes] = round(100 - pct_interno, 1) if total_kpi_interno > 0 else 0
             resultado['entregas_a_tiempo_interno'].valores[mes] = row['entregas_a_tiempo_interno'] or 0
             resultado['entregas_tarde_interno'].valores[mes] = row['entregas_tarde_interno'] or 0
-            
-            # KPIs Compromiso (Porcentajes y Conteos)
+
             resultado['porcentaje_en_plazo_compromiso'].valores[mes] = pct_compromiso
             resultado['porcentaje_fuera_plazo_compromiso'].valores[mes] = pct_tarde
             resultado['entregas_a_tiempo_compromiso'].valores[mes] = row['entregas_a_tiempo_compromiso'] or 0
             resultado['entregas_tarde_compromiso'].valores[mes] = row['entregas_tarde_compromiso'] or 0
-            
-            resultado['tiempo_promedio'].valores[mes] = round(float(row['tiempo_promedio'] or 0) / 24, 1)  # A días
+
+            resultado['tiempo_promedio'].valores[mes] = round(float(row['tiempo_promedio'] or 0) / 24, 1)
             resultado['en_espera'].valores[mes] = row['en_espera'] or 0
             resultado['canceladas'].valores[mes] = row['canceladas'] or 0
             resultado['no_viables'].valores[mes] = row['no_viables'] or 0
@@ -1432,31 +730,28 @@ class ReportesSimulacionService:
             resultado['versiones'].valores[mes] = row['versiones'] or 0
             resultado['retrabajos'].valores[mes] = row['retrabajos'] or 0
             resultado['total_sitios'].valores[mes] = row['total_sitios'] or 0
-        
-        # Calcular totales
+
         for nombre, fila in resultado.items():
-            if nombre in ['porcentaje_en_plazo_interno', 'porcentaje_fuera_plazo_interno', 'porcentaje_en_plazo_compromiso', 'porcentaje_fuera_plazo_compromiso', 'tiempo_promedio']:
-                # Promedios
+            if nombre in ('porcentaje_en_plazo_interno', 'porcentaje_fuera_plazo_interno',
+                          'porcentaje_en_plazo_compromiso', 'porcentaje_fuera_plazo_compromiso',
+                          'tiempo_promedio'):
                 valores = [v for v in fila.valores.values() if v > 0]
                 fila.total = round(sum(valores) / len(valores), 1) if valores else 0
             else:
-                # Sumas
                 fila.total = sum(fila.valores.values())
-        
+
         return resultado
-    
+
     # =========================================================================
     # DATOS PARA GRÁFICAS
     # =========================================================================
-    
+
     async def get_clientes_alta_iteracion(
         self, conn, filtros: FiltrosReporte, umbral: int = 3
     ) -> List[Dict]:
-        """Clientes con más de `umbral` solicitudes de tipo Actualización en su histórico."""
         return await self.db.get_clientes_alta_iteracion(conn, asdict(filtros), umbral)
 
     async def get_all_report_data(self, conn, filtros: FiltrosReporte) -> dict:
-        """Obtiene TODOS los datos necesarios para el PDF en una sola llamada."""
         return {
             'metricas': await self.get_metricas_generales(conn, filtros),
             'tecnologias': await self.get_metricas_por_tecnologia(conn, filtros),
@@ -1467,134 +762,99 @@ class ReportesSimulacionService:
             'alta_iteracion': await self.get_clientes_alta_iteracion(conn, filtros),
         }
 
-    async def get_datos_graficas(self, conn, filtros: FiltrosReporte, metricas: Optional[MetricasGenerales] = None) -> Dict[str, DatosGrafica]:
-        """
-        Prepara datos estructurados para todas las gráficas del dashboard.
-        
-        Args:
-            conn: Conexión DB
-            filtros: Filtros aplicados
-            metricas: Objeto de métricas pre-calculado (opcional) para evitar doble query
-        
-        Returns:
-            Dict con identificadores de gráfica y sus datos
-        """
+    async def get_datos_graficas(
+        self,
+        conn,
+        filtros: FiltrosReporte,
+        metricas: Optional[MetricasGenerales] = None,
+    ) -> Dict[str, DatosGrafica]:
         graficas = {}
-        
-        # 1. Gráfica de Pie: Distribución por Estatus
         graficas['estatus_pie'] = await self._get_grafica_estatus(conn, filtros)
-        
-        # 2. Gráfica de Barras: Solicitudes por Mes
         graficas['mensual_bar'] = await self._get_grafica_mensual(conn, filtros)
-        
-        # 3. Gráfica de Pie: Distribución por Tecnología
         graficas['tecnologia_pie'] = await self._get_grafica_tecnologia(conn, filtros)
-        
-        # 4. Gráfica de Motivos de Cierre
         graficas['motivos_bar'] = await self._get_grafica_motivos(conn, filtros)
-
-        # 5. Gráfica de KPIs (Depende de metricas)
         graficas['kpi_bar'] = await self._get_grafica_kpi(conn, filtros, metricas)
-        
         return graficas
-    
+
     async def _get_grafica_estatus(self, conn, filtros: FiltrosReporte) -> DatosGrafica:
-        """Distribución por estatus."""
         rows = await self.db.get_chart_estatus(conn, asdict(filtros))
-        
         return DatosGrafica(
             tipo='doughnut',
             labels=[r['nombre'] for r in rows],
             datasets=[{
                 'data': [r['total'] for r in rows],
-                'backgroundColor': [r['color_hex'] or '#6B7280' for r in rows]
-            }]
+                'backgroundColor': [r['color_hex'] or '#6B7280' for r in rows],
+            }],
         )
-    
+
     async def _get_grafica_mensual(self, conn, filtros: FiltrosReporte) -> DatosGrafica:
-        """Solicitudes por mes."""
         rows = await self.db.get_chart_mensual(conn, asdict(filtros))
-        
-        meses_nombres = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 
+        meses_nombres = ['', 'Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun',
                          'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
-        
         return DatosGrafica(
             tipo='bar',
             labels=[meses_nombres[r['mes']] for r in rows],
             datasets=[{
                 'label': 'Solicitudes',
                 'data': [r['total'] for r in rows],
-                'backgroundColor': '#00BABB'
-            }]
+                'backgroundColor': '#00BABB',
+            }],
         )
-    
+
     async def _get_grafica_tecnologia(self, conn, filtros: FiltrosReporte) -> DatosGrafica:
-        """Distribución por tecnología."""
         rows = await self.db.get_chart_tecnologia(conn, asdict(filtros))
-        
-        # Colores predefinidos para tecnologías
         colores = ['#00BABB', '#3B82F6', '#10B981', '#F59E0B', '#8B5CF6']
-        
         return DatosGrafica(
             tipo='pie',
             labels=[r['nombre'] for r in rows],
             datasets=[{
                 'data': [r['total'] for r in rows],
-                'backgroundColor': colores[:len(rows)]
-            }]
+                'backgroundColor': colores[:len(rows)],
+            }],
         )
-    
-    async def _get_grafica_kpi(self, conn, filtros: FiltrosReporte, metricas: Optional[MetricasGenerales] = None) -> DatosGrafica:
-        """Comparativa A Tiempo vs Tarde."""
+
+    async def _get_grafica_kpi(
+        self,
+        conn,
+        filtros: FiltrosReporte,
+        metricas: Optional[MetricasGenerales] = None,
+    ) -> DatosGrafica:
         if metricas is None:
             metricas = await self.get_metricas_generales(conn, filtros)
-        
         return DatosGrafica(
             tipo='bar',
             labels=['Entregas'],
             datasets=[
-                {
-                    'label': 'A Tiempo',
-                    'data': [metricas.entregas_a_tiempo_compromiso],
-                    'backgroundColor': '#10B981'
-                },
-                {
-                    'label': 'Fuera de Plazo',
-                    'data': [metricas.entregas_tarde_compromiso],
-                    'backgroundColor': '#EF4444'
-                }
+                {'label': 'A Tiempo', 'data': [metricas.entregas_a_tiempo_compromiso], 'backgroundColor': '#10B981'},
+                {'label': 'Fuera de Plazo', 'data': [metricas.entregas_tarde_compromiso], 'backgroundColor': '#EF4444'},
             ],
-            opciones={'indexAxis': 'y'}  # Horizontal
+            opciones={'indexAxis': 'y'},
         )
-    
+
     async def _get_grafica_motivos(self, conn, filtros: FiltrosReporte) -> DatosGrafica:
-        """Distribución de motivos de cierre."""
         rows = await self.db.get_chart_motivos_cierre(conn, asdict(filtros))
-        
-        # Colores por categoría
         colores_categoria = {
             'Técnico': '#3B82F6',
-            'Regulatorio': '#8B5CF6', 
+            'Regulatorio': '#8B5CF6',
             'Económico': '#F59E0B',
             'Competencia': '#EF4444',
-            'Otros': '#6B7280'
+            'Otros': '#6B7280',
         }
-        
         return DatosGrafica(
             tipo='bar',
             labels=[r['motivo'][:30] + '...' if len(r['motivo']) > 30 else r['motivo'] for r in rows],
             datasets=[{
                 'label': 'Cantidad',
                 'data': [r['total'] for r in rows],
-                'backgroundColor': [colores_categoria.get(r['categoria'], '#6B7280') for r in rows]
+                'backgroundColor': [colores_categoria.get(r['categoria'], '#6B7280') for r in rows],
             }],
-            opciones={'indexAxis': 'y'}
+            opciones={'indexAxis': 'y'},
         )
-    
+
     # =========================================================================
     # UTILIDADES
     # =========================================================================
-    
+
     async def get_catalogos_filtros(self, conn) -> Dict[str, List[Dict]]:
         return await self.db.get_report_catalogos_filtros(conn)
 
