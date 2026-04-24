@@ -9,6 +9,8 @@ from core.microsoft import get_ms_auth
 
 logger = logging.getLogger("SATFielLoader")
 
+SAT_EMPRESA = "ISA"
+
 
 @dataclass
 class FielConfig:
@@ -22,7 +24,8 @@ async def cargar_fiel_config(conn: asyncpg.Connection) -> FielConfig:
     """Lee la configuracion FIEL activa de tb_sat_fiel_config."""
     row = await conn.fetchrow(
         "SELECT empresa, sp_path_cer, sp_path_key, password_fiel "
-        "FROM tb_sat_fiel_config WHERE activo = TRUE AND empresa = 'ISA' LIMIT 1"
+        "FROM tb_sat_fiel_config WHERE activo = TRUE AND empresa = $1 LIMIT 1",
+        SAT_EMPRESA,
     )
     if not row:
         raise ValueError("No hay configuracion FIEL activa para ISA en tb_sat_fiel_config")
@@ -61,7 +64,7 @@ async def cargar_signer(conn: asyncpg.Connection, sat_site_id: str, sat_drive_id
         key=key_bytes,
         password=config.password_fiel.encode(),
     )
-    logger.info("FIEL cargada correctamente — RFC: %s", signer.rfc)
+    logger.info("FIEL cargada correctamente - RFC: %s", signer.rfc)
     return signer
 
 

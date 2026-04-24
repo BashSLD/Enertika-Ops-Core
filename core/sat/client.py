@@ -1,7 +1,7 @@
 import asyncio
 import base64
 import logging
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from satcfdi.models import Signer
@@ -37,7 +37,6 @@ class SATClient:
         Solicita descarga masiva de CFDIs recibidos en el rango de fechas.
         Retorna el IdSolicitud del SAT.
         """
-        from datetime import datetime
         dt_inicio = datetime(fecha_inicio.year, fecha_inicio.month, fecha_inicio.day)
         dt_fin = datetime(fecha_fin.year, fecha_fin.month, fecha_fin.day, 23, 59, 59)
 
@@ -51,7 +50,7 @@ class SATClient:
         id_solicitud = respuesta.get("IdSolicitud")
         if not id_solicitud:
             raise ValueError(f"SAT no retorno IdSolicitud: {respuesta}")
-        logger.info("Solicitud SAT aceptada — IdSolicitud: %s", id_solicitud)
+        logger.info("Solicitud SAT aceptada - IdSolicitud: %s", id_solicitud)
         return id_solicitud
 
     async def esperar_paquetes(
@@ -72,18 +71,18 @@ class SATClient:
             )
             codigo = estado.get("EstadoSolicitud")
             label = ESTADO_LABELS.get(codigo, str(codigo))
-            logger.info("SAT estado solicitud %s: %s — %s", id_solicitud, codigo, label)
+            logger.info("SAT estado solicitud %s: %s - %s", id_solicitud, codigo, label)
 
             if on_poll:
                 await on_poll(codigo, label)
 
             if codigo == ESTADO_LISTO:
                 ids_paquetes = estado.get("IdsPaquetes", [])
-                logger.info("Paquetes listos: %s — CFDIs: %s", ids_paquetes, estado.get("NumeroCFDIs"))
+                logger.info("Paquetes listos: %s - CFDIs: %s", ids_paquetes, estado.get("NumeroCFDIs"))
                 return ids_paquetes
 
             if codigo in ESTADOS_ERROR:
-                raise ValueError(f"SAT rechazo la solicitud — estado: {codigo} ({label})")
+                raise ValueError(f"SAT rechazo la solicitud - estado: {codigo} ({label})")
 
             await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
@@ -96,5 +95,5 @@ class SATClient:
             id_paquete=id_paquete,
         )
         zip_bytes = base64.b64decode(resultado[1])
-        logger.info("Paquete %s descargado — %d bytes", id_paquete, len(zip_bytes))
+        logger.info("Paquete %s descargado - %d bytes", id_paquete, len(zip_bytes))
         return zip_bytes
