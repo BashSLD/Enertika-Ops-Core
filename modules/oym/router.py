@@ -6,8 +6,8 @@ from fastapi import APIRouter, Request, Depends, Query
 from fastapi.templating import Jinja2Templates
 from uuid import UUID
 from typing import Optional
-from datetime import date
 from core.config import settings
+from core.timezone import today_mx
 
 from core.security import get_current_user_context
 from core.permissions import require_module_access
@@ -186,7 +186,7 @@ async def get_plantas_portfolio(
             "plantas": plantas,
             "resumen": resumen,
             "filtro": filtro,
-            "today": date.today(),
+            "today": today_mx(),
             "puede_editar": puede_editar,
         },
     )
