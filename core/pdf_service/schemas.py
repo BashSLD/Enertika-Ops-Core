@@ -5,8 +5,7 @@ Schemas Pydantic para el servicio de generacion PDF.
 from typing import Optional
 from pydantic import BaseModel, field_validator, model_validator
 import re
-from datetime import date
-import pytz
+from core.timezone import today_mx
 
 
 class VisitaObraData(BaseModel):
@@ -75,7 +74,5 @@ class VisitaObraData(BaseModel):
     @model_validator(mode="after")
     def set_fecha_default(self) -> "VisitaObraData":
         if not self.fecha:
-            tz = pytz.timezone("America/Mexico_City")
-            hoy = date.today()
-            self.fecha = hoy.strftime("%d/%m/%Y")
+            self.fecha = today_mx().strftime("%d/%m/%Y")
         return self
