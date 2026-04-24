@@ -6,6 +6,7 @@ Maneja la lógica de negocio para comprobantes de pago y facturas XML.
 
 from uuid import UUID, uuid4
 from datetime import datetime, date
+from core.timezone import today_mx
 from typing import List, Dict, Optional, Tuple, Any
 from fastapi import HTTPException
 from decimal import Decimal
@@ -875,7 +876,7 @@ class ComprasService:
             try:
                 fecha_factura = datetime.fromisoformat(fecha_str).date()
             except (ValueError, TypeError):
-                fecha_factura = date.today()
+                fecha_factura = today_mx()
 
             conceptos_dicts = [
                 {
