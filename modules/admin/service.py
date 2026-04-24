@@ -623,10 +623,11 @@ class AdminService:
         Si no se pasan fechas, usa la semana actual (lunes a viernes).
         Retorna: datos (métricas), fecha_inicio, fecha_fin (fecha_fin es exclusivo en la query).
         """
-        from datetime import date, timedelta
+        from datetime import timedelta
+        from core.timezone import today_mx
 
         if not fecha_inicio:
-            today = date.today()
+            today = today_mx()
             fecha_inicio = today - timedelta(days=today.weekday())  # Lunes
             fecha_fin = fecha_inicio + timedelta(days=5)            # Sábado (exclusivo → cubre L-V)
 
