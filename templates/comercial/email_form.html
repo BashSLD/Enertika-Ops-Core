@@ -87,14 +87,15 @@
                 {% if op.fecha_ideal_usuario %}
                 this.val = '{{ op.fecha_ideal_usuario.strftime('%Y-%m-%d') if op.fecha_ideal_usuario else '' }}';
                 {% else %}
+                const toLocalISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
                 const date = new Date();
                 date.setDate(date.getDate() + 7);
-                this.val = date.toISOString().split('T')[0];
+                this.val = toLocalISO(date);
                 {% endif %}
             },
             get minDate() {
-                const now = new Date();
-                return now.toISOString().split('T')[0];
+                const toLocalISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                return toLocalISO(new Date());
             },
             val: ''
         }" class="bg-blue-50 p-4 rounded-lg border border-blue-200">
