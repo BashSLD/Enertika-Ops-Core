@@ -54,7 +54,7 @@ from .report_models import (
     categorizar_usuario,
     calcular_score_usuario,
 )
-from .db_service import SimulacionDBService
+from .report_db_service import ReportDBService
 from core.config_service import ConfigService, UmbralesKPI
 
 logger = logging.getLogger("ReportesSimulacion")
@@ -77,7 +77,7 @@ class ReportesSimulacionService:
 
     def __init__(self):
         self.zona_mx = ZoneInfo("America/Mexico_City")
-        self.db = SimulacionDBService()
+        self.db = ReportDBService()
 
     # =========================================================================
     # MÉTODOS AUXILIARES
