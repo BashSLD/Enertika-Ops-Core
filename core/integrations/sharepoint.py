@@ -392,6 +392,28 @@ class SharePointService:
             resp.raise_for_status()
             return resp.content
 
+    async def download_file_by_path(self, relative_path: str) -> bytes:
+        """
+        Descarga un archivo por ruta relativa dentro del drive configurado.
+        Requiere self.site_id o self.drive_id ya asignados.
+        relative_path: ruta relativa desde la raiz, ej: 'FIEL/ISA/fiel.cer'
+        """
+        encoded = urllib.parse.quote(relative_path.strip("/"))
+        if self.drive_id:
+            url = f"{self.BASE_URL}/drives/{self.drive_id}/root:/{encoded}:/content"
+        elif self.site_id:
+            url = f"{self.BASE_URL}/sites/{self.site_id}/drive/root:/{encoded}:/content"
+        else:
+            raise ValueError("drive_id o site_id requerido en SharePointService")
+
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            resp = await client.get(url, headers=headers)
+            if resp.status_code == 404:
+                raise ValueError(f"Archivo no encontrado en SharePoint: {relative_path}")
+            resp.raise_for_status()
+            return resp.content
+
 
 def get_sharepoint_service(access_token: str = None):
     return SharePointService(access_token)
