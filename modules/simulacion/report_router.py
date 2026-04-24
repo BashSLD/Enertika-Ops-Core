@@ -23,10 +23,11 @@ from core.security import get_current_user_context
 from core.permissions import require_module_access
 
 from .report_service import (
-    ReportesSimulacionService, 
+    ReportesSimulacionService,
     get_reportes_service,
     FiltrosReporte
 )
+from core.charts.service import generar_charts_simulacion
 from core.config_service import ConfigService
 from core.config import settings
 
@@ -566,10 +567,7 @@ async def generar_reporte_pdf_automatico(
     pdf_service: PDFService = Depends(get_pdf_service),
     _=require_module_access("simulacion"),
 ):
-    """
-    Genera el PDF de simulación server-side sin captura del browser.
-    TODO: pasar charts cuando ReportesSimulacionService exponga get_graficas_pdf().
-    """
+    """Genera el PDF de simulación server-side con gráficas via QuickChart."""
     filtros = parse_filtros(
         start_date=fecha_inicio,
         end_date=fecha_fin or None,
@@ -578,9 +576,11 @@ async def generar_reporte_pdf_automatico(
         user_id="",
     )
     try:
+        graficas = await service.get_datos_graficas(conn, filtros)
+        charts = await generar_charts_simulacion(graficas)
         return await _generar_pdf_response(
             filtros=filtros,
-            charts={},
+            charts=charts,
             generado_por="Automatico",
             filename_prefix="reporte_simulacion_auto",
             conn=conn,
