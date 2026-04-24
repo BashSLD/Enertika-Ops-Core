@@ -46,6 +46,7 @@ import logging
 import re
 from datetime import datetime, date
 import pytz
+from core.timezone import today_mx
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
@@ -485,7 +486,7 @@ async def _build_cotizaciones_ctx(
         "filter_options": filter_options,
         "resumen": resumen,
         "alertas": alertas,
-        "fecha_hoy": date.today(),
+        "fecha_hoy": today_mx(),
     }
 
 
@@ -598,7 +599,7 @@ async def polizas_resumen(
             "tipo_filter": tipo_filter or "",
             "solicitante_id_filter": solicitante_id_filter or "",
             "filter_options": filter_options,
-            "fecha_hoy": date.today(),
+            "fecha_hoy": today_mx(),
         },
     )
 
@@ -677,7 +678,7 @@ async def update_estatus_resumen(
             "tipo_filter": "",
             "solicitante_id_filter": "",
             "filter_options": filter_options,
-            "fecha_hoy": date.today(),
+            "fecha_hoy": today_mx(),
         },
     )
 
@@ -1207,7 +1208,7 @@ async def plantas_ui(
         "plantas": plantas,
         "zonas": sorted(precios_zona.keys()),
         "q": q or "",
-        "today": date.today(),
+        "today": today_mx(),
     }
 
     if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
@@ -1337,7 +1338,7 @@ async def actualizar_planta(
     return templates.TemplateResponse(
         request, f"{TPL}/partials/plantas_tabla.html",
         {**_base_ctx(context, mod_role), "plantas": plantas,
-         "zonas": sorted(precios_zona.keys()), "q": "", "today": date.today()},
+         "zonas": sorted(precios_zona.keys()), "q": "", "today": today_mx()},
         headers={"HX-Trigger": "plantaSaved"},
     )
 
@@ -1445,7 +1446,7 @@ async def crear_planta(
     return templates.TemplateResponse(
         request, f"{TPL}/partials/plantas_tabla.html",
         {**_base_ctx(context, mod_role), "plantas": plantas,
-         "zonas": sorted(precios_zona.keys()), "q": "", "today": date.today()},
+         "zonas": sorted(precios_zona.keys()), "q": "", "today": today_mx()},
     )
 
 
@@ -1467,7 +1468,7 @@ async def toggle_planta(
     return templates.TemplateResponse(
         request, f"{TPL}/partials/plantas_tabla.html",
         {**_base_ctx(context, mod_role), "plantas": plantas,
-         "zonas": sorted(precios_zona.keys()), "q": "", "today": date.today()},
+         "zonas": sorted(precios_zona.keys()), "q": "", "today": today_mx()},
     )
 
 
@@ -1658,7 +1659,7 @@ async def import_excel(
         request, f"{TPL}/partials/plantas_tabla.html",
         {**_base_ctx(context, mod_role), "plantas": plantas,
          "zonas": sorted(precios_zona.keys()), "q": "",
-         "today": date.today(), "import_msg": msg, "import_type": toast_type},
+         "today": today_mx(), "import_msg": msg, "import_type": toast_type},
     )
 
 
@@ -1834,7 +1835,7 @@ async def renovar_cotizacion_modal(
             "cotizacion": cotizacion,
             "plantas": plantas,
             "usuarios_comercial": usuarios_comercial,
-            "fecha_hoy": date.today().isoformat(),
+            "fecha_hoy": today_mx().isoformat(),
         },
     )
 
@@ -1863,7 +1864,7 @@ async def aceptar_cotizacion_modal(
             "cotizacion_id": str(uid),
             "estatus_filter": estatus_filter,
             "page": page,
-            "fecha_hoy": date.today().isoformat(),
+            "fecha_hoy": today_mx().isoformat(),
         },
     )
 
@@ -1887,7 +1888,7 @@ async def cotizacion_info_modal(
         {
             **_base_ctx(context, mod_role),
             "cotizacion": cotizacion,
-            "fecha_hoy": date.today(),
+            "fecha_hoy": today_mx(),
         },
     )
 
