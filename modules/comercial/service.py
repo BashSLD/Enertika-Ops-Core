@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, date, time as dt_time
+from core.timezone import today_mx
 from uuid import UUID, uuid4
 from typing import List, Optional, Tuple
 import json
@@ -1230,7 +1231,7 @@ class ComercialService:
             fecha_inicio = gate['fecha_inicio_area']
             if hasattr(fecha_inicio, 'date'):
                 fecha_inicio = fecha_inicio.date()
-            dias_en_area = (date.today() - fecha_inicio).days
+            dias_en_area = (today_mx() - fecha_inicio).days
 
         return {
             'id_proyecto': str(gate['id_proyecto']),
