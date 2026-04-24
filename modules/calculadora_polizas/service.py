@@ -5,6 +5,8 @@ from datetime import date
 import logging
 import io
 
+from core.timezone import today_mx
+
 from .db_service import CalculadoraDBService
 from .schemas import CalcularRequest, CalcularResponse, ImportExcelResult
 
@@ -662,6 +664,6 @@ def tiene_garantia_produccion(
         return False
     if fecha_fin_anterior is None:
         return False
-    inicio = fecha_inicio or date.today()
+    inicio = fecha_inicio or today_mx()
     # 6 meses ≈ 183 días (contamos desde vencimiento anterior hasta inicio de nueva)
     return (inicio - fecha_fin_anterior).days <= 183
