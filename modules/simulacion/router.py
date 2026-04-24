@@ -29,6 +29,7 @@ from modules.shared.services import SiteService
 
 from .metrics_service import MetricsService, get_metrics_service
 from datetime import datetime, timedelta
+from core.timezone import today_mx
 
 # Helper para conversión segura
 def _safe_int(val: Optional[str]) -> Optional[int]:
@@ -266,12 +267,11 @@ async def get_graphs_partial(
 ):
     """Partial: Tab de gráficas y reportes interactivos."""
     from .report_service import ReportesSimulacionService, FiltrosReporte, get_reportes_service
-    from datetime import date
-    
+
     # Instanciar servicio de reportes
     report_service = ReportesSimulacionService()
-    
-    today = date.today()
+
+    today = today_mx()
     
     # Default: Start of current Year
     start_date = today.replace(month=1, day=1)

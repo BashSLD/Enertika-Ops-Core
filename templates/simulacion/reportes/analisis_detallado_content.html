@@ -82,9 +82,10 @@ function initPdfCharts() {
         },
         limpiarFiltros() {
             const now = new Date();
+            const toLocalISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
             const firstDay = new Date(now.getFullYear(), now.getMonth(), 1);
-            this.filtros.fecha_inicio = firstDay.toISOString().split('T')[0];
-            this.filtros.fecha_fin = now.toISOString().split('T')[0];
+            this.filtros.fecha_inicio = toLocalISO(firstDay);
+            this.filtros.fecha_fin = toLocalISO(now);
             this.filtros.tecnologia = '';
             this.filtros.tipo = '';
             this.filtros.estatus = '';
