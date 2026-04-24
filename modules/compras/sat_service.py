@@ -17,8 +17,6 @@ from modules.compras.xml_extractor import parse_cfdi_xml
 
 logger = logging.getLogger("ComprasSATService")
 
-ESTADOS_TERMINALES = {"completado", "error"}
-
 
 async def _get_sat_sp_config(conn: asyncpg.Connection) -> tuple[str, str, str]:
     """
@@ -127,6 +125,9 @@ async def listar_inbox(
     where = f"WHERE {' AND '.join(filtros)}" if filtros else ""
     offset = (page - 1) * page_size
 
+    n_params = len(params)
+    params.extend([page_size, offset])
+
     rows = await conn.fetch(
         f"""
         SELECT i.id, i.uuid_cfdi, i.rfc_emisor, i.nombre_emisor,
@@ -135,12 +136,12 @@ async def listar_inbox(
         FROM tb_sat_inbox i
         {where}
         ORDER BY i.created_at DESC
-        LIMIT {page_size} OFFSET {offset}
+        LIMIT ${n_params + 1} OFFSET ${n_params + 2}
         """,
         *params,
     )
     count_row = await conn.fetchrow(
-        f"SELECT COUNT(*) FROM tb_sat_inbox i {where}", *params
+        f"SELECT COUNT(*) FROM tb_sat_inbox i {where}", *params[:n_params]
     )
     return [dict(r) for r in rows], count_row[0]
 
@@ -159,11 +160,13 @@ async def marcar_matcheado(
     inbox_id: UUID,
     factura_id: int,
 ) -> None:
-    await conn.execute(
+    result = await conn.execute(
         "UPDATE tb_sat_inbox SET estado = 'matcheado', factura_id = $2, updated_at = NOW() "
         "WHERE id = $1",
         inbox_id, factura_id,
     )
+    if result == "UPDATE 0":
+        raise ValueError(f"Item de inbox no encontrado: {inbox_id}")
 
 
 async def descargar_xml_de_inbox(
