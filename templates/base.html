@@ -611,54 +611,53 @@
 
             </nav>
 
-            <!-- AYUDA -->
-            <div class="pb-2 border-t border-blue-900/30 mt-2">
-                <div class="relative group">
-                    <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend"
-                        class="module-link flex items-center gap-3 py-2.5 px-3 rounded-lg hover:bg-blue-800/50 transition-all duration-200 overflow-hidden w-full"
-                        :class="sidebarOpen ? 'justify-start' : 'justify-center'" title="Ayuda y Documentación">
-                        <span class="module-icon text-lg">❓</span>
-                        <span class="font-medium whitespace-nowrap" x-show="sidebarOpen">Ayuda</span>
-                    </button>
+            <!-- COLLAPSE TOGGLE -->
+            <button @click="sidebarOpen = !sidebarOpen"
+                    :title="sidebarOpen ? 'Colapsar' : 'Expandir'"
+                    style="width:100%;height:32px;border:0;cursor:pointer;background:rgba(0,0,0,0.2);border-top:1px solid var(--e-line);color:var(--e-text-dim);display:grid;place-items:center;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+                     :style="sidebarOpen ? '' : 'transform:rotate(180deg)'"
+                     style="transition:transform .2s;">
+                    <path d="M15 6l-6 6 6 6"/>
+                </svg>
+            </button>
 
-                    <div x-show="!sidebarOpen"
-                        class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
-                        Ayuda y Documentación
-                        <!-- Flecha del Tooltip (Color ajustado) -->
-                        <div
-                            class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-[#1f2937]">
-                        </div>
+            <!-- USER FOOTER -->
+            <div style="border-top:1px solid var(--e-line);padding:10px 10px 12px;">
+                <div style="display:flex;align-items:center;gap:10px;padding:4px 6px;">
+                    <div style="width:30px;height:30px;border-radius:999px;background:rgba(0,186,187,0.15);color:#00BABB;border:1px solid rgba(0,186,187,0.3);display:grid;place-items:center;font-size:11px;font-weight:700;font-family:'JetBrains Mono',monospace;flex-shrink:0;">
+                        {{ (user_name[:2] | upper) if user_name else 'OP' }}
+                    </div>
+                    <div x-show="sidebarOpen" style="flex:1;min-width:0;">
+                        <div style="font-size:12.5px;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ user_name }}</div>
+                        <div style="font-size:10.5px;color:var(--e-text-faint);">{{ role | lower | capitalize }}</div>
+                    </div>
+                    <div x-show="sidebarOpen" style="display:flex;gap:4px;flex-shrink:0;">
+                        <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend"
+                                title="Ayuda y Documentacion"
+                                style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                <circle cx="12" cy="12" r="9"/>
+                                <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7M12 17h.01"/>
+                            </svg>
+                        </button>
+                        <a href="/auth/logout" title="Cerrar sesion"
+                           style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:#ff9a9a;cursor:pointer;display:grid;place-items:center;text-decoration:none;">
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11"/>
+                            </svg>
+                        </a>
                     </div>
                 </div>
-            </div>
-
-            <!-- TOGGLE BUTTON -->
-            <div class="flex justify-center items-center h-11 border-t border-blue-900 bg-[#0E2A47] cursor-pointer hover:bg-blue-800/50 transition-colors"
-                @click="sidebarOpen = !sidebarOpen">
-                <svg class="w-6 h-6 text-blue-300 transform transition-transform duration-300"
-                    :class="sidebarOpen ? 'rotate-0' : 'rotate-180'" fill="none" stroke="currentColor"
-                    viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
-                </svg>
-            </div>
-
-            <!-- LOGOUT -->
-            <div class="p-2 bg-[#0E2A47] border-t border-blue-900">
-                <div class="relative group">
-                    <a href="/auth/logout"
-                        class="flex items-center gap-2 w-full min-h-[44px] py-2 px-3 rounded-lg bg-red-900/20 text-red-200 hover:bg-red-900/40 transition-all duration-200 text-sm overflow-hidden">
-                        <span class="text-lg">🚪</span>
-                        <span class="whitespace-nowrap" x-show="sidebarOpen">Cerrar Sesión</span>
-                    </a>
-
-                    <div x-show="!sidebarOpen"
-                        class="absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 bg-red-900 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl border border-red-800">
-                        Cerrar Sesión
-                        <div
-                            class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-red-900">
-                        </div>
-                    </div>
+                <div x-show="!sidebarOpen" style="display:flex;justify-content:center;margin-top:6px;">
+                    <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend"
+                            title="Ayuda"
+                            style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                            <circle cx="12" cy="12" r="9"/>
+                            <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7M12 17h.01"/>
+                        </svg>
+                    </button>
                 </div>
             </div>
         </aside>
