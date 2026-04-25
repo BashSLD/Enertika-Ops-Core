@@ -15,6 +15,7 @@ from core.tasks import (
     check_recordatorios_levantamientos_periodically,
     check_recordatorios_oportunidad_ganada_periodically,
     send_reporte_desarrollo_ceo_periodically,
+    sat_inbox_cleanup_periodically,
 )
 
 logging.basicConfig(
@@ -49,6 +50,7 @@ async def main():
         asyncio.create_task(check_recordatorios_levantamientos_periodically()),
         asyncio.create_task(check_recordatorios_oportunidad_ganada_periodically()),
         asyncio.create_task(send_reporte_desarrollo_ceo_periodically()),
+        asyncio.create_task(sat_inbox_cleanup_periodically()),
     ]
 
     logger.info("[WORKER] %d tareas activas", len(tasks))

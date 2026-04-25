@@ -699,3 +699,60 @@ async def check_recordatorios_oportunidad_ganada_periodically(interval_seconds: 
             logger.error("[OPP_GANADA_REMINDER] Error de BD: %s", e)
         except Exception as e:
             logger.error("[OPP_GANADA_REMINDER] Error inesperado: %s", e, exc_info=True)
+
+
+async def sat_inbox_cleanup_periodically(interval_seconds: int = 604800):
+    from core.database import get_db_pool
+    from core.microsoft import get_ms_auth
+
+    while True:
+        await asyncio.sleep(interval_seconds)
+        logger.info("[SAT Cleanup] Iniciando limpieza de inbox SAT")
+        pool = await get_db_pool()
+        try:
+            async with pool.acquire() as conn:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, sharepoint_url FROM tb_sat_inbox
+                    WHERE estado IN ('matcheado', 'descartado')
+                      AND updated_at < NOW() - INTERVAL '30 days'
+                      AND sharepoint_url != ''
+                    """
+                )
+                if rows:
+                    for row in rows:
+                        logger.info("[SAT Cleanup] XML SP pendiente borrado manual: %s", row["sharepoint_url"])
+
+                deleted = await conn.execute(
+                    """
+                    DELETE FROM tb_sat_inbox
+                    WHERE estado IN ('matcheado', 'descartado')
+                      AND updated_at < NOW() - INTERVAL '30 days'
+                    """
+                )
+                logger.info("[SAT Cleanup] Registros matcheados/descartados eliminados: %s", deleted)
+
+                deleted_old = await conn.execute(
+                    """
+                    DELETE FROM tb_sat_inbox
+                    WHERE estado = 'pendiente'
+                      AND created_at < NOW() - INTERVAL '90 days'
+                    """
+                )
+                logger.info("[SAT Cleanup] Registros pendientes antiguos eliminados: %s", deleted_old)
+
+                await conn.execute(
+                    """
+                    DELETE FROM tb_sat_jobs j
+                    WHERE j.created_at < NOW() - INTERVAL '90 days'
+                      AND NOT EXISTS (
+                        SELECT 1 FROM tb_sat_inbox i
+                        WHERE i.job_id = j.id AND i.estado = 'pendiente'
+                      )
+                    """
+                )
+
+        except asyncpg.PostgresError as e:
+            logger.error("[SAT Cleanup] Error BD en limpieza: %s", e)
+        except Exception as e:
+            logger.error("[SAT Cleanup] Error inesperado en limpieza: %s", e, exc_info=True)

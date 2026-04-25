@@ -85,15 +85,23 @@
         </div>
 
         <!-- Footer -->
-        <div class="bg-gray-50 px-6 py-3 flex justify-end gap-3 rounded-b-xl">
-            <button type="button" onclick="clearXmlUploadModal()"
-                class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
-                Cerrar
-            </button>
-            <button type="submit" form="upload-xml-form" id="xml-upload-submit-btn" disabled
-                class="px-4 py-2 text-sm font-medium text-white bg-orange-500 rounded-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed">
-                Procesar XMLs
-            </button>
+        <div class="bg-gray-50 px-6 py-3 flex items-center justify-between gap-3 rounded-b-xl">
+            <a href="/compras/sat/ui"
+               hx-get="/compras/sat/ui" hx-target="#main-content" hx-push-url="true"
+               onclick="clearXmlUploadModal()"
+               class="text-sm font-medium text-blue-600 hover:text-blue-800">
+                Inbox SAT
+            </a>
+            <div class="flex gap-3">
+                <button type="button" onclick="clearXmlUploadModal()"
+                    class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Cerrar
+                </button>
+                <button type="submit" form="upload-xml-form" id="xml-upload-submit-btn" disabled
+                    class="px-4 py-2 text-sm font-medium text-white bg-orange-500 rounded-lg hover:bg-orange-600 disabled:opacity-50 disabled:cursor-not-allowed">
+                    Procesar XMLs
+                </button>
+            </div>
         </div>
     </div>
 </div>
