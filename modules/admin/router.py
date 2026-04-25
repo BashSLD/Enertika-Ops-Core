@@ -1022,6 +1022,14 @@ async def probar_fiel(
     sat_site_id = config.get("sp_sat_site_id") or settings.SP_SAT_SITE_ID
     sat_drive_id = config.get("sp_sat_drive_id") or settings.SP_SAT_DRIVE_ID
 
+    if not sat_site_id or not sat_drive_id:
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"mensaje": "Configura SP_SAT_SITE_ID y SP_SAT_DRIVE_ID antes de probar la FIEL", "tipo": "error"},
+            headers={"HX-Reswap": "none"},
+        )
+
     try:
         rfc = await probar_conexion_fiel(conn, sat_site_id, sat_drive_id)
         mensaje = f"FIEL cargada correctamente - RFC: {rfc}"

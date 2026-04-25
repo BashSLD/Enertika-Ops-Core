@@ -131,6 +131,7 @@ async def job_status(
 async def descartar_item(
     request: Request,
     inbox_id: UUID,
+    estado: str = "pendiente",
     conn=Depends(get_db_connection),
     _=Depends(require_module_access("compras", "editor")),
 ):
@@ -153,11 +154,76 @@ async def descartar_item(
             status_code=500,
             headers={"HX-Reswap": "none"},
         )
-    items, total = await sat_service.listar_inbox(conn)
+    items, total = await sat_service.listar_inbox(conn, estado=estado)
     return templates.TemplateResponse(
         request,
         "compras/partials/sat_inbox_table.html",
-        {"items": items, "total": total},
+        {"items": items, "total": total, "estado_filtro": estado},
+    )
+
+
+@router.get("/buscar-comprobantes", response_class=HTMLResponse)
+async def buscar_comprobantes(
+    request: Request,
+    q: str = "",
+    conn=Depends(get_db_connection),
+    _=Depends(require_module_access("compras", "editor")),
+):
+    if len(q.strip()) < 2:
+        return HTMLResponse('<p class="text-xs text-gray-400 py-2 px-1">Escribe al menos 2 caracteres...</p>')
+    results = await sat_service.buscar_comprobantes_match(conn, q.strip())
+    return templates.TemplateResponse(
+        request,
+        "compras/partials/sat_match_results.html",
+        {"results": results},
+    )
+
+
+@router.post("/inbox/{inbox_id}/match", response_class=HTMLResponse)
+async def confirmar_match(
+    request: Request,
+    inbox_id: UUID,
+    conn=Depends(get_db_connection),
+    _=Depends(require_module_access("compras", "editor")),
+):
+    form = await request.form()
+    comprobante_id_str = (form.get("comprobante_id") or "").strip()
+    try:
+        comprobante_id = UUID(comprobante_id_str)
+    except ValueError:
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"mensaje": "Selecciona un comprobante antes de confirmar", "tipo": "error"},
+            status_code=400,
+            headers={"HX-Reswap": "none"},
+        )
+
+    try:
+        await sat_service.marcar_matcheado(conn, inbox_id, comprobante_id)
+    except ValueError as e:
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"mensaje": str(e), "tipo": "error"},
+            status_code=400,
+            headers={"HX-Reswap": "none"},
+        )
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al confirmar match inbox %s", inbox_id)
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"mensaje": "Error de base de datos. Intenta de nuevo.", "tipo": "error"},
+            status_code=500,
+            headers={"HX-Reswap": "none"},
+        )
+
+    items, total = await sat_service.listar_inbox(conn, estado="pendiente")
+    return templates.TemplateResponse(
+        request,
+        "compras/partials/sat_inbox_table.html",
+        {"items": items, "total": total, "estado_filtro": "pendiente"},
     )
 
 

@@ -19,6 +19,14 @@ class FielConfig:
     sp_path_key: str
     password_fiel: str
 
+    def __repr__(self) -> str:
+        return (
+            f"FielConfig(empresa={self.empresa!r}, "
+            f"sp_path_cer={self.sp_path_cer!r}, "
+            f"sp_path_key={self.sp_path_key!r}, "
+            f"password_fiel='***')"
+        )
+
 
 async def cargar_fiel_config(conn: asyncpg.Connection) -> FielConfig:
     """Lee la configuracion FIEL activa de tb_sat_fiel_config."""

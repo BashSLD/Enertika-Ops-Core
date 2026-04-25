@@ -1,11 +1,12 @@
 import asyncio
+import io
 import logging
-import tempfile
 import zipfile
 from datetime import date
 from uuid import UUID
 
 import asyncpg
+import httpx
 
 from core.config import settings
 from core.integrations.sharepoint import SharePointService
@@ -34,7 +35,15 @@ async def _get_sat_sp_config(conn: asyncpg.Connection) -> tuple[str, str, str]:
     return site_id, drive_id, base_folder
 
 
+_ALLOWED_JOB_FIELDS = frozenset({
+    "estado", "id_solicitud_sat", "cfdi_encontrados", "cfdi_duplicados", "mensaje_error",
+})
+
+
 async def _actualizar_job(conn: asyncpg.Connection, job_id: UUID, **kwargs) -> None:
+    invalid = set(kwargs) - _ALLOWED_JOB_FIELDS
+    if invalid:
+        raise ValueError(f"Campos de job no permitidos: {invalid}")
     sets = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(kwargs))
     values = list(kwargs.values())
     await conn.execute(
@@ -177,7 +186,6 @@ async def descargar_xml_de_inbox(
     Descarga el XML de SharePoint para un item del inbox.
     Retorna (xml_bytes, uuid_cfdi).
     """
-    import httpx
     row = await conn.fetchrow(
         "SELECT sharepoint_url, uuid_cfdi FROM tb_sat_inbox WHERE id = $1 AND estado = 'pendiente'",
         inbox_id,
@@ -201,6 +209,32 @@ async def descargar_xml_de_inbox(
 async def obtener_cfdi_inbox(conn: asyncpg.Connection, inbox_id: UUID):
     xml_bytes, uuid_cfdi = await descargar_xml_de_inbox(conn, inbox_id)
     return parse_cfdi_xml(xml_bytes, f"{uuid_cfdi}.xml")
+
+
+async def buscar_comprobantes_match(
+    conn: asyncpg.Connection,
+    q: str,
+    limit: int = 10,
+) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT c.id_comprobante, c.fecha_pago, c.beneficiario_orig, c.monto, c.moneda,
+               p.razon_social AS proveedor_nombre, p.rfc AS proveedor_rfc
+        FROM tb_comprobantes_pago c
+        LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
+        WHERE c.estatus = 'PENDIENTE'
+          AND (
+            c.beneficiario_orig ILIKE $1
+            OR p.rfc ILIKE $1
+            OR p.razon_social ILIKE $1
+          )
+        ORDER BY c.fecha_pago DESC
+        LIMIT $2
+        """,
+        f"%{q}%",
+        limit,
+    )
+    return [dict(r) for r in rows]
 
 
 async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date) -> None:
@@ -253,11 +287,7 @@ async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date) -
             zip_bytes = await client.descargar_paquete(id_paquete)
             await update(estado="procesando")
 
-            with tempfile.NamedTemporaryFile(suffix=".zip", delete=True) as tmp:
-                tmp.write(zip_bytes)
-                tmp.flush()
-
-                with zipfile.ZipFile(tmp.name) as zf:
+            with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
                     for nombre in zf.namelist():
                         if not nombre.lower().endswith(".xml"):
                             continue

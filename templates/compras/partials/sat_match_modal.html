@@ -1,14 +1,26 @@
 <div id="sat-match-modal-container">
-  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" x-data="{ open: true }" x-show="open">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+       x-data="{ open: true, selectedId: '', selectedLabel: '' }"
+       x-show="open"
+       x-init="$nextTick(() => $refs.searchInput.dispatchEvent(new Event('input')))">
     <div class="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 flex flex-col max-h-[90dvh]">
+
+      <!-- Header -->
       <div class="px-6 py-4 border-b flex items-center justify-between">
         <h3 class="font-semibold text-gray-900">Procesar CFDI del SAT</h3>
-        <button @click="open = false; document.getElementById('sat-match-modal-container').innerHTML = ''"
+        <button type="button"
+          @click="open = false; setTimeout(() => document.getElementById('sat-match-modal-container').innerHTML = '', 250)"
           class="text-gray-400 hover:text-gray-600">
-          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
         </button>
       </div>
-      <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3 text-sm">
+
+      <!-- Body -->
+      <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4 text-sm">
+
+        <!-- Datos del CFDI -->
         <div class="grid grid-cols-2 gap-3">
           <div>
             <p class="text-xs text-gray-500">UUID</p>
@@ -35,18 +47,57 @@
             <p class="text-gray-700">{{ cfdi.tipo_factura.value if cfdi.tipo_factura else '—' }}</p>
           </div>
         </div>
-        <p class="text-xs text-gray-500 pt-2">
-          Este CFDI se procesara con el mismo flujo de matching que el upload manual.
-          Selecciona la orden de compra correspondiente.
-        </p>
-        <div class="rounded bg-amber-50 border border-amber-200 p-3 text-xs text-amber-700">
-          Integracion con modal de matching existente — pendiente de implementar.
+
+        <hr class="border-gray-100">
+
+        <!-- Buscar comprobante -->
+        <div>
+          <label class="block text-xs font-medium text-gray-700 mb-1">Vincular a comprobante</label>
+          <input
+            x-ref="searchInput"
+            name="q"
+            type="text"
+            value="{{ cfdi.emisor_rfc }}"
+            placeholder="RFC, proveedor o beneficiario..."
+            hx-get="/compras/sat/buscar-comprobantes"
+            hx-trigger="input delay:400ms"
+            hx-target="#match-search-results"
+            class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+          <div id="match-search-results"
+               class="mt-1 max-h-44 overflow-y-auto rounded-lg border border-gray-200 bg-white empty:hidden">
+          </div>
         </div>
+
+        <!-- Comprobante seleccionado -->
+        <div x-show="selectedId"
+             class="rounded-lg bg-blue-50 border border-blue-200 px-3 py-2 text-xs text-blue-800">
+          Seleccionado: <span class="font-medium" x-text="selectedLabel"></span>
+        </div>
+
       </div>
-      <div class="px-6 py-4 border-t flex justify-end gap-3">
-        <button @click="open = false; document.getElementById('sat-match-modal-container').innerHTML = ''"
-          class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
-      </div>
+
+      <!-- Footer con form de confirmacion -->
+      <form
+        hx-post="/compras/sat/inbox/{{ inbox_id }}/match"
+        hx-target="#sat-inbox-table"
+        hx-swap="outerHTML"
+        hx-on::after-request="if(event.detail.successful) document.getElementById('sat-match-modal-container').innerHTML = ''"
+        class="px-6 py-4 border-t flex justify-end gap-3"
+      >
+        <input type="hidden" name="comprobante_id" :value="selectedId">
+        <button type="button"
+          @click="open = false; setTimeout(() => document.getElementById('sat-match-modal-container').innerHTML = '', 250)"
+          class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
+          Cancelar
+        </button>
+        <button type="submit"
+          :disabled="!selectedId"
+          class="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
+          Confirmar match
+        </button>
+      </form>
+
     </div>
   </div>
 </div>

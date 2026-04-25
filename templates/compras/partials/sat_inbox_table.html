@@ -41,7 +41,7 @@
             >Procesar</button>
             {% elif item.estado == 'duplicado' %}
             <button
-              hx-post="/compras/sat/inbox/{{ item.id }}/descartar"
+              hx-post="/compras/sat/inbox/{{ item.id }}/descartar?estado={{ estado_filtro | default('pendiente') }}"
               hx-target="#sat-inbox-table"
               hx-swap="outerHTML"
               hx-confirm="Descartar este CFDI del inbox?"
