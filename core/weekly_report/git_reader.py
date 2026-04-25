@@ -4,7 +4,7 @@ import shutil
 import subprocess
 import json
 from urllib import request, parse
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from core.config import settings
@@ -52,12 +52,19 @@ _SKIP_TYPES = {"chore", "docs", "style", "test"}
 _COMMIT_RE = re.compile(r"^(\w+)\(([^)]+)\):\s*(.+)$")
 
 
-def _semana_actual() -> tuple[date, date]:
+def _semana_actual() -> tuple[datetime, datetime]:
+    """Ventana de fetch: viernes anterior 18:00 MX → este viernes 18:00 MX (exclusivo)."""
     mx = ZoneInfo("America/Mexico_City")
-    from datetime import datetime
-    today = datetime.now(mx).date()
-    lunes = today - timedelta(days=today.weekday())
-    return lunes, today + timedelta(days=1)  # until es exclusivo en git
+    now = datetime.now(mx)
+    today = now.date()
+    dias_desde_viernes = (today.weekday() - 4) % 7
+    viernes_actual = today - timedelta(days=dias_desde_viernes)
+    viernes_anterior = viernes_actual - timedelta(days=7)
+    since = datetime(viernes_anterior.year, viernes_anterior.month, viernes_anterior.day,
+                     18, 0, 0, tzinfo=mx)
+    until = datetime(viernes_actual.year, viernes_actual.month, viernes_actual.day,
+                     18, 0, 0, tzinfo=mx)
+    return since, until
 
 
 def _collect_stats(raw_commits: list[str]) -> tuple[dict, int, int, int]:
@@ -127,7 +134,7 @@ def _read_commits_local(since: date, until: date) -> list[str]:
     return [l.strip() for l in result.stdout.splitlines() if l.strip()]
 
 
-def _read_commits_github(since: date, until: date) -> list[str]:
+def _read_commits_github(since, until) -> list[str]:
     """Lee commits desde GitHub API (repos/{owner}/{repo}/commits)."""
     token = settings.GITHUB_TOKEN.strip()
     repo = settings.GITHUB_REPO.strip()
@@ -144,10 +151,19 @@ def _read_commits_github(since: date, until: date) -> list[str]:
 
     owner, repo_name = repo.split("/", 1)
 
-    # GitHub usa timestamps UTC ISO8601; until en nuestra logica es exclusivo.
-    since_iso = f"{since.isoformat()}T00:00:00Z"
-    until_inclusive = until - timedelta(days=1)
-    until_iso = f"{until_inclusive.isoformat()}T23:59:59Z"
+    utc = ZoneInfo("UTC")
+    mx = ZoneInfo("America/Mexico_City")
+
+    if isinstance(since, datetime):
+        since_iso = since.astimezone(utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    else:
+        since_iso = datetime(since.year, since.month, since.day, 0, 0, 0, tzinfo=mx).astimezone(utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    if isinstance(until, datetime):
+        until_iso = until.astimezone(utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    else:
+        until_inclusive = until - timedelta(days=1)
+        until_iso = datetime(until_inclusive.year, until_inclusive.month, until_inclusive.day, 23, 59, 59, tzinfo=mx).astimezone(utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     commits: list[str] = []
     page = 1
@@ -211,21 +227,32 @@ def _read_commits_github(since: date, until: date) -> list[str]:
     return commits
 
 
-def get_weekly_commits(since: date = None, until: date = None) -> dict:
+def get_weekly_commits(since=None, until=None) -> dict:
     """
     Lee commits de la semana actual (o del rango dado) y los agrupa por módulo.
 
     Retorna:
-        semana_inicio: date
-        semana_fin: date
+        semana_inicio: date  — lunes de la semana (display)
+        semana_fin: date     — viernes de la semana (display)
         total_commits: int
         feats: int
         fixes: int
         otros: int
         modulos: dict[str, list[dict]]  — solo feat/fix/perf/refactor
     """
+    display_since: date
+    display_until: date
+
     if not since:
         since, until = _semana_actual()
+        # Display: lunes–viernes de la semana actual, independiente de la ventana de fetch
+        mx = ZoneInfo("America/Mexico_City")
+        today = datetime.now(mx).date()
+        display_since = today - timedelta(days=today.weekday())      # lunes
+        display_until = display_since + timedelta(days=4)            # viernes
+    else:
+        display_since = since.date() if isinstance(since, datetime) else since
+        display_until = (until.date() - timedelta(days=1)) if isinstance(until, datetime) else until - timedelta(days=1)
 
     raw_commits: list[str]
     github_configured = bool(settings.GITHUB_TOKEN.strip() and settings.GITHUB_REPO.strip())
@@ -244,8 +271,8 @@ def get_weekly_commits(since: date = None, until: date = None) -> dict:
     modulos_sorted, feats, fixes, otros = _collect_stats(raw_commits)
 
     return {
-        "semana_inicio": since,
-        "semana_fin": until - timedelta(days=1),
+        "semana_inicio": display_since,
+        "semana_fin": display_until,
         "total_commits": len(raw_commits),
         "feats": feats,
         "fixes": fixes,
