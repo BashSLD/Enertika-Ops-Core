@@ -3,6 +3,7 @@ import logging
 from datetime import date
 from uuid import UUID
 
+import asyncpg
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
@@ -11,7 +12,6 @@ from core.database import get_db_connection
 from core.permissions import require_module_access
 from core.security import get_current_user_context
 from modules.compras import sat_service
-from modules.compras.xml_extractor import parse_cfdi_xml
 
 logger = logging.getLogger("ComprasSATRouter")
 
@@ -69,6 +69,14 @@ async def iniciar_job(
             status_code=400,
         )
 
+    if fecha_fin < fecha_inicio:
+        return templates.TemplateResponse(
+            request,
+            "compras/partials/sat_job_status.html",
+            {"error": "La fecha fin no puede ser anterior a la fecha inicio."},
+            status_code=400,
+        )
+
     if await sat_service.hay_job_activo(conn):
         return templates.TemplateResponse(
             request,
@@ -104,6 +112,14 @@ async def job_status(
             {"error": "Job no encontrado."},
             status_code=404,
         )
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al obtener estado del job %s", job_id)
+        return templates.TemplateResponse(
+            request,
+            "compras/partials/sat_job_status.html",
+            {"error": "Error de base de datos. Intenta de nuevo."},
+            status_code=500,
+        )
     return templates.TemplateResponse(
         request,
         "compras/partials/sat_job_status.html",
@@ -116,7 +132,6 @@ async def descartar_item(
     request: Request,
     inbox_id: UUID,
     conn=Depends(get_db_connection),
-    user=Depends(get_current_user_context),
     _=Depends(require_module_access("compras", "editor")),
 ):
     try:
@@ -127,6 +142,15 @@ async def descartar_item(
             "shared/toast.html",
             {"mensaje": str(e), "tipo": "error"},
             status_code=404,
+            headers={"HX-Reswap": "none"},
+        )
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al descartar item %s", inbox_id)
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"mensaje": "Error de base de datos. Intenta de nuevo.", "tipo": "error"},
+            status_code=500,
             headers={"HX-Reswap": "none"},
         )
     items, total = await sat_service.listar_inbox(conn)
@@ -142,18 +166,25 @@ async def procesar_item(
     request: Request,
     inbox_id: UUID,
     conn=Depends(get_db_connection),
-    user=Depends(get_current_user_context),
     _=Depends(require_module_access("compras", "editor")),
 ):
     try:
-        xml_bytes, uuid_cfdi = await sat_service.descargar_xml_de_inbox(conn, inbox_id)
-        cfdi = parse_cfdi_xml(xml_bytes, f"{uuid_cfdi}.xml")
+        cfdi = await sat_service.obtener_cfdi_inbox(conn, inbox_id)
     except ValueError as e:
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
             {"mensaje": str(e), "tipo": "error"},
             status_code=400,
+            headers={"HX-Reswap": "none"},
+        )
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al procesar inbox item %s", inbox_id)
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"mensaje": "Error de base de datos. Intenta de nuevo.", "tipo": "error"},
+            status_code=500,
             headers={"HX-Reswap": "none"},
         )
 

@@ -73,7 +73,7 @@ async def crear_job(
     conn: asyncpg.Connection,
     fecha_inicio: date,
     fecha_fin: date,
-    usuario_id: int,
+    usuario_id: UUID,
 ) -> UUID:
     row = await conn.fetchrow(
         """
@@ -132,7 +132,7 @@ async def listar_inbox(
         f"""
         SELECT i.id, i.uuid_cfdi, i.rfc_emisor, i.nombre_emisor,
                i.fecha_cfdi, i.total, i.moneda, i.estado,
-               i.factura_id, i.sharepoint_url, i.created_at
+               i.comprobante_id, i.sharepoint_url, i.created_at
         FROM tb_sat_inbox i
         {where}
         ORDER BY i.created_at DESC
@@ -158,12 +158,12 @@ async def descartar_inbox_item(conn: asyncpg.Connection, inbox_id: UUID) -> None
 async def marcar_matcheado(
     conn: asyncpg.Connection,
     inbox_id: UUID,
-    factura_id: int,
+    comprobante_id: UUID,
 ) -> None:
     result = await conn.execute(
-        "UPDATE tb_sat_inbox SET estado = 'matcheado', factura_id = $2, updated_at = NOW() "
+        "UPDATE tb_sat_inbox SET estado = 'matcheado', comprobante_id = $2, updated_at = NOW() "
         "WHERE id = $1",
-        inbox_id, factura_id,
+        inbox_id, comprobante_id,
     )
     if result == "UPDATE 0":
         raise ValueError(f"Item de inbox no encontrado: {inbox_id}")
@@ -196,6 +196,11 @@ async def descargar_xml_de_inbox(
         )
         resp.raise_for_status()
         return resp.content, row["uuid_cfdi"]
+
+
+async def obtener_cfdi_inbox(conn: asyncpg.Connection, inbox_id: UUID):
+    xml_bytes, uuid_cfdi = await descargar_xml_de_inbox(conn, inbox_id)
+    return parse_cfdi_xml(xml_bytes, f"{uuid_cfdi}.xml")
 
 
 async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date) -> None:
