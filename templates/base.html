@@ -197,7 +197,7 @@
         }
 
         /* Smooth transitions — acotado a elementos interactivos para no afectar rendimiento */
-        a, button, [class*="transition"], [class*="module-link"] {
+        a, button, [class*="transition"] {
             transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
         }
 
@@ -497,140 +497,118 @@
             </div>
 
             <!-- NAVIGATION -->
-            <nav class="flex-1 space-y-1 overflow-y-auto overflow-x-hidden text-sm transition-all duration-300 py-3"
-                :class="sidebarOpen ? 'px-3 custom-scrollbar' : 'px-2 no-scrollbar'">
+            <nav class="flex-1 overflow-y-auto overflow-x-hidden py-3 custom-scrollbar">
+
                 {% set module_groups = [
-                {
-                "key": "operaciones",
-                "name": "OPERACIONES",
-                "modules": [
-                {"slug": "comercial", "name": "Comercial", "icon": "💼", "url": "/comercial/ui"},
-                {"slug": "simulacion", "name": "Simulación", "icon": "⚡", "url": "/simulacion/ui"},
-                {"slug": "levantamientos", "name": "Levantamientos", "icon": "📋", "url": "/levantamientos/ui"}
-                ]
-                },
-                {
-                "key": "proyectos",
-                "name": "PROYECTOS",
-                "modules": [
-                {"slug": "proyectos", "name": "Proyectos", "icon": "📁", "url": "/proyectos/ui"},
-                {"slug": "ingenieria", "name": "Ingeniería", "icon": "🏗️", "url": "/ingenieria/ui"},
-                {"slug": "construccion", "name": "Construcción", "icon": "🚧", "url": "/construccion/ui"},
-                {"slug": "compras", "name": "Compras", "icon": "🛒", "url": "/compras/ui"},
-                {"slug": "finanzas", "name": "Finanzas", "icon": "💰", "url": "/finanzas/ui"}
-                ]
-                },
-                {
-                "key": "mantenimiento",
-                "name": "MANTENIMIENTO",
-                "modules": [
-                {"slug": "oym", "name": "O & M", "icon": "🔧", "url": "/oym/ui"}
-                ]
-                }
+                    { "key": "operaciones", "name": "Operaciones", "modules": [
+                        {"slug": "comercial",      "name": "Comercial",      "url": "/comercial/ui"},
+                        {"slug": "simulacion",     "name": "Simulación",     "url": "/simulacion/ui"},
+                        {"slug": "levantamientos", "name": "Levantamientos", "url": "/levantamientos/ui"}
+                    ]},
+                    { "key": "proyectos", "name": "Proyectos", "modules": [
+                        {"slug": "proyectos",    "name": "Proyectos",    "url": "/proyectos/ui"},
+                        {"slug": "ingenieria",   "name": "Ingeniería",   "url": "/ingenieria/ui"},
+                        {"slug": "construccion", "name": "Construcción", "url": "/construccion/ui"},
+                        {"slug": "compras",      "name": "Compras",      "url": "/compras/ui"},
+                        {"slug": "finanzas",     "name": "Finanzas",     "url": "/finanzas/ui"}
+                    ]},
+                    { "key": "mantenimiento", "name": "Mantenimiento", "modules": [
+                        {"slug": "oym", "name": "O & M", "url": "/oym/ui"}
+                    ]}
                 ] %}
 
-                {% for group in module_groups %}
-                <section class="rounded-lg bg-blue-950/20 border border-blue-900/40 overflow-hidden mb-2">
-                    <button x-show="sidebarOpen" @click="toggleGroup('{{ group.key }}')"
-                        class="w-full flex items-center justify-between px-3 py-2.5 hover:bg-blue-900/40 transition-colors">
-                        <span class="text-[11px] font-semibold tracking-[0.12em] text-[#7fd9da]">{{ group.name }}</span>
-                        <svg class="w-4 h-4 text-[#7fd9da] transition-transform duration-200"
-                            :class="groupOpen.{{ group.key }} ? 'rotate-90' : 'rotate-0'" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd"
-                                d="M6.293 4.293a1 1 0 011.414 0L13.414 10l-5.707 5.707a1 1 0 01-1.414-1.414L10.586 10 6.293 5.707a1 1 0 010-1.414z"
-                                clip-rule="evenodd" />
-                        </svg>
-                    </button>
-
-                    <div x-show="groupOpen.{{ group.key }} || !sidebarOpen" x-transition.opacity>
-                        {% for module in group.modules %}
-                        {% set has_access = (role == 'ADMIN') or (module.slug in (module_roles or {})) %}
-                        {% if has_access %}
-                        <div class="relative group">
-                            <a href="#" hx-get="{{ module.url }}" hx-target="#main-content" hx-swap="innerHTML"
-                                hx-push-url="true"
-                                @click="mobileMenuOpen = false; $store.activeModule.slug = '{{ module.slug }}'; setActiveGroupBySlug('{{ module.slug }}')"
-                                class="module-link flex items-center gap-3 py-2.5 px-3 rounded-lg transition-all duration-200 overflow-hidden"
-                                :class="[$store.activeModule.slug === '{{ module.slug }}' ? 'active' : '', sidebarOpen ? 'justify-start' : 'justify-center']"
-                                x-init="if (window.location.pathname.includes('{{ module.slug }}')) { $store.activeModule.slug = '{{ module.slug }}'; setActiveGroupBySlug('{{ module.slug }}'); }">
-
-                                <span class="module-icon text-lg">{{ module.icon }}</span>
-
-                                <span class="font-medium whitespace-nowrap transition-opacity duration-200"
-                                    x-show="sidebarOpen" x-transition:enter="transition ease-out duration-100"
-                                    x-transition:enter-start="opacity-0" x-transition:enter-end="opacity-100">
-                                    {{ module.name }}
-                                </span>
-                            </a>
-                            <div x-show="!sidebarOpen"
-                                class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
-                                {{ module.name }}
-                                <div
-                                    class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-[#1f2937]">
-                                </div>
-                            </div>
-                        </div>
+                {% set ns = namespace(locked=[]) %}
+                {% for g in module_groups %}
+                    {% for m in g.modules %}
+                        {% if not (role == 'ADMIN' or m.slug in (module_roles or {})) %}
+                            {% set ns.locked = ns.locked + [m] %}
                         {% endif %}
-                        {% endfor %}
-
-                        {% for module in group.modules %}
-                        {% set has_access = (role == 'ADMIN') or (module.slug in (module_roles or {})) %}
-                        {% if not has_access %}
-                        <div class="relative group">
-                            <div
-                                class="flex items-center gap-3 py-2 px-3 rounded-lg opacity-35 hover:opacity-55 transition-opacity overflow-hidden">
-                                <span class="text-lg">{{ module.icon }}</span>
-                                <span class="font-medium text-gray-300 whitespace-nowrap text-sm" x-show="sidebarOpen">
-                                    {{ module.name }}
-                                </span>
-                                <span class="ml-auto text-[10px] text-gray-300" x-show="sidebarOpen">🔒</span>
-                            </div>
-                            <div x-show="!sidebarOpen"
-                                class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
-                                {{ module.name }}
-                                <span class="ml-1 text-xs text-gray-400">(Bloqueado)</span>
-                                <div
-                                    class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-[#1f2937]">
-                                </div>
-                            </div>
-                        </div>
-                        {% endif %}
-                        {% endfor %}
-                    </div>
-                </section>
+                    {% endfor %}
                 {% endfor %}
 
                 {% if role == 'ADMIN' %}
-                <section class="rounded-lg bg-blue-950/20 border border-blue-900/40 overflow-hidden">
-                    <button x-show="sidebarOpen" @click="toggleGroup('admin')"
-                        class="w-full flex items-center justify-between px-3 py-2.5 hover:bg-blue-900/40 transition-colors">
-                        <span class="text-[11px] font-semibold tracking-[0.12em] text-[#7fd9da]">ADMIN</span>
-                        <svg class="w-4 h-4 text-[#7fd9da] transition-transform duration-200"
-                            :class="groupOpen.admin ? 'rotate-90' : 'rotate-0'" viewBox="0 0 20 20" fill="currentColor">
-                            <path fill-rule="evenodd"
-                                d="M6.293 4.293a1 1 0 011.414 0L13.414 10l-5.707 5.707a1 1 0 01-1.414-1.414L10.586 10 6.293 5.707a1 1 0 010-1.414z"
-                                clip-rule="evenodd" />
-                        </svg>
-                    </button>
-                    <div x-show="groupOpen.admin || !sidebarOpen" x-transition.opacity class="relative group">
-                        <a href="/admin/ui"
-                            @click="mobileMenuOpen = false; $store.activeModule.slug = 'admin'; setActiveGroupBySlug('admin')"
-                            class="module-link flex items-center gap-3 py-2.5 px-3 rounded-lg bg-blue-900/20 hover:bg-blue-800/50 text-yellow-100 border border-transparent hover:border-yellow-500/30 transition-all duration-200 overflow-hidden"
-                            :class="sidebarOpen ? 'justify-start' : 'justify-center'"
-                            x-init="if (window.location.pathname.includes('/admin/')) { $store.activeModule.slug = 'admin'; setActiveGroupBySlug('admin'); }">
-                            <span class="module-icon text-lg">⚙️</span>
-                            <span class="font-medium whitespace-nowrap" x-show="sidebarOpen">Admin</span>
-                        </a>
-                        <div x-show="!sidebarOpen"
-                            class="tooltip-premium absolute left-full top-1/2 -translate-y-1/2 ml-3 px-3 py-2 text-white text-sm rounded-md opacity-0 group-hover:opacity-100 transition-opacity duration-200 pointer-events-none z-50 whitespace-nowrap shadow-xl">
-                            Admin
-                            <div
-                                class="absolute right-full top-1/2 -translate-y-1/2 -mr-1 border-4 border-transparent border-r-[#1f2937]">
-                            </div>
-                        </div>
+                    {% for g in module_groups %}
+                    <div x-show="sidebarOpen"
+                         style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--e-text-faint);font-weight:600;padding:8px 14px 4px;">
+                        {{ g.name }}
                     </div>
-                </section>
+                    {% for m in g.modules %}
+                    <a href="#"
+                       hx-get="{{ m.url }}" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                       @click="mobileMenuOpen = false; $store.activeModule.slug = '{{ m.slug }}'"
+                       class="nav-item"
+                       :class="$store.activeModule.slug === '{{ m.slug }}' ? 'active' : ''"
+                       x-init="if (window.location.pathname.includes('{{ m.slug }}')) $store.activeModule.slug = '{{ m.slug }}'">
+                        <span class="rail"></span>
+                        {{ module_icon(m.slug) }}
+                        <span class="label">{{ m.name }}</span>
+                        <div class="tip">{{ m.name }}</div>
+                    </a>
+                    {% endfor %}
+                    {% if not loop.last %}
+                    <div style="height:1px;background:var(--e-line);margin:6px 12px;" x-show="sidebarOpen"></div>
+                    {% endif %}
+                    {% endfor %}
+
+                {% else %}
+                    {% if (module_roles or {}) | length > 1 %}
+                    <div x-show="sidebarOpen"
+                         style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--e-text-faint);font-weight:600;padding:8px 14px 4px;">
+                        Tus módulos
+                    </div>
+                    {% endif %}
+                    {% for g in module_groups %}
+                    {% for m in g.modules %}
+                    {% if m.slug in (module_roles or {}) %}
+                    <a href="#"
+                       hx-get="{{ m.url }}" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                       @click="mobileMenuOpen = false; $store.activeModule.slug = '{{ m.slug }}'"
+                       class="nav-item"
+                       :class="$store.activeModule.slug === '{{ m.slug }}' ? 'active' : ''"
+                       x-init="if (window.location.pathname.includes('{{ m.slug }}')) $store.activeModule.slug = '{{ m.slug }}'">
+                        <span class="rail"></span>
+                        {{ module_icon(m.slug) }}
+                        <span class="label">{{ m.name }}</span>
+                        <div class="tip">{{ m.name }}</div>
+                    </a>
+                    {% endif %}
+                    {% endfor %}
+                    {% endfor %}
                 {% endif %}
+
+                {% if role != 'ADMIN' and ns.locked %}
+                <div x-show="sidebarOpen" style="margin-top:16px;padding-bottom:4px;">
+                    <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--e-text-faint);font-weight:600;padding:0 14px 8px;display:flex;align-items:center;gap:8px;">
+                        <span>Sin acceso</span>
+                        <span style="flex:1;height:1px;background:var(--e-line);"></span>
+                        <span>{{ ns.locked | length }}</span>
+                    </div>
+                    <div style="padding:0 10px;display:flex;flex-wrap:wrap;gap:4px;">
+                        {% for m in ns.locked %}
+                        <div title="{{ m.name }} — sin acceso"
+                             style="display:inline-flex;align-items:center;gap:5px;padding:4px 8px 4px 6px;border-radius:4px;background:rgba(255,255,255,0.02);border:1px solid var(--e-line);color:var(--e-text-faint);font-size:11px;cursor:default;">
+                            <span style="opacity:0.55;display:inline-flex;">{{ module_icon(m.slug, size=12) }}</span>
+                            <span>{{ m.name }}</span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+                {% endif %}
+
+                {% if role == 'ADMIN' %}
+                <div style="height:1px;background:var(--e-line);margin:8px 12px;"></div>
+                <a href="/admin/ui"
+                   @click="mobileMenuOpen = false; $store.activeModule.slug = 'admin'"
+                   class="nav-item"
+                   :class="$store.activeModule.slug === 'admin' ? 'active' : ''"
+                   x-init="if (window.location.pathname.includes('/admin/')) $store.activeModule.slug = 'admin'">
+                    <span class="rail"></span>
+                    {{ module_icon('admin') }}
+                    <span class="label">Admin</span>
+                    <div class="tip">Admin</div>
+                </a>
+                {% endif %}
+
             </nav>
 
             <!-- AYUDA -->
