@@ -42,6 +42,11 @@
             --enertika-secondary-dark: #009999;
             --enertika-dark: #0E2A47;
             --enertika-secondary-light: #E0F7F7;
+            --e-accent:      #00BABB;
+            --e-accent-soft: rgba(0, 186, 187, 0.12);
+            --e-line:        rgba(127, 217, 218, 0.14);
+            --e-text-dim:    #95A9C0;
+            --e-text-faint:  #5e7591;
         }
 
         /* === ANIMACIONES PREMIUM === */
@@ -275,95 +280,68 @@
             background-color: #009999;
         }
 
-        /* === SIDEBAR PREMIUM STYLES === */
-
-        /* Glassmorphism para sidebar colapsado */
-        .sidebar-collapsed {
-            background: rgba(18, 52, 86, 0.95);
-            backdrop-filter: blur(10px);
-            -webkit-backdrop-filter: blur(10px);
-        }
-
-        /* Active state indicator */
-        .module-link {
+        /* === SIDEBAR — Variante E === */
+        .nav-item {
             position: relative;
-            min-height: 44px;
-            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 9px 12px 9px 14px;
+            border-radius: 6px;
+            margin: 1px 4px;
+            font-size: 12.5px;
+            font-weight: 500;
+            color: var(--e-text-dim);
+            text-decoration: none;
+            transition: background .15s;
         }
-
-        .module-link::before {
-            content: '';
+        .nav-item .rail {
             position: absolute;
-            left: 0;
-            top: 0;
-            bottom: 0;
-            width: 0;
-            background: linear-gradient(to bottom, #00BABB, #009999);
-            transition: width 0.3s ease;
-            border-radius: 0 4px 4px 0;
+            left: 0; top: 8px; bottom: 8px;
+            width: 2px;
+            background: transparent;
+            border-radius: 0 2px 2px 0;
+            transition: background .15s;
         }
-
-        .module-link.active::before {
-            width: 4px;
+        .nav-item .label {
+            flex: 1;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
         }
-
-        .module-link.active {
-            background: linear-gradient(90deg, rgba(0, 186, 187, 0.15) 0%, rgba(0, 186, 187, 0.05) 100%);
-            border-left: 3px solid #00BABB;
+        .nav-item:hover { background: rgba(255,255,255,0.03); }
+        .nav-item.active { background: var(--e-accent-soft); }
+        .nav-item.active .rail { background: var(--e-accent); }
+        .nav-item.active .label { color: #fff; font-weight: 600; }
+        .nav-item .tip {
+            position: absolute;
+            left: 100%; top: 50%;
+            transform: translate(12px, -50%);
+            background: #0B1E33; color: #fff;
+            font-size: 12px; padding: 6px 10px;
+            border-radius: 6px; white-space: nowrap;
+            opacity: 0; pointer-events: none;
+            transition: opacity .15s;
+            border: 1px solid rgba(127,217,218,0.2);
+            z-index: 80;
         }
-
-        .module-link:hover {
-            background: rgba(0, 186, 187, 0.08);
-            transform: translateX(2px);
+        .rail-mode .nav-item:hover .tip { opacity: 1; }
+        .rail-mode .nav-item {
+            padding: 9px 0;
+            justify-content: center;
         }
-
-        /* Icon animation on hover */
-        .module-link:hover .module-icon {
-            transform: scale(1.15) rotate(5deg);
-        }
-
-        .module-icon {
-            transition: transform 0.3s ease;
-            display: inline-block;
-        }
-
-        /* Group headers */
-        .group-header {
-            font-size: 0.65rem;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            color: rgba(0, 186, 187, 0.7);
-            margin-bottom: 0.5rem;
-            padding-left: 1rem;
-        }
-
-        /* Badge notification with ping animation */
-        .notification-badge {
-            position: relative;
-        }
-
+        .rail-mode .nav-item .rail  { display: none; }
+        .rail-mode .nav-item .label { display: none; }
+        .notification-badge { position: relative; }
         .notification-badge::before {
             content: '';
             position: absolute;
-            top: -2px;
-            right: -2px;
-            width: 100%;
-            height: 100%;
+            top: -2px; right: -2px;
+            width: 100%; height: 100%;
             border-radius: 9999px;
             background: #ef4444;
             animation: badge-ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
-        }
-
-        /* User badge hover glow */
-        .user-badge:hover {
-            box-shadow: 0 0 15px rgba(0, 186, 187, 0.4);
-        }
-
-        /* Tooltip premium */
-        .tooltip-premium {
-            background: linear-gradient(135deg, #1f2937 0%, #111827 100%);
-            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.1);
         }
     </style>
 </head>
