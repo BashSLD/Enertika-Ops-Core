@@ -1,0 +1,52 @@
+<div id="sat-match-modal-container">
+  <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40" x-data="{ open: true }" x-show="open">
+    <div class="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 flex flex-col max-h-[90dvh]">
+      <div class="px-6 py-4 border-b flex items-center justify-between">
+        <h3 class="font-semibold text-gray-900">Procesar CFDI del SAT</h3>
+        <button @click="open = false; document.getElementById('sat-match-modal-container').innerHTML = ''"
+          class="text-gray-400 hover:text-gray-600">
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-3 text-sm">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <p class="text-xs text-gray-500">UUID</p>
+            <p class="font-mono text-xs text-gray-700 break-all">{{ cfdi.uuid }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500">Fecha</p>
+            <p class="text-gray-700">{{ cfdi.fecha[:10] if cfdi.fecha else '—' }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500">RFC Emisor</p>
+            <p class="font-mono text-gray-700">{{ cfdi.emisor_rfc }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500">Emisor</p>
+            <p class="text-gray-700">{{ cfdi.emisor_nombre }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500">Total</p>
+            <p class="font-semibold text-gray-900">{{ '{:,.2f}'.format(cfdi.total or 0) }} {{ cfdi.moneda }}</p>
+          </div>
+          <div>
+            <p class="text-xs text-gray-500">Tipo</p>
+            <p class="text-gray-700">{{ cfdi.tipo_factura.value if cfdi.tipo_factura else '—' }}</p>
+          </div>
+        </div>
+        <p class="text-xs text-gray-500 pt-2">
+          Este CFDI se procesara con el mismo flujo de matching que el upload manual.
+          Selecciona la orden de compra correspondiente.
+        </p>
+        <div class="rounded bg-amber-50 border border-amber-200 p-3 text-xs text-amber-700">
+          Integracion con modal de matching existente — pendiente de implementar.
+        </div>
+      </div>
+      <div class="px-6 py-4 border-t flex justify-end gap-3">
+        <button @click="open = false; document.getElementById('sat-match-modal-container').innerHTML = ''"
+          class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
+      </div>
+    </div>
+  </div>
+</div>

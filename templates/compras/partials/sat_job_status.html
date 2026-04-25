@@ -1,0 +1,45 @@
+{% if error %}
+<div id="sat-job-status" class="rounded-lg bg-red-50 border border-red-200 p-4 text-sm text-red-700">
+  {{ error }}
+</div>
+{% elif job %}
+{% set estado = job.estado %}
+{% set es_terminal = estado in ['completado', 'error'] %}
+<div
+  id="sat-job-status"
+  {% if not es_terminal %}
+  hx-get="/compras/sat/jobs/{{ job.id }}/status"
+  hx-trigger="every 10s"
+  hx-target="#sat-job-status"
+  hx-swap="outerHTML"
+  {% endif %}
+  class="rounded-lg border p-4 text-sm
+    {% if estado == 'completado' %}bg-green-50 border-green-200 text-green-800
+    {% elif estado == 'error' %}bg-red-50 border-red-200 text-red-700
+    {% else %}bg-blue-50 border-blue-200 text-blue-800{% endif %}"
+>
+  <div class="flex items-center gap-2">
+    {% if not es_terminal %}
+    <svg class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+      <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+      <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z"></path>
+    </svg>
+    {% endif %}
+    <span class="font-medium">
+      {% if estado == 'iniciando' %}Conectando con el SAT...
+      {% elif estado == 'solicitando' %}Enviando solicitud al SAT...
+      {% elif estado == 'esperando_sat' %}Esperando que el SAT prepare los paquetes (puede tardar varios minutos)...
+      {% elif estado == 'descargando' %}Descargando paquetes...
+      {% elif estado == 'procesando' %}Procesando XMLs...
+      {% elif estado == 'completado' %}Listo: {{ job.cfdi_encontrados }} CFDIs importados, {{ job.cfdi_duplicados }} duplicados
+      {% elif estado == 'error' %}Error: {{ job.mensaje_error }}
+      {% endif %}
+    </span>
+  </div>
+  {% if estado == 'completado' %}
+  <div class="mt-2 text-xs text-green-600">
+    Rango: {{ job.fecha_inicio_rango }} al {{ job.fecha_fin_rango }}
+  </div>
+  {% endif %}
+</div>
+{% endif %}

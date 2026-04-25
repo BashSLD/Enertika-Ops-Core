@@ -1,0 +1,64 @@
+<div id="sat-inbox-table">
+  {% if items %}
+  <div class="overflow-x-auto">
+    <table class="min-w-full divide-y divide-gray-200 text-sm">
+      <thead class="bg-gray-50">
+        <tr>
+          <th class="px-4 py-3 text-left font-medium text-gray-500">Fecha CFDI</th>
+          <th class="px-4 py-3 text-left font-medium text-gray-500">RFC Emisor</th>
+          <th class="px-4 py-3 text-left font-medium text-gray-500">Nombre Emisor</th>
+          <th class="px-4 py-3 text-right font-medium text-gray-500">Total</th>
+          <th class="px-4 py-3 text-left font-medium text-gray-500">Moneda</th>
+          <th class="px-4 py-3 text-left font-medium text-gray-500">Estado</th>
+          <th class="px-4 py-3 text-left font-medium text-gray-500">Acciones</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-100 bg-white">
+        {% for item in items %}
+        <tr class="hover:bg-gray-50">
+          <td class="px-4 py-3 text-gray-700">{{ item.fecha_cfdi or '—' }}</td>
+          <td class="px-4 py-3 font-mono text-xs text-gray-700">{{ item.rfc_emisor }}</td>
+          <td class="px-4 py-3 text-gray-700">{{ item.nombre_emisor or '—' }}</td>
+          <td class="px-4 py-3 text-right text-gray-700">{{ '{:,.2f}'.format(item.total or 0) }}</td>
+          <td class="px-4 py-3 text-gray-500">{{ item.moneda }}</td>
+          <td class="px-4 py-3">
+            {% if item.estado == 'pendiente' %}
+            <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">Pendiente</span>
+            {% elif item.estado == 'duplicado' %}
+            <span class="inline-flex items-center rounded-full bg-gray-100 px-2.5 py-0.5 text-xs font-medium text-gray-600" title="UUID ya existe en el sistema">Ya procesado</span>
+            {% elif item.estado == 'matcheado' %}
+            <span class="inline-flex items-center rounded-full bg-green-100 px-2.5 py-0.5 text-xs font-medium text-green-800">Matcheado</span>
+            {% elif item.estado == 'descartado' %}
+            <span class="inline-flex items-center rounded-full bg-red-100 px-2.5 py-0.5 text-xs font-medium text-red-600">Descartado</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3">
+            {% if item.estado == 'pendiente' %}
+            <button
+              hx-post="/compras/sat/inbox/{{ item.id }}/procesar"
+              hx-target="#sat-match-modal-container"
+              class="text-xs font-medium text-blue-600 hover:text-blue-800"
+            >Procesar</button>
+            {% elif item.estado == 'duplicado' %}
+            <button
+              hx-post="/compras/sat/inbox/{{ item.id }}/descartar"
+              hx-target="#sat-inbox-table"
+              hx-swap="outerHTML"
+              hx-confirm="Descartar este CFDI del inbox?"
+              class="text-xs font-medium text-gray-500 hover:text-red-600"
+            >Descartar</button>
+            {% elif item.estado == 'matcheado' and item.comprobante_id %}
+            <a href="/compras/ui?comprobante={{ item.comprobante_id }}" class="text-xs text-green-600 hover:underline">Ver comprobante</a>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="py-12 text-center text-sm text-gray-400">
+    No hay CFDIs en el inbox con el filtro seleccionado.
+  </div>
+  {% endif %}
+</div>
