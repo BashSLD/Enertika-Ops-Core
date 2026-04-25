@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS tb_sat_jobs (
     cfdi_encontrados    INT NOT NULL DEFAULT 0,
     cfdi_duplicados     INT NOT NULL DEFAULT 0,
     mensaje_error       TEXT,
-    creado_por          INT REFERENCES tb_usuarios(id),
+    creado_por          UUID REFERENCES tb_usuarios(id_usuario),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

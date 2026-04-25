@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS tb_sat_inbox (
     sharepoint_url  TEXT NOT NULL DEFAULT '',
     sharepoint_item_id TEXT,
     estado          TEXT NOT NULL DEFAULT 'pendiente',
-    factura_id      INT REFERENCES tb_facturas(id),
+    comprobante_id  UUID REFERENCES tb_comprobantes_pago(id_comprobante),
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     CONSTRAINT uq_sat_inbox_uuid_cfdi UNIQUE (uuid_cfdi)
