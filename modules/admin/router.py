@@ -1,3 +1,4 @@
+import logging
 from datetime import timedelta, datetime
 from fastapi import APIRouter, Request, Depends, HTTPException, Form, Header
 from fastapi.responses import HTMLResponse, Response
@@ -5,13 +6,15 @@ from typing import Optional
 from core.database import get_db_connection
 from fastapi.templating import Jinja2Templates
 from core.security import get_current_user_context
-from core.permissions import require_module_access
+from core.permissions import require_module_access, require_role
 
 from core.config import settings
 from core.jinja_filters import register_timezone_filters
 from .service import AdminService, get_admin_service
 from core.tipo_cambio.service import TipoCambioService
 import asyncpg
+
+logger = logging.getLogger("AdminRouter")
 
 from . import endpoints_correos_notif
 from .schemas import ConfiguracionGlobalUpdate, TecnologiaCreate
@@ -956,3 +959,84 @@ async def guardar_umbrales(
     return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Guardado",
         "message": f"Umbrales de {tipo_kpi} actualizados correctamente"
     })
+
+
+@router.post("/sat/fiel", response_class=HTMLResponse)
+async def guardar_fiel_config(
+    request: Request,
+    conn=Depends(get_db_connection),
+    _=Depends(get_current_user_context),
+    __=Depends(require_role(["ADMIN"])),
+):
+    form = await request.form()
+    sp_path_cer = form.get("sp_path_cer", "").strip()
+    sp_path_key = form.get("sp_path_key", "").strip()
+    password_fiel = form.get("password_fiel", "").strip()
+
+    if not sp_path_cer or not sp_path_key or not password_fiel:
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"mensaje": "Todos los campos FIEL son obligatorios", "tipo": "error"},
+            headers={"HX-Reswap": "none"},
+        )
+
+    try:
+        await conn.execute(
+            """
+            INSERT INTO tb_sat_fiel_config (empresa, sp_path_cer, sp_path_key, password_fiel, activo)
+            VALUES ('ISA', $1, $2, $3, TRUE)
+            ON CONFLICT (empresa) WHERE activo = TRUE
+            DO UPDATE SET sp_path_cer=$1, sp_path_key=$2, password_fiel=$3, updated_at=NOW()
+            """,
+            sp_path_cer, sp_path_key, password_fiel,
+        )
+    except asyncpg.PostgresError:
+        logger.exception("Error guardando config FIEL")
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"mensaje": "Error de base de datos al guardar FIEL", "tipo": "error"},
+            headers={"HX-Reswap": "none"},
+        )
+
+    return templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"mensaje": "Configuracion FIEL guardada correctamente", "tipo": "success"},
+        headers={"HX-Reswap": "none"},
+    )
+
+
+@router.post("/sat/fiel/probar", response_class=HTMLResponse)
+async def probar_fiel(
+    request: Request,
+    conn=Depends(get_db_connection),
+    _=Depends(get_current_user_context),
+    __=Depends(require_role(["ADMIN"])),
+):
+    from core.sat.fiel_loader import probar_conexion_fiel
+
+    svc = AdminService()
+    config = await svc.get_global_config(conn)
+    sat_site_id = config.get("sp_sat_site_id") or settings.SP_SAT_SITE_ID
+    sat_drive_id = config.get("sp_sat_drive_id") or settings.SP_SAT_DRIVE_ID
+
+    try:
+        rfc = await probar_conexion_fiel(conn, sat_site_id, sat_drive_id)
+        mensaje = f"FIEL cargada correctamente - RFC: {rfc}"
+        tipo = "success"
+    except ValueError as e:
+        mensaje = f"Error: {e}"
+        tipo = "error"
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al probar FIEL")
+        mensaje = "Error de base de datos al leer config FIEL"
+        tipo = "error"
+
+    return templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"mensaje": mensaje, "tipo": tipo},
+        headers={"HX-Reswap": "none"},
+    )

@@ -127,6 +127,67 @@
                 </div>
             </div>
 
+                <!-- SharePoint SAT Inbox -->
+                <div class="border border-gray-200 rounded-lg p-4 space-y-3">
+                    <h4 class="text-sm font-semibold text-gray-700">SharePoint SAT Inbox</h4>
+                    <p class="text-xs text-gray-500">Site privado para almacenar XMLs descargados del SAT.</p>
+                    <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">Site ID (SAT)</label>
+                            <input type="text" name="sp_sat_site_id" value="{{ config_global.sp_sat_site_id }}"
+                                placeholder="hostname.sharepoint.com,UUID,UUID"
+                                class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">Drive ID (SAT)</label>
+                            <input type="text" name="sp_sat_drive_id" value="{{ config_global.sp_sat_drive_id }}"
+                                placeholder="b!..."
+                                class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">Carpeta base (SAT)</label>
+                            <input type="text" name="sp_sat_base_folder" value="{{ config_global.sp_sat_base_folder or 'SAT-Inbox' }}"
+                                class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- FIEL SAT ISA — formulario independiente -->
+                <div class="border border-gray-200 rounded-lg p-4 space-y-3">
+                    <h4 class="text-sm font-semibold text-gray-700">FIEL SAT — ISA</h4>
+                    <p class="text-xs text-gray-500">Rutas de los archivos .cer y .key dentro del site SAT privado. Subir los archivos manualmente a SharePoint antes de guardar.</p>
+                    <form hx-post="/admin/sat/fiel" hx-target="#toast-container" hx-swap="afterbegin" class="space-y-3">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">Ruta .cer en SharePoint SAT</label>
+                            <input type="text" name="sp_path_cer" placeholder="FIEL/ISA/fiel.cer"
+                                class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">Ruta .key en SharePoint SAT</label>
+                            <input type="text" name="sp_path_key" placeholder="FIEL/ISA/fiel.key"
+                                class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500 text-xs">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">Contrasena FIEL</label>
+                            <input type="password" name="password_fiel"
+                                class="w-full rounded-lg border-gray-300 focus:ring-blue-500 focus:border-blue-500 text-xs"
+                                autocomplete="off">
+                        </div>
+                        <div class="flex gap-3">
+                            <button type="submit" class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700">
+                                Guardar
+                            </button>
+                            <button type="button"
+                                hx-post="/admin/sat/fiel/probar"
+                                hx-target="#toast-container"
+                                hx-swap="afterbegin"
+                                class="rounded-lg border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:border-gray-400">
+                                Probar conexion FIEL
+                            </button>
+                        </div>
+                    </form>
+                </div>
+
             <!-- Configuración KPIs Simulación -->
             <div class="mb-6 bg-purple-50 p-4 rounded-lg border border-purple-200 relative">
                 <div class="flex justify-between items-center mb-3">

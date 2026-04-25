@@ -165,6 +165,10 @@ class AdminService:
             "max_upload_size_mb": int(config_dict.get("MAX_UPLOAD_SIZE_MB", "500")),
             "sp_visitas_site_id": config_dict.get("SP_VISITAS_SITE_ID", ""),
             "sp_visitas_drive_id": config_dict.get("SP_VISITAS_DRIVE_ID", ""),
+            # SAT Inbox SharePoint
+            "sp_sat_site_id": config_dict.get("SP_SAT_SITE_ID", ""),
+            "sp_sat_drive_id": config_dict.get("SP_SAT_DRIVE_ID", ""),
+            "sp_sat_base_folder": config_dict.get("SP_SAT_BASE_FOLDER", "SAT-Inbox"),
             # Simulation KPIS
             "sim_peso_compromiso": config_dict.get("sim_peso_compromiso", None),
             "sim_peso_interno": config_dict.get("sim_peso_interno", None),
@@ -209,6 +213,10 @@ class AdminService:
             ("MAX_UPLOAD_SIZE_MB", str(datos.max_upload_size_mb)),
             ("SP_VISITAS_SITE_ID", datos.sp_visitas_site_id or ""),
             ("SP_VISITAS_DRIVE_ID", datos.sp_visitas_drive_id or ""),
+            # SAT Inbox SharePoint
+            ("SP_SAT_SITE_ID", datos.sp_sat_site_id or ""),
+            ("SP_SAT_DRIVE_ID", datos.sp_sat_drive_id or ""),
+            ("SP_SAT_BASE_FOLDER", datos.sp_sat_base_folder or "SAT-Inbox"),
             # Simulation KPI Config
             ("sim_peso_compromiso", str(datos.sim_peso_compromiso)),
             ("sim_peso_interno", str(datos.sim_peso_interno)),

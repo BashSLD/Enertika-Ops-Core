@@ -52,6 +52,11 @@ class ConfiguracionGlobalUpdate(AdminBaseSchema):
     # 7. Reporte de Desarrollo CEO — email del destinatario del reporte semanal de desarrollo
     reporte_desarrollo_ceo_email: Optional[str] = Field("", description="Email del CEO para reporte de desarrollo")
 
+    # 8. SAT Inbox — SharePoint site privado
+    sp_sat_site_id: Optional[str] = Field(None)
+    sp_sat_drive_id: Optional[str] = Field(None)
+    sp_sat_base_folder: Optional[str] = Field(None)
+
     @field_validator('dias_fin_semana')
     @classmethod
     def validar_dias(cls, v):
