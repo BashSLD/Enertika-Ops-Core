@@ -353,36 +353,13 @@
     </div>
 
     <div class="flex h-screen overflow-hidden" x-data="{
-            sidebarOpen: false,
+            sidebarOpen: $persist(false),
             mobileMenuOpen: false,
-            notificationsOpen: false,
             moduleNames: {comercial:'Comercial',simulacion:'Simulación',levantamientos:'Levantamientos',proyectos:'Proyectos',compras:'Compras',ingenieria:'Ingeniería',construccion:'Construcción',finanzas:'Finanzas',oym:'O & M',admin:'Admin',materials:'Materiales'},
-            moduleGroupBySlug: {comercial:'operaciones',simulacion:'operaciones',levantamientos:'operaciones',proyectos:'proyectos',ingenieria:'proyectos',construccion:'proyectos',compras:'proyectos',finanzas:'proyectos',oym:'mantenimiento',admin:'admin'},
-            groupOpen: {operaciones: true, proyectos: true, mantenimiento: true, admin: true},
-            saveGroupState() {
-                localStorage.setItem('sidebarGroupOpen', JSON.stringify(this.groupOpen));
-            },
-            toggleGroup(groupKey) {
-                this.groupOpen[groupKey] = !this.groupOpen[groupKey];
-                this.saveGroupState();
-            },
-            setActiveGroupBySlug(slug) {
-                const groupKey = this.moduleGroupBySlug[slug];
-                if (groupKey) {
-                    this.groupOpen[groupKey] = true;
-                    this.saveGroupState();
-                }
-            },
+            setActiveGroupBySlug(slug) { /* grupos no colapsables en variante E */ },
             loadSidebarState() {
-                try {
-                    const savedGroups = JSON.parse(localStorage.getItem('sidebarGroupOpen') || '{}');
-                    this.groupOpen = { ...this.groupOpen, ...savedGroups };
-                } catch (_) { }
-
                 const match = window.location.pathname.match(/^\/([^\/]+)/);
-                if (match && match[1]) {
-                    this.setActiveGroupBySlug(match[1]);
-                }
+                if (match && match[1]) Alpine.store('activeModule').slug = match[1];
             }
         }" x-init="loadSidebarState()"
         @sidebar-active-module-changed.window="setActiveGroupBySlug($event.detail.slug)">
