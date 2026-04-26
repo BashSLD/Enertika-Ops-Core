@@ -634,14 +634,14 @@
                     </div>
                     <div x-show="sidebarOpen" style="display:flex;gap:4px;flex-shrink:0;">
                         <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend"
-                                title="Ayuda y Documentacion"
+                                title="Ayuda y Documentación"
                                 style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                                 <circle cx="12" cy="12" r="9"/>
                                 <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7M12 17h.01"/>
                             </svg>
                         </button>
-                        <a href="/auth/logout" title="Cerrar sesion"
+                        <a href="/auth/logout" title="Cerrar sesión"
                            style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;text-decoration:none;">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                                 <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
@@ -649,7 +649,7 @@
                         </a>
                     </div>
                 </div>
-                <div x-show="!sidebarOpen" style="display:flex;flex-direction:column;gap:4px;">
+                <div x-show="!sidebarOpen" style="display:flex;flex-direction:column;align-items:center;gap:4px;">
                     <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend"
                             title="Ayuda"
                             style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;">
