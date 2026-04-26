@@ -642,14 +642,14 @@
                             </svg>
                         </button>
                         <a href="/auth/logout" title="Cerrar sesion"
-                           style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:#ff9a9a;cursor:pointer;display:grid;place-items:center;text-decoration:none;">
+                           style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;text-decoration:none;">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M15 4h3a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-3M10 17l-5-5 5-5M5 12h11"/>
+                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
                             </svg>
                         </a>
                     </div>
                 </div>
-                <div x-show="!sidebarOpen" style="display:flex;justify-content:center;margin-top:6px;">
+                <div x-show="!sidebarOpen" style="display:flex;flex-direction:column;gap:4px;">
                     <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend"
                             title="Ayuda"
                             style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;">
