@@ -437,9 +437,9 @@
             x-transition:leave-end="opacity-0" @click="mobileMenuOpen = false"
             class="fixed inset-0 bg-black/60 z-40 md:hidden" style="display: none;"></div>
 
-        <!-- === SIDEBAR PREMIUM === -->
+        <!-- === SIDEBAR — Variante E === -->
         <aside
-            class="text-white flex flex-col shadow-2xl z-50 transition-all duration-300 ease-in-out overflow-hidden fixed md:relative inset-y-0 left-0 transform md:transform-none"
+            class="text-white flex flex-col shadow-2xl z-50 transition-all duration-300 ease-in-out fixed md:relative inset-y-0 left-0 transform md:transform-none"
             style="background:#123456;"
             :class="[
                 sidebarOpen ? 'w-64' : 'w-16 rail-mode',
@@ -497,7 +497,8 @@
             </div>
 
             <!-- NAVIGATION -->
-            <nav class="flex-1 overflow-y-auto overflow-x-hidden py-3 custom-scrollbar">
+            <nav class="flex-1 overflow-y-auto overflow-x-hidden py-3"
+                 :class="sidebarOpen ? 'custom-scrollbar' : 'no-scrollbar'">
 
                 {% set module_groups = [
                     { "key": "operaciones", "name": "Operaciones", "modules": [
@@ -625,7 +626,8 @@
             <!-- USER FOOTER -->
             <div style="border-top:1px solid var(--e-line);padding:10px 10px 12px;">
                 <div style="display:flex;align-items:center;gap:10px;padding:4px 6px;">
-                    <div style="width:30px;height:30px;border-radius:999px;background:rgba(0,186,187,0.15);color:#00BABB;border:1px solid rgba(0,186,187,0.3);display:grid;place-items:center;font-size:11px;font-weight:700;font-family:'JetBrains Mono',monospace;flex-shrink:0;">
+                    <div title="{{ user_name }}"
+                         style="width:30px;height:30px;border-radius:999px;background:rgba(0,186,187,0.15);color:#00BABB;border:1px solid rgba(0,186,187,0.3);display:grid;place-items:center;font-size:11px;font-weight:700;font-family:'JetBrains Mono',monospace;flex-shrink:0;">
                         {{ (user_name[:2] | upper) if user_name else 'OP' }}
                     </div>
                     <div x-show="sidebarOpen" style="flex:1;min-width:0;">
