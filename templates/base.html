@@ -364,7 +364,7 @@
         }" x-init="loadSidebarState()"
         @sidebar-active-module-changed.window="setActiveGroupBySlug($event.detail.slug)">
 
-        {% macro module_icon(slug, size=18) %}{% if slug == 'comercial' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 7h18l-1.5 11a2 2 0 0 1-2 1.7H6.5a2 2 0 0 1-2-1.7L3 7Z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg>{% elif slug == 'simulacion' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>{% elif slug == 'levantamientos' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>{% elif slug == 'proyectos' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>{% elif slug == 'ingenieria' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M4 20 14 10M14 10l3-3 3 3-3 3-3-3Zm-4 4-6 6"/><path d="m6 18 2 2"/></svg>{% elif slug == 'construccion' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 21V10l9-7 9 7v11"/><path d="M9 21v-6h6v6"/></svg>{% elif slug == 'compras' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M3 4h2l2.5 11.5a2 2 0 0 0 2 1.5h8a2 2 0 0 0 2-1.5L21 8H6"/></svg>{% elif slug == 'finanzas' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 20V9M9 20V4M15 20v-7M21 20V11"/></svg>{% elif slug == 'oym' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-6 6 2 2 6-6a4 4 0 0 0 5.4-5.4l-2.3 2.3-2-2 2.3-2.3Z"/></svg>{% elif slug == 'admin' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>{% endif %}{% endmacro %}
+        {% macro module_icon(slug, size=18) %}{% if slug == 'comercial' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 7h18l-1.5 11a2 2 0 0 1-2 1.7H6.5a2 2 0 0 1-2-1.7L3 7Z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg>{% elif slug == 'simulacion' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>{% elif slug == 'levantamientos' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>{% elif slug == 'proyectos' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>{% elif slug == 'ingenieria' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/></svg>{% elif slug == 'construccion' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M10 10V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5"/><path d="M14 6a6 6 0 0 1 6 6v3"/><path d="M4 15v-3a6 6 0 0 1 6-6"/><rect x="2" y="15" width="20" height="4" rx="1"/></svg>{% elif slug == 'compras' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M3 4h2l2.5 11.5a2 2 0 0 0 2 1.5h8a2 2 0 0 0 2-1.5L21 8H6"/></svg>{% elif slug == 'finanzas' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M10 18v-7"/><path d="M11.12 2.198a2 2 0 0 1 1.76.006l7.866 3.847c.476.233.31.949-.22.949H3.474c-.53 0-.695-.716-.22-.949z"/><path d="M14 18v-7"/><path d="M18 18v-7"/><path d="M3 22h18"/><path d="M6 18v-7"/></svg>{% elif slug == 'oym' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-6 6 2 2 6-6a4 4 0 0 0 5.4-5.4l-2.3 2.3-2-2 2.3-2.3Z"/></svg>{% elif slug == 'admin' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>{% endif %}{% endmacro %}
         {% if user_name %}
         <!-- MOBILE HEADER -->
         <header
@@ -472,7 +472,7 @@
                             </span>
                         </button>
                         <div x-show="open" @click.away="open = false" x-transition
-                            class="absolute right-0 top-full mt-2 w-96 bg-white rounded-lg shadow-2xl border border-gray-200 max-h-96 overflow-hidden z-50"
+                            class="absolute left-0 top-full mt-2 w-96 bg-white rounded-lg shadow-2xl border border-gray-200 max-h-96 overflow-hidden z-50"
                             style="display:none;">
                             <div class="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-cyan-50 flex justify-between items-center">
                                 <h3 class="font-semibold text-gray-800">Notificaciones</h3>
@@ -488,8 +488,8 @@
                     </div>
                 </div>
                 <div x-show="!sidebarOpen" class="flex justify-center py-3.5">
-                    <div style="width:30px;height:30px;border-radius:6px;background:linear-gradient(135deg,#00BABB,#009999);display:grid;place-items:center;">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 171 321" width="17" height="32" fill="#ffffff" aria-label="Enertika">
+                    <div style="width:30px;height:30px;border-radius:6px;background:linear-gradient(135deg,#00BABB,#009999);display:grid;place-items:center;overflow:hidden;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 171 321" width="16" height="30" fill="#ffffff" aria-label="Enertika">
                             <path fill-rule="evenodd" d="M12 3 L16 3 L19 7 L31 14 L37 20 L56 32 L104 68 L103 73 L91 85 L89 85 L14 161Z M163 66 L166 66 L166 314 L164 314 L161 310 L159 304 L154 298 L144 278 L139 272 L133 259 L128 253 L122 240 L117 234 L107 214 L105 213 L74 159 L75 154Z M43 186 L47 188 L52 196 L58 209 L63 215 L113 304 L118 310 L119 316 L15 316 L12 314 L12 218Z"/>
                         </svg>
                     </div>
@@ -625,41 +625,52 @@
 
             <!-- USER FOOTER -->
             <div style="border-top:1px solid var(--e-line);padding:10px 10px 12px;">
+                <!-- Expandido: avatar + nombre + ayuda + logout -->
                 <div style="display:flex;align-items:center;gap:10px;padding:4px 6px;">
-                    <div title="{{ user_name }}"
-                         style="width:30px;height:30px;border-radius:999px;background:rgba(0,186,187,0.15);color:#00BABB;border:1px solid rgba(0,186,187,0.3);display:grid;place-items:center;font-size:11px;font-weight:700;font-family:'JetBrains Mono',monospace;flex-shrink:0;">
-                        {{ (user_name[:2] | upper) if user_name else 'OP' }}
+                    <div x-show="sidebarOpen" style="flex-shrink:0;">
+                        <div title="{{ user_name }}"
+                             style="width:30px;height:30px;border-radius:999px;background:rgba(0,186,187,0.15);color:#00BABB;border:1px solid rgba(0,186,187,0.3);display:grid;place-items:center;font-size:11px;font-weight:700;font-family:'JetBrains Mono',monospace;">
+                            {{ (user_name[:2] | upper) if user_name else 'OP' }}
+                        </div>
                     </div>
                     <div x-show="sidebarOpen" style="flex:1;min-width:0;">
                         <div style="font-size:12.5px;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ user_name }}</div>
                         <div style="font-size:10.5px;color:var(--e-text-faint);">{{ role | lower | capitalize }}</div>
                     </div>
-                    <div x-show="sidebarOpen" style="display:flex;gap:4px;flex-shrink:0;">
+                    <div x-show="sidebarOpen">
+                        <div style="display:flex;gap:4px;flex-shrink:0;">
+                            <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend"
+                                    title="Ayuda y Documentación"
+                                    style="width:28px;height:28px;border-radius:6px;background:rgba(0,186,187,0.10);border:1px solid rgba(0,186,187,0.20);color:#00BABB;cursor:pointer;display:grid;place-items:center;">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="9"/>
+                                    <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7M12 17h.01"/>
+                                </svg>
+                            </button>
+                            <a href="/auth/logout" title="Cerrar sesión"
+                               style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;text-decoration:none;">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+                                </svg>
+                            </a>
+                        </div>
+                    </div>
+                <!-- Colapsado: ayuda arriba + avatar abajo, centrados -->
+                <div x-show="!sidebarOpen">
+                    <div style="display:flex;flex-direction:column;align-items:center;gap:14px;">
                         <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend"
-                                title="Ayuda y Documentación"
-                                style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;">
+                                title="Ayuda"
+                                style="width:28px;height:28px;border-radius:6px;background:rgba(0,186,187,0.10);border:1px solid rgba(0,186,187,0.20);color:#00BABB;cursor:pointer;display:grid;place-items:center;">
                             <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
                                 <circle cx="12" cy="12" r="9"/>
                                 <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7M12 17h.01"/>
                             </svg>
                         </button>
-                        <a href="/auth/logout" title="Cerrar sesión"
-                           style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;text-decoration:none;">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
-                            </svg>
-                        </a>
+                        <div title="{{ user_name }}"
+                             style="width:30px;height:30px;border-radius:999px;background:rgba(0,186,187,0.15);color:#00BABB;border:1px solid rgba(0,186,187,0.3);display:grid;place-items:center;font-size:11px;font-weight:700;font-family:'JetBrains Mono',monospace;">
+                            {{ (user_name[:2] | upper) if user_name else 'OP' }}
+                        </div>
                     </div>
-                </div>
-                <div x-show="!sidebarOpen" style="display:flex;flex-direction:column;align-items:center;gap:4px;">
-                    <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend"
-                            title="Ayuda"
-                            style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;">
-                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                            <circle cx="12" cy="12" r="9"/>
-                            <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7M12 17h.01"/>
-                        </svg>
-                    </button>
                 </div>
             </div>
         </aside>
