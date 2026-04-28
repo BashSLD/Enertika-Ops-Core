@@ -693,7 +693,7 @@ async def confirm_xml_match(
                 headers=Headers({"content-type": "application/xml"}),
             )
 
-            now = datetime.now()
+            now = now_mx()
             subcarpeta = f"compras/facturas_xml/{now.strftime('%Y-%m')}"
 
             sp_result = await service.upload_archivo_sharepoint(
