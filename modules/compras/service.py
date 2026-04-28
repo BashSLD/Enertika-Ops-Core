@@ -14,6 +14,7 @@ import logging
 import time
 import json
 
+import asyncpg
 import base64
 from .pdf_extractor import process_uploaded_pdf, process_pdf_bytes, ComprobantePDFData
 from .xml_extractor import parse_cfdi_xml, validate_xml_content, process_uploaded_xml
@@ -638,7 +639,7 @@ class ComprasService:
                     match_result.match_type, user_id,
                     xml_content_b64=match_result.xml_content_b64
                 )
-            except Exception as e:
+            except asyncpg.PostgresError as e:
                 logger.warning("No se pudo registrar XML en staging: %s", e)
 
         logger.info(
