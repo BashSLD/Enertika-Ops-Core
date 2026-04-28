@@ -92,7 +92,7 @@ async def iniciar_job(
     rfc_emisor = (form.get("rfc_emisor") or "").strip() or None
 
     job_id = await sat_db_service.crear_job(conn, fecha_inicio, fecha_fin, user["user_db_id"])
-    asyncio.create_task(sat_service.ejecutar_descarga(job_id, fecha_inicio, fecha_fin, rfc_emisor))
+    asyncio.create_task(sat_service.ejecutar_descarga(job_id, fecha_inicio, fecha_fin))
 
     job = await sat_db_service.obtener_job_status(conn, job_id)
     return templates.TemplateResponse(
@@ -205,7 +205,7 @@ async def bulk_descartar(
     try:
         uuids = [UUID(id_str) for id_str in inbox_ids]
         count = await sat_db_service.descartar_inbox_item_bulk(conn, uuids)
-    except Exception as e:
+    except (ValueError, asyncpg.PostgresError) as e:
         logger.exception("Error en bulk-descartar: %s", e)
         return templates.TemplateResponse(
             request,
@@ -310,11 +310,9 @@ async def _procesar_match_unico(conn: asyncpg.Connection, inbox_id: UUID, compro
 
     compras_service = ComprasService()
 
-    # Marcar matcheado en SAT Inbox
-    await sat_db_service.marcar_matcheado(conn, inbox_id, comprobante_id)
-
-    # Confirmar match en modulo Compras (vincula comprobante, proveedor, historial)
+    # Confirmar match y marcar matcheado atomicamente
     async with conn.transaction():
+        await sat_db_service.marcar_matcheado(conn, inbox_id, comprobante_id)
         await compras_service.confirmar_match_xml(
             conn, cfdi_data, comprobante_id, user_id,
             guardar_relacion=True

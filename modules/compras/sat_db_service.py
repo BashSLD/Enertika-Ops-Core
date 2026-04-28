@@ -98,7 +98,8 @@ async def listar_inbox(conn: asyncpg.Connection, estado: str | None = None, page
         f"""
         SELECT i.id, i.uuid_cfdi, i.rfc_emisor, i.nombre_emisor,
                i.fecha_cfdi, i.total, i.moneda, i.estado,
-               i.comprobante_id, i.sharepoint_url, i.created_at
+               i.comprobante_id, i.sharepoint_url, i.created_at,
+               i.tipo_detectado
         FROM tb_sat_inbox i
         {where}
         ORDER BY i.created_at DESC

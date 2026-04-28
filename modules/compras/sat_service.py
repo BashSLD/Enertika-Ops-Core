@@ -59,7 +59,7 @@ async def _uuid_ya_existe(conn: asyncpg.Connection, uuid_cfdi: str) -> bool:
         SELECT EXISTS (
             SELECT 1 FROM tb_sat_inbox WHERE uuid_cfdi = $1
             UNION ALL
-            SELECT 1 FROM tb_xml_staging WHERE uuid_cfdi = $1
+            SELECT 1 FROM tb_xml_staging WHERE uuid_factura = $1
         )
         """,
         uuid_cfdi,

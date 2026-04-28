@@ -6,7 +6,7 @@ Maneja la lógica de negocio para comprobantes de pago y facturas XML.
 
 from uuid import UUID, uuid4
 from datetime import datetime, date
-from core.timezone import today_mx
+from core.timezone import today_mx, now_mx
 from typing import List, Dict, Optional, Tuple, Any
 from fastapi import HTTPException
 from decimal import Decimal
@@ -123,7 +123,7 @@ class ComprasService:
                 # 5. Subir PDF a SharePoint
                 try:
                     await file.seek(0)
-                    now = datetime.now()
+                    now = now_mx()
                     subcarpeta = f"compras/comprobantes_pdf/{now.strftime('%Y-%m')}"
                     sp_result = await self.upload_archivo_sharepoint(
                         conn, file, subcarpeta,
