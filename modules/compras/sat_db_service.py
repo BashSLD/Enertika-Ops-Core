@@ -190,25 +190,46 @@ async def listar_comprobantes_pendientes(conn: asyncpg.Connection) -> list[dict]
     return [dict(r) for r in rows]
 
 async def buscar_coincidencias_auto(conn: asyncpg.Connection) -> list[dict]:
-    # Busca pares únicos (1 a 1) entre facturas pendientes del SAT y comprobantes pendientes
+    # Busca pares únicos (1 a 1) entre facturas pendientes del SAT y comprobantes pendientes.
+    # Caso 1 (NORMAL): empareja por monto ±0.50 y nombre vs comprobantes PENDIENTE/PARCIALMENTE_FACTURADO.
+    # Caso 2 (CIERRE_ANTICIPO): empareja por RFC vs comprobantes en estatus ANTICIPO (sin validar monto).
     rows = await conn.fetch(
         """
         WITH matches AS (
             SELECT
-                i.id AS inbox_id, i.uuid_cfdi, i.rfc_emisor, i.nombre_emisor, i.total, i.fecha_cfdi,
-                c.id_comprobante, c.beneficiario_orig, c.monto AS comprobante_monto, c.fecha_pago
+                i.id AS inbox_id,
+                i.uuid_cfdi, i.rfc_emisor, i.nombre_emisor,
+                i.total, i.fecha_cfdi, i.tipo_detectado,
+                c.id_comprobante, c.beneficiario_orig,
+                c.monto AS comprobante_monto, c.fecha_pago
             FROM tb_sat_inbox i
-            JOIN tb_comprobantes_pago c ON
-                c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO') AND
-                c.moneda = COALESCE(i.moneda, 'MXN') AND
-                ABS(c.monto - i.total) <= 0.50 AND
+            JOIN tb_comprobantes_pago c ON (
+                -- Caso 1: CFDI normal vs comprobantes pendientes/parciales
                 (
-                    c.beneficiario_orig ILIKE '%' || i.nombre_emisor || '%'
-                    OR i.nombre_emisor ILIKE '%' || c.beneficiario_orig || '%'
+                    COALESCE(i.tipo_detectado, 'NORMAL') != 'CIERRE_ANTICIPO'
+                    AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')
+                    AND c.moneda = COALESCE(i.moneda, 'MXN')
+                    AND ABS(c.monto - i.total) <= 0.50
+                    AND (
+                        c.beneficiario_orig ILIKE '%' || i.nombre_emisor || '%'
+                        OR i.nombre_emisor ILIKE '%' || c.beneficiario_orig || '%'
+                    )
                 )
+                OR
+                -- Caso 2: CIERRE_ANTICIPO vs comprobantes en estatus ANTICIPO del mismo RFC
+                (
+                    i.tipo_detectado = 'CIERRE_ANTICIPO'
+                    AND c.estatus = 'ANTICIPO'
+                    AND EXISTS (
+                        SELECT 1 FROM tb_proveedores p
+                        WHERE p.id_proveedor = c.id_proveedor
+                          AND p.rfc = i.rfc_emisor
+                    )
+                )
+            )
             WHERE i.estado = 'pendiente'
         ),
-        -- Contar cuántas veces aparece cada inbox_id y cada comprobante_id
+        -- Solo pares 1-a-1: cada inbox_id y cada comprobante aparecen exactamente una vez
         unique_matches AS (
             SELECT * FROM matches m
             WHERE (SELECT COUNT(*) FROM matches WHERE inbox_id = m.inbox_id) = 1
