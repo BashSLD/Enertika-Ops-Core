@@ -1,0 +1,94 @@
+{# Modal: XMLs pendientes de vincular en staging #}
+<div id="xml-staging-modal"
+  class="hidden fixed inset-0 z-[55] overflow-y-auto bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+  role="dialog" aria-modal="true">
+
+  <div class="relative w-full max-w-2xl bg-white rounded-xl shadow-2xl max-h-[90dvh] flex flex-col">
+    <div class="bg-gradient-to-r from-amber-500 to-amber-600 px-6 py-4 rounded-t-xl shrink-0">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold text-white flex items-center gap-2">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4" />
+          </svg>
+          XMLs pendientes de vincular
+          <span class="ml-1 bg-white/20 text-white text-sm font-semibold px-2 py-0.5 rounded-full">
+            {{ pendientes | length }}
+          </span>
+        </h3>
+        <button onclick="cerrarModalStaging()"
+          class="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-all">
+          <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </button>
+      </div>
+      <p class="text-amber-100 text-xs mt-1">
+        Estos XMLs fueron procesados pero no vinculados. Vincúlalos o elimínalos del registro.
+      </p>
+    </div>
+
+    <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+      {% include "compras/partials/xml_staging_lista.html" %}
+    </div>
+
+    <div class="bg-gray-50 px-6 py-3 flex justify-end rounded-b-xl border-t shrink-0">
+      <button type="button" onclick="cerrarModalStaging()"
+        class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+        Cerrar
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  window.cerrarModalStaging = function () {
+    var m = document.getElementById('xml-staging-modal');
+    if (m) m.classList.add('hidden');
+  };
+
+  window.abrirModalMatchDesdeStaging = function (btn) {
+    var uuid = btn.dataset.xmlUuid;
+    var b64 = btn.dataset.xmlContentB64 || '';
+    if (!window.__xmlContents) window.__xmlContents = {};
+    window.__xmlContents[uuid] = b64;
+    cerrarModalStaging();
+    abrirModalMatch(btn);
+  };
+
+  window.resubirXmlStaging = function (input, uuid) {
+    var file = input.files && input.files[0];
+    if (!file) return;
+
+    var fd = new FormData();
+    fd.append('files', file);
+
+    var label = input.closest('label');
+    if (label) {
+      label.dataset._orig = (label.firstChild && label.firstChild.textContent) || '';
+      if (label.firstChild) label.firstChild.textContent = 'Subiendo...';
+      label.classList.add('opacity-60', 'cursor-not-allowed');
+    }
+
+    fetch('/compras/upload-xml', { method: 'POST', body: fd })
+      .then(function () {
+        htmx.ajax('GET', '/compras/xml-staging/pendientes', {
+          target: '#xml-staging-modal-container',
+          swap: 'innerHTML'
+        });
+        setTimeout(function () {
+          var m = document.getElementById('xml-staging-modal');
+          if (m) m.classList.remove('hidden');
+        }, 300);
+      })
+      .catch(function (err) {
+        if (label) {
+          if (label.firstChild && label.dataset._orig) label.firstChild.textContent = label.dataset._orig;
+          label.classList.remove('opacity-60', 'cursor-not-allowed');
+        }
+        console.error('Error re-subiendo XML:', err);
+      });
+  };
+})();
+</script>

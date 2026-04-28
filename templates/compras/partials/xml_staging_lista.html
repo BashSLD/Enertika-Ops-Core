@@ -1,0 +1,77 @@
+{# Parcial interno: lista de XMLs en staging. Usado por xml_staging_modal.html y por el DELETE endpoint. #}
+<div id="xml-staging-lista" class="divide-y divide-gray-100">
+  {% if pendientes %}
+    {% for item in pendientes %}
+    <div class="flex items-start justify-between gap-3 py-3 px-1">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <span class="text-xs font-mono text-gray-500">{{ item.uuid_factura[:8] }}...</span>
+          {% if item.tipo_factura and item.tipo_factura != 'NORMAL' %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium
+            {% if item.tipo_factura == 'ANTICIPO' %}bg-amber-100 text-amber-800
+            {% elif item.tipo_factura == 'CIERRE_ANTICIPO' %}bg-blue-100 text-blue-800
+            {% elif item.tipo_factura == 'PAGO' %}bg-purple-100 text-purple-800
+            {% else %}bg-gray-100 text-gray-700{% endif %}">
+            {{ item.tipo_factura }}
+          </span>
+          {% endif %}
+          {% if not item.tiene_contenido %}
+          <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-700">
+            Sin archivo
+          </span>
+          {% endif %}
+        </div>
+        <p class="text-sm font-medium text-gray-800 truncate mt-0.5">{{ item.emisor_nombre or '—' }}</p>
+        <p class="text-xs text-gray-500">
+          {{ item.emisor_rfc }}
+          | ${{ '{:,.2f}'.format(item.monto | float) }} {{ item.moneda }}
+          | {{ item.updated_at.strftime('%d/%m/%Y') if item.updated_at else '—' }}
+        </p>
+      </div>
+
+      <div class="flex items-center gap-2 shrink-0 mt-1">
+        {% if item.tiene_contenido %}
+        <button type="button"
+          onclick="abrirModalMatchDesdeStaging(this)"
+          data-xml-uuid="{{ item.uuid_factura }}"
+          data-xml-rfc="{{ item.emisor_rfc }}"
+          data-xml-nombre="{{ item.emisor_nombre or '' }}"
+          data-xml-total="{{ item.monto | float }}"
+          data-xml-moneda="{{ item.moneda }}"
+          data-xml-fecha=""
+          data-xml-tipo="{{ item.tipo_factura or 'NORMAL' }}"
+          data-xml-conceptos="[]"
+          data-xml-relacionados="[]"
+          data-xml-tipo-comprobante=""
+          data-xml-metodo-pago=""
+          data-xml-forma-pago=""
+          data-xml-subtotal=""
+          data-xml-content-b64="{{ item.xml_content_b64 or '' }}"
+          class="px-3 py-1.5 text-xs font-medium text-white bg-[#00BABB] hover:bg-[#009999] rounded-lg transition-colors">
+          Vincular
+        </button>
+        {% else %}
+        <label class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 hover:bg-gray-50 rounded-lg cursor-pointer transition-colors">
+          Re-subir XML
+          <input type="file" accept=".xml" class="hidden"
+            onchange="resubirXmlStaging(this, '{{ item.uuid_factura }}')" />
+        </label>
+        {% endif %}
+
+        <button
+          hx-delete="/compras/xml-staging/{{ item.uuid_factura }}"
+          hx-target="#xml-staging-lista"
+          hx-swap="outerHTML"
+          hx-confirm="¿Eliminar este XML del staging?"
+          class="px-3 py-1.5 text-xs font-medium text-red-600 hover:text-red-800 hover:bg-red-50 border border-red-200 rounded-lg transition-colors">
+          Eliminar
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+  <div class="py-10 text-center text-sm text-gray-400">
+    No hay XMLs pendientes de vincular.
+  </div>
+  {% endif %}
+</div>
