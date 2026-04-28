@@ -183,7 +183,7 @@ async def listar_comprobantes_pendientes(conn: asyncpg.Connection) -> list[dict]
                p.razon_social AS proveedor_nombre, p.rfc AS proveedor_rfc
         FROM tb_comprobantes_pago c
         LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
-        WHERE c.estatus = 'PENDIENTE'
+        WHERE c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')
         ORDER BY COALESCE(p.razon_social, c.beneficiario_orig) ASC, c.monto DESC
         """
     )
