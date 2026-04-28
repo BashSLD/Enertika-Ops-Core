@@ -220,6 +220,7 @@ async def buscar_coincidencias_auto(conn: asyncpg.Connection) -> list[dict]:
                 (
                     i.tipo_detectado = 'CIERRE_ANTICIPO'
                     AND c.estatus = 'ANTICIPO'
+                    AND c.id_proveedor IS NOT NULL
                     AND EXISTS (
                         SELECT 1 FROM tb_proveedores p
                         WHERE p.id_proveedor = c.id_proveedor
