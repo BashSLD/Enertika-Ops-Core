@@ -13,6 +13,12 @@ ROLE_HIERARCHY = {
     "admin": 3      # Control total del módulo
 }
 
+ORG_MANAGEMENT_ROLES = {
+    "levantamientos": {"jefe_ingenieria", "jefe_construccion"},
+    "ingenieria": {"jefe_ingenieria"},
+    "construccion": {"jefe_construccion"},
+}
+
 
 def require_module_access(module_slug: str, min_role: str = "viewer") -> Callable:
     """
@@ -156,6 +162,42 @@ def require_role(allowed_roles: list[str]) -> Callable:
                 detail=f"Se requiere uno de los siguientes roles globales: {allowed_roles}"
             )
         return True
+    return Depends(_validate)
+
+
+def has_org_management_access(context: dict, module_slug: str) -> bool:
+    """
+    Verifica si el usuario tiene privilegios de gestión por rol organizacional
+    para un módulo específico.
+    """
+    if context.get("role") == "ADMIN":
+        return True
+
+    rol_org = (context.get("rol_organizacional") or "").strip().lower()
+    allowed_roles = ORG_MANAGEMENT_ROLES.get(module_slug, set())
+    return rol_org in allowed_roles
+
+
+def require_org_management_access(module_slug: str) -> Callable:
+    """
+    Dependency para operaciones de gestión elevadas por rol organizacional.
+
+    Reglas:
+    1. ADMIN global -> acceso total
+    2. rol_organizacional permitido para el módulo -> acceso
+
+    Nota: esta dependencia NO valida acceso base al módulo. Debe combinarse
+    con require_module_access(...) en el endpoint.
+    """
+    async def _validate(context=Depends(get_current_user_context)):
+        if has_org_management_access(context, module_slug):
+            return True
+
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Acceso denegado. Se requiere un rol organizacional con privilegios de gestión."
+        )
+
     return Depends(_validate)
 
 def require_manager_access(module_slug: str, min_module_role: str = "editor") -> Callable:

@@ -6,6 +6,7 @@ from datetime import datetime
 import pandas as pd
 from collections import defaultdict
 from core.permissions import user_has_module_access
+from core.timezone import now_mx
 
 logger = logging.getLogger("ComercialServices")
 
@@ -46,7 +47,7 @@ class DashboardService:
 
         # Default to Current Year if no dates provided
         if not filtro_fecha_inicio and not filtro_fecha_fin:
-            now = datetime.now()
+            now = now_mx()
             filtro_fecha_inicio = now.replace(month=1, day=1).date()
             filtro_fecha_fin = now.replace(month=12, day=31).date()
         

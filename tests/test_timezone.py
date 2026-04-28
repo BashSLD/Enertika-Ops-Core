@@ -37,6 +37,18 @@ def test_no_naive_date_today():
     assert violations == [], f"Usar today_mx() en lugar de date.today() en: {violations}"
 
 
+def test_no_naive_datetime_now():
+    """datetime.now() sin timezone es ambiguo en Railway; usar now_mx() o datetime.now(tz)."""
+    violations = []
+    for root in ("modules", "core"):
+        for path in pathlib.Path(root).rglob("*.py"):
+            if path.name == "timezone.py":
+                continue
+            if "datetime.now()" in path.read_text(encoding="utf-8"):
+                violations.append(str(path))
+    assert violations == [], f"Usar now_mx() o datetime.now(tz) en lugar de datetime.now() en: {violations}"
+
+
 def test_no_toISOString_in_templates():
     """toISOString() devuelve fecha UTC — usar toLocalISO inline en templates."""
     violations = []

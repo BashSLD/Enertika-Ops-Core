@@ -29,7 +29,7 @@ from modules.shared.services import SiteService
 
 from .metrics_service import MetricsService, get_metrics_service
 from datetime import datetime, timedelta
-from core.timezone import today_mx
+from core.timezone import today_mx, now_mx
 
 # Helper para conversión segura
 def _safe_int(val: Optional[str]) -> Optional[int]:
@@ -884,7 +884,7 @@ async def get_datos_metricas(
     
     # Parsear fechas (últimos 3 meses por defecto)
     if not fecha_inicio or not fecha_fin:
-        end = datetime.now()
+        end = now_mx()
         # Si no hay fechas, mostrar todo el historial (desde 2020)
         start = datetime(2020, 1, 1)
     else:
@@ -892,7 +892,7 @@ async def get_datos_metricas(
             start = datetime.fromisoformat(fecha_inicio)
             end = datetime.fromisoformat(fecha_fin)
         except ValueError:
-             end = datetime.now()
+             end = now_mx()
              start = datetime(2020, 1, 1)
     
     # Parsear filtros opcionales

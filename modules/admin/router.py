@@ -1,5 +1,5 @@
 import logging
-from datetime import timedelta, datetime
+from datetime import timedelta
 from fastapi import APIRouter, Request, Depends, HTTPException, Form, Header
 from fastapi.responses import HTMLResponse, Response
 from typing import Optional
@@ -7,6 +7,7 @@ from core.database import get_db_connection
 from fastapi.templating import Jinja2Templates
 from core.security import get_current_user_context
 from core.permissions import require_module_access, require_role
+from core.timezone import now_mx
 
 from core.config import settings
 from core.jinja_filters import register_timezone_filters
@@ -48,6 +49,7 @@ async def admin_dashboard(
     modules_dict = await service.get_modules_catalog(conn)
     catalogos = await service.get_catalogos_reglas(conn)
     global_config = await service.get_global_config(conn)
+    fiel_config = await service.db.fetch_fiel_config(conn)
     reporte = await service.generar_reporte_semanal(conn)
     recordatorios_monitor = await service.get_recordatorios_oportunidad_monitor(conn)
     tc_actual = await tc_service.get_tasa_actual(conn)
@@ -60,6 +62,7 @@ async def admin_dashboard(
         "modules": modules_dict,
         "catalogos": catalogos,
         "config_global": global_config,
+        "fiel_config": fiel_config,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
@@ -69,7 +72,7 @@ async def admin_dashboard(
         "reporte_fecha_fin_display": reporte["fecha_fin"] - timedelta(days=1),
         "reporte_destinatarios_configurados": bool(global_config.get("reporte_semanal_destinatarios", "").strip()),
         "recordatorios_monitor": recordatorios_monitor,
-        "recordatorios_monitor_updated_at": datetime.now(),
+        "recordatorios_monitor_updated_at": now_mx(),
         # Tipo de cambio
         "tipo_cambio_actual": tc_actual,
         "tipo_cambio_historial": tc_historial,
@@ -226,6 +229,10 @@ async def update_global_config_endpoint(
     max_upload_size_mb: int = Form(500),
     sp_visitas_site_id: str = Form(""),
     sp_visitas_drive_id: str = Form(""),
+    # SAT Inbox SharePoint
+    sp_sat_site_id: str = Form(""),
+    sp_sat_drive_id: str = Form(""),
+    sp_sat_base_folder: str = Form("SAT-Inbox"),
     # Simulation KPI Config (Defaults match constants.py)
     sim_peso_compromiso: float = Form(0.50),
     sim_peso_interno: float = Form(0.35),
@@ -285,6 +292,9 @@ async def update_global_config_endpoint(
             max_upload_size_mb=max_upload_size_mb,
             sp_visitas_site_id=sp_visitas_site_id,
             sp_visitas_drive_id=sp_visitas_drive_id,
+            sp_sat_site_id=sp_sat_site_id,
+            sp_sat_drive_id=sp_sat_drive_id,
+            sp_sat_base_folder=sp_sat_base_folder,
             # Simulation KPIS
             sim_peso_compromiso=sim_peso_compromiso,
             sim_peso_interno=sim_peso_interno,
@@ -313,6 +323,116 @@ async def update_global_config_endpoint(
     return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Configuración Actualizada",
         "message": f"Reglas de negocio y parámetros de SharePoint actualizados correctamente."
     })
+
+
+# ── Mini-forms: endpoints dedicados por sección ──────────────────────
+
+@router.post("/config/reglas-negocio", include_in_schema=False)
+async def update_config_reglas_negocio(
+    request: Request,
+    hora_corte_l_v: str = Form(...),
+    dias_sla_default: int = Form(...),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    """Guarda hora de corte, días SLA y días fin de semana."""
+    form_data = await request.form()
+    dias_fin_semana = [int(v) for v in form_data.getlist("dias_fin_semana") if v.isdigit() and 0 <= int(v) <= 6]
+    if not dias_fin_semana:
+        dias_fin_semana = [5, 6]
+
+    try:
+        if not hora_corte_l_v or len(hora_corte_l_v) != 5:
+            raise ValueError("Hora de corte inválida")
+        if dias_sla_default < 1 or dias_sla_default > 30:
+            raise ValueError("Días SLA debe ser entre 1 y 30")
+    except (ValueError, TypeError) as e:
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"message": f"Error de validación: {e}", "type": "error"},
+            headers={"HX-Reswap": "none"},
+        )
+
+    await service.db.upsert_global_config(conn, "HORA_CORTE_L_V", hora_corte_l_v)
+    await service.db.upsert_global_config(conn, "DIAS_SLA_DEFAULT", str(dias_sla_default))
+    await service.db.upsert_global_config(conn, "DIAS_FIN_SEMANA", str(dias_fin_semana))
+    ConfigService.invalidar_cache()
+
+    return templates.TemplateResponse(
+        request, "shared/toast.html",
+        {"message": "Reglas de negocio guardadas correctamente", "type": "success"},
+        headers={"HX-Reswap": "none"},
+    )
+
+
+@router.post("/config/sharepoint", include_in_schema=False)
+async def update_config_sharepoint(
+    request: Request,
+    sharepoint_site_id: str = Form(""),
+    sharepoint_drive_id: str = Form(""),
+    sharepoint_base_folder: str = Form(""),
+    max_upload_size_mb: int = Form(500),
+    sp_visitas_site_id: str = Form(""),
+    sp_visitas_drive_id: str = Form(""),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    """Guarda toda la configuración de SharePoint (principal + visitas)."""
+    await service.db.upsert_global_config(conn, "SHAREPOINT_SITE_ID", sharepoint_site_id.strip())
+    await service.db.upsert_global_config(conn, "SHAREPOINT_DRIVE_ID", sharepoint_drive_id.strip())
+    await service.db.upsert_global_config(conn, "SHAREPOINT_BASE_FOLDER", sharepoint_base_folder.strip())
+    await service.db.upsert_global_config(conn, "MAX_UPLOAD_SIZE_MB", str(max_upload_size_mb))
+    await service.db.upsert_global_config(conn, "SP_VISITAS_SITE_ID", sp_visitas_site_id.strip())
+    await service.db.upsert_global_config(conn, "SP_VISITAS_DRIVE_ID", sp_visitas_drive_id.strip())
+    ConfigService.invalidar_cache()
+
+    return templates.TemplateResponse(
+        request, "shared/toast.html",
+        {"message": "Configuración SharePoint guardada correctamente", "type": "success"},
+        headers={"HX-Reswap": "none"},
+    )
+
+
+@router.post("/config/simulacion-kpis", include_in_schema=False)
+async def update_config_simulacion_kpis(
+    request: Request,
+    sim_peso_compromiso: float = Form(0.50),
+    sim_peso_interno: float = Form(0.35),
+    sim_peso_volumen: float = Form(0.15),
+    sim_umbral_min_entregas: int = Form(10),
+    sim_umbral_ratio_licitaciones: float = Form(0.10),
+    sim_mult_licitaciones: float = Form(0.20),
+    sim_mult_actualizaciones: float = Form(0.10),
+    sim_penalizacion_retrabajos: float = Form(-0.15),
+    sim_volumen_max: int = Form(100),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    """Guarda los pesos y umbrales de KPIs de simulación."""
+    kpi_pairs = [
+        ("sim_peso_compromiso", str(sim_peso_compromiso)),
+        ("sim_peso_interno", str(sim_peso_interno)),
+        ("sim_peso_volumen", str(sim_peso_volumen)),
+        ("sim_umbral_min_entregas", str(sim_umbral_min_entregas)),
+        ("sim_umbral_ratio_licitaciones", str(sim_umbral_ratio_licitaciones)),
+        ("sim_mult_licitaciones", str(sim_mult_licitaciones)),
+        ("sim_mult_actualizaciones", str(sim_mult_actualizaciones)),
+        ("sim_penalizacion_retrabajos", str(sim_penalizacion_retrabajos)),
+        ("sim_volumen_max", str(sim_volumen_max)),
+    ]
+    for clave, valor in kpi_pairs:
+        await service.db.upsert_global_config(conn, clave, valor)
+    ConfigService.invalidar_cache()
+
+    return templates.TemplateResponse(
+        request, "shared/toast.html",
+        {"message": "KPIs de simulación guardados correctamente", "type": "success"},
+        headers={"HX-Reswap": "none"},
+    )
+
 
 @router.post("/config/global/reset-simulation")
 async def reset_simulation_config_endpoint(
@@ -381,6 +501,29 @@ async def toggle_reporte_semanal_activo(
     activo = nuevo == "true"
     return templates.TemplateResponse(
         request, "admin/partials/reporte_semanal_toggle.html", {"reporte_semanal_activo": activo}
+    )
+
+
+@router.post("/config/sat-inbox", include_in_schema=False)
+async def update_config_sat_inbox(
+    request: Request,
+    sp_sat_site_id: str = Form(""),
+    sp_sat_drive_id: str = Form(""),
+    sp_sat_base_folder: str = Form("SAT-Inbox"),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    """Guarda la configuración SharePoint SAT Inbox (Site ID, Drive ID, Carpeta)."""
+    await service.db.upsert_global_config(conn, "SP_SAT_SITE_ID", sp_sat_site_id.strip())
+    await service.db.upsert_global_config(conn, "SP_SAT_DRIVE_ID", sp_sat_drive_id.strip())
+    await service.db.upsert_global_config(conn, "SP_SAT_BASE_FOLDER", (sp_sat_base_folder.strip() or "SAT-Inbox"))
+    ConfigService.invalidar_cache()
+    return templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"message": "Configuración SAT Inbox guardada correctamente", "type": "success"},
+        headers={"HX-Reswap": "none"},
     )
 
 
@@ -966,20 +1109,34 @@ async def guardar_fiel_config(
     request: Request,
     conn=Depends(get_db_connection),
     _=Depends(get_current_user_context),
-    __=Depends(require_role(["ADMIN"])),
+    __=require_role(["ADMIN"]),
 ):
     form = await request.form()
     sp_path_cer = form.get("sp_path_cer", "").strip()
     sp_path_key = form.get("sp_path_key", "").strip()
     password_fiel = form.get("password_fiel", "").strip()
 
-    if not sp_path_cer or not sp_path_key or not password_fiel:
+    if not sp_path_cer or not sp_path_key:
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"mensaje": "Todos los campos FIEL son obligatorios", "tipo": "error"},
+            {"message": "Las rutas .cer y .key son obligatorias", "type": "error"},
             headers={"HX-Reswap": "none"},
         )
+
+    # Si no se envió password, verificar si ya existe una configuración previa
+    if not password_fiel:
+        existing = await conn.fetchval(
+            "SELECT password_fiel FROM tb_sat_fiel_config WHERE empresa='ISA' AND activo=TRUE"
+        )
+        if not existing:
+            return templates.TemplateResponse(
+                request,
+                "shared/toast.html",
+                {"message": "La contraseña FIEL es obligatoria en la primera configuración", "type": "error"},
+                headers={"HX-Reswap": "none"},
+            )
+        password_fiel = existing
 
     try:
         await conn.execute(
@@ -996,14 +1153,14 @@ async def guardar_fiel_config(
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"mensaje": "Error de base de datos al guardar FIEL", "tipo": "error"},
+            {"message": "Error de base de datos al guardar FIEL", "type": "error"},
             headers={"HX-Reswap": "none"},
         )
 
     return templates.TemplateResponse(
         request,
         "shared/toast.html",
-        {"mensaje": "Configuracion FIEL guardada correctamente", "tipo": "success"},
+        {"message": "Configuración FIEL guardada correctamente", "type": "success"},
         headers={"HX-Reswap": "none"},
     )
 
@@ -1013,7 +1170,7 @@ async def probar_fiel(
     request: Request,
     conn=Depends(get_db_connection),
     _=Depends(get_current_user_context),
-    __=Depends(require_role(["ADMIN"])),
+    __=require_role(["ADMIN"]),
 ):
     from core.sat.fiel_loader import probar_conexion_fiel
 
@@ -1026,25 +1183,25 @@ async def probar_fiel(
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"mensaje": "Configura SP_SAT_SITE_ID y SP_SAT_DRIVE_ID antes de probar la FIEL", "tipo": "error"},
+            {"message": "Configura SP_SAT_SITE_ID y SP_SAT_DRIVE_ID antes de probar la FIEL", "type": "error"},
             headers={"HX-Reswap": "none"},
         )
 
     try:
         rfc = await probar_conexion_fiel(conn, sat_site_id, sat_drive_id)
-        mensaje = f"FIEL cargada correctamente - RFC: {rfc}"
-        tipo = "success"
+        message = f"FIEL cargada correctamente - RFC: {rfc}"
+        type_ = "success"
     except ValueError as e:
-        mensaje = f"Error: {e}"
-        tipo = "error"
+        message = f"Error: {e}"
+        type_ = "error"
     except asyncpg.PostgresError:
         logger.exception("Error de BD al probar FIEL")
-        mensaje = "Error de base de datos al leer config FIEL"
-        tipo = "error"
+        message = "Error de base de datos al leer config FIEL"
+        type_ = "error"
 
     return templates.TemplateResponse(
         request,
         "shared/toast.html",
-        {"mensaje": mensaje, "tipo": tipo},
+        {"message": message, "type": type_},
         headers={"HX-Reswap": "none"},
     )

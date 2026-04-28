@@ -7,7 +7,7 @@ import logging
 
 # IMPORTS OBLIGATORIOS para permisos
 from core.security import get_current_user_context
-from core.permissions import require_module_access, require_manager_access
+from core.permissions import require_module_access, require_org_management_access, has_org_management_access
 from core.config import settings
 
 # Database connection
@@ -166,13 +166,7 @@ async def get_assign_modal(
         current_jefe_id = await service.get_jefe_default(conn)
 
     # Identificar permisos de edición para el modal
-    user_role = context.get("role")
-    mod_role = context.get("module_roles", {}).get("levantamientos")
-    can_assign = (
-        user_role == "ADMIN" or
-        mod_role == "admin" or
-        (user_role == "MANAGER" and mod_role in ["editor", "admin"])
-    )
+    can_assign = has_org_management_access(context, "levantamientos")
 
     # Verificar si el usuario actual es el responsable asignado
     user_db_id = context.get("user_db_id")
@@ -225,13 +219,13 @@ async def assign_responsables_endpoint(
     conn = Depends(get_db_connection),
     service: LevantamientoService = Depends(get_service),
     context = Depends(get_current_user_context),
-    _ = require_manager_access("levantamientos", "editor"),
+    _ = require_org_management_access("levantamientos"),
 ):
     """
     API: Asigna responsables (múltiples técnicos) a un levantamiento.
     Envía notificaciones automáticas.
     
-    **PERMISOS REQUERIDOS**: MANAGER+editor, Admin del módulo, o ADMIN global
+    **PERMISOS REQUERIDOS**: Jefe de Ingeniería, Jefe de Construcción, o ADMIN global
     """
     try:
         await service.assign_responsables(

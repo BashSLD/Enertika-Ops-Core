@@ -9,13 +9,13 @@ from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, Response
 from typing import Optional, Annotated
 from uuid import UUID
-from datetime import datetime
 import logging
 
 from core.database import get_db_connection
 from core.security import get_current_user_context
 from core.permissions import require_module_access, ROLE_HIERARCHY
 from core.config import settings
+from core.timezone import now_mx
 from .service import MaterialsService, get_materials_service
 from .schemas import MaterialFilter, MaterialUpdate
 
@@ -250,7 +250,7 @@ async def export_materials_excel(
 
     excel_bytes = await service.export_to_excel(conn, filtros=filtro_dict)
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = now_mx().strftime("%Y%m%d_%H%M%S")
     filename = f"materiales_{timestamp}.xlsx"
 
     return Response(

@@ -32,6 +32,7 @@ class SATClient:
         self,
         fecha_inicio: date,
         fecha_fin: date,
+        rfc_emisor: Optional[str] = None,
     ) -> str:
         """
         Solicita descarga masiva de CFDIs recibidos en el rango de fechas.
@@ -40,12 +41,18 @@ class SATClient:
         dt_inicio = datetime(fecha_inicio.year, fecha_inicio.month, fecha_inicio.day)
         dt_fin = datetime(fecha_fin.year, fecha_fin.month, fecha_fin.day, 23, 59, 59)
 
+        kwargs = {
+            "fecha_inicial": dt_inicio,
+            "fecha_final": dt_fin,
+            "rfc_receptor": self.rfc,
+            "estado_comprobante": EstadoComprobante.VIGENTE,
+        }
+        if rfc_emisor:
+            kwargs["rfc_emisor"] = rfc_emisor
+
         respuesta = await asyncio.to_thread(
             self._sat.recover_comprobante_received_request,
-            fecha_inicial=dt_inicio,
-            fecha_final=dt_fin,
-            rfc_receptor=self.rfc,
-            estado_comprobante=EstadoComprobante.VIGENTE,
+            **kwargs
         )
         id_solicitud = respuesta.get("IdSolicitud")
         if not id_solicitud:

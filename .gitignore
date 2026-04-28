@@ -29,6 +29,9 @@ pip-delete-this-directory.txt
 temp_uploads/
 MD/
 
+# Design prototypes (agentes de diseño)
+HOMEECO/
+
 # Tests
 tests/
 

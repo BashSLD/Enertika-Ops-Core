@@ -12,6 +12,7 @@ import asyncio
 from zoneinfo import ZoneInfo
 from fastapi import HTTPException
 import json
+from core.permissions import has_org_management_access
 
 logger = logging.getLogger("LevantamientosModule")
 
@@ -375,13 +376,8 @@ class LevantamientoService:
         Asigna técnicos (multiples) y/o jefe de área.
         Usa tb_levantamiento_asignaciones para técnicos.
         """
-        # PERMISOS: Solo Admin, Manager o Admin de Levantamientos pueden asignar
-        is_admin_or_manager = (
-            user_context.get("role") in ["ADMIN", "MANAGER"] or 
-            user_context.get("module_roles", {}).get("levantamientos") == "admin"
-        )
-        
-        if not is_admin_or_manager:
+        # PERMISOS: Solo ADMIN global o rol organizacional con privilegios de gestión
+        if not has_org_management_access(user_context, "levantamientos"):
             raise HTTPException(
                 status_code=403,
                 detail="No tienes permisos para asignar responsables. Contacta a un administrador."

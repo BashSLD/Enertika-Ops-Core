@@ -14,9 +14,10 @@ from fastapi import APIRouter, Depends, Request, HTTPException, Query
 from fastapi.templating import Jinja2Templates
 
 from core.security import get_current_user_context
-from core.permissions import require_module_access, require_any_module_access
+from core.permissions import require_module_access, require_any_module_access, has_org_management_access
 from core.database import get_db_connection
 from core.config import settings
+from core.timezone import now_mx
 
 from .service import get_service, LevantamientoService
 from .db_service import get_db_service, LevantamientosDBService
@@ -120,7 +121,7 @@ def register_modal_endpoints(router: APIRouter):
         if not lev:
             raise HTTPException(status_code=404, detail="Levantamiento no encontrado")
 
-        today_str = datetime.now(ZoneInfo("America/Mexico_City")).strftime("%Y-%m-%dT%H:%M")
+        today_str = now_mx().strftime("%Y-%m-%dT%H:%M")
 
         responsable_actual = await db_svc.get_responsable_asignado(conn, id_levantamiento)
         user_db_id = context.get("user_db_id")
@@ -463,10 +464,7 @@ def register_modal_endpoints(router: APIRouter):
             for lev in levantamientos
         ])
 
-        can_assign = (
-            context.get("role") == "ADMIN"
-            or context.get("module_roles", {}).get("levantamientos") in ["editor", "admin"]
-        )
+        can_assign = has_org_management_access(context, "levantamientos")
         ctx = {
             "levantamientos_disponibles": levantamientos,
             "preseleccionados": preseleccionados,

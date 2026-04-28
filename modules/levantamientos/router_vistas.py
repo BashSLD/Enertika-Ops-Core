@@ -12,7 +12,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.templating import Jinja2Templates
 
 from core.security import get_current_user_context
-from core.permissions import require_module_access
+from core.permissions import require_module_access, has_org_management_access
 from core.database import get_db_connection
 
 from .db_service import get_db_service, LevantamientosDBService
@@ -58,11 +58,7 @@ def register_vistas_endpoints(router: APIRouter):
         user_role = context.get("role")
         mod_role = context.get("module_roles", {}).get("levantamientos")
         can_edit = (user_role == "ADMIN" or mod_role in ["editor", "admin"])
-        can_manage = (
-            user_role == "ADMIN" or
-            mod_role == "admin" or
-            (user_role == "MANAGER" and mod_role in ["editor", "admin"])
-        )
+        can_manage = has_org_management_access(context, "levantamientos")
 
         if tab == "terminados":
             ids_terminados = [v for k, v in estatus_map.items() if k in ('completado', 'entregado')]

@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, Request, HTTPException, Form, UploadFile
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import Response, HTMLResponse
 from uuid import UUID
-from datetime import datetime
 from typing import List, Optional
 import asyncpg
 import logging
@@ -17,6 +16,7 @@ from core.database import get_db_connection
 from core.security import get_current_user_context
 from core.permissions import require_module_access, require_manager_access, get_user_module_role
 from core.config import settings
+from core.timezone import now_mx
 from .service import BomService, get_bom_service
 
 logger = logging.getLogger("BOM.Router")
@@ -1145,7 +1145,7 @@ async def export_excel(
 
     excel_bytes = await service.export_to_excel(conn, bom['id_bom'])
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = now_mx().strftime("%Y%m%d_%H%M%S")
     proyecto_id = bom.get('proyecto_id_estandar', 'BOM')
     filename = f"BOM_{proyecto_id}_v{bom['version']}_{timestamp}.xlsx"
 

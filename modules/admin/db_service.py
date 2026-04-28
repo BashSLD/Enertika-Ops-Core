@@ -225,6 +225,13 @@ class AdminDBService:
     # CONFIGURACION GLOBAL
     # ========================================
 
+    async def fetch_fiel_config(self, conn) -> dict:
+        """Obtiene la config FIEL activa para ISA, o dict vacío si no existe."""
+        row = await conn.fetchrow(
+            "SELECT sp_path_cer, sp_path_key FROM tb_sat_fiel_config WHERE empresa='ISA' AND activo=TRUE"
+        )
+        return dict(row) if row else {}
+
     async def fetch_global_config(self, conn) -> Dict[str, str]:
         """Obtiene toda la configuracion global como dict clave->valor."""
         rows = await conn.fetch("SELECT clave, valor FROM tb_configuracion_global")

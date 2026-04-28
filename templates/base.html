@@ -14,7 +14,7 @@
     <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/json-enc.js"></script>
 
     <script>
-        const DEBUG_MODE = {{ DEBUG_MODE | tojson }};
+        const DEBUG_MODE = {{ DEBUG_MODE | default(false) | tojson }};
         if (!DEBUG_MODE) {
             console.log = function () { };
             console.info = function () { };
@@ -34,7 +34,9 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
     <style>
-        [x-cloak] { display: none !important; }
+        [x-cloak] {
+            display: none !important;
+        }
 
         :root {
             --enertika-primary: #123456;
@@ -42,11 +44,11 @@
             --enertika-secondary-dark: #009999;
             --enertika-dark: #0E2A47;
             --enertika-secondary-light: #E0F7F7;
-            --e-accent:      #00BABB;
+            --e-accent: #00BABB;
             --e-accent-soft: rgba(0, 186, 187, 0.12);
-            --e-line:        rgba(127, 217, 218, 0.14);
-            --e-text-dim:    #95A9C0;
-            --e-text-faint:  #5e7591;
+            --e-line: rgba(127, 217, 218, 0.14);
+            --e-text-dim: #95A9C0;
+            --e-text-faint: #5e7591;
         }
 
         /* === ANIMACIONES PREMIUM === */
@@ -123,6 +125,7 @@
         }
 
         @keyframes glow-pulse {
+
             /* Usa opacity en lugar de box-shadow — GPU-accelerated, sin repaints */
             0%,
             100% {
@@ -197,7 +200,9 @@
         }
 
         /* Smooth transitions — acotado a elementos interactivos para no afectar rendimiento */
-        a, button, [class*="transition"] {
+        a,
+        button,
+        [class*="transition"] {
             transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
         }
 
@@ -296,49 +301,88 @@
             text-decoration: none;
             transition: background .15s;
         }
+
         .nav-item .rail {
             position: absolute;
-            left: 0; top: 8px; bottom: 8px;
+            left: 0;
+            top: 8px;
+            bottom: 8px;
             width: 2px;
             background: transparent;
             border-radius: 0 2px 2px 0;
             transition: background .15s;
         }
+
         .nav-item .label {
             flex: 1;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
-        .nav-item:hover { background: rgba(255,255,255,0.03); }
-        .nav-item.active { background: var(--e-accent-soft); }
-        .nav-item.active .rail { background: var(--e-accent); }
-        .nav-item.active .label { color: #fff; font-weight: 600; }
+
+        .nav-item:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .nav-item.active {
+            background: var(--e-accent-soft);
+        }
+
+        .nav-item.active .rail {
+            background: var(--e-accent);
+        }
+
+        .nav-item.active .label {
+            color: #fff;
+            font-weight: 600;
+        }
+
         .nav-item .tip {
             position: absolute;
-            left: 100%; top: 50%;
+            left: 100%;
+            top: 50%;
             transform: translate(12px, -50%);
-            background: #0B1E33; color: #fff;
-            font-size: 12px; padding: 6px 10px;
-            border-radius: 6px; white-space: nowrap;
-            opacity: 0; pointer-events: none;
+            background: #0B1E33;
+            color: #fff;
+            font-size: 12px;
+            padding: 6px 10px;
+            border-radius: 6px;
+            white-space: nowrap;
+            opacity: 0;
+            pointer-events: none;
             transition: opacity .15s;
-            border: 1px solid rgba(127,217,218,0.2);
+            border: 1px solid rgba(127, 217, 218, 0.2);
             z-index: 80;
         }
-        .rail-mode .nav-item:hover .tip { opacity: 1; }
+
+        .rail-mode .nav-item:hover .tip {
+            opacity: 1;
+        }
+
         .rail-mode .nav-item {
             padding: 9px 0;
             justify-content: center;
         }
-        .rail-mode .nav-item .rail  { display: none; }
-        .rail-mode .nav-item .label { display: none; }
-        .notification-badge { position: relative; }
+
+        .rail-mode .nav-item .rail {
+            display: none;
+        }
+
+        .rail-mode .nav-item .label {
+            display: none;
+        }
+
+        .notification-badge {
+            position: relative;
+        }
+
         .notification-badge::before {
             content: '';
             position: absolute;
-            top: -2px; right: -2px;
-            width: 100%; height: 100%;
+            top: -2px;
+            right: -2px;
+            width: 100%;
+            height: 100%;
             border-radius: 9999px;
             background: #ef4444;
             animation: badge-ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;
@@ -348,9 +392,23 @@
 
 <body class="bg-gray-100 font-sans text-gray-900">
 
-    <div id="offline-indicator" class="hidden fixed top-0 inset-x-0 z-[120] bg-red-600 text-white text-center text-sm font-semibold py-2 px-4 shadow-md">
+    <div id="offline-indicator"
+        class="hidden fixed top-0 inset-x-0 z-[120] bg-red-600 text-white text-center text-sm font-semibold py-2 px-4 shadow-md">
         Sin conexion. Algunas funciones no estaran disponibles.
     </div>
+
+    <!-- === BANNER GLOBAL: Estado descarga SAT === -->
+    <!-- Solo visible para usuarios con acceso a compras -->
+    {% if role == 'ADMIN' or 'compras' in (module_roles or {}) %}
+    <div
+      id="sat-global-banner"
+      hx-get="/compras/sat/jobs/banner"
+      hx-trigger="load, every 15s"
+      hx-target="#sat-global-banner"
+      hx-swap="outerHTML"
+      class="hidden">
+    </div>
+    {% endif %}
 
     <div class="flex h-screen overflow-hidden" x-data="{
             sidebarOpen: $persist(false),
@@ -364,7 +422,63 @@
         }" x-init="loadSidebarState()"
         @sidebar-active-module-changed.window="setActiveGroupBySlug($event.detail.slug)">
 
-        {% macro module_icon(slug, size=18) %}{% if slug == 'comercial' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 7h18l-1.5 11a2 2 0 0 1-2 1.7H6.5a2 2 0 0 1-2-1.7L3 7Z"/><path d="M8 7V5a4 4 0 0 1 8 0v2"/></svg>{% elif slug == 'simulacion' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z"/></svg>{% elif slug == 'levantamientos' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><rect x="5" y="3" width="14" height="18" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>{% elif slug == 'proyectos' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z"/></svg>{% elif slug == 'ingenieria' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/></svg>{% elif slug == 'construccion' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M10 10V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5"/><path d="M14 6a6 6 0 0 1 6 6v3"/><path d="M4 15v-3a6 6 0 0 1 6-6"/><rect x="2" y="15" width="20" height="4" rx="1"/></svg>{% elif slug == 'compras' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M3 4h2l2.5 11.5a2 2 0 0 0 2 1.5h8a2 2 0 0 0 2-1.5L21 8H6"/></svg>{% elif slug == 'finanzas' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M10 18v-7"/><path d="M11.12 2.198a2 2 0 0 1 1.76.006l7.866 3.847c.476.233.31.949-.22.949H3.474c-.53 0-.695-.716-.22-.949z"/><path d="M14 18v-7"/><path d="M18 18v-7"/><path d="M3 22h18"/><path d="M6 18v-7"/></svg>{% elif slug == 'oym' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-6 6 2 2 6-6a4 4 0 0 0 5.4-5.4l-2.3 2.3-2-2 2.3-2.3Z"/></svg>{% elif slug == 'admin' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>{% endif %}{% endmacro %}
+        {% macro module_icon(slug, size=18) %}{% if slug == 'comercial' %}<svg viewBox="0 0 24 24" width="{{ size }}"
+            height="{{ size }}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"
+            stroke-linejoin="round" style="flex-shrink:0;">
+            <path d="M3 7h18l-1.5 11a2 2 0 0 1-2 1.7H6.5a2 2 0 0 1-2-1.7L3 7Z" />
+            <path d="M8 7V5a4 4 0 0 1 8 0v2" />
+        </svg>{% elif slug == 'simulacion' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none"
+            stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+            style="flex-shrink:0;">
+            <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8Z" />
+        </svg>{% elif slug == 'levantamientos' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}"
+            fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+            style="flex-shrink:0;">
+            <rect x="5" y="3" width="14" height="18" rx="2" />
+            <path d="M9 8h6M9 12h6M9 16h4" />
+        </svg>{% elif slug == 'proyectos' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none"
+            stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+            style="flex-shrink:0;">
+            <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7Z" />
+        </svg>{% elif slug == 'ingenieria' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none"
+            stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+            style="flex-shrink:0;">
+            <circle cx="12" cy="12" r="10" />
+            <path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z" />
+        </svg>{% elif slug == 'construccion' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}"
+            fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+            style="flex-shrink:0;">
+            <path d="M10 10V5a1 1 0 0 1 1-1h2a1 1 0 0 1 1 1v5" />
+            <path d="M14 6a6 6 0 0 1 6 6v3" />
+            <path d="M4 15v-3a6 6 0 0 1 6-6" />
+            <rect x="2" y="15" width="20" height="4" rx="1" />
+        </svg>{% elif slug == 'compras' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none"
+            stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+            style="flex-shrink:0;">
+            <circle cx="9" cy="20" r="1.4" />
+            <circle cx="18" cy="20" r="1.4" />
+            <path d="M3 4h2l2.5 11.5a2 2 0 0 0 2 1.5h8a2 2 0 0 0 2-1.5L21 8H6" />
+        </svg>{% elif slug == 'finanzas' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none"
+            stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+            style="flex-shrink:0;">
+            <path d="M10 18v-7" />
+            <path
+                d="M11.12 2.198a2 2 0 0 1 1.76.006l7.866 3.847c.476.233.31.949-.22.949H3.474c-.53 0-.695-.716-.22-.949z" />
+            <path d="M14 18v-7" />
+            <path d="M18 18v-7" />
+            <path d="M3 22h18" />
+            <path d="M6 18v-7" />
+        </svg>{% elif slug == 'oym' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none"
+            stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+            style="flex-shrink:0;">
+            <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-6 6 2 2 6-6a4 4 0 0 0 5.4-5.4l-2.3 2.3-2-2 2.3-2.3Z" />
+        </svg>{% elif slug == 'admin' %}<svg viewBox="0 0 24 24" width="{{ size }}" height="{{ size }}" fill="none"
+            stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
+            style="flex-shrink:0;">
+            <circle cx="12" cy="12" r="3" />
+            <path
+                d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" />
+        </svg>{% endif %}{% endmacro %}
         {% if user_name %}
         <!-- MOBILE HEADER -->
         <header
@@ -383,22 +497,20 @@
                 <div x-show="actionsOpen" @click="actionsOpen = false"
                     class="fixed inset-0 bg-black/50 z-[59] md:hidden" style="display:none"></div>
                 <!-- Trigger: 3 dots -->
-                <button @click="actionsOpen = !actionsOpen"
-                    class="p-2 rounded-lg hover:bg-blue-800/50 transition">
+                <button @click="actionsOpen = !actionsOpen" class="p-2 rounded-lg hover:bg-blue-800/50 transition">
                     <svg class="w-5 h-5" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/>
+                        <path
+                            d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z" />
                     </svg>
                 </button>
                 <!-- Bottom sheet -->
-                <div x-show="actionsOpen"
-                    x-transition:enter="transition ease-out duration-250"
+                <div x-show="actionsOpen" x-transition:enter="transition ease-out duration-250"
                     x-transition:enter-start="opacity-0 translate-y-4"
                     x-transition:enter-end="opacity-100 translate-y-0"
                     x-transition:leave="transition ease-in duration-200"
                     x-transition:leave-start="opacity-100 translate-y-0"
                     x-transition:leave-end="opacity-0 translate-y-4"
-                    class="fixed inset-x-0 bottom-0 z-[60] bg-white rounded-t-2xl shadow-2xl"
-                    style="display:none"
+                    class="fixed inset-x-0 bottom-0 z-[60] bg-white rounded-t-2xl shadow-2xl" style="display:none"
                     @close-mobile-actions.document="actionsOpen = false">
                     <div class="p-4 pb-8">
                         <!-- Drag handle -->
@@ -409,11 +521,13 @@
                         <div id="mobile-actions-separator" class="border-t border-gray-100 my-3 hidden"></div>
                         <!-- Usuario y logout -->
                         <div class="flex items-center gap-3 px-3 py-2 mb-1">
-                            <div class="w-9 h-9 rounded-full bg-[#123456] text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                            <div
+                                class="w-9 h-9 rounded-full bg-[#123456] text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
                                 {{ user_name[:2].upper() if user_name else '?' }}
                             </div>
                             <div class="min-w-0">
-                                <p class="text-[10px] text-gray-400 uppercase font-semibold tracking-wide">Conectado como</p>
+                                <p class="text-[10px] text-gray-400 uppercase font-semibold tracking-wide">Conectado
+                                    como</p>
                                 <p class="text-sm font-semibold text-gray-800 truncate">{{ user_name }}</p>
                             </div>
                         </div>
@@ -440,8 +554,7 @@
         <!-- === SIDEBAR — Variante E === -->
         <aside
             class="text-white flex flex-col shadow-2xl z-50 transition-all duration-300 ease-in-out fixed md:relative inset-y-0 left-0 transform md:transform-none"
-            style="background:#123456;"
-            :class="[
+            style="background:#123456;" :class="[
                 sidebarOpen ? 'w-64' : 'w-16 rail-mode',
                 mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
             ]">
@@ -449,24 +562,29 @@
             <!-- BRAND HEADER -->
             <div style="border-bottom:1px solid var(--e-line);" x-data="{ open: false }">
                 <div x-show="sidebarOpen" class="flex items-center gap-2.5 px-4 py-3.5">
-                    <div style="width:28px;height:28px;border-radius:6px;background:linear-gradient(135deg,#00BABB,#009999);display:grid;place-items:center;flex-shrink:0;">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 171 321" width="15" height="28" fill="#ffffff" aria-label="Enertika">
-                            <path fill-rule="evenodd" d="M12 3 L16 3 L19 7 L31 14 L37 20 L56 32 L104 68 L103 73 L91 85 L89 85 L14 161Z M163 66 L166 66 L166 314 L164 314 L161 310 L159 304 L154 298 L144 278 L139 272 L133 259 L128 253 L122 240 L117 234 L107 214 L105 213 L74 159 L75 154Z M43 186 L47 188 L52 196 L58 209 L63 215 L113 304 L118 310 L119 316 L15 316 L12 314 L12 218Z"/>
+                    <div
+                        style="width:28px;height:28px;border-radius:6px;background:linear-gradient(135deg,#00BABB,#009999);display:grid;place-items:center;flex-shrink:0;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 171 321" width="15" height="28"
+                            fill="#ffffff" aria-label="Enertika">
+                            <path fill-rule="evenodd"
+                                d="M12 3 L16 3 L19 7 L31 14 L37 20 L56 32 L104 68 L103 73 L91 85 L89 85 L14 161Z M163 66 L166 66 L166 314 L164 314 L161 310 L159 304 L154 298 L144 278 L139 272 L133 259 L128 253 L122 240 L117 234 L107 214 L105 213 L74 159 L75 154Z M43 186 L47 188 L52 196 L58 209 L63 215 L113 304 L118 310 L119 316 L15 316 L12 314 L12 218Z" />
                         </svg>
                     </div>
                     <div style="flex:1;min-width:0;line-height:1.15;">
                         <div style="font-size:13px;font-weight:600;">Enertika</div>
-                        <div style="font-size:10.5px;color:var(--e-text-dim);letter-spacing:0.08em;text-transform:uppercase;">Core Ops</div>
+                        <div
+                            style="font-size:10.5px;color:var(--e-text-dim);letter-spacing:0.08em;text-transform:uppercase;">
+                            Core Ops</div>
                     </div>
                     <div class="relative">
                         <button @click="open = !open" title="Notificaciones"
                             style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;position:relative;">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9Z"/>
-                                <path d="M10 21a2 2 0 0 0 4 0"/>
+                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                                stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                <path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9Z" />
+                                <path d="M10 21a2 2 0 0 0 4 0" />
                             </svg>
-                            <span x-show="$store.notifications?.count > 0"
-                                class="notification-badge"
+                            <span x-show="$store.notifications?.count > 0" class="notification-badge"
                                 x-text="$store.notifications?.count > 99 ? '99+' : $store.notifications?.count"
                                 style="position:absolute;top:-4px;right:-4px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:#ef4444;color:#fff;font-size:9px;font-weight:700;display:grid;place-items:center;font-family:'JetBrains Mono',monospace;">
                             </span>
@@ -474,9 +592,12 @@
                         <div x-show="open" @click.away="open = false" x-transition
                             class="absolute left-0 top-full mt-2 w-96 bg-white rounded-lg shadow-2xl border border-gray-200 max-h-96 overflow-hidden z-50"
                             style="display:none;">
-                            <div class="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-cyan-50 flex justify-between items-center">
+                            <div
+                                class="p-3 border-b border-gray-200 bg-gradient-to-r from-blue-50 to-cyan-50 flex justify-between items-center">
                                 <h3 class="font-semibold text-gray-800">Notificaciones</h3>
-                                <button onclick="deleteAllNotifications(event)" class="text-xs text-red-500 hover:text-red-700 font-bold hover:bg-red-50 px-2 py-1 rounded transition">Borrar todas</button>
+                                <button onclick="deleteAllNotifications(event)"
+                                    class="text-xs text-red-500 hover:text-red-700 font-bold hover:bg-red-50 px-2 py-1 rounded transition">Borrar
+                                    todas</button>
                             </div>
                             <div id="notifications-dropdown" class="max-h-80 overflow-y-auto">
                                 <div id="empty-notifications" class="p-8 text-center text-gray-400 text-sm">
@@ -488,9 +609,12 @@
                     </div>
                 </div>
                 <div x-show="!sidebarOpen" class="flex justify-center py-3.5">
-                    <div style="width:30px;height:30px;border-radius:6px;background:linear-gradient(135deg,#00BABB,#009999);display:grid;place-items:center;overflow:hidden;">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 171 321" width="16" height="30" fill="#ffffff" aria-label="Enertika">
-                            <path fill-rule="evenodd" d="M12 3 L16 3 L19 7 L31 14 L37 20 L56 32 L104 68 L103 73 L91 85 L89 85 L14 161Z M163 66 L166 66 L166 314 L164 314 L161 310 L159 304 L154 298 L144 278 L139 272 L133 259 L128 253 L122 240 L117 234 L107 214 L105 213 L74 159 L75 154Z M43 186 L47 188 L52 196 L58 209 L63 215 L113 304 L118 310 L119 316 L15 316 L12 314 L12 218Z"/>
+                    <div
+                        style="width:30px;height:30px;border-radius:6px;background:linear-gradient(135deg,#00BABB,#009999);display:grid;place-items:center;overflow:hidden;">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 171 321" width="16" height="30"
+                            fill="#ffffff" aria-label="Enertika">
+                            <path fill-rule="evenodd"
+                                d="M12 3 L16 3 L19 7 L31 14 L37 20 L56 32 L104 68 L103 73 L91 85 L89 85 L14 161Z M163 66 L166 66 L166 314 L164 314 L161 310 L159 304 L154 298 L144 278 L139 272 L133 259 L128 253 L122 240 L117 234 L107 214 L105 213 L74 159 L75 154Z M43 186 L47 188 L52 196 L58 209 L63 215 L113 304 L118 310 L119 316 L15 316 L12 314 L12 218Z" />
                         </svg>
                     </div>
                 </div>
@@ -498,88 +622,85 @@
 
             <!-- NAVIGATION -->
             <nav class="flex-1 overflow-y-auto overflow-x-hidden py-3"
-                 :class="sidebarOpen ? 'custom-scrollbar' : 'no-scrollbar'">
+                :class="sidebarOpen ? 'custom-scrollbar' : 'no-scrollbar'">
 
                 {% set module_groups = [
-                    { "key": "operaciones", "name": "Operaciones", "modules": [
-                        {"slug": "comercial",      "name": "Comercial",      "url": "/comercial/ui"},
-                        {"slug": "simulacion",     "name": "Simulación",     "url": "/simulacion/ui"},
-                        {"slug": "levantamientos", "name": "Levantamientos", "url": "/levantamientos/ui"}
-                    ]},
-                    { "key": "proyectos", "name": "Proyectos", "modules": [
-                        {"slug": "proyectos",    "name": "Proyectos",    "url": "/proyectos/ui"},
-                        {"slug": "ingenieria",   "name": "Ingeniería",   "url": "/ingenieria/ui"},
-                        {"slug": "construccion", "name": "Construcción", "url": "/construccion/ui"},
-                        {"slug": "compras",      "name": "Compras",      "url": "/compras/ui"},
-                        {"slug": "finanzas",     "name": "Finanzas",     "url": "/finanzas/ui"}
-                    ]},
-                    { "key": "mantenimiento", "name": "Mantenimiento", "modules": [
-                        {"slug": "oym", "name": "O & M", "url": "/oym/ui"}
-                    ]}
+                { "key": "operaciones", "name": "Operaciones", "modules": [
+                {"slug": "comercial", "name": "Comercial", "url": "/comercial/ui"},
+                {"slug": "simulacion", "name": "Simulación", "url": "/simulacion/ui"},
+                {"slug": "levantamientos", "name": "Levantamientos", "url": "/levantamientos/ui"}
+                ]},
+                { "key": "proyectos", "name": "Proyectos", "modules": [
+                {"slug": "proyectos", "name": "Proyectos", "url": "/proyectos/ui"},
+                {"slug": "ingenieria", "name": "Ingeniería", "url": "/ingenieria/ui"},
+                {"slug": "construccion", "name": "Construcción", "url": "/construccion/ui"},
+                {"slug": "compras", "name": "Compras", "url": "/compras/ui"},
+                {"slug": "finanzas", "name": "Finanzas", "url": "/finanzas/ui"}
+                ]},
+                { "key": "mantenimiento", "name": "Mantenimiento", "modules": [
+                {"slug": "oym", "name": "O & M", "url": "/oym/ui"}
+                ]}
                 ] %}
 
                 {% set ns = namespace(locked=[]) %}
                 {% for g in module_groups %}
-                    {% for m in g.modules %}
-                        {% if not (role == 'ADMIN' or m.slug in (module_roles or {})) %}
-                            {% set ns.locked = ns.locked + [m] %}
-                        {% endif %}
-                    {% endfor %}
+                {% for m in g.modules %}
+                {% if not (role == 'ADMIN' or m.slug in (module_roles or {})) %}
+                {% set ns.locked = ns.locked + [m] %}
+                {% endif %}
+                {% endfor %}
                 {% endfor %}
 
                 {% if role == 'ADMIN' %}
-                    {% for g in module_groups %}
-                    <div x-show="sidebarOpen"
-                         style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--e-text-faint);font-weight:600;padding:8px 14px 4px;">
-                        {{ g.name }}
-                    </div>
-                    {% for m in g.modules %}
-                    <a href="#"
-                       hx-get="{{ m.url }}" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
-                       @click="mobileMenuOpen = false; $store.activeModule.slug = '{{ m.slug }}'"
-                       class="nav-item"
-                       :class="$store.activeModule.slug === '{{ m.slug }}' ? 'active' : ''"
-                       x-init="if (window.location.pathname.includes('{{ m.slug }}')) $store.activeModule.slug = '{{ m.slug }}'">
-                        <span class="rail"></span>
-                        {{ module_icon(m.slug) }}
-                        <span class="label">{{ m.name }}</span>
-                        <div class="tip">{{ m.name }}</div>
-                    </a>
-                    {% endfor %}
-                    {% if not loop.last %}
-                    <div style="height:1px;background:var(--e-line);margin:6px 12px;" x-show="sidebarOpen"></div>
-                    {% endif %}
-                    {% endfor %}
+                {% for g in module_groups %}
+                <div x-show="sidebarOpen"
+                    style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--e-text-faint);font-weight:600;padding:8px 14px 4px;">
+                    {{ g.name }}
+                </div>
+                {% for m in g.modules %}
+                <a href="#" hx-get="{{ m.url }}" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                    @click="mobileMenuOpen = false; $store.activeModule.slug = '{{ m.slug }}'" class="nav-item"
+                    :class="$store.activeModule.slug === '{{ m.slug }}' ? 'active' : ''"
+                    x-init="if (window.location.pathname.includes('{{ m.slug }}')) $store.activeModule.slug = '{{ m.slug }}'">
+                    <span class="rail"></span>
+                    {{ module_icon(m.slug) }}
+                    <span class="label">{{ m.name }}</span>
+                    <div class="tip">{{ m.name }}</div>
+                </a>
+                {% endfor %}
+                {% if not loop.last %}
+                <div style="height:1px;background:var(--e-line);margin:6px 12px;" x-show="sidebarOpen"></div>
+                {% endif %}
+                {% endfor %}
 
                 {% else %}
-                    {% if (module_roles or {}) | length > 1 %}
-                    <div x-show="sidebarOpen"
-                         style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--e-text-faint);font-weight:600;padding:8px 14px 4px;">
-                        Tus módulos
-                    </div>
-                    {% endif %}
-                    {% for g in module_groups %}
-                    {% for m in g.modules %}
-                    {% if m.slug in (module_roles or {}) %}
-                    <a href="#"
-                       hx-get="{{ m.url }}" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
-                       @click="mobileMenuOpen = false; $store.activeModule.slug = '{{ m.slug }}'"
-                       class="nav-item"
-                       :class="$store.activeModule.slug === '{{ m.slug }}' ? 'active' : ''"
-                       x-init="if (window.location.pathname.includes('{{ m.slug }}')) $store.activeModule.slug = '{{ m.slug }}'">
-                        <span class="rail"></span>
-                        {{ module_icon(m.slug) }}
-                        <span class="label">{{ m.name }}</span>
-                        <div class="tip">{{ m.name }}</div>
-                    </a>
-                    {% endif %}
-                    {% endfor %}
-                    {% endfor %}
+                {% if (module_roles or {}) | length > 1 %}
+                <div x-show="sidebarOpen"
+                    style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--e-text-faint);font-weight:600;padding:8px 14px 4px;">
+                    Tus módulos
+                </div>
+                {% endif %}
+                {% for g in module_groups %}
+                {% for m in g.modules %}
+                {% if m.slug in (module_roles or {}) %}
+                <a href="#" hx-get="{{ m.url }}" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="true"
+                    @click="mobileMenuOpen = false; $store.activeModule.slug = '{{ m.slug }}'" class="nav-item"
+                    :class="$store.activeModule.slug === '{{ m.slug }}' ? 'active' : ''"
+                    x-init="if (window.location.pathname.includes('{{ m.slug }}')) $store.activeModule.slug = '{{ m.slug }}'">
+                    <span class="rail"></span>
+                    {{ module_icon(m.slug) }}
+                    <span class="label">{{ m.name }}</span>
+                    <div class="tip">{{ m.name }}</div>
+                </a>
+                {% endif %}
+                {% endfor %}
+                {% endfor %}
                 {% endif %}
 
                 {% if role != 'ADMIN' and ns.locked %}
                 <div x-show="sidebarOpen" style="margin-top:16px;padding-bottom:4px;">
-                    <div style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--e-text-faint);font-weight:600;padding:0 14px 8px;display:flex;align-items:center;gap:8px;">
+                    <div
+                        style="font-size:10px;letter-spacing:0.14em;text-transform:uppercase;color:var(--e-text-faint);font-weight:600;padding:0 14px 8px;display:flex;align-items:center;gap:8px;">
                         <span>Sin acceso</span>
                         <span style="flex:1;height:1px;background:var(--e-line);"></span>
                         <span>{{ ns.locked | length }}</span>
@@ -587,7 +708,7 @@
                     <div style="padding:0 10px;display:flex;flex-wrap:wrap;gap:4px;">
                         {% for m in ns.locked %}
                         <div title="{{ m.name }} — sin acceso"
-                             style="display:inline-flex;align-items:center;gap:5px;padding:4px 8px 4px 6px;border-radius:4px;background:rgba(255,255,255,0.02);border:1px solid var(--e-line);color:var(--e-text-faint);font-size:11px;cursor:default;">
+                            style="display:inline-flex;align-items:center;gap:5px;padding:4px 8px 4px 6px;border-radius:4px;background:rgba(255,255,255,0.02);border:1px solid var(--e-line);color:var(--e-text-faint);font-size:11px;cursor:default;">
                             <span style="opacity:0.55;display:inline-flex;">{{ module_icon(m.slug, size=12) }}</span>
                             <span>{{ m.name }}</span>
                         </div>
@@ -598,11 +719,9 @@
 
                 {% if role == 'ADMIN' %}
                 <div style="height:1px;background:var(--e-line);margin:8px 12px;"></div>
-                <a href="/admin/ui"
-                   @click="mobileMenuOpen = false; $store.activeModule.slug = 'admin'"
-                   class="nav-item"
-                   :class="$store.activeModule.slug === 'admin' ? 'active' : ''"
-                   x-init="if (window.location.pathname.includes('/admin/')) $store.activeModule.slug = 'admin'">
+                <a href="/admin/ui" @click="mobileMenuOpen = false; $store.activeModule.slug = 'admin'" class="nav-item"
+                    :class="$store.activeModule.slug === 'admin' ? 'active' : ''"
+                    x-init="if (window.location.pathname.includes('/admin/')) $store.activeModule.slug = 'admin'">
                     <span class="rail"></span>
                     {{ module_icon('admin') }}
                     <span class="label">Admin</span>
@@ -613,13 +732,12 @@
             </nav>
 
             <!-- COLLAPSE TOGGLE -->
-            <button @click="sidebarOpen = !sidebarOpen"
-                    :title="sidebarOpen ? 'Colapsar' : 'Expandir'"
-                    style="width:100%;height:32px;border:0;cursor:pointer;background:rgba(0,0,0,0.2);border-top:1px solid var(--e-line);color:var(--e-text-dim);display:grid;place-items:center;">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"
-                     :style="sidebarOpen ? '' : 'transform:rotate(180deg)'"
-                     style="transition:transform .2s;">
-                    <path d="M15 6l-6 6 6 6"/>
+            <button @click="sidebarOpen = !sidebarOpen" :title="sidebarOpen ? 'Colapsar' : 'Expandir'"
+                style="width:100%;height:32px;border:0;cursor:pointer;background:rgba(0,0,0,0.2);border-top:1px solid var(--e-line);color:var(--e-text-dim);display:grid;place-items:center;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"
+                    stroke-linecap="round" stroke-linejoin="round"
+                    :style="sidebarOpen ? '' : 'transform:rotate(180deg)'" style="transition:transform .2s;">
+                    <path d="M15 6l-6 6 6 6" />
                 </svg>
             </button>
 
@@ -629,58 +747,61 @@
                 <div style="display:flex;align-items:center;gap:10px;padding:4px 6px;">
                     <div x-show="sidebarOpen" style="flex-shrink:0;">
                         <div title="{{ user_name }}"
-                             style="width:30px;height:30px;border-radius:999px;background:rgba(0,186,187,0.15);color:#00BABB;border:1px solid rgba(0,186,187,0.3);display:grid;place-items:center;font-size:11px;font-weight:700;font-family:'JetBrains Mono',monospace;">
+                            style="width:30px;height:30px;border-radius:999px;background:rgba(0,186,187,0.15);color:#00BABB;border:1px solid rgba(0,186,187,0.3);display:grid;place-items:center;font-size:11px;font-weight:700;font-family:'JetBrains Mono',monospace;">
                             {{ (user_name[:2] | upper) if user_name else 'OP' }}
                         </div>
                     </div>
                     <div x-show="sidebarOpen" style="flex:1;min-width:0;">
-                        <div style="font-size:12.5px;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ user_name }}</div>
+                        <div
+                            style="font-size:12.5px;font-weight:600;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">
+                            {{ user_name }}</div>
                         <div style="font-size:10.5px;color:var(--e-text-faint);">{{ role | lower | capitalize }}</div>
                     </div>
                     <div x-show="sidebarOpen">
                         <div style="display:flex;gap:4px;flex-shrink:0;">
                             <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend"
-                                    title="Ayuda y Documentación"
-                                    style="width:28px;height:28px;border-radius:6px;background:rgba(0,186,187,0.10);border:1px solid rgba(0,186,187,0.20);color:#00BABB;cursor:pointer;display:grid;place-items:center;">
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                                    <circle cx="12" cy="12" r="9"/>
-                                    <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7M12 17h.01"/>
+                                title="Ayuda y Documentación"
+                                style="width:28px;height:28px;border-radius:6px;background:rgba(0,186,187,0.10);border:1px solid rgba(0,186,187,0.20);color:#00BABB;cursor:pointer;display:grid;place-items:center;">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                                    stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="9" />
+                                    <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7M12 17h.01" />
                                 </svg>
                             </button>
                             <a href="/auth/logout" title="Cerrar sesión"
-                               style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;text-decoration:none;">
-                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/>
+                                style="width:28px;height:28px;border-radius:6px;background:transparent;border:0;color:var(--e-text-dim);cursor:pointer;display:grid;place-items:center;text-decoration:none;">
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                                    stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />
                                 </svg>
                             </a>
                         </div>
                     </div>
-                <!-- Colapsado: ayuda arriba + avatar abajo, centrados -->
-                <div x-show="!sidebarOpen">
-                    <div style="display:flex;flex-direction:column;align-items:center;gap:14px;">
-                        <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend"
-                                title="Ayuda"
+                    <!-- Colapsado: ayuda arriba + avatar abajo, centrados -->
+                    <div x-show="!sidebarOpen">
+                        <div style="display:flex;flex-direction:column;align-items:center;gap:14px;">
+                            <button hx-get="/docs/modal/layout" hx-target="body" hx-swap="beforeend" title="Ayuda"
                                 style="width:28px;height:28px;border-radius:6px;background:rgba(0,186,187,0.10);border:1px solid rgba(0,186,187,0.20);color:#00BABB;cursor:pointer;display:grid;place-items:center;">
-                            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-                                <circle cx="12" cy="12" r="9"/>
-                                <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7M12 17h.01"/>
-                            </svg>
-                        </button>
-                        <div title="{{ user_name }}"
-                             style="width:30px;height:30px;border-radius:999px;background:rgba(0,186,187,0.15);color:#00BABB;border:1px solid rgba(0,186,187,0.3);display:grid;place-items:center;font-size:11px;font-weight:700;font-family:'JetBrains Mono',monospace;">
-                            {{ (user_name[:2] | upper) if user_name else 'OP' }}
+                                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor"
+                                    stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                                    <circle cx="12" cy="12" r="9" />
+                                    <path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.3-1 .8-1 1.7M12 17h.01" />
+                                </svg>
+                            </button>
+                            <div title="{{ user_name }}"
+                                style="width:30px;height:30px;border-radius:999px;background:rgba(0,186,187,0.15);color:#00BABB;border:1px solid rgba(0,186,187,0.3);display:grid;place-items:center;font-size:11px;font-weight:700;font-family:'JetBrains Mono',monospace;">
+                                {{ (user_name[:2] | upper) if user_name else 'OP' }}
+                            </div>
                         </div>
                     </div>
                 </div>
-            </div>
         </aside>
         {% endif %}
 
         <!-- MAIN CONTENT -->
         <!-- hx-history-elt: HTMX guarda snapshot solo de esta área (no del body completo).
              Evita que el cache de historial se llene rápido y fuerza un fetch con sidebar+header al hacer Back. -->
-        <main id="main-content"
-            hx-history-elt
+        <main id="main-content" hx-history-elt
             class="flex-1 overflow-y-auto relative bg-gray-50 w-full p-4 md:p-6 lg:p-8 pt-20 md:pt-4">
             {% block content %}
             <div class="bg-white p-8 rounded-xl shadow-sm border border-gray-100 text-center">
@@ -807,7 +928,7 @@
 
         // === MOBILE HEADER ACTIONS SLOT ===
         // Limpiar acciones al navegar entre módulos
-        document.body.addEventListener('htmx:beforeSwap', function(e) {
+        document.body.addEventListener('htmx:beforeSwap', function (e) {
             if (e.detail.target && e.detail.target.id === 'main-content') {
                 var slot = document.getElementById('mobile-module-actions-slot');
                 if (slot) slot.innerHTML = '';
@@ -816,7 +937,7 @@
             }
         });
         // Cerrar bottom sheet al hacer click en cualquier acción del slot
-        document.addEventListener('click', function(e) {
+        document.addEventListener('click', function (e) {
             var slot = document.getElementById('mobile-module-actions-slot');
             if (slot && slot.contains(e.target) && e.target.closest('button, a')) {
                 document.dispatchEvent(new CustomEvent('close-mobile-actions'));

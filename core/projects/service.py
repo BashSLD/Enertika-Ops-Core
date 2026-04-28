@@ -5,10 +5,11 @@ Usado por: Compras, Construcción, y futuros módulos.
 """
 
 from uuid import UUID, uuid4
-from datetime import datetime
 from typing import Optional, List, Dict, Any
 from fastapi import HTTPException
 import logging
+
+from core.timezone import now_mx
 
 logger = logging.getLogger("ProjectsService")
 
@@ -212,6 +213,7 @@ class ProjectsGateService:
 
         # 7. Insertar proyecto
         new_id = uuid4()
+        now = now_mx()
 
         await conn.execute("""
             INSERT INTO tb_proyectos_gate (
@@ -238,12 +240,12 @@ class ProjectsGateService:
             proyecto_id_estandar,
             'INGENIERIA',  # Fase inicial
             True,          # Aprobado por defecto (creación manual implica aprobación)
-            datetime.now(),
+            now,
             prefijo,
             consecutivo,
             id_tecnologia,
             nombre_sitio_snapshot,
-            datetime.now(),
+            now,
             user_id
         )
         

@@ -1,21 +1,75 @@
-<div id="sat-inbox-table">
+<div id="sat-inbox-table"
+     x-init="$dispatch('selection-changed', 0)"
+     x-data="{
+         sortBy: '',
+         sortDir: 'asc',
+         sort(col) {
+             this.sortBy === col
+                 ? (this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc')
+                 : (this.sortBy = col, this.sortDir = 'asc');
+             const nums = new Set(['total']);
+             const rows = Array.from(this.$refs.tbody.querySelectorAll('tr'));
+             rows.sort((a, b) => {
+                 let av = a.dataset[col] ?? '', bv = b.dataset[col] ?? '';
+                 if (nums.has(col)) { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+                 if (av < bv) return this.sortDir === 'asc' ? -1 : 1;
+                 if (av > bv) return this.sortDir === 'asc' ? 1 : -1;
+                 return 0;
+             });
+             rows.forEach(r => this.$refs.tbody.appendChild(r));
+         }
+     }">
   {% if items %}
-  <div class="overflow-x-auto">
-    <table class="min-w-full divide-y divide-gray-200 text-sm">
-      <thead class="bg-gray-50">
+  <form id="sat-inbox-form"
+        hx-post="/compras/sat/inbox/bulk-descartar"
+        hx-target="#sat-inbox-table"
+        hx-swap="outerHTML">
+    <input type="hidden" name="estado" value="{{ estado_filtro | default('pendiente') }}">
+    
+    <div class="overflow-x-auto rounded-lg border border-gray-200">
+      <table class="min-w-full divide-y divide-gray-200 text-sm">
+        <thead class="bg-gray-50 border-b border-gray-200">
+        {% macro sort_th(col, label, extra_cls='') %}
+        <th class="px-4 py-3 {{ extra_cls }}">
+            <button type="button" @click="sort('{{ col }}')"
+                    class="inline-flex items-center gap-1 font-medium text-gray-500 hover:text-gray-800 transition-colors">
+                {{ label }}
+                <span class="text-xs leading-none transition-colors"
+                      :class="sortBy === '{{ col }}' ? 'text-blue-600 font-bold' : 'text-gray-400'"
+                      x-text="sortBy === '{{ col }}' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'"></span>
+            </button>
+        </th>
+        {% endmacro %}
         <tr>
-          <th class="px-4 py-3 text-left font-medium text-gray-500">Fecha CFDI</th>
-          <th class="px-4 py-3 text-left font-medium text-gray-500">RFC Emisor</th>
-          <th class="px-4 py-3 text-left font-medium text-gray-500">Nombre Emisor</th>
-          <th class="px-4 py-3 text-right font-medium text-gray-500">Total</th>
-          <th class="px-4 py-3 text-left font-medium text-gray-500">Moneda</th>
+          <th class="px-4 py-3 w-10 text-center">
+            <input type="checkbox" 
+                   onchange="document.querySelectorAll('.inbox-cb').forEach(cb => cb.checked = this.checked); window.dispatchEvent(new CustomEvent('selection-changed', {detail: document.querySelectorAll('.inbox-cb:checked').length}))"
+                   class="rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer">
+          </th>
+          {{ sort_th('fecha', 'Fecha CFDI', 'text-left') }}
+          {{ sort_th('rfc', 'RFC Emisor', 'text-left') }}
+          {{ sort_th('nombre', 'Nombre Emisor', 'text-left') }}
+          {{ sort_th('total', 'Total', 'text-right') }}
+          {{ sort_th('moneda', 'Moneda', 'text-left') }}
           <th class="px-4 py-3 text-left font-medium text-gray-500">Estado</th>
           <th class="px-4 py-3 text-left font-medium text-gray-500">Acciones</th>
         </tr>
       </thead>
-      <tbody class="divide-y divide-gray-100 bg-white">
+      <tbody class="divide-y divide-gray-100 bg-white" x-ref="tbody">
         {% for item in items %}
-        <tr class="hover:bg-gray-50">
+        <tr class="hover:bg-gray-50"
+            data-fecha="{{ item.fecha_cfdi or '' }}"
+            data-rfc="{{ item.rfc_emisor or '' }}"
+            data-nombre="{{ item.nombre_emisor | lower if item.nombre_emisor else '' }}"
+            data-total="{{ item.total or 0 }}"
+            data-moneda="{{ item.moneda or '' }}">
+          <td class="px-4 py-3 text-center">
+            {% if item.estado in ['pendiente', 'duplicado'] %}
+            <input type="checkbox" name="inbox_ids" value="{{ item.id }}" 
+                   class="inbox-cb rounded text-blue-600 focus:ring-blue-500 border-gray-300 cursor-pointer"
+                   onchange="window.dispatchEvent(new CustomEvent('selection-changed', {detail: document.querySelectorAll('.inbox-cb:checked').length}))">
+            {% endif %}
+          </td>
           <td class="px-4 py-3 text-gray-700">{{ item.fecha_cfdi or '—' }}</td>
           <td class="px-4 py-3 font-mono text-xs text-gray-700">{{ item.rfc_emisor }}</td>
           <td class="px-4 py-3 text-gray-700">{{ item.nombre_emisor or '—' }}</td>
@@ -34,11 +88,20 @@
           </td>
           <td class="px-4 py-3">
             {% if item.estado == 'pendiente' %}
-            <button
-              hx-post="/compras/sat/inbox/{{ item.id }}/procesar"
-              hx-target="#sat-match-modal-container"
-              class="text-xs font-medium text-blue-600 hover:text-blue-800"
-            >Procesar</button>
+            <div class="flex gap-2 items-center">
+              <button
+                hx-post="/compras/sat/inbox/{{ item.id }}/procesar"
+                hx-target="#sat-match-modal-container"
+                class="text-xs font-medium text-blue-600 hover:text-blue-800"
+              >Procesar</button>
+              <button
+                hx-post="/compras/sat/inbox/{{ item.id }}/descartar?estado={{ estado_filtro | default('pendiente') }}"
+                hx-target="#sat-inbox-table"
+                hx-swap="outerHTML"
+                hx-confirm="Descartar este CFDI del inbox?"
+                class="text-xs font-medium text-gray-500 hover:text-red-600"
+              >Descartar</button>
+            </div>
             {% elif item.estado == 'duplicado' %}
             <button
               hx-post="/compras/sat/inbox/{{ item.id }}/descartar?estado={{ estado_filtro | default('pendiente') }}"
@@ -47,15 +110,35 @@
               hx-confirm="Descartar este CFDI del inbox?"
               class="text-xs font-medium text-gray-500 hover:text-red-600"
             >Descartar</button>
-            {% elif item.estado == 'matcheado' and item.comprobante_id %}
-            <a href="/compras/ui?comprobante={{ item.comprobante_id }}" class="text-xs text-green-600 hover:underline">Ver comprobante</a>
+            {% elif item.estado == 'matcheado' %}
+            <div class="flex gap-3 items-center">
+              {% if item.comprobante_id %}
+              <a href="/compras/ui?comprobante={{ item.comprobante_id }}" class="text-xs text-green-600 hover:underline">Ver comprobante</a>
+              {% endif %}
+              <button
+                hx-post="/compras/sat/inbox/{{ item.id }}/restaurar?estado={{ estado_filtro | default('pendiente') }}"
+                hx-target="#sat-inbox-table"
+                hx-swap="outerHTML"
+                hx-confirm="¿Liberar este CFDI y regresarlo a pendientes?"
+                class="text-xs font-medium text-gray-500 hover:text-blue-600"
+              >Liberar</button>
+            </div>
+            {% elif item.estado == 'descartado' %}
+            <button
+              hx-post="/compras/sat/inbox/{{ item.id }}/restaurar?estado={{ estado_filtro | default('pendiente') }}"
+              hx-target="#sat-inbox-table"
+              hx-swap="outerHTML"
+              hx-confirm="¿Restaurar este CFDI y regresarlo a pendientes?"
+              class="text-xs font-medium text-gray-500 hover:text-blue-600"
+            >Restaurar</button>
             {% endif %}
           </td>
         </tr>
         {% endfor %}
       </tbody>
-    </table>
-  </div>
+      </table>
+    </div>
+  </form>
   {% else %}
   <div class="py-12 text-center text-sm text-gray-400">
     No hay CFDIs en el inbox con el filtro seleccionado.

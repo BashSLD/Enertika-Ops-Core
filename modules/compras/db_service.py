@@ -1,7 +1,7 @@
 
 # modules/compras/db_service.py
 from uuid import UUID, uuid4
-from datetime import date, datetime
+from datetime import date
 from typing import List, Tuple, Optional
 from decimal import Decimal
 from fastapi import HTTPException

@@ -22,7 +22,7 @@ from fastapi.responses import HTMLResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from core.security import get_current_user_context
-from core.permissions import require_module_access, require_manager_access
+from core.permissions import require_module_access, require_org_management_access, has_org_management_access
 from core.database import get_db_connection
 from core.microsoft import MicrosoftAuth
 
@@ -584,20 +584,16 @@ def register_operaciones_endpoints(router: APIRouter):
         service: LevantamientoService = Depends(get_service),
         db_svc: LevantamientosDBService = Depends(get_db_service),
         context=Depends(get_current_user_context),
-        _=require_manager_access("levantamientos", "editor"),
+        _=require_org_management_access("levantamientos"),
     ):
         """
         Cancela un levantamiento. NO afecta la oportunidad comercial.
         Limpia viáticos, registra historial y notifica a jefe + solicitante.
-        Solo ADMIN, Admin del módulo o MANAGER+editor pueden cancelar.
+        Solo Jefe de Ingeniería, Jefe de Construcción o ADMIN global pueden cancelar.
         """
         user_role = context.get("role")
         mod_role = context.get("module_roles", {}).get("levantamientos")
-        can_cancel = (
-            user_role == "ADMIN" or
-            mod_role == "admin" or
-            (user_role == "MANAGER" and mod_role in ["editor", "admin"])
-        )
+        can_cancel = has_org_management_access(context, "levantamientos")
         if not can_cancel:
             raise HTTPException(status_code=403, detail="No tienes permisos para cancelar levantamientos")
 
@@ -655,11 +651,7 @@ def register_operaciones_endpoints(router: APIRouter):
         """
         user_role = context.get("role")
         mod_role = context.get("module_roles", {}).get("levantamientos")
-        can_manage = (
-            user_role == "ADMIN" or
-            mod_role == "admin" or
-            (user_role == "MANAGER" and mod_role in ["editor", "admin"])
-        )
+        can_manage = has_org_management_access(context, "levantamientos")
         if not can_manage:
             raise HTTPException(status_code=403, detail="No tienes permisos para reactivar levantamientos")
 
