@@ -15,6 +15,7 @@ from core.timezone import now_mx
 from core.sat.client import SATClient
 from core.sat.fiel_loader import cargar_signer
 from modules.compras.xml_extractor import parse_cfdi_xml
+from modules.compras import sat_db_service
 
 logger = logging.getLogger("ComprasSATService")
 
@@ -311,17 +312,9 @@ async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date) -
                         if es_duplicado:
                             total_duplicados += 1
                             async with pool.acquire() as conn:
-                                await conn.execute(
-                                    """
-                                    INSERT INTO tb_sat_inbox
-                                      (job_id, uuid_cfdi, rfc_emisor, nombre_emisor,
-                                       fecha_cfdi, total, moneda, sharepoint_url, estado)
-                                    VALUES ($1,$2,$3,$4,$5,$6,$7,'','duplicado')
-                                    ON CONFLICT (uuid_cfdi) DO NOTHING
-                                    """,
-                                    job_id, cfdi.uuid, cfdi.emisor_rfc, cfdi.emisor_nombre,
-                                    cfdi.fecha[:10] if cfdi.fecha else None,
-                                    cfdi.total, cfdi.moneda,
+                                await sat_db_service.registrar_cfdi_descargado(
+                                    conn, job_id, cfdi, "", None, "duplicado",
+                                    tipo_detectado=cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL",
                                 )
                             continue
 
@@ -340,19 +333,9 @@ async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date) -
                             )
 
                         async with pool.acquire() as conn:
-                            await conn.execute(
-                                """
-                                INSERT INTO tb_sat_inbox
-                                  (job_id, uuid_cfdi, rfc_emisor, nombre_emisor,
-                                   fecha_cfdi, total, moneda, sharepoint_url,
-                                   sharepoint_item_id, estado)
-                                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'pendiente')
-                                ON CONFLICT (uuid_cfdi) DO NOTHING
-                                """,
-                                job_id, cfdi.uuid, cfdi.emisor_rfc, cfdi.emisor_nombre,
-                                cfdi.fecha[:10] if cfdi.fecha else None,
-                                cfdi.total, cfdi.moneda,
-                                sharepoint_url, sharepoint_item_id,
+                            await sat_db_service.registrar_cfdi_descargado(
+                                conn, job_id, cfdi, sharepoint_url, sharepoint_item_id, "pendiente",
+                                tipo_detectado=cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL",
                             )
 
         await update(
