@@ -8,6 +8,8 @@ from fastapi import HTTPException
 import logging
 import json
 
+from core.timezone import now_mx
+
 logger = logging.getLogger("Compras.DBService")
 
 class ComprasDBService:
@@ -195,7 +197,7 @@ class ComprasDBService:
             return False
             
         set_clauses.append(f"updated_at = ${param_idx}")
-        params.append(datetime.now())
+        params.append(now_mx())
         param_idx += 1
         
         params.append(id_comprobante)
@@ -224,7 +226,7 @@ class ComprasDBService:
             return 0
             
         set_clauses.append(f"updated_at = ${param_idx}")
-        params.append(datetime.now())
+        params.append(now_mx())
         param_idx += 1
         
         params.append(ids)
