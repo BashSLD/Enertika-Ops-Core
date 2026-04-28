@@ -189,6 +189,24 @@ async def listar_comprobantes_pendientes(conn: asyncpg.Connection) -> list[dict]
     )
     return [dict(r) for r in rows]
 
+async def listar_comprobantes_anticipo(conn: asyncpg.Connection, rfc_emisor: str) -> list[dict]:
+    """Comprobantes en estatus ANTICIPO del proveedor con el RFC indicado.
+    Usado en el modal cuando el CFDI es CIERRE_ANTICIPO.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT c.id_comprobante, c.fecha_pago, c.beneficiario_orig, c.monto, c.moneda,
+               p.razon_social AS proveedor_nombre, p.rfc AS proveedor_rfc
+        FROM tb_comprobantes_pago c
+        JOIN tb_proveedores p ON p.id_proveedor = c.id_proveedor
+        WHERE c.estatus = 'ANTICIPO'
+          AND p.rfc = $1
+        ORDER BY c.fecha_pago DESC
+        """,
+        rfc_emisor,
+    )
+    return [dict(r) for r in rows]
+
 async def buscar_coincidencias_auto(conn: asyncpg.Connection) -> list[dict]:
     # Busca pares únicos (1 a 1) entre facturas pendientes del SAT y comprobantes pendientes.
     # Caso 1 (NORMAL): empareja por monto ±0.50 y nombre vs comprobantes PENDIENTE/PARCIALMENTE_FACTURADO.

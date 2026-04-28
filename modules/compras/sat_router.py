@@ -12,6 +12,7 @@ from core.database import get_db_connection
 from core.permissions import require_module_access
 from core.security import get_current_user_context
 from modules.compras import sat_service
+from modules.compras import sat_db_service
 
 logger = logging.getLogger("ComprasSATRouter")
 
@@ -236,6 +237,11 @@ async def procesar_item(
 ):
     try:
         cfdi = await sat_service.obtener_cfdi_inbox(conn, inbox_id)
+        tipo = cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL"
+        if tipo == "CIERRE_ANTICIPO":
+            comprobantes = await sat_db_service.listar_comprobantes_anticipo(conn, cfdi.emisor_rfc)
+        else:
+            comprobantes = await sat_db_service.listar_comprobantes_pendientes(conn)
     except ValueError as e:
         return templates.TemplateResponse(
             request,
@@ -257,5 +263,5 @@ async def procesar_item(
     return templates.TemplateResponse(
         request,
         "compras/partials/sat_match_modal.html",
-        {"cfdi": cfdi, "inbox_id": inbox_id},
+        {"cfdi": cfdi, "inbox_id": inbox_id, "comprobantes": comprobantes},
     )
