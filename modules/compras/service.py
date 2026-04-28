@@ -313,6 +313,14 @@ class ComprasService:
         from openpyxl.utils import get_column_letter
         from io import BytesIO
 
+        TIPOS_ES = {
+            "NORMAL":          "Factura",
+            "ANTICIPO":        "Anticipo",
+            "CIERRE_ANTICIPO": "Cierre Anticipo",
+            "NOTA_CREDITO":    "Nota de Crédito",
+            "PAGO":            "Complemento Pago",
+        }
+
         comprobantes, _ = await self.get_comprobantes(
             conn,
             filtros=filtros,
@@ -358,7 +366,7 @@ class ComprasService:
 
         headers1 = [
             "Comprador", "Proveedor", "Proyecto", "Zona",
-            "Fecha de Pago", "Estatus",
+            "Fecha de Pago", "Estatus", "Tipo CFDI",
             "Monto", "Monto Facturado", "Monto Pendiente", "Moneda",
             "Categoría", "Num. Facturas",
         ]
@@ -370,6 +378,7 @@ class ComprasService:
             "PARCIALMENTE_FACTURADO": PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid"),
             "CERRADO":                PatternFill(start_color="D9D9D9", end_color="D9D9D9", fill_type="solid"),
             "PENDIENTE":              PatternFill(start_color="FFCCCC", end_color="FFCCCC", fill_type="solid"),
+            "ANTICIPO":               PatternFill(start_color="FCE4D6", end_color="FCE4D6", fill_type="solid"),
         }
 
         for row_num, comp in enumerate(comprobantes, 2):
@@ -388,6 +397,7 @@ class ComprasService:
                 comp.get('zona_nombre', ''),
                 comp['fecha_pago'].strftime("%d/%m/%Y") if comp.get('fecha_pago') else '',
                 estatus,
+                TIPOS_ES.get(comp.get('tipo_factura') or 'NORMAL', comp.get('tipo_factura', '')),
                 float(monto),
                 float(monto_facturado),
                 float(monto_pendiente),
@@ -400,13 +410,13 @@ class ComprasService:
             for col_num, value in enumerate(row_data, 1):
                 cell = ws1.cell(row=row_num, column=col_num, value=value)
                 cell.border = thin_border
-                if col_num in (7, 8, 9):
+                if col_num in (8, 9, 10):
                     cell.number_format = num_fmt
                     cell.alignment = right_align
                 if estatus_fill and col_num == 6:
                     cell.fill = estatus_fill
 
-        col_widths1 = [20, 35, 30, 15, 15, 22, 15, 16, 16, 10, 20, 13]
+        col_widths1 = [20, 35, 30, 15, 15, 22, 16, 15, 16, 16, 10, 20, 13]
         for i, w in enumerate(col_widths1, 1):
             ws1.column_dimensions[get_column_letter(i)].width = w
         ws1.freeze_panes = "A2"
@@ -418,7 +428,7 @@ class ComprasService:
         headers2 = [
             "Fecha de Pago", "Comprador", "Proveedor", "Proyecto",
             "Estatus Comprobante", "Monto Comprobante", "Moneda",
-            "UUID Factura", "Tipo", "Monto Factura", "RFC Emisor", "Nombre Emisor",
+            "UUID Factura", "Tipo", "Monto Factura", "Fecha Factura", "RFC Emisor", "Nombre Emisor",
         ]
         write_header_row(ws2, headers2)
 
@@ -433,7 +443,7 @@ class ComprasService:
             fecha_pago = comp['fecha_pago'].strftime("%d/%m/%Y") if comp.get('fecha_pago') else ''
 
             for f in comp_facturas:
-                fecha_factura = f.get('fecha')
+                fecha_factura_str = f.get('fecha').strftime("%d/%m/%Y") if f.get('fecha') else ''
                 row_data2 = [
                     fecha_pago,
                     comp.get('comprador_nombre', ''),
@@ -443,8 +453,9 @@ class ComprasService:
                     float(comp.get('monto') or 0),
                     comp.get('moneda', 'MXN'),
                     str(f.get('uuid_factura', '')),
-                    f.get('tipo', ''),
+                    TIPOS_ES.get(f.get('tipo') or 'NORMAL', f.get('tipo', '')),
                     float(f.get('monto') or 0),
+                    fecha_factura_str,
                     f.get('rfc_emisor', ''),
                     f.get('nombre_emisor', ''),
                 ]
@@ -456,7 +467,7 @@ class ComprasService:
                         cell.alignment = right_align
                 row_num2 += 1
 
-        col_widths2 = [15, 20, 35, 30, 22, 16, 10, 38, 14, 15, 18, 40]
+        col_widths2 = [15, 20, 35, 30, 22, 16, 10, 38, 14, 15, 14, 18, 40]
         for i, w in enumerate(col_widths2, 1):
             ws2.column_dimensions[get_column_letter(i)].width = w
         ws2.freeze_panes = "A2"

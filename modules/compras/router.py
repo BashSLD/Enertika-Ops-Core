@@ -29,6 +29,7 @@ from core.database import get_db_connection
 from core.security import get_current_user_context
 from core.permissions import require_module_access
 from core.config import settings
+from core.timezone import now_mx
 
 # Module imports
 from .service import ComprasService, get_compras_service
@@ -458,7 +459,7 @@ async def export_excel(
         filtros=filtros.model_dump(exclude_none=True)
     )
     
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    timestamp = now_mx().strftime("%Y%m%d_%H%M%S")
     filename = f"comprobantes_pago_{timestamp}.xlsx"
     
     return Response(
