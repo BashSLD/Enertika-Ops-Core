@@ -635,7 +635,8 @@ class ComprasService:
                 await db_svc.upsert_xml_staging(
                     conn, cfdi.uuid, cfdi.emisor_rfc, cfdi.emisor_nombre,
                     cfdi.total, cfdi.moneda, cfdi.tipo_factura.value,
-                    match_result.match_type, user_id
+                    match_result.match_type, user_id,
+                    xml_content_b64=match_result.xml_content_b64
                 )
             except Exception as e:
                 logger.warning("No se pudo registrar XML en staging: %s", e)
@@ -1166,6 +1167,16 @@ class ComprasService:
         from .db_service import get_db_service
         db_svc = get_db_service()
         return await db_svc.get_archivos_comprobante(conn, id_comprobante)
+
+    async def get_xml_staging_pendientes(self, conn) -> list[dict]:
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+        return await db_svc.get_xml_staging_pendientes(conn)
+
+    async def eliminar_xml_staging(self, conn, uuid_factura: str) -> bool:
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+        return await db_svc.delete_xml_staging(conn, uuid_factura)
 
 
 def get_compras_service():
