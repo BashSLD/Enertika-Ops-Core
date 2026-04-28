@@ -1136,19 +1136,22 @@ class ComprasDBService:
 
     async def upsert_xml_staging(
         self, conn, uuid_factura: str, emisor_rfc: str, emisor_nombre: str,
-        monto: Decimal, moneda: str, tipo_factura: str, match_type: str, user_id: UUID
+        monto, moneda: str, tipo_factura: str, match_type: str, user_id,
+        xml_content_b64: str | None = None
     ):
         await conn.execute("""
             INSERT INTO tb_xml_staging
                 (uuid_factura, emisor_rfc, emisor_nombre, monto, moneda,
-                 tipo_factura, match_type, estado, uploaded_by_id, updated_at)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,'PENDIENTE',$8,NOW())
+                 tipo_factura, match_type, estado, uploaded_by_id, updated_at,
+                 xml_content_b64)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,'PENDIENTE',$8,NOW(),$9)
             ON CONFLICT (uuid_factura) DO UPDATE SET
                 estado = 'PENDIENTE',
                 match_type = EXCLUDED.match_type,
-                updated_at = NOW()
+                updated_at = NOW(),
+                xml_content_b64 = COALESCE(EXCLUDED.xml_content_b64, tb_xml_staging.xml_content_b64)
         """, uuid_factura, emisor_rfc, emisor_nombre, monto, moneda,
-            tipo_factura, match_type, user_id)
+            tipo_factura, match_type, user_id, xml_content_b64)
 
     async def confirm_xml_staging(self, conn, uuid_factura: str):
         await conn.execute("""
@@ -1161,6 +1164,27 @@ class ComprasDBService:
             "SELECT COUNT(*) FROM tb_xml_staging WHERE estado = 'PENDIENTE'"
         )
         return int(val or 0)
+
+    async def get_xml_staging_pendientes(self, conn) -> list[dict]:
+        rows = await conn.fetch("""
+            SELECT
+                uuid_factura, emisor_rfc, emisor_nombre,
+                monto, moneda, tipo_factura, match_type,
+                updated_at,
+                xml_content_b64 IS NOT NULL AS tiene_contenido,
+                xml_content_b64
+            FROM tb_xml_staging
+            WHERE estado = 'PENDIENTE'
+            ORDER BY updated_at DESC
+        """)
+        return [dict(r) for r in rows]
+
+    async def delete_xml_staging(self, conn, uuid_factura: str) -> bool:
+        result = await conn.execute("""
+            DELETE FROM tb_xml_staging
+            WHERE uuid_factura = $1 AND estado = 'PENDIENTE'
+        """, uuid_factura)
+        return result.split()[-1] != '0'
 
 
 def get_db_service():
