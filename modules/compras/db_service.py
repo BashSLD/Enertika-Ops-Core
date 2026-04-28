@@ -74,6 +74,8 @@ class ComprasDBService:
                 c.id_zona,
                 c.id_proyecto,
                 c.id_categoria,
+                c.tipo_factura,
+                c.es_anticipo,
                 u.nombre as comprador_nombre,
                 p.razon_social as proveedor_nombre,
                 p.rfc as proveedor_rfc,
