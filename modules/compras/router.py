@@ -1121,3 +1121,58 @@ async def backfill_tc_materiales(
         "errores": errores,
         "total_procesados": len(rows),
     }
+
+
+# ========================================
+# XML STAGING — PENDIENTES
+# ========================================
+
+@router.get("/xml-staging/pendientes", response_class=HTMLResponse)
+async def get_xml_staging_pendientes(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: ComprasService = Depends(get_compras_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Lista XMLs en staging con estado PENDIENTE para el modal."""
+    pendientes = await service.get_xml_staging_pendientes(conn)
+    return templates.TemplateResponse(
+        request,
+        "compras/partials/xml_staging_modal.html",
+        {
+            "pendientes": pendientes,
+            "role": context.get("role"),
+        },
+    )
+
+
+@router.delete("/xml-staging/{uuid_factura}", response_class=HTMLResponse)
+async def delete_xml_staging(
+    request: Request,
+    uuid_factura: str,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: ComprasService = Depends(get_compras_service),
+    _=require_module_access("compras", "editor"),
+):
+    """Elimina un XML pendiente de staging."""
+    eliminado = await service.eliminar_xml_staging(conn, uuid_factura)
+    if not eliminado:
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"message": "XML no encontrado o ya confirmado", "type": "error"},
+        )
+    pendientes = await service.get_xml_staging_pendientes(conn)
+    lista_html = templates.TemplateResponse(
+        request,
+        "compras/partials/xml_staging_lista.html",
+        {"pendientes": pendientes},
+    ).body.decode("utf-8")
+    toast_html = templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"message": "XML eliminado del staging", "type": "success"},
+    ).body.decode("utf-8")
+    return HTMLResponse(content=lista_html + toast_html)
