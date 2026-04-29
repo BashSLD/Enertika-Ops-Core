@@ -11,28 +11,26 @@ from datetime import datetime, timezone
 from core.bom.db_service import BomDBService
 from core.bom.schemas import EstatusBOM, AccionHistorial, TipoAprobacion
 from core.config import settings
+from core.timezone import today_mx
 
 logger = logging.getLogger("BOM.Service")
 
 # Campos que puede editar cada area
-CAMPOS_INGENIERIA = {'id_categoria', 'descripcion', 'cantidad', 'unidad_medida', 'precio_unitario', 'origen_precio'}
+CAMPOS_INGENIERIA = {'id_categoria', 'descripcion', 'cantidad', 'unidad_medida', 'precio_unitario', 'origen_precio', 'tipo_partida', 'moneda'}
 CAMPOS_CONSTRUCCION = {'fecha_requerida', 'entregado', 'comentarios', 'cantidad_recibida'}
 CAMPOS_COMPRAS = {
     'id_proveedor', 'tipo_entrega', 'fecha_estimada_entrega',
     'fecha_llegada_real', 'comentarios'
 }
 
-# Estatus que permiten edicion de items por ingenieria
-ESTATUS_EDITABLE_ING = {EstatusBOM.BORRADOR}
-
-# Estatus que permiten edicion por construccion/compras (campos especificos)
-ESTATUS_EDITABLE_CONST_COMPRAS = {
-    EstatusBOM.APROBADO_ING, EstatusBOM.EN_REVISION_OBRA,
-    EstatusBOM.EN_REVISION_CONST, EstatusBOM.APROBADO_CONST
-}
-
 # Estados en los que NO se puede editar de ninguna forma
 ESTATUS_BLOQUEADOS = {EstatusBOM.CANCELADO, EstatusBOM.APROBADO_FINAL}
+
+# Estatus editables para agregar/eliminar items estructurales (ingenieria y construccion)
+ESTATUS_EDITABLE_ING = set(EstatusBOM) - ESTATUS_BLOQUEADOS
+
+# Campos especificos editables por construccion/compras en cualquier fase no bloqueada
+ESTATUS_EDITABLE_CONST_COMPRAS = set(EstatusBOM) - ESTATUS_BLOQUEADOS
 
 # Labels para historial
 CAMPO_LABELS = {
@@ -132,6 +130,8 @@ class BomService:
         precio_unitario=None,
         origen_precio: Optional[str] = 'MANUAL',
         id_material_ref: Optional[UUID] = None,
+        tipo_partida: Optional[str] = 'MATERIAL',
+        moneda: Optional[str] = 'MXN',
         area_editor: str = 'ingenieria'
     ) -> dict:
         """Agrega un item al BOM. Permite edicion segun area y estado."""
@@ -161,7 +161,9 @@ class BomService:
             orden=orden,
             precio_unitario=precio_unitario,
             origen_precio=origen_precio,
-            id_material_ref=id_material_ref
+            id_material_ref=id_material_ref,
+            tipo_partida=tipo_partida,
+            moneda=moneda
         )
 
         await self.db.registrar_historial(
@@ -187,6 +189,8 @@ class BomService:
             raise ValueError("Item no encontrado")
         if not item.get('activo', True):
             raise ValueError("No se puede editar un item eliminado")
+        if item.get('bloqueado'):
+            raise ValueError("Este item fue completado en una version anterior del BOM y no se puede modificar")
 
         bom_estatus = EstatusBOM(item['bom_estatus'])
         es_catalogo = item.get('origen_precio') == 'CATALOGO'
@@ -201,7 +205,7 @@ class BomService:
         # Validar que campos correspondan al area del editor
         campos_filtrados = {}
         if area_editor == 'ingenieria':
-            if bom_estatus not in (ESTATUS_EDITABLE_ING | {EstatusBOM.EN_REVISION_ING}):
+            if bom_estatus not in ESTATUS_EDITABLE_ING:
                 raise ValueError("El BOM no esta en estado editable para ingenieria")
             campos_filtrados = {k: v for k, v in campos.items() if k in CAMPOS_INGENIERIA}
             if 'precio_unitario' in campos_filtrados and campos_filtrados['precio_unitario'] is not None:
@@ -267,6 +271,8 @@ class BomService:
         item = await self.db.get_item_by_id(conn, id_item)
         if not item:
             raise ValueError("Item no encontrado")
+        if item.get('bloqueado'):
+            raise ValueError("Este item fue completado en una version anterior del BOM y no se puede eliminar")
 
         bom = await self.get_bom(conn, item['id_bom'])
         estatus = EstatusBOM(bom['estatus'])
@@ -290,20 +296,84 @@ class BomService:
         return deleted
 
     async def get_items(self, conn, id_bom: UUID) -> list:
-        """Lista items activos del BOM, enriched with grupos."""
+        """Lista items activos del BOM, enriched with grupos and costo_mxn.
+
+        Para items USD, el tipo de cambio se obtiene en este orden:
+        1. TC del XML de la factura asociada (tb_materiales_historial.tipo_cambio_xml)
+        2. Ultima tasa Banxico registrada (tb_tipo_cambio)
+        3. Promedio 7 dias Banxico (fallback final)
+        """
         items = await self.db.get_items_by_bom(conn, id_bom)
         if not items:
             return items
         grupos_map = await self.db.get_grupos_por_bom(conn, id_bom)
+
+        usd_ids = [
+            item['id_item'] for item in items
+            if item.get('moneda') == 'USD' and item.get('precio_unitario')
+        ]
+
+        tc_from_xml = {}
+        tc_banxico = None
+        tc_promedio = None
+
+        if usd_ids:
+            tc_from_xml = await self.db.get_tc_from_linked_materials(conn, usd_ids)
+
+            still_need = [iid for iid in usd_ids if str(iid) not in tc_from_xml]
+            if still_need:
+                from core.tipo_cambio.db_service import TipoCambioDBService
+                tc_svc = TipoCambioDBService()
+                tasa = await tc_svc.get_tasa_mas_reciente(conn)
+                tc_banxico = float(tasa['tasa_mxn']) if tasa else None
+
+                if not tc_banxico:
+                    tc_promedio = await self.db.get_tasa_promedio(conn)
+
         for item in items:
             item['grupos'] = grupos_map.get(str(item['id_item']), [])
+            moneda = item.get('moneda', 'MXN')
+            if moneda == 'USD' and item.get('precio_unitario'):
+                iid = str(item['id_item'])
+                if iid in tc_from_xml:
+                    tc = tc_from_xml[iid]
+                elif tc_banxico:
+                    tc = tc_banxico
+                elif tc_promedio:
+                    tc = tc_promedio
+                else:
+                    tc = None
+                if tc:
+                    item['costo_mxn'] = round(float(item['precio_unitario']) * tc, 2)
+
+        # Enriquecer con gasto real desde materiales vinculados
+        all_ids = [item['id_item'] for item in items]
+        gasto_map = await self.db.get_gasto_real_por_item(conn, all_ids)
+        for item in items:
+            gasto = gasto_map.get(str(item['id_item']))
+            if gasto is not None:
+                item['gasto_real'] = round(gasto, 2)
+
         return items
 
     async def get_item(self, conn, id_item: UUID) -> dict:
-        """Obtiene un item por ID."""
+        """Obtiene un item por ID, enriquecido con costo_mxn y gasto_real."""
         item = await self.db.get_item_by_id(conn, id_item)
         if not item:
             raise ValueError("Item no encontrado")
+        # Enriquecer costo_mxn para items USD
+        if item.get('moneda') == 'USD' and item.get('precio_unitario'):
+            from core.tipo_cambio.db_service import TipoCambioDBService
+            tc_svc = TipoCambioDBService()
+            tasa = await tc_svc.get_tasa_mas_reciente(conn)
+            tc = float(tasa['tasa_mxn']) if tasa else None
+            if tc:
+                item['costo_mxn'] = round(float(item['precio_unitario']) * tc, 2)
+        # Enriquecer gasto_real
+        gasto_map = await self.db.get_gasto_real_por_item(conn, [id_item])
+        gasto = gasto_map.get(str(id_item))
+        if gasto is not None:
+            item['gasto_real'] = round(gasto, 2)
         return item
 
     # ─── WORKFLOW DE APROBACION ──────────────────────────────
@@ -439,7 +509,7 @@ class BomService:
             raise ValueError("El BOM debe estar EN_REVISION_CONST para aprobar")
 
         await self.db.update_bom_estatus(
-            conn, id_bom, EstatusBOM.APROBADO,
+            conn, id_bom, EstatusBOM.APROBADO_CONST,
             fecha_aprobacion_const=datetime.now(timezone.utc)
         )
 
@@ -725,7 +795,7 @@ class BomService:
         from datetime import date as date_type
         if isinstance(fecha_fin, str):
             fecha_fin = date_type.fromisoformat(fecha_fin)
-        if fecha_fin < date_type.today():
+        if fecha_fin < today_mx():
             raise ValueError("La fecha fin de la suplencia debe ser futura")
         row = await conn.fetchrow(
             "SELECT id_usuario, nombre FROM tb_usuarios WHERE id_usuario = $1 AND is_active = TRUE",
@@ -1021,17 +1091,37 @@ class BomService:
     # ─── COTIZACIONES ────────────────────────────────────────
 
     async def listar_cotizaciones(self, conn, id_bom: UUID) -> List[dict]:
-        return await self.db.get_cotizaciones_by_bom(conn, id_bom)
+        cotizaciones = await self.db.get_cotizaciones_by_bom(conn, id_bom)
+        for cot in cotizaciones:
+            items = await self.db.get_items_cotizacion(conn, cot['id'])
+            tiene_sobrecosto = False
+            for it in items:
+                bom_item = await self.db.get_item_by_id(conn, it['bom_item_id'])
+                if bom_item and bom_item.get('precio_unitario'):
+                    if float(it['precio_unitario']) > float(bom_item['precio_unitario']):
+                        tiene_sobrecosto = True
+                        break
+            cot['tiene_sobrecosto'] = tiene_sobrecosto
+        return cotizaciones
 
     async def crear_cotizacion(
         self, conn, id_bom: UUID, proveedor_id: Optional[UUID],
         nombre_proveedor: Optional[str], moneda: str,
         items_data: list, iva_pct: float, notas: Optional[str],
-        creado_por: UUID
+        creado_por: UUID,
+        es_rfq: bool = False,
+        rfq_origen_id: Optional[UUID] = None,
+        subtotal_externo: Optional[float] = None
     ) -> dict:
         """
         Crea una cotización con sus ítems.
-        items_data: lista de dicts con bom_item_id, precio_unitario, cantidad.
+        items_data: lista de dicts con bom_item_id, precio_unitario (opcional), cantidad.
+
+        Modos:
+        - RFQ (es_rfq=True): sin proveedor ni precios. Solo selecciona items.
+        - Simplificado (subtotal_externo): precio se distribuye proporcionalmente.
+        - Completo: cada item tiene precio_unitario individual.
+        Valida sobrecosto si hay precios individuales.
         """
         bom = await self.get_bom(conn, id_bom)
         if bom['estatus'] != EstatusBOM.APROBADO_CONST:
@@ -1040,34 +1130,91 @@ class BomService:
         if not items_data:
             raise ValueError("Debes seleccionar al menos un item para cotizar.")
 
-        # Calcular totales
-        subtotal = sum(
-            float(i['precio_unitario']) * float(i['cantidad'])
-            for i in items_data
+        # RFQ: sin validación de precios
+        tiene_precios = any(
+            float(i.get('precio_unitario') or 0) > 0 for i in items_data
         )
+
+        if tiene_precios:
+            sobrecostos = []
+            for i in items_data:
+                pu = float(i.get('precio_unitario') or 0)
+                if pu <= 0:
+                    continue
+                bom_item = await self.db.get_item_by_id(conn, i['bom_item_id'])
+                if bom_item and bom_item.get('precio_unitario'):
+                    precio_bom = float(bom_item['precio_unitario'])
+                    if pu > precio_bom:
+                        sobrecostos.append({
+                            'item_id': str(i['bom_item_id']),
+                            'descripcion': bom_item.get('descripcion', '')[:60],
+                            'precio_bom': precio_bom,
+                            'precio_cotizado': pu,
+                            'diferencia_pct': round((pu - precio_bom) / precio_bom * 100, 1),
+                        })
+
+            if sobrecostos and not (notas and notas.strip()):
+                items_str = ', '.join(
+                    f"{s['descripcion']} (+{s['diferencia_pct']}%)"
+                    for s in sobrecostos[:3]
+                )
+                raise ValueError(
+                    f"Se detectaron {len(sobrecostos)} items con precio mayor al estimado: {items_str}. "
+                    "Debes agregar una justificacion en el campo de notas."
+                )
+
+        # Calcular subtotal: suma de precios individuales o subtotal_externo
+        if subtotal_externo is not None:
+            subtotal = round(subtotal_externo, 2)
+            # Distribuir proporcionalmente entre items
+            total_cantidad = sum(float(i.get('cantidad', 1)) for i in items_data)
+            for i in items_data:
+                prop = float(i.get('cantidad', 1)) / total_cantidad if total_cantidad > 0 else 1.0 / len(items_data)
+                if 'precio_unitario' not in i or not i['precio_unitario']:
+                    i['precio_unitario'] = round(subtotal * prop / float(i.get('cantidad', 1)), 4)
+        elif tiene_precios:
+            subtotal = sum(
+                float(i.get('precio_unitario') or 0) * float(i.get('cantidad') or 0)
+                for i in items_data
+            )
+        else:
+            subtotal = 0
+
         iva = round(subtotal * iva_pct / 100, 2)
         total = round(subtotal + iva, 2)
 
+        estatus_inicial = 'BORRADOR'
+        proveedor_nombre_db = nombre_proveedor
+        proveedor_id_db = proveedor_id
+        if es_rfq:
+            estatus_inicial = 'BORRADOR'  # RFQ también es borrador pero sin proveedor
+            proveedor_nombre_db = None
+            proveedor_id_db = None
+
         cotizacion = await self.db.crear_cotizacion(
-            conn, id_bom, proveedor_id, nombre_proveedor, moneda,
-            round(subtotal, 2), iva, total, notas, creado_por
+            conn, id_bom, proveedor_id_db, proveedor_nombre_db, moneda,
+            round(subtotal, 2), iva, total, notas, creado_por,
+            es_rfq=es_rfq, rfq_origen_id=rfq_origen_id
         )
 
         # Preparar ítems con subtotal_linea
         items_insert = []
         for i in items_data:
-            pu = float(i['precio_unitario'])
-            cant = float(i['cantidad'])
+            pu = float(i.get('precio_unitario') or 0)
+            cant = float(i.get('cantidad') or 0)
             items_insert.append({
                 'bom_item_id': i['bom_item_id'],
-                'precio_unitario': pu,
+                'precio_unitario': pu if pu > 0 else None,
                 'cantidad': cant,
                 'moneda': moneda,
-                'subtotal_linea': round(pu * cant, 2),
+                'subtotal_linea': round(pu * cant, 2) if pu > 0 else 0,
             })
         await self.db.agregar_items_cotizacion(conn, cotizacion['id'], items_insert)
 
-        logger.info("Cotización %s creada para BOM %s por usuario %s", cotizacion['id'], id_bom, creado_por)
+        logger.info(
+            "Cotización %s creada (rfq=%s) para BOM %s por usuario %s",
+            cotizacion['id'], es_rfq, id_bom, creado_por
+        )
         return cotizacion
 
     async def seleccionar_cotizacion(
@@ -1090,6 +1237,16 @@ class BomService:
         if items:
             item_ids = [i['bom_item_id'] for i in items]
             await self.db.actualizar_estatus_compra_items(conn, item_ids, 'COTIZADO')
+
+            # Actualizar precio_unitario del BOM con el precio de la cotización
+            # Solo items no protegidos (origen != CATALOGO)
+            for it in items:
+                bom_item = await self.db.get_item_by_id(conn, it['bom_item_id'])
+                if bom_item and bom_item.get('origen_precio') != 'CATALOGO':
+                    await self.db.update_item(
+                        conn, it['bom_item_id'],
+                        precio_unitario=it['precio_unitario']
+                    )
 
         # Crear autorización de compra (Fase D) si no existe ya
         existente = await self.db.get_autorizacion_by_cotizacion(conn, cotizacion_id)
@@ -1329,6 +1486,26 @@ class BomService:
         logger.info("Cotización %s rechazada por usuario %s", cotizacion_id, user_id)
         return updated
 
+    async def solicitar_aclaracion_cotizacion(
+        self, conn, cotizacion_id: UUID, user_id: UUID, motivo: str
+    ) -> dict:
+        """Devuelve una cotización a BORRADOR con motivo (feedback de aprobador)."""
+        if not motivo or not motivo.strip():
+            raise ValueError("El motivo de la aclaracion es obligatorio")
+        cotizacion = await self.db.get_cotizacion_by_id(conn, cotizacion_id)
+        if not cotizacion:
+            raise ValueError("Cotización no encontrada.")
+        if cotizacion['estatus'] not in ('RECIBIDA', 'BORRADOR'):
+            raise ValueError(
+                f"La cotización está en estatus {cotizacion['estatus']} y no puede devolverse."
+            )
+        updated = await self.db.devolver_cotizacion_borrador(conn, cotizacion_id, motivo)
+        logger.info(
+            "Cotización %s devuelta a borrador por %s: %s",
+            cotizacion_id, user_id, motivo[:80]
+        )
+        return updated
+
     # ─── HELPERS INTERNOS ────────────────────────────────────
 
     async def _validar_edicion_items(self, conn, id_bom: UUID, area_editor: str) -> dict:
@@ -1353,6 +1530,112 @@ class BomService:
                 raise ValueError("Area de edicion no reconocida o estado invalido.")
         
         return bom
+
+    # ─── TRAZABILIDAD BOM ↔ COMPRAS ──────────────────────────
+
+    async def get_items_por_autorizacion(self, conn, autorizacion_id: UUID) -> list:
+        """Obtiene los items BOM vinculados a una autorizacion de compra."""
+        return await self.db.get_items_by_autorizacion(conn, autorizacion_id)
+
+    async def get_autorizacion_por_bom_pago(self, conn, id_bom_pago: UUID) -> Optional[dict]:
+        """Obtiene la autorizacion a partir del id_bom_pago de finanzas."""
+        return await self.db.get_autorizacion_by_bom_pago(conn, id_bom_pago)
+
+    def match_conceptos_a_items(
+        self, conceptos: list, bom_items: list
+    ) -> dict:
+        """
+        Empareja conceptos de CFDI con items del BOM usando similitud de texto.
+
+        Estrategia:
+        1. Match exacto por clave_prod_serv contra id_material_ref→clave_prod_serv
+        2. Mejor similitud de descripcion (normalizada, case-insensitive)
+        3. Se asigna cada concepto al item con mayor similitud > umbral 0.4
+
+        Returns:
+            dict {indice_concepto: UUID(id_bom_item) | None}
+        """
+        import re
+        match_map = {}
+
+        def normalizar(texto):
+            if not texto:
+                return ""
+            return re.sub(r'\s+', ' ', str(texto).strip().upper())
+
+        for idx, concepto in enumerate(conceptos):
+            desc_concepto = normalizar(concepto.get('descripcion', ''))
+            clave_concepto = concepto.get('clave_prod_serv', '').strip()
+
+            best_item = None
+            best_score = 0.0
+
+            for item in bom_items:
+                desc_item = normalizar(item.get('descripcion', ''))
+
+                if clave_concepto and len(clave_concepto) >= 6:
+                    if desc_concepto and desc_item:
+                        palabras_concepto = set(desc_concepto.split())
+                        palabras_item = set(desc_item.split())
+                        comunes = palabras_concepto & palabras_item
+                        score = len(comunes) / max(len(palabras_concepto), 1)
+                    else:
+                        score = 0.0
+                else:
+                    if desc_concepto and desc_item:
+                        palabras_concepto = set(desc_concepto.split())
+                        palabras_item = set(desc_item.split())
+                        comunes = palabras_concepto & palabras_item
+                        token_score = len(comunes) / max(len(palabras_concepto), 1) if palabras_concepto else 0
+
+                        len_ratio = min(len(desc_concepto), len(desc_item)) / max(len(desc_concepto), len(desc_item), 1)
+                        score = (token_score * 0.7) + (len_ratio * 0.3)
+                    else:
+                        score = 0.0
+
+                if score > best_score:
+                    best_score = score
+                    best_item = item
+
+            if best_score >= 0.4 and best_item:
+                match_map[idx] = best_item['id_item']
+            else:
+                match_map[idx] = None
+
+        return match_map
+
+    async def actualizar_estatus_compra(
+        self, conn, item_ids: list, nuevo_estatus: str
+    ) -> None:
+        """Actualiza estatus_compra de items BOM en lote."""
+        from uuid import UUID
+        uuid_ids = [UUID(str(i)) for i in item_ids]
+        await self.db.update_items_estatus_compra(conn, uuid_ids, nuevo_estatus)
+
+    # ─── COMPARATIVA RFQ (Gap 7d) ───────────────────────────
+
+    async def get_rfqs(self, conn, id_bom: UUID) -> list:
+        return await self.db.get_rfqs_by_bom(conn, id_bom)
+
+    async def get_rfq_responses(self, conn, rfq_id: UUID) -> list:
+        return await self.db.get_rfq_responses(conn, rfq_id)
+
+    async def bulk_asignar_items(
+        self, conn, cotizacion_id: UUID, item_ids: list,
+        precio_unitario: float = None, moneda: str = "MXN"
+    ) -> None:
+        """Asigna items a una cotización de proveedor (reemplaza items existentes)."""
+        items = [
+            {
+                'bom_item_id': UUID(str(iid)),
+                'precio_unitario': precio_unitario,
+                'cantidad': 1,
+                'moneda': moneda,
+                'subtotal_linea': precio_unitario if precio_unitario else 0
+            }
+            for iid in item_ids
+        ]
+        await self.db.bulk_replace_cotizacion_items(conn, cotizacion_id, items)
 
 
 def get_bom_service():
