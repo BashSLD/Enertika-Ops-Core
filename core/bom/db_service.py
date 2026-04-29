@@ -172,18 +172,21 @@ class BomDBService:
         orden: int = 0,
         precio_unitario=None,
         origen_precio: Optional[str] = 'MANUAL',
-        id_material_ref: Optional[UUID] = None
+        id_material_ref: Optional[UUID] = None,
+        tipo_partida: Optional[str] = 'MATERIAL',
+        moneda: Optional[str] = 'MXN'
     ) -> dict:
         """Agrega un item al BOM."""
         row = await conn.fetchrow("""
             INSERT INTO tb_bom_items (id_bom, id_categoria, descripcion,
                                       cantidad, unidad_medida, comentarios, orden,
-                                      precio_unitario, origen_precio, id_material_ref)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                                      precio_unitario, origen_precio, id_material_ref,
+                                      tipo_partida, moneda)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
             RETURNING *
         """, id_bom, id_categoria, descripcion, cantidad,
             unidad_medida, comentarios, orden,
-            precio_unitario, origen_precio, id_material_ref)
+            precio_unitario, origen_precio, id_material_ref, tipo_partida, moneda)
         return dict(row)
 
     async def get_items_by_bom(self, conn, id_bom: UUID, solo_activos: bool = True) -> List[dict]:
@@ -220,6 +223,16 @@ class BomDBService:
         """, id_item)
         return dict(row) if row else None
 
+    async def get_items_by_ids(self, conn, item_ids: List[UUID]) -> List[dict]:
+        """Obtiene varios items por lista de IDs. Solo items activos."""
+        rows = await conn.fetch("""
+            SELECT i.id_item, i.descripcion, i.cantidad, i.moneda,
+                   i.estatus_compra, i.activo
+            FROM tb_bom_items i
+            WHERE i.id_item = ANY($1::uuid[]) AND i.activo = TRUE
+        """, item_ids)
+        return [dict(r) for r in rows]
+
     async def update_item(self, conn, id_item: UUID, **campos) -> dict:
         """Actualiza campos de un item. Solo actualiza los campos proporcionados."""
         sets = ["updated_at = NOW()"]
@@ -232,7 +245,7 @@ class BomDBService:
             'tipo_entrega', 'fecha_estimada_entrega', 'comentarios',
             'entregado', 'fecha_entrega_check', 'orden',
             'precio_unitario', 'origen_precio', 'id_material_ref',
-            'cantidad_recibida'
+            'cantidad_recibida', 'tipo_partida', 'moneda'
         }
 
         for key, val in campos.items():
@@ -278,23 +291,28 @@ class BomDBService:
     async def copiar_items_a_nueva_version(
         self, conn, id_bom_origen: UUID, id_bom_destino: UUID
     ) -> int:
-        """Copia items activos de un BOM a otro. Retorna cantidad copiada."""
+        """Copia items activos de un BOM a otro con trazabilidad de origen.
+        Items FACTURADOS/PAGADOS se copian como bloqueados.
+        Retorna cantidad copiada."""
         result = await conn.execute("""
             INSERT INTO tb_bom_items (id_bom, id_categoria, descripcion,
                                       cantidad, unidad_medida, fecha_requerida,
                                       id_proveedor, tipo_entrega,
                                       fecha_estimada_entrega, comentarios, orden,
-                                      precio_unitario, origen_precio, id_material_ref)
+                                      precio_unitario, origen_precio, id_material_ref,
+                                      tipo_partida, estatus_compra, id_item_origen,
+                                      bloqueado)
             SELECT $2, id_categoria, descripcion,
                    cantidad, unidad_medida, fecha_requerida,
                    id_proveedor, tipo_entrega,
                    fecha_estimada_entrega, comentarios, orden,
-                   precio_unitario, origen_precio, id_material_ref
+                   precio_unitario, origen_precio, id_material_ref,
+                   tipo_partida, estatus_compra, id_item,
+                   (estatus_compra IN ('PAGADO', 'FACTURADO'))
             FROM tb_bom_items
             WHERE id_bom = $1 AND activo = TRUE
             ORDER BY orden ASC
         """, id_bom_origen, id_bom_destino)
-        # result es algo como 'INSERT 0 5'
         count = int(result.split()[-1]) if result else 0
         return count
 
@@ -651,16 +669,17 @@ class BomDBService:
     async def crear_cotizacion(
         self, conn, bom_id: UUID, proveedor_id: Optional[UUID],
         nombre_proveedor: Optional[str], moneda: str,
-        subtotal, iva, total, notas: Optional[str], creado_por: UUID
+        subtotal, iva, total, notas: Optional[str], creado_por: UUID,
+        es_rfq: bool = False, rfq_origen_id: Optional[UUID] = None
     ) -> dict:
         row = await conn.fetchrow("""
             INSERT INTO tb_bom_cotizaciones
                 (bom_id, proveedor_id, nombre_proveedor, moneda,
-                 subtotal, iva, total, notas, creado_por)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+                 subtotal, iva, total, notas, creado_por, es_rfq, rfq_origen_id)
+            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
             RETURNING *
         """, bom_id, proveedor_id, nombre_proveedor, moneda,
-            subtotal, iva, total, notas, creado_por)
+            subtotal, iva, total, notas, creado_por, es_rfq, rfq_origen_id)
         return dict(row)
 
     async def agregar_items_cotizacion(self, conn, cotizacion_id: UUID, items: list) -> None:
@@ -723,6 +742,20 @@ class BomDBService:
             WHERE id = $1
             RETURNING *
         """, cotizacion_id, estatus)
+        return dict(row) if row else None
+
+    async def devolver_cotizacion_borrador(
+        self, conn, cotizacion_id: UUID, motivo: str
+    ) -> Optional[dict]:
+        """Devuelve cotización a BORRADOR con comentarios_revision."""
+        row = await conn.fetchrow("""
+            UPDATE tb_bom_cotizaciones
+            SET estatus = 'BORRADOR',
+                comentarios_revision = $2,
+                actualizado_en = NOW()
+            WHERE id = $1
+            RETURNING *
+        """, cotizacion_id, motivo)
         return dict(row) if row else None
 
     async def actualizar_pdf_cotizacion(
@@ -902,3 +935,192 @@ class BomDBService:
             RETURNING *
         """, autorizacion_id, user_id, paso, motivo)
         return dict(row)
+
+    # ─── TRAZABILIDAD BOM ↔ COMPRAS ─────────────────────────
+
+    async def get_items_by_autorizacion(self, conn, autorizacion_id: UUID) -> List[dict]:
+        """Obtiene los items BOM asociados a una autorizacion via cotizacion."""
+        rows = await conn.fetch("""
+            SELECT bi.*,
+                   c.nombre AS categoria_nombre,
+                   (bi.cantidad * COALESCE(bi.precio_unitario, 0)) AS importe
+            FROM tb_bom_items bi
+            JOIN tb_bom_cotizacion_items ci ON ci.bom_item_id = bi.id_item
+            JOIN tb_bom_autorizaciones a ON a.cotizacion_id = ci.cotizacion_id
+            LEFT JOIN tb_cat_categorias_compra c ON c.id = bi.id_categoria
+            WHERE a.id = $1 AND bi.activo = TRUE
+            ORDER BY bi.orden ASC
+        """, autorizacion_id)
+        return [dict(r) for r in rows]
+
+    async def get_autorizacion_by_bom_pago(self, conn, id_bom_pago: UUID) -> Optional[dict]:
+        """Obtiene la autorizacion a partir del id_bom_pago."""
+        row = await conn.fetchrow("""
+            SELECT a.*, c.nombre_proveedor
+            FROM tb_bom_autorizaciones a
+            JOIN tb_bom_pagos bp ON bp.autorizacion_id = a.id
+            JOIN tb_bom_cotizaciones c ON c.id = a.cotizacion_id
+            WHERE bp.id = $1
+        """, id_bom_pago)
+        return dict(row) if row else None
+
+    async def update_items_estatus_compra(
+        self, conn, item_ids: List[UUID], estatus_compra: str
+    ) -> None:
+        """Actualiza estatus_compra de varios items BOM en lote."""
+        await conn.execute("""
+            UPDATE tb_bom_items
+            SET estatus_compra = $1, updated_at = NOW()
+            WHERE id_item = ANY($2::uuid[])
+        """, estatus_compra, item_ids)
+
+    async def actualizar_estatus_compra_por_cotizacion(
+        self, conn, cotizacion_id: UUID, nuevo_estatus: str,
+        solo_si_estatus: Optional[str] = None
+    ) -> int:
+        """Actualiza estatus_compra de todos los items de una cotización.
+
+        Si solo_si_estatus se especifica, solo actualiza items en ese estatus actual.
+        Retorna cantidad de rows actualizadas.
+        """
+        if solo_si_estatus:
+            result = await conn.execute("""
+                UPDATE tb_bom_items bi
+                SET estatus_compra = $1, updated_at = NOW()
+                FROM tb_bom_cotizacion_items ci
+                WHERE ci.cotizacion_id = $2
+                  AND ci.bom_item_id = bi.id_item
+                  AND bi.estatus_compra = $3
+            """, nuevo_estatus, cotizacion_id, solo_si_estatus)
+        else:
+            result = await conn.execute("""
+                UPDATE tb_bom_items bi
+                SET estatus_compra = $1, updated_at = NOW()
+                FROM tb_bom_cotizacion_items ci
+                WHERE ci.cotizacion_id = $2
+                  AND ci.bom_item_id = bi.id_item
+            """, nuevo_estatus, cotizacion_id)
+        return int(result.split()[-1]) if result else 0
+
+    # ─── TIPO DE CAMBIO PARA ITEMS USD ─────────────────────
+
+    async def get_tc_from_linked_materials(
+        self, conn, item_ids: List[UUID]
+    ) -> dict:
+        """Retorna {id_item: tipo_cambio_xml} para items vinculados a materiales con TC del XML."""
+        rows = await conn.fetch("""
+            SELECT mh.id_bom_item, mh.tipo_cambio_xml
+            FROM tb_materiales_historial mh
+            WHERE mh.id_bom_item = ANY($1::uuid[])
+              AND mh.tipo_cambio_xml IS NOT NULL
+            ORDER BY mh.created_at DESC
+        """, item_ids)
+        result = {}
+        for r in rows:
+            key = str(r['id_bom_item'])
+            if key not in result:
+                result[key] = float(r['tipo_cambio_xml'])
+        return result
+
+    async def get_tasa_promedio(self, conn, days: int = 7) -> Optional[float]:
+        """Promedio de los ultimos N dias de tasa Banxico. Fallback si no hay TC reciente."""
+        val = await conn.fetchval("""
+            SELECT AVG(tasa_mxn)
+            FROM (
+                SELECT tasa_mxn FROM tb_tipo_cambio
+                ORDER BY fecha DESC
+                LIMIT $1
+            ) sub
+        """, days)
+        return float(val) if val else None
+
+    async def get_gasto_real_por_item(self, conn, item_ids: List[UUID]) -> dict:
+        """Retorna {id_item: total_gastado} sumando importes del item actual y su item_origen.
+
+        Agrupa por current_id (el ID del item actual) para que el gasto histórico de
+        versiones anteriores se sume al item vigente, no se devuelva como clave separada.
+        """
+        rows = await conn.fetch("""
+            WITH expanded AS (
+                SELECT bi.id_item AS current_id, bi.id_item AS target_id
+                FROM tb_bom_items bi WHERE bi.id_item = ANY($1::uuid[])
+                UNION ALL
+                SELECT bi.id_item AS current_id, bi.id_item_origen AS target_id
+                FROM tb_bom_items bi
+                WHERE bi.id_item = ANY($1::uuid[]) AND bi.id_item_origen IS NOT NULL
+            )
+            SELECT e.current_id, COALESCE(SUM(m.importe), 0) AS total_gastado
+            FROM expanded e
+            LEFT JOIN tb_materiales_historial m ON m.id_bom_item = e.target_id
+            GROUP BY e.current_id
+        """, item_ids)
+        return {str(r['current_id']): float(r['total_gastado']) for r in rows}
+
+    # ─── COMPARATIVA RFQ (Gap 7d) ───────────────────────────
+
+    async def get_rfqs_by_bom(self, conn, id_bom: UUID) -> list:
+        """RFQs activos de un BOM."""
+        rows = await conn.fetch("""
+            SELECT c.*, u.nombre AS creado_por_nombre
+            FROM tb_bom_cotizaciones c
+            LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
+            WHERE c.bom_id = $1 AND c.es_rfq = TRUE
+            ORDER BY c.creado_en DESC
+        """, id_bom)
+        return [dict(r) for r in rows]
+
+    async def get_rfq_responses(self, conn, rfq_id: UUID) -> list:
+        """Cotizaciones de proveedores que respondieron a un RFQ."""
+        rows = await conn.fetch("""
+            SELECT c.*, u.nombre AS creado_por_nombre
+            FROM tb_bom_cotizaciones c
+            LEFT JOIN tb_usuarios u ON u.id_usuario = c.creado_por
+            WHERE c.rfq_origen_id = $1 AND c.es_rfq = FALSE
+            ORDER BY c.creado_en DESC
+        """, rfq_id)
+        return [dict(r) for r in rows]
+
+    async def bulk_replace_cotizacion_items(
+        self, conn, cotizacion_id: UUID, items: list
+    ) -> None:
+        """Reemplaza los items de una cotización preservando precios existentes.
+
+        Si un item ya tenía precio y el nuevo payload no trae precio (None),
+        se conserva el precio anterior para no destruir datos del proveedor.
+        """
+        existing = await conn.fetch("""
+            SELECT bom_item_id, precio_unitario, cantidad, moneda, subtotal_linea
+            FROM tb_bom_cotizacion_items WHERE cotizacion_id = $1
+        """, cotizacion_id)
+        existing_map = {str(r['bom_item_id']): dict(r) for r in existing}
+
+        await conn.execute(
+            "DELETE FROM tb_bom_cotizacion_items WHERE cotizacion_id = $1", cotizacion_id
+        )
+        if items:
+            merged = []
+            for item in items:
+                item_id_str = str(item['bom_item_id'])
+                if item_id_str in existing_map and item.get('precio_unitario') is None:
+                    ex = existing_map[item_id_str]
+                    merged.append({
+                        **item,
+                        'precio_unitario': ex['precio_unitario'],
+                        'cantidad': ex['cantidad'],
+                        'moneda': ex['moneda'],
+                        'subtotal_linea': ex['subtotal_linea'],
+                    })
+                else:
+                    merged.append(item)
+
+            await conn.executemany("""
+                INSERT INTO tb_bom_cotizacion_items
+                    (cotizacion_id, bom_item_id, precio_unitario, cantidad, moneda, subtotal_linea)
+                VALUES ($1, $2, $3, $4, $5, $6)
+                ON CONFLICT (cotizacion_id, bom_item_id) DO NOTHING
+            """, [
+                (cotizacion_id, i['bom_item_id'], i.get('precio_unitario'),
+                 i.get('cantidad', 1), i.get('moneda', 'MXN'),
+                 i.get('subtotal_linea', 0))
+                for i in merged
+            ])
