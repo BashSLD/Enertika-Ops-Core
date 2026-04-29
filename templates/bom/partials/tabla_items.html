@@ -1,10 +1,14 @@
 {# Tabla de items del BOM (partial HTMX) #}
 {% if items %}
-<div class="bg-white rounded-xl border overflow-hidden">
+<div class="bg-white rounded-xl border overflow-hidden"
+     x-data="{ itemSeleccionados: [], toggleAll(e) { document.querySelectorAll('#bom-items-body input[name=item_ids]').forEach(cb => { cb.checked = e.target.checked; }); this.itemSeleccionados = e.target.checked ? Array.from(document.querySelectorAll('#bom-items-body input[name=item_ids]')).map(c => c.value) : []; } }">
     <div class="overflow-x-auto">
         <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-gray-50">
                 <tr>
+                    <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase w-8">
+                        <input type="checkbox" @change="toggleAll($event)" class="rounded border-gray-300 text-blue-600 focus:ring-blue-500">
+                    </th>
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider w-8">#</th>
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Categoria</th>
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider min-w-[200px]">Descripcion</th>
@@ -12,7 +16,9 @@
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Unidad</th>
                     <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">P. Unit.</th>
                     <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Importe</th>
+                    <th class="px-3 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Gastado</th>
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Fecha Req.</th>
+                    <th class="px-3 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Estado</th>
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Proveedor</th>
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Tipo Entrega</th>
                     <th class="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">F. Est. Entrega</th>
