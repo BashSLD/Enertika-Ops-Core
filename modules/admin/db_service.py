@@ -221,6 +221,13 @@ class AdminDBService:
             default_to, default_cc, default_cco
         )
 
+    async def fetch_email_remitente_default(self, conn) -> Optional[str]:
+        """Obtiene el remitente por defecto de tb_correos_notificaciones."""
+        return await conn.fetchval(
+            "SELECT email_remitente FROM tb_correos_notificaciones "
+            "WHERE departamento = 'DEFAULT' AND activo = true LIMIT 1"
+        )
+
     # ========================================
     # CONFIGURACION GLOBAL
     # ========================================
@@ -228,9 +235,23 @@ class AdminDBService:
     async def fetch_fiel_config(self, conn) -> dict:
         """Obtiene la config FIEL activa para ISA, o dict vacío si no existe."""
         row = await conn.fetchrow(
-            "SELECT sp_path_cer, sp_path_key FROM tb_sat_fiel_config WHERE empresa='ISA' AND activo=TRUE"
+            "SELECT sp_path_cer, sp_path_key, password_fiel FROM tb_sat_fiel_config WHERE empresa='ISA' AND activo=TRUE"
         )
         return dict(row) if row else {}
+
+    async def guardar_fiel_config(
+        self, conn, sp_path_cer: str, sp_path_key: str, password_fiel: str
+    ) -> None:
+        """Guarda o actualiza la configuración FIEL de ISA."""
+        await conn.execute(
+            """
+            INSERT INTO tb_sat_fiel_config (empresa, sp_path_cer, sp_path_key, password_fiel, activo)
+            VALUES ('ISA', $1, $2, $3, TRUE)
+            ON CONFLICT (empresa) WHERE activo = TRUE
+            DO UPDATE SET sp_path_cer=$1, sp_path_key=$2, password_fiel=$3, updated_at=NOW()
+            """,
+            sp_path_cer, sp_path_key, password_fiel,
+        )
 
     async def fetch_global_config(self, conn) -> Dict[str, str]:
         """Obtiene toda la configuracion global como dict clave->valor."""
@@ -429,6 +450,34 @@ class AdminDBService:
             new_status, item_id
         )
 
+
+    # ========================================
+    # CONFIGURACION UMBRALES KPI
+    # ========================================
+
+    async def update_umbrales_kpi(
+        self, conn, tipo_kpi: str, departamento: str,
+        umbral_excelente: int, umbral_bueno: int, modificado_por_id: UUID
+    ) -> None:
+        async with conn.transaction():
+            await conn.execute("""
+                UPDATE tb_config_umbrales_kpi
+                SET activo = FALSE
+                WHERE tipo_kpi = $1
+                  AND activo = TRUE
+                  AND departamento = $2
+            """, tipo_kpi, departamento)
+
+            await conn.execute("""
+                INSERT INTO tb_config_umbrales_kpi (
+                    tipo_kpi,
+                    departamento,
+                    umbral_excelente,
+                    umbral_bueno,
+                    modificado_por_id,
+                    fecha_modificacion
+                ) VALUES ($1, $2, $3, $4, $5, NOW())
+            """, tipo_kpi, departamento, umbral_excelente, umbral_bueno, modificado_por_id)
 
     # ========================================
     # REPORTE SEMANAL

@@ -92,7 +92,7 @@ async def iniciar_job(
     rfc_emisor = (form.get("rfc_emisor") or "").strip() or None
 
     job_id = await sat_db_service.crear_job(conn, fecha_inicio, fecha_fin, user["user_db_id"])
-    asyncio.create_task(sat_service.ejecutar_descarga(job_id, fecha_inicio, fecha_fin))
+    asyncio.create_task(sat_service.ejecutar_descarga(job_id, fecha_inicio, fecha_fin, rfc_emisor))
 
     job = await sat_db_service.obtener_job_status(conn, job_id)
     return templates.TemplateResponse(
@@ -164,8 +164,8 @@ async def descartar_item(
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"mensaje": str(e), "tipo": "error"},
-            status_code=404,
+            {"message": str(e), "type": "error"},
+            status_code=400,
             headers={"HX-Reswap": "none"},
         )
     except asyncpg.PostgresError:
@@ -173,7 +173,7 @@ async def descartar_item(
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"mensaje": "Error de base de datos. Intenta de nuevo.", "tipo": "error"},
+            {"message": "Error de base de datos. Intenta de nuevo.", "type": "error"},
             status_code=500,
             headers={"HX-Reswap": "none"},
         )
@@ -246,7 +246,7 @@ async def restaurar_item(
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"mensaje": str(e), "tipo": "error"},
+            {"message": str(e), "type": "error"},
             status_code=400,
             headers={"HX-Reswap": "none"},
         )
@@ -255,7 +255,7 @@ async def restaurar_item(
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"mensaje": "Error de base de datos. Intenta de nuevo.", "tipo": "error"},
+            {"message": "Error de base de datos. Intenta de nuevo.", "type": "error"},
             status_code=500,
             headers={"HX-Reswap": "none"},
         )
@@ -358,7 +358,7 @@ async def confirmar_match(
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"mensaje": "Selecciona un comprobante antes de confirmar", "tipo": "error"},
+            {"message": "Selecciona un comprobante antes de confirmar", "type": "error"},
             status_code=400,
             headers={"HX-Reswap": "none"},
         )
@@ -369,7 +369,7 @@ async def confirmar_match(
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"mensaje": str(e), "tipo": "error"},
+            {"message": str(e), "type": "error"},
             status_code=400,
             headers={"HX-Reswap": "none"},
         )
@@ -378,7 +378,7 @@ async def confirmar_match(
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"mensaje": "Error de base de datos. Intenta de nuevo.", "tipo": "error"},
+            {"message": "Error de base de datos. Intenta de nuevo.", "type": "error"},
             status_code=500,
             headers={"HX-Reswap": "none"},
         )
@@ -387,7 +387,7 @@ async def confirmar_match(
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"mensaje": "Error procesando XML", "tipo": "error"},
+            {"message": "Error procesando XML", "type": "error"},
             status_code=500,
             headers={"HX-Reswap": "none"},
         )
@@ -418,7 +418,7 @@ async def procesar_item(
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"mensaje": str(e), "tipo": "error"},
+            {"message": str(e), "type": "error"},
             status_code=400,
             headers={"HX-Reswap": "none"},
         )
@@ -427,7 +427,7 @@ async def procesar_item(
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"mensaje": "Error de base de datos. Intenta de nuevo.", "tipo": "error"},
+            {"message": "Error de base de datos. Intenta de nuevo.", "type": "error"},
             status_code=500,
             headers={"HX-Reswap": "none"},
         )

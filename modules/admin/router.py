@@ -512,7 +512,7 @@ async def update_config_sat_inbox(
     sp_sat_base_folder: str = Form("SAT-Inbox"),
     service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection),
-    _ = require_module_access("admin"),
+    _ = require_role(["ADMIN"]),
 ):
     """Guarda la configuración SharePoint SAT Inbox (Site ID, Drive ID, Carpeta)."""
     await service.db.upsert_global_config(conn, "SP_SAT_SITE_ID", sp_sat_site_id.strip())
@@ -578,18 +578,15 @@ async def enviar_reporte_desarrollo_ceo_manual(
     if not ceo_recipients:
         return _error("Configura al menos un destinatario valido antes de enviar.", "Sin destinatario")
 
-    sender_row = await conn.fetchrow(
-        "SELECT email_remitente FROM tb_correos_notificaciones "
-        "WHERE departamento = 'DEFAULT' AND activo = true LIMIT 1"
-    )
-    if not sender_row:
+    sender_email = await service.db.fetch_email_remitente_default(conn)
+    if not sender_email:
         return _error("No hay buzón DEFAULT activo configurado.", "Sin remitente")
 
     ms_auth = MicrosoftAuth()
     try:
         enviado = await generar_y_enviar_reporte_ceo(
             ms_auth=ms_auth,
-            sender_email=sender_row["email_remitente"],
+            sender_email=sender_email,
             ceo_recipients=ceo_recipients,
             since=since,
             until=until_exclusive,
@@ -1059,6 +1056,7 @@ async def guardar_umbrales(
     umbral_bueno: float = Form(...),
     departamento: str = Form("SIMULACION"), # Default a SIMULACION si no viene
     conn = Depends(get_db_connection),
+    service: AdminService = Depends(get_admin_service),
     context=Depends(get_current_user_context),
     _=require_module_access("admin")
 ):
@@ -1075,26 +1073,9 @@ async def guardar_umbrales(
             "message": "Los umbrales deben estar entre 0 y 100"
         })
     
-    # Desactivar configuración anterior del mismo departamento
-    await conn.execute("""
-        UPDATE tb_config_umbrales_kpi
-        SET activo = FALSE
-        WHERE tipo_kpi = $1 
-          AND activo = TRUE
-          AND departamento = $2
-    """, tipo_kpi, departamento)
-    
-    # Insertar nueva configuración
-    await conn.execute("""
-        INSERT INTO tb_config_umbrales_kpi (
-            tipo_kpi,
-            departamento,
-            umbral_excelente,
-            umbral_bueno,
-            modificado_por_id,
-            fecha_modificacion
-        ) VALUES ($1, $2, $3, $4, $5, NOW())
-    """, tipo_kpi, departamento, umbral_excelente, umbral_bueno, context.get("user_id"))
+    await service.db.update_umbrales_kpi(
+        conn, tipo_kpi, departamento, umbral_excelente, umbral_bueno, context.get("user_id")
+    )
     
     # Invalidar cache
     ConfigService.invalidar_cache()
@@ -1108,6 +1089,7 @@ async def guardar_umbrales(
 async def guardar_fiel_config(
     request: Request,
     conn=Depends(get_db_connection),
+    service: AdminService = Depends(get_admin_service),
     _=Depends(get_current_user_context),
     __=require_role(["ADMIN"]),
 ):
@@ -1126,28 +1108,20 @@ async def guardar_fiel_config(
 
     # Si no se envió password, verificar si ya existe una configuración previa
     if not password_fiel:
-        existing = await conn.fetchval(
-            "SELECT password_fiel FROM tb_sat_fiel_config WHERE empresa='ISA' AND activo=TRUE"
-        )
-        if not existing:
+        existing_config = await service.db.fetch_fiel_config(conn)
+        existing_password = existing_config.get("password_fiel")
+        if not existing_password:
             return templates.TemplateResponse(
                 request,
                 "shared/toast.html",
                 {"message": "La contraseña FIEL es obligatoria en la primera configuración", "type": "error"},
                 headers={"HX-Reswap": "none"},
             )
-        password_fiel = existing
+        password_fiel = existing_password
 
     try:
-        await conn.execute(
-            """
-            INSERT INTO tb_sat_fiel_config (empresa, sp_path_cer, sp_path_key, password_fiel, activo)
-            VALUES ('ISA', $1, $2, $3, TRUE)
-            ON CONFLICT (empresa) WHERE activo = TRUE
-            DO UPDATE SET sp_path_cer=$1, sp_path_key=$2, password_fiel=$3, updated_at=NOW()
-            """,
-            sp_path_cer, sp_path_key, password_fiel,
-        )
+        # TODO: cifrar password_fiel en BD (pgcrypto o Key Vault) — actualmente texto plano
+        await service.db.guardar_fiel_config(conn, sp_path_cer, sp_path_key, password_fiel)
     except asyncpg.PostgresError:
         logger.exception("Error guardando config FIEL")
         return templates.TemplateResponse(

@@ -6,7 +6,6 @@ from datetime import date
 from uuid import UUID
 
 import asyncpg
-import httpx
 
 from core.config import settings
 from core.integrations.sharepoint import SharePointService
@@ -187,24 +186,25 @@ async def descargar_xml_de_inbox(
     Descarga el XML de SharePoint para un item del inbox.
     Retorna (xml_bytes, uuid_cfdi).
     """
-    row = await conn.fetchrow(
-        "SELECT sharepoint_url, uuid_cfdi FROM tb_sat_inbox WHERE id = $1 AND estado = 'pendiente'",
-        inbox_id,
-    )
-    if not row:
-        raise ValueError("Item no encontrado o no esta en estado pendiente")
+    row = await sat_db_service.obtener_inbox_item_para_descarga(conn, inbox_id)
+    if not row["sharepoint_item_id"]:
+        raise ValueError("Item no tiene sharepoint_item_id en SharePoint")
+
+    sat_site_id, sat_drive_id, _ = await _get_sat_sp_config(conn)
 
     token = await get_ms_auth().get_application_token()
     if not token:
         raise ValueError("No se pudo obtener token de aplicacion para descargar XML")
 
-    async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-        resp = await client.get(
-            row["sharepoint_url"],
-            headers={"Authorization": f"Bearer {token}"},
-        )
-        resp.raise_for_status()
-        return resp.content, row["uuid_cfdi"]
+    sp = SharePointService(access_token=token)
+    sp.site_id = sat_site_id
+    sp.drive_id = sat_drive_id
+
+    content = await sp.download_bytes_direct_by_item_id(row["sharepoint_item_id"])
+    head = content[:200].lstrip(b"\xef\xbb\xbf\r\n\t ").lower()
+    if not head.startswith(b"<") or head.startswith(b"<html") or head.startswith(b"<!doctype html"):
+        raise ValueError("El archivo descargado de SharePoint no parece ser un XML CFDI valido")
+    return content, row["uuid_cfdi"]
 
 
 async def obtener_cfdi_inbox(conn: asyncpg.Connection, inbox_id: UUID):
@@ -238,7 +238,7 @@ async def buscar_comprobantes_match(
     return [dict(r) for r in rows]
 
 
-async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date) -> None:
+async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date, rfc_emisor: str | None = None) -> None:
     """
     Background task: descarga CFDIs del SAT para el rango de fechas dado.
     Obtiene su propia conexion del pool — no usa la conexion del request.
@@ -269,7 +269,7 @@ async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date) -
 
         await update(estado="solicitando")
         client = SATClient(signer=signer)
-        id_solicitud = await client.solicitar_descarga(fecha_inicio, fecha_fin)
+        id_solicitud = await client.solicitar_descarga(fecha_inicio, fecha_fin, rfc_emisor)
         await update(estado="esperando_sat", id_solicitud_sat=id_solicitud)
 
         async def on_poll(codigo, label):
@@ -280,6 +280,7 @@ async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date) -
 
         total_encontrados = 0
         total_duplicados = 0
+        total_errores = 0
         now = now_mx()
         year_str = now.strftime("%Y")
         month_str = now.strftime("%m")
@@ -320,32 +321,34 @@ async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date) -
 
                         carpeta = f"{base_folder}/ISA/{year_str}/{month_str}"
                         filename = f"{cfdi.uuid}.xml"
-                        sharepoint_url = ""
-                        sharepoint_item_id = None
+
                         try:
                             result = await sp.upload_bytes_direct(xml_bytes, filename, carpeta)
                             sharepoint_url = result.get("webUrl", "")
                             sharepoint_item_id = result.get("id")
+
+                            async with pool.acquire() as conn:
+                                await sat_db_service.registrar_cfdi_descargado(
+                                    conn, job_id, cfdi, sharepoint_url, sharepoint_item_id, "pendiente",
+                                    tipo_detectado=cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL",
+                                )
                         except Exception as e:
                             logger.error(
                                 "Error subiendo XML %s a SharePoint: %s",
                                 cfdi.uuid, e,
                             )
-
-                        async with pool.acquire() as conn:
-                            await sat_db_service.registrar_cfdi_descargado(
-                                conn, job_id, cfdi, sharepoint_url, sharepoint_item_id, "pendiente",
-                                tipo_detectado=cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL",
-                            )
+                            # No se registra en tb_sat_inbox para permitir reintento en el siguiente job
+                            total_errores += 1
 
         await update(
-            estado="completado",
+            estado="completado" if total_errores == 0 else "error",
             cfdi_encontrados=total_encontrados,
             cfdi_duplicados=total_duplicados,
+            mensaje_error=f"{total_errores} errores al subir a SharePoint." if total_errores > 0 else None,
         )
         logger.info(
-            "Job SAT %s completado - %d CFDIs, %d duplicados",
-            job_id, total_encontrados, total_duplicados,
+            "Job SAT %s completado - %d CFDIs, %d duplicados, %d errores",
+            job_id, total_encontrados, total_duplicados, total_errores,
         )
 
     except asyncpg.PostgresError as e:

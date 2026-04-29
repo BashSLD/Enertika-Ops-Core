@@ -32,10 +32,6 @@ MD/
 # Design prototypes (agentes de diseño)
 HOMEECO/
 
-# Tests
-tests/
-
-
 # Documentacion
 rules/
 DB_SCHEMA_SNAPSHOT.md
@@ -43,8 +39,10 @@ scripts/
 ._UPDATE
 .claude/
 CLAUDE.md
+AGENTS.md
 .claude/settings.json
 .agent/
+.agents/
 .mcp.json
 docs/
 .claude/knowledge/

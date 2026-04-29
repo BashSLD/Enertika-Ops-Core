@@ -373,24 +373,27 @@ class SharePointService:
             data = resp.json()
             return {"id": data.get("id"), "webUrl": data.get("webUrl"), "name": data.get("name")}
 
-    async def download_file_by_item_id(self, conn, drive_item_id: str) -> bytes:
-        """Descarga el contenido de un archivo por su drive_item_id vía Graph API."""
-        config = await self._resolve_config(conn)
-        drive_id = config.get("drive_id")
-        site_id = config.get("site_id")
-
+    async def _fetch_item_bytes(self, drive_item_id: str, drive_id: str | None, site_id: str | None) -> bytes:
         if drive_id:
             url = f"{self.BASE_URL}/drives/{drive_id}/items/{drive_item_id}/content"
         elif site_id:
             url = f"{self.BASE_URL}/sites/{site_id}/drive/items/{drive_item_id}/content"
         else:
-            raise ValueError("No hay drive_id ni site_id configurados para SharePoint")
-
+            raise ValueError("drive_id o site_id requerido en SharePointService")
         headers = {"Authorization": f"Bearer {self.access_token}"}
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             resp = await client.get(url, headers=headers)
             resp.raise_for_status()
             return resp.content
+
+    async def download_file_by_item_id(self, conn, drive_item_id: str) -> bytes:
+        """Descarga el contenido de un archivo por su drive_item_id vía Graph API."""
+        config = await self._resolve_config(conn)
+        return await self._fetch_item_bytes(drive_item_id, config.get("drive_id"), config.get("site_id"))
+
+    async def download_bytes_direct_by_item_id(self, drive_item_id: str) -> bytes:
+        """Descarga por item_id usando self.drive_id / self.site_id ya resueltos (sin conn)."""
+        return await self._fetch_item_bytes(drive_item_id, self.drive_id, self.site_id)
 
     async def download_file_by_path(self, relative_path: str) -> bytes:
         """

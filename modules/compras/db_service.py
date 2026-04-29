@@ -483,7 +483,8 @@ class ComprasDBService:
         self, conn, id_comprobante: UUID, uuid_factura: str,
         id_proveedor: UUID, tipo_factura: str = "NORMAL",
         current_estatus: Optional[str] = None,
-        monto_factura: Decimal = Decimal("0")
+        monto_factura: Decimal = Decimal("0"),
+        id_comprobante_anticipo: Optional[UUID] = None,
     ):
         """Actualiza comprobante con datos de la factura XML.
 
@@ -529,13 +530,27 @@ class ComprasDBService:
             """, uuid_factura, id_proveedor, tipo_factura, monto_factura, id_comprobante)
             return
 
-        # NORMAL / CIERRE_ANTICIPO: calcular si cubre el pago completo
+        if tipo_factura == "CIERRE_ANTICIPO":
+            await conn.execute("""
+                UPDATE tb_comprobantes_pago
+                SET uuid_factura = COALESCE(uuid_factura, $1),
+                    id_proveedor = COALESCE(id_proveedor, $2),
+                    estatus = 'FACTURADO',
+                    es_anticipo = FALSE,
+                    tipo_factura = $3,
+                    monto_facturado = monto,
+                    id_comprobante_anticipo = COALESCE($4, id_comprobante_anticipo),
+                    updated_at = NOW()
+                WHERE id_comprobante = $5
+            """, uuid_factura, id_proveedor, tipo_factura, id_comprobante_anticipo, id_comprobante)
+            return
+
+        # NORMAL: calcular si cubre el pago completo
         row = await conn.fetchrow("""
             SELECT monto, monto_facturado
             FROM tb_comprobantes_pago
             WHERE id_comprobante = $1
         """, id_comprobante)
-
         nuevo_monto_facturado = row['monto_facturado'] + monto_factura
         if nuevo_monto_facturado >= row['monto'] - tolerancia:
             nuevo_estatus = "FACTURADO"
@@ -570,6 +585,18 @@ class ComprasDBService:
                 SET id_comprobante_anticipo = $1
                 WHERE id_comprobante = $2
             """, anticipo_row['id_comprobante'], id_comprobante)
+
+    async def get_comprobante_anticipo_by_uuid(
+        self, conn, uuid_anticipo: str
+    ) -> Optional[dict]:
+        """Busca el comprobante de anticipo original por UUID de factura."""
+        row = await conn.fetchrow("""
+            SELECT id_comprobante
+            FROM tb_comprobantes_pago
+            WHERE uuid_factura = $1
+              AND es_anticipo = true
+        """, uuid_anticipo)
+        return dict(row) if row else None
 
     async def guardar_relacion_beneficiario(
         self, conn, beneficiario: str, id_proveedor: UUID, user_id: UUID

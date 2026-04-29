@@ -827,8 +827,30 @@ class ComprasService:
         monto_pago = Decimal(str(comprobante['monto']))
         monto_ya_facturado = Decimal(str(comprobante.get('monto_facturado') or 0))
 
+        relacionados = cfdi_data.get('relacionados', [])
+        id_comprobante_anticipo = None
+        if tipo_factura == "CIERRE_ANTICIPO":
+            uuid_anticipo_relacionado = None
+            for rel in relacionados:
+                tipo_rel = rel.get('tipo_relacion', '') if isinstance(rel, dict) else rel.tipo_relacion
+                uuid_rel = rel.get('uuid', '') if isinstance(rel, dict) else rel.uuid
+                if tipo_rel == "07" and uuid_rel:
+                    uuid_anticipo_relacionado = uuid_rel
+                    break
+
+            if not uuid_anticipo_relacionado:
+                raise ValueError("El CFDI de cierre no incluye la relacion 07 con el anticipo original")
+
+            anticipo = await db_svc.get_comprobante_anticipo_by_uuid(conn, uuid_anticipo_relacionado)
+            if not anticipo:
+                raise ValueError("No se encontro el comprobante de anticipo original relacionado")
+
+            id_comprobante_anticipo = anticipo["id_comprobante"]
+            if id_comprobante_anticipo != id_comprobante:
+                raise ValueError("El comprobante seleccionado no corresponde al anticipo relacionado en el CFDI")
+
         # Validar anti-sobrefacturacion
-        if tipo_factura not in ('NOTA_CREDITO', 'ANTICIPO', 'PAGO'):
+        if tipo_factura not in ('NOTA_CREDITO', 'ANTICIPO', 'PAGO', 'CIERRE_ANTICIPO'):
             proyectado = monto_ya_facturado + monto_factura
             if proyectado > monto_pago + Decimal("0.50"):
                 exceso = proyectado - monto_pago
@@ -859,7 +881,8 @@ class ComprasService:
         # 2. Actualizar comprobante (calcula nuevo estatus usando monto_factura)
         await db_svc.confirmar_match(
             conn, id_comprobante, uuid_factura, id_proveedor,
-            tipo_factura, current_estatus, monto_factura
+            tipo_factura, current_estatus, monto_factura,
+            id_comprobante_anticipo=id_comprobante_anticipo,
         )
 
         # 2. Guardar relaciones beneficiario↔proveedor (bidireccional)
@@ -912,7 +935,6 @@ class ComprasService:
             )
 
         # 4. Guardar CFDI relacionados
-        relacionados = cfdi_data.get('relacionados', [])
         if relacionados:
             rel_dicts = [
                 {
@@ -923,16 +945,6 @@ class ComprasService:
                 for r in relacionados
             ]
             await db_svc.guardar_cfdi_relacionados(conn, uuid_factura, rel_dicts)
-
-        # 5. Si es CIERRE_ANTICIPO, vincular con anticipo original
-        if tipo_factura == "CIERRE_ANTICIPO" and relacionados:
-            for rel in relacionados:
-                tipo_rel = rel.get('tipo_relacion', '') if isinstance(rel, dict) else rel.tipo_relacion
-                uuid_rel = rel.get('uuid', '') if isinstance(rel, dict) else rel.uuid
-                if tipo_rel == "07":
-                    await db_svc.vincular_cierre_anticipo(
-                        conn, id_comprobante, uuid_rel
-                    )
 
         # 6. Validar integridad: suma de conceptos vs subtotal
         validacion_ok = True
