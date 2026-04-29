@@ -28,7 +28,7 @@ from core.database import get_db_connection
 from core.security import get_current_user_context
 from core.permissions import require_module_access
 from core.config import settings
-from core.timezone import now_mx
+from core.timezone import now_mx, today_mx
 
 # Module imports
 from .service import ComprasService, get_compras_service
@@ -157,7 +157,8 @@ async def get_compras_ui(
             "fecha_fin": "",
             "estatus": "SIN_COMPLETAR"
         },
-        "estadisticas": estadisticas
+        "estadisticas": estadisticas,
+        "today": today_mx(),
     }
     
     # HTMX Detection
@@ -173,6 +174,29 @@ async def get_compras_ui(
 
 
 # ========================================
+# PROYECTOS CON BOM (Gap 6)
+# ========================================
+
+@router.get("/proyectos-bom", include_in_schema=False)
+async def get_proyectos_bom(
+    request: Request,
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_module_access("compras"),
+):
+    """Lista proyectos con BOM en estatus visible para Compras (APROBADO_CONST+)."""
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    proyectos = await db_svc.get_proyectos_con_bom(conn)
+
+    return templates.TemplateResponse(
+        request, "compras/partials/proyectos_bom.html",
+        {"proyectos": proyectos, "user_name": context.get("user_name")}
+    )
+
+
+# ========================================
+# PDF UPLOAD# ========================================
 # CARGA DE PDFs
 # ========================================
 
@@ -302,7 +326,8 @@ async def get_comprobantes_list(
                 "id_zona": filtros.id_zona or "",
                 "id_proyecto": str(filtros.id_proyecto) if filtros.id_proyecto else "",
                 "id_categoria": filtros.id_categoria or "",
-            }
+            },
+            "today": today_mx(),
         }
     )
 
@@ -1176,3 +1201,169 @@ async def delete_xml_staging(
         {"message": "XML eliminado del staging", "type": "success"},
     ).body.decode("utf-8")
     return HTMLResponse(content=lista_html + toast_html)
+
+
+# ========================================
+# PROVEEDOR DOCUMENTOS (Gap 8)
+# ========================================
+
+@router.get("/proveedores/{id_proveedor}/documentos", include_in_schema=False)
+async def get_proveedor_documentos(
+    request: Request,
+    id_proveedor: UUID,
+    conn = Depends(get_db_connection),
+    _ = require_module_access("compras"),
+):
+    """Lista documentos de un proveedor (modal partial)."""
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    docs = await db_svc.get_documentos_proveedor(conn, id_proveedor)
+    return templates.TemplateResponse(
+        request, "compras/partials/modal_proveedor_docs.html",
+        {"documentos": docs, "id_proveedor": id_proveedor}
+    )
+
+
+@router.post("/proveedores/{id_proveedor}/documentos", include_in_schema=False)
+async def subir_documento_proveedor(
+    request: Request,
+    id_proveedor: UUID,
+    tipo_documento: str = Form(...),
+    tipo_persona: str = Form("MORAL"),
+    fecha_vencimiento: Optional[str] = Form(None),
+    archivo: UploadFile = File(...),
+    context = Depends(get_current_user_context),
+    conn = Depends(get_db_connection),
+    service: ComprasService = Depends(get_compras_service),
+    _ = require_module_access("compras", "editor"),
+):
+    """Sube un documento de proveedor a SharePoint y registra en BD."""
+    user_id = context.get("user_db_id")
+    from datetime import date as date_type
+
+    venc = date_type.fromisoformat(fecha_vencimiento) if fecha_vencimiento else None
+
+    try:
+        result = await service.upload_archivo_sharepoint(
+            conn, archivo,
+            subcarpeta=f"proveedores/{id_proveedor}",
+            id_comprobante=None,
+            origen_slug="proveedor_documento",
+            user_id=user_id,
+            metadata_extra={"tipo_documento": tipo_documento}
+        )
+    except Exception as e:
+        logger.exception("Error subiendo documento a SharePoint")
+        raise HTTPException(status_code=500, detail=f"Error al subir a SharePoint: {e}")
+
+    if not result or not result.get("url_sharepoint"):
+        raise HTTPException(status_code=500, detail="No se pudo obtener URL de SharePoint")
+
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    await db_svc.insert_documento_proveedor(
+        conn, id_proveedor, tipo_documento, tipo_persona,
+        result["url_sharepoint"], fecha_vencimiento=venc, subido_por=user_id
+    )
+
+    docs = await db_svc.get_documentos_proveedor(conn, id_proveedor)
+    return templates.TemplateResponse(
+        request, "compras/partials/modal_proveedor_docs.html",
+        {"documentos": docs, "id_proveedor": id_proveedor}
+    )
+
+
+@router.delete("/proveedores/{id_proveedor}/documentos/{doc_id}", include_in_schema=False)
+async def eliminar_documento_proveedor(
+    request: Request,
+    id_proveedor: UUID,
+    doc_id: UUID,
+    conn = Depends(get_db_connection),
+    _ = require_module_access("compras", "editor"),
+):
+    """Elimina un documento de proveedor."""
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    deleted = await db_svc.delete_documento_proveedor(conn, doc_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Documento no encontrado")
+
+    docs = await db_svc.get_documentos_proveedor(conn, id_proveedor)
+    return templates.TemplateResponse(
+        request, "compras/partials/modal_proveedor_docs.html",
+        {"documentos": docs, "id_proveedor": id_proveedor}
+    )
+
+
+# ========================================
+# MINI ALMACÉN (Gap 9)
+# ========================================
+
+@router.get("/inventario", include_in_schema=False)
+async def get_inventario(
+    request: Request,
+    conn = Depends(get_db_connection),
+    _ = require_module_access("compras"),
+):
+    """Lista de inventario (mini almacén)."""
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    items = await db_svc.get_inventario(conn)
+    return templates.TemplateResponse(
+        request, "compras/partials/inventario.html", {"items": items}
+    )
+
+
+@router.post("/inventario", include_in_schema=False)
+async def registrar_inventario(
+    request: Request,
+    descripcion: str = Form(...),
+    cantidad: float = Form(...),
+    unidad_medida: str = Form(None),
+    ubicacion: str = Form(None),
+    id_proveedor: str = Form(None),
+    notas: str = Form(None),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("compras", "editor"),
+):
+    """Registra entrada de material al inventario."""
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    prov = UUID(id_proveedor) if id_proveedor else None
+    await db_svc.insert_inventario(
+        conn, descripcion, cantidad, unidad_medida, ubicacion, prov, None, notas
+    )
+    items = await db_svc.get_inventario(conn)
+    return templates.TemplateResponse(
+        request, "compras/partials/inventario.html", {"items": items}
+    )
+
+
+@router.patch("/inventario/{inventario_id}", include_in_schema=False)
+async def actualizar_inventario(
+    request: Request,
+    inventario_id: UUID,
+    conn = Depends(get_db_connection),
+    _ = require_module_access("compras", "editor"),
+):
+    """Actualiza cantidad, ubicación o notas del inventario."""
+    form = await request.form()
+    campos = {}
+    for key in ('cantidad_disponible', 'ubicacion', 'notas'):
+        val = form.get(key)
+        if val is not None and val != '':
+            if key == 'cantidad_disponible':
+                campos[key] = float(val)
+            else:
+                campos[key] = val.strip()
+    activo_val = form.get('activo')
+    if activo_val is not None and activo_val != '':
+        campos['activo'] = activo_val in ('true', 'True', '1', 'on')
+
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    await db_svc.update_inventario(conn, inventario_id, **campos)
+    items = await db_svc.get_inventario(conn)
+    return templates.TemplateResponse(
+        request, "compras/partials/inventario.html", {"items": items}
+    )
