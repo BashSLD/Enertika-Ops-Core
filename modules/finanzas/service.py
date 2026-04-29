@@ -10,6 +10,7 @@ from datetime import date
 from decimal import Decimal
 
 from .db_service import FinanzasDBService, get_finanzas_db_service
+from core.bom.db_service import BomDBService
 
 logger = logging.getLogger("FinanzasService")
 
@@ -82,6 +83,18 @@ class FinanzasService:
                 registrado_por=registrado_por,
             )
             await self.db.actualizar_estatus_autorizacion(conn, autorizacion_id, "PAGADO")
+
+            cotizacion_id = aut.get("cotizacion_id")
+            if cotizacion_id:
+                bom_db = BomDBService()
+                updated_count = await bom_db.actualizar_estatus_compra_por_cotizacion(
+                    conn, cotizacion_id, "PAGADO", solo_si_estatus="AUTORIZADO"
+                )
+                logger.info(
+                    "BOM estatus_compra: %d items AUTORIZADO → PAGADO (cotizacion=%s)",
+                    updated_count, cotizacion_id,
+                )
+
             await self.db.crear_comprobante_bom(
                 conn,
                 id_bom_pago=pago["id"],
