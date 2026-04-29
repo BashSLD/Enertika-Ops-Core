@@ -24,6 +24,7 @@ from core.security import get_current_user_context
 from core.permissions import require_module_access
 from core.config import settings
 from core.jinja_filters import register_timezone_filters
+from core.timezone import today_mx
 
 from .service import FinanzasService, get_finanzas_service
 
@@ -154,4 +155,52 @@ async def registrar_pago(
     return templates.TemplateResponse(request, "finanzas/partials/content.html", {
         **_base_ctx(request, context),
         **data,
+    })
+
+
+# ========================================
+# PROVEEDORES (Gap 8 — solo consulta)
+# ========================================
+
+@router.get("/proveedores", include_in_schema=False)
+async def get_proveedores_finanzas(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("finanzas"),
+):
+    """Lista de proveedores con estatus documental."""
+    from modules.compras.db_service import get_db_service
+    db_svc = get_db_service()
+    proveedores = await db_svc.get_proveedores_con_estatus_docs(conn)
+    hoy = today_mx()
+    for p in proveedores:
+        prox = p.get('prox_vencimiento')
+        if p['total_docs'] == 0:
+            p['estatus_docs'] = 'sin_docs'
+        elif prox and prox <= hoy:
+            p['estatus_docs'] = 'vencido'
+        elif prox and (prox - hoy).days <= 7:
+            p['estatus_docs'] = 'proximo'
+        else:
+            p['estatus_docs'] = 'vigente'
+    return templates.TemplateResponse(request, "finanzas/partials/lista_proveedores.html", {
+        "proveedores": proveedores,
+        "user_name": context.get("user_name"),
+    })
+
+
+@router.get("/proveedores/{id_proveedor}/documentos", include_in_schema=False)
+async def get_proveedor_docs_finanzas(
+    request: Request,
+    id_proveedor: UUID,
+    conn=Depends(get_db_connection),
+    _=require_module_access("finanzas"),
+):
+    """Documentos de un proveedor (solo lectura desde Finanzas)."""
+    from modules.compras.db_service import get_db_service
+    db_svc = get_db_service()
+    docs = await db_svc.get_documentos_proveedor(conn, id_proveedor)
+    return templates.TemplateResponse(request, "finanzas/partials/proveedor_docs.html", {
+        "documentos": docs, "id_proveedor": id_proveedor
     })
