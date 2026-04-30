@@ -54,7 +54,7 @@
                     <span class="text-amber-400">⏸️ Pospuesto</span>
                     {% elif item.metadata.tipo_cambio == 'reagendar' %}
                     <span class="text-blue-400">📅 Reagendado{% if item.metadata.nueva_fecha %} para {{
-                        item.metadata.nueva_fecha }}{% endif %}</span>
+                        item.metadata.nueva_fecha_display }}{% endif %}</span>
                     {% elif item.metadata.tipo_cambio == 'asignacion' %}
                     <span class="text-purple-400">👤 Asignación actualizada</span>
                     {% endif %}

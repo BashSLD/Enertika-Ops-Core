@@ -742,7 +742,7 @@ class LevantamientoService:
                 h.id,
                 h.id_estatus_anterior,
                 h.id_estatus_nuevo,
-                h.fecha_transicion,
+                h.fecha_transicion AT TIME ZONE 'America/Mexico_City' AS fecha_transicion,
                 h.modificado_por_nombre,
                 h.modificado_por_email,
                 h.observaciones,
@@ -758,7 +758,34 @@ class LevantamientoService:
             ORDER BY h.fecha_transicion DESC
         """, id_levantamiento)
         
-        return [dict(r) for r in rows]
+        historial = []
+        for row in rows:
+            item = dict(row)
+            metadata = item.get("metadata") or {}
+
+            if isinstance(metadata, str):
+                try:
+                    metadata = json.loads(metadata)
+                except json.JSONDecodeError:
+                    metadata = {}
+
+            nueva_fecha = metadata.get("nueva_fecha") if isinstance(metadata, dict) else None
+            if nueva_fecha:
+                metadata["nueva_fecha_display"] = str(nueva_fecha)
+                try:
+                    nueva_fecha_dt = datetime.fromisoformat(str(nueva_fecha).replace("Z", "+00:00"))
+                except ValueError:
+                    nueva_fecha_dt = None
+
+                if nueva_fecha_dt:
+                    if nueva_fecha_dt.tzinfo:
+                        nueva_fecha_dt = nueva_fecha_dt.astimezone(ZoneInfo("America/Mexico_City"))
+                    metadata["nueva_fecha_display"] = nueva_fecha_dt.strftime("%d/%m/%Y %H:%M")
+
+            item["metadata"] = metadata
+            historial.append(item)
+
+        return historial
     
     # ========================================
     # NOTIFICACIONES (Fire & Forget Pattern)
