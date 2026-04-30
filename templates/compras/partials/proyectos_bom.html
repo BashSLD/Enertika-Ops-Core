@@ -1,0 +1,66 @@
+<div id="proyectos-bom-container" class="animate-fade-in-down">
+    {% if proyectos %}
+    <div class="overflow-x-auto bg-white rounded-xl border border-gray-200 shadow-sm">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID Proyecto</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Nombre</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Estatus BOM</th>
+                    <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Versión</th>
+                    <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">Items</th>
+                    <th class="px-4 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Costo Estimado</th>
+                    <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider w-24">Acción</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for p in proyectos %}
+                <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-4 py-3 text-sm font-mono text-gray-800">{{ p.proyecto_id_estandar }}</td>
+                    <td class="px-4 py-3 text-sm text-gray-800 max-w-xs truncate" title="{{ p.nombre_proyecto }}">{{ p.nombre_proyecto or '—' }}</td>
+                    <td class="px-4 py-3">
+                        {% set estatus_styles = {
+                            'APROBADO_CONST': 'bg-blue-100 text-blue-700',
+                            'EN_REVISION_FINAL': 'bg-purple-100 text-purple-700',
+                            'APROBADO_FINAL': 'bg-green-100 text-green-700',
+                        } %}
+                        {% set style = estatus_styles.get(p.bom_estatus, 'bg-gray-100 text-gray-600') %}
+                        {% set label = {
+                            'APROBADO_CONST': 'Aprobado Const',
+                            'EN_REVISION_FINAL': 'Rev. Final',
+                            'APROBADO_FINAL': 'Aprobado Final',
+                        }.get(p.bom_estatus, p.bom_estatus) %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium {{ style }}">
+                            {{ label }}
+                        </span>
+                    </td>
+                    <td class="px-4 py-3 text-sm text-center text-gray-600">v{{ p.bom_version }}</td>
+                    <td class="px-4 py-3 text-sm text-center text-gray-600">{{ p.total_items }}</td>
+                    <td class="px-4 py-3 text-sm text-right text-gray-800 font-mono">
+                        ${{ "{:,.2f}".format(p.costo_estimado|float) if p.costo_estimado else '0.00' }}
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <button hx-get="/bom/{{ p.id_proyecto }}/ui"
+                            hx-target="#main-content"
+                            hx-swap="innerHTML"
+                            hx-push-url="/bom/{{ p.id_proyecto }}/ui"
+                            class="px-3 py-1.5 text-xs font-medium rounded-lg text-white bg-[#00BABB] hover:bg-[#009999] transition shadow-sm">
+                            Ver BOM
+                        </button>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
+        <svg class="mx-auto w-12 h-12 text-gray-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+        </svg>
+        <p class="text-sm text-gray-500">No hay proyectos con BOM disponible para Compras.</p>
+        <p class="text-xs text-gray-400 mt-1">Los BOMs aparecen aqui cuando alcanzan el estatus Aprobado Construccion.</p>
+    </div>
+    {% endif %}
+</div>

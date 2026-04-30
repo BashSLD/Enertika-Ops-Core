@@ -1,0 +1,131 @@
+{# Modal de documentación de proveedor (Gap 8) #}
+<div id="modal-proveedor-docs" class="fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
+    <div class="flex min-h-screen items-center justify-center px-4">
+        <div class="fixed inset-0 bg-black bg-opacity-30" onclick="document.getElementById('modal-proveedor-docs').remove()"></div>
+        <div class="relative bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 z-10 animate-fade-in-down">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-lg font-bold text-gray-800">Documentación del Proveedor</h3>
+                <button onclick="document.getElementById('modal-proveedor-docs').remove()"
+                    class="text-gray-400 hover:text-gray-600 transition">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+
+            {# Formulario de upload #}
+            <form hx-post="/compras/proveedores/{{ id_proveedor }}/documentos"
+                hx-target="#modal-proveedor-docs" hx-swap="outerHTML"
+                hx-encoding="multipart/form-data"
+                class="mb-5 p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                <p class="text-xs font-bold text-gray-600 uppercase mb-3">Subir nuevo documento</p>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de documento</label>
+                        <select name="tipo_documento" required class="w-full rounded-lg border-gray-300 text-sm">
+                            <option value="">Seleccionar...</option>
+                            <option value="acta_constitutiva">Acta Constitutiva</option>
+                            <option value="poderes_representante">Poderes del Representante</option>
+                            <option value="ine_representante">INE Representante</option>
+                            <option value="constancia_fiscal">Constancia de Situación Fiscal</option>
+                            <option value="opinion_cumplimiento">Opinión de Cumplimiento</option>
+                            <option value="comprobante_domicilio">Comprobante de Domicilio</option>
+                            <option value="numero_localizacion">Número de Localización</option>
+                            <option value="ine">INE</option>
+                            <option value="otro">Otro</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de persona</label>
+                        <select name="tipo_persona" class="w-full rounded-lg border-gray-300 text-sm">
+                            <option value="MORAL">Moral</option>
+                            <option value="FISICA">Física / Resico</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Fecha de vencimiento</label>
+                        <input type="date" name="fecha_vencimiento" class="w-full rounded-lg border-gray-300 text-sm">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">Archivo</label>
+                        <input type="file" name="archivo" required
+                            class="w-full text-sm text-gray-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                    </div>
+                </div>
+                <div class="flex justify-end mt-3">
+                    <button type="submit"
+                        class="px-4 py-2 text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition">
+                        Subir
+                    </button>
+                </div>
+            </form>
+
+            {# Tabla de documentos #}
+            {% if documentos %}
+            <div class="overflow-x-auto">
+                <table class="min-w-full divide-y divide-gray-200">
+                    <thead class="bg-gray-50">
+                        <tr>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Documento</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Tipo</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Vence</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">Subido</th>
+                            <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase w-24">Acciones</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100">
+                        {% for doc in documentos %}
+                        <tr class="hover:bg-gray-50 {{ 'opacity-50' if not doc.vigente }}">
+                            <td class="px-3 py-2 text-sm">
+                                {% set labels = {
+                                    'acta_constitutiva': 'Acta Constitutiva',
+                                    'poderes_representante': 'Poderes Representante',
+                                    'ine_representante': 'INE Representante',
+                                    'constancia_fiscal': 'Constancia Fiscal',
+                                    'opinion_cumplimiento': 'Opinión Cumplimiento',
+                                    'comprobante_domicilio': 'Comp. Domicilio',
+                                    'numero_localizacion': 'Núm. Localización',
+                                    'ine': 'INE',
+                                    'otro': 'Otro'
+                                } %}
+                                <a href="{{ doc.sharepoint_url }}" target="_blank" rel="noopener"
+                                    class="text-blue-600 hover:text-blue-800 font-medium">
+                                    {{ labels.get(doc.tipo_documento, doc.tipo_documento|replace('_', ' ')|title) }}
+                                </a>
+                            </td>
+                            <td class="px-3 py-2 text-xs text-gray-500">{{ doc.tipo_persona|title }}</td>
+                            <td class="px-3 py-2 text-xs">
+                                {% if doc.fecha_vencimiento %}
+                                <span class="{{ 'text-red-600 font-medium' if doc.fecha_vencimiento and doc.fecha_vencimiento <= today else 'text-gray-600' }}">
+                                    {{ doc.fecha_vencimiento.strftime('%d/%m/%Y') if doc.fecha_vencimiento else '—' }}
+                                </span>
+                                {% else %}
+                                <span class="text-gray-400">—</span>
+                                {% endif %}
+                            </td>
+                            <td class="px-3 py-2 text-xs text-gray-400">
+                                {{ doc.subido_por_nombre or '—' }}
+                                <br>{{ doc.created_at.strftime('%d/%m/%Y') if doc.created_at else '' }}
+                            </td>
+                            <td class="px-3 py-2 text-center">
+                                <button hx-delete="/compras/proveedores/{{ id_proveedor }}/documentos/{{ doc.id }}"
+                                    hx-target="#modal-proveedor-docs" hx-swap="outerHTML"
+                                    hx-confirm="¿Eliminar este documento?"
+                                    class="p-1 rounded hover:bg-red-100 transition text-gray-400 hover:text-red-600">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                                    </svg>
+                                </button>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="text-sm text-gray-400 text-center py-4">No hay documentos registrados para este proveedor.</p>
+            {% endif %}
+        </div>
+    </div>
+</div>

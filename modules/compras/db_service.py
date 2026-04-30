@@ -591,10 +591,17 @@ class ComprasDBService:
     ) -> Optional[dict]:
         """Busca el comprobante de anticipo original por UUID de factura."""
         row = await conn.fetchrow("""
-            SELECT id_comprobante
-            FROM tb_comprobantes_pago
-            WHERE uuid_factura = $1
-              AND es_anticipo = true
+            SELECT c.id_comprobante, c.id_proveedor
+            FROM tb_comprobantes_pago c
+            LEFT JOIN tb_comprobante_facturas cf
+                ON cf.id_comprobante = c.id_comprobante
+            WHERE c.es_anticipo = true
+              AND (
+                  c.uuid_factura = $1
+                  OR cf.uuid_factura = $1
+              )
+            ORDER BY CASE WHEN c.uuid_factura = $1 THEN 0 ELSE 1 END
+            LIMIT 1
         """, uuid_anticipo)
         return dict(row) if row else None
 
@@ -635,14 +642,18 @@ class ComprasDBService:
         self, conn, uuid_factura: str, id_comprobante: Optional[UUID],
         id_proveedor: UUID, conceptos: List[dict],
         fecha_factura: date, user_id: UUID,
-        tipo_cambio_xml: Optional[Decimal] = None
+        tipo_cambio_xml: Optional[Decimal] = None,
+        bom_item_map: dict = None
     ):
         """Guarda los conceptos/items del XML en tb_materiales_historial.
 
         Auto-categoriza por clave SAT: si existen items previamente
         categorizados con la misma clave_prod_serv, asigna la misma categoria.
         tipo_cambio_xml: TC SAT-certificado de la factura (None si moneda=MXN).
+        bom_item_map: dict opcional {indice_concepto: UUID(id_bom_item)} para trazabilidad.
         """
+        bom_item_map = bom_item_map or {}
+
         # Batch: obtener categorias conocidas por clave SAT
         claves_sat = list(set(
             c.get('clave_prod_serv') for c in conceptos if c.get('clave_prod_serv')
@@ -651,17 +662,18 @@ class ComprasDBService:
 
         auto_cat_count = 0
         rows = []
-        for c in conceptos:
+        for idx, c in enumerate(conceptos):
             clave_sat = c.get('clave_prod_serv')
             id_categoria = cat_map.get(clave_sat) if clave_sat else None
             if id_categoria:
                 auto_cat_count += 1
+            id_bom_item = bom_item_map.get(idx)
             rows.append((
                 uuid_factura, id_comprobante, id_proveedor,
                 c['descripcion'], c['cantidad'], c['valor_unitario'],
                 c['importe'], c.get('unidad'), clave_sat,
                 c.get('clave_unidad'), id_categoria, 'XML', fecha_factura,
-                tipo_cambio_xml, user_id
+                tipo_cambio_xml, user_id, id_bom_item
             ))
 
         if rows:
@@ -671,8 +683,8 @@ class ComprasDBService:
                     descripcion_proveedor, cantidad, precio_unitario,
                     importe, unidad, clave_prod_serv, clave_unidad,
                     id_categoria, origen, fecha_factura,
-                    tipo_cambio_xml, created_by_id
-                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                    tipo_cambio_xml, created_by_id, id_bom_item
+                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
                 ON CONFLICT (uuid_factura, descripcion_proveedor, cantidad, precio_unitario)
                 DO NOTHING
             """, rows)
@@ -1216,6 +1228,137 @@ class ComprasDBService:
             WHERE uuid_factura = $1 AND estado = 'PENDIENTE'
         """, uuid_factura)
         return result.split()[-1] != '0'
+
+    # ─── PROYECTOS CON BOM (Gap 6) ──────────────────────────
+
+    async def get_proyectos_con_bom(self, conn) -> list:
+        """Proyectos con BOM en estatus visible para Compras."""
+        rows = await conn.fetch("""
+            SELECT DISTINCT ON (p.id_proyecto)
+                p.id_proyecto,
+                p.proyecto_id_estandar,
+                o.nombre_proyecto,
+                b.id_bom,
+                b.estatus AS bom_estatus,
+                b.version AS bom_version,
+                COALESCE(items.total, 0) AS total_items,
+                COALESCE(items.costo_estimado, 0) AS costo_estimado
+            FROM tb_bom b
+            JOIN tb_proyectos_gate p ON p.id_proyecto = b.id_proyecto
+            LEFT JOIN tb_oportunidades o ON o.id_oportunidad = p.id_oportunidad
+            LEFT JOIN LATERAL (
+                SELECT COUNT(*) AS total,
+                       COALESCE(SUM(cantidad * COALESCE(precio_unitario, 0)) FILTER (WHERE activo), 0) AS costo_estimado
+                FROM tb_bom_items
+                WHERE id_bom = b.id_bom
+            ) items ON TRUE
+            WHERE b.estatus IN ('APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL')
+            ORDER BY p.id_proyecto, b.version DESC
+        """)
+        return [dict(r) for r in rows]
+
+    # ─── PROVEEDOR DOCUMENTOS (Gap 8) ───────────────────────
+
+    async def get_documentos_proveedor(self, conn, id_proveedor: UUID) -> list:
+        rows = await conn.fetch("""
+            SELECT d.*, u.nombre AS subido_por_nombre
+            FROM tb_proveedor_documentos d
+            LEFT JOIN tb_usuarios u ON u.id_usuario = d.subido_por
+            WHERE d.id_proveedor = $1
+            ORDER BY d.vigente DESC, d.tipo_documento ASC
+        """, id_proveedor)
+        return [dict(r) for r in rows]
+
+    async def insert_documento_proveedor(
+        self, conn, id_proveedor: UUID, tipo_documento: str,
+        tipo_persona: str, sharepoint_url: str,
+        fecha_vencimiento=None, subido_por: UUID = None,
+        notas: str = None
+    ) -> dict:
+        row = await conn.fetchrow("""
+            INSERT INTO tb_proveedor_documentos
+                (id_proveedor, tipo_documento, tipo_persona, sharepoint_url,
+                 fecha_vencimiento, subido_por, notas)
+            VALUES ($1,$2,$3,$4,$5,$6,$7)
+            RETURNING *
+        """, id_proveedor, tipo_documento, tipo_persona, sharepoint_url,
+            fecha_vencimiento, subido_por, notas)
+        return dict(row)
+
+    async def delete_documento_proveedor(self, conn, doc_id: UUID) -> bool:
+        result = await conn.execute("""
+            DELETE FROM tb_proveedor_documentos WHERE id = $1
+        """, doc_id)
+        return result.split()[-1] != '0'
+
+    async def get_proveedores_con_estatus_docs(self, conn) -> list:
+        """Proveedores con resumen de estatus documental para Finanzas."""
+        rows = await conn.fetch("""
+            SELECT p.id_proveedor, p.nombre_comercial, p.razon_social, p.rfc,
+                   COUNT(d.id) FILTER (WHERE d.vigente) AS docs_vigentes,
+                   COUNT(d.id) AS total_docs,
+                   MAX(d.fecha_vencimiento) FILTER (WHERE d.vigente AND d.fecha_vencimiento IS NOT NULL) AS prox_vencimiento
+            FROM tb_proveedores p
+            LEFT JOIN tb_proveedor_documentos d ON d.id_proveedor = p.id_proveedor
+            WHERE p.activo = TRUE
+            GROUP BY p.id_proveedor
+            ORDER BY p.nombre_comercial ASC
+        """)
+        return [dict(r) for r in rows]
+
+    # ─── MINI ALMACÉN (Gap 9) ─────────────────────────────
+
+    async def get_inventario(self, conn) -> list:
+        rows = await conn.fetch("""
+            SELECT i.*, p.nombre_comercial AS proveedor_nombre
+            FROM tb_inventario i
+            LEFT JOIN tb_proveedores p ON p.id_proveedor = i.id_proveedor
+            WHERE i.activo = TRUE
+            ORDER BY i.descripcion ASC
+        """)
+        return [dict(r) for r in rows]
+
+    async def insert_inventario(
+        self, conn, descripcion: str, cantidad: float,
+        unidad_medida: str = None, ubicacion: str = None,
+        id_proveedor: UUID = None, id_bom_item_ref: UUID = None,
+        notas: str = None
+    ) -> dict:
+        row = await conn.fetchrow("""
+            INSERT INTO tb_inventario
+                (descripcion, cantidad_disponible, unidad_medida, ubicacion,
+                 id_proveedor, id_bom_item_ref, notas)
+            VALUES ($1,$2,$3,$4,$5,$6,$7)
+            RETURNING *
+        """, descripcion, cantidad, unidad_medida, ubicacion,
+            id_proveedor, id_bom_item_ref, notas)
+        return dict(row)
+
+    async def update_inventario(
+        self, conn, inventario_id: UUID, **campos
+    ) -> dict:
+        sets = []
+        params = [inventario_id]
+        idx = 2
+        for key in ('cantidad_disponible', 'ubicacion', 'notas', 'activo'):
+            if key in campos and campos[key] is not None:
+                sets.append(f"{key} = ${idx}")
+                params.append(campos[key])
+                idx += 1
+        sets.append(f"updated_at = ${idx}")
+        params.append(now_mx())
+        query = f"UPDATE tb_inventario SET {', '.join(sets)} WHERE id = $1 RETURNING *"
+        row = await conn.fetchrow(query, *params)
+        return dict(row) if row else None
+
+    async def get_stock_por_descripcion(self, conn, descripcion: str) -> float:
+        """Busca stock disponible por similitud de descripción."""
+        val = await conn.fetchval("""
+            SELECT COALESCE(SUM(cantidad_disponible), 0)
+            FROM tb_inventario
+            WHERE activo = TRUE AND descripcion ILIKE $1
+        """, f"%{descripcion}%")
+        return float(val) if val else 0
 
 
 def get_db_service():
