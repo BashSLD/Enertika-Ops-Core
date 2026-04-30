@@ -104,6 +104,7 @@
             {% for comp in comprobantes %}
             <option value="{{ comp.id_comprobante }}">
               {{ comp.proveedor_nombre or comp.beneficiario_orig }} — {{ '{:,.2f}'.format(comp.monto or 0) }} {{ comp.moneda }} ({{ comp.fecha_pago.strftime('%d/%m/%Y') if comp.fecha_pago else '—' }})
+              {% if comp.estatus %} - {{ comp.estatus }}{% endif %}
             </option>
             {% endfor %}
           </select>

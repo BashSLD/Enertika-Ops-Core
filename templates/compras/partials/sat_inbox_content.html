@@ -11,7 +11,37 @@
   </div>
 
   <div class="rounded-xl border border-gray-200 bg-white p-5 space-y-4">
-    <h3 class="text-sm font-semibold text-gray-700">Descargar del SAT</h3>
+    <div class="flex items-start justify-between gap-4">
+      <h3 class="text-sm font-semibold text-gray-700">Descargar del SAT</h3>
+      <div class="flex items-center gap-1.5 text-xs font-medium
+        {% if solicitudes_hoy >= 5 %}text-red-700{% elif solicitudes_hoy >= 3 %}text-amber-700{% else %}text-green-700{% endif %}">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        Solicitudes hoy:
+        <span class="font-bold">{{ solicitudes_hoy }} / 6</span>
+      </div>
+    </div>
+
+    <div class="flex items-start gap-2.5 rounded-lg border p-3 text-xs
+      {% if solicitudes_hoy >= 5 %}bg-red-50 border-red-200 text-red-800
+      {% elif solicitudes_hoy >= 3 %}bg-amber-50 border-amber-200 text-amber-800
+      {% else %}bg-blue-50 border-blue-200 text-blue-800{% endif %}">
+      <svg class="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+      </svg>
+      <div class="space-y-0.5">
+        <p class="font-semibold">Limitantes del SAT — Descarga Masiva</p>
+        <p>Máximo <strong>1 mes</strong> por solicitud (31 días). Rangos mayores son rechazados automáticamente.</p>
+        <p>Máximo <strong>3 a 6 solicitudes por día</strong> por RFC. Superar el límite genera rechazo hasta el día siguiente.</p>
+        {% if solicitudes_hoy >= 5 %}
+        <p class="font-semibold mt-1">Atención: es posible que el SAT rechace nuevas solicitudes por hoy.</p>
+        {% elif solicitudes_hoy >= 3 %}
+        <p class="font-semibold mt-1">Precaución: te acercas al límite diario del SAT.</p>
+        {% endif %}
+      </div>
+    </div>
+
     <form hx-post="/compras/sat/jobs" hx-target="#sat-job-status-container" hx-swap="innerHTML"
       class="flex flex-wrap items-end gap-3">
       <div>

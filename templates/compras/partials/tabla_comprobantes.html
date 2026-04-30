@@ -1,3 +1,4 @@
+{% set vista_anticipo = filtros is defined and filtros.estatus == 'ANTICIPO' %}
 <div class="bg-white rounded-lg shadow overflow-hidden">
     <!-- Contador de resultados -->
     <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex justify-between items-center gap-2"
@@ -146,6 +147,11 @@
                     <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
                         Estatus
                     </th>
+                    {% if vista_anticipo %}
+                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
+                        Abierto hace
+                    </th>
+                    {% endif %}
                     <th class="px-4 py-2.5 text-center text-xs font-medium text-white uppercase tracking-wider">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block" fill="none"
                             viewBox="0 0 24 24" stroke="currentColor">
@@ -165,7 +171,7 @@
                 {% endfor %}
                 {% else %}
                 <tr>
-                    <td colspan="10" class="px-6 py-10 text-center">
+                    <td colspan="{{ 11 if vista_anticipo else 10 }}" class="px-6 py-10 text-center">
                         <div class="flex flex-col items-center justify-center text-gray-500">
                             <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 mb-4 text-gray-300" fill="none"
                                 viewBox="0 0 24 24" stroke="currentColor">

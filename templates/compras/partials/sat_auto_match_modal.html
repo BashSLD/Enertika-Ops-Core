@@ -50,6 +50,18 @@
               hx-target="#sat-match-modal-container" 
               hx-swap="innerHTML"
               @submit="processing = true">
+        {% set tipo_colors = {
+            'ANTICIPO': 'bg-orange-100 text-orange-800',
+            'CIERRE_ANTICIPO': 'bg-blue-100 text-blue-800',
+            'NOTA_CREDITO': 'bg-purple-100 text-purple-800',
+            'PAGO': 'bg-cyan-100 text-cyan-800'
+        } %}
+        {% set tipo_labels = {
+            'ANTICIPO': 'Anticipo',
+            'CIERRE_ANTICIPO': 'Cierre Anticipo',
+            'NOTA_CREDITO': 'Nota Credito',
+            'PAGO': 'Comp. Pago'
+        } %}
         <div class="border rounded-lg overflow-hidden">
           <table class="w-full text-left text-sm text-gray-500">
             <thead class="bg-gray-50 text-xs text-gray-700 uppercase">
@@ -75,6 +87,11 @@
                     <span class="font-semibold text-gray-900">${{ "{:,.2f}".format(m.total|float) }}</span>
                   </div>
                   <div class="text-[10px] text-gray-400 mt-1 uppercase" title="{{ m.uuid_cfdi }}">{{ m.uuid_cfdi[:8] }}...</div>
+                  {% if m.tipo_detectado and m.tipo_detectado != 'NORMAL' %}
+                  <span class="mt-1 inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium {{ tipo_colors.get(m.tipo_detectado, 'bg-gray-100 text-gray-700') }}">
+                    {{ tipo_labels.get(m.tipo_detectado, m.tipo_detectado) }}
+                  </span>
+                  {% endif %}
                 </td>
                 <td class="px-4 py-4 border-l align-top">
                   <div class="font-medium text-blue-900">{{ m.beneficiario_orig }}</div>
