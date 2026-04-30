@@ -1,0 +1,37 @@
+{# Documentos de proveedor expandido — Finanzas solo lectura (Gap 8) #}
+<td colspan="5" class="px-8 py-3">
+    {% if documentos %}
+    <div class="space-y-1.5">
+        {% for doc in documentos %}
+        <div class="flex items-center gap-3 text-sm">
+            {% set labels = {
+                'acta_constitutiva': 'Acta Constitutiva',
+                'poderes_representante': 'Poderes Representante',
+                'ine_representante': 'INE Representante',
+                'constancia_fiscal': 'Constancia Fiscal',
+                'opinion_cumplimiento': 'Opinión Cumplimiento',
+                'comprobante_domicilio': 'Comp. Domicilio',
+                'numero_localizacion': 'Núm. Localización',
+                'ine': 'INE',
+                'otro': 'Otro'
+            } %}
+            <a href="{{ doc.sharepoint_url }}" target="_blank" rel="noopener"
+                class="text-blue-600 hover:text-blue-800 min-w-[160px] {{ 'opacity-50' if not doc.vigente }}">
+                {{ labels.get(doc.tipo_documento, doc.tipo_documento|replace('_', ' ')|title) }}
+            </a>
+            <span class="text-xs text-gray-400">{{ doc.tipo_persona|title }}</span>
+            {% if doc.fecha_vencimiento %}
+            <span class="text-xs {{ 'text-red-600 font-medium' if not doc.vigente else 'text-gray-500' }}">
+                Vence: {{ doc.fecha_vencimiento.strftime('%d/%m/%Y') }}
+            </span>
+            {% endif %}
+            {% if not doc.vigente %}
+            <span class="text-xs text-red-400">(Vencido)</span>
+            {% endif %}
+        </div>
+        {% endfor %}
+    </div>
+    {% else %}
+    <p class="text-xs text-gray-400">Sin documentos.</p>
+    {% endif %}
+</td>

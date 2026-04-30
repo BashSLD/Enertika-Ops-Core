@@ -1,0 +1,51 @@
+{# Lista de proveedores — Finanzas (Gap 8, solo consulta) #}
+<div id="finanzas-proveedores" class="animate-fade-in-down">
+    <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide mb-3">Documentación de Proveedores</h3>
+
+    {% if proveedores %}
+    <div class="overflow-x-auto bg-white rounded-xl border border-gray-200 shadow-sm">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Proveedor</th>
+                    <th class="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">RFC</th>
+                    <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Docs</th>
+                    <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase">Estado</th>
+                    <th class="px-4 py-3 text-center text-xs font-medium text-gray-500 uppercase w-20">Acción</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for p in proveedores %}
+                <tr class="hover:bg-gray-50 transition-colors">
+                    <td class="px-4 py-3 text-sm font-medium text-gray-800">{{ p.nombre_comercial or p.razon_social }}</td>
+                    <td class="px-4 py-3 text-sm text-gray-500 font-mono">{{ p.rfc or '—' }}</td>
+                    <td class="px-4 py-3 text-sm text-center text-gray-600">{{ p.docs_vigentes }}/{{ p.total_docs }}</td>
+                    <td class="px-4 py-3 text-center">
+                        {% if p.estatus_docs == 'sin_docs' %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">Sin docs</span>
+                        {% elif p.estatus_docs == 'vencido' %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-700">Vencido</span>
+                        {% elif p.estatus_docs == 'proximo' %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-700">Próximo</span>
+                        {% else %}
+                        <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-green-100 text-green-700">Vigente</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-4 py-3 text-center">
+                        <button hx-get="/finanzas/proveedores/{{ p.id_proveedor }}/documentos"
+                            hx-target="#finanzas-proveedor-docs-{{ p.id_proveedor }}" hx-swap="innerHTML"
+                            class="text-xs text-blue-600 hover:text-blue-800 font-medium">
+                            Ver docs
+                        </button>
+                    </td>
+                </tr>
+                <tr id="finanzas-proveedor-docs-{{ p.id_proveedor }}" class="bg-gray-50">
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div class="text-center py-8 text-gray-400 text-sm">No hay proveedores registrados.</div>
+    {% endif %}
+</div>
