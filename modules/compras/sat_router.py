@@ -35,6 +35,7 @@ async def sat_inbox_ui(
 
     items, total = await sat_db_service.listar_inbox(conn, estado=estado, page=page)
     ultimo_job = await sat_db_service.obtener_ultimo_job(conn)
+    solicitudes_hoy = await sat_db_service.contar_solicitudes_hoy(conn)
 
     ctx = {
         "items": items,
@@ -43,6 +44,7 @@ async def sat_inbox_ui(
         "page_size": 50,
         "estado_filtro": estado,
         "ultimo_job": ultimo_job,
+        "solicitudes_hoy": solicitudes_hoy,
         "user": user,
         "user_name": user.get("user_name"),
         "role": user.get("role"),
@@ -78,6 +80,14 @@ async def iniciar_job(
             request,
             "compras/partials/sat_job_status.html",
             {"error": "La fecha fin no puede ser anterior a la fecha inicio."},
+            status_code=400,
+        )
+
+    if (fecha_fin - fecha_inicio).days > 31:
+        return templates.TemplateResponse(
+            request,
+            "compras/partials/sat_job_status.html",
+            {"error": "El rango no puede superar 31 días. El SAT rechaza solicitudes de más de 1 mes."},
             status_code=400,
         )
 
@@ -331,15 +341,21 @@ async def _procesar_match_unico(conn: asyncpg.Connection, inbox_id: UUID, compro
     now = now_mx()
     subcarpeta = f"compras/facturas_xml/{now.strftime('%Y-%m')}"
 
-    await compras_service.upload_archivo_sharepoint(
-        conn, xml_file, subcarpeta,
-        comprobante_id, "factura_xml", user_id,
-        metadata_extra={
-            "uuid_factura": cfdi.uuid,
-            "emisor_rfc": cfdi.emisor_rfc,
-            "tipo_factura": cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL",
-        }
-    )
+    try:
+        await compras_service.upload_archivo_sharepoint(
+            conn, xml_file, subcarpeta,
+            comprobante_id, "factura_xml", user_id,
+            metadata_extra={
+                "uuid_factura": cfdi.uuid,
+                "emisor_rfc": cfdi.emisor_rfc,
+                "tipo_factura": cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL",
+            }
+        )
+    except Exception:
+        logger.exception(
+            "Match confirmado (inbox %s -> comprobante %s) pero fallo el upload a SharePoint — subir XML manualmente",
+            inbox_id, comprobante_id,
+        )
 
 
 @router.post("/inbox/{inbox_id}/match", response_class=HTMLResponse)
@@ -412,6 +428,8 @@ async def procesar_item(
         tipo = cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL"
         if tipo == "CIERRE_ANTICIPO":
             comprobantes = await sat_db_service.listar_comprobantes_anticipo(conn, cfdi.emisor_rfc)
+        elif tipo == "ANTICIPO":
+            comprobantes = await sat_db_service.listar_comprobantes_para_anticipo(conn, cfdi.emisor_rfc)
         else:
             comprobantes = await sat_db_service.listar_comprobantes_pendientes(conn)
     except ValueError as e:
@@ -481,8 +499,11 @@ async def confirm_auto_match(
             comprobante_id = UUID(comprobante_id_str)
             await _procesar_match_unico(conn, inbox_id, comprobante_id, user_id)
             procesados += 1
-        except Exception as e:
-            logger.exception("Error en auto-match para %s: %s", match_str, e)
+        except (ValueError, asyncpg.PostgresError) as e:
+            logger.warning("Error en auto-match para %s: %s", match_str, e)
+            errores += 1
+        except Exception:
+            logger.exception("Error inesperado en auto-match para %s", match_str)
             errores += 1
 
     msg = f"{procesados} coincidencias procesadas correctamente."

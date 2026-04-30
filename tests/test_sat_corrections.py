@@ -35,6 +35,7 @@ sys.modules.setdefault("satcfdi.pacs.sat", satcfdi_sat_module)
 from core.integrations import sharepoint as sharepoint_module
 from core.integrations.sharepoint import SharePointService
 from modules.compras import db_service as compras_db_module
+from modules.compras import sat_db_service
 from modules.compras import sat_service
 from modules.compras.db_service import ComprasDBService
 from modules.compras.service import ComprasService
@@ -69,7 +70,66 @@ async def test_confirmar_match_cierre_anticipo_cierra_pago_y_guarda_referencia()
 
 
 @pytest.mark.asyncio
-async def test_confirmar_match_xml_cierre_anticipo_requiere_relacion_07(monkeypatch):
+async def test_confirmar_match_xml_cierre_anticipo_sin_relacion_07_usa_anticipo_seleccionado(monkeypatch):
+    id_comprobante = uuid4()
+    id_proveedor = uuid4()
+
+    fake_db = SimpleNamespace(
+        uuid_factura_exists=AsyncMock(return_value=False),
+        uuid_factura_exists_in_junction=AsyncMock(return_value=False),
+        get_proveedor_by_rfc=AsyncMock(return_value={
+            "id_proveedor": id_proveedor,
+            "razon_social": "Proveedor Demo",
+        }),
+        get_comprobante_by_id=AsyncMock(side_effect=[
+            {
+                "id_comprobante": id_comprobante,
+                "id_proveedor": id_proveedor,
+                "estatus": "ANTICIPO",
+                "monto": Decimal("1000.00"),
+                "monto_facturado": Decimal("400.00"),
+                "beneficiario_orig": "Proveedor Demo",
+            },
+            {
+                "id_comprobante": id_comprobante,
+                "id_proveedor": id_proveedor,
+                "estatus": "FACTURADO",
+                "monto": Decimal("1000.00"),
+                "monto_facturado": Decimal("1000.00"),
+                "beneficiario_orig": "Proveedor Demo",
+            },
+        ]),
+        insertar_comprobante_factura=AsyncMock(),
+        confirmar_match=AsyncMock(),
+        confirm_xml_staging=AsyncMock(),
+    )
+    monkeypatch.setattr(compras_db_module, "get_db_service", lambda: fake_db)
+
+    cfdi_data = {
+        "uuid": "CCCCCCCC-1111-2222-3333-444444444444",
+        "emisor_rfc": "AAA010101AAA",
+        "emisor_nombre": "Proveedor Demo",
+        "total": "1000.00",
+        "moneda": "MXN",
+        "tipo_factura": "CIERRE_ANTICIPO",
+        "relacionados": [],
+    }
+
+    resultado = await ComprasService().confirmar_match_xml(
+        AsyncMock(),
+        cfdi_data,
+        id_comprobante,
+        uuid4(),
+        guardar_relacion=False,
+    )
+
+    assert resultado["nuevo_estatus"] == "FACTURADO"
+    fake_db.confirmar_match.assert_awaited_once()
+    assert fake_db.confirmar_match.await_args.kwargs["id_comprobante_anticipo"] == id_comprobante
+
+
+@pytest.mark.asyncio
+async def test_confirmar_match_xml_cierre_anticipo_sin_relacion_07_rechaza_no_anticipo(monkeypatch):
     id_comprobante = uuid4()
     id_proveedor = uuid4()
 
@@ -82,9 +142,10 @@ async def test_confirmar_match_xml_cierre_anticipo_requiere_relacion_07(monkeypa
         }),
         get_comprobante_by_id=AsyncMock(return_value={
             "id_comprobante": id_comprobante,
-            "estatus": "ANTICIPO",
+            "id_proveedor": id_proveedor,
+            "estatus": "PENDIENTE",
             "monto": Decimal("1000.00"),
-            "monto_facturado": Decimal("400.00"),
+            "monto_facturado": Decimal("0.00"),
             "beneficiario_orig": "Proveedor Demo",
         }),
     )
@@ -100,13 +161,51 @@ async def test_confirmar_match_xml_cierre_anticipo_requiere_relacion_07(monkeypa
         "relacionados": [],
     }
 
-    with pytest.raises(ValueError, match="relacion 07"):
+    with pytest.raises(ValueError, match="estatus ANTICIPO"):
         await ComprasService().confirmar_match_xml(
             AsyncMock(),
             cfdi_data,
             id_comprobante,
             uuid4(),
+            guardar_relacion=False,
         )
+
+
+@pytest.mark.asyncio
+async def test_get_comprobante_anticipo_by_uuid_busca_en_junction():
+    conn = AsyncMock()
+    id_comprobante = uuid4()
+    id_proveedor = uuid4()
+    conn.fetchrow = AsyncMock(return_value={
+        "id_comprobante": id_comprobante,
+        "id_proveedor": id_proveedor,
+    })
+
+    result = await ComprasDBService().get_comprobante_anticipo_by_uuid(
+        conn,
+        "AAAAAAAA-1111-2222-3333-444444444444",
+    )
+
+    sql, uuid_param = conn.fetchrow.await_args.args
+    assert result["id_comprobante"] == id_comprobante
+    assert "tb_comprobante_facturas" in sql
+    assert "cf.uuid_factura = $1" in sql
+    assert uuid_param == "AAAAAAAA-1111-2222-3333-444444444444"
+
+
+@pytest.mark.asyncio
+async def test_listar_comprobantes_para_anticipo_incluye_anticipos():
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=[])
+
+    await sat_db_service.listar_comprobantes_para_anticipo(conn, "AAA010101AAA")
+
+    sql, rfc_param = conn.fetch.await_args.args
+    assert "PENDIENTE" in sql
+    assert "PARCIALMENTE_FACTURADO" in sql
+    assert "ANTICIPO" in sql
+    assert "COALESCE(p.rfc = $1, false) DESC" in sql
+    assert rfc_param == "AAA010101AAA"
 
 
 class _FakeResponse:

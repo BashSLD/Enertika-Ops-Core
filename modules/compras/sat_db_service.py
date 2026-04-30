@@ -181,6 +181,7 @@ async def listar_comprobantes_pendientes(conn: asyncpg.Connection) -> list[dict]
     rows = await conn.fetch(
         """
         SELECT c.id_comprobante, c.fecha_pago, c.beneficiario_orig, c.monto, c.moneda,
+               c.estatus, c.monto_facturado,
                p.razon_social AS proveedor_nombre, p.rfc AS proveedor_rfc
         FROM tb_comprobantes_pago c
         LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
@@ -191,18 +192,47 @@ async def listar_comprobantes_pendientes(conn: asyncpg.Connection) -> list[dict]
     return [dict(r) for r in rows]
 
 async def listar_comprobantes_anticipo(conn: asyncpg.Connection, rfc_emisor: str) -> list[dict]:
-    """Comprobantes en estatus ANTICIPO del proveedor con el RFC indicado.
-    Usado en el modal cuando el CFDI es CIERRE_ANTICIPO.
+    """Comprobantes en estatus ANTICIPO elegibles para recibir un CIERRE_ANTICIPO.
+    Prioriza los del RFC emisor; incluye comprobantes sin proveedor vinculado.
     """
     rows = await conn.fetch(
         """
         SELECT c.id_comprobante, c.fecha_pago, c.beneficiario_orig, c.monto, c.moneda,
+               c.estatus, c.monto_facturado,
                p.razon_social AS proveedor_nombre, p.rfc AS proveedor_rfc
         FROM tb_comprobantes_pago c
-        JOIN tb_proveedores p ON p.id_proveedor = c.id_proveedor
+        LEFT JOIN tb_proveedores p ON p.id_proveedor = c.id_proveedor
         WHERE c.estatus = 'ANTICIPO'
-          AND p.rfc = $1
-        ORDER BY c.fecha_pago DESC
+          AND (p.rfc = $1 OR c.id_proveedor IS NULL)
+        ORDER BY
+            COALESCE(p.rfc = $1, false) DESC,
+            c.fecha_pago DESC
+        """,
+        rfc_emisor,
+    )
+    return [dict(r) for r in rows]
+
+async def listar_comprobantes_para_anticipo(conn: asyncpg.Connection, rfc_emisor: str) -> list[dict]:
+    """Comprobantes que pueden recibir un ANTICIPO.
+
+    Incluye anticipos abiertos para permitir acumular mas de un XML al mismo pago.
+    """
+    rows = await conn.fetch(
+        """
+        SELECT c.id_comprobante, c.fecha_pago, c.beneficiario_orig, c.monto, c.moneda,
+               c.estatus, c.monto_facturado,
+               p.razon_social AS proveedor_nombre, p.rfc AS proveedor_rfc
+        FROM tb_comprobantes_pago c
+        LEFT JOIN tb_proveedores p ON p.id_proveedor = c.id_proveedor
+        WHERE c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO')
+        ORDER BY
+            COALESCE(p.rfc = $1, false) DESC,
+            CASE c.estatus
+                WHEN 'ANTICIPO' THEN 0
+                WHEN 'PARCIALMENTE_FACTURADO' THEN 1
+                ELSE 2
+            END,
+            c.fecha_pago DESC
         """,
         rfc_emisor,
     )
@@ -260,6 +290,15 @@ async def buscar_coincidencias_auto(conn: asyncpg.Connection) -> list[dict]:
         """
     )
     return [dict(r) for r in rows]
+
+async def contar_solicitudes_hoy(conn: asyncpg.Connection) -> int:
+    val = await conn.fetchval(
+        "SELECT COUNT(*) FROM tb_sat_jobs "
+        "WHERE (created_at AT TIME ZONE 'America/Mexico_City')::date = "
+        "(NOW() AT TIME ZONE 'America/Mexico_City')::date"
+    )
+    return int(val or 0)
+
 
 async def registrar_cfdi_descargado(
     conn: asyncpg.Connection,

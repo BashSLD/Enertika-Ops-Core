@@ -838,16 +838,39 @@ class ComprasService:
                     uuid_anticipo_relacionado = uuid_rel
                     break
 
-            if not uuid_anticipo_relacionado:
-                raise ValueError("El CFDI de cierre no incluye la relacion 07 con el anticipo original")
+            if uuid_anticipo_relacionado:
+                anticipo = await db_svc.get_comprobante_anticipo_by_uuid(
+                    conn, uuid_anticipo_relacionado
+                )
+                if not anticipo:
+                    raise ValueError("No se encontro el comprobante de anticipo original relacionado")
 
-            anticipo = await db_svc.get_comprobante_anticipo_by_uuid(conn, uuid_anticipo_relacionado)
-            if not anticipo:
-                raise ValueError("No se encontro el comprobante de anticipo original relacionado")
+                id_comprobante_anticipo = anticipo["id_comprobante"]
+                if str(id_comprobante_anticipo) != str(id_comprobante):
+                    raise ValueError("El comprobante seleccionado no corresponde al anticipo relacionado en el CFDI")
 
-            id_comprobante_anticipo = anticipo["id_comprobante"]
-            if id_comprobante_anticipo != id_comprobante:
-                raise ValueError("El comprobante seleccionado no corresponde al anticipo relacionado en el CFDI")
+                anticipo_proveedor = anticipo.get("id_proveedor")
+                if anticipo_proveedor and str(anticipo_proveedor) != str(id_proveedor):
+                    raise ValueError("El proveedor del cierre no coincide con el proveedor del anticipo relacionado")
+            else:
+                if current_estatus != "ANTICIPO":
+                    raise ValueError(
+                        "El CFDI de cierre no declara la relacion 07 con el anticipo "
+                        "original y el comprobante seleccionado no esta en estatus ANTICIPO"
+                    )
+
+                comprobante_proveedor = comprobante.get("id_proveedor")
+                if comprobante_proveedor and str(comprobante_proveedor) != str(id_proveedor):
+                    raise ValueError(
+                        "El proveedor del cierre no coincide con el proveedor del "
+                        "comprobante de anticipo seleccionado"
+                    )
+
+                logger.warning(
+                    "CIERRE_ANTICIPO sin relacion 07; usando comprobante seleccionado como anticipo: %s",
+                    id_comprobante,
+                )
+                id_comprobante_anticipo = id_comprobante
 
         # Validar anti-sobrefacturacion
         if tipo_factura not in ('NOTA_CREDITO', 'ANTICIPO', 'PAGO', 'CIERRE_ANTICIPO'):
@@ -905,8 +928,32 @@ class ComprasService:
                     conn, nombre_com, id_proveedor, user_id
                 )
 
-        # 3. Guardar conceptos en historial de materiales
+        bom_item_map = {}
+        bom_svc = None
         conceptos = cfdi_data.get('conceptos', [])
+        if comprobante.get('origen') == 'BOM' and comprobante.get('id_bom_pago'):
+            try:
+                from core.bom.service import get_bom_service
+                bom_svc = get_bom_service()
+
+                autorizacion = await bom_svc.get_autorizacion_por_bom_pago(
+                    conn, comprobante['id_bom_pago']
+                )
+                if autorizacion:
+                    bom_items = await bom_svc.get_items_por_autorizacion(
+                        conn, autorizacion['id']
+                    )
+                    if bom_items and conceptos:
+                        bom_item_map = bom_svc.match_conceptos_a_items(conceptos, bom_items)
+                        logger.info(
+                            "BOM link: autorizacion=%s conceptos=%d items_bom=%d matches=%d",
+                            autorizacion['id'], len(conceptos), len(bom_items),
+                            sum(1 for v in bom_item_map.values() if v is not None)
+                        )
+            except Exception:
+                logger.exception("BOM auto-link: error no critico, continuando sin vincular")
+
+        # 3. Guardar conceptos en historial de materiales
         if conceptos:
             fecha_str = cfdi_data.get('fecha', '')
             try:
@@ -931,8 +978,25 @@ class ComprasService:
             await db_svc.guardar_conceptos_historial(
                 conn, uuid_factura, id_comprobante, id_proveedor,
                 conceptos_dicts, fecha_factura, user_id,
-                tipo_cambio_xml=tc_xml
+                tipo_cambio_xml=tc_xml,
+                bom_item_map=bom_item_map
             )
+
+            if bom_item_map and bom_svc:
+                try:
+                    item_ids_matched = [
+                        str(v) for v in bom_item_map.values() if v is not None
+                    ]
+                    if item_ids_matched:
+                        await bom_svc.actualizar_estatus_compra(
+                            conn, item_ids_matched, 'FACTURADO'
+                        )
+                        logger.info(
+                            "BOM estatus_compra actualizado: %d items → FACTURADO",
+                            len(item_ids_matched)
+                        )
+                except Exception:
+                    logger.exception("BOM actualizar estatus_compra: error no critico")
 
         # 4. Guardar CFDI relacionados
         if relacionados:
