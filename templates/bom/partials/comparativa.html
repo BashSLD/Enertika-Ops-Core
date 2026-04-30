@@ -1,0 +1,118 @@
+{# templates/bom/partials/comparativa.html #}
+{# Vista comparativa RFQ: items BOM × proveedores (Gap 7d) #}
+<div id="comparativa-container">
+    <div class="flex items-center justify-between mb-4">
+        <h3 class="text-sm font-bold text-gray-700 uppercase tracking-wide">Comparativa de Cotizaciones</h3>
+    </div>
+
+    {% if comparativas %}
+    {% for comp in comparativas %}
+    {% set rfq = comp.rfq %}
+    <div class="mb-6 bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+        <div class="px-4 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+            <div>
+                <span class="text-sm font-semibold text-gray-800">RFQ #{{ rfq.id.__str__()[:8] }}</span>
+                <span class="text-xs text-gray-400 ml-2">{{ rfq.total_items_cotizacion }} ítems</span>
+            </div>
+            <span class="text-xs text-gray-500">{{ rfq.creado_en.strftime('%d/%m/%Y') if rfq.creado_en else '' }}</span>
+        </div>
+
+        {% if comp.responses %}
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-200">
+                <thead class="bg-gray-50">
+                    <tr>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-8">#</th>
+                        <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase min-w-[180px]">Item / Proveedor →</th>
+                        {% for resp in comp.responses %}
+                        <th class="px-3 py-2 text-center text-xs font-medium text-gray-500 uppercase min-w-[120px]">
+                            <div class="font-semibold text-gray-700">{{ resp.nombre_proveedor or 'Sin proveedor' }}</div>
+                            <div class="text-[10px] text-gray-400">
+                                {% if resp.subtotal %}${{ "{:,.0f}".format(resp.subtotal|float) }}{% else %}—{% endif %}
+                            </div>
+                        </th>
+                        {% endfor %}
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-100">
+                    {% for item in comp.items %}
+                    {% set bom_info = items_bom | selectattr('id_item', 'equalto', item.bom_item_id) | list %}
+                    <tr class="hover:bg-blue-50/30 transition-colors">
+                        <td class="px-3 py-2 text-xs text-gray-400 font-mono">{{ loop.index }}</td>
+                        <td class="px-3 py-2 text-sm text-gray-800 max-w-[200px] truncate" title="{{ bom_info[0].descripcion if bom_info else item.descripcion }}">
+                            {{ bom_info[0].descripcion if bom_info else item.descripcion or '—' }}
+                            {% if bom_info and bom_info[0].precio_unitario %}
+                            <div class="text-[10px] text-gray-400">BOM: ${{ "{:,.2f}".format(bom_info[0].precio_unitario|float) }}</div>
+                            {% endif %}
+                        </td>
+                        {% for resp in comp.responses %}
+                        {% set resp_items = comp.resp_items.get(resp.id.__str__(), []) %}
+                        {% set asignado = resp_items | selectattr('bom_item_id', 'equalto', item.bom_item_id) | list | length > 0 %}
+                        <td class="px-3 py-2 text-center">
+                            <input type="checkbox"
+                                data-resp-id="{{ resp.id }}"
+                                data-item-id="{{ item.bom_item_id }}"
+                                {{ 'checked' if asignado else '' }}
+                                onchange="toggleAsignacion(this, '{{ resp.id }}', '{{ item.bom_item_id }}')"
+                                class="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500">
+                        </td>
+                        {% endfor %}
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="px-4 py-3 border-t border-gray-100 flex justify-end">
+            <button onclick="guardarAsignaciones('{{ rfq.id }}')"
+                class="px-4 py-2 text-sm font-medium rounded-lg text-white bg-emerald-600 hover:bg-emerald-700 transition shadow-sm">
+                Guardar Asignaciones
+            </button>
+        </div>
+
+        {% else %}
+        <div class="px-4 py-6 text-center text-sm text-gray-400">
+            Sin respuestas de proveedores. Crea cotizaciones con proveedor desde la pestaña Cotizaciones.
+        </div>
+        {% endif %}
+    </div>
+    {% endfor %}
+    {% else %}
+    <div class="text-center py-12 bg-white rounded-xl border border-dashed border-gray-300">
+        <p class="text-sm text-gray-500">No hay RFQs para este BOM.</p>
+        <p class="text-xs text-gray-400 mt-1">Crea un RFQ desde la pestaña Cotizaciones para iniciar una comparativa.</p>
+    </div>
+    {% endif %}
+</div>
+
+<script>
+const asignacionesPendientes = {};
+
+function toggleAsignacion(cb, respId, itemId) {
+    if (!asignacionesPendientes[respId]) asignacionesPendientes[respId] = new Set();
+    if (cb.checked) {
+        asignacionesPendientes[respId].add(itemId);
+    } else {
+        asignacionesPendientes[respId].delete(itemId);
+    }
+}
+
+async function guardarAsignaciones(rfqId) {
+    for (const [respId, items] of Object.entries(asignacionesPendientes)) {
+        const checkboxes = document.querySelectorAll(`[data-resp-id="${respId}"]`);
+        const checkedIds = Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.dataset.itemId);
+
+        if (checkedIds.length > 0) {
+            await fetch(`/bom/cotizaciones/${respId}/bulk-asignar`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({item_ids: checkedIds})
+            });
+        }
+    }
+    // Recargar
+    htmx.ajax('GET', window.location.pathname.replace('/ui', '/cotizaciones/comparativa'), {
+        target: '#comparativa-container', swap: 'innerHTML'
+    });
+}
+</script>
