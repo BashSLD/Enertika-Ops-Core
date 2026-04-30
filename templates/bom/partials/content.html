@@ -120,10 +120,9 @@
     </div>
     {% endif %}
 
-    {# Boton agregar item (solo en BORRADOR + ing editor O en estados posteriores + construccion) #}
-    {% if (bom.estatus == 'BORRADOR' and es_ing_editor) or (bom.estatus in ['APROBADO_ING', 'EN_REVISION_CONST'] and
-    area_editor == 'construccion') %}
-    <div class="mb-4">
+    {# Boton agregar item — permitido en todos los estados menos CANCELADO y APROBADO_FINAL #}
+    {% if bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and area_editor in ['ingenieria', 'construccion'] %}
+    <div class="mb-4 flex gap-2">
         <button
             onclick="document.getElementById('modal-agregar-item').classList.remove('hidden'); setTimeout(() => { let inp = document.querySelector('#modal-agregar-item [x-ref=inputBusqueda]'); if(inp) inp.focus(); }, 100)"
             class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition shadow-sm">
@@ -131,6 +130,14 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
             </svg>
             Agregar Item
+        </button>
+        <button onclick="abrirCotizacionSeleccionados()"
+            class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition shadow-sm"
+            title="Cotizar items seleccionados">
+            <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+            </svg>
+            Cotizar seleccionados
         </button>
     </div>
     {% endif %}
@@ -158,6 +165,34 @@
             } else {
                 const grupos = tr.dataset.grupos ? tr.dataset.grupos.split(',') : [];
                 tr.style.display = grupos.includes(codigo) ? '' : 'none';
+            }
+        });
+    }
+    </script>
+    {% endif %}
+
+    {# Filtro por tipo de partida #}
+    {% if bom %}
+    <div class="mb-3 flex flex-wrap gap-1.5" x-data="{ tipoActivo: 'TODOS' }">
+        <button @click="tipoActivo = 'TODOS'; filtrarTipo('TODOS')"
+            :class="tipoActivo === 'TODOS' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'"
+            class="px-3 py-1 text-xs font-medium rounded-full transition">Todos</button>
+        {% set tipos_filtro = ['MATERIAL', 'MANO_OBRA', 'SERVICIO', 'LEGALIZACION', 'EQUIPO'] %}
+        {% set tipo_labels_filtro = {'MATERIAL': 'Materiales', 'MANO_OBRA': 'Mano de Obra', 'SERVICIO': 'Servicios', 'LEGALIZACION': 'Legalizaciones', 'EQUIPO': 'Equipos'} %}
+        {% for t in tipos_filtro %}
+        <button @click="tipoActivo = '{{ t }}'; filtrarTipo('{{ t }}')"
+            :class="tipoActivo === '{{ t }}' ? 'bg-gray-800 text-white' : 'bg-white text-gray-600 border border-gray-300 hover:bg-gray-50'"
+            class="px-3 py-1 text-xs font-medium rounded-full transition">{{ tipo_labels_filtro[t] }}</button>
+        {% endfor %}
+    </div>
+    <script>
+    function filtrarTipo(tipo) {
+        const filas = document.querySelectorAll('#tabla-bom-items tbody tr[data-tipo-partida]');
+        filas.forEach(tr => {
+            if (tipo === 'TODOS') {
+                tr.style.display = '';
+            } else {
+                tr.style.display = tr.dataset.tipoPartida === tipo ? '' : 'none';
             }
         });
     }
@@ -372,6 +407,17 @@
                             </select>
                         </div>
                         <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Partida</label>
+                            <select name="tipo_partida"
+                                class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500">
+                                {% set tipos = ['MATERIAL', 'MANO_OBRA', 'SERVICIO', 'LEGALIZACION', 'EQUIPO'] %}
+                                {% set tipo_labels = {'MATERIAL': 'Material', 'MANO_OBRA': 'Mano de Obra', 'SERVICIO': 'Servicio', 'LEGALIZACION': 'Legalizacion', 'EQUIPO': 'Equipo'} %}
+                                {% for t in tipos %}
+                                <option value="{{ t }}">{{ tipo_labels[t] }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Descripcion *</label>
                             <textarea name="descripcion" required rows="2" x-model="descripcion"
                                 :readonly="origen === 'CATALOGO'"
@@ -516,4 +562,60 @@
 
     {# Container para modales dinamicos #}
     <div id="modal-container"></div>
+
+    <script>
+    function abrirCotizacionSeleccionados() {
+        const cbs = document.querySelectorAll('#bom-items-body input[name=item_ids]:checked');
+        if (cbs.length === 0) {
+            alert('Selecciona al menos un item para cotizar.');
+            return;
+        }
+        const formData = new FormData();
+        cbs.forEach(cb => formData.append('item_ids', cb.value));
+
+        fetch('/bom/{{ bom.id_bom }}/rfq-rapido', {
+            method: 'POST',
+            body: formData,
+            headers: {'HX-Request': 'true'},
+        })
+        .then(res => {
+            if (!res.ok && res.headers.get('HX-Reswap') === 'none') {
+                return res.text().then(html => {
+                    const parser = new DOMParser();
+                    const doc = parser.parseFromString(html, 'text/html');
+                    doc.querySelectorAll('[hx-swap-oob]').forEach(el => {
+                        const spec = el.getAttribute('hx-swap-oob');
+                        const target = spec.split(':')[1];
+                        const container = document.querySelector(target);
+                        if (container) container.insertAdjacentHTML('afterbegin', el.outerHTML);
+                    });
+                });
+            }
+            return res.text().then(html => {
+                const parser = new DOMParser();
+                const doc = parser.parseFromString(html, 'text/html');
+
+                doc.querySelectorAll('[hx-swap-oob]').forEach(el => {
+                    const spec = el.getAttribute('hx-swap-oob');
+                    const target = spec.split(':')[1];
+                    const container = document.querySelector(target);
+                    if (container) container.insertAdjacentHTML('afterbegin', el.innerHTML);
+                    el.remove();
+                });
+                doc.querySelectorAll('script').forEach(s => {
+                    const script = document.createElement('script');
+                    script.textContent = s.textContent;
+                    document.body.appendChild(script).remove();
+                });
+
+                const tabContainer = document.getElementById('tab-cotizaciones');
+                if (tabContainer) {
+                    tabContainer.innerHTML = doc.body.innerHTML;
+                    htmx.process(tabContainer);
+                }
+            });
+        })
+        .catch(() => alert('Error al crear el RFQ. Intenta de nuevo.'));
+    }
+    </script>
 </div>
