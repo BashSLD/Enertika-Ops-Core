@@ -188,26 +188,6 @@ async def get_assign_modal(
     })
 
 
-@router.get("/modal/historial/{id_levantamiento}", include_in_schema=False)
-async def get_historial_modal(
-    request: Request,
-    id_levantamiento: UUID,
-    conn = Depends(get_db_connection),
-    service: LevantamientoService = Depends(get_service),
-    context = Depends(get_current_user_context),
-    _ = require_module_access("levantamientos"),
-):
-    """Modal con timeline de cambios de estado."""
-    # Obtener datos del levantamiento
-    lev_data = await service.get_modal_data(conn, id_levantamiento)
-    
-    # Obtener historial
-    historial = await service.get_historial_estados(conn, id_levantamiento)
-    
-    return templates.TemplateResponse(request, "shared/modals/historial_levantamiento_modal.html", {"lev_data": lev_data,
-        "historial": historial
-    })
-
 # ========================================
 # ENDPOINTS DE API (Acciones del Kanban)
 # ========================================

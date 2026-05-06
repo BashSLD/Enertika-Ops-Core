@@ -224,8 +224,11 @@
                             <span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 uppercase text-right leading-tight max-w-[45%] px-1.5 py-0.5 rounded shadow-sm" title="Visita a Campo">{{ item.nombre_visita }}</span>
                             {% endif %}
                         </div>
-                        <h4 class="font-bold text-sm text-gray-800 leading-tight mt-0.5">{{ item.nombre_proyecto or
-                            item.titulo_proyecto }}</h4>
+                        <button hx-get="/levantamientos/modals/detalle/{{ item.id_levantamiento }}"
+                            hx-target="body" hx-swap="beforeend"
+                            class="font-bold text-sm text-gray-800 leading-tight mt-0.5 text-left hover:text-blue-600 hover:underline transition-colors cursor-pointer">
+                            {{ item.nombre_proyecto or item.titulo_proyecto }}
+                        </button>
                         {% if item.sitio_total > 1 %}
                         <div class="flex items-center gap-1.5 mt-1">
                             <span
@@ -431,9 +434,11 @@
                             <span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 uppercase text-right leading-tight max-w-[45%] px-1.5 py-0.5 rounded shadow-sm" title="Visita a Campo">{{ item.nombre_visita }}</span>
                             {% endif %}
                         </div>
-                    <h4
-                        class="font-bold text-sm {{ 'text-red-700' if item.prioridad|lower == 'high' else 'text-gray-800' }}">
-                        {{ item.nombre_proyecto or item.titulo_proyecto }}</h4>
+                    <button hx-get="/levantamientos/modals/detalle/{{ item.id_levantamiento }}"
+                        hx-target="body" hx-swap="beforeend"
+                        class="font-bold text-sm text-left hover:underline transition-colors cursor-pointer {{ 'text-red-700 hover:text-red-900' if item.prioridad|lower == 'high' else 'text-gray-800 hover:text-blue-600' }}">
+                        {{ item.nombre_proyecto or item.titulo_proyecto }}
+                    </button>
                     {% if item.sitio_total > 1 %}
                     <div class="flex items-center gap-1.5 mt-1">
                         <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio
@@ -667,9 +672,11 @@
                             <span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 uppercase text-right leading-tight max-w-[45%] px-1.5 py-0.5 rounded shadow-sm" title="Visita a Campo">{{ item.nombre_visita }}</span>
                             {% endif %}
                         </div>
-                    <h4
-                        class="font-bold text-sm {{ 'text-red-700' if item.prioridad|lower == 'high' else 'text-gray-800' }}">
-                        {{ item.nombre_proyecto or item.titulo_proyecto }}</h4>
+                    <button hx-get="/levantamientos/modals/detalle/{{ item.id_levantamiento }}"
+                        hx-target="body" hx-swap="beforeend"
+                        class="font-bold text-sm text-left hover:underline transition-colors cursor-pointer {{ 'text-red-700 hover:text-red-900' if item.prioridad|lower == 'high' else 'text-gray-800 hover:text-blue-600' }}">
+                        {{ item.nombre_proyecto or item.titulo_proyecto }}
+                    </button>
                     {% if item.sitio_total > 1 %}
                     <div class="flex items-center gap-1.5 mt-1">
                         <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio
@@ -899,8 +906,11 @@
                             <span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 uppercase text-right leading-tight max-w-[45%] px-1.5 py-0.5 rounded shadow-sm" title="Visita a Campo">{{ item.nombre_visita }}</span>
                             {% endif %}
                         </div>
-                    <h4 class="font-bold text-sm text-gray-800">{{ item.nombre_proyecto or item.titulo_proyecto }}
-                    </h4>
+                    <button hx-get="/levantamientos/modals/detalle/{{ item.id_levantamiento }}"
+                        hx-target="body" hx-swap="beforeend"
+                        class="font-bold text-sm text-gray-800 text-left hover:text-blue-600 hover:underline transition-colors cursor-pointer">
+                        {{ item.nombre_proyecto or item.titulo_proyecto }}
+                    </button>
                     {% if item.sitio_total > 1 %}
                     <div class="flex items-center gap-1.5 mt-1">
                         <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio
@@ -1072,9 +1082,11 @@
                             {% endif %}
                         </div>
                     <div class="flex justify-between items-start">
-                        <h4 class="font-bold text-sm text-gray-600">{{ item.nombre_proyecto or item.titulo_proyecto
-                            }}
-                        </h4>
+                        <button hx-get="/levantamientos/modals/detalle/{{ item.id_levantamiento }}"
+                            hx-target="body" hx-swap="beforeend"
+                            class="font-bold text-sm text-gray-800 text-left hover:text-blue-600 hover:underline transition-colors cursor-pointer">
+                            {{ item.nombre_proyecto or item.titulo_proyecto }}
+                        </button>
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor"
                             class="w-5 h-5 text-green-600">
                             <path fill-rule="evenodd"
@@ -1242,8 +1254,11 @@
                             <span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 uppercase text-right leading-tight max-w-[45%] px-1.5 py-0.5 rounded shadow-sm" title="Visita a Campo">{{ item.nombre_visita }}</span>
                             {% endif %}
                         </div>
-                    <h4 class="font-bold text-sm text-gray-600">{{ item.nombre_proyecto or item.titulo_proyecto }}
-                    </h4>
+                    <button hx-get="/levantamientos/modals/detalle/{{ item.id_levantamiento }}"
+                        hx-target="body" hx-swap="beforeend"
+                        class="font-bold text-sm text-gray-800 text-left hover:text-blue-600 hover:underline transition-colors cursor-pointer">
+                        {{ item.nombre_proyecto or item.titulo_proyecto }}
+                    </button>
                     {% if item.sitio_total > 1 %}
                     <div class="flex items-center gap-1.5 mt-1">
                         <span class="text-xs bg-violet-100 text-violet-700 px-2 py-0.5 rounded-full font-medium">Sitio

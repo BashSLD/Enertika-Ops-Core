@@ -54,6 +54,8 @@ class LevantamientosDBService:
                 o.cliente_nombre,
                 o.prioridad,
                 o.direccion_obra,
+                o.coordenadas_gps,
+                o.google_maps_link,
 
                 -- Sitio
                 s.nombre_sitio,

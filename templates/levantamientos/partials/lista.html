@@ -219,13 +219,15 @@
 
                     <!-- Proyecto / Cliente -->
                     <td class="px-4 py-3">
-                        <p class="font-semibold text-gray-800 text-sm leading-tight">
+                        <button hx-get="/levantamientos/modals/detalle/{{ lev.id_levantamiento }}"
+                            hx-target="body" hx-swap="beforeend"
+                            class="font-semibold text-gray-800 text-sm leading-tight text-left hover:text-blue-600 hover:underline transition-colors cursor-pointer">
                             {{ lev.nombre_proyecto or lev.titulo_proyecto or '—' }}
-                        </p>
+                        </button>
                         <div class="flex items-center gap-2 mt-0.5">
                             <p class="text-xs text-gray-400">{{ lev.cliente_nombre }}</p>
                             {% if lev.visita_nombre %}
-                            <span class="text-[10px] font-bold text-blue-700 bg-blue-50 border border-blue-200 uppercase px-1.5 py-0.5 rounded shadow-sm" title="Visita a Campo">{{ lev.visita_nombre }}</span>
+                            <span class="inline-block w-2 h-2 rounded-full bg-blue-400 ml-1 flex-shrink-0 cursor-default" title="{{ lev.visita_nombre }}"></span>
                             {% endif %}
                         </div>
                     </td>
@@ -238,7 +240,7 @@
                     <!-- Estado (solo en tabs activos/terminados) -->
                     {% if tab != 'cancelados' %}
                     <td class="px-4 py-3">
-                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium text-white"
+                        <span class="inline-flex items-center px-2 py-px rounded-full text-[10px] font-medium text-white whitespace-nowrap"
                             style="background-color: {{ lev.estatus_color or '#6B7280' }};">
                             {{ lev.estatus_nombre or '—' }}
                         </span>
