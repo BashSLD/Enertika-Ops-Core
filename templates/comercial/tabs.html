@@ -1,9 +1,20 @@
 <script>
     // Define functions globally BEFORE any HTML elements that reference them
     // This fixes the "updateTabContext is not defined" error when HTMX loads from another module
+    window.clearComercialTextSearch = function () {
+        document.querySelectorAll('input.global-filter[name=q]').forEach(function (el) {
+            el.value = '';
+        });
+    };
+
     window.updateTabContext = function (tabName, element) {
         var activeTabInput = document.getElementById('active_tab_input');
+        var previousTab = activeTabInput ? activeTabInput.value : null;
         if (activeTabInput) activeTabInput.value = tabName;
+
+        if (previousTab && previousTab !== tabName) {
+            window.clearComercialTextSearch();
+        }
 
         var allTabs = document.querySelectorAll('.tab-link');
         allTabs.forEach(function (el) {
@@ -36,6 +47,21 @@
         }
     };
     window.setActiveTab = function (element) { /* Legacy wrapper */ };
+
+    if (!window.comercialClearSearchListenerAttached) {
+        window.comercialClearSearchListenerAttached = true;
+        document.body.addEventListener('htmx:configRequest', function (event) {
+            var source = event.detail && event.detail.elt;
+            if (!source) return;
+
+            var hxGet = source.getAttribute('hx-get') || '';
+            var clearsSearch = source.classList.contains('tab-link') || hxGet.includes('/comercial/partials/cards?tab=');
+            if (!clearsSearch) return;
+
+            window.clearComercialTextSearch();
+            if (event.detail.parameters) event.detail.parameters.q = '';
+        });
+    }
 </script>
 <style>
     .tab-link {
@@ -873,57 +899,6 @@
 
 <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
 <script>
-    function updateTabContext(tabName, element) {
-        // 1. Actualizar el input oculto
-        document.getElementById('active_tab_input').value = tabName;
-
-        // 2. Lógica visual con colores corporativos
-        const allTabs = document.querySelectorAll('.tab-link');
-
-        allTabs.forEach(el => {
-            // Reset to inactive state
-            el.classList.remove('glass-panel', 'bg-white/60', 'active');
-            el.classList.add('border-transparent', 'hover:bg-white/40');
-
-            // Remove gradient text from inner span
-            const span = el.querySelector('span');
-            if (span) {
-                span.classList.remove('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-[#00BABB]', 'to-[#009999]');
-            }
-            const svg = el.querySelector('svg');
-            if (svg) {
-                svg.classList.remove('text-[#00BABB]');
-            }
-        });
-
-        // Set active state
-        element.classList.remove('border-transparent', 'hover:bg-white/40');
-        element.classList.add('glass-panel', 'bg-white/60', 'active');
-
-        // Add gradient to text
-        const activeSpan = element.querySelector('span');
-        if (activeSpan) {
-            activeSpan.classList.add('font-bold', 'bg-clip-text', 'text-transparent', 'bg-gradient-to-r', 'from-[#00BABB]', 'to-[#009999]');
-        }
-
-        const activeSvg = element.querySelector('svg');
-        if (activeSvg) {
-            activeSvg.classList.add('text-[#00BABB]');
-        }
-
-        // 3. Actualizar hx-get de los filtros globales
-        const targetUrl = element.getAttribute('hx-get').split('?')[0];
-
-        document.querySelectorAll('.global-filter').forEach(el => {
-            el.setAttribute('hx-get', targetUrl);
-            htmx.process(el);
-        });
-    }
-
-    function setActiveTab(element) {
-        // Legacy wrapper if needed
-    }
-
     // ========================================
     // Inicialización: Auto-selección de Tab + Confetti
     // ========================================

@@ -25,6 +25,9 @@
 }">
     <!-- Filters / Actions Bar -->
     {% set compact_tab_header = current_tab in ['historial', 'levantamientos'] %}
+    {% set is_global_search = is_global_search|default(false) %}
+    {% set mostrar_columna_sla = current_tab != 'levantamientos' or is_global_search %}
+    {% set columnas_tabla = 6 if mostrar_columna_sla else 5 %}
     <div class="{{ 'mb-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between' if compact_tab_header else 'mb-3 flex flex-col sm:flex-row justify-between items-center gap-3' }}">
         <div class="{{ 'flex flex-col lg:flex-row lg:items-center lg:gap-2' if compact_tab_header else 'flex flex-col' }}">
             <h3 class="{{ 'text-sm font-semibold text-gray-600 lg:hidden' if compact_tab_header else 'text-base font-bold text-gray-700' }}">
@@ -99,21 +102,21 @@
                                 </th>
                                 <th scope="col"
                                     class="table-cell px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-white/70 backdrop-blur-md">
-                                    Ingeniero Asignado
+                                    {% if is_global_search %}Responsable{% else %}Ingeniero Asignado{% endif %}
                                 </th>
                                 <th scope="col"
                                     class="table-cell px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-48 bg-white/70 backdrop-blur-md">
                                     Solicitado
                                 </th>
-                                {% if current_tab != 'levantamientos' %}
+                                {% if mostrar_columna_sla %}
                                 <th scope="col"
                                     class="table-cell px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap w-40 bg-white/70 backdrop-blur-md">
-                                    Entrega SLA
+                                    {% if is_global_search %}Entrega / Visita{% else %}Entrega SLA{% endif %}
                                 </th>
                                 {% endif %}
                                 <th scope="col"
                                     class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase tracking-wider whitespace-nowrap bg-white/70 backdrop-blur-md">
-                                    {% if current_tab == 'levantamientos' %}Status Levantamiento{% else %}Status
+                                    {% if is_global_search %}Status{% elif current_tab == 'levantamientos' %}Status Levantamiento{% else %}Status
                                     Simulación{% endif %}
                                 </th>
                                 <th scope="col"
@@ -124,6 +127,9 @@
                         </thead>
                         <tbody class="bg-white/40 divide-y divide-gray-200">
                             {% for op in oportunidades %}
+                            {% set tipo_solicitud = op.tipo_solicitud|lower if op.tipo_solicitud else '' %}
+                            {% set es_levantamiento = op.id_levantamiento or ('levantamiento' in tipo_solicitud) %}
+                            {% set mostrar_levantamiento = es_levantamiento if is_global_search else current_tab == 'levantamientos' %}
                             {% set prioridad_color = 'border-green-400' if op.prioridad == 'low' else
                             ('border-red-400'
                             if op.prioridad == 'high' else 'border-[#00BABB]') %}
@@ -138,7 +144,7 @@
                                     <td class="px-4 py-2 min-w-[300px]">
                                         <div
                                             class="text-sm font-mono text-gray-700 font-bold whitespace-nowrap flex items-center gap-2">
-                                            {% if current_tab == 'levantamientos' and op.id_levantamiento %}
+                                            {% if mostrar_levantamiento and op.id_levantamiento %}
                                             <button
                                                 hx-get="/levantamientos/modals/detalle/{{ op.id_levantamiento }}?source=comercial"
                                                 hx-target="body" hx-swap="beforeend"
@@ -160,6 +166,12 @@
                                             <span
                                                 class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-800 border border-red-200 animate-pulse-subtle shadow-sm shadow-red-200">
                                                 🔥 URGENTE
+                                            </span>
+                                            {% endif %}
+                                            {% if is_global_search %}
+                                            <span
+                                                class="inline-flex items-center px-2.5 py-0.5 rounded-md text-[11px] leading-4 font-semibold border shadow-sm {{ 'bg-sky-100/80 text-sky-800 border-sky-300' if es_levantamiento else 'bg-[#00BABB]/10 text-[#007A7B] border-[#00BABB]/40' }}">
+                                                {% if es_levantamiento %}Levantamiento{% else %}Simulaci&oacute;n{% endif %}
                                             </span>
                                             {% endif %}
                                         </div>
@@ -214,7 +226,7 @@
                                     <!-- COL 2: Ingeniero/Tecnico Asignado -->
                                     <td class="table-cell px-4 py-2 whitespace-nowrap">
                                         <div class="flex flex-col items-center justify-center">
-                                            {% if current_tab == 'levantamientos' %}
+                                            {% if mostrar_levantamiento %}
                                             {% if op.tecnico_asignado_nombre %}
                                             <span
                                                 class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-teal-50 text-teal-700 border border-teal-200 shadow-sm">
@@ -293,9 +305,14 @@
                                     </td>
 
                                     <!-- COL 5: Entrega SLA -->
-                                    {% if current_tab != 'levantamientos' %}
+                                    {% if mostrar_columna_sla %}
                                     <td class="table-cell px-4 py-2 w-40">
                                         <div class="flex flex-col items-center gap-2">
+                                            {% if mostrar_levantamiento %}
+                                            <div class="text-sm text-blue-600 font-semibold text-center">
+                                                {{ op.fecha_programada.strftime('%d/%m/%Y %H:%M') if op.fecha_programada else 'Sin visita' }}
+                                            </div>
+                                            {% else %}
                                             <div class="text-sm text-blue-600 font-semibold text-center">
                                                 {{ op.deadline_calculado.strftime('%d/%m/%Y') if
                                                 op.deadline_calculado
@@ -307,13 +324,14 @@
                                                 SLA Negociado: {{ op.deadline_negociado.strftime('%d/%m/%Y') }}
                                             </div>
                                             {% endif %}
+                                            {% endif %}
                                         </div>
                                     </td>
                                     {% endif %}
 
                                     <!-- COL 5: Status -->
                                     <td class="px-4 py-2 whitespace-nowrap text-center">
-                                        {% if current_tab == 'levantamientos' %}
+                                        {% if mostrar_levantamiento %}
                                         {% set lev_status = op.status_levantamiento|lower if op.status_levantamiento
                                         else 'pendiente' %}
                                         {% if lev_status == 'pendiente' %}
@@ -419,7 +437,7 @@
 
                                             <!-- Botón 1: Comentarios -->
                                             <div>
-                                                <button {% if current_tab=='levantamientos' %}
+                                                <button {% if mostrar_levantamiento %}
                                                     hx-get="/workflow/modals/comentarios?id_oportunidad={{ op.id_oportunidad }}&module=levantamientos"
                                                     {% else %}
                                                     hx-get="/workflow/modals/comentarios?id_oportunidad={{ op.id_oportunidad }}&module=comercial"
@@ -508,7 +526,7 @@
                                 <!-- Fila Expansible para Sitios (Alpine.js controla visibilidad) -->
                                 <tr x-show="isExpanded('{{ op.id_oportunidad }}')" x-transition.duration.300ms
                                     class="bg-gray-50 border-b border-gray-200 shadow-inner">
-                                    <td colspan="{{ 7 if current_tab == 'historial' or (current_tab == 'levantamientos' and subtab == 'realizados') else 6 }}"
+                                    <td colspan="{{ columnas_tabla }}"
                                         class="p-4">
                                         <div class="ml-12 pl-6 border-l-4 border-[#00BABB] py-2">
                                             <div class="flex items-center gap-2 mb-3">
@@ -549,7 +567,7 @@
 
                                 {% else %}
                                 <tr>
-                                    <td colspan="{{ 7 if current_tab == 'historial' else 6 }}"
+                                    <td colspan="{{ columnas_tabla }}"
                                         class="px-4 py-2 text-center text-gray-500">
                                         No hay solicitudes registradas aún.
                                     </td>

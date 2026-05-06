@@ -714,7 +714,8 @@ class ComercialService:
         user_id = user_context.get("user_db_id")  # CORREGIDO: era "user_id"
         role = user_context.get("role", "USER")
         
-        logger.debug(f"Consultando oportunidades - Tab: {tab}, Filtro: {q}, Usuario: {user_id}")
+        q_clean = q.strip() if q else None
+        logger.debug(f"Consultando oportunidades - Tab: {tab}, Filtro: {q_clean}, Usuario: {user_id}")
         
         # Parse Dates if strings
         if filtro_fecha_inicio and isinstance(filtro_fecha_inicio, str):
@@ -773,8 +774,11 @@ class ComercialService:
             params.append(filtro_fecha_fin)
             param_idx += 1
 
-        # Filtro por tab (Usa IDs)
-        if tab == "historial": # Renombrado en UI a "Solicitudes (Entregadas)"
+        # Filtro por tab (Usa IDs). Cuando hay busqueda manual, se busca globalmente
+        # para no obligar al usuario a estar en la pestana/subpestana exacta.
+        if q_clean:
+            logger.debug("Busqueda global de oportunidades activa; se omiten filtros de tab/subtab")
+        elif tab == "historial": # Renombrado en UI a "Solicitudes (Entregadas)"
             # Levantamientos tienen su propio tab — excluirlos igual que en activos
             id_lev_historial = cats['tipos'].get('levantamiento')
             if id_lev_historial:
@@ -867,9 +871,25 @@ class ComercialService:
                 param_idx += 1
 
         # Búsqueda
-        if q:
-            query += f" AND (o.titulo_proyecto ILIKE ${param_idx} OR o.nombre_proyecto ILIKE ${param_idx} OR o.cliente_nombre ILIKE ${param_idx})"
-            params.append(f"%{q}%")
+        if q_clean:
+            query += f"""
+                AND (
+                    o.titulo_proyecto ILIKE ${param_idx}
+                    OR o.nombre_proyecto ILIKE ${param_idx}
+                    OR o.cliente_nombre ILIKE ${param_idx}
+                    OR o.op_id_estandar ILIKE ${param_idx}
+                    OR o.id_interno_simulacion ILIKE ${param_idx}
+                    OR tipo_sol.nombre ILIKE ${param_idx}
+                    OR estatus.nombre ILIKE ${param_idx}
+                    OR u_creador.nombre ILIKE ${param_idx}
+                    OR u_creador.email ILIKE ${param_idx}
+                    OR u_sim.nombre ILIKE ${param_idx}
+                    OR u_sim.email ILIKE ${param_idx}
+                    OR u_tecnico.nombre ILIKE ${param_idx}
+                    OR lev_estatus.nombre ILIKE ${param_idx}
+                )
+            """
+            params.append(f"%{q_clean}%")
             param_idx += 1
 
         # Filtro de seguridad: ADMIN global, MANAGER global, o admin de módulo ven todo.

@@ -240,6 +240,7 @@ async def get_cards_partial(
             "current_tab": tab,
             "subtab": subtab,
             "q": q,
+            "is_global_search": bool(q and q.strip()),
             "limit": limit
         }
     )
