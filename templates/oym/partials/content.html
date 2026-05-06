@@ -3,6 +3,15 @@
 
     {# MOVIL: template de acciones para el header #}
     <div id="mobile-actions-template" style="display:none">
+        <button hx-get="/oym/cfe/modal" hx-target="body" hx-swap="beforeend"
+           hx-on::before-request="document.getElementById('cfe-upload-modal-oym')?.remove()"
+           class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg cursor-pointer">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+            </svg>
+            Recibos CFE
+        </button>
         <div x-show="activeTab === 'proyectos'" class="relative w-full">
             <input type="text" name="q" placeholder="Buscar proyecto..."
                 hx-get="/oym/partials/proyectos" hx-trigger="keyup changed delay:500ms"
@@ -84,6 +93,15 @@
             <p class="text-gray-500 text-xs mt-0.5">Operación y mantenimiento de plantas</p>
         </div>
         <div class="flex items-center gap-2">
+            <button hx-get="/oym/cfe/modal" hx-target="body" hx-swap="beforeend"
+               hx-on::before-request="document.getElementById('cfe-upload-modal-oym')?.remove()"
+               class="btn-secondary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 cursor-pointer">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                </svg>
+                Recibos CFE
+            </button>
             {# Buscador — solo en tab Proyectos #}
             <div x-show="activeTab === 'proyectos'" class="relative w-full md:w-52" x-transition>
                 <input type="text" name="q" placeholder="Buscar proyecto..."

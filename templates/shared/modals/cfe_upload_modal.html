@@ -1,0 +1,259 @@
+<div id="cfe-upload-modal-{{ module_slug }}"
+     class="fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+     aria-labelledby="cfe-modal-title-{{ module_slug }}" role="dialog" aria-modal="true">
+
+    <div class="relative w-full max-w-2xl bg-white rounded-xl shadow-2xl">
+        <div class="{% if accent == 'blue' %}bg-blue-600{% else %}bg-indigo-600{% endif %} px-6 py-4 rounded-t-xl">
+            <div class="flex items-center justify-between gap-4">
+                <h3 class="text-lg font-bold text-white flex items-center gap-2" id="cfe-modal-title-{{ module_slug }}">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                              d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                    </svg>
+                    Recibos CFE - {{ module_label }}
+                </h3>
+                <button type="button"
+                        class="text-white/80 hover:text-white hover:bg-white/20 rounded-lg p-2 transition-colors"
+                        title="Cerrar"
+                        data-cfe-close>
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+        </div>
+
+        <form id="cfe-upload-form-{{ module_slug }}" action="{{ post_url }}" method="post" enctype="multipart/form-data">
+            <div class="px-6 py-5 space-y-4">
+                <div id="cfe-drop-zone-{{ module_slug }}"
+                     class="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:{% if accent == 'blue' %}border-blue-400{% else %}border-indigo-400{% endif %} transition-colors cursor-pointer"
+                     data-cfe-drop-zone>
+                    <input type="file" id="cfe-file-input-{{ module_slug }}" name="files" accept=".xml" multiple class="hidden" data-cfe-file-input>
+
+                    <div data-cfe-placeholder>
+                        <svg xmlns="http://www.w3.org/2000/svg" class="mx-auto h-12 w-12 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                                  d="M7 16a4 4 0 01.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M12 12v9m0-9l-3 3m3-3l3 3"/>
+                        </svg>
+                        <p class="mt-2 text-sm text-gray-600">
+                            <span class="font-semibold {% if accent == 'blue' %}text-blue-600{% else %}text-indigo-600{% endif %}">Arrastra archivos XML</span>
+                            o haz clic para seleccionar
+                        </p>
+                        <p class="mt-1 text-xs text-gray-500">
+                            Recibos CFE en formato CFDI XML
+                        </p>
+                    </div>
+
+                    <div class="hidden mt-4 text-left" data-cfe-preview>
+                        <p class="text-sm font-medium text-gray-700 mb-2">Archivos seleccionados</p>
+                        <ul class="space-y-1 max-h-44 overflow-y-auto" data-cfe-file-list></ul>
+                    </div>
+                </div>
+
+                <div class="hidden rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700" data-cfe-error></div>
+                <div class="hidden rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700" data-cfe-success>
+                    Excel generado correctamente.
+                </div>
+            </div>
+
+            <div class="bg-gray-50 px-6 py-3 flex items-center justify-end gap-3 rounded-b-xl">
+                <button type="button" data-cfe-close
+                        class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Cerrar
+                </button>
+                <button type="submit" data-cfe-submit disabled
+                        class="px-4 py-2 text-sm font-medium text-white {% if accent == 'blue' %}bg-blue-600 hover:bg-blue-700{% else %}bg-indigo-600 hover:bg-indigo-700{% endif %} rounded-lg disabled:opacity-50 disabled:cursor-not-allowed">
+                    Generar Excel
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+    (function () {
+        const modal = document.getElementById('cfe-upload-modal-{{ module_slug }}');
+        if (!modal) return;
+
+        let storedFiles = [];
+        const form = modal.querySelector('form');
+        const dropZone = modal.querySelector('[data-cfe-drop-zone]');
+        const fileInput = modal.querySelector('[data-cfe-file-input]');
+        const placeholder = modal.querySelector('[data-cfe-placeholder]');
+        const preview = modal.querySelector('[data-cfe-preview]');
+        const fileList = modal.querySelector('[data-cfe-file-list]');
+        const submitButton = modal.querySelector('[data-cfe-submit]');
+        const errorBox = modal.querySelector('[data-cfe-error]');
+        const successBox = modal.querySelector('[data-cfe-success]');
+
+        function closeModal() {
+            modal.remove();
+        }
+
+        function setError(message) {
+            if (successBox) successBox.classList.add('hidden');
+            if (!errorBox) return;
+            errorBox.textContent = message;
+            errorBox.classList.remove('hidden');
+        }
+
+        function clearMessages() {
+            if (errorBox) {
+                errorBox.textContent = '';
+                errorBox.classList.add('hidden');
+            }
+            if (successBox) successBox.classList.add('hidden');
+        }
+
+        function syncInputFiles() {
+            const dt = new DataTransfer();
+            storedFiles.forEach(file => dt.items.add(file));
+            fileInput.files = dt.files;
+        }
+
+        function renderFiles() {
+            syncInputFiles();
+            if (storedFiles.length === 0) {
+                preview.classList.add('hidden');
+                placeholder.classList.remove('hidden');
+                submitButton.disabled = true;
+                return;
+            }
+
+            preview.classList.remove('hidden');
+            placeholder.classList.add('hidden');
+            submitButton.disabled = false;
+            fileList.innerHTML = '';
+
+            storedFiles.forEach((file, index) => {
+                const item = document.createElement('li');
+                item.className = 'flex items-center gap-2 text-sm text-gray-600 bg-gray-50 px-2 py-1 rounded group hover:bg-gray-100 transition-colors';
+                item.innerHTML = `
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 {% if accent == 'blue' %}text-blue-600{% else %}text-indigo-600{% endif %}" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                    </svg>
+                    <span class="truncate flex-1"></span>
+                    <span class="text-xs text-gray-400 mr-2">${(file.size / 1024).toFixed(1)} KB</span>
+                    <button type="button" class="text-gray-400 hover:text-red-500 p-1 rounded-full hover:bg-red-50" title="Eliminar">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                `;
+                item.querySelector('span').textContent = file.name;
+                item.querySelector('button').addEventListener('click', function (event) {
+                    event.stopPropagation();
+                    storedFiles.splice(index, 1);
+                    renderFiles();
+                });
+                fileList.appendChild(item);
+            });
+        }
+
+        function addFiles(files) {
+            clearMessages();
+            const xmlFiles = Array.from(files || []).filter(file => file.name.toLowerCase().endsWith('.xml'));
+            if (xmlFiles.length === 0) {
+                setError('Selecciona al menos un archivo XML.');
+                return;
+            }
+            xmlFiles.forEach(file => {
+                const exists = storedFiles.some(current => current.name === file.name && current.size === file.size);
+                if (!exists) storedFiles.push(file);
+            });
+            renderFiles();
+        }
+
+        function filenameFromResponse(response) {
+            const disposition = response.headers.get('content-disposition') || '';
+            const match = disposition.match(/filename="?([^"]+)"?/i);
+            return match ? match[1] : 'recibos_cfe.xlsx';
+        }
+
+        async function responseErrorMessage(response) {
+            const contentType = response.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+                const data = await response.json();
+                return data.detail || 'No se pudo generar el Excel.';
+            }
+            const text = await response.text();
+            return text || 'No se pudo generar el Excel.';
+        }
+
+        modal.querySelectorAll('[data-cfe-close]').forEach(button => {
+            button.addEventListener('click', closeModal);
+        });
+
+        dropZone.addEventListener('click', function () {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', function () {
+            addFiles(fileInput.files);
+        });
+
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, function (event) {
+                event.preventDefault();
+                event.stopPropagation();
+            });
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, function () {
+                dropZone.classList.add('{% if accent == "blue" %}border-blue-400{% else %}border-indigo-400{% endif %}', '{% if accent == "blue" %}bg-blue-50{% else %}bg-indigo-50{% endif %}');
+            });
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, function () {
+                dropZone.classList.remove('{% if accent == "blue" %}border-blue-400{% else %}border-indigo-400{% endif %}', '{% if accent == "blue" %}bg-blue-50{% else %}bg-indigo-50{% endif %}');
+            });
+        });
+
+        dropZone.addEventListener('drop', function (event) {
+            addFiles(event.dataTransfer.files);
+        });
+
+        form.addEventListener('submit', async function (event) {
+            event.preventDefault();
+            clearMessages();
+            if (storedFiles.length === 0) {
+                setError('Selecciona al menos un archivo XML.');
+                return;
+            }
+
+            submitButton.disabled = true;
+            submitButton.textContent = 'Generando...';
+            syncInputFiles();
+
+            try {
+                const response = await fetch(form.action, {
+                    method: 'POST',
+                    body: new FormData(form),
+                    credentials: 'same-origin',
+                });
+                if (!response.ok) {
+                    setError(await responseErrorMessage(response));
+                    return;
+                }
+
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = filenameFromResponse(response);
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                window.URL.revokeObjectURL(url);
+                successBox.classList.remove('hidden');
+            } catch (error) {
+                setError('No se pudo conectar con el servidor para generar el Excel.');
+            } finally {
+                submitButton.disabled = storedFiles.length === 0;
+                submitButton.textContent = 'Generar Excel';
+            }
+        });
+    })();
+</script>

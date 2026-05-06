@@ -2,10 +2,12 @@
 Router del Modulo O&M (Operacion y Mantenimiento)
 Recibe proyectos de Construccion. Destino final del flujo de traspasos.
 """
-from fastapi import APIRouter, Request, Depends, Query
+from fastapi import APIRouter, Request, Depends, Query, File, HTTPException, UploadFile
 from fastapi.templating import Jinja2Templates
+from fastapi.responses import StreamingResponse
 from uuid import UUID
-from typing import Optional
+from typing import Optional, List
+import logging
 from core.config import settings
 from core.timezone import today_mx
 
@@ -13,6 +15,9 @@ from core.security import get_current_user_context
 from core.permissions import require_module_access
 from core.database import get_db_connection
 from .service import OyMService, get_service
+from modules.shared.services.cfe import generar_excel_cfe_desde_uploads
+
+logger = logging.getLogger("OyMModule")
 
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
@@ -24,6 +29,54 @@ router = APIRouter(
     prefix="/oym",
     tags=["Modulo O&M"],
 )
+
+
+@router.get("/cfe/modal", include_in_schema=False)
+async def get_cfe_upload_modal(
+    request: Request,
+    context=Depends(get_current_user_context),
+    _=require_module_access("oym"),
+):
+    return templates.TemplateResponse(
+        request,
+        "shared/modals/cfe_upload_modal.html",
+        {
+            "module_slug": "oym",
+            "module_label": "O&M",
+            "post_url": "/oym/cfe/excel",
+            "accent": "blue",
+        },
+    )
+
+
+@router.post("/cfe/excel", response_class=StreamingResponse, include_in_schema=False)
+async def generar_excel_cfe_oym(
+    files: List[UploadFile] = File(...),
+    context=Depends(get_current_user_context),
+    _=require_module_access("oym"),
+):
+    try:
+        buffer = await generar_excel_cfe_desde_uploads(
+            files,
+            perfil_slug="oym",
+            modo_calculo="calculado",
+        )
+    except ValueError as exc:
+        logger.warning(
+            "cfe_excel_error modulo=oym usuario=%s error=%s",
+            context.get("user_db_id"),
+            exc,
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    headers = {
+        "Content-Disposition": 'attachment; filename="recibos_cfe_oym.xlsx"',
+    }
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
 
 
 @router.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)

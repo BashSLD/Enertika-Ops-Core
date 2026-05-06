@@ -76,6 +76,18 @@
             </svg>
             Calculadora
         </button>
+        <button
+            hx-get="/simulacion/cfe/modal"
+            hx-target="body"
+            hx-swap="beforeend"
+            hx-on::before-request="document.getElementById('cfe-upload-modal-simulacion')?.remove()"
+            class="bg-indigo-700 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+            </svg>
+            Recibos CFE
+        </button>
     </div>
     <script>
     (function() {
@@ -131,6 +143,20 @@
                             d="M9 7H7a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2V9a2 2 0 00-2-2h-2M9 7V5a2 2 0 012-2h2a2 2 0 012 2v2M9 7h6M9 12h.01M12 12h.01M15 12h.01M9 15h.01M12 15h.01M15 15h.01M9 18h.01M12 18h.01M15 18h.01"/>
                     </svg>
                 <span class="sim-action-label">Calculadora</span>
+            </button>
+            <button
+                hx-get="/simulacion/cfe/modal"
+                hx-target="body"
+                hx-swap="beforeend"
+                hx-on::before-request="document.getElementById('cfe-upload-modal-simulacion')?.remove()"
+                class="sim-action-btn ripple-effect bg-indigo-700 hover:bg-indigo-800 text-white text-sm font-bold py-2 px-2.5 rounded-lg shadow-lg shadow-indigo-700/30 transition-all duration-200 ease-in-out transform hover:scale-105"
+                aria-label="Recibos CFE">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                </svg>
+                <span class="sim-action-label">Recibos CFE</span>
             </button>
         </div>
     </div>

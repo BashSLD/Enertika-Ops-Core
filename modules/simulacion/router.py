@@ -2,7 +2,7 @@
 Router del Módulo Simulación
 """
 
-from fastapi import APIRouter, Request, Depends, Form, HTTPException, Query
+from fastapi import APIRouter, Request, Depends, Form, HTTPException, Query, File, UploadFile
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import JSONResponse, StreamingResponse, RedirectResponse
 import io
@@ -26,6 +26,7 @@ from .service import SimulacionService, get_simulacion_service
 from .db_service import SimulacionDBService, get_db_service
 from ..comercial.service import ComercialService # Reusing logic from Comercial
 from modules.shared.services import SiteService
+from modules.shared.services.cfe import generar_excel_cfe_desde_uploads
 
 from .metrics_service import MetricsService, get_metrics_service
 from datetime import datetime, timedelta
@@ -66,6 +67,54 @@ router = APIRouter(
     prefix="/simulacion",
     tags=["Módulo Simulación"],
 )
+
+@router.get("/cfe/modal", include_in_schema=False)
+async def get_cfe_upload_modal(
+    request: Request,
+    context=Depends(get_current_user_context),
+    _=require_module_access("simulacion"),
+):
+    return templates.TemplateResponse(
+        request,
+        "shared/modals/cfe_upload_modal.html",
+        {
+            "module_slug": "simulacion",
+            "module_label": "Simulación",
+            "post_url": "/simulacion/cfe/excel",
+            "accent": "indigo",
+        },
+    )
+
+
+@router.post("/cfe/excel", response_class=StreamingResponse, include_in_schema=False)
+async def generar_excel_cfe_simulacion(
+    files: List[UploadFile] = File(...),
+    context=Depends(get_current_user_context),
+    _=require_module_access("simulacion"),
+):
+    try:
+        buffer = await generar_excel_cfe_desde_uploads(
+            files,
+            perfil_slug="simulacion",
+            modo_calculo="calculado",
+        )
+    except ValueError as exc:
+        logger.warning(
+            "cfe_excel_error modulo=simulacion usuario=%s error=%s",
+            context.get("user_db_id"),
+            exc,
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    headers = {
+        "Content-Disposition": 'attachment; filename="recibos_cfe_simulacion.xlsx"',
+    }
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers=headers,
+    )
+
 
 # ========================================
 # ENDPOINT PRINCIPAL (UI)
