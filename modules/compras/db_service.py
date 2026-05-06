@@ -124,7 +124,7 @@ class ComprasDBService:
         
         if filtros.get('estatus'):
             if filtros['estatus'] == 'SIN_COMPLETAR':
-                base_query += " AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')"
+                base_query += " AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO')"
             else:
                 base_query += f" AND c.estatus = ${param_idx}"
                 params.append(filtros['estatus'])
@@ -282,9 +282,12 @@ class ComprasDBService:
             params.append(filtros['fecha_fin'])
             param_idx += 1
         if filtros.get('estatus'):
-            base_query += f" AND estatus = ${param_idx}"
-            params.append(filtros['estatus'])
-            param_idx += 1
+            if filtros['estatus'] == 'SIN_COMPLETAR':
+                base_query += " AND estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO')"
+            else:
+                base_query += f" AND estatus = ${param_idx}"
+                params.append(filtros['estatus'])
+                param_idx += 1
         if filtros.get('id_zona'):
             base_query += f" AND id_zona = ${param_idx}"
             params.append(filtros['id_zona'])
@@ -531,18 +534,32 @@ class ComprasDBService:
             return
 
         if tipo_factura == "CIERRE_ANTICIPO":
+            row = await conn.fetchrow("""
+                SELECT monto
+                FROM tb_comprobantes_pago
+                WHERE id_comprobante = $1
+            """, id_comprobante)
+            monto_total = row['monto'] if row else Decimal("0")
+            monto_cierre = min(monto_factura, monto_total)
+            nuevo_estatus = (
+                "FACTURADO"
+                if monto_cierre >= monto_total - tolerancia
+                else "PARCIALMENTE_FACTURADO"
+            )
+
             await conn.execute("""
                 UPDATE tb_comprobantes_pago
                 SET uuid_factura = COALESCE(uuid_factura, $1),
                     id_proveedor = COALESCE(id_proveedor, $2),
-                    estatus = 'FACTURADO',
+                    estatus = $5,
                     es_anticipo = FALSE,
                     tipo_factura = $3,
-                    monto_facturado = monto,
+                    monto_facturado = $6,
                     id_comprobante_anticipo = COALESCE($4, id_comprobante_anticipo),
                     updated_at = NOW()
-                WHERE id_comprobante = $5
-            """, uuid_factura, id_proveedor, tipo_factura, id_comprobante_anticipo, id_comprobante)
+                WHERE id_comprobante = $7
+            """, uuid_factura, id_proveedor, tipo_factura, id_comprobante_anticipo,
+                nuevo_estatus, monto_cierre, id_comprobante)
             return
 
         # NORMAL: calcular si cubre el pago completo
@@ -590,6 +607,9 @@ class ComprasDBService:
         self, conn, uuid_anticipo: str
     ) -> Optional[dict]:
         """Busca el comprobante de anticipo original por UUID de factura."""
+        uuid_anticipo_uuid = UUID(str(uuid_anticipo))
+        uuid_anticipo_text = str(uuid_anticipo).upper()
+
         row = await conn.fetchrow("""
             SELECT c.id_comprobante, c.id_proveedor
             FROM tb_comprobantes_pago c
@@ -597,12 +617,12 @@ class ComprasDBService:
                 ON cf.id_comprobante = c.id_comprobante
             WHERE c.es_anticipo = true
               AND (
-                  c.uuid_factura = $1
-                  OR cf.uuid_factura = $1
+                  c.uuid_factura = $1::uuid
+                  OR UPPER(cf.uuid_factura) = $2::text
               )
-            ORDER BY CASE WHEN c.uuid_factura = $1 THEN 0 ELSE 1 END
+            ORDER BY CASE WHEN c.uuid_factura = $1::uuid THEN 0 ELSE 1 END
             LIMIT 1
-        """, uuid_anticipo)
+        """, uuid_anticipo_uuid, uuid_anticipo_text)
         return dict(row) if row else None
 
     async def guardar_relacion_beneficiario(
@@ -1307,6 +1327,12 @@ class ComprasDBService:
         return [dict(r) for r in rows]
 
     # ─── MINI ALMACÉN (Gap 9) ─────────────────────────────
+
+    async def get_proveedores_activos(self, conn) -> list:
+        rows = await conn.fetch(
+            "SELECT id_proveedor, razon_social FROM tb_proveedores WHERE activo = true ORDER BY razon_social"
+        )
+        return [dict(r) for r in rows]
 
     async def get_inventario(self, conn) -> list:
         rows = await conn.fetch("""

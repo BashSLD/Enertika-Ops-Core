@@ -241,7 +241,7 @@ async def listar_comprobantes_para_anticipo(conn: asyncpg.Connection, rfc_emisor
 async def buscar_coincidencias_auto(conn: asyncpg.Connection) -> list[dict]:
     # Busca pares únicos (1 a 1) entre facturas pendientes del SAT y comprobantes pendientes.
     # Caso 1 (NORMAL): empareja por monto ±0.50 y nombre vs comprobantes PENDIENTE/PARCIALMENTE_FACTURADO.
-    # Caso 2 (CIERRE_ANTICIPO): empareja por RFC vs comprobantes en estatus ANTICIPO (sin validar monto).
+    # Caso 2 (CIERRE_ANTICIPO): empareja por RFC vs comprobantes ANTICIPO que cubren el monto.
     rows = await conn.fetch(
         """
         WITH matches AS (
@@ -269,6 +269,7 @@ async def buscar_coincidencias_auto(conn: asyncpg.Connection) -> list[dict]:
                 (
                     i.tipo_detectado = 'CIERRE_ANTICIPO'
                     AND c.estatus = 'ANTICIPO'
+                    AND c.monto >= i.total - 0.50
                     AND c.id_proveedor IS NOT NULL
                     AND EXISTS (
                         SELECT 1 FROM tb_proveedores p

@@ -373,10 +373,9 @@ async def confirmar_match(
     except ValueError:
         return templates.TemplateResponse(
             request,
-            "shared/toast.html",
-            {"message": "Selecciona un comprobante antes de confirmar", "type": "error"},
+            "compras/partials/xml_match_error.html",
+            {"message": "Selecciona un comprobante antes de confirmar"},
             status_code=400,
-            headers={"HX-Reswap": "none"},
         )
 
     try:
@@ -384,28 +383,25 @@ async def confirmar_match(
     except ValueError as e:
         return templates.TemplateResponse(
             request,
-            "shared/toast.html",
-            {"message": str(e), "type": "error"},
+            "compras/partials/xml_match_error.html",
+            {"message": str(e)},
             status_code=400,
-            headers={"HX-Reswap": "none"},
         )
     except asyncpg.PostgresError:
         logger.exception("Error de BD al confirmar match inbox %s", inbox_id)
         return templates.TemplateResponse(
             request,
-            "shared/toast.html",
-            {"message": "Error de base de datos. Intenta de nuevo.", "type": "error"},
+            "compras/partials/xml_match_error.html",
+            {"message": "Error de base de datos. Intenta de nuevo."},
             status_code=500,
-            headers={"HX-Reswap": "none"},
         )
     except Exception as e:
         logger.exception("Error inesperado procesando XML %s", inbox_id)
         return templates.TemplateResponse(
             request,
-            "shared/toast.html",
-            {"message": "Error procesando XML", "type": "error"},
+            "compras/partials/xml_match_error.html",
+            {"message": "Error procesando XML"},
             status_code=500,
-            headers={"HX-Reswap": "none"},
         )
 
     items, total = await sat_db_service.listar_inbox(conn, estado="pendiente")

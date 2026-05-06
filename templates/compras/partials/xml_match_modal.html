@@ -62,6 +62,8 @@
                 <div id="match-xml-tipo-warning"></div>
             </div>
 
+            <div id="match-error-container" class="hidden mb-4"></div>
+
             <!-- Buscador de comprobantes -->
             <div class="mb-3">
                 <label class="block text-sm font-semibold text-gray-700 mb-2">Selecciona el comprobante de pago:</label>
@@ -150,6 +152,38 @@
         '07': 'CFDI por aplicacion de anticipo', '08': 'Factura por pagos en parcialidades',
         '09': 'Factura por pagos diferidos'
     };
+
+    function clearMatchError() {
+        const errorEl = document.getElementById('match-error-container');
+        if (!errorEl) return;
+        errorEl.innerHTML = '';
+        errorEl.classList.add('hidden');
+    }
+
+    function showMatchError(html) {
+        const errorEl = document.getElementById('match-error-container');
+        if (!errorEl) return;
+        errorEl.innerHTML = html;
+        errorEl.classList.remove('hidden');
+        errorEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+
+    function appendConfirmResponse(html) {
+        const tpl = document.createElement('template');
+        tpl.innerHTML = html;
+        const toastOob = tpl.content.querySelector('[hx-swap-oob]');
+        if (toastOob) {
+            const toastContainer = document.getElementById('global-toast-container');
+            if (toastContainer) {
+                toastContainer.insertAdjacentHTML('afterbegin', toastOob.innerHTML);
+            }
+            toastOob.remove();
+        }
+
+        if (typeof window.__xmlToConfirm !== 'undefined' && window.__xmlToConfirm > 0) {
+            window.__xmlToConfirm--;
+        }
+    }
 
     // Abrir modal con datos del XML desde data-attributes del boton
     window.abrirModalMatch = function (btn) {
@@ -249,6 +283,7 @@
         document.getElementById('match-search-input').value = '';
         document.getElementById('match-candidatos-body').innerHTML =
             '<tr><td colspan="5" class="px-3 py-6 text-center text-sm text-gray-400">Escribe para buscar comprobantes pendientes...</td></tr>';
+        clearMatchError();
 
         // Show modal
         document.getElementById('xml-match-modal').classList.remove('hidden');
@@ -277,15 +312,25 @@
 
         document.getElementById('match-selected-comprobante').value = row.dataset.id;
         document.getElementById('match-confirm-btn').disabled = false;
+        clearMatchError();
     };
 
-    // Confirmar match manual via HTMX
-    window.confirmarMatchManual = function () {
+    // Confirmar match manual sin cerrar el modal cuando el backend devuelve error
+    window.confirmarMatchManual = async function () {
         const compId = document.getElementById('match-selected-comprobante').value;
         if (!compId) {
-            alert('Selecciona un comprobante');
+            showMatchError(
+                '<div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">' +
+                '<p class="font-semibold">Selecciona un comprobante</p>' +
+                '<p class="mt-1">Debes elegir un comprobante antes de confirmar el match.</p>' +
+                '</div>'
+            );
             return;
         }
+
+        clearMatchError();
+        const confirmBtn = document.getElementById('match-confirm-btn');
+        confirmBtn.disabled = true;
 
         const formData = new FormData();
         formData.append('uuid_factura', document.getElementById('match-xml-uuid').value);
@@ -305,17 +350,39 @@
         formData.append('xml_content_b64', document.getElementById('match-xml-content-b64').value);
         formData.append('guardar_relacion', document.getElementById('match-guardar-relacion').checked ? 'true' : 'false');
 
-        htmx.ajax('POST', '/compras/xml-confirm-match', {
-            values: Object.fromEntries(formData),
-            target: 'body',
-            swap: 'beforeend'
-        }).then(() => {
+        try {
+            const response = await fetch('/compras/xml-confirm-match', {
+                method: 'POST',
+                body: formData,
+                headers: { 'HX-Request': 'true' }
+            });
+            const html = await response.text();
+
+            if (!response.ok) {
+                showMatchError(html || (
+                    '<div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">' +
+                    '<p class="font-semibold">No se pudo confirmar el match</p>' +
+                    '<p class="mt-1">Revisa el comprobante seleccionado e intenta nuevamente.</p>' +
+                    '</div>'
+                ));
+                confirmBtn.disabled = false;
+                return;
+            }
+
+            appendConfirmResponse(html);
             cerrarModalMatch();
             if (typeof clearXmlUploadModal === 'function') clearXmlUploadModal();
-            // Reload tabla
             const form = document.getElementById('filtros-form');
             if (form) htmx.trigger(form, 'submit');
-        });
+        } catch (error) {
+            showMatchError(
+                '<div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">' +
+                '<p class="font-semibold">No se pudo confirmar el match</p>' +
+                '<p class="mt-1">Hubo un problema de conexion. Intenta nuevamente.</p>' +
+                '</div>'
+            );
+            confirmBtn.disabled = false;
+        }
     };
 })();
 </script>

@@ -10,13 +10,15 @@ Endpoints:
 - /compras/catalogos - Catálogos para dropdowns
 """
 
+import asyncio
+import json
+import logging
+from typing import List, Optional
+from uuid import UUID
+
 from fastapi import APIRouter, Depends, Request, Form, File, UploadFile, Query, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, Response
-from typing import List, Optional
-from uuid import UUID
-import logging
-import json
 
 from core.validation import validate_upload_size
 import base64
@@ -127,14 +129,14 @@ async def get_compras_ui(
     """
     catalogos = await service.get_catalogos(conn)
 
-    # Vista default (PENDIENTE + mes actual)
+    # Vista default: comprobantes abiertos
     page = 1
     per_page = 50
     comprobantes, total = await service.get_comprobantes_default_view(conn)
 
     estadisticas = await service.get_estadisticas_generales(
         conn,
-        estatus="PENDIENTE"
+        estatus="SIN_COMPLETAR"
     )
 
     pages = (total + per_page - 1) // per_page if total > 0 else 1
@@ -700,10 +702,10 @@ async def confirm_xml_match(
             )
     except ValueError as e:
         return templates.TemplateResponse(request,
-             "shared/toast.html",
+             "compras/partials/xml_match_error.html",
             {                "message": str(e),
-                "type": "error",
-            }
+            },
+            status_code=400,
         )
 
     # Subir XML a SharePoint DESPUES de confirmar el match
@@ -1308,9 +1310,12 @@ async def get_inventario(
     """Lista de inventario (mini almacén)."""
     from .db_service import get_db_service
     db_svc = get_db_service()
-    items = await db_svc.get_inventario(conn)
+    items, proveedores = await asyncio.gather(
+        db_svc.get_inventario(conn),
+        db_svc.get_proveedores_activos(conn),
+    )
     return templates.TemplateResponse(
-        request, "compras/partials/inventario.html", {"items": items}
+        request, "compras/partials/inventario.html", {"items": items, "proveedores": proveedores}
     )
 
 
@@ -1333,9 +1338,12 @@ async def registrar_inventario(
     await db_svc.insert_inventario(
         conn, descripcion, cantidad, unidad_medida, ubicacion, prov, None, notas
     )
-    items = await db_svc.get_inventario(conn)
+    items, proveedores = await asyncio.gather(
+        db_svc.get_inventario(conn),
+        db_svc.get_proveedores_activos(conn),
+    )
     return templates.TemplateResponse(
-        request, "compras/partials/inventario.html", {"items": items}
+        request, "compras/partials/inventario.html", {"items": items, "proveedores": proveedores}
     )
 
 

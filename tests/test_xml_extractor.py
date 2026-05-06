@@ -192,3 +192,14 @@ class TestDetectTipoFactura:
         rel = CfdiRelacionado(uuid="AAA-BBB", tipo_relacion="07")
         result = _detect_tipo_factura([], [rel], "I")
         assert result == TipoFactura.CIERRE_ANTICIPO
+
+    def test_cierre_anticipo_por_descripcion_sin_relacion_07(self):
+        concepto = CfdiConcepto(
+            descripcion="Cierre de anticipo de proyecto",
+            cantidad=Decimal("1"),
+            valor_unitario=Decimal("1000"),
+            importe=Decimal("1000"),
+            clave_prod_serv="72151500",
+        )
+        result = _detect_tipo_factura([concepto], [], "I")
+        assert result == TipoFactura.CIERRE_ANTICIPO

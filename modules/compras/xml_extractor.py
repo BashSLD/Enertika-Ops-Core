@@ -122,6 +122,7 @@ def _detect_tipo_factura(
     Detecta el tipo de factura segun reglas SAT:
     - NOTA_CREDITO: TipoDeComprobante=E + relacion tipo 01
     - CIERRE_ANTICIPO: tiene CFDI relacionado con tipo_relacion=07
+      o la descripcion indica cierre de anticipo sin relacion SAT
     - ANTICIPO: ClaveProdServ=84111506 + descripcion contiene 'anticipo'
     - NORMAL: cualquier otro caso
     """
@@ -138,6 +139,12 @@ def _detect_tipo_factura(
     # Verificar si es cierre de anticipo (tiene relacion tipo 07)
     for rel in relacionados:
         if rel.tipo_relacion == TIPO_RELACION_ANTICIPO:
+            return TipoFactura.CIERRE_ANTICIPO
+
+    # Fallback operativo: algunos XML de prueba/proveedor no declaran TipoRelacion=07.
+    for concepto in conceptos:
+        desc_lower = (concepto.descripcion or "").lower()
+        if "cierre" in desc_lower and "anticipo" in desc_lower:
             return TipoFactura.CIERRE_ANTICIPO
 
     # Verificar si es anticipo (clave SAT + descripcion)

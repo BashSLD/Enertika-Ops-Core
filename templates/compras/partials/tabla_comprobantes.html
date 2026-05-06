@@ -72,7 +72,7 @@
                             <label class="block text-xs font-medium text-gray-600 mb-1">Estatus</label>
                             <select name="estatus" autocomplete="off"
                                 class="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
-                                <option value="SIN_COMPLETAR" {% if filtros.estatus=='SIN_COMPLETAR' %}selected{% endif %}>Pendiente + Parcial</option>
+                                <option value="SIN_COMPLETAR" {% if filtros.estatus=='SIN_COMPLETAR' %}selected{% endif %}>Abiertos</option>
                                 <option value="PENDIENTE" {% if filtros.estatus=='PENDIENTE' %}selected{% endif %}>Solo pendiente</option>
                                 <option value="PARCIALMENTE_FACTURADO" {% if filtros.estatus=='PARCIALMENTE_FACTURADO' %}selected{% endif %}>Solo parcial</option>
                                 <option value="ANTICIPO" {% if filtros.estatus=='ANTICIPO' %}selected{% endif %}>Anticipo</option>

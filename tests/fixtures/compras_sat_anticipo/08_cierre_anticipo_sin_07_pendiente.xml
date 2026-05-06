@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
+    xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital"
+    Version="4.0"
+    Serie="SAT"
+    Folio="CIE-008"
+    Fecha="2026-05-04T13:00:00"
+    Sello="SELLO_PRUEBA"
+    NoCertificado="00001000000500000001"
+    Certificado="CERTIFICADO_PRUEBA"
+    SubTotal="5000.00"
+    Moneda="MXN"
+    Total="5800.00"
+    TipoDeComprobante="I"
+    Exportacion="01"
+    MetodoPago="PUE"
+    FormaPago="03"
+    LugarExpedicion="06600">
+  <cfdi:Emisor Rfc="PAT2605015A1" Nombre="PROVEEDOR ANTICIPOS TEST SA DE CV" RegimenFiscal="601"/>
+  <cfdi:Receptor Rfc="ISA141001I11" Nombre="ISA CORPORATIVO TEST SA DE CV"
+      DomicilioFiscalReceptor="06600" RegimenFiscalReceptor="601" UsoCFDI="G03"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="72151500" Cantidad="1" ClaveUnidad="E48"
+        Unidad="Servicio" Descripcion="Cierre de anticipo sin relacion para pago parcial"
+        ValorUnitario="5000.00" Importe="5000.00" ObjetoImp="02"/>
+  </cfdi:Conceptos>
+  <cfdi:Impuestos TotalImpuestosTrasladados="800.00"/>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital Version="1.1"
+        UUID="10000008-0000-4000-8000-000000000008"
+        FechaTimbrado="2026-05-04T13:05:00"
+        RfcProvCertif="SAT970701NN3"
+        SelloCFD="SELLO_CFD_PRUEBA"
+        NoCertificadoSAT="00001000000500000002"
+        SelloSAT="SELLO_SAT_PRUEBA"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>

@@ -194,7 +194,7 @@ class ComprasService:
     
     async def get_comprobantes_default_view(self, conn) -> Tuple[List[dict], int]:
         """
-        Vista default: TODOS los pendientes (sin filtro de fecha).
+        Vista default: comprobantes abiertos (sin filtro de fecha).
         """
         return await self.get_comprobantes(
             conn,
@@ -672,6 +672,33 @@ class ComprasService:
         monto = cfdi.total
         moneda = cfdi.moneda or "MXN"
 
+        if cfdi.tipo_factura == TipoFactura.CIERRE_ANTICIPO:
+            uuid_anticipo_relacionado = None
+            for rel in cfdi.relacionados or []:
+                if rel.tipo_relacion == "07" and rel.uuid:
+                    uuid_anticipo_relacionado = rel.uuid
+                    break
+
+            if uuid_anticipo_relacionado:
+                try:
+                    anticipo = await db_svc.get_comprobante_anticipo_by_uuid(
+                        conn, uuid_anticipo_relacionado
+                    )
+                except ValueError:
+                    anticipo = None
+
+                if anticipo:
+                    comprobante = await db_svc.get_comprobante_by_id(
+                        conn, anticipo["id_comprobante"]
+                    )
+                    candidatos = [comprobante] if comprobante else []
+                    return XmlMatchResult(
+                        cfdi=cfdi,
+                        match_type="AUTO_MATCH",
+                        candidatos=self._format_candidatos(candidatos),
+                        comprobante_id=anticipo["id_comprobante"],
+                    )
+
         # Nivel 1: buscar por relacion conocida
         relaciones = await db_svc.get_relaciones_beneficiario(conn, id_proveedor)
         for rel in relaciones:
@@ -826,6 +853,7 @@ class ComprasService:
         monto_factura = Decimal(str(cfdi_data.get('total', 0)))
         monto_pago = Decimal(str(comprobante['monto']))
         monto_ya_facturado = Decimal(str(comprobante.get('monto_facturado') or 0))
+        tolerancia_monto = Decimal("0.50")
 
         relacionados = cfdi_data.get('relacionados', [])
         id_comprobante_anticipo = None
@@ -847,7 +875,10 @@ class ComprasService:
 
                 id_comprobante_anticipo = anticipo["id_comprobante"]
                 if str(id_comprobante_anticipo) != str(id_comprobante):
-                    raise ValueError("El comprobante seleccionado no corresponde al anticipo relacionado en el CFDI")
+                    raise ValueError(
+                        "El comprobante seleccionado no corresponde al anticipo "
+                        f"relacionado en el CFDI (UUID esperado: {uuid_anticipo_relacionado})"
+                    )
 
                 anticipo_proveedor = anticipo.get("id_proveedor")
                 if anticipo_proveedor and str(anticipo_proveedor) != str(id_proveedor):
@@ -866,6 +897,13 @@ class ComprasService:
                         "comprobante de anticipo seleccionado"
                     )
 
+                if monto_factura > monto_pago + tolerancia_monto:
+                    exceso = monto_factura - monto_pago
+                    raise ValueError(
+                        f"El cierre de anticipo excede el monto del comprobante por ${exceso:,.2f} "
+                        f"(cierre: ${monto_factura:,.2f}, anticipo: ${monto_pago:,.2f})"
+                    )
+
                 logger.warning(
                     "CIERRE_ANTICIPO sin relacion 07; usando comprobante seleccionado como anticipo: %s",
                     id_comprobante,
@@ -875,7 +913,7 @@ class ComprasService:
         # Validar anti-sobrefacturacion
         if tipo_factura not in ('NOTA_CREDITO', 'ANTICIPO', 'PAGO', 'CIERRE_ANTICIPO'):
             proyectado = monto_ya_facturado + monto_factura
-            if proyectado > monto_pago + Decimal("0.50"):
+            if proyectado > monto_pago + tolerancia_monto:
                 exceso = proyectado - monto_pago
                 raise ValueError(
                     f"La factura excede el monto del pago por ${exceso:,.2f} "
