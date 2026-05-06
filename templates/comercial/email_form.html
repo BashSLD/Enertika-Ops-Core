@@ -126,6 +126,7 @@
             <label class="block text-sm font-medium text-gray-700 mb-1">Mensaje</label>
 
             <div id="quill-editor"></div>
+            <div id="image-insert-notice" class="text-sm"></div>
 
             <input type="hidden" name="body" id="hidden-body-input">
             <input type="hidden" name="auto_message" value="">
@@ -279,6 +280,13 @@
             min-height: 150px;
         }
 
+        .ql-editor img {
+            max-width: 100%;
+            max-height: 400px;
+            height: auto;
+            object-fit: contain;
+        }
+
         .static-footer {
             background-color: #f8fafc;
             border: 1px solid #e2e8f0;
@@ -319,6 +327,81 @@
                     document.head.appendChild(css);
                 }
 
+                const QUILL_IMAGE_MAX_WIDTH = 1600;
+                const QUILL_IMAGE_MAX_HEIGHT = 1200;
+                const QUILL_IMAGE_JPEG_QUALITY = 0.9;
+                const QUILL_EMAIL_BODY_MAX_LENGTH = 1572864;
+
+                function comprimirImagen(dataUrl, fileType) {
+                    return new Promise(function (resolve) {
+                        var img = new Image();
+                        img.onload = function () {
+                            var w = img.width;
+                            var h = img.height;
+                            if (w > QUILL_IMAGE_MAX_WIDTH || h > QUILL_IMAGE_MAX_HEIGHT) {
+                                var r = Math.min(QUILL_IMAGE_MAX_WIDTH / w, QUILL_IMAGE_MAX_HEIGHT / h);
+                                w = Math.round(w * r);
+                                h = Math.round(h * r);
+                            }
+                            var canvas = document.createElement('canvas');
+                            canvas.width = w;
+                            canvas.height = h;
+                            var ctx = canvas.getContext('2d');
+                            if (!ctx) {
+                                resolve(dataUrl);
+                                return;
+                            }
+                            ctx.drawImage(img, 0, 0, w, h);
+                            var mimeType = fileType === 'image/png' ? 'image/png' : 'image/jpeg';
+                            var output = mimeType === 'image/jpeg'
+                                ? canvas.toDataURL(mimeType, QUILL_IMAGE_JPEG_QUALITY)
+                                : canvas.toDataURL(mimeType);
+                            resolve(output);
+                        };
+                        img.onerror = function () { resolve(dataUrl); };
+                        img.src = dataUrl;
+                    });
+                }
+
+                function insertarImagenQuill(file) {
+                    if (!file || !window.quillInstance) return;
+                    mostrarAvisoImagen('Optimizando imagen...');
+                    var reader = new FileReader();
+                    reader.onload = function (evt) {
+                        comprimirImagen(evt.target.result, file.type).then(function (compressed) {
+                            var range = window.quillInstance.getSelection(true);
+                            var idx = range ? range.index : window.quillInstance.getLength() - 1;
+                            window.quillInstance.insertEmbed(idx, 'image', compressed, 'user');
+                            window.quillInstance.setSelection(idx + 1, 0, 'silent');
+                            mostrarAvisoImagen('Imagen insertada.');
+                        });
+                    };
+                    reader.readAsDataURL(file);
+                }
+
+                function configurarPickerImagenQuill() {
+                    var pickerEl = document.getElementById('quill-image-picker');
+                    if (!pickerEl || pickerEl.dataset.listenerReady === 'true') return pickerEl;
+                    pickerEl.addEventListener('change', function () {
+                        var file = this.files[0];
+                        this.value = '';
+                        insertarImagenQuill(file);
+                    });
+                    pickerEl.dataset.listenerReady = 'true';
+                    return pickerEl;
+                }
+
+                function mostrarAvisoImagen(msg, tipo) {
+                    var aviso = document.getElementById('image-insert-notice');
+                    if (!aviso) return;
+                    aviso.textContent = msg;
+                    aviso.className = tipo === 'error'
+                        ? 'mt-2 p-2 bg-red-100 text-red-700 rounded text-sm border border-red-300'
+                        : 'mt-2 p-2 bg-blue-50 text-blue-700 rounded text-sm border border-blue-200';
+                    clearTimeout(aviso._timer);
+                    aviso._timer = setTimeout(function () { aviso.textContent = ''; aviso.className = ''; }, 4000);
+                }
+
                 // Inicializador seguro con control de botón
                 window.initQuillSafe = function () {
                     const submitBtn = document.getElementById('submit-btn');
@@ -327,54 +410,67 @@
 
                     if (!form) return; // Validación extra
 
-                    // ⚡ PASO 1: Registrar TODOS los listeners INMEDIATAMENTE
-                    form.addEventListener('htmx:configRequest', function (evt) {
-                        var hiddenBodyInput = document.getElementById('hidden-body-input');
-                        var autoMessageInput = document.querySelector('input[name="auto_message"]');
+                    if (form.dataset.quillListenersReady !== 'true') {
+                        form.addEventListener('htmx:configRequest', function (evt) {
+                            var hiddenBodyInput = document.getElementById('hidden-body-input');
+                            var autoMessageInput = document.querySelector('input[name="auto_message"]');
 
-                        if (window.quillInstance && hiddenBodyInput && autoMessageInput) {
-                            const bodyContent = window.quillInstance.root.innerHTML;
-                            let footerContent = window.EMAIL_FOOTER_HTML;
+                            if (window.quillInstance && hiddenBodyInput && autoMessageInput) {
+                                const bodyContent = window.quillInstance.root.innerHTML;
 
-                            // Para LEVANTAMIENTO: reemplazar placeholder con fecha+hora del formulario
-                            if (footerContent.includes('__FECHA_IDEAL__')) {
-                                const fechaInput = document.getElementById('fecha-ideal-input');
-                                const horaInput = document.getElementById('hora-ideal-input');
-                                let fechaStr = '(por definir)';
-                                if (fechaInput && fechaInput.value) {
-                                    const [y, m, d] = fechaInput.value.split('-');
-                                    fechaStr = `${d}/${m}/${y}`;
-                                    if (horaInput && horaInput.value) {
-                                        fechaStr += ` ${horaInput.value} hrs`;
-                                    }
+                                if (bodyContent.length > QUILL_EMAIL_BODY_MAX_LENGTH) {
+                                    evt.preventDefault();
+                                    mostrarAvisoImagen('El cuerpo del correo es demasiado grande. Elimina las imágenes o adjúntalas como archivo en la sección de adjuntos.', 'error');
+                                    return;
                                 }
-                                footerContent = footerContent.replace('__FECHA_IDEAL__', fechaStr);
+
+                                let footerContent = window.EMAIL_FOOTER_HTML;
+
+                                // Para LEVANTAMIENTO: reemplazar placeholder con fecha+hora del formulario
+                                if (footerContent.includes('__FECHA_IDEAL__')) {
+                                    const fechaInput = document.getElementById('fecha-ideal-input');
+                                    const horaInput = document.getElementById('hora-ideal-input');
+                                    let fechaStr = '(por definir)';
+                                    if (fechaInput && fechaInput.value) {
+                                        const [y, m, d] = fechaInput.value.split('-');
+                                        fechaStr = `${d}/${m}/${y}`;
+                                        if (horaInput && horaInput.value) {
+                                            fechaStr += ` ${horaInput.value} hrs`;
+                                        }
+                                    }
+                                    footerContent = footerContent.replace('__FECHA_IDEAL__', fechaStr);
+                                }
+
+                                hiddenBodyInput.value = bodyContent;
+                                autoMessageInput.value = footerContent;
+                                evt.detail.parameters['body'] = bodyContent;
+                                evt.detail.parameters['auto_message'] = footerContent;
                             }
+                        });
 
-                            hiddenBodyInput.value = bodyContent;
-                            autoMessageInput.value = footerContent;
-                            evt.detail.parameters['body'] = bodyContent;
-                            evt.detail.parameters['auto_message'] = footerContent;
-                        }
-                    });
+                        form.addEventListener('htmx:beforeRequest', function (evt) {
+                            if (evt.detail.elt === form) {
+                                submitBtn.disabled = true;
+                                submitBtn.classList.add('sending');
+                                btnText.innerHTML = '📤 Enviando...';
+                            }
+                        });
 
-                    form.addEventListener('htmx:beforeRequest', function (evt) {
-                        if (evt.detail.elt === form) {
-                            submitBtn.disabled = true;
-                            submitBtn.classList.add('sending');
-                            btnText.innerHTML = '📤 Enviando...';
-                        }
-                    });
+                        form.addEventListener('htmx:afterRequest', function (evt) {
+                            if (evt.detail.elt === form && !evt.detail.successful) {
+                                submitBtn.disabled = false;
+                                submitBtn.classList.remove('sending');
+                                btnText.innerHTML = 'Enviar Correo';
+                            }
+                        });
 
-                    form.addEventListener('htmx:afterRequest', function (evt) {
-                        if (evt.detail.elt === form && !evt.detail.successful) {
-                            submitBtn.disabled = false;
-                            submitBtn.classList.remove('sending');
-                            btnText.innerHTML = 'Enviar Correo';
-                        }
-                    });
+                        form.dataset.quillListenersReady = 'true';
+                    }
 
-                    // ⚡ PASO 2: Inicializar Quill con delay
+                    // Listener del file picker para imagen
+                    configurarPickerImagenQuill();
+
+                    // PASO 2: Inicializar Quill con delay
                     setTimeout(function () {
                         const container = document.getElementById('quill-editor');
                         if (!container || container.classList.contains('ql-container')) return;
@@ -383,8 +479,23 @@
                             window.quillInstance = new Quill('#quill-editor', {
                                 theme: 'snow',
                                 placeholder: 'Escribe tu mensaje aquí...',
-                                modules: { toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered' }, { 'list': 'bullet' }], [{ 'header': [1, 2, 3, false] }], ['clean']] }
+                                modules: { toolbar: [['bold', 'italic', 'underline'], [{ 'list': 'ordered' }, { 'list': 'bullet' }], [{ 'header': [1, 2, 3, false] }], ['image'], ['clean']] }
                             });
+
+                            window.quillInstance.getModule('toolbar').addHandler('image', function () {
+                                var pickerEl = configurarPickerImagenQuill();
+                                if (pickerEl) pickerEl.click();
+                            });
+
+                            window.quillInstance.root.addEventListener('paste', function (e) {
+                                var items = Array.from((e.clipboardData || {}).items || []);
+                                var imageItem = items.find(function (item) { return item.type.startsWith('image/'); });
+                                if (!imageItem) return;
+                                e.preventDefault();
+                                e.stopPropagation();
+                                var file = imageItem.getAsFile();
+                                insertarImagenQuill(file);
+                            }, true);
 
                             if (submitBtn && btnText) {
                                 submitBtn.disabled = false;
@@ -493,4 +604,5 @@
             });
         })();
     </script>
+    <input type="file" id="quill-image-picker" accept="image/*" class="hidden">
 </div>

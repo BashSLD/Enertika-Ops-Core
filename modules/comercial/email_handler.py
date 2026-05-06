@@ -290,20 +290,21 @@ class EmailHandler:
         # Si thread_id tiene valor, ya se envió exitosamente en el ciclo for.
         if thread_id:
             return {"success": True, "error": None}
-        else:
-            ok, msg = await ms_auth.send_email_with_attachments(
-                access_token=access_token,
-                from_email=user_email,
-                subject=subject,
-                body=body,
-                recipients=recipients,
-                cc_recipients=cc,
-                bcc_recipients=bcc,
-                importance=prioridad.lower(),
-                attachments_files=attachments
-            )
+
+        ok, msg = await ms_auth.send_email_with_attachments(
+            access_token=access_token,
+            from_email=user_email,
+            subject=subject,
+            body=body,
+            recipients=recipients,
+            cc_recipients=cc,
+            bcc_recipients=bcc,
+            importance=prioridad.lower(),
+            attachments_files=attachments
+        )
+        if ok:
             logger.info(f"Correo enviado como NUEVO (sin hilo previo) desde {user_email}")
-        
+
         return {"success": ok, "error": msg if not ok else None}
     
     def _manejar_error_envio(self, request: Request, error_msg: str) -> dict:
@@ -316,11 +317,12 @@ class EmailHandler:
         
         logger.error(f"Fallo envio correo Graph: {error_msg}")
         return templates.TemplateResponse(
-            request, "comercial/partials/toasts/toast_error.html",
-            {                "title": "Error enviando correo",
+            request,
+            "comercial/partials/toasts/toast_error.html",
+            {
+                "title": "Error enviando correo",
                 "message": error_msg
-            },
-            status_code=400
+            }
         )
 
 
