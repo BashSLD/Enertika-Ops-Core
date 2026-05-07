@@ -88,7 +88,7 @@
             } %}
             {% set tipo = item.tipo_detectado or 'NORMAL' %}
             {% set label, cls = tipo_labels.get(tipo, ('Factura', 'bg-green-100 text-green-800')) %}
-            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {{ cls }}">
+            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium {{ cls }}">
               {{ label }}
             </span>
           </td>
