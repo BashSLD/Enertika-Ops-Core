@@ -10,7 +10,6 @@ Endpoints:
 - /compras/catalogos - Catálogos para dropdowns
 """
 
-import asyncio
 import json
 import logging
 from typing import List, Optional
@@ -1310,10 +1309,8 @@ async def get_inventario(
     """Lista de inventario (mini almacén)."""
     from .db_service import get_db_service
     db_svc = get_db_service()
-    items, proveedores = await asyncio.gather(
-        db_svc.get_inventario(conn),
-        db_svc.get_proveedores_activos(conn),
-    )
+    items = await db_svc.get_inventario(conn)
+    proveedores = await db_svc.get_proveedores_activos(conn)
     return templates.TemplateResponse(
         request, "compras/partials/inventario.html", {"items": items, "proveedores": proveedores}
     )
@@ -1338,10 +1335,8 @@ async def registrar_inventario(
     await db_svc.insert_inventario(
         conn, descripcion, cantidad, unidad_medida, ubicacion, prov, None, notas
     )
-    items, proveedores = await asyncio.gather(
-        db_svc.get_inventario(conn),
-        db_svc.get_proveedores_activos(conn),
-    )
+    items = await db_svc.get_inventario(conn)
+    proveedores = await db_svc.get_proveedores_activos(conn)
     return templates.TemplateResponse(
         request, "compras/partials/inventario.html", {"items": items, "proveedores": proveedores}
     )

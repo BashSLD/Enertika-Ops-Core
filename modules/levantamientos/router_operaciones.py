@@ -1232,10 +1232,8 @@ def register_operaciones_endpoints(router: APIRouter):
             })
             return Response(content="", status_code=204, headers={"HX-Location": hx_location})
 
-        levantamientos_visita, viaticos = await asyncio.gather(
-            visitas_db_svc.get_levantamientos_en_visita(conn, id_visita),
-            visitas_db_svc.get_viaticos_visita(conn, id_visita),
-        )
+        levantamientos_visita = await visitas_db_svc.get_levantamientos_en_visita(conn, id_visita)
+        viaticos = await visitas_db_svc.get_viaticos_visita(conn, id_visita)
         total_viaticos = float(sum(v["monto"] for v in viaticos))
         prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
 
@@ -1331,10 +1329,8 @@ def register_operaciones_endpoints(router: APIRouter):
             conn, id_visita, context["user_db_id"], context["user_db_id"]
         )
 
-        levantamientos_visita, viaticos = await asyncio.gather(
-            visitas_db_svc.get_levantamientos_en_visita(conn, id_visita),
-            visitas_db_svc.get_viaticos_visita(conn, id_visita),
-        )
+        levantamientos_visita = await visitas_db_svc.get_levantamientos_en_visita(conn, id_visita)
+        viaticos = await visitas_db_svc.get_viaticos_visita(conn, id_visita)
         total_viaticos = float(sum(v["monto"] for v in viaticos))
         prorrateo = calcular_prorrateo(total_viaticos, levantamientos_visita)
 
