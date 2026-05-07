@@ -1054,6 +1054,7 @@ async def crear_seguimiento(
     tipo_solicitud: str = Form(...),
     prioridad: str = Form(...),
     force_create: bool = Form(False),
+    force_ganada: bool = Form(False),
     convertir_multisitio: bool = Form(False),
     sitios_json_conversion: str = Form(None),
     service: ComercialService = Depends(get_comercial_service),
@@ -1063,13 +1064,51 @@ async def crear_seguimiento(
     _auth = require_module_access("comercial", "editor")
 ):
     """Acción del Historial: Crea seguimiento y salta directo al correo."""
-    if not user_context.get("email"): 
+    if not user_context.get("email"):
         return HTMLResponse(status_code=401)
-    
+
     # Valida Token Graph antes de procesar
     token = await get_valid_graph_token(request)
     if not token:
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
+
+    # --- VERIFICACIÓN DE GRUPO ---
+    if not force_ganada:
+        bloqueador = await service.check_grupo_bloqueador(conn, parent_id)
+
+        if bloqueador["tipo"] == "ganado":
+            context_role = user_context.get("role", "USER")
+            comercial_role = user_context.get("module_roles", {}).get("comercial", "")
+            can_force = (
+                context_role == "ADMIN"
+                or comercial_role == "admin"
+                or (context_role == "MANAGER" and comercial_role in ("editor", "admin"))
+            )
+            return templates.TemplateResponse(
+                request,
+                "comercial/modals/grupo_ganado_warning.html",
+                {
+                    "parent_id": parent_id,
+                    "tipo_solicitud": tipo_solicitud,
+                    "prioridad": prioridad,
+                    "convertir_multisitio": convertir_multisitio,
+                    "sitios_json_conversion": sitios_json_conversion or "",
+                    "ganado_op_id": bloqueador["op_id"],
+                    "can_force": can_force,
+                },
+                headers={"HX-Reswap": "beforeend", "HX-Retarget": "body"},
+            )
+
+        if bloqueador["tipo"] == "activo":
+            return templates.TemplateResponse(
+                request,
+                "comercial/modals/grupo_activo_warning.html",
+                {
+                    "sim": bloqueador.get("sim"),
+                    "lev": bloqueador.get("lev"),
+                },
+                headers={"HX-Reswap": "beforeend", "HX-Retarget": "body"},
+            )
 
     # --- THREAD CHECK LOGIC ---
     if not force_create:

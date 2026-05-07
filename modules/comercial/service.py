@@ -87,6 +87,7 @@ from .db_service import (
     QUERY_GET_PROGRESO_GATE,
     QUERY_GET_JEFE_BY_ROL_ORG,
     QUERY_GET_EQUIPO_PROYECTO_ACTIVO,
+    QUERY_CHECK_GRUPO_BLOQUEADOR,
 )
 
 # Shared Services
@@ -1046,6 +1047,24 @@ class ComercialService:
             user_db_id
         )
         return has_token or False
+
+    async def check_grupo_bloqueador(self, conn, id_oportunidad: UUID) -> dict:
+        """Verifica si el grupo tiene un bloqueador antes de crear un seguimiento.
+        Retorna dict con tipo=None (libre), 'ganado', o 'activo' con detalles del bloqueador."""
+        row = await conn.fetchrow(QUERY_CHECK_GRUPO_BLOQUEADOR, id_oportunidad)
+        if not row:
+            return {"tipo": None}
+        r = dict(row)
+        if r["grupo_ganado"]:
+            return {"tipo": "ganado", "op_id": r["ganado_op_id"]}
+        tiene_activo = r["tiene_activo_op"] or r["tiene_activo_lev"]
+        if tiene_activo:
+            return {
+                "tipo": "activo",
+                "sim": {"op_id": r["bloqueador_op_id"], "estado": r["bloqueador_op_estado"], "tipo_solicitud": r["bloqueador_op_tipo"]} if r["tiene_activo_op"] else None,
+                "lev": {"op_id": r["bloqueador_lev_op_id"], "estado": r["bloqueador_lev_estado"]} if r["tiene_activo_lev"] else None,
+            }
+        return {"tipo": None}
 
     async def create_followup_oportunidad(self, parent_id: UUID, nuevo_tipo_solicitud: str, prioridad: str, conn, user_id: UUID, user_name: str, sitios_json_pendiente: str = None) -> UUID:
         """Crea seguimiento clonando padre + sitios. Si sitios_json_pendiente se provee, guarda conversión diferida."""
