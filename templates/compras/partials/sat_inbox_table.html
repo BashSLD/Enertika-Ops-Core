@@ -53,6 +53,7 @@
           {{ sort_th('nombre', 'Nombre Emisor', 'text-left') }}
           {{ sort_th('total', 'Total', 'text-right') }}
           {{ sort_th('moneda', 'Moneda', 'text-left') }}
+          <th class="px-4 py-3 text-left font-medium text-gray-500">Tipo</th>
           <th class="px-4 py-3 text-left font-medium text-gray-500">Estado</th>
           <th class="px-4 py-3 text-left font-medium text-gray-500">Acciones</th>
         </tr>
@@ -77,6 +78,20 @@
           <td class="px-4 py-3 text-gray-700">{{ item.nombre_emisor or '—' }}</td>
           <td class="px-4 py-3 text-right text-gray-700">{{ '{:,.2f}'.format(item.total or 0) }}</td>
           <td class="px-4 py-3 text-gray-500">{{ item.moneda }}</td>
+          <td class="px-4 py-3">
+            {% set tipo_labels = {
+                'NORMAL': ('Factura', 'bg-green-100 text-green-800'),
+                'ANTICIPO': ('Anticipo', 'bg-orange-100 text-orange-800'),
+                'CIERRE_ANTICIPO': ('Cierre Anticipo', 'bg-blue-100 text-blue-800'),
+                'PAGO': ('Comp. Pago', 'bg-cyan-100 text-cyan-800'),
+                'NOTA_CREDITO': ('Nota Crédito', 'bg-purple-100 text-purple-800'),
+            } %}
+            {% set tipo = item.tipo_detectado or 'NORMAL' %}
+            {% set label, cls = tipo_labels.get(tipo, ('Factura', 'bg-green-100 text-green-800')) %}
+            <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium {{ cls }}">
+              {{ label }}
+            </span>
+          </td>
           <td class="px-4 py-3">
             {% if item.estado == 'pendiente' %}
             <span class="inline-flex items-center rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-800">Pendiente</span>
