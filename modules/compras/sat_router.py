@@ -24,8 +24,8 @@ templates = Jinja2Templates(directory="templates")
 @router.get("/ui", response_class=HTMLResponse)
 async def sat_inbox_ui(
     request: Request,
-    page: int = 1,
     estado: str = "pendiente",
+    limit: int = 50,
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=require_module_access("compras", "editor"),
@@ -33,15 +33,14 @@ async def sat_inbox_ui(
     is_htmx = request.headers.get("hx-request")
     is_history_restore = request.headers.get("hx-history-restore-request")
 
-    items, total = await sat_db_service.listar_inbox(conn, estado=estado, page=page)
+    items, total = await sat_db_service.listar_inbox(conn, estado=estado, limit=limit)
     ultimo_job = await sat_db_service.obtener_ultimo_job(conn)
     solicitudes_hoy = await sat_db_service.contar_solicitudes_hoy(conn)
 
     ctx = {
         "items": items,
         "total": total,
-        "page": page,
-        "page_size": 50,
+        "limit": limit,
         "estado_filtro": estado,
         "ultimo_job": ultimo_job,
         "solicitudes_hoy": solicitudes_hoy,
@@ -165,6 +164,7 @@ async def descartar_item(
     request: Request,
     inbox_id: UUID,
     estado: str = "pendiente",
+    limit: int = 50,
     conn=Depends(get_db_connection),
     _=require_module_access("compras", "editor"),
 ):
@@ -187,11 +187,11 @@ async def descartar_item(
             status_code=500,
             headers={"HX-Reswap": "none"},
         )
-    items, total = await sat_db_service.listar_inbox(conn, estado=estado)
+    items, total = await sat_db_service.listar_inbox(conn, estado=estado, limit=limit)
     return templates.TemplateResponse(
         request,
         "compras/partials/sat_inbox_table.html",
-        {"items": items, "total": total, "estado_filtro": estado},
+        {"items": items, "total": total, "estado_filtro": estado, "limit": limit},
     )
 
 
@@ -200,6 +200,7 @@ async def bulk_descartar(
     request: Request,
     inbox_ids: list[str] = Form(default=[]),
     estado: str = Form("pendiente"),
+    limit: int = Form(50),
     conn=Depends(get_db_connection),
     _=require_module_access("compras", "editor"),
 ):
@@ -225,12 +226,12 @@ async def bulk_descartar(
             headers={"HX-Reswap": "none"},
         )
 
-    items, total = await sat_db_service.listar_inbox(conn, estado=estado)
+    items, total = await sat_db_service.listar_inbox(conn, estado=estado, limit=limit)
 
     table_html = templates.TemplateResponse(
         request,
         "compras/partials/sat_inbox_table.html",
-        {"items": items, "total": total, "estado_filtro": estado},
+        {"items": items, "total": total, "estado_filtro": estado, "limit": limit},
     ).body.decode("utf-8")
 
     toast_html = templates.TemplateResponse(
@@ -247,6 +248,7 @@ async def restaurar_item(
     request: Request,
     inbox_id: UUID,
     estado: str = "pendiente",
+    limit: int = 50,
     conn=Depends(get_db_connection),
     _=require_module_access("compras", "editor"),
 ):
@@ -269,11 +271,11 @@ async def restaurar_item(
             status_code=500,
             headers={"HX-Reswap": "none"},
         )
-    items, total = await sat_db_service.listar_inbox(conn, estado=estado)
+    items, total = await sat_db_service.listar_inbox(conn, estado=estado, limit=limit)
     return templates.TemplateResponse(
         request,
         "compras/partials/sat_inbox_table.html",
-        {"items": items, "total": total, "estado_filtro": estado},
+        {"items": items, "total": total, "estado_filtro": estado, "limit": limit},
     )
 
 
@@ -367,6 +369,10 @@ async def confirmar_match(
     _=require_module_access("compras", "editor"),
 ):
     form = await request.form()
+    try:
+        limit = int(form.get("limit") or 50)
+    except ValueError:
+        limit = 50
     comprobante_id_str = (form.get("comprobante_id") or "").strip()
     try:
         comprobante_id = UUID(comprobante_id_str)
@@ -404,11 +410,11 @@ async def confirmar_match(
             status_code=500,
         )
 
-    items, total = await sat_db_service.listar_inbox(conn, estado="pendiente")
+    items, total = await sat_db_service.listar_inbox(conn, estado="pendiente", limit=limit)
     return templates.TemplateResponse(
         request,
         "compras/partials/sat_inbox_table.html",
-        {"items": items, "total": total, "estado_filtro": "pendiente"},
+        {"items": items, "total": total, "estado_filtro": "pendiente", "limit": limit},
     )
 
 
@@ -416,6 +422,7 @@ async def confirmar_match(
 async def procesar_item(
     request: Request,
     inbox_id: UUID,
+    limit: int = 50,
     conn=Depends(get_db_connection),
     _=require_module_access("compras", "editor"),
 ):
@@ -449,13 +456,14 @@ async def procesar_item(
     return templates.TemplateResponse(
         request,
         "compras/partials/sat_match_modal.html",
-        {"cfdi": cfdi, "inbox_id": inbox_id, "comprobantes": comprobantes},
+        {"cfdi": cfdi, "inbox_id": inbox_id, "comprobantes": comprobantes, "limit": limit},
     )
 
 
 @router.get("/inbox/auto-match", response_class=HTMLResponse)
 async def get_auto_match(
     request: Request,
+    limit: int = 50,
     conn=Depends(get_db_connection),
     _=require_module_access("compras", "editor"),
 ):
@@ -463,7 +471,7 @@ async def get_auto_match(
     return templates.TemplateResponse(
         request,
         "compras/partials/sat_auto_match_modal.html",
-        {"matches": matches},
+        {"matches": matches, "limit": limit},
     )
 
 
@@ -471,6 +479,7 @@ async def get_auto_match(
 async def confirm_auto_match(
     request: Request,
     matches: list[str] = Form(default=[]),
+    limit: int = Form(50),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=require_module_access("compras", "editor"),
@@ -508,12 +517,12 @@ async def confirm_auto_match(
 
     toast_type = "success" if errores == 0 else "warning"
 
-    items, total = await sat_db_service.listar_inbox(conn, estado="pendiente")
+    items, total = await sat_db_service.listar_inbox(conn, estado="pendiente", limit=limit)
 
     table_html = templates.TemplateResponse(
         request,
         "compras/partials/sat_inbox_table.html",
-        {"items": items, "total": total, "estado_filtro": "pendiente"},
+        {"items": items, "total": total, "estado_filtro": "pendiente", "limit": limit},
     ).body.decode("utf-8")
 
     table_oob = table_html.replace(

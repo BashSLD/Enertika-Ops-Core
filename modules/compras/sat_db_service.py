@@ -82,7 +82,7 @@ async def obtener_ultimo_job(conn: asyncpg.Connection) -> dict | None:
     )
     return dict(row) if row else None
 
-async def listar_inbox(conn: asyncpg.Connection, estado: str | None = None, page: int = 1, page_size: int = 50) -> tuple[list[dict], int]:
+async def listar_inbox(conn: asyncpg.Connection, estado: str | None = None, limit: int = 50) -> tuple[list[dict], int]:
     filtros = []
     params: list = []
     if estado and estado != "todos":
@@ -91,9 +91,11 @@ async def listar_inbox(conn: asyncpg.Connection, estado: str | None = None, page
     else:
         filtros.append("i.estado != 'descartado'")
     where = f"WHERE {' AND '.join(filtros)}" if filtros else ""
-    offset = (page - 1) * page_size
-    n_params = len(params)
-    params.extend([page_size, offset])
+    count_params = list(params)
+    limit_clause = ""
+    if limit > 0:
+        params.append(limit)
+        limit_clause = f"LIMIT ${len(params)}"
     rows = await conn.fetch(
         f"""
         SELECT i.id, i.uuid_cfdi, i.rfc_emisor, i.nombre_emisor,
@@ -103,12 +105,12 @@ async def listar_inbox(conn: asyncpg.Connection, estado: str | None = None, page
         FROM tb_sat_inbox i
         {where}
         ORDER BY i.created_at DESC
-        LIMIT ${n_params + 1} OFFSET ${n_params + 2}
+        {limit_clause}
         """,
         *params,
     )
     count_row = await conn.fetchrow(
-        f"SELECT COUNT(*) FROM tb_sat_inbox i {where}", *params[:n_params]
+        f"SELECT COUNT(*) FROM tb_sat_inbox i {where}", *count_params
     )
     return [dict(r) for r in rows], count_row[0]
 

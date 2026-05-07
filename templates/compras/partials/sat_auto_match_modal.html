@@ -50,6 +50,7 @@
               hx-target="#sat-match-modal-container" 
               hx-swap="innerHTML"
               @submit="processing = true">
+        <input type="hidden" name="limit" value="{{ limit | default(50) }}">
         {% set tipo_colors = {
             'ANTICIPO': 'bg-orange-100 text-orange-800',
             'CIERRE_ANTICIPO': 'bg-blue-100 text-blue-800',

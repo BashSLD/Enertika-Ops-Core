@@ -119,40 +119,9 @@ async def obtener_ultimo_job(conn: asyncpg.Connection) -> dict | None:
 async def listar_inbox(
     conn: asyncpg.Connection,
     estado: str | None = None,
-    page: int = 1,
-    page_size: int = 50,
+    limit: int = 50,
 ) -> tuple[list[dict], int]:
-    filtros = []
-    params: list = []
-
-    if estado and estado != "todos":
-        params.append(estado)
-        filtros.append(f"i.estado = ${len(params)}")
-    else:
-        filtros.append("i.estado != 'descartado'")
-
-    where = f"WHERE {' AND '.join(filtros)}" if filtros else ""
-    offset = (page - 1) * page_size
-
-    n_params = len(params)
-    params.extend([page_size, offset])
-
-    rows = await conn.fetch(
-        f"""
-        SELECT i.id, i.uuid_cfdi, i.rfc_emisor, i.nombre_emisor,
-               i.fecha_cfdi, i.total, i.moneda, i.estado,
-               i.comprobante_id, i.sharepoint_url, i.created_at
-        FROM tb_sat_inbox i
-        {where}
-        ORDER BY i.created_at DESC
-        LIMIT ${n_params + 1} OFFSET ${n_params + 2}
-        """,
-        *params,
-    )
-    count_row = await conn.fetchrow(
-        f"SELECT COUNT(*) FROM tb_sat_inbox i {where}", *params[:n_params]
-    )
-    return [dict(r) for r in rows], count_row[0]
+    return await sat_db_service.listar_inbox(conn, estado=estado, limit=limit)
 
 
 async def descartar_inbox_item(conn: asyncpg.Connection, inbox_id: UUID) -> None:
