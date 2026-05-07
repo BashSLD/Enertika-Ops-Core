@@ -348,7 +348,8 @@
         if (!form) return;
         const formData = new FormData(form);
         const params = new URLSearchParams(formData);
-        document.getElementById('export-excel-btn').href = '/compras/export-excel?' + params.toString();
+        const excelBtn = document.getElementById('export-excel-btn');
+        if (excelBtn) excelBtn.href = '/compras/export-excel?' + params.toString();
     });
 
     // Limpiar filtros manualmente
@@ -366,7 +367,8 @@
         htmx.trigger(form, 'submit');
 
         // Update excel link
-        document.getElementById('export-excel-btn').href = '/compras/export-excel?estatus=SIN_COMPLETAR';
+        const excelBtnLimpiar = document.getElementById('export-excel-btn');
+        if (excelBtnLimpiar) excelBtnLimpiar.href = '/compras/export-excel?estatus=SIN_COMPLETAR';
     }
 
 </script>
