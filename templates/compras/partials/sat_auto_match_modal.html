@@ -43,11 +43,9 @@
           </div>
         </div>
 
-        <form id="form-auto-match" 
-              method="post" 
-              action="/compras/sat/inbox/auto-match/confirm"
-              hx-post="/compras/sat/inbox/auto-match/confirm" 
-              hx-target="#sat-match-modal-container" 
+        <form id="form-auto-match"
+              hx-post="/compras/sat/inbox/auto-match/confirm"
+              hx-target="#sat-match-modal-container"
               hx-swap="innerHTML"
               @submit="processing = true">
         <input type="hidden" name="limit" value="{{ limit | default(50) }}">

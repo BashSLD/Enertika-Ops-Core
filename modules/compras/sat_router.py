@@ -5,7 +5,7 @@ from uuid import UUID
 
 import asyncpg
 from fastapi import APIRouter, Depends, Request, Form
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from core.database import get_db_connection
@@ -484,6 +484,9 @@ async def confirm_auto_match(
     user=Depends(get_current_user_context),
     _=require_module_access("compras", "editor"),
 ):
+    if not request.headers.get("hx-request"):
+        return RedirectResponse(url="/compras/sat/ui", status_code=303)
+
     if not matches:
         return templates.TemplateResponse(
             request,
