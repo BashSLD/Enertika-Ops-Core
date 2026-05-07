@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recordatorio Levantamiento</title>
+</head>
+
+{#
+  Variables:
+    tipo            — 'sin_asignar' | 'pendiente_sin_agendar' | 'agendado_vencido'
+                      | 'en_proceso_fecha' | 'en_proceso_largo' | 'completado'
+    destinatario    — nombre del destinatario para saludo (None si no aplica)
+    op_id           — ID estándar de la oportunidad
+    proyecto        — nombre del proyecto
+    cliente         — nombre del cliente
+    ingeniero       — nombre del ingeniero responsable (None si no aplica)
+    fecha_extra     — fecha formateada adicional (None si no aplica)
+    nombre_sitio    — nombre del sitio (puede ser None)
+    direccion       — dirección del sitio
+    coordenadas_gps — texto de coordenadas GPS (None si no se han compartido)
+    maps_url        — URL de Google Maps (None si no hay datos suficientes)
+#}
+
+{% set cfgs = {
+    'sin_asignar': {
+        'color':       '#D97706',
+        'color_end':   '#F59E0B',
+        'titulo':      'Levantamiento sin asignar — Recordatorio 24h',
+        'bg':          '#FFFBEB',
+        'border':      '#FDE68A',
+        'accent':      '#78350F',
+        'fecha_label': '',
+    },
+    'pendiente_sin_agendar': {
+        'color':       '#D97706',
+        'color_end':   '#F59E0B',
+        'titulo':      'Levantamiento pendiente sin agendar — Recordatorio 24h',
+        'bg':          '#FAFAFA',
+        'border':      '#E5E7EB',
+        'accent':      '#374151',
+        'fecha_label': '',
+    },
+    'agendado_vencido': {
+        'color':       '#DC2626',
+        'color_end':   '#EF4444',
+        'titulo':      'Levantamiento agendado vencido — Recordatorio',
+        'bg':          '#FEF2F2',
+        'border':      '#FECACA',
+        'accent':      '#7F1D1D',
+        'fecha_label': 'Fecha programada',
+    },
+    'en_proceso_fecha': {
+        'color':       '#C2410C',
+        'color_end':   '#EA580C',
+        'titulo':      'Levantamiento en proceso — Visita vencida',
+        'bg':          '#FFF7ED',
+        'border':      '#FED7AA',
+        'accent':      '#7C2D12',
+        'fecha_label': 'Fecha programada',
+    },
+    'en_proceso_largo': {
+        'color':       '#C2410C',
+        'color_end':   '#EA580C',
+        'titulo':      'Levantamiento en proceso — Sin concluir',
+        'bg':          '#FFF7ED',
+        'border':      '#FED7AA',
+        'accent':      '#7C2D12',
+        'fecha_label': 'En proceso desde',
+    },
+    'completado': {
+        'color':       '#1D4ED8',
+        'color_end':   '#2563EB',
+        'titulo':      'Levantamiento completado — Pendiente de entrega',
+        'bg':          '#EFF6FF',
+        'border':      '#BFDBFE',
+        'accent':      '#1E3A8A',
+        'fecha_label': 'Completado el',
+    },
+} %}
+{% set cfg = cfgs.get(tipo, cfgs['sin_asignar']) %}
+
+<body style="margin: 0; padding: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f4f4; color: #333333;">
+    <table width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f4f4; padding: 20px 0;">
+        <tr>
+            <td align="center">
+                <table width="600" cellpadding="0" cellspacing="0"
+                    style="background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+
+                    <!-- Header -->
+                    <tr>
+                        <td style="background: linear-gradient(135deg, {{ cfg.color }} 0%, {{ cfg.color_end }} 100%); padding: 28px 40px; text-align: center;">
+                            <h1 style="margin: 0; color: #ffffff; font-size: 20px; font-weight: 600;">
+                                {{ cfg.titulo }}
+                            </h1>
+                            <p style="margin: 8px 0 0 0; color: rgba(255,255,255,0.85); font-size: 13px;">
+                                Módulo de Levantamientos — ECO
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Mensaje principal -->
+                    <tr>
+                        <td style="padding: 24px 40px 0 40px;">
+                            {% if tipo == 'sin_asignar' %}
+                            <p style="margin: 0; font-size: 14px; color: #374151; line-height: 1.6;">
+                                Hola <strong>{{ destinatario }}</strong>, el siguiente levantamiento lleva más de 24 horas sin que se le asigne un ingeniero responsable.
+                            </p>
+                            {% elif tipo == 'pendiente_sin_agendar' %}
+                            <p style="margin: 0; font-size: 14px; color: #374151; line-height: 1.6;">
+                                Hola <strong>{{ destinatario }}</strong>, este levantamiento lleva más de 24 horas en estado <strong>Pendiente</strong> sin que se haya programado una fecha de visita.
+                            </p>
+                            {% elif tipo == 'agendado_vencido' %}
+                            <p style="margin: 0; font-size: 14px; color: #374151; line-height: 1.6;">
+                                Hola <strong>{{ destinatario }}</strong>, la fecha programada de visita (<strong>{{ fecha_extra }}</strong>) ya pasó y el levantamiento sigue en estado <strong>Agendado</strong>.
+                            </p>
+                            {% elif tipo == 'en_proceso_fecha' %}
+                            <p style="margin: 0; font-size: 14px; color: #374151; line-height: 1.6;">
+                                La fecha de visita programada (<strong>{{ fecha_extra }}</strong>) ya pasó y el levantamiento de <strong>{{ ingeniero }}</strong> sigue en estado <strong>En Proceso</strong>. Favor de actualizarlo en el sistema.
+                            </p>
+                            {% elif tipo == 'en_proceso_largo' %}
+                            <p style="margin: 0; font-size: 14px; color: #374151; line-height: 1.6;">
+                                El levantamiento de <strong>{{ ingeniero }}</strong> lleva más de 48 horas en estado <strong>En Proceso</strong> (desde {{ fecha_extra }}) sin fecha de visita registrada. Favor de actualizarlo.
+                            </p>
+                            {% elif tipo == 'completado' %}
+                            <p style="margin: 0 0 10px 0; font-size: 14px; color: #374151; line-height: 1.6;">
+                                El levantamiento de <strong>{{ ingeniero }}</strong> está en estado <strong>Completado</strong> desde el {{ fecha_extra }} y aún no ha sido marcado como <strong>Entregado</strong>.
+                            </p>
+                            <p style="margin: 0; font-size: 14px; color: #374151; line-height: 1.6;">
+                                Si ya compartiste la evidencia por correo, solo falta marcarlo como <strong>Entregado</strong> en el sistema. Si aún no has enviado la información, hazlo y luego actualiza el estatus.
+                            </p>
+                            {% endif %}
+                        </td>
+                    </tr>
+
+                    <!-- Datos del proyecto -->
+                    <tr>
+                        <td style="padding: 20px 40px 0 40px;">
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: {{ cfg.bg }}; border: 1px solid {{ cfg.border }}; border-radius: 6px;">
+                                <tr>
+                                    <td style="padding: 16px 18px;">
+                                        <table width="100%" cellpadding="0" cellspacing="0">
+                                            <tr>
+                                                <td style="padding: 4px 0; color: {{ cfg.accent }}; font-weight: 600; font-size: 13px; width: 140px;">Proyecto</td>
+                                                <td style="padding: 4px 0; font-size: 13px; color: #111827;">{{ proyecto }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 4px 0; color: {{ cfg.accent }}; font-weight: 600; font-size: 13px;">Cliente</td>
+                                                <td style="padding: 4px 0; font-size: 13px; color: #111827;">{{ cliente }}</td>
+                                            </tr>
+                                            <tr>
+                                                <td style="padding: 4px 0; color: {{ cfg.accent }}; font-weight: 600; font-size: 13px;">OP</td>
+                                                <td style="padding: 4px 0; font-size: 13px; color: #111827; font-family: monospace;">{{ op_id }}</td>
+                                            </tr>
+                                            {% if fecha_extra and cfg.fecha_label %}
+                                            <tr>
+                                                <td style="padding: 4px 0; color: {{ cfg.accent }}; font-weight: 600; font-size: 13px;">{{ cfg.fecha_label }}</td>
+                                                <td style="padding: 4px 0; font-size: 13px; color: #111827;">{{ fecha_extra }}</td>
+                                            </tr>
+                                            {% endif %}
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Ubicación -->
+                    <tr>
+                        <td style="padding: 16px 40px 0 40px;">
+                            <table width="100%" cellpadding="0" cellspacing="0"
+                                style="background-color: #F0FDF4; border: 1px solid #BBF7D0; border-radius: 6px;">
+                                <tr>
+                                    <td style="padding: 16px 18px;">
+                                        <p style="margin: 0 0 8px 0; font-size: 11px; color: #6B7280; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Ubicación del sitio</p>
+                                        {% if nombre_sitio %}
+                                        <p style="margin: 0 0 4px 0; font-size: 15px; font-weight: 600; color: #14532D;">{{ nombre_sitio }}</p>
+                                        {% endif %}
+                                        <p style="margin: 0 0 10px 0; font-size: 13px; color: #374151;">{{ direccion }}</p>
+                                        {% if coordenadas_gps %}
+                                            {% if maps_url %}
+                                            <p style="margin: 0 0 12px 0;">
+                                                <a href="{{ maps_url }}" style="font-size: 13px; color: #1D4ED8; text-decoration: none; font-weight: 500;">
+                                                    {{ coordenadas_gps }}
+                                                </a>
+                                            </p>
+                                            {% else %}
+                                            <p style="margin: 0 0 12px 0; font-size: 13px; color: #374151;">{{ coordenadas_gps }}</p>
+                                            {% endif %}
+                                        {% else %}
+                                        <p style="margin: 0 0 12px 0; font-size: 13px; color: #9CA3AF; font-style: italic;">No se han compartido coordenadas</p>
+                                        {% endif %}
+                                        {% if maps_url %}
+                                        <a href="{{ maps_url }}"
+                                           style="display: inline-block; background: #16A34A; color: #ffffff; text-decoration: none;
+                                                  padding: 7px 16px; border-radius: 4px; font-size: 12px; font-weight: 600;">
+                                            Abrir en Google Maps
+                                        </a>
+                                        {% endif %}
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <!-- Instrucción -->
+                    <tr>
+                        <td style="padding: 20px 40px 8px 40px;">
+                            <p style="margin: 0; font-size: 13px; color: #6B7280; border-top: 1px solid #E5E7EB; padding-top: 16px;">
+                                {% if tipo == 'sin_asignar' %}
+                                Por favor, ingrese al módulo de Levantamientos y asigne un ingeniero responsable.
+                                {% elif tipo == 'completado' %}
+                                Por favor ingrese al módulo de Levantamientos y cambie el estatus a <strong>Entregado</strong>.
+                                {% else %}
+                                Por favor ingrese al módulo de Levantamientos y actualice el estatus.
+                                {% endif %}
+                            </p>
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td style="padding: 20px 40px 24px 40px;">
+                            <p style="margin: 0; font-size: 11px; color: #9CA3AF; text-align: center;">
+                                Este mensaje fue generado automáticamente por ECO.
+                            </p>
+                        </td>
+                    </tr>
+
+                </table>
+            </td>
+        </tr>
+    </table>
+</body>
+</html>

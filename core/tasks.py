@@ -3,9 +3,26 @@ import time
 import asyncio
 import logging
 import asyncpg
+import urllib.parse
 from datetime import datetime, timedelta
+from jinja2 import Environment, FileSystemLoader
 
 logger = logging.getLogger("BackgroundTasks")
+
+_lev_tpl = Environment(
+    loader=FileSystemLoader("templates"), autoescape=True
+).get_template("shared/emails/levantamientos/recordatorio.html")
+
+
+def _build_maps_url(sitio_maps, op_maps, coords):
+    if sitio_maps:
+        return sitio_maps
+    if op_maps:
+        return op_maps
+    if coords:
+        return f"https://www.google.com/maps/search/?api=1&query={urllib.parse.quote(coords)}"
+    return None
+
 
 async def cleanup_temp_uploads_periodically(interval_seconds: int = 3600, max_age_seconds: int = 3600):
     """
@@ -89,11 +106,17 @@ async def check_levantamientos_sin_asignar_periodically(interval_seconds: int = 
                         o.titulo_proyecto,
                         o.cliente_nombre,
                         u_jefe.nombre AS jefe_nombre,
-                        u_jefe.email  AS jefe_email
+                        u_jefe.email  AS jefe_email,
+                        s.nombre_sitio,
+                        s.direccion        AS sitio_direccion,
+                        s.google_maps_link AS sitio_maps_link,
+                        o.coordenadas_gps,
+                        o.google_maps_link AS op_maps_link
                     FROM tb_levantamientos l
                     INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
                     INNER JOIN tb_cat_estatus_levantamiento e ON l.id_estatus_global = e.id
                     INNER JOIN tb_usuarios u_jefe ON l.jefe_area_id = u_jefe.id_usuario
+                    INNER JOIN tb_sitios_oportunidad s ON s.id_sitio = l.id_sitio
                     WHERE e.codigo = 'pendiente'
                       AND l.created_at < NOW() - INTERVAL '24 hours'
                       AND o.email_enviado = true
@@ -147,37 +170,22 @@ async def check_levantamientos_sin_asignar_periodically(interval_seconds: int = 
                     op_id = row['op_id_estandar'] or ''
                     cliente = row['cliente_nombre'] or ''
                     jefe_nombre = row['jefe_nombre'] or ''
-                    fecha_sol = (
-                        row['fecha_solicitud'].strftime('%d/%m/%Y %H:%M')
-                        if row['fecha_solicitud'] else 'N/A'
-                    )
 
-                    html_body = f"""
-<html>
-<body style="font-family:Arial,sans-serif;color:#333;margin:0;padding:0;">
-  <div style="max-width:600px;margin:0 auto;padding:20px;">
-    <div style="background:#f59e0b;color:white;padding:16px 20px;border-radius:8px 8px 0 0;">
-      <h2 style="margin:0;font-size:18px;font-weight:600;">Levantamiento sin asignar — Recordatorio 24h</h2>
-    </div>
-    <div style="background:#fffbeb;border:1px solid #fde68a;border-top:none;padding:20px;border-radius:0 0 8px 8px;">
-      <p style="margin:0 0 16px;">Hola <strong>{jefe_nombre}</strong>, el siguiente levantamiento lleva mas de 24 horas sin que se le asigne un ingeniero responsable.</p>
-      <table style="width:100%;border-collapse:collapse;">
-        <tr><td style="padding:4px 0;color:#78350f;font-weight:600;width:130px;">Proyecto</td>
-            <td style="padding:4px 0;">{nombre_proyecto}</td></tr>
-        <tr><td style="padding:4px 0;color:#78350f;font-weight:600;">Cliente</td>
-            <td style="padding:4px 0;">{cliente}</td></tr>
-        <tr><td style="padding:4px 0;color:#78350f;font-weight:600;">OP</td>
-            <td style="padding:4px 0;font-family:monospace;">{op_id}</td></tr>
-        <tr><td style="padding:4px 0;color:#78350f;font-weight:600;">Fecha solicitud</td>
-            <td style="padding:4px 0;">{fecha_sol}</td></tr>
-      </table>
-      <p style="margin-top:16px;color:#555;border-top:1px solid #fde68a;padding-top:12px;">
-        Por favor, ingrese al modulo de Levantamientos y asigne un ingeniero responsable.
-      </p>
-    </div>
-  </div>
-</body>
-</html>"""
+                    html_body = _lev_tpl.render(
+                        tipo="sin_asignar",
+                        destinatario=jefe_nombre,
+                        op_id=op_id,
+                        proyecto=nombre_proyecto,
+                        cliente=cliente,
+                        ingeniero=None,
+                        fecha_extra=None,
+                        nombre_sitio=row['nombre_sitio'],
+                        direccion=row['sitio_direccion'] or '',
+                        coordenadas_gps=row['coordenadas_gps'],
+                        maps_url=_build_maps_url(
+                            row['sitio_maps_link'], row['op_maps_link'], row['coordenadas_gps']
+                        ),
+                    )
 
                     subject = f"[Recordatorio] Levantamiento sin asignar: {op_id} — {cliente}"
 
@@ -262,13 +270,19 @@ async def check_recordatorios_levantamientos_periodically(interval_seconds: int 
                         o.cliente_nombre,
                         l.fecha_visita_programada AT TIME ZONE 'America/Mexico_City' AS fecha_programada,
                         u.nombre  AS responsable_nombre,
-                        u.email   AS responsable_email
+                        u.email   AS responsable_email,
+                        s.nombre_sitio,
+                        s.direccion        AS sitio_direccion,
+                        s.google_maps_link AS sitio_maps_link,
+                        o.coordenadas_gps,
+                        o.google_maps_link AS op_maps_link
                     FROM tb_levantamientos l
                     JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
                     JOIN tb_cat_estatus_levantamiento e ON l.id_estatus_global = e.id
                     JOIN tb_levantamiento_asignaciones la
                         ON la.id_levantamiento = l.id_levantamiento AND la.es_responsable = true
                     JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
+                    JOIN tb_sitios_oportunidad s ON s.id_sitio = l.id_sitio
                     WHERE u.email IS NOT NULL
                       AND u.is_active = true
                       AND o.email_enviado = true
@@ -307,56 +321,44 @@ async def check_recordatorios_levantamientos_periodically(interval_seconds: int 
                     proyecto = row["nombre_proyecto"] or row["titulo_proyecto"] or "Sin nombre"
                     responsable = row["responsable_nombre"] or ""
                     to_email = row["responsable_email"]
+                    maps_url = _build_maps_url(
+                        row["sitio_maps_link"], row["op_maps_link"], row["coordenadas_gps"]
+                    )
 
                     if tipo == "pendiente_sin_agendar":
                         asunto = f"[Recordatorio] Levantamiento pendiente sin agendar: {op_id}"
-                        encabezado_color = "#f59e0b"
-                        encabezado_texto = "Levantamiento pendiente sin agendar — Recordatorio 24h"
-                        cuerpo_extra = (
-                            f"Hola <strong>{responsable}</strong>, este levantamiento lleva más de 24 horas "
-                            "en estado <strong>Pendiente</strong> sin que se haya programado una fecha de visita."
+                        html_body = _lev_tpl.render(
+                            tipo="pendiente_sin_agendar",
+                            destinatario=responsable,
+                            op_id=op_id,
+                            proyecto=proyecto,
+                            cliente=cliente,
+                            ingeniero=None,
+                            fecha_extra=None,
+                            nombre_sitio=row["nombre_sitio"],
+                            direccion=row["sitio_direccion"] or "",
+                            coordenadas_gps=row["coordenadas_gps"],
+                            maps_url=maps_url,
                         )
-                        detalle_fecha = ""
                     else:
                         fecha_str = (
                             row["fecha_programada"].strftime("%d/%m/%Y %H:%M")
                             if row["fecha_programada"] else "N/A"
                         )
                         asunto = f"[Recordatorio] Levantamiento agendado vencido: {op_id}"
-                        encabezado_color = "#ef4444"
-                        encabezado_texto = "Levantamiento agendado vencido — Recordatorio"
-                        cuerpo_extra = (
-                            f"Hola <strong>{responsable}</strong>, la fecha programada de visita "
-                            f"(<strong>{fecha_str}</strong>) ya pasó y el levantamiento sigue en estado "
-                            "<strong>Agendado</strong>."
+                        html_body = _lev_tpl.render(
+                            tipo="agendado_vencido",
+                            destinatario=responsable,
+                            op_id=op_id,
+                            proyecto=proyecto,
+                            cliente=cliente,
+                            ingeniero=None,
+                            fecha_extra=fecha_str,
+                            nombre_sitio=row["nombre_sitio"],
+                            direccion=row["sitio_direccion"] or "",
+                            coordenadas_gps=row["coordenadas_gps"],
+                            maps_url=maps_url,
                         )
-                        detalle_fecha = f"""
-                        <tr><td style="padding:4px 0;color:#7f1d1d;font-weight:600;width:140px;">Fecha programada</td>
-                            <td style="padding:4px 0;">{fecha_str}</td></tr>"""
-
-                    html_body = f"""
-<html><body style="font-family:Arial,sans-serif;color:#333;margin:0;padding:0;">
-  <div style="max-width:600px;margin:0 auto;padding:20px;">
-    <div style="background:{encabezado_color};color:white;padding:16px 20px;border-radius:8px 8px 0 0;">
-      <h2 style="margin:0;font-size:18px;font-weight:600;">{encabezado_texto}</h2>
-    </div>
-    <div style="background:#fafafa;border:1px solid #e5e7eb;border-top:none;padding:20px;border-radius:0 0 8px 8px;">
-      <p style="margin:0 0 16px;">{cuerpo_extra}</p>
-      <table style="width:100%;border-collapse:collapse;">
-        <tr><td style="padding:4px 0;font-weight:600;width:140px;">Proyecto</td>
-            <td style="padding:4px 0;">{proyecto}</td></tr>
-        <tr><td style="padding:4px 0;font-weight:600;">Cliente</td>
-            <td style="padding:4px 0;">{cliente}</td></tr>
-        <tr><td style="padding:4px 0;font-weight:600;">OP</td>
-            <td style="padding:4px 0;font-family:monospace;">{op_id}</td></tr>
-        {detalle_fecha}
-      </table>
-      <p style="margin-top:16px;color:#555;border-top:1px solid #e5e7eb;padding-top:12px;">
-        Por favor ingrese al módulo de Levantamientos y actualice el estatus.
-      </p>
-    </div>
-  </div>
-</body></html>"""
 
                     success, msg = await ms_auth.send_email_with_attachments(
                         access_token=app_token,
@@ -699,6 +701,334 @@ async def check_recordatorios_oportunidad_ganada_periodically(interval_seconds: 
             logger.error("[OPP_GANADA_REMINDER] Error de BD: %s", e)
         except Exception as e:
             logger.error("[OPP_GANADA_REMINDER] Error inesperado: %s", e, exc_info=True)
+
+
+async def check_recordatorios_en_proceso_periodically(interval_seconds: int = 3600):
+    """
+    Tarea periódica (cada hora) que envía recordatorios al ingeniero responsable
+    y al jefe de área cuando un levantamiento lleva demasiado tiempo en 'en_proceso':
+
+    1. FECHA_VENCIDA: tiene fecha_visita_programada que ya pasó hace >24h.
+    2. EN_PROCESO_LARGO: sin fecha_visita_programada, pero lleva >48h en en_proceso
+       según la última transición registrada en tb_levantamientos_historial.
+
+    Anti-spam en memoria: no reenvía al mismo levantamiento en <24h.
+    """
+    logger.info("[LEV_EN_PROCESO] Tarea inicializada (intervalo: %sh)", interval_seconds // 3600)
+    _enviados: dict = {}
+
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            from core.database import get_db_pool
+            from core.microsoft import MicrosoftAuth
+
+            pool = await get_db_pool()
+            ms_auth = MicrosoftAuth()
+
+            async with pool.acquire() as conn:
+                sender_row = await conn.fetchrow("""
+                    SELECT email_remitente FROM tb_correos_notificaciones
+                    WHERE departamento = 'DEFAULT' AND activo = true LIMIT 1
+                """)
+                if not sender_row:
+                    logger.error("[LEV_EN_PROCESO] Sin remitente DEFAULT en tb_correos_notificaciones")
+                    continue
+                sender_email = sender_row["email_remitente"]
+
+                app_token = await ms_auth.get_application_token()
+                if not app_token:
+                    logger.error("[LEV_EN_PROCESO] No se pudo obtener token de aplicacion")
+                    continue
+
+                rows = await conn.fetch("""
+                    SELECT
+                        l.id_levantamiento,
+                        CASE
+                            WHEN l.fecha_visita_programada IS NOT NULL THEN 'fecha_vencida'
+                            ELSE 'en_proceso_largo'
+                        END AS subtipo,
+                        o.op_id_estandar,
+                        o.nombre_proyecto,
+                        o.titulo_proyecto,
+                        o.cliente_nombre,
+                        l.fecha_visita_programada AT TIME ZONE 'America/Mexico_City' AS fecha_programada,
+                        h.fecha_transicion AT TIME ZONE 'America/Mexico_City' AS fecha_inicio_proceso,
+                        u_ing.nombre AS ingeniero_nombre,
+                        u_ing.email  AS ingeniero_email,
+                        u_jefe.nombre AS jefe_nombre,
+                        u_jefe.email  AS jefe_email,
+                        s.nombre_sitio,
+                        s.direccion        AS sitio_direccion,
+                        s.google_maps_link AS sitio_maps_link,
+                        o.coordenadas_gps,
+                        o.google_maps_link AS op_maps_link
+                    FROM tb_levantamientos l
+                    JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+                    JOIN tb_cat_estatus_levantamiento e ON l.id_estatus_global = e.id
+                    LEFT JOIN LATERAL (
+                        SELECT fecha_transicion
+                        FROM tb_levantamientos_historial
+                        WHERE id_levantamiento = l.id_levantamiento
+                          AND id_estatus_nuevo = 3
+                        ORDER BY fecha_transicion DESC
+                        LIMIT 1
+                    ) h ON true
+                    LEFT JOIN tb_levantamiento_asignaciones la
+                        ON la.id_levantamiento = l.id_levantamiento AND la.es_responsable = true
+                    LEFT JOIN tb_usuarios u_ing
+                        ON la.tecnico_id = u_ing.id_usuario AND u_ing.is_active = true
+                    LEFT JOIN tb_usuarios u_jefe
+                        ON l.jefe_area_id = u_jefe.id_usuario AND u_jefe.is_active = true
+                    JOIN tb_sitios_oportunidad s ON s.id_sitio = l.id_sitio
+                    WHERE e.codigo = 'en_proceso'
+                      AND o.email_enviado = true
+                      AND (
+                          (l.fecha_visita_programada IS NOT NULL
+                           AND l.fecha_visita_programada < NOW() - INTERVAL '24 hours')
+                          OR
+                          (l.fecha_visita_programada IS NULL
+                           AND h.fecha_transicion IS NOT NULL
+                           AND h.fecha_transicion < NOW() - INTERVAL '48 hours')
+                      )
+                """)
+
+                if not rows:
+                    logger.debug("[LEV_EN_PROCESO] Sin levantamientos en proceso que requieran recordatorio")
+                    continue
+
+                now = datetime.utcnow()
+                cutoff = now - timedelta(hours=48)
+                _enviados = {k: v for k, v in _enviados.items() if v > cutoff}
+
+                for row in rows:
+                    lev_id = str(row["id_levantamiento"])
+                    key = f"en_proceso:{lev_id}"
+
+                    last = _enviados.get(key)
+                    if last and (now - last) < timedelta(hours=24):
+                        continue
+
+                    recipients = [e for e in [row["ingeniero_email"], row["jefe_email"]] if e]
+                    if not recipients:
+                        logger.debug("[LEV_EN_PROCESO] Sin destinatarios para lev=%s", lev_id)
+                        continue
+
+                    subtipo = row["subtipo"]
+                    op_id = row["op_id_estandar"] or ""
+                    cliente = row["cliente_nombre"] or ""
+                    proyecto = row["nombre_proyecto"] or row["titulo_proyecto"] or "Sin nombre"
+                    ingeniero = row["ingeniero_nombre"] or "Ingeniero asignado"
+
+                    maps_url = _build_maps_url(
+                        row["sitio_maps_link"], row["op_maps_link"], row["coordenadas_gps"]
+                    )
+
+                    if subtipo == "fecha_vencida":
+                        fecha_str = (
+                            row["fecha_programada"].strftime("%d/%m/%Y %H:%M")
+                            if row["fecha_programada"] else "N/A"
+                        )
+                        asunto = f"[Recordatorio] Levantamiento en proceso — visita vencida: {op_id}"
+                        html_body = _lev_tpl.render(
+                            tipo="en_proceso_fecha",
+                            destinatario=None,
+                            op_id=op_id,
+                            proyecto=proyecto,
+                            cliente=cliente,
+                            ingeniero=ingeniero,
+                            fecha_extra=fecha_str,
+                            nombre_sitio=row["nombre_sitio"],
+                            direccion=row["sitio_direccion"] or "",
+                            coordenadas_gps=row["coordenadas_gps"],
+                            maps_url=maps_url,
+                        )
+                    else:
+                        fecha_inicio = (
+                            row["fecha_inicio_proceso"].strftime("%d/%m/%Y %H:%M")
+                            if row["fecha_inicio_proceso"] else "N/A"
+                        )
+                        asunto = f"[Recordatorio] Levantamiento en proceso sin concluir: {op_id}"
+                        html_body = _lev_tpl.render(
+                            tipo="en_proceso_largo",
+                            destinatario=None,
+                            op_id=op_id,
+                            proyecto=proyecto,
+                            cliente=cliente,
+                            ingeniero=ingeniero,
+                            fecha_extra=fecha_inicio,
+                            nombre_sitio=row["nombre_sitio"],
+                            direccion=row["sitio_direccion"] or "",
+                            coordenadas_gps=row["coordenadas_gps"],
+                            maps_url=maps_url,
+                        )
+
+                    success, msg = await ms_auth.send_email_with_attachments(
+                        access_token=app_token,
+                        from_email=sender_email,
+                        subject=asunto,
+                        body=html_body,
+                        recipients=recipients,
+                        importance="high",
+                    )
+
+                    if success:
+                        _enviados[key] = now
+                        logger.info(
+                            "[LEV_EN_PROCESO] Enviado subtipo=%s lev=%s a %s",
+                            subtipo, lev_id, recipients,
+                        )
+                    else:
+                        logger.error("[LEV_EN_PROCESO] Error enviando lev=%s: %s", lev_id, msg)
+
+        except asyncpg.PostgresError as e:
+            logger.error("[LEV_EN_PROCESO] Error de BD: %s", e)
+        except Exception as e:
+            logger.error("[LEV_EN_PROCESO] Error inesperado: %s", e, exc_info=True)
+
+
+async def check_recordatorios_completado_periodically(interval_seconds: int = 3600):
+    """
+    Tarea periódica (cada hora) que envía recordatorios al ingeniero responsable
+    y al jefe de área cuando un levantamiento está en 'completado' y no ha sido
+    marcado como 'entregado'.
+
+    El mensaje indica que si ya se compartió la evidencia por correo, solo falta
+    marcarlo como Entregado en el sistema.
+
+    Anti-spam en memoria: reenvía cada 24h hasta que el estatus cambie a entregado.
+    """
+    logger.info("[LEV_COMPLETADO] Tarea inicializada (intervalo: %sh)", interval_seconds // 3600)
+    _enviados: dict = {}
+
+    while True:
+        await asyncio.sleep(interval_seconds)
+        try:
+            from core.database import get_db_pool
+            from core.microsoft import MicrosoftAuth
+
+            pool = await get_db_pool()
+            ms_auth = MicrosoftAuth()
+
+            async with pool.acquire() as conn:
+                sender_row = await conn.fetchrow("""
+                    SELECT email_remitente FROM tb_correos_notificaciones
+                    WHERE departamento = 'DEFAULT' AND activo = true LIMIT 1
+                """)
+                if not sender_row:
+                    logger.error("[LEV_COMPLETADO] Sin remitente DEFAULT en tb_correos_notificaciones")
+                    continue
+                sender_email = sender_row["email_remitente"]
+
+                app_token = await ms_auth.get_application_token()
+                if not app_token:
+                    logger.error("[LEV_COMPLETADO] No se pudo obtener token de aplicacion")
+                    continue
+
+                rows = await conn.fetch("""
+                    SELECT
+                        l.id_levantamiento,
+                        o.op_id_estandar,
+                        o.nombre_proyecto,
+                        o.titulo_proyecto,
+                        o.cliente_nombre,
+                        h.fecha_transicion AT TIME ZONE 'America/Mexico_City' AS fecha_completado,
+                        u_ing.nombre AS ingeniero_nombre,
+                        u_ing.email  AS ingeniero_email,
+                        u_jefe.nombre AS jefe_nombre,
+                        u_jefe.email  AS jefe_email,
+                        s.nombre_sitio,
+                        s.direccion        AS sitio_direccion,
+                        s.google_maps_link AS sitio_maps_link,
+                        o.coordenadas_gps,
+                        o.google_maps_link AS op_maps_link
+                    FROM tb_levantamientos l
+                    JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
+                    JOIN tb_cat_estatus_levantamiento e ON l.id_estatus_global = e.id
+                    LEFT JOIN LATERAL (
+                        SELECT fecha_transicion
+                        FROM tb_levantamientos_historial
+                        WHERE id_levantamiento = l.id_levantamiento
+                          AND id_estatus_nuevo = 5
+                        ORDER BY fecha_transicion DESC
+                        LIMIT 1
+                    ) h ON true
+                    LEFT JOIN tb_levantamiento_asignaciones la
+                        ON la.id_levantamiento = l.id_levantamiento AND la.es_responsable = true
+                    LEFT JOIN tb_usuarios u_ing
+                        ON la.tecnico_id = u_ing.id_usuario AND u_ing.is_active = true
+                    LEFT JOIN tb_usuarios u_jefe
+                        ON l.jefe_area_id = u_jefe.id_usuario AND u_jefe.is_active = true
+                    JOIN tb_sitios_oportunidad s ON s.id_sitio = l.id_sitio
+                    WHERE e.codigo = 'completado'
+                      AND o.email_enviado = true
+                """)
+
+                if not rows:
+                    logger.debug("[LEV_COMPLETADO] Sin levantamientos completados pendientes de entrega")
+                    continue
+
+                now = datetime.utcnow()
+                cutoff = now - timedelta(hours=48)
+                _enviados = {k: v for k, v in _enviados.items() if v > cutoff}
+
+                for row in rows:
+                    lev_id = str(row["id_levantamiento"])
+                    key = f"completado:{lev_id}"
+
+                    last = _enviados.get(key)
+                    if last and (now - last) < timedelta(hours=24):
+                        continue
+
+                    recipients = [e for e in [row["ingeniero_email"], row["jefe_email"]] if e]
+                    if not recipients:
+                        logger.debug("[LEV_COMPLETADO] Sin destinatarios para lev=%s", lev_id)
+                        continue
+
+                    op_id = row["op_id_estandar"] or ""
+                    cliente = row["cliente_nombre"] or ""
+                    proyecto = row["nombre_proyecto"] or row["titulo_proyecto"] or "Sin nombre"
+                    ingeniero = row["ingeniero_nombre"] or "Ingeniero asignado"
+                    fecha_completado = (
+                        row["fecha_completado"].strftime("%d/%m/%Y %H:%M")
+                        if row["fecha_completado"] else "N/A"
+                    )
+
+                    html_body = _lev_tpl.render(
+                        tipo="completado",
+                        destinatario=None,
+                        op_id=op_id,
+                        proyecto=proyecto,
+                        cliente=cliente,
+                        ingeniero=ingeniero,
+                        fecha_extra=fecha_completado,
+                        nombre_sitio=row["nombre_sitio"],
+                        direccion=row["sitio_direccion"] or "",
+                        coordenadas_gps=row["coordenadas_gps"],
+                        maps_url=_build_maps_url(
+                            row["sitio_maps_link"], row["op_maps_link"], row["coordenadas_gps"]
+                        ),
+                    )
+
+                    success, msg = await ms_auth.send_email_with_attachments(
+                        access_token=app_token,
+                        from_email=sender_email,
+                        subject=f"[Recordatorio] Levantamiento completado sin entregar: {op_id}",
+                        body=html_body,
+                        recipients=recipients,
+                        importance="normal",
+                    )
+
+                    if success:
+                        _enviados[key] = now
+                        logger.info("[LEV_COMPLETADO] Enviado lev=%s a %s", lev_id, recipients)
+                    else:
+                        logger.error("[LEV_COMPLETADO] Error enviando lev=%s: %s", lev_id, msg)
+
+        except asyncpg.PostgresError as e:
+            logger.error("[LEV_COMPLETADO] Error de BD: %s", e)
+        except Exception as e:
+            logger.error("[LEV_COMPLETADO] Error inesperado: %s", e, exc_info=True)
 
 
 async def sat_inbox_cleanup_periodically(interval_seconds: int = 604800):
