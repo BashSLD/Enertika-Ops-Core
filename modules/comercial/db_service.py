@@ -247,11 +247,11 @@ QUERY_CHECK_GRUPO_BLOQUEADOR = """
     ),
     t_op AS (
         SELECT id FROM tb_cat_estatus_oportunidades
-        WHERE LOWER(nombre) IN ('ganada', 'cancelado', 'perdido', 'entregado')
+        WHERE es_estatus_final = true OR LOWER(nombre) = 'ganada'
     ),
     t_lev AS (
         SELECT id FROM tb_cat_estatus_levantamiento
-        WHERE LOWER(nombre) IN ('completado', 'cancelado', 'entregado')
+        WHERE es_estatus_final = true
     ),
     miembros AS (
         SELECT o.id_oportunidad, o.op_id_estandar,

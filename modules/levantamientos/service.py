@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 from fastapi import HTTPException
 import json
 from core.permissions import has_org_management_access
+from core.config_service import ConfigService
 
 logger = logging.getLogger("LevantamientosModule")
 
@@ -599,11 +600,34 @@ class LevantamientoService:
                 observaciones=observaciones or "Cambio de estado manual"
             )
 
+            _id_a_codigo = {v: k for k, v in _estatus_map.items()}
+            if _id_a_codigo.get(nuevo_estado) in {'completado', 'entregado', 'cancelado'}:
+                _estatus_op_map = await ConfigService.get_catalog_map(
+                    conn, "tb_cat_estatus_oportunidades", "nombre", "id"
+                )
+                _nombre_op = 'cancelado' if nuevo_estado == _estatus_map.get('cancelado') else 'entregado'
+                _nuevo_estatus_op_id = _estatus_op_map.get(_nombre_op)
+                if _nuevo_estatus_op_id:
+                    await conn.execute(
+                        """UPDATE tb_oportunidades
+                           SET id_estatus_global = $1
+                           WHERE id_oportunidad = $2
+                             AND id_estatus_global NOT IN (
+                                 SELECT id FROM tb_cat_estatus_oportunidades
+                                 WHERE es_estatus_final = true
+                             )""",
+                        _nuevo_estatus_op_id,
+                        current['id_oportunidad']
+                    )
+                    logger.info(
+                        f"[ESTADO] OP {current['id_oportunidad']} sincronizada a estatus_op={_nuevo_estatus_op_id} "
+                        f"por levantamiento {id_levantamiento}"
+                    )
+
             # Al completar: si el levantamiento está en una visita de campo con viáticos
             # y aún no tiene registro en el historico individual, auto-confirmar con prorrateo.
             _db_svc = _get_db_cambiar()
-            _estatus_map2 = await _db_svc.get_estatus_map(conn)
-            id_completado = _estatus_map2.get('completado')
+            id_completado = _estatus_map.get('completado')
             if nuevo_estado == id_completado:
                 already_sent = await _db_svc.check_viaticos_sent(conn, id_levantamiento)
                 if not already_sent:
