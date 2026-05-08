@@ -15,9 +15,8 @@ logger = logging.getLogger("Compras.DBService")
 _SAT_CANDIDATOS_SUBQUERY = """
     (SELECT COUNT(*) FROM tb_sat_inbox i
      WHERE i.estado = 'pendiente'
-       AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO')
        AND i.total IS NOT NULL
-       AND ABS(i.total - c.monto) <= 1.00
+       AND c.moneda = COALESCE(i.moneda, 'MXN')
        AND (
            (c.beneficiario_orig <> '' AND (
                COALESCE(i.nombre_emisor, '') ILIKE '%' || c.beneficiario_orig || '%'
@@ -26,6 +25,26 @@ _SAT_CANDIDATOS_SUBQUERY = """
            OR EXISTS (SELECT 1 FROM tb_proveedores p2
                       WHERE p2.id_proveedor = c.id_proveedor
                         AND p2.rfc = i.rfc_emisor)
+       )
+       AND (
+           (
+               COALESCE(i.tipo_detectado, 'NORMAL') != 'CIERRE_ANTICIPO'
+               AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')
+               AND (
+                   ABS(i.total - c.monto) <= 1.00
+                   OR (
+                       EXISTS (SELECT 1 FROM tb_proveedores p3
+                               WHERE p3.id_proveedor = c.id_proveedor
+                                 AND p3.rfc = i.rfc_emisor)
+                       AND i.total <= (c.monto - COALESCE(c.monto_facturado, 0)) + 0.50
+                   )
+               )
+           )
+           OR (
+               i.tipo_detectado = 'CIERRE_ANTICIPO'
+               AND c.estatus = 'ANTICIPO'
+               AND i.total <= c.monto + 0.50
+           )
        )
     ) as sat_candidatos_count
 """
@@ -183,6 +202,7 @@ class ComprasDBService:
                 c.*,
                 u.nombre as comprador_nombre,
                 p.razon_social as proveedor_nombre,
+                p.rfc as proveedor_rfc,
                 z.nombre as zona_nombre,
                 pr.proyecto_id_estandar as proyecto_nombre,
                 cat.nombre as categoria_nombre

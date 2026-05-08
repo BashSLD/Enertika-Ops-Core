@@ -333,6 +333,9 @@ async def buscar_candidatos_para_comprobante(
     monto: float,
     beneficiario_orig: str,
     proveedor_rfc=None,
+    moneda: str = "MXN",
+    estatus: str | None = None,
+    monto_facturado: float = 0,
     q=None,
 ) -> list:
     if q:
@@ -343,8 +346,10 @@ async def buscar_candidatos_para_comprobante(
             FROM tb_sat_inbox
             WHERE estado = 'pendiente'
               AND (
-                  nombre_emisor ILIKE '%' || $1 || '%'
+                  uuid_cfdi::text ILIKE '%' || $1 || '%'
+                  OR nombre_emisor ILIKE '%' || $1 || '%'
                   OR rfc_emisor ILIKE '%' || $1 || '%'
+                  OR CAST(total AS TEXT) LIKE '%' || $1 || '%'
               )
             ORDER BY fecha_cfdi DESC
             LIMIT 50
@@ -359,7 +364,7 @@ async def buscar_candidatos_para_comprobante(
             FROM tb_sat_inbox
             WHERE estado = 'pendiente'
               AND total IS NOT NULL
-              AND ABS(total - $1) <= 1.00
+              AND COALESCE(moneda, 'MXN') = $4
               AND (
                   ($2 <> '' AND (
                       COALESCE(nombre_emisor, '') ILIKE '%' || $2 || '%'
@@ -367,10 +372,38 @@ async def buscar_candidatos_para_comprobante(
                   ))
                   OR ($3::text IS NOT NULL AND rfc_emisor = $3)
               )
-            ORDER BY ABS(total - $1) ASC, fecha_cfdi DESC
+              AND (
+                  (
+                      COALESCE(tipo_detectado, 'NORMAL') != 'CIERRE_ANTICIPO'
+                      AND $5 IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')
+                      AND (
+                          ABS(total - $1) <= 1.00
+                          OR (
+                              $3::text IS NOT NULL
+                              AND rfc_emisor = $3
+                              AND total <= ($1 - $6::numeric) + 0.50
+                          )
+                      )
+                  )
+                  OR (
+                      tipo_detectado = 'CIERRE_ANTICIPO'
+                      AND $5 = 'ANTICIPO'
+                      AND total <= $1 + 0.50
+                  )
+              )
+            ORDER BY
+              CASE
+                WHEN ABS(total - $1) <= 1.00 THEN 0
+                ELSE 1
+              END,
+              ABS(total - ($1 - $6::numeric)) ASC,
+              fecha_cfdi DESC
             """,
             monto,
             beneficiario_orig,
             proveedor_rfc,
+            moneda or "MXN",
+            estatus or "",
+            monto_facturado or 0,
         )
     return [dict(r) for r in rows]

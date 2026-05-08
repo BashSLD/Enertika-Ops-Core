@@ -850,6 +850,13 @@ class ComprasService:
         if current_estatus not in ('PENDIENTE', 'ANTICIPO', 'PARCIALMENTE_FACTURADO'):
             raise ValueError("El comprobante ya no esta disponible para match")
 
+        cfdi_moneda = (cfdi_data.get('moneda') or "MXN").upper()
+        comprobante_moneda = (comprobante.get('moneda') or "MXN").upper()
+        if cfdi_moneda != comprobante_moneda:
+            raise ValueError(
+                f"La moneda del CFDI ({cfdi_moneda}) no coincide con la del comprobante ({comprobante_moneda})"
+            )
+
         monto_factura = Decimal(str(cfdi_data.get('total', 0)))
         monto_pago = Decimal(str(comprobante['monto']))
         monto_ya_facturado = Decimal(str(comprobante.get('monto_facturado') or 0))
@@ -932,7 +939,7 @@ class ComprasService:
         await db_svc.insertar_comprobante_factura(
             conn, id_comprobante, uuid_factura, tipo_factura,
             monto=monto_factura,
-            moneda=cfdi_data.get('moneda', 'MXN'),
+            moneda=cfdi_moneda,
             fecha=fecha_factura,
             id_proveedor=id_proveedor,
             rfc_emisor=cfdi_data.get('emisor_rfc'),

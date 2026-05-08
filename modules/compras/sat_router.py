@@ -572,6 +572,9 @@ async def get_candidatos_sat(
         monto=float(comprobante["monto"]),
         beneficiario_orig=comprobante["beneficiario_orig"] or "",
         proveedor_rfc=comprobante.get("proveedor_rfc"),
+        moneda=comprobante.get("moneda") or "MXN",
+        estatus=comprobante.get("estatus"),
+        monto_facturado=float(comprobante.get("monto_facturado") or 0),
         q=q,
     )
     return templates.TemplateResponse(
