@@ -12,7 +12,8 @@
 
         <div class="p-6">
             <form hx-post="/admin/config-correos-notificaciones/save" hx-swap="none"
-                hx-on="htmx:afterRequest: if(event.detail.successful) { document.getElementById('config-correos-modal').innerHTML = ''; htmx.trigger('body', 'configCorreosUpdated'); }">
+                hx-on="htmx:afterRequest: if(event.detail.successful) { document.getElementById('config-correos-modal').innerHTML = ''; htmx.trigger('body', 'configCorreosUpdated'); }"
+                @keydown.enter.prevent>
 
                 {% if config %}
                 <input type="hidden" name="id" value="{{ config.id }}">

@@ -75,6 +75,10 @@
                        this.status == this.perdido_id;
             },
             validateForm(event) {
+                if (!this.isDirty) {
+                    event.preventDefault();
+                    return;
+                }
                 this.errors = {};
                 let valid = true;
 
@@ -201,7 +205,7 @@
             <div class="p-6 space-y-6">
                 <form id="form-update-op" {% if can_manage %}hx-put="/simulacion/update/{{ op.id_oportunidad }}"
                     hx-target="#form-feedback" hx-swap="innerHTML" hx-indicator="#loading-overlay-main"
-                    @submit="validateForm($event)" novalidate {% endif %}>
+                    @submit="validateForm($event)" @keydown.enter.prevent novalidate {% endif %}>
                     <div id="form-feedback"></div>
 
                     <!-- ID Interno - Full Width -->

@@ -699,12 +699,12 @@ class ComprasService:
                         comprobante_id=anticipo["id_comprobante"],
                     )
 
-        # Nivel 1: buscar por relacion conocida
+        # Nivel 1: buscar por relacion conocida (batch — una sola query con todos los beneficiarios)
         relaciones = await db_svc.get_relaciones_beneficiario(conn, id_proveedor)
-        for rel in relaciones:
-            beneficiario = rel['beneficiario_nombre']
-            candidatos = await db_svc.buscar_comprobantes_match(
-                conn, beneficiario, monto, moneda, MATCH_TOLERANCIA
+        if relaciones:
+            nombres_rel = [rel['beneficiario_nombre'] for rel in relaciones]
+            candidatos = await db_svc.buscar_comprobantes_por_nombres_proveedor(
+                conn, nombres_rel, monto, moneda, MATCH_TOLERANCIA
             )
             if len(candidatos) == 1:
                 return XmlMatchResult(

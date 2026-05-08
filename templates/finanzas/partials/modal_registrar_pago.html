@@ -49,6 +49,7 @@
             hx-swap="outerHTML"
             @htmx:after-request="if(event.detail.successful) { open = false; $el.closest('[x-data]').remove(); }"
             x-data="{ moneda: '{{ autorizacion.moneda }}' }"
+            @keydown.enter.prevent
             class="p-5 space-y-4">
 
             <div class="grid grid-cols-2 gap-4">

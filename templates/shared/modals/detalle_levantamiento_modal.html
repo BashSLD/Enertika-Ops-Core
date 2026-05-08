@@ -105,7 +105,7 @@
                         <div>
                             <p class="text-xs text-gray-500 uppercase font-semibold mb-1">Coordenadas GPS</p>
                             {% if lev.coordenadas_gps %}
-                            {% set coord_url = lev.google_maps_link or ('https://maps.google.com/?q=' ~ lev.coordenadas_gps) %}
+                            {% set coord_url = lev.google_maps_link or ('https://maps.google.com/?q=' ~ lev.coordenadas_gps | urlencode) %}
                             <a href="{{ coord_url }}" target="_blank" rel="noopener"
                                 class="text-xs text-emerald-600 hover:text-emerald-800 hover:underline inline-flex items-center gap-1">
                                 <svg class="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">

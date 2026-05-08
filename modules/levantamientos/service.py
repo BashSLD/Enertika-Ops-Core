@@ -620,8 +620,8 @@ class LevantamientoService:
                         current['id_oportunidad']
                     )
                     logger.info(
-                        f"[ESTADO] OP {current['id_oportunidad']} sincronizada a estatus_op={_nuevo_estatus_op_id} "
-                        f"por levantamiento {id_levantamiento}"
+                        "[ESTADO] OP %s sincronizada a estatus_op=%s por levantamiento %s",
+                        current['id_oportunidad'], _nuevo_estatus_op_id, id_levantamiento
                     )
 
             # Al completar: si el levantamiento está en una visita de campo con viáticos

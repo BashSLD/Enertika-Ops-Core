@@ -178,6 +178,7 @@
                   hx-swap="outerHTML"
                   hx-trigger="do_guardar"
                   @submit.prevent="verificarYGuardar()"
+                  @keydown.enter.prevent
                   hx-indicator="#editar-spinner"
                   hx-on::after-request="if(event.detail.successful) document.getElementById('modal-editar-cotizacion')?.remove()"
                   class="flex flex-col gap-4">

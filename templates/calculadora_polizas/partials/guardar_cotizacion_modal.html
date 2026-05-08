@@ -25,6 +25,7 @@
               hx-post="/oym/cotizaciones/guardar"
               hx-swap="none"
               hx-on::after-request="if(event.detail.successful) { document.getElementById('modal-guardar-cotizacion')?.remove(); htmx.ajax('GET', '/oym/cotizaciones/ui', {target: '#main-content', swap: 'innerHTML'}); history.pushState({}, '', '/oym/cotizaciones/ui'); }"
+              @keydown.enter.prevent
               class="px-5 py-4 flex flex-col gap-4 flex-1 overflow-y-auto">
 
             <input type="hidden" name="planta_id" value="{{ planta_id }}">

@@ -93,6 +93,7 @@
                   hx-post="/oym/cotizaciones/guardar"
                   hx-swap="none"
                   hx-on::after-request="if(event.detail.successful) { document.getElementById('modal-renovar-cotizacion')?.remove(); }"
+                  @keydown.enter.prevent
                   class="flex flex-col gap-4">
 
                 {# Campos ocultos #}

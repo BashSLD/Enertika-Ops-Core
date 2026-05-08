@@ -25,6 +25,7 @@
 
         <form hx-put="/oym/plantas/{{ planta.id }}"
               hx-target="#main-content"
+              @keydown.enter.prevent
               class="p-5 flex flex-col gap-4 overflow-y-auto flex-1">
 
             <div>
