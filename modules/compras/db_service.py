@@ -1457,6 +1457,126 @@ class ComprasDBService:
         """, f"%{descripcion}%")
         return float(val) if val else 0
 
+    # ========================================
+    # CRUD PROVEEDORES
+    # ========================================
+
+    async def get_proveedores_lista(
+        self, conn, busqueda: str = "", solo_activos: bool = False,
+        page: int = 1, per_page: int = 50
+    ) -> list:
+        """Lista paginada de proveedores con conteo de comprobantes vinculados."""
+        conditions = []
+        params: list = []
+        idx = 1
+
+        if busqueda:
+            conditions.append(
+                f"(p.rfc ILIKE ${idx} OR p.razon_social ILIKE ${idx} OR p.nombre_comercial ILIKE ${idx})"
+            )
+            params.append(f"%{busqueda}%")
+            idx += 1
+
+        if solo_activos:
+            conditions.append("p.activo = TRUE")
+
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+        query = f"""
+            SELECT
+                p.id_proveedor,
+                p.rfc,
+                p.razon_social,
+                p.nombre_comercial,
+                p.activo,
+                p.created_at,
+                COUNT(DISTINCT c.id_comprobante) AS total_comprobantes
+            FROM tb_proveedores p
+            LEFT JOIN tb_comprobantes_pago c ON c.id_proveedor = p.id_proveedor
+            {where}
+            GROUP BY p.id_proveedor, p.rfc, p.razon_social, p.nombre_comercial, p.activo, p.created_at
+            ORDER BY p.razon_social
+            LIMIT ${idx} OFFSET ${idx + 1}
+        """
+        params.extend([per_page, (page - 1) * per_page])
+        rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
+    async def count_proveedores(self, conn, busqueda: str = "", solo_activos: bool = False) -> int:
+        """Cuenta total de proveedores para paginación."""
+        conditions = []
+        params: list = []
+        idx = 1
+
+        if busqueda:
+            conditions.append(
+                f"(rfc ILIKE ${idx} OR razon_social ILIKE ${idx} OR nombre_comercial ILIKE ${idx})"
+            )
+            params.append(f"%{busqueda}%")
+            idx += 1
+
+        if solo_activos:
+            conditions.append("activo = TRUE")
+
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        return await conn.fetchval(f"SELECT COUNT(*) FROM tb_proveedores {where}", *params)
+
+    async def get_proveedor_detalle(self, conn, id_proveedor: UUID) -> Optional[dict]:
+        """Obtiene un proveedor por ID con conteo de comprobantes."""
+        row = await conn.fetchrow("""
+            SELECT
+                p.*,
+                COUNT(DISTINCT c.id_comprobante) AS total_comprobantes
+            FROM tb_proveedores p
+            LEFT JOIN tb_comprobantes_pago c ON c.id_proveedor = p.id_proveedor
+            WHERE p.id_proveedor = $1
+            GROUP BY p.id_proveedor
+        """, id_proveedor)
+        return dict(row) if row else None
+
+    async def check_rfc_duplicado(self, conn, rfc: str, excluir_id: Optional[UUID] = None) -> bool:
+        """Verifica si el RFC ya existe en otro proveedor."""
+        query = "SELECT 1 FROM tb_proveedores WHERE rfc = $1"
+        params: list = [rfc]
+        if excluir_id:
+            query += " AND id_proveedor != $2"
+            params.append(excluir_id)
+        return bool(await conn.fetchval(query, *params))
+
+    async def insert_proveedor(self, conn, rfc: str, razon_social: str, nombre_comercial: Optional[str]) -> dict:
+        """Crea un nuevo proveedor."""
+        new_id = uuid4()
+        row = await conn.fetchrow("""
+            INSERT INTO tb_proveedores (id_proveedor, rfc, razon_social, nombre_comercial, activo, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, TRUE, NOW(), NOW())
+            RETURNING *
+        """, new_id, rfc.upper().strip(), razon_social.strip(), (nombre_comercial or "").strip() or None)
+        return dict(row)
+
+    async def update_proveedor(
+        self, conn, id_proveedor: UUID,
+        rfc: str, razon_social: str, nombre_comercial: Optional[str]
+    ) -> Optional[dict]:
+        """Actualiza datos de un proveedor."""
+        row = await conn.fetchrow("""
+            UPDATE tb_proveedores
+            SET rfc = $2, razon_social = $3, nombre_comercial = $4, updated_at = NOW()
+            WHERE id_proveedor = $1
+            RETURNING *
+        """, id_proveedor, rfc.upper().strip(), razon_social.strip(),
+            (nombre_comercial or "").strip() or None)
+        return dict(row) if row else None
+
+    async def toggle_proveedor_activo(self, conn, id_proveedor: UUID) -> Optional[dict]:
+        """Alterna el campo activo de un proveedor."""
+        row = await conn.fetchrow("""
+            UPDATE tb_proveedores
+            SET activo = NOT activo, updated_at = NOW()
+            WHERE id_proveedor = $1
+            RETURNING *
+        """, id_proveedor)
+        return dict(row) if row else None
+
 
 def get_db_service():
     return ComprasDBService()

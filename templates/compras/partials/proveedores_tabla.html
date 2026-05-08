@@ -1,0 +1,121 @@
+{# Partial: tabla de proveedores (reemplazable vía HTMX) #}
+{% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
+<input type="hidden" name="page" value="{{ page }}">
+
+{% if proveedores %}
+<div class="overflow-x-auto bg-white rounded-xl border border-gray-200 shadow-sm">
+    <table class="min-w-full divide-y divide-gray-200 text-sm">
+        <thead class="bg-gray-50">
+            <tr>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">RFC</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Razón Social</th>
+                <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wide">Nombre Comercial</th>
+                <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Comprobantes</th>
+                <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Estatus</th>
+                {% if can_edit %}
+                <th class="px-4 py-3 text-center text-xs font-semibold text-gray-500 uppercase tracking-wide">Acciones</th>
+                {% endif %}
+            </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-100">
+            {% for p in proveedores %}
+            <tr id="prov-row-{{ p.id_proveedor }}" class="hover:bg-gray-50 transition-colors {% if not p.activo %}opacity-60{% endif %}">
+                <td class="px-4 py-3 font-mono text-xs text-gray-700 whitespace-nowrap">{{ p.rfc }}</td>
+                <td class="px-4 py-3 font-medium text-gray-900 max-w-xs truncate" title="{{ p.razon_social }}">{{ p.razon_social }}</td>
+                <td class="px-4 py-3 text-gray-500 max-w-[200px] truncate" title="{{ p.nombre_comercial or '' }}">{{ p.nombre_comercial or '—' }}</td>
+                <td class="px-4 py-3 text-center">
+                    {% if p.total_comprobantes > 0 %}
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                        {{ p.total_comprobantes }}
+                    </span>
+                    {% else %}
+                    <span class="text-gray-300 text-xs">—</span>
+                    {% endif %}
+                </td>
+                <td class="px-4 py-3 text-center">
+                    {% if p.activo %}
+                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>Activo
+                    </span>
+                    {% else %}
+                    <span class="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                        <span class="w-1.5 h-1.5 rounded-full bg-gray-400"></span>Inactivo
+                    </span>
+                    {% endif %}
+                </td>
+                {% if can_edit %}
+                <td class="px-4 py-3 text-center whitespace-nowrap">
+                    <div class="flex items-center justify-center gap-2">
+                        {# Editar #}
+                        <button onclick="abrirModalProveedor('{{ p.id_proveedor }}')"
+                                class="text-[#00BABB] hover:text-[#009999] transition-colors"
+                                title="Editar">
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                            </svg>
+                        </button>
+                        {# Toggle activo #}
+                        <button hx-patch="/compras/proveedores/{{ p.id_proveedor }}/toggle"
+                                hx-target="#prov-row-{{ p.id_proveedor }}"
+                                hx-swap="outerHTML"
+                                hx-confirm="{{ '¿Desactivar este proveedor?' if p.activo else '¿Reactivar este proveedor?' }}"
+                                class="{% if p.activo %}text-red-400 hover:text-red-600{% else %}text-green-500 hover:text-green-700{% endif %} transition-colors"
+                                title="{{ 'Desactivar' if p.activo else 'Reactivar' }}">
+                            {% if p.activo %}
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636"/>
+                            </svg>
+                            {% else %}
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                            </svg>
+                            {% endif %}
+                        </button>
+                    </div>
+                </td>
+                {% endif %}
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{# Paginación #}
+{% if total_pages > 1 %}
+<div class="flex items-center justify-between mt-3 text-sm text-gray-600">
+    <span>{{ total }} proveedor{{ 'es' if total != 1 else '' }} encontrado{{ 's' if total != 1 else '' }}</span>
+    <div class="flex items-center gap-1">
+        {% if page > 1 %}
+        <button hx-get="/compras/proveedores/lista?q={{ busqueda or '' }}&page={{ page - 1 }}{% if solo_activos %}&solo_activos=1{% endif %}"
+                hx-target="#proveedores-tabla-container" hx-swap="innerHTML"
+                class="px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition">
+            ‹ Anterior
+        </button>
+        {% endif %}
+        <span class="px-3 py-1.5 font-medium">{{ page }} / {{ total_pages }}</span>
+        {% if page < total_pages %}
+        <button hx-get="/compras/proveedores/lista?q={{ busqueda or '' }}&page={{ page + 1 }}{% if solo_activos %}&solo_activos=1{% endif %}"
+                hx-target="#proveedores-tabla-container" hx-swap="innerHTML"
+                class="px-3 py-1.5 rounded-lg border border-gray-300 hover:bg-gray-50 transition">
+            Siguiente ›
+        </button>
+        {% endif %}
+    </div>
+</div>
+{% else %}
+<p class="mt-2 text-xs text-gray-400 text-right">{{ total }} proveedor{{ 'es' if total != 1 else '' }}</p>
+{% endif %}
+
+{% else %}
+<div class="text-center py-16 bg-white rounded-xl border border-dashed border-gray-300">
+    <svg class="mx-auto h-10 w-10 text-gray-300 mb-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+            d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/>
+    </svg>
+    <p class="text-sm text-gray-500">
+        {% if busqueda %}No se encontraron proveedores con "<strong>{{ busqueda }}</strong>".
+        {% else %}No hay proveedores registrados.{% endif %}
+    </p>
+</div>
+{% endif %}

@@ -1,0 +1,70 @@
+{# Proveedores — vista principal #}
+{% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
+<div id="proveedores-root" class="animate-fade-in-down space-y-4">
+
+    {# Barra superior #}
+    <div class="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div class="flex-1 flex items-center gap-2">
+            <form id="form-busqueda-proveedores"
+                  hx-get="/compras/proveedores/lista"
+                  hx-target="#proveedores-tabla-container"
+                  hx-swap="innerHTML"
+                  hx-trigger="submit, input delay:450ms from:#prov-busqueda"
+                  class="flex items-center gap-2 flex-1">
+                <div class="relative flex-1 max-w-sm">
+                    <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35M17 11A6 6 0 115 11a6 6 0 0112 0z"/>
+                    </svg>
+                    <input type="text" id="prov-busqueda" name="q"
+                           value="{{ busqueda or '' }}"
+                           placeholder="Buscar por RFC, razón social…"
+                           class="w-full pl-9 pr-3 py-2 text-sm rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-[#00BABB]">
+                </div>
+                <label class="flex items-center gap-1.5 text-sm text-gray-600 cursor-pointer select-none">
+                    <input type="checkbox" name="solo_activos" value="1"
+                           {% if solo_activos %}checked{% endif %}
+                           class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]"
+                           hx-get="/compras/proveedores/lista"
+                           hx-target="#proveedores-tabla-container"
+                           hx-swap="innerHTML"
+                           hx-include="#form-busqueda-proveedores"
+                           hx-trigger="change">
+                    Solo activos
+                </label>
+            </form>
+        </div>
+        {% if can_edit %}
+        <button id="btn-nuevo-proveedor"
+                onclick="abrirModalProveedor()"
+                class="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-[#00BABB] hover:bg-[#009999] rounded-lg transition-colors shadow">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            Nuevo proveedor
+        </button>
+        {% endif %}
+    </div>
+
+    {# Tabla #}
+    <div id="proveedores-tabla-container">
+        {% include "compras/partials/proveedores_tabla.html" %}
+    </div>
+
+    {# Modal alta/edición — container #}
+    <div id="proveedores-modal-container"></div>
+
+    {# Modal confirmación toggle #}
+    <div id="proveedores-confirm-container"></div>
+</div>
+
+<script>
+(function () {
+    window.abrirModalProveedor = function (id) {
+        const url = id ? `/compras/proveedores/${id}/modal` : '/compras/proveedores/modal';
+        htmx.ajax('GET', url, {target: '#proveedores-modal-container', swap: 'innerHTML'});
+    };
+    window.cerrarModalProveedor = function () {
+        document.getElementById('proveedores-modal-container').innerHTML = '';
+    };
+})();
+</script>

@@ -1309,6 +1309,7 @@ async def eliminar_documento_proveedor(
 async def get_inventario(
     request: Request,
     conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
     _ = require_module_access("compras"),
 ):
     """Lista de inventario (mini almacén)."""
@@ -1317,7 +1318,12 @@ async def get_inventario(
     items = await db_svc.get_inventario(conn)
     proveedores = await db_svc.get_proveedores_activos(conn)
     return templates.TemplateResponse(
-        request, "compras/partials/inventario.html", {"items": items, "proveedores": proveedores}
+        request, "compras/partials/inventario.html", {
+            "items": items,
+            "proveedores": proveedores,
+            "role": context.get("role"),
+            "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
+        }
     )
 
 
@@ -1331,6 +1337,7 @@ async def registrar_inventario(
     id_proveedor: str = Form(None),
     notas: str = Form(None),
     conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
     _ = require_module_access("compras", "editor"),
 ):
     """Registra entrada de material al inventario."""
@@ -1343,7 +1350,12 @@ async def registrar_inventario(
     items = await db_svc.get_inventario(conn)
     proveedores = await db_svc.get_proveedores_activos(conn)
     return templates.TemplateResponse(
-        request, "compras/partials/inventario.html", {"items": items, "proveedores": proveedores}
+        request, "compras/partials/inventario.html", {
+            "items": items,
+            "proveedores": proveedores,
+            "role": context.get("role"),
+            "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
+        }
     )
 
 
@@ -1374,4 +1386,232 @@ async def actualizar_inventario(
     items = await db_svc.get_inventario(conn)
     return templates.TemplateResponse(
         request, "compras/partials/inventario.html", {"items": items}
+    )
+
+
+# ========================================
+# CRUD PROVEEDORES
+# ========================================
+
+def _prov_ctx(context: dict, current_module_role: str = None) -> dict:
+    """Contexto compartido de permisos para vistas de proveedor."""
+    return {
+        "role": context.get("role"),
+        "current_module_role": current_module_role or context.get("module_roles", {}).get("compras", "viewer"),
+    }
+
+
+@router.get("/proveedores/ui", include_in_schema=False)
+async def get_proveedores_ui(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("compras"),
+    q: str = Query(""),
+    solo_activos: bool = Query(False),
+    page: int = Query(1, ge=1),
+):
+    """Vista principal de proveedores (full-page o partial según HTMX)."""
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+
+    is_htmx = request.headers.get("hx-request")
+    is_restore = request.headers.get("hx-history-restore-request")
+
+    per_page = 50
+    proveedores = await db_svc.get_proveedores_lista(conn, busqueda=q, solo_activos=solo_activos, page=page, per_page=per_page)
+    total = await db_svc.count_proveedores(conn, busqueda=q, solo_activos=solo_activos)
+    total_pages = max(1, -(-total // per_page))
+
+    mod_role = context.get("module_roles", {}).get("compras", "viewer")
+    ctx = {
+        **_prov_ctx(context, mod_role),
+        "proveedores": proveedores,
+        "total": total,
+        "total_pages": total_pages,
+        "page": page,
+        "busqueda": q,
+        "solo_activos": solo_activos,
+    }
+
+    if is_htmx and not is_restore:
+        return templates.TemplateResponse(request, "compras/partials/proveedores_content.html", ctx)
+    return templates.TemplateResponse(request, "compras/proveedores.html", ctx)
+
+
+@router.get("/proveedores/lista", include_in_schema=False)
+async def get_proveedores_lista(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("compras"),
+    q: str = Query(""),
+    solo_activos: bool = Query(False),
+    page: int = Query(1, ge=1),
+):
+    """Partial: tabla paginada de proveedores (reemplazada vía HTMX)."""
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+
+    per_page = 50
+    proveedores = await db_svc.get_proveedores_lista(conn, busqueda=q, solo_activos=solo_activos, page=page, per_page=per_page)
+    total = await db_svc.count_proveedores(conn, busqueda=q, solo_activos=solo_activos)
+    total_pages = max(1, -(-total // per_page))
+
+    mod_role = context.get("module_roles", {}).get("compras", "viewer")
+    return templates.TemplateResponse(request, "compras/partials/proveedores_tabla.html", {
+        **_prov_ctx(context, mod_role),
+        "proveedores": proveedores,
+        "total": total,
+        "total_pages": total_pages,
+        "page": page,
+        "busqueda": q,
+        "solo_activos": solo_activos,
+    })
+
+
+@router.get("/proveedores/check-rfc", include_in_schema=False)
+async def check_rfc_proveedor(
+    request: Request,
+    conn=Depends(get_db_connection),
+    _=require_module_access("compras", "editor"),
+    rfc: str = Query(""),
+    excluir_id: str = Query(""),
+):
+    """Valida en tiempo real si un RFC ya está registrado."""
+    if not rfc or len(rfc) < 12:
+        return HTMLResponse("")
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    excluir_uuid = UUID(excluir_id) if excluir_id else None
+    duplicado = await db_svc.check_rfc_duplicado(conn, rfc.upper().strip(), excluir_id=excluir_uuid)
+    if duplicado:
+        return HTMLResponse(
+            '<span class="text-red-600 font-medium">Este RFC ya está registrado.</span>'
+        )
+    return HTMLResponse(
+        '<span class="text-green-600 font-medium">RFC disponible.</span>'
+    )
+
+
+@router.get("/proveedores/modal", include_in_schema=False)
+async def get_modal_nuevo_proveedor(
+    request: Request,
+    _=require_module_access("compras", "editor"),
+):
+    """Partial: modal para crear un nuevo proveedor."""
+    return templates.TemplateResponse(request, "compras/partials/modal_proveedor_form.html", {})
+
+
+@router.get("/proveedores/{id_proveedor}/modal", include_in_schema=False)
+async def get_modal_editar_proveedor(
+    request: Request,
+    id_proveedor: UUID,
+    conn=Depends(get_db_connection),
+    _=require_module_access("compras", "editor"),
+):
+    """Partial: modal para editar un proveedor existente."""
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    proveedor = await db_svc.get_proveedor_detalle(conn, id_proveedor)
+    if not proveedor:
+        raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+    return templates.TemplateResponse(
+        request, "compras/partials/modal_proveedor_form.html", {"proveedor": proveedor}
+    )
+
+
+@router.post("/proveedores", include_in_schema=False)
+async def crear_proveedor(
+    request: Request,
+    rfc: str = Form(...),
+    razon_social: str = Form(...),
+    nombre_comercial: str = Form(""),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("compras", "editor"),
+):
+    """Crea un nuevo proveedor y retorna la tabla actualizada."""
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+
+    if not rfc or not razon_social:
+        raise HTTPException(status_code=400, detail="RFC y Razón Social son obligatorios")
+
+    duplicado = await db_svc.check_rfc_duplicado(conn, rfc.upper().strip())
+    if duplicado:
+        raise HTTPException(status_code=400, detail=f"El RFC {rfc.upper()} ya está registrado")
+
+    await db_svc.insert_proveedor(conn, rfc, razon_social, nombre_comercial or None)
+
+    mod_role = context.get("module_roles", {}).get("compras", "viewer")
+    proveedores = await db_svc.get_proveedores_lista(conn, per_page=50)
+    total = await db_svc.count_proveedores(conn)
+    return templates.TemplateResponse(request, "compras/partials/proveedores_tabla.html", {
+        **_prov_ctx(context, mod_role),
+        "proveedores": proveedores,
+        "total": total,
+        "total_pages": max(1, -(-total // 50)),
+        "page": 1,
+        "busqueda": "",
+        "solo_activos": False,
+    })
+
+
+@router.patch("/proveedores/{id_proveedor}", include_in_schema=False)
+async def actualizar_proveedor(
+    request: Request,
+    id_proveedor: UUID,
+    rfc: str = Form(...),
+    razon_social: str = Form(...),
+    nombre_comercial: str = Form(""),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("compras", "editor"),
+):
+    """Actualiza datos de un proveedor y retorna la tabla actualizada."""
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+
+    duplicado = await db_svc.check_rfc_duplicado(conn, rfc.upper().strip(), excluir_id=id_proveedor)
+    if duplicado:
+        raise HTTPException(status_code=400, detail=f"El RFC {rfc.upper()} ya está registrado en otro proveedor")
+
+    updated = await db_svc.update_proveedor(conn, id_proveedor, rfc, razon_social, nombre_comercial or None)
+    if not updated:
+        raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+
+    mod_role = context.get("module_roles", {}).get("compras", "viewer")
+    proveedores = await db_svc.get_proveedores_lista(conn, per_page=50)
+    total = await db_svc.count_proveedores(conn)
+    return templates.TemplateResponse(request, "compras/partials/proveedores_tabla.html", {
+        **_prov_ctx(context, mod_role),
+        "proveedores": proveedores,
+        "total": total,
+        "total_pages": max(1, -(-total // 50)),
+        "page": 1,
+        "busqueda": "",
+        "solo_activos": False,
+    })
+
+
+@router.patch("/proveedores/{id_proveedor}/toggle", include_in_schema=False)
+async def toggle_proveedor(
+    request: Request,
+    id_proveedor: UUID,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("compras", "editor"),
+):
+    """Alterna el estado activo/inactivo de un proveedor — retorna solo la fila."""
+    from .db_service import get_db_service
+    db_svc = get_db_service()
+    proveedor = await db_svc.toggle_proveedor_activo(conn, id_proveedor)
+    if not proveedor:
+        raise HTTPException(status_code=404, detail="Proveedor no encontrado")
+
+    mod_role = context.get("module_roles", {}).get("compras", "viewer")
+    return templates.TemplateResponse(
+        request, "compras/partials/proveedores_fila.html",
+        {**_prov_ctx(context, mod_role), "p": proveedor}
     )

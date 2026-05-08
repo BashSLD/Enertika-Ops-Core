@@ -86,12 +86,16 @@
 
         <!-- Footer -->
         <div class="bg-gray-50 px-6 py-3 flex items-center justify-between gap-3 rounded-b-xl">
+            {% if can_edit %}
             <a href="/compras/sat/ui"
                hx-get="/compras/sat/ui" hx-target="#main-content" hx-push-url="true"
                onclick="clearXmlUploadModal()"
                class="text-sm font-medium text-blue-600 hover:text-blue-800">
                 Inbox SAT
             </a>
+            {% else %}
+            <span></span>
+            {% endif %}
             <div class="flex gap-3">
                 <button type="button" onclick="clearXmlUploadModal()"
                     class="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50">

@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+
+{% block title %}Proveedores — Compras{% endblock %}
+
+{% block content %}
+<div class="px-4 py-6 max-w-6xl mx-auto space-y-5">
+
+    {# Encabezado con breadcrumb #}
+    <div class="flex items-center gap-3">
+        <button hx-get="/compras/ui" hx-target="#main-content" hx-swap="innerHTML" hx-push-url="/compras/ui"
+                class="text-gray-400 hover:text-gray-600 transition-colors p-1 rounded-lg hover:bg-gray-100"
+                title="Volver a Compras">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/>
+            </svg>
+        </button>
+        <div>
+            <h1 class="text-lg font-bold text-gray-900">Proveedores</h1>
+            <p class="text-xs text-gray-500">Gestión del catálogo de proveedores</p>
+        </div>
+    </div>
+
+    {% include "compras/partials/proveedores_content.html" %}
+</div>
+{% endblock %}
