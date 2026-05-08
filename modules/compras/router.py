@@ -285,6 +285,7 @@ async def get_comprobantes_list(
     filtros: Annotated[ComprobanteFilter, Query()],
     conn = Depends(get_db_connection),
     service: ComprasService = Depends(get_compras_service),
+    context = Depends(get_current_user_context),
     _ = require_module_access("compras")
 ):
     """
@@ -320,6 +321,8 @@ async def get_comprobantes_list(
             "zonas": catalogos.get("zonas", []),
             "categorias": catalogos.get("categorias", []),
             "proyectos": catalogos.get("proyectos", []),
+            "role": context.get("role"),
+            "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
             "filtros": {
                 "fecha_inicio": filtros.fecha_inicio.isoformat() if filtros.fecha_inicio else "",
                 "fecha_fin": filtros.fecha_fin.isoformat() if filtros.fecha_fin else "",
@@ -404,7 +407,9 @@ async def update_comprobante(
         {            "comprobante": comprobante,
             "zonas": catalogos.get("zonas", []),
             "categorias": catalogos.get("categorias", []),
-            "proyectos": catalogos.get("proyectos", [])
+            "proyectos": catalogos.get("proyectos", []),
+            "role": context.get("role"),
+            "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
         }
     )
 

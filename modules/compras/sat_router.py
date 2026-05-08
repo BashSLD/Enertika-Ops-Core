@@ -631,7 +631,11 @@ async def match_desde_comprobante(
     row_html = templates.TemplateResponse(
         request,
         "compras/partials/row_comprobante.html",
-        {"comprobante": comprobante},
+        {
+            "comprobante": comprobante,
+            "role": user.get("role"),
+            "current_module_role": user.get("module_roles", {}).get("compras", "viewer"),
+        },
     ).body.decode("utf-8")
     row_oob = row_html.replace(
         f'id="comprobante-row-{comprobante_id}"',

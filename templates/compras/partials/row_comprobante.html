@@ -1,5 +1,6 @@
 {% set comprobante = comp if comp is defined else comprobante %}
 {% set vista_anticipo = filtros is defined and filtros.estatus == 'ANTICIPO' %}
+{% set can_edit_row = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
 <tr id="comprobante-row-{{ comprobante.id_comprobante }}" class="hover:bg-gray-50 transition-colors">
     <!-- Checkbox -->
     <td class="px-3 py-3">
@@ -55,7 +56,7 @@
         {% endif %}
     </td>
 
-    <!-- Categoría -->
+    <!-- Categoria -->
     <td class="px-4 py-3 whitespace-nowrap">
         {% if comprobante.categoria_nombre %}
         <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium 
@@ -135,7 +136,6 @@
     <!-- Adjuntos -->
     <td class="px-4 py-3 text-center">
         <div class="flex items-center justify-center gap-2">
-            <!-- Botón PDF -->
             {% set has_pdf = comprobante.count_pdf and comprobante.count_pdf > 0 %}
             {% if has_pdf %}
             <div class="relative">
@@ -158,7 +158,6 @@
             </svg>
             {% endif %}
 
-            <!-- Botón XML -->
             {% set has_xml = comprobante.count_xml and comprobante.count_xml > 0 %}
             {% if has_xml %}
             <div class="relative">
@@ -185,63 +184,55 @@
                     d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
             </svg>
             {% endif %}
-
-            <!-- Badge SAT candidatos -->
-            {% if comprobante.sat_candidatos_count and comprobante.sat_candidatos_count > 0 %}
-            <button
-                hx-get="/compras/sat/comprobante/{{ comprobante.id_comprobante }}/candidatos"
-                hx-target="#sat-candidatos-modal-container"
-                hx-swap="innerHTML"
-                title="{{ comprobante.sat_candidatos_count }} CFDI(s) del SAT sin vincular"
-                class="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-800 hover:bg-teal-200 transition-colors">
-                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-                </svg>
-                SAT · {{ comprobante.sat_candidatos_count }}
-            </button>
-            {% endif %}
         </div>
     </td>
 
     <!-- Acciones -->
     <td class="px-4 py-3 whitespace-nowrap text-center">
-        <button onclick="abrirModalEdicion('{{ comprobante.id_comprobante }}')"
-            class="text-[#00BABB] hover:text-[#009999] transition-colors" title="Editar">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
-                stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-            </svg>
-        </button>
-        {% if vista_anticipo and comprobante.estatus == 'ANTICIPO' %}
-        <a href="/compras/sat/ui?estado=pendiente"
-            hx-get="/compras/sat/ui?estado=pendiente"
-            hx-target="#main-content"
-            hx-push-url="true"
-            class="ml-2 inline-flex items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-medium text-blue-700 hover:bg-blue-100 transition-colors"
-            title="Buscar CFDI de cierre en Inbox SAT">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M21 21l-4.35-4.35m1.1-5.15a6.25 6.25 0 11-12.5 0 6.25 6.25 0 0112.5 0z" />
-            </svg>
-            Buscar cierre
-        </a>
-        {% endif %}
-        {% if comprobante.estatus in ('PARCIALMENTE_FACTURADO', 'CERRADO') %}
-        <button
-            hx-get="/compras/comprobante/{{ comprobante.id_comprobante }}/facturas-vinculadas"
-            hx-target="#facturas-panel-{{ comprobante.id_comprobante }}"
-            hx-swap="innerHTML"
-            hx-on::before-request="const p=document.getElementById('facturas-panel-{{ comprobante.id_comprobante }}');if(p&&p.innerHTML.trim()!==''){p.innerHTML='';event.preventDefault();}"
-            class="text-orange-500 hover:text-orange-700 transition-colors"
-            title="Ver facturas vinculadas">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                    d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-        </button>
-        {% endif %}
+        <div class="flex items-center justify-center gap-2">
+            <button onclick="abrirModalEdicion('{{ comprobante.id_comprobante }}')"
+                class="text-[#00BABB] hover:text-[#009999] transition-colors" title="Editar">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24"
+                    stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                </svg>
+            </button>
+
+            {% set sat_count = comprobante.sat_candidatos_count|int if comprobante.sat_candidatos_count else 0 %}
+            {% if can_edit_row and comprobante.estatus in ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO') %}
+            <button
+                hx-get="/compras/sat/comprobante/{{ comprobante.id_comprobante }}/candidatos"
+                hx-target="#sat-candidatos-modal-container"
+                hx-swap="innerHTML"
+                aria-label="{{ 'Ver CFDIs SAT sugeridos' if sat_count > 0 else 'Buscar CFDI SAT manualmente' }}"
+                title="{{ 'Ver CFDIs SAT sugeridos' if sat_count > 0 else 'Buscar CFDI SAT manualmente' }}"
+                class="relative transition-colors {% if sat_count > 0 %}text-teal-600 hover:text-teal-800{% else %}text-gray-400 hover:text-gray-600{% endif %}">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                {% if sat_count > 0 %}
+                <span class="absolute -top-1 -right-1 h-2.5 w-2.5 rounded-full bg-teal-500 ring-2 ring-white"></span>
+                {% endif %}
+            </button>
+            {% endif %}
+
+            {% if comprobante.estatus in ('PARCIALMENTE_FACTURADO', 'CERRADO') %}
+            <button
+                hx-get="/compras/comprobante/{{ comprobante.id_comprobante }}/facturas-vinculadas"
+                hx-target="#facturas-panel-{{ comprobante.id_comprobante }}"
+                hx-swap="innerHTML"
+                hx-on::before-request="const p=document.getElementById('facturas-panel-{{ comprobante.id_comprobante }}');if(p&&p.innerHTML.trim()!==''){p.innerHTML='';event.preventDefault();}"
+                class="text-orange-500 hover:text-orange-700 transition-colors"
+                title="Ver facturas vinculadas">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+            </button>
+            {% endif %}
+        </div>
     </td>
 </tr>
 {% if comprobante.estatus in ('PARCIALMENTE_FACTURADO', 'CERRADO') %}

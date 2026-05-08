@@ -3,13 +3,12 @@
      x-init="$el.addEventListener('click', e => { if (e.target === $el) document.getElementById('sat-candidatos-modal-container').innerHTML = '' })">
   <div class="bg-white rounded-xl shadow-xl w-full max-w-xl mx-4 flex flex-col max-h-[90dvh]">
 
-    <!-- Header -->
     <div class="px-6 py-4 border-b flex items-center justify-between">
       <div>
-        <h3 class="font-semibold text-gray-900">CFDIs SAT candidatos</h3>
+        <h3 class="font-semibold text-gray-900">Vincular CFDI SAT</h3>
         <p class="text-xs text-gray-500 mt-0.5">
           {{ comprobante.proveedor_nombre or comprobante.beneficiario_orig }}
-          — ${{ '{:,.2f}'.format(comprobante.monto or 0) }} {{ comprobante.moneda }}
+          - ${{ '{:,.2f}'.format(comprobante.monto or 0) }} {{ comprobante.moneda }}
         </p>
       </div>
       <button type="button"
@@ -21,18 +20,15 @@
       </button>
     </div>
 
-    <!-- Body -->
     <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
-
-      <!-- Búsqueda -->
       <div>
         <label class="block text-xs font-medium text-gray-600 mb-1">
-          {% if not candidatos %}Sin coincidencias automáticas. Busca manualmente:
-          {% else %}Buscar otro CFDI:{% endif %}
+          {% if not candidatos and not busqueda %}Sin sugerencias automaticas. Busca manualmente:
+          {% elif busqueda %}Resultados de busqueda manual:{% else %}Sugeridos automaticos:{% endif %}
         </label>
         <input type="text"
           value="{{ busqueda | e }}"
-          placeholder="Nombre emisor o RFC..."
+          placeholder="UUID, RFC, emisor o monto..."
           hx-get="/compras/sat/comprobante/{{ comprobante.id_comprobante }}/candidatos"
           hx-trigger="input delay:400ms"
           hx-target="#sat-candidatos-lista"
@@ -42,14 +38,13 @@
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
       </div>
 
-      <!-- Lista candidatos — id estable para que la búsqueda actualice solo esta sección -->
       <div id="sat-candidatos-lista">
       {% set tipo_labels = {
           'NORMAL': ('Factura', 'bg-green-100 text-green-800'),
           'ANTICIPO': ('Anticipo', 'bg-orange-100 text-orange-800'),
           'CIERRE_ANTICIPO': ('Cierre Anticipo', 'bg-blue-100 text-blue-800'),
           'PAGO': ('Comp. Pago', 'bg-cyan-100 text-cyan-800'),
-          'NOTA_CREDITO': ('Nota Crédito', 'bg-purple-100 text-purple-800'),
+          'NOTA_CREDITO': ('Nota Credito', 'bg-purple-100 text-purple-800'),
       } %}
       {% if candidatos %}
       <div class="space-y-2">
@@ -63,20 +58,20 @@
                  class="mt-0.5 text-teal-600 focus:ring-teal-500">
           <div class="flex-1 min-w-0">
             <div class="flex items-center justify-between gap-2">
-              <span class="text-sm font-medium text-gray-900 truncate">{{ c.nombre_emisor or '—' }}</span>
+              <span class="text-sm font-medium text-gray-900 truncate">{{ c.nombre_emisor or '-' }}</span>
               <span class="text-sm font-bold text-gray-900 whitespace-nowrap">
                 ${{ '{:,.2f}'.format(c.total or 0) }} {{ c.moneda }}
               </span>
             </div>
             <div class="flex items-center gap-2 mt-1">
               <span class="font-mono text-xs text-gray-500">{{ c.rfc_emisor }}</span>
-              <span class="text-xs text-gray-400">{{ c.fecha_cfdi or '—' }}</span>
+              <span class="text-xs text-gray-400">{{ c.fecha_cfdi or '-' }}</span>
               <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-medium {{ cls }}">
                 {{ label }}
               </span>
             </div>
             <div class="text-[10px] text-gray-400 mt-0.5 font-mono" title="{{ c.uuid_cfdi }}">
-              {{ c.uuid_cfdi[:8] if c.uuid_cfdi else '—' }}...
+              {{ c.uuid_cfdi[:8] if c.uuid_cfdi else '-' }}...
             </div>
           </div>
         </label>
@@ -84,14 +79,16 @@
       </div>
       {% else %}
       <p class="text-sm text-gray-400 text-center py-4">
+        {% if not busqueda %}
+        Escribe UUID, RFC, emisor o monto para buscar en el Inbox SAT.
+        {% else %}
         No se encontraron CFDIs en el inbox.
+        {% endif %}
       </p>
       {% endif %}
       </div>
-
     </div>
 
-    <!-- Footer -->
     <div class="px-6 py-4 border-t flex justify-end gap-3">
       <button type="button"
         onclick="document.getElementById('sat-candidatos-modal-container').innerHTML = ''"
@@ -108,7 +105,7 @@
           );
         "
         class="px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed">
-        Confirmar vinculación
+        Confirmar vinculacion
       </button>
     </div>
 
