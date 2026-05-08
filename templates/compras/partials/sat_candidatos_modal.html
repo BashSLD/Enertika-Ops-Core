@@ -35,13 +35,15 @@
           placeholder="Nombre emisor o RFC..."
           hx-get="/compras/sat/comprobante/{{ comprobante.id_comprobante }}/candidatos"
           hx-trigger="input delay:400ms"
-          hx-target="#sat-candidatos-modal-container"
-          hx-swap="innerHTML"
+          hx-target="#sat-candidatos-lista"
+          hx-swap="outerHTML"
+          hx-select="#sat-candidatos-lista"
           name="q"
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
       </div>
 
-      <!-- Lista candidatos -->
+      <!-- Lista candidatos — id estable para que la búsqueda actualice solo esta sección -->
+      <div id="sat-candidatos-lista">
       {% set tipo_labels = {
           'NORMAL': ('Factura', 'bg-green-100 text-green-800'),
           'ANTICIPO': ('Anticipo', 'bg-orange-100 text-orange-800'),
@@ -85,6 +87,7 @@
         No se encontraron CFDIs en el inbox.
       </p>
       {% endif %}
+      </div>
 
     </div>
 
