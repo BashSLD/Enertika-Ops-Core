@@ -326,3 +326,48 @@ async def registrar_cfdi_descargado(
         cfdi.total, cfdi.moneda,
         sharepoint_url, sharepoint_item_id, estado, tipo_detectado,
     )
+
+
+async def buscar_candidatos_para_comprobante(
+    conn,
+    monto: float,
+    beneficiario_orig: str,
+    proveedor_rfc=None,
+    q=None,
+) -> list:
+    if q:
+        rows = await conn.fetch(
+            """
+            SELECT id, uuid_cfdi, rfc_emisor, nombre_emisor, total, moneda,
+                   fecha_cfdi, tipo_detectado
+            FROM tb_sat_inbox
+            WHERE estado = 'pendiente'
+              AND (
+                  nombre_emisor ILIKE '%' || $1 || '%'
+                  OR rfc_emisor ILIKE '%' || $1 || '%'
+              )
+            ORDER BY fecha_cfdi DESC
+            LIMIT 50
+            """,
+            q,
+        )
+    else:
+        rows = await conn.fetch(
+            """
+            SELECT id, uuid_cfdi, rfc_emisor, nombre_emisor, total, moneda,
+                   fecha_cfdi, tipo_detectado
+            FROM tb_sat_inbox
+            WHERE estado = 'pendiente'
+              AND ABS(total - $1) <= 1.00
+              AND (
+                  nombre_emisor ILIKE '%' || $2 || '%'
+                  OR $2 ILIKE '%' || nombre_emisor || '%'
+                  OR ($3::text IS NOT NULL AND rfc_emisor = $3)
+              )
+            ORDER BY ABS(total - $1) ASC, fecha_cfdi DESC
+            """,
+            monto,
+            beneficiario_orig,
+            proveedor_rfc,
+        )
+    return [dict(r) for r in rows]

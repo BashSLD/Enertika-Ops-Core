@@ -95,7 +95,22 @@ class ComprasDBService:
                  WHERE da.activo = true
                  AND da.metadata->>'id_comprobante' = c.id_comprobante::text
                  AND da.origen_slug = 'factura_xml'
-                ) as count_xml
+                ) as count_xml,
+                (SELECT COUNT(*)
+                 FROM tb_sat_inbox i
+                 WHERE i.estado = 'pendiente'
+                   AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO')
+                   AND ABS(i.total - c.monto) <= 1.00
+                   AND (
+                       i.nombre_emisor ILIKE '%' || c.beneficiario_orig || '%'
+                       OR c.beneficiario_orig ILIKE '%' || i.nombre_emisor || '%'
+                       OR EXISTS (
+                           SELECT 1 FROM tb_proveedores p2
+                           WHERE p2.id_proveedor = c.id_proveedor
+                             AND p2.rfc = i.rfc_emisor
+                       )
+                   )
+                ) as sat_candidatos_count
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
             LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
@@ -167,6 +182,48 @@ class ComprasDBService:
                 z.nombre as zona_nombre,
                 pr.proyecto_id_estandar as proyecto_nombre,
                 cat.nombre as categoria_nombre
+            FROM tb_comprobantes_pago c
+            LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
+            LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
+            LEFT JOIN tb_cat_zonas_compra z ON c.id_zona = z.id
+            LEFT JOIN tb_proyectos_gate pr ON c.id_proyecto = pr.id_proyecto
+            LEFT JOIN tb_cat_categorias_compra cat ON c.id_categoria = cat.id
+            WHERE c.id_comprobante = $1
+        """, id_comprobante)
+        return dict(row) if row else None
+
+    async def get_comprobante_fila(self, conn, id_comprobante: UUID) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            SELECT
+                c.id_comprobante, c.fecha_pago, c.beneficiario_orig, c.monto, c.moneda,
+                c.estatus, c.uuid_factura, c.monto_facturado, c.monto_remanente,
+                c.tipo_factura, c.es_anticipo, c.id_proveedor, c.id_zona,
+                c.id_proyecto, c.id_categoria,
+                u.nombre as comprador_nombre,
+                p.razon_social as proveedor_nombre,
+                p.rfc as proveedor_rfc,
+                z.nombre as zona_nombre,
+                pr.proyecto_id_estandar as proyecto_nombre,
+                cat.nombre as categoria_nombre,
+                (SELECT COUNT(*) FROM tb_documentos_attachments da
+                 WHERE da.activo = true
+                   AND da.metadata->>'id_comprobante' = c.id_comprobante::text
+                   AND da.origen_slug = 'comprobante_pago') as count_pdf,
+                (SELECT COUNT(*) FROM tb_documentos_attachments da
+                 WHERE da.activo = true
+                   AND da.metadata->>'id_comprobante' = c.id_comprobante::text
+                   AND da.origen_slug = 'factura_xml') as count_xml,
+                (SELECT COUNT(*) FROM tb_sat_inbox i
+                 WHERE i.estado = 'pendiente'
+                   AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO')
+                   AND ABS(i.total - c.monto) <= 1.00
+                   AND (
+                       i.nombre_emisor ILIKE '%' || c.beneficiario_orig || '%'
+                       OR c.beneficiario_orig ILIKE '%' || i.nombre_emisor || '%'
+                       OR EXISTS (SELECT 1 FROM tb_proveedores p2
+                                  WHERE p2.id_proveedor = c.id_proveedor
+                                    AND p2.rfc = i.rfc_emisor)
+                   )) as sat_candidatos_count
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
             LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
