@@ -14,6 +14,7 @@ from core.permissions import require_module_access
 from core.security import get_current_user_context
 from core.timezone import now_mx
 from modules.compras import sat_service, sat_db_service
+from modules.compras.db_service import get_db_service
 
 logger = logging.getLogger("ComprasSATRouter")
 
@@ -555,11 +556,10 @@ async def get_candidatos_sat(
     conn=Depends(get_db_connection),
     _=require_module_access("compras", "editor"),
 ):
-    from modules.compras.db_service import get_db_service
-
     db_svc = get_db_service()
     comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
     if not comprobante:
+        logger.warning("get_candidatos_sat: comprobante %s no encontrado", id_comprobante)
         return templates.TemplateResponse(
             request,
             "shared/toast.html",
@@ -594,8 +594,6 @@ async def match_desde_comprobante(
     user=Depends(get_current_user_context),
     _=require_module_access("compras", "editor"),
 ):
-    from modules.compras.db_service import get_db_service
-
     db_svc = get_db_service()
     user_id = user["user_db_id"]
     try:
@@ -607,7 +605,7 @@ async def match_desde_comprobante(
             "shared/toast.html",
             {"message": str(e), "type": "error"},
         ).body.decode("utf-8")
-        return HTMLResponse(content=toast_html)
+        return HTMLResponse(content=toast_html, headers={"HX-Reswap": "none"})
     except Exception:
         logger.exception("match-desde-comprobante error inesperado inbox=%s comp=%s", inbox_id, comprobante_id)
         toast_html = templates.TemplateResponse(
@@ -615,9 +613,18 @@ async def match_desde_comprobante(
             "shared/toast.html",
             {"message": "Error inesperado al procesar el match.", "type": "error"},
         ).body.decode("utf-8")
-        return HTMLResponse(content=toast_html)
+        return HTMLResponse(content=toast_html, headers={"HX-Reswap": "none"})
 
     comprobante = await db_svc.get_comprobante_fila(conn, comprobante_id)
+    if not comprobante:
+        logger.error("get_comprobante_fila returned None after match inbox=%s comp=%s", inbox_id, comprobante_id)
+        close_modal = '<div id="sat-candidatos-modal-container" hx-swap-oob="innerHTML"></div>'
+        toast_html = templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"message": "CFDI vinculado pero no se pudo actualizar la fila.", "type": "warning"},
+        ).body.decode("utf-8")
+        return HTMLResponse(content=toast_html + close_modal)
     row_html = templates.TemplateResponse(
         request,
         "compras/partials/row_comprobante.html",
