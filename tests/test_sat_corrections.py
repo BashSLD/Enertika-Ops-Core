@@ -1,10 +1,12 @@
 from decimal import Decimal
+from datetime import date
 import sys
 from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
 import pytest
+from jinja2 import Environment, FileSystemLoader
 
 satcfdi_module = ModuleType("satcfdi")
 satcfdi_models_module = ModuleType("satcfdi.models")
@@ -40,6 +42,43 @@ from modules.compras import sat_service
 from modules.compras.db_service import ComprasDBService
 from modules.compras.schemas import CfdiData, CfdiRelacionado, TipoFactura
 from modules.compras.service import ComprasService
+
+
+def _render_row_comprobante(role="USER", module_role="editor", sat_count=0, estatus="PENDIENTE"):
+    env = Environment(loader=FileSystemLoader("templates"))
+    template = env.get_template("compras/partials/row_comprobante.html")
+    comprobante = {
+        "id_comprobante": uuid4(),
+        "fecha_pago": date(2026, 5, 1),
+        "beneficiario_orig": "Comercial Demo",
+        "monto": Decimal("1000.00"),
+        "moneda": "MXN",
+        "estatus": estatus,
+        "uuid_factura": None,
+        "monto_facturado": Decimal("0.00"),
+        "monto_remanente": None,
+        "tipo_factura": "NORMAL",
+        "es_anticipo": False,
+        "id_proveedor": None,
+        "id_zona": None,
+        "id_proyecto": None,
+        "id_categoria": None,
+        "comprador_nombre": "Comprador",
+        "proveedor_nombre": None,
+        "proveedor_rfc": None,
+        "zona_nombre": None,
+        "proyecto_nombre": None,
+        "categoria_nombre": None,
+        "count_pdf": 1,
+        "count_xml": 0,
+        "sat_candidatos_count": sat_count,
+    }
+    return template.render(
+        comprobante=comprobante,
+        role=role,
+        current_module_role=module_role,
+        filtros={"estatus": "SIN_COMPLETAR"},
+    )
 
 
 @pytest.mark.asyncio
@@ -96,6 +135,48 @@ async def test_confirmar_match_cierre_anticipo_menor_deja_parcial():
     _sql, *params = conn.execute.await_args.args
     assert params[4] == "PARCIALMENTE_FACTURADO"
     assert params[5] == Decimal("400.00")
+
+
+@pytest.mark.asyncio
+async def test_confirmar_match_normal_acumula_facturas_parciales_hasta_cubrir_pago():
+    conn = AsyncMock()
+    conn.fetchrow = AsyncMock(side_effect=[
+        {"monto": Decimal("1000.00"), "monto_facturado": Decimal("0.00")},
+        {"monto": Decimal("1000.00"), "monto_facturado": Decimal("400.00")},
+    ])
+    conn.execute = AsyncMock(return_value="UPDATE 1")
+
+    id_comprobante = uuid4()
+    id_proveedor = uuid4()
+    svc = ComprasDBService()
+
+    await svc.confirmar_match(
+        conn,
+        id_comprobante,
+        "AAAAAAAA-1111-2222-3333-444444444444",
+        id_proveedor,
+        "NORMAL",
+        "PENDIENTE",
+        Decimal("400.00"),
+    )
+    await svc.confirmar_match(
+        conn,
+        id_comprobante,
+        "BBBBBBBB-1111-2222-3333-444444444444",
+        id_proveedor,
+        "NORMAL",
+        "PARCIALMENTE_FACTURADO",
+        Decimal("600.00"),
+    )
+
+    first_sql, *first_params = conn.execute.await_args_list[0].args
+    second_sql, *second_params = conn.execute.await_args_list[1].args
+    assert "monto_facturado = $6" in first_sql
+    assert first_params[2] == "PARCIALMENTE_FACTURADO"
+    assert first_params[5] == Decimal("400.00")
+    assert "monto_facturado = $6" in second_sql
+    assert second_params[2] == "FACTURADO"
+    assert second_params[5] == Decimal("1000.00")
 
 
 @pytest.mark.asyncio
@@ -249,6 +330,55 @@ async def test_confirmar_match_xml_cierre_anticipo_sin_relacion_07_rechaza_exced
 
 
 @pytest.mark.asyncio
+async def test_confirmar_match_xml_rechaza_moneda_distinta(monkeypatch):
+    id_comprobante = uuid4()
+    id_proveedor = uuid4()
+
+    fake_db = SimpleNamespace(
+        uuid_factura_exists=AsyncMock(return_value=False),
+        uuid_factura_exists_in_junction=AsyncMock(return_value=False),
+        get_proveedor_by_rfc=AsyncMock(return_value={
+            "id_proveedor": id_proveedor,
+            "razon_social": "Proveedor Demo",
+        }),
+        get_comprobante_by_id=AsyncMock(return_value={
+            "id_comprobante": id_comprobante,
+            "id_proveedor": id_proveedor,
+            "estatus": "PENDIENTE",
+            "monto": Decimal("1000.00"),
+            "moneda": "USD",
+            "monto_facturado": Decimal("0.00"),
+            "beneficiario_orig": "Proveedor Demo",
+        }),
+        insertar_comprobante_factura=AsyncMock(),
+        confirmar_match=AsyncMock(),
+    )
+    monkeypatch.setattr(compras_db_module, "get_db_service", lambda: fake_db)
+
+    cfdi_data = {
+        "uuid": "DDDDDDDD-1111-2222-3333-444444444444",
+        "emisor_rfc": "AAA010101AAA",
+        "emisor_nombre": "Proveedor Demo",
+        "total": "1000.00",
+        "moneda": "MXN",
+        "tipo_factura": "NORMAL",
+        "relacionados": [],
+    }
+
+    with pytest.raises(ValueError, match="moneda del CFDI"):
+        await ComprasService().confirmar_match_xml(
+            AsyncMock(),
+            cfdi_data,
+            id_comprobante,
+            uuid4(),
+            guardar_relacion=False,
+        )
+
+    fake_db.insertar_comprobante_factura.assert_not_awaited()
+    fake_db.confirmar_match.assert_not_awaited()
+
+
+@pytest.mark.asyncio
 async def test_get_comprobante_anticipo_by_uuid_busca_en_junction():
     conn = AsyncMock()
     id_comprobante = uuid4()
@@ -353,6 +483,78 @@ async def test_buscar_coincidencias_auto_cierre_anticipo_valida_monto():
     sql = conn.fetch.await_args.args[0]
     assert "i.tipo_detectado = 'CIERRE_ANTICIPO'" in sql
     assert "c.monto >= i.total - 0.50" in sql
+
+
+@pytest.mark.asyncio
+async def test_buscar_candidatos_para_comprobante_manual_busca_sin_forzar_monto_o_nombre():
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=[])
+
+    await sat_db_service.buscar_candidatos_para_comprobante(
+        conn,
+        monto=1000.00,
+        beneficiario_orig="Beneficiario PDF",
+        proveedor_rfc="AAA010101AAA",
+        moneda="MXN",
+        estatus="PENDIENTE",
+        monto_facturado=0,
+        q="COMERCIAL",
+    )
+
+    sql, q_param = conn.fetch.await_args.args
+    assert "uuid_cfdi::text ILIKE" in sql
+    assert "nombre_emisor ILIKE" in sql
+    assert "rfc_emisor ILIKE" in sql
+    assert "CAST(total AS TEXT) LIKE" in sql
+    assert "ABS(total - $1)" not in sql
+    assert q_param == "COMERCIAL"
+
+
+@pytest.mark.asyncio
+async def test_buscar_candidatos_para_comprobante_automaticos_usa_moneda_y_saldo():
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=[])
+
+    await sat_db_service.buscar_candidatos_para_comprobante(
+        conn,
+        monto=1000.00,
+        beneficiario_orig="Beneficiario PDF",
+        proveedor_rfc="AAA010101AAA",
+        moneda="MXN",
+        estatus="PARCIALMENTE_FACTURADO",
+        monto_facturado=400.00,
+    )
+
+    sql, monto, beneficiario, rfc, moneda, estatus, monto_facturado = conn.fetch.await_args.args
+    assert "COALESCE(moneda, 'MXN') = $4" in sql
+    assert "total <= ($1 - $6::numeric) + 0.50" in sql
+    assert "tipo_detectado = 'CIERRE_ANTICIPO'" in sql
+    assert "total <= $1 + 0.50" in sql
+    assert monto == 1000.00
+    assert beneficiario == "Beneficiario PDF"
+    assert rfc == "AAA010101AAA"
+    assert moneda == "MXN"
+    assert estatus == "PARCIALMENTE_FACTURADO"
+    assert monto_facturado == 400.00
+
+
+def test_row_comprobante_mueve_sat_a_acciones_y_oculta_para_viewer():
+    editor_html = _render_row_comprobante(module_role="editor", sat_count=2)
+    viewer_html = _render_row_comprobante(module_role="viewer", sat_count=2)
+
+    assert "SAT \u00b7" not in editor_html
+    assert "SAT Â·" not in editor_html
+    assert "Ver CFDIs SAT sugeridos" in editor_html
+    assert 'hx-get="/compras/sat/comprobante/' in editor_html
+    assert "Ver CFDIs SAT sugeridos" not in viewer_html
+    assert 'hx-get="/compras/sat/comprobante/' not in viewer_html
+
+
+def test_row_comprobante_muestra_acceso_manual_sin_candidatos():
+    html = _render_row_comprobante(module_role="admin", sat_count=0)
+
+    assert "Buscar CFDI SAT manualmente" in html
+    assert 'hx-get="/compras/sat/comprobante/' in html
 
 
 class _FakeResponse:
