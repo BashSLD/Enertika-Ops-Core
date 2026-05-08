@@ -618,34 +618,13 @@ async def match_desde_comprobante(
         ).body.decode("utf-8")
         return HTMLResponse(content=toast_html, headers={"HX-Reswap": "none"})
 
-    comprobante = await db_svc.get_comprobante_fila(conn, comprobante_id)
-    if not comprobante:
-        logger.error("get_comprobante_fila returned None after match inbox=%s comp=%s", inbox_id, comprobante_id)
-        close_modal = '<div id="sat-candidatos-modal-container" hx-swap-oob="innerHTML"></div>'
-        toast_html = templates.TemplateResponse(
-            request,
-            "shared/toast.html",
-            {"message": "CFDI vinculado pero no se pudo actualizar la fila.", "type": "warning"},
-        ).body.decode("utf-8")
-        return HTMLResponse(content=toast_html + close_modal)
-    row_html = templates.TemplateResponse(
-        request,
-        "compras/partials/row_comprobante.html",
-        {
-            "comprobante": comprobante,
-            "role": user.get("role"),
-            "current_module_role": user.get("module_roles", {}).get("compras", "viewer"),
-        },
-    ).body.decode("utf-8")
-    row_oob = row_html.replace(
-        f'id="comprobante-row-{comprobante_id}"',
-        f'id="comprobante-row-{comprobante_id}" hx-swap-oob="outerHTML"',
-        1,
-    )
     toast_html = templates.TemplateResponse(
         request,
         "shared/toast.html",
         {"message": "CFDI vinculado correctamente", "type": "success"},
     ).body.decode("utf-8")
     close_modal = '<div id="sat-candidatos-modal-container" hx-swap-oob="innerHTML"></div>'
-    return HTMLResponse(content=row_oob + toast_html + close_modal)
+    return HTMLResponse(
+        content=toast_html + close_modal,
+        headers={"HX-Trigger": "reloadComprobantes"}
+    )
