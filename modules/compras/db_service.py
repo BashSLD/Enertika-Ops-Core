@@ -12,6 +12,24 @@ from core.timezone import now_mx
 
 logger = logging.getLogger("Compras.DBService")
 
+_SAT_CANDIDATOS_SUBQUERY = """
+    (SELECT COUNT(*) FROM tb_sat_inbox i
+     WHERE i.estado = 'pendiente'
+       AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO')
+       AND i.total IS NOT NULL
+       AND ABS(i.total - c.monto) <= 1.00
+       AND (
+           (c.beneficiario_orig <> '' AND (
+               COALESCE(i.nombre_emisor, '') ILIKE '%' || c.beneficiario_orig || '%'
+               OR c.beneficiario_orig ILIKE '%' || COALESCE(i.nombre_emisor, '') || '%'
+           ))
+           OR EXISTS (SELECT 1 FROM tb_proveedores p2
+                      WHERE p2.id_proveedor = c.id_proveedor
+                        AND p2.rfc = i.rfc_emisor)
+       )
+    ) as sat_candidatos_count
+"""
+
 class ComprasDBService:
     """Capa de Acceso a Datos para el Módulo Compras"""
 
@@ -59,7 +77,7 @@ class ComprasDBService:
         count_only: bool = False
     ):
         """Builds dynamic query for filtering comprobantes."""
-        base_query = """
+        base_query = f"""
             SELECT
                 c.id_comprobante,
                 c.fecha_pago,
@@ -96,21 +114,7 @@ class ComprasDBService:
                  AND da.metadata->>'id_comprobante' = c.id_comprobante::text
                  AND da.origen_slug = 'factura_xml'
                 ) as count_xml,
-                (SELECT COUNT(*)
-                 FROM tb_sat_inbox i
-                 WHERE i.estado = 'pendiente'
-                   AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO')
-                   AND ABS(i.total - c.monto) <= 1.00
-                   AND (
-                       i.nombre_emisor ILIKE '%' || c.beneficiario_orig || '%'
-                       OR c.beneficiario_orig ILIKE '%' || i.nombre_emisor || '%'
-                       OR EXISTS (
-                           SELECT 1 FROM tb_proveedores p2
-                           WHERE p2.id_proveedor = c.id_proveedor
-                             AND p2.rfc = i.rfc_emisor
-                       )
-                   )
-                ) as sat_candidatos_count
+                {_SAT_CANDIDATOS_SUBQUERY}
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
             LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
@@ -193,7 +197,7 @@ class ComprasDBService:
         return dict(row) if row else None
 
     async def get_comprobante_fila(self, conn, id_comprobante: UUID) -> Optional[dict]:
-        row = await conn.fetchrow("""
+        row = await conn.fetchrow(f"""
             SELECT
                 c.id_comprobante, c.fecha_pago, c.beneficiario_orig, c.monto, c.moneda,
                 c.estatus, c.uuid_factura, c.monto_facturado, c.monto_remanente,
@@ -213,17 +217,7 @@ class ComprasDBService:
                  WHERE da.activo = true
                    AND da.metadata->>'id_comprobante' = c.id_comprobante::text
                    AND da.origen_slug = 'factura_xml') as count_xml,
-                (SELECT COUNT(*) FROM tb_sat_inbox i
-                 WHERE i.estado = 'pendiente'
-                   AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO')
-                   AND ABS(i.total - c.monto) <= 1.00
-                   AND (
-                       i.nombre_emisor ILIKE '%' || c.beneficiario_orig || '%'
-                       OR c.beneficiario_orig ILIKE '%' || i.nombre_emisor || '%'
-                       OR EXISTS (SELECT 1 FROM tb_proveedores p2
-                                  WHERE p2.id_proveedor = c.id_proveedor
-                                    AND p2.rfc = i.rfc_emisor)
-                   )) as sat_candidatos_count
+                {_SAT_CANDIDATOS_SUBQUERY}
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
             LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor

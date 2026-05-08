@@ -358,10 +358,13 @@ async def buscar_candidatos_para_comprobante(
                    fecha_cfdi, tipo_detectado
             FROM tb_sat_inbox
             WHERE estado = 'pendiente'
+              AND total IS NOT NULL
               AND ABS(total - $1) <= 1.00
               AND (
-                  nombre_emisor ILIKE '%' || $2 || '%'
-                  OR $2 ILIKE '%' || nombre_emisor || '%'
+                  ($2 <> '' AND (
+                      COALESCE(nombre_emisor, '') ILIKE '%' || $2 || '%'
+                      OR $2 ILIKE '%' || COALESCE(nombre_emisor, '') || '%'
+                  ))
                   OR ($3::text IS NOT NULL AND rfc_emisor = $3)
               )
             ORDER BY ABS(total - $1) ASC, fecha_cfdi DESC
