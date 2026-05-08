@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import date
+from typing import Optional
 from uuid import UUID
 
 import asyncpg
@@ -544,3 +545,93 @@ async def confirm_auto_match(
     ).body.decode("utf-8")
 
     return HTMLResponse(content=table_oob + toast_html)
+
+
+@router.get("/comprobante/{id_comprobante}/candidatos", response_class=HTMLResponse)
+async def get_candidatos_sat(
+    request: Request,
+    id_comprobante: UUID,
+    q: Optional[str] = None,
+    conn=Depends(get_db_connection),
+    _=require_module_access("compras", "editor"),
+):
+    from modules.compras.db_service import get_db_service
+
+    db_svc = get_db_service()
+    comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+    if not comprobante:
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"message": "Comprobante no encontrado", "type": "error"},
+            status_code=404,
+            headers={"HX-Reswap": "none"},
+        )
+    candidatos = await sat_db_service.buscar_candidatos_para_comprobante(
+        conn,
+        monto=float(comprobante["monto"]),
+        beneficiario_orig=comprobante["beneficiario_orig"] or "",
+        proveedor_rfc=comprobante.get("proveedor_rfc"),
+        q=q,
+    )
+    return templates.TemplateResponse(
+        request,
+        "compras/partials/sat_candidatos_modal.html",
+        {
+            "comprobante": comprobante,
+            "candidatos": candidatos,
+            "busqueda": q or "",
+        },
+    )
+
+
+@router.post("/inbox/{inbox_id}/match-desde-comprobante", response_class=HTMLResponse)
+async def match_desde_comprobante(
+    request: Request,
+    inbox_id: UUID,
+    comprobante_id: UUID = Form(...),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=require_module_access("compras", "editor"),
+):
+    from modules.compras.db_service import get_db_service
+
+    db_svc = get_db_service()
+    user_id = user["user_db_id"]
+    try:
+        await _procesar_match_unico(conn, inbox_id, comprobante_id, user_id)
+    except (ValueError, asyncpg.PostgresError) as e:
+        logger.warning("match-desde-comprobante error inbox=%s comp=%s: %s", inbox_id, comprobante_id, e)
+        toast_html = templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"message": str(e), "type": "error"},
+        ).body.decode("utf-8")
+        return HTMLResponse(content=toast_html)
+    except Exception:
+        logger.exception("match-desde-comprobante error inesperado inbox=%s comp=%s", inbox_id, comprobante_id)
+        toast_html = templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"message": "Error inesperado al procesar el match.", "type": "error"},
+        ).body.decode("utf-8")
+        return HTMLResponse(content=toast_html)
+
+    comprobante = await db_svc.get_comprobante_fila(conn, comprobante_id)
+    row_html = templates.TemplateResponse(
+        request,
+        "compras/partials/row_comprobante.html",
+        {"comprobante": comprobante},
+    ).body.decode("utf-8")
+    row_oob = row_html.replace(
+        f'id="comprobante-row-{comprobante_id}"',
+        f'id="comprobante-row-{comprobante_id}" hx-swap-oob="outerHTML"',
+        1,
+    )
+    toast_html = templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"message": "CFDI vinculado correctamente", "type": "success"},
+    ).body.decode("utf-8")
+    close_modal = '<div id="sat-candidatos-modal-container" hx-swap-oob="innerHTML"></div>'
+    return HTMLResponse(content=row_oob + toast_html + close_modal)
