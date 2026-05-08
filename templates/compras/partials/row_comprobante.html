@@ -1,6 +1,6 @@
 {% set comprobante = comp if comp is defined else comprobante %}
 {% set vista_anticipo = filtros is defined and filtros.estatus == 'ANTICIPO' %}
-<tr id="row-{{ comprobante.id_comprobante }}" class="hover:bg-gray-50 transition-colors">
+<tr id="comprobante-row-{{ comprobante.id_comprobante }}" class="hover:bg-gray-50 transition-colors">
     <!-- Checkbox -->
     <td class="px-3 py-3">
         <input type="checkbox" class="row-checkbox rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]"
@@ -184,6 +184,22 @@
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/>
             </svg>
+            {% endif %}
+
+            <!-- Badge SAT candidatos -->
+            {% if comprobante.sat_candidatos_count and comprobante.sat_candidatos_count > 0 %}
+            <button
+                hx-get="/compras/sat/comprobante/{{ comprobante.id_comprobante }}/candidatos"
+                hx-target="#sat-candidatos-modal-container"
+                hx-swap="innerHTML"
+                title="{{ comprobante.sat_candidatos_count }} CFDI(s) del SAT sin vincular"
+                class="inline-flex items-center gap-1 rounded-full bg-teal-100 px-2 py-0.5 text-xs font-semibold text-teal-800 hover:bg-teal-200 transition-colors">
+                <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+                </svg>
+                SAT · {{ comprobante.sat_candidatos_count }}
+            </button>
             {% endif %}
         </div>
     </td>
