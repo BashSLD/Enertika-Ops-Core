@@ -4,6 +4,7 @@
          planta_id: '',
          tipo_poliza: 'premium',
          utilidad: 0.30,
+         limpiezas_extra: 0,
          plantas: [],
          planta: null,
          dto1_activo: false, dto1_display: '',
@@ -80,6 +81,7 @@
              this.planta_id = this.$el.dataset.plantaId || '';
              this.tipo_poliza = this.$el.dataset.tipoPoliza || 'premium';
              this.utilidad = parseFloat(this.$el.dataset.utilidad || '0.30');
+             this.limpiezas_extra = parseInt(this.$el.dataset.limpiezasExtra || '0', 10);
              this.cotizacionId = this.$el.dataset.cotizacionId || '';
              this.planta = this.plantas.find(p => p.id === this.planta_id) || null;
              const pct1 = parseFloat(this.$el.dataset.dto1 || '0');
@@ -117,6 +119,7 @@
      data-planta-id="{{ cotizacion.planta_id or '' }}"
      data-tipo-poliza="{{ cotizacion.tipo_poliza }}"
      data-utilidad="{{ cotizacion.utilidad }}"
+     data-limpiezas-extra="{{ cotizacion.resultado_json.get('limpiezas_extra', 0) }}"
      data-dto1="{{ cotizacion.descuento_pct_1 or 0 }}"
      data-dto3="{{ cotizacion.descuento_pct_3 or 0 }}"
      data-dto5="{{ cotizacion.descuento_pct_5 or 0 }}"
@@ -272,6 +275,14 @@
                     <div class="flex justify-between text-xs text-gray-400 mt-1">
                         <span>0%</span><span>30%</span><span>60%</span>
                     </div>
+                </div>
+
+                {# Limpiezas Adicionales #}
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Limpiezas extra (opcional)</label>
+                    <input type="number" name="limpiezas_extra" min="0" step="1"
+                           x-model.number="limpiezas_extra"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
                 </div>
 
                 {# Vigencia #}

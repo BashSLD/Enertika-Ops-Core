@@ -295,6 +295,7 @@ async def calcular(
     planta_id: str = Form(...),
     tipo_poliza: str = Form(...),
     utilidad: float = Form(0.30),
+    limpiezas_extra: Optional[str] = Form("0"),
     descuento_pct_1: Optional[float] = Form(None),
     descuento_pct_3: Optional[float] = Form(None),
     descuento_pct_5: Optional[float] = Form(None),
@@ -307,6 +308,7 @@ async def calcular(
     try:
         req = CalcularRequest(
             planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
+            limpiezas_extra=limpiezas_extra,
             descuento_pct_1=descuento_pct_1,
             descuento_pct_3=descuento_pct_3,
             descuento_pct_5=descuento_pct_5,
@@ -335,6 +337,7 @@ async def guardar_modal(
     planta_id: str = Query(...),
     tipo_poliza: str = Query(...),
     utilidad: float = Query(0.30),
+    limpiezas_extra: Optional[str] = Query("0"),
     descuento_pct_1: Optional[str] = Query(None),
     descuento_pct_3: Optional[str] = Query(None),
     descuento_pct_5: Optional[str] = Query(None),
@@ -366,6 +369,7 @@ async def guardar_modal(
             "planta_id": planta_id,
             "tipo_poliza": tipo_poliza,
             "utilidad": utilidad,
+            "limpiezas_extra": limpiezas_extra,
             "descuento_pct_1": d1,
             "descuento_pct_3": d3,
             "descuento_pct_5": d5,
@@ -382,6 +386,7 @@ async def guardar_cotizacion(
     planta_id: str = Form(...),
     tipo_poliza: str = Form(...),
     utilidad: float = Form(0.30),
+    limpiezas_extra: Optional[str] = Form("0"),
     descuento_pct_1: Optional[float] = Form(None),
     descuento_pct_3: Optional[float] = Form(None),
     descuento_pct_5: Optional[float] = Form(None),
@@ -425,6 +430,7 @@ async def guardar_cotizacion(
     try:
         req = CalcularRequest(
             planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
+            limpiezas_extra=limpiezas_extra,
             descuento_pct_1=descuento_pct_1,
             descuento_pct_3=descuento_pct_3,
             descuento_pct_5=descuento_pct_5,
@@ -775,6 +781,7 @@ async def comparar_precios_cotizacion(
     planta_id: str = Query(...),
     tipo_poliza: str = Query(...),
     utilidad: float = Query(0.30),
+    limpiezas_extra: Optional[str] = Query("0"),
     descuento_pct_1: Optional[float] = Query(None),
     descuento_pct_3: Optional[float] = Query(None),
     descuento_pct_5: Optional[float] = Query(None),
@@ -790,6 +797,7 @@ async def comparar_precios_cotizacion(
     try:
         req = CalcularRequest(
             planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
+            limpiezas_extra=limpiezas_extra,
             descuento_pct_1=descuento_pct_1,
             descuento_pct_3=descuento_pct_3,
             descuento_pct_5=descuento_pct_5,
@@ -888,6 +896,7 @@ async def update_cotizacion(
     planta_id: str = Form(...),
     tipo_poliza: str = Form(...),
     utilidad: float = Form(0.30),
+    limpiezas_extra: Optional[str] = Form("0"),
     descuento_pct_1: Optional[float] = Form(None),
     descuento_pct_3: Optional[float] = Form(None),
     descuento_pct_5: Optional[float] = Form(None),
@@ -966,6 +975,7 @@ async def update_cotizacion(
             return round(base * (1.0 - pct), 2) if pct else base
 
         snap_json["utilidad"] = utilidad
+        snap_json["limpiezas_extra"] = int(limpiezas_extra or 0)
         snap_json["sub_total_utilidad"] = snap_sub_total_utilidad
         snap_json["total_final"] = snap_total_final
         snap_json["anio_1"] = _a1
@@ -1006,6 +1016,7 @@ async def update_cotizacion(
         try:
             req = CalcularRequest(
                 planta_id=planta_id, tipo_poliza=tipo_poliza, utilidad=utilidad,
+                limpiezas_extra=limpiezas_extra,
                 descuento_pct_1=descuento_pct_1,
                 descuento_pct_3=descuento_pct_3,
                 descuento_pct_5=descuento_pct_5,

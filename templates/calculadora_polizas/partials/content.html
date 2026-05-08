@@ -5,6 +5,7 @@
         planta_id: '{{ planta_id_default or '' }}',
         tipo_poliza: 'premium',
         utilidad: {{ utilidad_default }},
+        limpiezas_extra: 0,
         dto1_activo: false, dto1_display: '',
         dto3_activo: false, dto3_display: '',
         dto5_activo: false, dto5_display: '',
@@ -194,6 +195,15 @@
                         <span>0%</span><span>30%</span><span>60%</span>
                     </div>
                 </div>
+
+                {# Limpiezas Adicionales #}
+                <div>
+                    <label class="block text-sm font-medium text-gray-600 mb-1">Limpiezas extra (opcional)</label>
+                    <input type="number" name="limpiezas_extra" min="0" step="1"
+                           x-model.number="limpiezas_extra"
+                           class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white">
+                </div>
+
 
                 {# Descuentos por año — porcentaje independiente para cada opcion #}
                 <div class="border border-green-200 bg-green-50/50 rounded-lg p-3 flex flex-col gap-2">

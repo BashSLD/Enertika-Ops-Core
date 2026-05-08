@@ -35,7 +35,7 @@
         </div>
         {# Boton guardar cotizacion — abre modal con opcion de solicitante #}
         <button hx-get="/calculadora-polizas/partials/guardar-modal"
-                hx-vals='{"planta_id": "{{ resultado.planta_id }}", "tipo_poliza": "{{ resultado.tipo_poliza }}", "utilidad": "{{ resultado.utilidad }}", "descuento_pct_1": "{{ resultado.descuento_pct_1 or '' }}", "descuento_pct_3": "{{ resultado.descuento_pct_3 or '' }}", "descuento_pct_5": "{{ resultado.descuento_pct_5 or '' }}"}'
+                hx-vals='{"planta_id": "{{ resultado.planta_id }}", "tipo_poliza": "{{ resultado.tipo_poliza }}", "utilidad": "{{ resultado.utilidad }}", "limpiezas_extra": "{{ resultado.limpiezas_extra }}", "descuento_pct_1": "{{ resultado.descuento_pct_1 or '' }}", "descuento_pct_3": "{{ resultado.descuento_pct_3 or '' }}", "descuento_pct_5": "{{ resultado.descuento_pct_5 or '' }}"}'
                 hx-include="#calc-fecha-fin-anterior"
                 hx-target="body"
                 hx-swap="beforeend"
@@ -67,6 +67,12 @@
                 <tr>
                     <td class="py-1.5 text-gray-600">Mtto. Diagnostico</td>
                     <td class="py-1.5 text-right font-medium">${{ "{:,.2f}".format(resultado.mtto_principal) }}</td>
+                </tr>
+                {% endif %}
+                {% if resultado.limpiezas_extra > 0 %}
+                <tr>
+                    <td class="py-1.5 text-gray-600">Limpiezas adicionales ({{ resultado.num_paneles }} pan. x {{ resultado.limpiezas_extra }} visita{% if resultado.limpiezas_extra > 1 %}s{% endif %})</td>
+                    <td class="py-1.5 text-right font-medium">${{ "{:,.2f}".format(resultado.costo_limpiezas_extra) }}</td>
                 </tr>
                 {% endif %}
                 <tr>

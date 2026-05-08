@@ -71,11 +71,13 @@ class CalculadoraService:
             mtto_principal = costos["mtto_diagnostico_estandar"]
             mtto_fijo = 0.0
 
+        costo_limpiezas_extra = (precio_panel * num_paneles) * req.limpiezas_extra
+
         wattabit_precio = float(wattabit_tier["precio_anual_mxp"])
         internet = costos["internet_anual"]
         gestion = costos["gestion_energetica_por_panel"] * num_paneles
 
-        sub_total = mtto_principal + mtto_fijo + wattabit_precio + internet + gestion
+        sub_total = mtto_principal + mtto_fijo + costo_limpiezas_extra + wattabit_precio + internet + gestion
         sub_total_utilidad = sub_total / (1 - utilidad)
         total_final = sub_total_utilidad * (1 + costos["iva"])
 
@@ -113,8 +115,10 @@ class CalculadoraService:
             num_paneles=num_paneles,
             tipo_poliza=tipo,
             utilidad=utilidad,
+            limpiezas_extra=req.limpiezas_extra,
             mtto_principal=round(mtto_principal, 2),
             mtto_fijo=round(mtto_fijo, 2),
+            costo_limpiezas_extra=round(costo_limpiezas_extra, 2),
             wattabit=round(wattabit_precio, 2),
             internet=round(internet, 2),
             gestion=round(gestion, 2),

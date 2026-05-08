@@ -127,6 +127,7 @@ class CalcularRequest(BaseModel):
     descuento_pct_1: Optional[float] = Field(default=None, ge=0.0, le=0.9999)
     descuento_pct_3: Optional[float] = Field(default=None, ge=0.0, le=0.9999)
     descuento_pct_5: Optional[float] = Field(default=None, ge=0.0, le=0.9999)
+    limpiezas_extra: int = Field(default=0, ge=0)
 
     @field_validator("utilidad", mode="before")
     @classmethod
@@ -134,6 +135,13 @@ class CalcularRequest(BaseModel):
         if v is None or v == "":
             return 0.30
         return float(v)
+
+    @field_validator("limpiezas_extra", mode="before")
+    @classmethod
+    def parse_limpiezas(cls, v):
+        if v is None or v == "":
+            return 0
+        return int(v)
 
     @field_validator("descuento_pct_1", "descuento_pct_3", "descuento_pct_5", mode="before")
     @classmethod
@@ -160,10 +168,12 @@ class CalcularResponse(BaseModel):
     num_paneles: int
     tipo_poliza: str
     utilidad: float
+    limpiezas_extra: int
 
     # Desglose de costos
     mtto_principal: float
     mtto_fijo: float
+    costo_limpiezas_extra: float
     wattabit: float
     internet: float
     gestion: float
