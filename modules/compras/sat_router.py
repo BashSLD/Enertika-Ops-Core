@@ -500,12 +500,14 @@ async def confirm_auto_match(
     procesados = 0
     errores = 0
 
+    logger.info("Auto-match iniciado: %d pares recibidos", len(matches))
     for match_str in matches:
         try:
             inbox_id_str, comprobante_id_str = match_str.split("|")
             inbox_id = UUID(inbox_id_str)
             comprobante_id = UUID(comprobante_id_str)
             await _procesar_match_unico(conn, inbox_id, comprobante_id, user_id)
+            logger.info("Auto-match OK: inbox=%s comprobante=%s", inbox_id_str, comprobante_id_str)
             procesados += 1
         except (ValueError, asyncpg.PostgresError) as e:
             logger.warning("Error en auto-match para %s: %s", match_str, e)
@@ -514,6 +516,7 @@ async def confirm_auto_match(
             logger.exception("Error inesperado en auto-match para %s", match_str)
             errores += 1
 
+    logger.info("Auto-match completado: %d exitosos, %d errores de %d pares", procesados, errores, len(matches))
     msg = f"{procesados} coincidencias procesadas correctamente."
     if errores > 0:
         msg += f" Hubo {errores} errores (ver logs)."
