@@ -757,6 +757,13 @@ async def editar_cotizacion_modal(
     if not cotizacion:
         raise HTTPException(404, "Cotizacion no encontrada")
 
+    # asyncpg puede devolver columnas JSONB como string; normalizar a dict
+    cotizacion = dict(cotizacion)
+    resultado_json = cotizacion.get("resultado_json") or {}
+    if isinstance(resultado_json, str):
+        resultado_json = json.loads(resultado_json)
+    cotizacion["resultado_json"] = resultado_json
+
     plantas_db = await service.db.get_plantas_dropdown(conn)
     plantas = _plantas_for_template(plantas_db)
     usuarios_comercial = await service.db.get_usuarios_comercial(conn)
@@ -2005,6 +2012,8 @@ async def descargar_pdf_poliza(
         "descuento_monto": resultado.get("descuento_monto", 0.0),
         "garantia_produccion": garantia_produccion,
         "vigencia_cotizacion_dias": cotizacion.get("vigencia_cotizacion_dias") or 30,
+        "limpiezas_extra": int(resultado.get("limpiezas_extra") or 0),
+        "costo_limpiezas_extra": float(resultado.get("costo_limpiezas_extra") or 0.0),
     }
 
     pdf_bytes = await pdf_service.generate("poliza_oym.html", ctx)

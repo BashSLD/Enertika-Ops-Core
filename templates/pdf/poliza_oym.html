@@ -966,6 +966,9 @@
     <div class="proj-note">
       La cuota incluye un ajuste del 3% por inflación a partir del segundo año. Contratar a más años
       fija esa tasa, protegiendo al cliente de ajustes mayores en el mercado.
+      {% if limpiezas_extra > 0 %}
+      Esta cotización incluye {{ limpiezas_extra }} limpieza{% if limpiezas_extra > 1 %}s{% endif %} adicional{% if limpiezas_extra > 1 %}es{% endif %} por año.
+      {% endif %}
     </div>
   </div>
   {% endif %}
@@ -995,7 +998,11 @@
           <div class="service-title-v2">Mantenimiento preventivo</div>
           <ul class="service-list">
             {% if tipo_poliza == 'premium' %}
+            {% if limpiezas_extra > 0 %}
+            <li class="service-list-item">Limpieza integral de módulos fotovoltaicos<span class="service-freq">{{ 2 + limpiezas_extra }}×/año</span></li>
+            {% else %}
             <li class="service-list-item">Limpieza integral de módulos fotovoltaicos<span class="service-freq">2×/año</span></li>
+            {% endif %}
             <li class="service-list-item">Revisión termográfica de inversores<span class="service-freq">2×/año</span></li>
             <li class="service-list-item">Mantenimiento eléctrico de tableros y conexiones<span class="service-freq">1×/año</span></li>
             <li class="service-list-item">Reporte fotográfico con hallazgos y acciones</li>
@@ -1003,6 +1010,9 @@
             <li class="service-list-item">Visita anual de diagnóstico<span class="service-freq">1×/año</span></li>
             <li class="service-list-item">Inspección visual de módulos fotovoltaicos</li>
             <li class="service-list-item">Revisión de inversores</li>
+            {% if limpiezas_extra > 0 %}
+            <li class="service-list-item">Limpieza de módulos fotovoltaicos<span class="service-freq">{{ limpiezas_extra }}×/año</span></li>
+            {% endif %}
             {% endif %}
           </ul>
         </div>
