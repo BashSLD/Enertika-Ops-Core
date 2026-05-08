@@ -376,7 +376,7 @@ async def get_comprobante_edit_modal(
         {            "comprobante": comprobante,
             "zonas": catalogos.get("zonas", []),
             "categorias": catalogos.get("categorias", []),
-            "proyectos": catalogos.get("proyectos", [])
+            "proyectos": catalogos.get("proyectos", []),
         }
     )
 

@@ -162,7 +162,9 @@ class ComprasDBService:
         
         if filtros.get('estatus'):
             if filtros['estatus'] == 'SIN_COMPLETAR':
-                base_query += " AND c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO')"
+                base_query += " AND (c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO') OR (c.estatus = 'ANTICIPO' AND COALESCE(c.monto_facturado, 0) < c.monto - 0.50))"
+            elif filtros['estatus'] == 'ANTICIPO':
+                base_query += " AND c.estatus = 'ANTICIPO' AND COALESCE(c.monto_facturado, 0) < c.monto - 0.50"
             else:
                 base_query += f" AND c.estatus = ${param_idx}"
                 params.append(filtros['estatus'])
@@ -354,7 +356,9 @@ class ComprasDBService:
             param_idx += 1
         if filtros.get('estatus'):
             if filtros['estatus'] == 'SIN_COMPLETAR':
-                base_query += " AND estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO')"
+                base_query += " AND (estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO') OR (estatus = 'ANTICIPO' AND COALESCE(monto_facturado, 0) < monto - 0.50))"
+            elif filtros['estatus'] == 'ANTICIPO':
+                base_query += " AND estatus = 'ANTICIPO' AND COALESCE(monto_facturado, 0) < monto - 0.50"
             else:
                 base_query += f" AND estatus = ${param_idx}"
                 params.append(filtros['estatus'])
@@ -446,7 +450,7 @@ class ComprasDBService:
                 u.nombre as comprador_nombre
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO', 'PARCIALMENTE_FACTURADO')
+            WHERE (c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO') OR (c.estatus = 'ANTICIPO' AND COALESCE(c.monto_facturado, 0) < c.monto - 0.50))
             AND c.beneficiario_orig = $1
             AND c.moneda = $2
             AND ABS(c.monto - $3) <= $4
@@ -469,7 +473,7 @@ class ComprasDBService:
                 u.nombre as comprador_nombre
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO', 'PARCIALMENTE_FACTURADO')
+            WHERE (c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO') OR (c.estatus = 'ANTICIPO' AND COALESCE(c.monto_facturado, 0) < c.monto - 0.50))
             AND c.beneficiario_orig = ANY($1)
             AND c.moneda = $2
             AND ABS(c.monto - $3) <= $4
@@ -489,7 +493,7 @@ class ComprasDBService:
                 u.nombre as comprador_nombre
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO', 'PARCIALMENTE_FACTURADO')
+            WHERE (c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO') OR (c.estatus = 'ANTICIPO' AND COALESCE(c.monto_facturado, 0) < c.monto - 0.50))
             AND c.moneda = $1
             AND ABS(c.monto - $2) <= $3
             ORDER BY c.fecha_pago DESC
@@ -531,7 +535,7 @@ class ComprasDBService:
                 c.id_comprobante, c.fecha_pago, c.beneficiario_orig,
                 c.monto, c.moneda, c.estatus, c.monto_facturado, c.created_at
             FROM tb_comprobantes_pago c
-            WHERE c.estatus IN ('PENDIENTE', 'ANTICIPO', 'PARCIALMENTE_FACTURADO')
+            WHERE (c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO') OR (c.estatus = 'ANTICIPO' AND COALESCE(c.monto_facturado, 0) < c.monto - 0.50))
         """
         params = []
         if q:

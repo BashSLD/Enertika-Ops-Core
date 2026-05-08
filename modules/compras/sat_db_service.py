@@ -226,7 +226,7 @@ async def listar_comprobantes_para_anticipo(conn: asyncpg.Connection, rfc_emisor
                p.razon_social AS proveedor_nombre, p.rfc AS proveedor_rfc
         FROM tb_comprobantes_pago c
         LEFT JOIN tb_proveedores p ON p.id_proveedor = c.id_proveedor
-        WHERE c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO')
+        WHERE (c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO') OR (c.estatus = 'ANTICIPO' AND COALESCE(c.monto_facturado, 0) < c.monto - 0.50))
         ORDER BY
             COALESCE(p.rfc = $1, false) DESC,
             CASE c.estatus
