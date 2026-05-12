@@ -16,6 +16,7 @@ async def get_sat_sp_config(conn: asyncpg.Connection) -> tuple[str, str, str]:
 
 _ALLOWED_JOB_FIELDS = frozenset({
     "estado", "id_solicitud_sat", "cfdi_encontrados", "cfdi_duplicados", "mensaje_error",
+    "rfc_emisor_filtro",
 })
 
 async def actualizar_job(conn: asyncpg.Connection, job_id: UUID, **kwargs) -> None:
@@ -42,30 +43,40 @@ async def uuid_ya_existe(conn: asyncpg.Connection, uuid_cfdi: str) -> bool:
     )
     return row[0]
 
-async def hay_job_activo(conn: asyncpg.Connection) -> bool:
+async def hay_job_activo(conn: asyncpg.Connection, max_runtime_minutes: int = 120) -> bool:
     row = await conn.fetchrow(
         "SELECT EXISTS ("
         "  SELECT 1 FROM tb_sat_jobs"
         "  WHERE estado NOT IN ('completado', 'error')"
-        "  AND created_at > NOW() - INTERVAL '2 hours'"
-        ")"
+        "  AND created_at > NOW() - ($1::int * INTERVAL '1 minute')"
+        ")",
+        max_runtime_minutes,
     )
     return row[0]
 
-async def crear_job(conn: asyncpg.Connection, fecha_inicio: date, fecha_fin: date, usuario_id: UUID) -> UUID:
+async def crear_job(
+    conn: asyncpg.Connection,
+    fecha_inicio: date,
+    fecha_fin: date,
+    usuario_id: UUID,
+    rfc_emisor_filtro: str | None = None,
+) -> UUID:
     row = await conn.fetchrow(
         """
-        INSERT INTO tb_sat_jobs (fecha_inicio_rango, fecha_fin_rango, creado_por, estado)
-        VALUES ($1, $2, $3, 'iniciando')
+        INSERT INTO tb_sat_jobs (
+            fecha_inicio_rango, fecha_fin_rango, creado_por, estado, rfc_emisor_filtro
+        )
+        VALUES ($1, $2, $3, 'iniciando', $4)
         RETURNING id
         """,
-        fecha_inicio, fecha_fin, usuario_id,
+        fecha_inicio, fecha_fin, usuario_id, rfc_emisor_filtro,
     )
     return row["id"]
 
 async def obtener_job_status(conn: asyncpg.Connection, job_id: UUID) -> dict:
     row = await conn.fetchrow(
-        "SELECT id, estado, cfdi_encontrados, cfdi_duplicados, mensaje_error, "
+        "SELECT id, estado, id_solicitud_sat, cfdi_encontrados, cfdi_duplicados, mensaje_error, "
+        "rfc_emisor_filtro, "
         "fecha_inicio_rango, fecha_fin_rango, created_at, updated_at "
         "FROM tb_sat_jobs WHERE id = $1",
         job_id,
@@ -76,11 +87,39 @@ async def obtener_job_status(conn: asyncpg.Connection, job_id: UUID) -> dict:
 
 async def obtener_ultimo_job(conn: asyncpg.Connection) -> dict | None:
     row = await conn.fetchrow(
-        "SELECT id, estado, cfdi_encontrados, cfdi_duplicados, mensaje_error, "
-        "fecha_inicio_rango, fecha_fin_rango, created_at "
+        "SELECT id, estado, id_solicitud_sat, cfdi_encontrados, cfdi_duplicados, mensaje_error, "
+        "rfc_emisor_filtro, fecha_inicio_rango, fecha_fin_rango, created_at, updated_at "
         "FROM tb_sat_jobs ORDER BY created_at DESC LIMIT 1"
     )
     return dict(row) if row else None
+
+async def obtener_job_activo_para_worker(conn: asyncpg.Connection) -> dict | None:
+    row = await conn.fetchrow(
+        """
+        SELECT id, estado, id_solicitud_sat, cfdi_encontrados, cfdi_duplicados,
+               mensaje_error, rfc_emisor_filtro, fecha_inicio_rango,
+               fecha_fin_rango, created_at, updated_at
+        FROM tb_sat_jobs
+        WHERE estado NOT IN ('completado', 'error')
+        ORDER BY created_at ASC
+        LIMIT 1
+        """
+    )
+    return dict(row) if row else None
+
+async def marcar_jobs_expirados(conn: asyncpg.Connection, max_runtime_minutes: int) -> int:
+    result = await conn.execute(
+        """
+        UPDATE tb_sat_jobs
+        SET estado = 'error',
+            mensaje_error = 'La consulta SAT excedio el tiempo maximo y fue marcada como interrumpida.',
+            updated_at = NOW()
+        WHERE estado NOT IN ('completado', 'error')
+          AND created_at < NOW() - ($1::int * INTERVAL '1 minute')
+        """,
+        max_runtime_minutes,
+    )
+    return int(result.split()[1]) if result.startswith("UPDATE") else 0
 
 async def listar_inbox(conn: asyncpg.Connection, estado: str | None = None, limit: int = 50) -> tuple[list[dict], int]:
     filtros = []

@@ -1,4 +1,3 @@
-import asyncio
 import logging
 from datetime import date
 from typing import Optional
@@ -13,8 +12,9 @@ from core.database import get_db_connection
 from core.permissions import require_module_access
 from core.security import get_current_user_context
 from core.timezone import now_mx
-from modules.compras import sat_service, sat_db_service
+from modules.compras import sat_db_service
 from modules.compras.db_service import get_db_service
+from modules.compras.sat_service import SAT_JOB_MAX_RUNTIME_MINUTES
 
 logger = logging.getLogger("ComprasSATRouter")
 
@@ -92,7 +92,7 @@ async def iniciar_job(
             status_code=400,
         )
 
-    if await sat_db_service.hay_job_activo(conn):
+    if await sat_db_service.hay_job_activo(conn, SAT_JOB_MAX_RUNTIME_MINUTES):
         return templates.TemplateResponse(
             request,
             "compras/partials/sat_job_status.html",
@@ -100,10 +100,16 @@ async def iniciar_job(
             status_code=409,
         )
 
-    rfc_emisor = (form.get("rfc_emisor") or "").strip() or None
+    rfc_emisor = (form.get("rfc_emisor") or "").strip().upper() or None
 
-    job_id = await sat_db_service.crear_job(conn, fecha_inicio, fecha_fin, user["user_db_id"])
-    asyncio.create_task(sat_service.ejecutar_descarga(job_id, fecha_inicio, fecha_fin, rfc_emisor))
+    job_id = await sat_db_service.crear_job(
+        conn,
+        fecha_inicio,
+        fecha_fin,
+        user["user_db_id"],
+        rfc_emisor,
+    )
+    logger.info("Job SAT %s creado y encolado para worker", job_id)
 
     job = await sat_db_service.obtener_job_status(conn, job_id)
     return templates.TemplateResponse(
