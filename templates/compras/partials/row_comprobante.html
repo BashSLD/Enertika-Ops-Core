@@ -154,6 +154,7 @@
             <div class="relative">
                 <button hx-get="/compras/comprobante/{{ comprobante.id_comprobante }}/archivos?tipo=pdf"
                     hx-target="#popover-pdf-{{ comprobante.id_comprobante }}" hx-swap="innerHTML"
+                    hx-on::before-request="cerrarPopoversArchivos('popover-pdf-{{ comprobante.id_comprobante }}')"
                     class="text-red-500 hover:text-red-700 transition-colors"
                     title="Ver comprobante PDF">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -162,6 +163,7 @@
                     </svg>
                 </button>
                 <div id="popover-pdf-{{ comprobante.id_comprobante }}"
+                    hx-on::after-swap="this.classList.remove('hidden')"
                     class="hidden absolute z-10 mt-1 right-0 bg-white shadow-lg rounded-lg border border-gray-200"></div>
             </div>
             {% else %}
@@ -176,6 +178,7 @@
             <div class="relative">
                 <button hx-get="/compras/comprobante/{{ comprobante.id_comprobante }}/archivos?tipo=xml"
                     hx-target="#popover-xml-{{ comprobante.id_comprobante }}" hx-swap="innerHTML"
+                    hx-on::before-request="cerrarPopoversArchivos('popover-xml-{{ comprobante.id_comprobante }}')"
                     class="relative text-orange-500 hover:text-orange-700 transition-colors"
                     title="{{ comprobante.count_xml }} XML(s) vinculado(s)">
                     <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -189,6 +192,7 @@
                     {% endif %}
                 </button>
                 <div id="popover-xml-{{ comprobante.id_comprobante }}"
+                    hx-on::after-swap="this.classList.remove('hidden')"
                     class="hidden absolute z-10 mt-1 right-0 bg-white shadow-lg rounded-lg border border-gray-200"></div>
             </div>
             {% else %}
@@ -231,7 +235,7 @@
             </button>
             {% endif %}
 
-            {% if comprobante.estatus in ('PARCIALMENTE_FACTURADO', 'CERRADO') %}
+            {% if comprobante.estatus in ('PARCIALMENTE_FACTURADO', 'FACTURADO', 'CERRADO') %}
             <button
                 hx-get="/compras/comprobante/{{ comprobante.id_comprobante }}/facturas-vinculadas"
                 hx-target="#facturas-panel-{{ comprobante.id_comprobante }}"
@@ -248,7 +252,7 @@
         </div>
     </td>
 </tr>
-{% if comprobante.estatus in ('PARCIALMENTE_FACTURADO', 'CERRADO') %}
+{% if comprobante.estatus in ('PARCIALMENTE_FACTURADO', 'FACTURADO', 'CERRADO') %}
 <tr id="facturas-panel-row-{{ comprobante.id_comprobante }}" class="comprobante-details-row">
     <td colspan="{{ 11 if vista_anticipo else 10 }}" class="px-4 pb-2">
         <div id="facturas-panel-{{ comprobante.id_comprobante }}"></div>

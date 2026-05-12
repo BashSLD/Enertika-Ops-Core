@@ -1,5 +1,5 @@
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
-     x-data="{ selectedInboxId: '' }"
+     x-data="{ selectedInboxIds: [] }"
      x-init="$el.addEventListener('click', e => { if (e.target === $el) document.getElementById('sat-candidatos-modal-container').innerHTML = '' })">
   <div class="bg-white rounded-xl shadow-xl w-full max-w-xl mx-4 flex flex-col max-h-[90dvh]">
 
@@ -20,6 +20,11 @@
       </button>
     </div>
 
+    <form id="form-sat-candidatos"
+          class="flex-1 min-h-0 flex flex-col"
+          hx-post="/compras/sat/comprobante/{{ comprobante.id_comprobante }}/match-candidatos"
+          hx-target="body"
+          hx-swap="none">
     <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
       <div>
         <label class="block text-xs font-medium text-gray-600 mb-1">
@@ -43,6 +48,7 @@
           hx-target="#sat-candidatos-lista"
           hx-swap="outerHTML"
           hx-select="#sat-candidatos-lista"
+          @input="selectedInboxIds = []"
           name="q"
           class="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
       </div>
@@ -56,14 +62,34 @@
           'NOTA_CREDITO': ('Nota Credito', 'bg-purple-100 text-purple-800'),
       } %}
       {% if candidatos %}
+      {% if suma_sugerida_ids %}
+      <div class="mb-3 rounded-lg border border-teal-200 bg-teal-50 p-3 text-xs text-teal-800">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="font-semibold">Suma sugerida por RFC {{ suma_sugerida_rfc }}</div>
+            <div class="mt-0.5">
+              {{ suma_sugerida_ids|length }} CFDIs = ${{ '{:,.2f}'.format(suma_sugerida_total or 0) }}
+              {% if suma_sugerida_diff is not none %}
+              <span class="text-teal-600">(dif. ${{ '{:,.2f}'.format(suma_sugerida_diff or 0) }})</span>
+              {% endif %}
+            </div>
+          </div>
+          <button type="button"
+                  @click="selectedInboxIds = {{ suma_sugerida_ids | tojson }}"
+                  class="shrink-0 rounded-md bg-teal-600 px-2.5 py-1.5 text-xs font-medium text-white hover:bg-teal-700">
+            Seleccionar suma
+          </button>
+        </div>
+      </div>
+      {% endif %}
       <div class="space-y-2">
         {% for c in candidatos %}
         {% set tipo = c.tipo_detectado or 'NORMAL' %}
         {% set label, cls = tipo_labels.get(tipo, ('Factura', 'bg-green-100 text-green-800')) %}
         <label class="flex items-start gap-3 rounded-lg border p-3 cursor-pointer hover:bg-gray-50 transition-colors"
-               :class="selectedInboxId === '{{ c.id }}' ? 'border-teal-400 bg-teal-50' : 'border-gray-200'">
-          <input type="radio" name="inbox_id_sel" value="{{ c.id }}"
-                 x-model="selectedInboxId"
+               :class="selectedInboxIds.includes('{{ c.id }}') ? 'border-teal-400 bg-teal-50' : '{{ 'border-teal-200 bg-teal-50/60' if c.suma_sugerida else 'border-gray-200' }}'">
+          <input type="checkbox" name="inbox_ids" value="{{ c.id }}"
+                 x-model="selectedInboxIds"
                  class="mt-0.5 text-teal-600 focus:ring-teal-500">
           <div class="flex-1 min-w-0">
             <div class="flex items-center justify-between gap-2">
@@ -78,6 +104,11 @@
               <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-[10px] font-medium {{ cls }}">
                 {{ label }}
               </span>
+              {% if c.suma_sugerida %}
+              <span class="inline-flex items-center rounded-full bg-teal-100 px-2.5 py-0.5 text-[10px] font-medium text-teal-800">
+                Suma
+              </span>
+              {% endif %}
             </div>
             <div class="text-[10px] text-gray-400 mt-0.5 font-mono" title="{{ c.uuid_cfdi }}">
               {{ c.uuid_cfdi[:8] if c.uuid_cfdi else '-' }}...
@@ -104,19 +135,13 @@
         class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
         Cancelar
       </button>
-      <button type="button"
-        :disabled="!selectedInboxId"
-        @click="
-          if (!selectedInboxId) return;
-          htmx.ajax('POST',
-            '/compras/sat/inbox/' + selectedInboxId + '/match-desde-comprobante',
-            { target: 'body', swap: 'none', values: { comprobante_id: '{{ comprobante.id_comprobante }}' } }
-          );
-        "
+      <button type="submit"
+        :disabled="selectedInboxIds.length === 0"
         class="px-4 py-2 text-sm font-medium text-white bg-teal-600 rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed">
-        Confirmar vinculacion
+        Vincular seleccion
       </button>
     </div>
+    </form>
 
   </div>
 </div>

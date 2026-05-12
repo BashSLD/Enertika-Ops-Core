@@ -44,7 +44,13 @@ from modules.compras.schemas import CfdiData, CfdiRelacionado, TipoFactura
 from modules.compras.service import ComprasService
 
 
-def _render_row_comprobante(role="USER", module_role="editor", sat_count=0, estatus="PENDIENTE"):
+def _render_row_comprobante(
+    role="USER",
+    module_role="editor",
+    sat_count=0,
+    estatus="PENDIENTE",
+    count_xml=0,
+):
     env = Environment(loader=FileSystemLoader("templates"))
     template = env.get_template("compras/partials/row_comprobante.html")
     comprobante = {
@@ -70,7 +76,7 @@ def _render_row_comprobante(role="USER", module_role="editor", sat_count=0, esta
         "proyecto_nombre": None,
         "categoria_nombre": None,
         "count_pdf": 1,
-        "count_xml": 0,
+        "count_xml": count_xml,
         "sat_candidatos_count": sat_count,
     }
     return template.render(
@@ -528,6 +534,8 @@ async def test_buscar_candidatos_para_comprobante_automaticos_usa_moneda_y_saldo
     sql, monto, beneficiario, rfc, moneda, estatus, monto_facturado = conn.fetch.await_args.args
     assert "COALESCE(moneda, 'MXN') = $4" in sql
     assert "total <= ($1 - $6::numeric) + 0.50" in sql
+    assert "CASE WHEN $3::text IS NOT NULL AND rfc_emisor = $3 THEN 0 ELSE 1 END" in sql
+    assert "extensions.word_similarity" in sql
     assert "tipo_detectado = 'CIERRE_ANTICIPO'" in sql
     assert "total <= $1 + 0.50" in sql
     assert monto == 1000.00
@@ -536,6 +544,80 @@ async def test_buscar_candidatos_para_comprobante_automaticos_usa_moneda_y_saldo
     assert moneda == "MXN"
     assert estatus == "PARCIALMENTE_FACTURADO"
     assert monto_facturado == 400.00
+
+
+@pytest.mark.asyncio
+async def test_buscar_candidatos_para_comprobante_marca_suma_por_mismo_rfc():
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=[
+        {
+            "id": uuid4(),
+            "uuid_cfdi": "A",
+            "rfc_emisor": "AAA010101AAA",
+            "nombre_emisor": "Proveedor Demo",
+            "total": Decimal("400.00"),
+            "moneda": "MXN",
+            "fecha_cfdi": date(2026, 5, 1),
+            "tipo_detectado": "NORMAL",
+        },
+        {
+            "id": uuid4(),
+            "uuid_cfdi": "B",
+            "rfc_emisor": "AAA010101AAA",
+            "nombre_emisor": "Proveedor Demo",
+            "total": Decimal("600.00"),
+            "moneda": "MXN",
+            "fecha_cfdi": date(2026, 5, 2),
+            "tipo_detectado": "NORMAL",
+        },
+        {
+            "id": uuid4(),
+            "uuid_cfdi": "C",
+            "rfc_emisor": "BBB010101BBB",
+            "nombre_emisor": "Otro Proveedor",
+            "total": Decimal("600.00"),
+            "moneda": "MXN",
+            "fecha_cfdi": date(2026, 5, 3),
+            "tipo_detectado": "NORMAL",
+        },
+    ])
+
+    result = await sat_db_service.buscar_candidatos_para_comprobante(
+        conn,
+        monto=1000.00,
+        beneficiario_orig="Proveedor Demo",
+        proveedor_rfc="AAA010101AAA",
+        moneda="MXN",
+        estatus="PENDIENTE",
+        monto_facturado=0,
+    )
+
+    marcados = [c for c in result if c.get("suma_sugerida")]
+    assert len(marcados) == 2
+    assert {c["rfc_emisor"] for c in marcados} == {"AAA010101AAA"}
+    assert {c["uuid_cfdi"] for c in marcados} == {"A", "B"}
+    assert all(c["grupo_suma_total"] == Decimal("1000") for c in marcados)
+
+
+@pytest.mark.asyncio
+async def test_obtener_inbox_items_para_match_usa_uuid_array():
+    conn = AsyncMock()
+    conn.fetch = AsyncMock(return_value=[])
+    inbox_id = uuid4()
+
+    await sat_db_service.obtener_inbox_items_para_match(conn, [inbox_id])
+
+    sql, ids = conn.fetch.await_args.args
+    assert "id = ANY($1::uuid[])" in sql
+    assert ids == [inbox_id]
+
+
+def test_sat_candidatos_count_refleja_monto_rfc_y_fuzzy():
+    sql = compras_db_module._SAT_CANDIDATOS_SUBQUERY
+
+    assert "ABS(i.total - c.monto) <= 1.00" in sql
+    assert "p.rfc = i.rfc_emisor" in sql
+    assert "extensions.word_similarity" in sql
 
 
 def test_row_comprobante_mueve_sat_a_acciones_y_oculta_para_viewer():
@@ -555,6 +637,20 @@ def test_row_comprobante_muestra_acceso_manual_sin_candidatos():
 
     assert "Buscar CFDI SAT manualmente" in html
     assert 'hx-get="/compras/sat/comprobante/' in html
+
+
+def test_row_comprobante_facturado_con_varios_xml_abre_popover_y_panel():
+    html = _render_row_comprobante(
+        module_role="editor",
+        estatus="FACTURADO",
+        count_xml=2,
+    )
+
+    assert "2 XML(s) vinculado(s)" in html
+    assert "hx-on::after-swap=\"this.classList.remove('hidden')\"" in html
+    assert "/archivos?tipo=xml" in html
+    assert "/facturas-vinculadas" in html
+    assert "facturas-panel-row-" in html
 
 
 class _FakeResponse:

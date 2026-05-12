@@ -1,7 +1,11 @@
 import asyncpg
 from datetime import date
+from decimal import Decimal, InvalidOperation
 from uuid import UUID
 from core.config import settings
+
+
+_SUMA_CANDIDATOS_TOLERANCIA = Decimal("0.50")
 
 async def get_sat_sp_config(conn: asyncpg.Connection) -> tuple[str, str, str]:
     rows = await conn.fetch(
@@ -322,7 +326,7 @@ async def buscar_coincidencias_auto(conn: asyncpg.Connection) -> list[dict]:
                     AND (
                         c.beneficiario_orig ILIKE '%' || i.nombre_emisor || '%'
                         OR i.nombre_emisor ILIKE '%' || c.beneficiario_orig || '%'
-                        OR word_similarity(LOWER(c.beneficiario_orig), LOWER(COALESCE(i.nombre_emisor, ''))) > 0.35
+                        OR extensions.word_similarity(LOWER(c.beneficiario_orig), LOWER(COALESCE(i.nombre_emisor, ''))) > 0.35
                     )
                 )
                 OR
@@ -352,6 +356,87 @@ async def buscar_coincidencias_auto(conn: asyncpg.Connection) -> list[dict]:
         """
     )
     return [dict(r) for r in rows]
+
+
+def _decimal_or_zero(value: object) -> Decimal:
+    try:
+        return Decimal(str(value or 0))
+    except (InvalidOperation, ValueError, TypeError):
+        return Decimal("0")
+
+
+def _marcar_grupo_suma_candidatos(
+    candidatos: list[dict],
+    monto_objetivo,
+    proveedor_rfc: str | None = None,
+) -> list[dict]:
+    """Marca el mejor subconjunto de un mismo RFC que cubre el monto objetivo."""
+    if not candidatos:
+        return candidatos
+
+    objetivo = _decimal_or_zero(monto_objetivo)
+    if objetivo <= 0:
+        return candidatos
+
+    limite = objetivo + _SUMA_CANDIDATOS_TOLERANCIA
+    objetivo_centavos = int((objetivo * 100).quantize(Decimal("1")))
+    limite_centavos = int((limite * 100).quantize(Decimal("1")))
+    proveedor_rfc = (proveedor_rfc or "").strip().upper()
+
+    grupos: dict[str, list[int]] = {}
+    for idx, candidato in enumerate(candidatos):
+        tipo = candidato.get("tipo_detectado") or "NORMAL"
+        if tipo != "NORMAL":
+            continue
+        total = _decimal_or_zero(candidato.get("total"))
+        if total <= 0 or total > limite:
+            continue
+        rfc = (candidato.get("rfc_emisor") or "").strip().upper()
+        if not rfc:
+            continue
+        grupos.setdefault(rfc, []).append(idx)
+
+    tolerancia_centavos = int((_SUMA_CANDIDATOS_TOLERANCIA * 100).quantize(Decimal("1")))
+    mejor: tuple[Decimal, int, int, str, list[int], int] | None = None
+    for rfc, indices in grupos.items():
+        estados: dict[int, list[int]] = {0: []}
+        for idx in indices[:24]:
+            total_centavos = int((_decimal_or_zero(candidatos[idx].get("total")) * 100).quantize(Decimal("1")))
+            nuevos = dict(estados)
+            for suma, combo in estados.items():
+                nueva_suma = suma + total_centavos
+                if nueva_suma > limite_centavos or nueva_suma in nuevos:
+                    continue
+                nuevos[nueva_suma] = combo + [idx]
+            estados = nuevos
+
+        for suma, combo in estados.items():
+            if len(combo) < 2:
+                continue
+            diff_centavos = abs(suma - objetivo_centavos)
+            if diff_centavos > tolerancia_centavos:
+                continue
+            diff = Decimal(diff_centavos) / Decimal("100")
+            prioridad_rfc = 0 if proveedor_rfc and rfc == proveedor_rfc else 1
+            score = (diff, prioridad_rfc, len(combo), rfc, combo, suma)
+            if mejor is None or score < mejor:
+                mejor = score
+
+    if not mejor:
+        return candidatos
+
+    diff, _prioridad_rfc, _largo, rfc, combo, suma_centavos = mejor
+    suma_total = Decimal(suma_centavos) / Decimal("100")
+    grupo_id = f"suma-{rfc}"
+    combo_set = set(combo)
+    for idx, candidato in enumerate(candidatos):
+        es_grupo = idx in combo_set
+        candidato["suma_sugerida"] = es_grupo
+        if es_grupo:
+            candidato["grupo_suma_id"] = grupo_id
+            candidato["grupo_suma_total"] = suma_total
+            candidato["grupo_suma_diff"] = diff
+    return candidatos
 
 async def contar_solicitudes_hoy(conn: asyncpg.Connection) -> int:
     val = await conn.fetchval(
@@ -421,7 +506,7 @@ async def buscar_candidatos_para_comprobante(
             WITH candidatos AS (
                 SELECT id, uuid_cfdi, rfc_emisor, nombre_emisor, total, moneda,
                        fecha_cfdi, tipo_detectado,
-                       word_similarity(LOWER(COALESCE(nombre_emisor, '')), LOWER($2)) AS name_sim
+                       extensions.word_similarity(LOWER(COALESCE(nombre_emisor, '')), LOWER($2)) AS name_sim
                 FROM tb_sat_inbox
                 WHERE estado = 'pendiente'
                   AND total IS NOT NULL
@@ -452,6 +537,7 @@ async def buscar_candidatos_para_comprobante(
             )
             ORDER BY
               CASE WHEN ABS(total - $1) <= 1.00 THEN 0 ELSE 1 END,
+              CASE WHEN $3::text IS NOT NULL AND rfc_emisor = $3 THEN 0 ELSE 1 END,
               CASE
                 WHEN $3::text IS NOT NULL AND rfc_emisor = $3
                 THEN ABS(total - ($1 - $6::numeric))
@@ -468,4 +554,30 @@ async def buscar_candidatos_para_comprobante(
             estatus or "",
             monto_facturado or 0,
         )
+    candidatos = [dict(r) for r in rows]
+    if not q:
+        monto_pendiente = _decimal_or_zero(monto) - _decimal_or_zero(monto_facturado)
+        candidatos = _marcar_grupo_suma_candidatos(
+            candidatos,
+            monto_pendiente,
+            proveedor_rfc,
+        )
+    return candidatos
+
+
+async def obtener_inbox_items_para_match(
+    conn: asyncpg.Connection,
+    inbox_ids: list[UUID],
+) -> list[dict]:
+    if not inbox_ids:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT id, uuid_cfdi, rfc_emisor, nombre_emisor, total, moneda,
+               fecha_cfdi, tipo_detectado, estado
+        FROM tb_sat_inbox
+        WHERE id = ANY($1::uuid[])
+        """,
+        inbox_ids,
+    )
     return [dict(r) for r in rows]

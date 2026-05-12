@@ -358,6 +358,15 @@
         document.getElementById('modal-editar-container').innerHTML = '';
     }
 
+    function cerrarPopoversArchivos(exceptId) {
+        document.querySelectorAll('[id^=popover-pdf-], [id^=popover-xml-]').forEach(popover => {
+            if (popover.id !== exceptId) {
+                popover.classList.add('hidden');
+                popover.innerHTML = '';
+            }
+        });
+    }
+
     // Actualizar URL de export Excel cuando cambian filtros (delegado para sobrevivir HTMX swaps)
     document.body.addEventListener('change', function (event) {
         const form = event.target && event.target.closest && event.target.closest('#filtros-form');

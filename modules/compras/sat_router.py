@@ -584,6 +584,13 @@ async def get_candidatos_sat(
         monto_facturado=float(comprobante.get("monto_facturado") or 0),
         q=q,
     )
+    suma_sugerida = None
+    suma_sugerida_ids = []
+    for c in candidatos:
+        if c.get("suma_sugerida"):
+            if suma_sugerida is None:
+                suma_sugerida = c
+            suma_sugerida_ids.append(str(c["id"]))
     return templates.TemplateResponse(
         request,
         "compras/partials/sat_candidatos_modal.html",
@@ -591,7 +598,100 @@ async def get_candidatos_sat(
             "comprobante": comprobante,
             "candidatos": candidatos,
             "busqueda": q or "",
+            "suma_sugerida_ids": suma_sugerida_ids,
+            "suma_sugerida_total": suma_sugerida.get("grupo_suma_total") if suma_sugerida else None,
+            "suma_sugerida_diff": suma_sugerida.get("grupo_suma_diff") if suma_sugerida else None,
+            "suma_sugerida_rfc": suma_sugerida.get("rfc_emisor") if suma_sugerida else None,
         },
+    )
+
+
+@router.post("/comprobante/{id_comprobante}/match-candidatos", response_class=HTMLResponse)
+async def match_candidatos_desde_comprobante(
+    request: Request,
+    id_comprobante: UUID,
+    inbox_ids: list[str] = Form(default=[]),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=require_module_access("compras", "editor"),
+):
+    try:
+        ids_unicos = sat_service.normalizar_inbox_ids(inbox_ids)
+    except ValueError:
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"message": "Selecciona CFDIs validos.", "type": "error"},
+            status_code=400,
+            headers={"HX-Reswap": "none"},
+        )
+
+    if not ids_unicos:
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"message": "Selecciona al menos un CFDI.", "type": "warning"},
+            status_code=200,
+            headers={"HX-Reswap": "none"},
+        )
+
+    user_id = user["user_db_id"]
+    try:
+        await sat_service.validar_candidatos_para_match(
+            conn,
+            id_comprobante,
+            ids_unicos,
+        )
+        procesados = 0
+        errores = 0
+        ultimo_error = ""
+        for inbox_id in ids_unicos:
+            try:
+                await _procesar_match_unico(conn, inbox_id, id_comprobante, user_id)
+                procesados += 1
+            except (ValueError, asyncpg.PostgresError) as e:
+                if len(ids_unicos) == 1:
+                    raise
+                ultimo_error = str(e)
+                logger.warning(
+                    "match-candidatos error inbox=%s comp=%s: %s",
+                    inbox_id,
+                    id_comprobante,
+                    e,
+                )
+                errores += 1
+        if procesados == 0 and errores:
+            raise ValueError(
+                f"No se pudo vincular ningun CFDI seleccionado. {ultimo_error}".strip()
+            )
+    except (ValueError, asyncpg.PostgresError) as e:
+        logger.warning("match-candidatos validacion error comp=%s: %s", id_comprobante, e)
+        toast_html = templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"message": str(e), "type": "error"},
+        ).body.decode("utf-8")
+        return HTMLResponse(content=toast_html, headers={"HX-Reswap": "none"})
+
+    msg = (
+        "CFDI vinculado correctamente"
+        if procesados == 1
+        else f"{procesados} CFDIs vinculados correctamente"
+    )
+    toast_type = "success"
+    if errores:
+        msg += f". Hubo {errores} errores."
+        toast_type = "warning"
+
+    toast_html = templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"message": msg, "type": toast_type},
+    ).body.decode("utf-8")
+    close_modal = '<div id="sat-candidatos-modal-container" hx-swap-oob="innerHTML"></div>'
+    return HTMLResponse(
+        content=toast_html + close_modal,
+        headers={"HX-Trigger": "reloadComprobantes"},
     )
 
 
@@ -604,7 +704,6 @@ async def match_desde_comprobante(
     user=Depends(get_current_user_context),
     _=require_module_access("compras", "editor"),
 ):
-    db_svc = get_db_service()
     user_id = user["user_db_id"]
     try:
         await _procesar_match_unico(conn, inbox_id, comprobante_id, user_id)

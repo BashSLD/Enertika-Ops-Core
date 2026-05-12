@@ -3,6 +3,7 @@ import io
 import logging
 import zipfile
 from datetime import date, timedelta
+from decimal import Decimal, InvalidOperation
 from uuid import UUID
 
 import asyncpg
@@ -62,6 +63,84 @@ async def descargar_xml_de_inbox(
 async def obtener_cfdi_inbox(conn: asyncpg.Connection, inbox_id: UUID):
     xml_bytes, uuid_cfdi = await descargar_xml_de_inbox(conn, inbox_id)
     return parse_cfdi_xml(xml_bytes, f"{uuid_cfdi}.xml")
+
+
+def normalizar_inbox_ids(inbox_ids: list[str]) -> list[UUID]:
+    seen: dict[UUID, None] = {}
+    for inbox_id in inbox_ids:
+        seen.setdefault(UUID(inbox_id), None)
+    return list(seen)
+
+
+def _decimal_campo(value, campo: str) -> Decimal:
+    try:
+        return Decimal(str(value or 0))
+    except (InvalidOperation, ValueError, TypeError) as exc:
+        raise ValueError(f"{campo} invalido") from exc
+
+
+async def validar_candidatos_para_match(
+    conn: asyncpg.Connection,
+    id_comprobante: UUID,
+    inbox_ids: list[UUID],
+) -> None:
+    if not inbox_ids:
+        raise ValueError("Selecciona al menos un CFDI.")
+
+    from modules.compras.db_service import get_db_service
+
+    db_svc = get_db_service()
+    comprobante = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+    if not comprobante:
+        raise ValueError("Comprobante no encontrado")
+
+    inbox_items = await sat_db_service.obtener_inbox_items_para_match(conn, inbox_ids)
+    items_por_id = {item["id"]: item for item in inbox_items}
+    if len(items_por_id) != len(inbox_ids):
+        raise ValueError("Uno o mas CFDIs seleccionados ya no estan disponibles.")
+
+    items_ordenados = [items_por_id[inbox_id] for inbox_id in inbox_ids]
+    if any(item.get("estado") != "pendiente" for item in items_ordenados):
+        raise ValueError("Uno o mas CFDIs seleccionados ya no estan pendientes.")
+
+    if len(items_ordenados) == 1:
+        return
+
+    rfcs = {
+        (item.get("rfc_emisor") or "").strip().upper()
+        for item in items_ordenados
+    }
+    rfcs.discard("")
+    if len(rfcs) != 1:
+        raise ValueError("La vinculacion multiple solo permite CFDIs del mismo RFC.")
+
+    tipos = {item.get("tipo_detectado") or "NORMAL" for item in items_ordenados}
+    if tipos != {"NORMAL"}:
+        raise ValueError("La vinculacion multiple solo esta disponible para facturas normales.")
+
+    moneda_comprobante = (comprobante.get("moneda") or "MXN").upper()
+    monedas_cfdi = {
+        (item.get("moneda") or "MXN").upper()
+        for item in items_ordenados
+    }
+    if monedas_cfdi != {moneda_comprobante}:
+        raise ValueError("La moneda de los CFDIs no coincide con la del comprobante.")
+
+    monto_pago = _decimal_campo(comprobante.get("monto"), "Monto del comprobante")
+    monto_facturado = _decimal_campo(
+        comprobante.get("monto_facturado"),
+        "Monto facturado",
+    )
+    saldo = monto_pago - monto_facturado
+    suma_cfdi = sum(
+        _decimal_campo(item.get("total"), "Total del CFDI")
+        for item in items_ordenados
+    )
+    if suma_cfdi > saldo + Decimal("0.50"):
+        exceso = suma_cfdi - saldo
+        raise ValueError(
+            f"La suma seleccionada excede el saldo del comprobante por ${exceso:,.2f}."
+        )
 
 
 
