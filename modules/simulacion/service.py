@@ -21,6 +21,25 @@ from .db_service import SimulacionDBService
 logger = logging.getLogger("SimulacionModule")
 
 
+def resolve_update_permissions(user_context: dict) -> dict:
+    """Regla unica de permisos para el modal y la actualizacion de simulacion."""
+    sim_role = user_context.get("module_roles", {}).get("simulacion", "")
+    system_role = user_context.get("role")
+    is_admin_system = system_role == "ADMIN"
+    is_module_admin = sim_role == "admin"
+    is_manager_editor = system_role == "MANAGER" and sim_role in ["editor", "admin"]
+    can_edit_sensitive = is_admin_system or is_module_admin or is_manager_editor
+
+    return {
+        "sim_role": sim_role,
+        "can_manage": is_admin_system or sim_role in ["editor", "admin"],
+        "can_edit_any": is_admin_system or is_module_admin or system_role == "MANAGER",
+        "can_edit_sensitive": can_edit_sensitive,
+        "can_assign_others": can_edit_sensitive,
+        "can_edit_assignment_fields": can_edit_sensitive or sim_role == "editor",
+    }
+
+
 class SimulacionService:
     """Encapsula la lógica de negocio del módulo Simulación (v3.1 Multisitio)."""
 
@@ -449,42 +468,57 @@ class SimulacionService:
         # The caller 'update_simulacion_padre' has 'id_oportunidad' in args. 
         # I should add 'id_oportunidad' to this helper signature.
         
-        # 1. Verificar Permisos de Campos Sensibles
-        # Lógica espejo del router (update_oportunidades modal):
-        #   - ADMIN del sistema -> SI
-        #   - admin del módulo simulación -> SI
-        #   - MANAGER del sistema + editor/admin del módulo -> SI
-        #   - Editor regular -> NO
-        sim_role = user_context.get("module_roles", {}).get("simulacion", "")
-        is_admin_system = (user_context.get("role") == "ADMIN" or sim_role == "admin")
-        is_manager_editor = (user_context.get("role") == "MANAGER" and sim_role in ["editor", "admin"])
-        can_edit_sensitive = is_admin_system or is_manager_editor
+        # 1. Verificar permisos de campos protegidos
+        permisos_update = resolve_update_permissions(user_context)
+        can_edit_sensitive = permisos_update["can_edit_sensitive"]
+        can_assign_others = permisos_update["can_assign_others"]
+        can_edit_assignment_fields = permisos_update["can_edit_assignment_fields"]
+        can_edit_any = permisos_update["can_edit_any"]
 
         # 1.5 Validar Permiso Básico de Edición (IDOR Check)
-        # Si NO es Admin/Manager, DEBE ser el dueño (responsable asignado)
+        # Si NO es Admin/Manager, DEBE ser el dueño o estar autoasignandose.
         user_id = user_context.get("user_db_id")
         is_owner = str(current_data.get("responsable_simulacion_id")) == str(user_id)
+        requested_responsable = datos.responsable_simulacion_id
+        is_self_assignment = (
+            can_edit_assignment_fields
+            and requested_responsable is not None
+            and str(requested_responsable) == str(user_id)
+        )
         
-        # Managers también pueden editar cualquier cosa, no solo sensitive
-        can_edit_any = is_admin_system or (user_context.get("role") == "MANAGER")
-        
-        if not (can_edit_any or is_owner):
-             raise HTTPException(
+        if not (can_edit_any or is_owner or is_self_assignment):
+            raise HTTPException(
                 status_code=403, 
-                detail="No autorizado. Solo el responsable asignado puede editar esta oportunidad."
+                detail="No autorizado. Solo el responsable asignado puede editar esta oportunidad o autoasignarse."
             )
 
         # monto_cierre_usd: preservar de BD si no viene en el form (campo opcional)
         if datos.monto_cierre_usd is None:
             datos.monto_cierre_usd = current_data['monto_cierre_usd']
 
-        # Si no tiene permisos sensibles, restaurar campos protegidos
+        # ID interno permanece limitado a Admin/Manager autorizado.
         if not can_edit_sensitive:
             datos.id_interno_simulacion = current_data['id_interno_simulacion']
+
+        if not can_edit_assignment_fields:
             datos.responsable_simulacion_id = current_data['responsable_simulacion_id']
             datos.deadline_negociado = current_data['deadline_negociado']
         else:
-             # Si tiene permisos y envió una fecha de deadline, forzamos la hora a las 18:00:00 (Regla de negocio original)
+            if not can_assign_others:
+                current_responsable = current_data['responsable_simulacion_id']
+                requested_is_self = (
+                    datos.responsable_simulacion_id is not None
+                    and str(datos.responsable_simulacion_id) == str(user_id)
+                )
+                if datos.responsable_simulacion_id is None:
+                    datos.responsable_simulacion_id = current_responsable
+                elif not requested_is_self and datos.responsable_simulacion_id != current_responsable:
+                    raise HTTPException(
+                        status_code=403,
+                        detail="No autorizado. Solo puedes autoasignarte oportunidades."
+                    )
+
+            # Si tiene permisos y envió una fecha de deadline, forzamos la hora a las 18:00:00 (Regla de negocio original)
             if datos.deadline_negociado:
                 datos.deadline_negociado = datos.deadline_negociado.replace(hour=18, minute=0, second=0, microsecond=0)
 

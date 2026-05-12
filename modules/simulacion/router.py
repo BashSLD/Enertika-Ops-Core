@@ -22,7 +22,7 @@ from core.config import settings
 from core.database import get_db_connection
 
 # Import del Service Layer
-from .service import SimulacionService, get_simulacion_service
+from .service import SimulacionService, get_simulacion_service, resolve_update_permissions
 from .db_service import SimulacionDBService, get_db_service
 from ..comercial.service import ComercialService # Reusing logic from Comercial
 from modules.shared.services import SiteService
@@ -598,23 +598,21 @@ async def get_edit_modal(
     # Use persistent multisite check (heuristic)
     es_multisitio = ComercialService.is_originally_multisite(dict(op))
 
-    # 4. Definir Permiso de Edición (Manager/Admin)
-    # 4. Definir Permiso de Edición (Manager/Admin)
-    # Regla: Solo si es ADMIN global o tiene rol de módulo 'editor'/'admin'
-    sim_role = context.get("module_roles", {}).get("simulacion", "")
-    
-    # Permission 1: Can Manage (Basic Save - Estatus)
-    can_manage = context["role"] == "ADMIN" or sim_role in ["editor", "admin"]
-    
-    # Permission 2: Can Edit Sensitive (ID, Responsable, Deadline)
-    # Rules: 
-    # - ADMIN (System/Module) -> YES
-    # - MANAGER (System) + Editor (Module) -> YES
-    # - Regular Editor -> NO
-    is_manager_editor = (context["role"] == 'MANAGER' and sim_role in ['editor', 'admin'])
-    is_admin_system = (context["role"] == 'ADMIN' or sim_role == 'admin')
-    
-    can_edit_sensitive = is_manager_editor or is_admin_system
+    # 4. Definir permisos de edicion.
+    permisos_update = resolve_update_permissions(context)
+    can_manage = permisos_update["can_manage"]
+    can_edit_sensitive = permisos_update["can_edit_sensitive"]
+    can_assign_others = permisos_update["can_assign_others"]
+    can_edit_assignment_fields = permisos_update["can_edit_assignment_fields"]
+    current_user_id = str(context.get("user_db_id") or "")
+    if can_edit_assignment_fields and current_user_id:
+        existe_usuario_actual = any(str(resp["id_usuario"]) == current_user_id for resp in responsables)
+        if not existe_usuario_actual:
+            responsables.append({
+                "id_usuario": context["user_db_id"],
+                "nombre": context.get("user_name") or "Usuario actual",
+                "departamento": context.get("department") or ""
+            })
 
     # Determinar si es tecnología BESS (ID 2) o FV+BESS (ID 3)
     is_bess_related = op['id_tecnologia'] in [2, 3]
@@ -631,6 +629,9 @@ async def get_edit_modal(
         "status_ids": status_ids,
         "can_manage": can_manage,
         "can_edit_sensitive": can_edit_sensitive,
+        "can_edit_assignment_fields": can_edit_assignment_fields,
+        "can_assign_others": can_assign_others,
+        "current_user_id": current_user_id,
         "context": context,
         "sitios_oportunidad": [dict(r) for r in sitios_oportunidad],
         "motivos_retrabajo": [dict(r) for r in motivos_retrabajo],
@@ -851,21 +852,36 @@ async def update_responsable(
     request: Request,
     id_oportunidad: UUID,
     responsable_simulacion_id: UUID = Form(...),
+    context = Depends(get_current_user_context),
     conn = Depends(get_db_connection),
     db_service: SimulacionDBService = Depends(get_db_service),
     _ = require_module_access("simulacion", "editor")
 ):
     """Actualización rápida de responsable (Inline)."""
     try:
-        # Update directo
+        permisos_update = resolve_update_permissions(context)
+        can_assign_others = permisos_update["can_assign_others"]
+        is_self_assignment = str(responsable_simulacion_id) == str(context.get("user_db_id"))
+
+        if not (can_assign_others or is_self_assignment):
+            raise HTTPException(
+                status_code=403,
+                detail="No autorizado. Solo puedes autoasignarte oportunidades."
+            )
+
         await db_service.update_responsable(conn, id_oportunidad, responsable_simulacion_id)
         return templates.TemplateResponse(request, "shared/partials/toasts/toast_success.html", {"title": "Asignación Actualizada",
             "message": "El responsable ha sido actualizado correctamente."
         })
-    except Exception as e:
+    except HTTPException as e:
         return templates.TemplateResponse(request, "shared/partials/toasts/toast_error.html", {"title": "Error Asignación",
-            "message": str(e)
-        })
+            "message": e.detail
+        }, status_code=e.status_code)
+    except asyncpg.PostgresError:
+        logger.exception("Error de base de datos al actualizar responsable de simulación")
+        return templates.TemplateResponse(request, "shared/partials/toasts/toast_error.html", {"title": "Error Asignación",
+            "message": "No se pudo actualizar el responsable."
+        }, status_code=500)
 
 
 # ========================================

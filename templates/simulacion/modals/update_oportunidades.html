@@ -254,14 +254,18 @@
                                 </div>
                                 <span>Responsable Asignado</span>
                             </label>
-                            <select name="responsable_simulacion_id" x-model="responsable" {% if not can_edit_sensitive
+                            <select name="responsable_simulacion_id" x-model="responsable" {% if not can_edit_assignment_fields
                                 %}disabled{% endif %}
                                 class="w-full border-2 border-[#00BABB] rounded-md shadow-sm focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 font-medium text-sm text-gray-800 transition-all hover:border-[#009999]"
                                 :class="{'border-red-500 ring-1 ring-red-500': errors.responsable}">
-                                <option value="">-- Sin Asignar --</option>
+                                <option value="" {% if not can_assign_others %}disabled{% endif %}>-- Sin Asignar --</option>
                                 {% for resp in responsables %}
+                                {% set resp_id = resp.id_usuario|string %}
+                                {% set es_usuario_actual = resp_id == current_user_id %}
+                                {% set es_responsable_actual = resp_id == op.responsable_simulacion_id|string %}
                                 <option value="{{ resp.id_usuario }}" {% if
-                                    resp.id_usuario|string==op.responsable_simulacion_id|string %}selected{% endif %}>
+                                    es_responsable_actual %}selected{% endif %}
+                                    {% if not can_assign_others and not es_usuario_actual and not es_responsable_actual %}disabled hidden{% endif %}>
                                     {{ resp.nombre }} ({{ resp.departamento }})
                                 </option>
                                 {% endfor %}
@@ -285,7 +289,7 @@
                             </label>
                             <input type="date" name="deadline_negociado" x-model="deadline"
                                 value="{{ op.deadline_negociado.strftime('%Y-%m-%d') if op.deadline_negociado else '' }}"
-                                {% if not can_edit_sensitive %}disabled{% endif %}
+                                {% if not can_edit_assignment_fields %}disabled{% elif not can_assign_others %}:disabled="responsable !== '{{ current_user_id }}'"{% endif %}
                                 class="w-full border-2 border-[#00BABB] rounded-md shadow-sm focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 text-sm transition-all hover:border-[#009999]">
                         </div>
                     </div>
