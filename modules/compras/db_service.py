@@ -12,6 +12,13 @@ from core.timezone import now_mx
 
 logger = logging.getLogger("Compras.DBService")
 
+_PROVEEDOR_FALLBACK_JOIN = """LEFT JOIN tb_proveedores p ON p.id_proveedor = COALESCE(
+                c.id_proveedor,
+                (SELECT bp.id_proveedor FROM tb_beneficiario_proveedor bp
+                 WHERE bp.beneficiario_nombre = c.beneficiario_orig
+                 ORDER BY bp.created_at DESC LIMIT 1)
+            )"""
+
 _SAT_CANDIDATOS_SUBQUERY = """
     (SELECT COUNT(*) FROM tb_sat_inbox i
      WHERE i.estado = 'pendiente'
@@ -139,11 +146,7 @@ class ComprasDBService:
                 {_SAT_CANDIDATOS_SUBQUERY}
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            LEFT JOIN tb_proveedores p ON p.id_proveedor = COALESCE(
-                c.id_proveedor,
-                (SELECT bp.id_proveedor FROM tb_beneficiario_proveedor bp
-                 WHERE bp.beneficiario_nombre = c.beneficiario_orig LIMIT 1)
-            )
+            {_PROVEEDOR_FALLBACK_JOIN}
             LEFT JOIN tb_cat_zonas_compra z ON c.id_zona = z.id
             LEFT JOIN tb_proyectos_gate pr ON c.id_proyecto = pr.id_proyecto
             LEFT JOIN tb_cat_categorias_compra cat ON c.id_categoria = cat.id
@@ -206,8 +209,8 @@ class ComprasDBService:
         return await conn.fetch(base_query, *params)
 
     async def get_comprobante_by_id(self, conn, id_comprobante: UUID) -> Optional[dict]:
-        row = await conn.fetchrow("""
-            SELECT 
+        row = await conn.fetchrow(f"""
+            SELECT
                 c.*,
                 u.nombre as comprador_nombre,
                 p.razon_social as proveedor_nombre,
@@ -217,11 +220,7 @@ class ComprasDBService:
                 cat.nombre as categoria_nombre
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            LEFT JOIN tb_proveedores p ON p.id_proveedor = COALESCE(
-                c.id_proveedor,
-                (SELECT bp.id_proveedor FROM tb_beneficiario_proveedor bp
-                 WHERE bp.beneficiario_nombre = c.beneficiario_orig LIMIT 1)
-            )
+            {_PROVEEDOR_FALLBACK_JOIN}
             LEFT JOIN tb_cat_zonas_compra z ON c.id_zona = z.id
             LEFT JOIN tb_proyectos_gate pr ON c.id_proyecto = pr.id_proyecto
             LEFT JOIN tb_cat_categorias_compra cat ON c.id_categoria = cat.id
@@ -253,11 +252,7 @@ class ComprasDBService:
                 {_SAT_CANDIDATOS_SUBQUERY}
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            LEFT JOIN tb_proveedores p ON p.id_proveedor = COALESCE(
-                c.id_proveedor,
-                (SELECT bp.id_proveedor FROM tb_beneficiario_proveedor bp
-                 WHERE bp.beneficiario_nombre = c.beneficiario_orig LIMIT 1)
-            )
+            {_PROVEEDOR_FALLBACK_JOIN}
             LEFT JOIN tb_cat_zonas_compra z ON c.id_zona = z.id
             LEFT JOIN tb_proyectos_gate pr ON c.id_proyecto = pr.id_proyecto
             LEFT JOIN tb_cat_categorias_compra cat ON c.id_categoria = cat.id
