@@ -1031,6 +1031,31 @@ async def check_recordatorios_completado_periodically(interval_seconds: int = 36
             logger.error("[LEV_COMPLETADO] Error inesperado: %s", e, exc_info=True)
 
 
+async def sat_jobs_worker_periodically(interval_seconds: int = 30):
+    """
+    Procesa jobs de descarga SAT desde el Worker service.
+    El job queda persistido en BD, por lo que puede recuperarse tras redeploys o reinicios.
+    """
+    from modules.compras import sat_service
+
+    logger.info("[SAT Worker] Tarea inicializada (intervalo: %ss)", interval_seconds)
+
+    while True:
+        try:
+            processed = await sat_service.procesar_siguiente_job_pendiente()
+            if not processed:
+                await asyncio.sleep(interval_seconds)
+        except asyncio.CancelledError:
+            logger.info("[SAT Worker] Tarea cancelada")
+            raise
+        except asyncpg.PostgresError as e:
+            logger.error("[SAT Worker] Error de BD: %s", e)
+            await asyncio.sleep(interval_seconds)
+        except Exception as e:
+            logger.error("[SAT Worker] Error inesperado: %s", e, exc_info=True)
+            await asyncio.sleep(interval_seconds)
+
+
 async def sat_inbox_cleanup_periodically(interval_seconds: int = 604800):
     from core.database import get_db_pool
     from core.microsoft import get_ms_auth
