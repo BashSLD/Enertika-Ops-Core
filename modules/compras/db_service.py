@@ -139,7 +139,11 @@ class ComprasDBService:
                 {_SAT_CANDIDATOS_SUBQUERY}
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
+            LEFT JOIN tb_proveedores p ON p.id_proveedor = COALESCE(
+                c.id_proveedor,
+                (SELECT bp.id_proveedor FROM tb_beneficiario_proveedor bp
+                 WHERE bp.beneficiario_nombre = c.beneficiario_orig LIMIT 1)
+            )
             LEFT JOIN tb_cat_zonas_compra z ON c.id_zona = z.id
             LEFT JOIN tb_proyectos_gate pr ON c.id_proyecto = pr.id_proyecto
             LEFT JOIN tb_cat_categorias_compra cat ON c.id_categoria = cat.id
@@ -213,7 +217,11 @@ class ComprasDBService:
                 cat.nombre as categoria_nombre
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
+            LEFT JOIN tb_proveedores p ON p.id_proveedor = COALESCE(
+                c.id_proveedor,
+                (SELECT bp.id_proveedor FROM tb_beneficiario_proveedor bp
+                 WHERE bp.beneficiario_nombre = c.beneficiario_orig LIMIT 1)
+            )
             LEFT JOIN tb_cat_zonas_compra z ON c.id_zona = z.id
             LEFT JOIN tb_proyectos_gate pr ON c.id_proyecto = pr.id_proyecto
             LEFT JOIN tb_cat_categorias_compra cat ON c.id_categoria = cat.id
@@ -245,7 +253,11 @@ class ComprasDBService:
                 {_SAT_CANDIDATOS_SUBQUERY}
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
-            LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
+            LEFT JOIN tb_proveedores p ON p.id_proveedor = COALESCE(
+                c.id_proveedor,
+                (SELECT bp.id_proveedor FROM tb_beneficiario_proveedor bp
+                 WHERE bp.beneficiario_nombre = c.beneficiario_orig LIMIT 1)
+            )
             LEFT JOIN tb_cat_zonas_compra z ON c.id_zona = z.id
             LEFT JOIN tb_proyectos_gate pr ON c.id_proyecto = pr.id_proyecto
             LEFT JOIN tb_cat_categorias_compra cat ON c.id_categoria = cat.id
