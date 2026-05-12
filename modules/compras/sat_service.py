@@ -37,59 +37,6 @@ async def _get_sat_sp_config(conn: asyncpg.Connection) -> tuple[str, str, str]:
     return site_id, drive_id, base_folder
 
 
-_ALLOWED_JOB_FIELDS = frozenset({
-    "estado", "id_solicitud_sat", "cfdi_encontrados", "cfdi_duplicados", "mensaje_error",
-})
-
-
-async def _actualizar_job(conn: asyncpg.Connection, job_id: UUID, **kwargs) -> None:
-    invalid = set(kwargs) - _ALLOWED_JOB_FIELDS
-    if invalid:
-        raise ValueError(f"Campos de job no permitidos: {invalid}")
-    sets = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(kwargs))
-    values = list(kwargs.values())
-    await conn.execute(
-        f"UPDATE tb_sat_jobs SET {sets}, updated_at = NOW() WHERE id = $1",
-        job_id, *values,
-    )
-
-
-async def crear_job(
-    conn: asyncpg.Connection,
-    fecha_inicio: date,
-    fecha_fin: date,
-    usuario_id: UUID,
-) -> UUID:
-    row = await conn.fetchrow(
-        """
-        INSERT INTO tb_sat_jobs (fecha_inicio_rango, fecha_fin_rango, creado_por, estado)
-        VALUES ($1, $2, $3, 'iniciando')
-        RETURNING id
-        """,
-        fecha_inicio, fecha_fin, usuario_id,
-    )
-    return row["id"]
-
-
-async def obtener_job_status(conn: asyncpg.Connection, job_id: UUID) -> dict:
-    row = await conn.fetchrow(
-        "SELECT id, estado, cfdi_encontrados, cfdi_duplicados, mensaje_error, "
-        "fecha_inicio_rango, fecha_fin_rango, created_at, updated_at "
-        "FROM tb_sat_jobs WHERE id = $1",
-        job_id,
-    )
-    if not row:
-        raise ValueError(f"Job no encontrado: {job_id}")
-    return dict(row)
-
-
-async def obtener_ultimo_job(conn: asyncpg.Connection) -> dict | None:
-    row = await conn.fetchrow(
-        "SELECT id, estado, cfdi_encontrados, cfdi_duplicados, mensaje_error, "
-        "fecha_inicio_rango, fecha_fin_rango, created_at "
-        "FROM tb_sat_jobs ORDER BY created_at DESC LIMIT 1"
-    )
-    return dict(row) if row else None
 
 
 async def listar_inbox(
@@ -239,7 +186,7 @@ async def ejecutar_descarga(
             if estado:
                 fields["estado"] = estado
             fields.update(kwargs)
-            await _actualizar_job(c, job_id, **fields)
+            await sat_db_service.actualizar_job(c, job_id, **fields)
 
     try:
         async with pool.acquire() as conn:
