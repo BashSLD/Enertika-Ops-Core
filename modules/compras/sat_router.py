@@ -13,6 +13,7 @@ from core.permissions import require_module_access
 from core.security import get_current_user_context
 from core.timezone import now_mx
 from modules.compras import sat_db_service
+from modules.compras import sat_service
 from modules.compras.db_service import get_db_service
 from modules.compras.sat_service import SAT_JOB_MAX_RUNTIME_MINUTES
 

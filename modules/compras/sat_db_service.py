@@ -108,26 +108,35 @@ async def obtener_ultimo_job(conn: asyncpg.Connection) -> dict | None:
     return dict(row) if row else None
 
 async def obtener_job_activo_para_worker(conn: asyncpg.Connection) -> dict | None:
-    async with conn.transaction():
-        row = await conn.fetchrow(
-            """
-            SELECT id, estado, id_solicitud_sat, cfdi_encontrados, cfdi_duplicados,
-                   mensaje_error, rfc_emisor_filtro, fecha_inicio_rango,
-                   fecha_fin_rango, created_at, updated_at
+    row = await conn.fetchrow(
+        """
+        WITH candidato AS (
+            SELECT id
             FROM tb_sat_jobs
             WHERE estado NOT IN ('completado', 'error')
             ORDER BY created_at ASC
             LIMIT 1
             FOR UPDATE SKIP LOCKED
-            """
         )
-        if not row:
-            return None
-        await conn.execute(
-            "UPDATE tb_sat_jobs SET estado = 'solicitando', updated_at = NOW() WHERE id = $1",
-            row["id"],
-        )
-    return dict(row)
+        UPDATE tb_sat_jobs
+        SET estado = 'solicitando', updated_at = NOW()
+        FROM candidato
+        WHERE tb_sat_jobs.id = candidato.id
+        RETURNING
+            tb_sat_jobs.id,
+            tb_sat_jobs.estado,
+            tb_sat_jobs.id_solicitud_sat,
+            tb_sat_jobs.cfdi_encontrados,
+            tb_sat_jobs.cfdi_duplicados,
+            tb_sat_jobs.mensaje_error,
+            tb_sat_jobs.rfc_emisor_filtro,
+            tb_sat_jobs.fecha_inicio_rango,
+            tb_sat_jobs.fecha_fin_rango,
+            tb_sat_jobs.created_at,
+            tb_sat_jobs.updated_at
+        """
+    )
+    return dict(row) if row else None
 
 async def marcar_jobs_expirados(conn: asyncpg.Connection, max_runtime_minutes: int) -> int:
     result = await conn.execute(
