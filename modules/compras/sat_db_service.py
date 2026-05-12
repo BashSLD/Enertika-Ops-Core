@@ -43,6 +43,20 @@ async def uuid_ya_existe(conn: asyncpg.Connection, uuid_cfdi: str) -> bool:
     )
     return row[0]
 
+async def uuids_existentes(conn: asyncpg.Connection, uuids: list[str]) -> set[str]:
+    if not uuids:
+        return set()
+    rows = await conn.fetch(
+        """
+        SELECT uuid_cfdi FROM tb_sat_inbox WHERE uuid_cfdi = ANY($1)
+        UNION
+        SELECT uuid_factura FROM tb_xml_staging WHERE uuid_factura = ANY($1)
+        """,
+        uuids,
+    )
+    return {r[0] for r in rows}
+
+
 async def hay_job_activo(conn: asyncpg.Connection, max_runtime_minutes: int = 120) -> bool:
     row = await conn.fetchrow(
         "SELECT EXISTS ("

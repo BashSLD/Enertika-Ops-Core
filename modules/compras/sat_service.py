@@ -316,66 +316,56 @@ async def ejecutar_descarga(
             zip_bytes = await client.descargar_paquete(id_paquete)
             await update(estado="procesando")
 
+            # Parsear todos los XMLs del paquete antes de consultar BD
+            parsed: list[tuple] = []
             with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
                 for nombre in zf.namelist():
                     if not nombre.lower().endswith(".xml"):
                         continue
-
                     xml_bytes = zf.read(nombre)
-
                     try:
                         cfdi = parse_cfdi_xml(xml_bytes, nombre)
+                        parsed.append((cfdi, xml_bytes))
                     except ValueError as e:
                         logger.warning(
                             "XML no parseable en paquete %s/%s: %s",
                             id_paquete, nombre, e,
                         )
-                        continue
 
-                    total_encontrados += 1
+            # Una sola consulta para todos los UUIDs del paquete
+            async with pool.acquire() as conn:
+                ya_existentes = await sat_db_service.uuids_existentes(
+                    conn, [cfdi.uuid for cfdi, _ in parsed]
+                )
 
+            # Procesar cada CFDI usando el set en memoria
+            for cfdi, xml_bytes in parsed:
+                total_encontrados += 1
+                tipo = cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL"
+
+                if cfdi.uuid in ya_existentes:
+                    total_duplicados += 1
                     async with pool.acquire() as conn:
-                        es_duplicado = await _uuid_ya_existe(conn, cfdi.uuid)
-
-                    if es_duplicado:
-                        total_duplicados += 1
-                        async with pool.acquire() as conn:
-                            await sat_db_service.registrar_cfdi_descargado(
-                                conn,
-                                job_id,
-                                cfdi,
-                                "",
-                                None,
-                                "duplicado",
-                                tipo_detectado=cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL",
-                            )
-                        continue
-
-                    carpeta = f"{base_folder}/ISA/{year_str}/{month_str}"
-                    filename = f"{cfdi.uuid}.xml"
-
-                    try:
-                        result = await sp.upload_bytes_direct(xml_bytes, filename, carpeta)
-                        sharepoint_url = result.get("webUrl", "")
-                        sharepoint_item_id = result.get("id")
-
-                        async with pool.acquire() as conn:
-                            await sat_db_service.registrar_cfdi_descargado(
-                                conn,
-                                job_id,
-                                cfdi,
-                                sharepoint_url,
-                                sharepoint_item_id,
-                                "pendiente",
-                                tipo_detectado=cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL",
-                            )
-                    except Exception as e:
-                        logger.error(
-                            "Error subiendo XML %s a SharePoint: %s",
-                            cfdi.uuid,
-                            e,
+                        await sat_db_service.registrar_cfdi_descargado(
+                            conn, job_id, cfdi, "", None, "duplicado",
+                            tipo_detectado=tipo,
                         )
-                        total_errores += 1
+                    continue
+
+                carpeta = f"{base_folder}/ISA/{year_str}/{month_str}"
+                filename = f"{cfdi.uuid}.xml"
+                try:
+                    result = await sp.upload_bytes_direct(xml_bytes, filename, carpeta)
+                    sharepoint_url = result.get("webUrl", "")
+                    sharepoint_item_id = result.get("id")
+                    async with pool.acquire() as conn:
+                        await sat_db_service.registrar_cfdi_descargado(
+                            conn, job_id, cfdi, sharepoint_url, sharepoint_item_id, "pendiente",
+                            tipo_detectado=tipo,
+                        )
+                except Exception as e:
+                    logger.error("Error subiendo XML %s a SharePoint: %s", cfdi.uuid, e)
+                    total_errores += 1
 
         await update(
             estado="completado" if total_errores == 0 else "error",
