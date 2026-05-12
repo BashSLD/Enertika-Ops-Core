@@ -65,6 +65,7 @@ class ComprasDBService:
     async def insert_comprobante(self, conn, comprobante_data: dict) -> UUID:
         """Inserta un nuevo comprobante."""
         new_id = uuid4()
+        id_proveedor = comprobante_data.get('id_proveedor')
         await conn.execute("""
             INSERT INTO tb_comprobantes_pago (
                 id_comprobante, 
@@ -74,16 +75,18 @@ class ComprasDBService:
                 moneda, 
                 estatus, 
                 capturado_por_id,
+                id_proveedor,
                 created_at,
                 updated_at
-            ) VALUES ($1, $2, $3, $4, $5, 'PENDIENTE', $6, NOW(), NOW())
+            ) VALUES ($1, $2, $3, $4, $5, 'PENDIENTE', $6, $7, NOW(), NOW())
         """, 
             new_id, 
             comprobante_data['fecha_pago'], 
             comprobante_data['beneficiario'],
             comprobante_data['monto'], 
             comprobante_data['moneda'], 
-            comprobante_data['user_id']
+            comprobante_data['user_id'],
+            id_proveedor
         )
         return new_id
 

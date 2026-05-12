@@ -1,7 +1,20 @@
 {% set comprobante = comp if comp is defined else comprobante %}
 {% set vista_anticipo = filtros is defined and filtros.estatus == 'ANTICIPO' %}
 {% set can_edit_row = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
-<tr id="comprobante-row-{{ comprobante.id_comprobante }}" class="hover:bg-gray-50 transition-colors">
+<tr id="comprobante-row-{{ comprobante.id_comprobante }}" class="comprobante-main-row hover:bg-gray-50 transition-colors"
+    data-fecha="{{ comprobante.fecha_pago.strftime('%Y-%m-%d') if comprobante.fecha_pago else '' }}"
+    data-beneficiario="{{ comprobante.proveedor_nombre or comprobante.beneficiario_orig or '' | lower }}"
+    data-monto="{{ comprobante.monto or 0 }}"
+    data-comprador="{{ comprobante.comprador_nombre or '' | lower }}"
+    data-zona="{{ comprobante.zona_nombre or '' | lower }}"
+    data-categoria="{{ comprobante.categoria_nombre or '' | lower }}"
+    data-estatus="{{ comprobante.estatus or '' | lower }}"
+    {% if today is defined and comprobante.fecha_pago %}
+    {% set dias_abierto = (today - comprobante.fecha_pago).days %}
+    data-abierto_hace="{{ dias_abierto }}"
+    {% else %}
+    data-abierto_hace="0"
+    {% endif %}>
     <!-- Checkbox -->
     <td class="px-3 py-3">
         <input type="checkbox" class="row-checkbox rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]"
@@ -236,7 +249,7 @@
     </td>
 </tr>
 {% if comprobante.estatus in ('PARCIALMENTE_FACTURADO', 'CERRADO') %}
-<tr id="facturas-panel-row-{{ comprobante.id_comprobante }}">
+<tr id="facturas-panel-row-{{ comprobante.id_comprobante }}" class="comprobante-details-row">
     <td colspan="{{ 11 if vista_anticipo else 10 }}" class="px-4 pb-2">
         <div id="facturas-panel-{{ comprobante.id_comprobante }}"></div>
     </td>

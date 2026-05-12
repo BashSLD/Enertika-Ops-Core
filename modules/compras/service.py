@@ -108,12 +108,17 @@ class ComprasService:
             
             # 4. Insertar en base de datos using db_service
             try:
+                # Intentar auto-asignar el proveedor si ya existe la relación
+                proveedor_rel = await db_svc.get_proveedor_by_beneficiario(conn, data.beneficiario)
+                id_proveedor = proveedor_rel['id_proveedor'] if proveedor_rel else None
+
                 comprobante_data = {
                     'fecha_pago': fecha_pago_date,
                     'beneficiario': data.beneficiario,
                     'monto': Decimal(str(data.monto)),
                     'moneda': data.moneda,
-                    'user_id': user_id
+                    'user_id': user_id,
+                    'id_proveedor': id_proveedor
                 }
                 new_id = await db_svc.insert_comprobante(conn, comprobante_data)
 

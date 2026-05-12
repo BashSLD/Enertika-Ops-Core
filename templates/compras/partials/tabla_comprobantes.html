@@ -129,39 +129,69 @@
     </div>
 
     <!-- Tabla -->
-    <div class="overflow-x-auto">
+    <div class="overflow-x-auto"
+         x-data="{
+             sortBy: '',
+             sortDir: 'asc',
+             sort(col) {
+                 this.sortBy === col
+                     ? (this.sortDir = this.sortDir === 'asc' ? 'desc' : 'asc')
+                     : (this.sortBy = col, this.sortDir = 'asc');
+                 const nums = new Set(['monto', 'abierto_hace']);
+                 const groups = [];
+                 const rows = Array.from(this.$refs.tbody.children);
+                 for(let i=0; i<rows.length; i++) {
+                     const row = rows[i];
+                     if(row.classList.contains('comprobante-main-row')) {
+                         const group = { main: row, details: null };
+                         if(i+1 < rows.length && rows[i+1].classList.contains('comprobante-details-row')) {
+                             group.details = rows[i+1];
+                             i++;
+                         }
+                         groups.push(group);
+                     }
+                 }
+                 if(groups.length === 0) return;
+                 groups.sort((a, b) => {
+                     let av = a.main.dataset[col] ?? '', bv = b.main.dataset[col] ?? '';
+                     if (nums.has(col)) { av = parseFloat(av) || 0; bv = parseFloat(bv) || 0; }
+                     if (av < bv) return this.sortDir === 'asc' ? -1 : 1;
+                     if (av > bv) return this.sortDir === 'asc' ? 1 : -1;
+                     return 0;
+                 });
+                 groups.forEach(g => {
+                     this.$refs.tbody.appendChild(g.main);
+                     if(g.details) this.$refs.tbody.appendChild(g.details);
+                 });
+             }
+         }">
         <table class="min-w-full divide-y divide-gray-200">
             <thead class="bg-[#123456]">
+                {% macro sort_th(col, label, extra_cls='') %}
+                <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider {{ extra_cls }}">
+                    <button type="button" @click="sort('{{ col }}')"
+                            class="inline-flex items-center gap-1 hover:text-gray-200 transition-colors focus:outline-none">
+                        {{ label }}
+                        <span class="text-[10px] leading-none transition-colors"
+                              :class="sortBy === '{{ col }}' ? 'text-[#00BABB] font-bold' : 'text-gray-400'"
+                              x-text="sortBy === '{{ col }}' ? (sortDir === 'asc' ? '▲' : '▼') : '⇅'"></span>
+                    </button>
+                </th>
+                {% endmacro %}
                 <tr>
                     <th class="px-3 py-2.5 text-left">
                         <input type="checkbox" id="select-all" onchange="toggleSelectAll(this)"
                             class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
                     </th>
-                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
-                        Fecha
-                    </th>
-                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
-                        Beneficiario
-                    </th>
-                    <th class="px-4 py-2.5 text-right text-xs font-medium text-white uppercase tracking-wider">
-                        Monto
-                    </th>
-                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
-                        Comprador
-                    </th>
-                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
-                        Zona
-                    </th>
-                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
-                        Categoría
-                    </th>
-                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
-                        Estatus
-                    </th>
+                    {{ sort_th('fecha', 'Fecha') }}
+                    {{ sort_th('beneficiario', 'Beneficiario') }}
+                    {{ sort_th('monto', 'Monto', 'text-right') }}
+                    {{ sort_th('comprador', 'Comprador') }}
+                    {{ sort_th('zona', 'Zona') }}
+                    {{ sort_th('categoria', 'Categoría') }}
+                    {{ sort_th('estatus', 'Estatus') }}
                     {% if vista_anticipo %}
-                    <th class="px-4 py-2.5 text-left text-xs font-medium text-white uppercase tracking-wider">
-                        Abierto hace
-                    </th>
+                    {{ sort_th('abierto_hace', 'Abierto hace') }}
                     {% endif %}
                     <th class="px-4 py-2.5 text-center text-xs font-medium text-white uppercase tracking-wider">
                         <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 inline-block" fill="none"
@@ -175,7 +205,7 @@
                     </th>
                 </tr>
             </thead>
-            <tbody class="bg-white divide-y divide-gray-200">
+            <tbody class="bg-white divide-y divide-gray-200" x-ref="tbody">
                 {% if comprobantes %}
                 {% for comp in comprobantes %}
                 {% include "compras/partials/row_comprobante.html" %}
