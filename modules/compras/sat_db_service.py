@@ -106,7 +106,8 @@ async def obtener_job_activo_para_worker(conn: asyncpg.Connection) -> dict | Non
             FOR UPDATE SKIP LOCKED
         )
         UPDATE tb_sat_jobs
-        SET estado = 'solicitando', updated_at = NOW()
+        SET estado = CASE WHEN candidato.estado = 'iniciando' THEN 'solicitando' ELSE candidato.estado END,
+            updated_at = NOW()
         FROM candidato
         WHERE tb_sat_jobs.id = candidato.id
         RETURNING
