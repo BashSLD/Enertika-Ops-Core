@@ -2,7 +2,7 @@ import asyncio
 import io
 import logging
 import zipfile
-from datetime import date
+from datetime import date, timedelta
 from uuid import UUID
 
 import asyncpg
@@ -17,6 +17,8 @@ from modules.compras.xml_extractor import parse_cfdi_xml
 from modules.compras import sat_db_service
 
 logger = logging.getLogger("ComprasSATService")
+
+SAT_JOB_MAX_RUNTIME_MINUTES = 120
 
 
 async def _get_sat_sp_config(conn: asyncpg.Connection) -> tuple[str, str, str]:
@@ -62,18 +64,6 @@ async def _uuid_ya_existe(conn: asyncpg.Connection, uuid_cfdi: str) -> bool:
         )
         """,
         uuid_cfdi,
-    )
-    return row[0]
-
-
-async def hay_job_activo(conn: asyncpg.Connection) -> bool:
-    """Retorna True si hay un job en estado no terminal creado en las ultimas 2 horas."""
-    row = await conn.fetchrow(
-        "SELECT EXISTS ("
-        "  SELECT 1 FROM tb_sat_jobs"
-        "  WHERE estado NOT IN ('completado', 'error')"
-        "  AND created_at > NOW() - INTERVAL '2 hours'"
-        ")"
     )
     return row[0]
 
@@ -207,12 +197,54 @@ async def buscar_comprobantes_match(
     return [dict(r) for r in rows]
 
 
-async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date, rfc_emisor: str | None = None) -> None:
+def _job_excedio_tiempo(created_at, max_runtime_minutes: int = SAT_JOB_MAX_RUNTIME_MINUTES) -> bool:
+    if not created_at:
+        return False
+    return now_mx() - created_at > timedelta(minutes=max_runtime_minutes)
+
+
+async def procesar_siguiente_job_pendiente() -> bool:
     """
-    Background task: descarga CFDIs del SAT para el rango de fechas dado.
-    Obtiene su propia conexion del pool — no usa la conexion del request.
+    Toma el job SAT no terminal mas antiguo y lo procesa desde el worker.
     """
     from core.database import get_db_pool
+
+    pool = await get_db_pool()
+    async with pool.acquire() as conn:
+        expirados = await sat_db_service.marcar_jobs_expirados(
+            conn,
+            SAT_JOB_MAX_RUNTIME_MINUTES,
+        )
+        if expirados:
+            logger.warning("[SAT Worker] Jobs expirados marcados como error: %s", expirados)
+
+        job = await sat_db_service.obtener_job_activo_para_worker(conn)
+
+    if not job:
+        return False
+
+    logger.info(
+        "[SAT Worker] Procesando job %s estado=%s solicitud=%s",
+        job["id"],
+        job["estado"],
+        job.get("id_solicitud_sat") or "pendiente",
+    )
+    await ejecutar_descarga(job["id"])
+    return True
+
+
+async def ejecutar_descarga(
+    job_id: UUID,
+    fecha_inicio: date | None = None,
+    fecha_fin: date | None = None,
+    rfc_emisor: str | None = None,
+) -> None:
+    """
+    Descarga CFDIs del SAT para un job persistido.
+    Si el job ya tiene id_solicitud_sat, reanuda el polling sin crear otra solicitud.
+    """
+    from core.database import get_db_pool
+
     pool = await get_db_pool()
 
     async def update(estado: str = None, **kwargs):
@@ -225,6 +257,25 @@ async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date, r
 
     try:
         async with pool.acquire() as conn:
+            job = await sat_db_service.obtener_job_status(conn, job_id)
+
+        if job["estado"] in {"completado", "error"}:
+            logger.info("Job SAT %s ya esta en estado terminal: %s", job_id, job["estado"])
+            return
+
+        fecha_inicio = fecha_inicio or job["fecha_inicio_rango"]
+        fecha_fin = fecha_fin or job["fecha_fin_rango"]
+        rfc_emisor = rfc_emisor or job.get("rfc_emisor_filtro")
+        id_solicitud = job.get("id_solicitud_sat")
+        created_at = job.get("created_at")
+
+        if _job_excedio_tiempo(created_at):
+            mensaje = "La consulta SAT excedio el tiempo maximo y fue marcada como interrumpida."
+            await update(estado="error", mensaje_error=mensaje)
+            logger.warning("Job SAT %s expirado antes de procesar", job_id)
+            return
+
+        async with pool.acquire() as conn:
             sat_site_id, sat_drive_id, base_folder = await _get_sat_sp_config(conn)
             signer = await cargar_signer(conn, sat_site_id, sat_drive_id)
 
@@ -236,13 +287,20 @@ async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date, r
         sp.site_id = sat_site_id
         sp.drive_id = sat_drive_id
 
-        await update(estado="solicitando")
         client = SATClient(signer=signer)
-        id_solicitud = await client.solicitar_descarga(fecha_inicio, fecha_fin, rfc_emisor)
-        await update(estado="esperando_sat", id_solicitud_sat=id_solicitud)
+        if id_solicitud:
+            logger.info("Job SAT %s reanudando solicitud SAT %s", job_id, id_solicitud)
+            await update(estado="esperando_sat")
+        else:
+            await update(estado="solicitando")
+            id_solicitud = await client.solicitar_descarga(fecha_inicio, fecha_fin, rfc_emisor)
+            await update(estado="esperando_sat", id_solicitud_sat=id_solicitud)
 
         async def on_poll(codigo, label):
             logger.info("SAT polling - estado: %s (%s)", codigo, label)
+            if _job_excedio_tiempo(created_at):
+                raise TimeoutError("La consulta SAT excedio el tiempo maximo permitido.")
+            await update(estado="esperando_sat")
 
         ids_paquetes = await client.esperar_paquetes(id_solicitud, on_poll=on_poll)
         await update(estado="descargando")
@@ -259,55 +317,65 @@ async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date, r
             await update(estado="procesando")
 
             with zipfile.ZipFile(io.BytesIO(zip_bytes)) as zf:
-                    for nombre in zf.namelist():
-                        if not nombre.lower().endswith(".xml"):
-                            continue
+                for nombre in zf.namelist():
+                    if not nombre.lower().endswith(".xml"):
+                        continue
 
-                        xml_bytes = zf.read(nombre)
+                    xml_bytes = zf.read(nombre)
 
-                        try:
-                            cfdi = parse_cfdi_xml(xml_bytes, nombre)
-                        except ValueError as e:
-                            logger.warning(
-                                "XML no parseable en paquete %s/%s: %s",
-                                id_paquete, nombre, e,
+                    try:
+                        cfdi = parse_cfdi_xml(xml_bytes, nombre)
+                    except ValueError as e:
+                        logger.warning(
+                            "XML no parseable en paquete %s/%s: %s",
+                            id_paquete, nombre, e,
+                        )
+                        continue
+
+                    total_encontrados += 1
+
+                    async with pool.acquire() as conn:
+                        es_duplicado = await _uuid_ya_existe(conn, cfdi.uuid)
+
+                    if es_duplicado:
+                        total_duplicados += 1
+                        async with pool.acquire() as conn:
+                            await sat_db_service.registrar_cfdi_descargado(
+                                conn,
+                                job_id,
+                                cfdi,
+                                "",
+                                None,
+                                "duplicado",
+                                tipo_detectado=cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL",
                             )
-                            continue
+                        continue
 
-                        total_encontrados += 1
+                    carpeta = f"{base_folder}/ISA/{year_str}/{month_str}"
+                    filename = f"{cfdi.uuid}.xml"
+
+                    try:
+                        result = await sp.upload_bytes_direct(xml_bytes, filename, carpeta)
+                        sharepoint_url = result.get("webUrl", "")
+                        sharepoint_item_id = result.get("id")
 
                         async with pool.acquire() as conn:
-                            es_duplicado = await _uuid_ya_existe(conn, cfdi.uuid)
-
-                        if es_duplicado:
-                            total_duplicados += 1
-                            async with pool.acquire() as conn:
-                                await sat_db_service.registrar_cfdi_descargado(
-                                    conn, job_id, cfdi, "", None, "duplicado",
-                                    tipo_detectado=cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL",
-                                )
-                            continue
-
-                        carpeta = f"{base_folder}/ISA/{year_str}/{month_str}"
-                        filename = f"{cfdi.uuid}.xml"
-
-                        try:
-                            result = await sp.upload_bytes_direct(xml_bytes, filename, carpeta)
-                            sharepoint_url = result.get("webUrl", "")
-                            sharepoint_item_id = result.get("id")
-
-                            async with pool.acquire() as conn:
-                                await sat_db_service.registrar_cfdi_descargado(
-                                    conn, job_id, cfdi, sharepoint_url, sharepoint_item_id, "pendiente",
-                                    tipo_detectado=cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL",
-                                )
-                        except Exception as e:
-                            logger.error(
-                                "Error subiendo XML %s a SharePoint: %s",
-                                cfdi.uuid, e,
+                            await sat_db_service.registrar_cfdi_descargado(
+                                conn,
+                                job_id,
+                                cfdi,
+                                sharepoint_url,
+                                sharepoint_item_id,
+                                "pendiente",
+                                tipo_detectado=cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL",
                             )
-                            # No se registra en tb_sat_inbox para permitir reintento en el siguiente job
-                            total_errores += 1
+                    except Exception as e:
+                        logger.error(
+                            "Error subiendo XML %s a SharePoint: %s",
+                            cfdi.uuid,
+                            e,
+                        )
+                        total_errores += 1
 
         await update(
             estado="completado" if total_errores == 0 else "error",
@@ -317,9 +385,18 @@ async def ejecutar_descarga(job_id: UUID, fecha_inicio: date, fecha_fin: date, r
         )
         logger.info(
             "Job SAT %s completado - %d CFDIs, %d duplicados, %d errores",
-            job_id, total_encontrados, total_duplicados, total_errores,
+            job_id,
+            total_encontrados,
+            total_duplicados,
+            total_errores,
         )
 
+    except asyncio.CancelledError:
+        logger.warning("Job SAT %s cancelado por parada del worker; quedara pendiente para recuperacion", job_id)
+        raise
+    except TimeoutError as e:
+        logger.error("Timeout en job SAT %s: %s", job_id, e)
+        await update(estado="error", mensaje_error=str(e)[:500])
     except asyncpg.PostgresError as e:
         logger.error("Error de BD en job SAT %s: %s", job_id, e)
         await update(estado="error", mensaje_error=str(e)[:500])
