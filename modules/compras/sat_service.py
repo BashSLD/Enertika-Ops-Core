@@ -54,20 +54,6 @@ async def _actualizar_job(conn: asyncpg.Connection, job_id: UUID, **kwargs) -> N
     )
 
 
-async def _uuid_ya_existe(conn: asyncpg.Connection, uuid_cfdi: str) -> bool:
-    row = await conn.fetchrow(
-        """
-        SELECT EXISTS (
-            SELECT 1 FROM tb_sat_inbox WHERE uuid_cfdi = $1
-            UNION ALL
-            SELECT 1 FROM tb_xml_staging WHERE uuid_factura = $1
-        )
-        """,
-        uuid_cfdi,
-    )
-    return row[0]
-
-
 async def crear_job(
     conn: asyncpg.Connection,
     fecha_inicio: date,
