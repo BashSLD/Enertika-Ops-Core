@@ -7,7 +7,6 @@ from uuid import UUID
 
 import asyncpg
 
-from core.config import settings
 from core.integrations.sharepoint import SharePointService
 from core.microsoft import get_ms_auth
 from core.timezone import now_mx
@@ -21,23 +20,6 @@ logger = logging.getLogger("ComprasSATService")
 SAT_JOB_MAX_RUNTIME_MINUTES = 120
 
 
-async def _get_sat_sp_config(conn: asyncpg.Connection) -> tuple[str, str, str]:
-    """
-    Retorna (site_id, drive_id, base_folder) para el site SAT.
-    Prioridad: BD > env var.
-    """
-    rows = await conn.fetch(
-        "SELECT clave, valor FROM tb_configuracion_global "
-        "WHERE clave IN ('SP_SAT_SITE_ID', 'SP_SAT_DRIVE_ID', 'SP_SAT_BASE_FOLDER')"
-    )
-    config = {r["clave"]: r["valor"] for r in rows}
-    site_id = config.get("SP_SAT_SITE_ID") or settings.SP_SAT_SITE_ID
-    drive_id = config.get("SP_SAT_DRIVE_ID") or settings.SP_SAT_DRIVE_ID
-    base_folder = config.get("SP_SAT_BASE_FOLDER") or settings.SP_SAT_BASE_FOLDER or "SAT-Inbox"
-    return site_id, drive_id, base_folder
-
-
-
 
 async def listar_inbox(
     conn: asyncpg.Connection,
@@ -46,28 +28,6 @@ async def listar_inbox(
 ) -> tuple[list[dict], int]:
     return await sat_db_service.listar_inbox(conn, estado=estado, limit=limit)
 
-
-async def descartar_inbox_item(conn: asyncpg.Connection, inbox_id: UUID) -> None:
-    result = await conn.execute(
-        "UPDATE tb_sat_inbox SET estado = 'descartado', updated_at = NOW() WHERE id = $1",
-        inbox_id,
-    )
-    if result == "UPDATE 0":
-        raise ValueError(f"Item de inbox no encontrado: {inbox_id}")
-
-
-async def marcar_matcheado(
-    conn: asyncpg.Connection,
-    inbox_id: UUID,
-    comprobante_id: UUID,
-) -> None:
-    result = await conn.execute(
-        "UPDATE tb_sat_inbox SET estado = 'matcheado', comprobante_id = $2, updated_at = NOW() "
-        "WHERE id = $1",
-        inbox_id, comprobante_id,
-    )
-    if result == "UPDATE 0":
-        raise ValueError(f"Item de inbox no encontrado: {inbox_id}")
 
 
 async def descargar_xml_de_inbox(
@@ -82,7 +42,7 @@ async def descargar_xml_de_inbox(
     if not row["sharepoint_item_id"]:
         raise ValueError("Item no tiene sharepoint_item_id en SharePoint")
 
-    sat_site_id, sat_drive_id, _ = await _get_sat_sp_config(conn)
+    sat_site_id, sat_drive_id, _ = await sat_db_service.get_sat_sp_config(conn)
 
     token = await get_ms_auth().get_application_token()
     if not token:
@@ -103,31 +63,6 @@ async def obtener_cfdi_inbox(conn: asyncpg.Connection, inbox_id: UUID):
     xml_bytes, uuid_cfdi = await descargar_xml_de_inbox(conn, inbox_id)
     return parse_cfdi_xml(xml_bytes, f"{uuid_cfdi}.xml")
 
-
-async def buscar_comprobantes_match(
-    conn: asyncpg.Connection,
-    q: str,
-    limit: int = 10,
-) -> list[dict]:
-    rows = await conn.fetch(
-        """
-        SELECT c.id_comprobante, c.fecha_pago, c.beneficiario_orig, c.monto, c.moneda,
-               p.razon_social AS proveedor_nombre, p.rfc AS proveedor_rfc
-        FROM tb_comprobantes_pago c
-        LEFT JOIN tb_proveedores p ON c.id_proveedor = p.id_proveedor
-        WHERE c.estatus = 'PENDIENTE'
-          AND (
-            c.beneficiario_orig ILIKE $1
-            OR p.rfc ILIKE $1
-            OR p.razon_social ILIKE $1
-          )
-        ORDER BY c.fecha_pago DESC
-        LIMIT $2
-        """,
-        f"%{q}%",
-        limit,
-    )
-    return [dict(r) for r in rows]
 
 
 def _job_excedio_tiempo(created_at, max_runtime_minutes: int = SAT_JOB_MAX_RUNTIME_MINUTES) -> bool:
@@ -209,7 +144,7 @@ async def ejecutar_descarga(
             return
 
         async with pool.acquire() as conn:
-            sat_site_id, sat_drive_id, base_folder = await _get_sat_sp_config(conn)
+            sat_site_id, sat_drive_id, base_folder = await sat_db_service.get_sat_sp_config(conn)
             signer = await cargar_signer(conn, sat_site_id, sat_drive_id)
 
         token = await get_ms_auth().get_application_token()
