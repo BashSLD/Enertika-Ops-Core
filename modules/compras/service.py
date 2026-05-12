@@ -28,6 +28,21 @@ logger = logging.getLogger("ComprasService")
 MATCH_TOLERANCIA = Decimal("0.50")
 
 
+def _es_concepto_producto(clave: str | None) -> bool:
+    """Filtra conceptos SAT que no son productos físicos.
+
+    UNSPSC: segmentos 10–49 = productos, 50–99 = servicios.
+    Excluye también el catch-all 01010101 y claves inválidas.
+    """
+    if not clave or len(clave) < 2:
+        return False
+    try:
+        segmento = int(clave[:2])
+    except ValueError:
+        return False
+    return 10 <= segmento <= 49
+
+
 class ComprasService:
     """Lógica de negocio del módulo Compras - Comprobantes de Pago."""
     
@@ -1004,7 +1019,8 @@ class ComprasService:
                 logger.exception("BOM auto-link: error no critico, continuando sin vincular")
 
         # 3. Guardar conceptos en historial de materiales
-        if conceptos:
+        # Anticipos y cierres no contienen productos reales — omitir por completo
+        if tipo_factura not in ('ANTICIPO', 'CIERRE_ANTICIPO') and conceptos:
             fecha_str = cfdi_data.get('fecha', '')
             try:
                 fecha_factura = datetime.fromisoformat(fecha_str).date()
@@ -1022,7 +1038,16 @@ class ComprasService:
                     'clave_unidad': c.get('clave_unidad') if isinstance(c, dict) else c.clave_unidad,
                 }
                 for c in conceptos
+                if _es_concepto_producto(
+                    c.get('clave_prod_serv') if isinstance(c, dict) else c.clave_prod_serv
+                )
             ]
+            descartados = len(conceptos) - len(conceptos_dicts)
+            if descartados:
+                logger.debug(
+                    "Historial materiales: %d concepto(s) descartado(s) por clave SAT no-producto (UUID=%s)",
+                    descartados, uuid_factura[:8]
+                )
 
             tc_xml = cfdi_data.get('tipo_cambio_xml')
             await db_svc.guardar_conceptos_historial(
