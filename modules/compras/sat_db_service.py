@@ -322,6 +322,7 @@ async def buscar_coincidencias_auto(conn: asyncpg.Connection) -> list[dict]:
                     AND (
                         c.beneficiario_orig ILIKE '%' || i.nombre_emisor || '%'
                         OR i.nombre_emisor ILIKE '%' || c.beneficiario_orig || '%'
+                        OR word_similarity(LOWER(c.beneficiario_orig), LOWER(COALESCE(i.nombre_emisor, ''))) > 0.35
                     )
                 )
                 OR
@@ -417,45 +418,48 @@ async def buscar_candidatos_para_comprobante(
     else:
         rows = await conn.fetch(
             """
+            WITH candidatos AS (
+                SELECT id, uuid_cfdi, rfc_emisor, nombre_emisor, total, moneda,
+                       fecha_cfdi, tipo_detectado,
+                       word_similarity(LOWER(COALESCE(nombre_emisor, '')), LOWER($2)) AS name_sim
+                FROM tb_sat_inbox
+                WHERE estado = 'pendiente'
+                  AND total IS NOT NULL
+                  AND COALESCE(moneda, 'MXN') = $4
+            )
             SELECT id, uuid_cfdi, rfc_emisor, nombre_emisor, total, moneda,
                    fecha_cfdi, tipo_detectado
-            FROM tb_sat_inbox
-            WHERE estado = 'pendiente'
-              AND total IS NOT NULL
-              AND COALESCE(moneda, 'MXN') = $4
-              AND (
-                  ($2 <> '' AND (
-                      COALESCE(nombre_emisor, '') ILIKE '%' || $2 || '%'
-                      OR $2 ILIKE '%' || COALESCE(nombre_emisor, '') || '%'
-                  ))
-                  OR ($3::text IS NOT NULL AND rfc_emisor = $3)
-              )
-              AND (
-                  (
-                      COALESCE(tipo_detectado, 'NORMAL') != 'CIERRE_ANTICIPO'
-                      AND $5 IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')
-                      AND (
-                          ABS(total - $1) <= 1.00
-                          OR (
-                              $3::text IS NOT NULL
-                              AND rfc_emisor = $3
-                              AND total <= ($1 - $6::numeric) + 0.50
-                          )
-                      )
-                  )
-                  OR (
-                      tipo_detectado = 'CIERRE_ANTICIPO'
-                      AND $5 = 'ANTICIPO'
-                      AND total <= $1 + 0.50
-                  )
-              )
+            FROM candidatos
+            WHERE (
+                (
+                    tipo_detectado = 'CIERRE_ANTICIPO'
+                    AND $5 = 'ANTICIPO'
+                    AND total <= $1 + 0.50
+                )
+                OR (
+                    COALESCE(tipo_detectado, 'NORMAL') != 'CIERRE_ANTICIPO'
+                    AND $5 IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')
+                    AND (
+                        ABS(total - $1) <= 1.00
+                        OR (
+                            $3::text IS NOT NULL
+                            AND rfc_emisor = $3
+                            AND total <= ($1 - $6::numeric) + 0.50
+                        )
+                        OR ($2 <> '' AND name_sim > 0.30)
+                    )
+                )
+            )
             ORDER BY
+              CASE WHEN ABS(total - $1) <= 1.00 THEN 0 ELSE 1 END,
               CASE
-                WHEN ABS(total - $1) <= 1.00 THEN 0
-                ELSE 1
-              END,
-              ABS(total - ($1 - $6::numeric)) ASC,
+                WHEN $3::text IS NOT NULL AND rfc_emisor = $3
+                THEN ABS(total - ($1 - $6::numeric))
+                ELSE ABS(total - $1)
+              END ASC,
+              name_sim DESC,
               fecha_cfdi DESC
+            LIMIT 50
             """,
             monto,
             beneficiario_orig,
