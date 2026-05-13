@@ -5,7 +5,6 @@ from core.microsoft import get_ms_auth  # Para renovación de tokens
 import logging
 import time
 
-# Reutilizamos la lógica que estaba en comercial/router.py
 async def get_current_user_context(
     request: Request, 
     conn = Depends(get_db_connection)
@@ -70,18 +69,12 @@ async def get_current_user_context(
         except Exception as e:
             logging.error(f"Error auto-creating user: {e}")
 
-    # Trust database for role assignment
-    # No hardcoded overrides - all roles managed via tb_usuarios.rol_sistema
-    
-    final_department = db_dept
-
     # Fix User Name priority: DB Name > Session Name > Email fallback
     if db_name:
         user_name = db_name
     elif user_name == "Usuario" and final_email:
         user_name = final_email.split("@")[0] # Fallback to part of email
     
-    # 4. NUEVA LÓGICA: Obtener módulos y roles asignados del usuario
     module_roles = {}
     
     if user_db_id:
@@ -101,7 +94,7 @@ async def get_current_user_context(
         "user_email": final_email,  # Alias para compatibilidad con WorkflowService
         "is_admin": (role == 'ADMIN'),
         "role": role,
-        "department": final_department,
+        "department": db_dept,
         "modulo_preferido": modulo_preferido,
         "module_roles": module_roles,  # Nueva: Dict {slug: rol}
         "user_db_id": user_db_id,
