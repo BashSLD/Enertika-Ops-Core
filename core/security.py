@@ -18,12 +18,6 @@ async def get_current_user_context(
     user_email = request.session.get("user_email")
     user_name = request.session.get("user_name", "Usuario")
     
-    # Debug/Dev Override
-    department_overan = "Ventas" # Default
-    if settings.DEBUG_MODE:
-        # Mock department logic based on email if needed for testing
-        pass
-        
     final_email = user_email
 
     # 2. Si no hay email en sesión (no logueado), retornamos contexto mínimo
@@ -79,8 +73,7 @@ async def get_current_user_context(
     # Trust database for role assignment
     # No hardcoded overrides - all roles managed via tb_usuarios.rol_sistema
     
-    # Priority for Department: DB > Session/Hardcoded
-    final_department = db_dept if db_dept else department_overan
+    final_department = db_dept
 
     # Fix User Name priority: DB Name > Session Name > Email fallback
     if db_name:
@@ -100,43 +93,6 @@ async def get_current_user_context(
         
         module_roles = {p['modulo_slug']: p['rol_modulo'] for p in permisos}
         
-        # Si no tiene módulos asignados, asignar por defecto según departamento
-        if not module_roles and final_department:
-            # Obtener slug del departamento
-            dept_slug = await conn.fetchval(
-                "SELECT slug FROM tb_cat_departamentos WHERE nombre = $1",
-                final_department
-            )
-            
-            if dept_slug:
-                # Obtener módulos por defecto del departamento
-                defaults = await conn.fetch(
-                    """SELECT modulo_slug, rol_default 
-                       FROM tb_departamento_modulos 
-                       WHERE departamento_slug = $1""",
-                    dept_slug
-                )
-                
-                # Insertar módulos por defecto
-                for d in defaults:
-                    try:
-                        await conn.execute(
-                            """INSERT INTO tb_permisos_modulos (usuario_id, modulo_slug, rol_modulo)
-                               VALUES ($1, $2, $3)
-                               ON CONFLICT (usuario_id, modulo_slug) DO NOTHING""",
-                            user_db_id, d['modulo_slug'], d['rol_default']
-                        )
-                    except Exception as e:
-                        logging.warning(f"No se pudo asignar módulo {d['modulo_slug']}: {e}")
-                
-                # Recargar permisos
-                permisos = await conn.fetch(
-                    "SELECT modulo_slug, rol_modulo FROM tb_permisos_modulos WHERE usuario_id = $1",
-                    user_db_id
-                )
-                module_roles = {p['modulo_slug']: p['rol_modulo'] for p in permisos}
-
-
     db_rol_org = row['rol_organizacional'] if row else None
 
     return {
@@ -151,8 +107,6 @@ async def get_current_user_context(
         "user_db_id": user_db_id,
         "rol_organizacional": db_rol_org,
     }
-
-import asyncio # Added for non-blocking execution
 
 async def get_valid_graph_token(request: Request):
     """

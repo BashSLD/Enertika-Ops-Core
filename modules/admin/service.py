@@ -376,20 +376,14 @@ class AdminService:
         await self.db.update_user_role(conn, user_id, role)
         logger.info(f"Rol actualizado para usuario {user_id}: {role}")
 
-    async def update_user_department(self, conn, user_id: UUID, department_slug: str) -> str:
-        """
-        Asigna un departamento a un usuario.
+    async def update_user_department(self, conn, user_id: UUID, department_slug: Optional[str]) -> Optional[str]:
+        """Asigna o limpia el departamento de un usuario. None → department = NULL."""
+        if not department_slug:
+            await self.db.update_user_department(conn, user_id, None)
+            logger.info(f"Departamento removido para usuario {user_id}")
+            return None
 
-        Args:
-            conn: Conexión a la base de datos
-            user_id: ID del usuario
-            department_slug: Slug del departamento
-
-        Returns:
-            str: Nombre del departamento asignado
-        """
         dept_nombre = await self.db.fetch_department_name_by_slug(conn, department_slug)
-
         if not dept_nombre:
             raise ValueError("Departamento no encontrado")
 

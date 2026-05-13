@@ -649,16 +649,17 @@ from typing import List
 async def update_user_department(
     request: Request,
     user_id: UUID,
-    department_slug: str = Form(...),
+    department_slug: Optional[str] = Form(None),
     context = Depends(get_current_user_context),
     service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection),
     _ = require_module_access("admin", "admin")
 ):
-    """Asigna un departamento a un usuario."""
+    """Asigna o limpia el departamento de un usuario."""
     try:
-        dept_nombre = await service.update_user_department(conn, user_id, department_slug)
-        return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Actualizado", "message": f"Depto: {dept_nombre}"
+        dept_nombre = await service.update_user_department(conn, user_id, department_slug or None)
+        msg = f"Depto: {dept_nombre}" if dept_nombre else "Departamento removido"
+        return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Actualizado", "message": msg
         })
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
