@@ -48,3 +48,4 @@ docs/
 .claude/knowledge/
 .vscode/
 memory/
+.worktrees/
