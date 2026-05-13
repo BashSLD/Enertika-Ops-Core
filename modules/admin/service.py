@@ -13,6 +13,7 @@ from .schemas import ConfiguracionGlobalUpdate, EmailRuleCreate
 from .db_service import AdminDBService
 from .constants import ROLES_ORGANIZACIONALES_VALIDOS
 from core.config_service import ConfigService
+from modules.asistencia.constants import BIOTIME_CONFIG_KEYS
 
 logger = logging.getLogger("AdminModule")
 
@@ -169,6 +170,16 @@ class AdminService:
             "sp_sat_site_id": config_dict.get("SP_SAT_SITE_ID", ""),
             "sp_sat_drive_id": config_dict.get("SP_SAT_DRIVE_ID", ""),
             "sp_sat_base_folder": config_dict.get("SP_SAT_BASE_FOLDER", "SAT-Inbox"),
+            # BioTime
+            "biotime_base_url": config_dict.get("BIOTIME_BASE_URL", ""),
+            "biotime_access_key_configured": bool(config_dict.get("BIOTIME_ACCESS_KEY", "")),
+            "biotime_access_key_masked": "********" if config_dict.get("BIOTIME_ACCESS_KEY", "") else "",
+            "biotime_sync_activo": config_dict.get("BIOTIME_SYNC_ACTIVO", "false").lower() == "true",
+            "biotime_sync_interval_seg": int(config_dict.get("BIOTIME_SYNC_INTERVAL_SEG", "900")),
+            "biotime_sync_page_size": int(config_dict.get("BIOTIME_SYNC_PAGE_SIZE", "1000")),
+            "biotime_sync_lookback_hrs": int(config_dict.get("BIOTIME_SYNC_LOOKBACK_HRS", "48")),
+            "biotime_sync_timeout_seg": int(config_dict.get("BIOTIME_SYNC_TIMEOUT_SEG", "30")),
+            "asistencia_recalc_dias": int(config_dict.get("ASISTENCIA_RECALC_DIAS", "7")),
             # Simulation KPIS
             "sim_peso_compromiso": config_dict.get("sim_peso_compromiso", None),
             "sim_peso_interno": config_dict.get("sim_peso_interno", None),
@@ -246,6 +257,60 @@ class AdminService:
         logger.info(f"Configuración global actualizada (incluyendo SharePoint): SLA={datos.dias_sla_default}")
         ConfigService.invalidar_cache()
 
+
+    async def resolve_biotime_access_key(self, conn, access_key: str = "") -> str:
+        access_key = (access_key or "").strip()
+        if access_key:
+            return access_key
+        return await ConfigService.get_global_config(
+            conn, BIOTIME_CONFIG_KEYS["access_key"], "", str
+        )
+
+    async def update_biotime_config(
+        self,
+        conn,
+        *,
+        base_url: str,
+        access_key: str,
+        sync_activo: bool,
+        interval_seconds: int,
+        page_size: int,
+        lookback_hours: int,
+        timeout_seconds: int,
+        recalc_days: int,
+    ) -> None:
+        base_url = (base_url or "").strip().rstrip("/")
+        resolved_access_key = await self.resolve_biotime_access_key(conn, access_key)
+
+        if sync_activo and (not base_url or not resolved_access_key):
+            raise ValueError("Para activar BioTime debes configurar URL base y access key")
+        if interval_seconds < 60:
+            raise ValueError("El intervalo minimo de sincronizacion es 60 segundos")
+        if page_size < 1 or page_size > 2000:
+            raise ValueError("El tamano de pagina debe estar entre 1 y 2000")
+        if lookback_hours < 1 or lookback_hours > 744:
+            raise ValueError("La ventana de busqueda debe estar entre 1 y 744 horas")
+        if timeout_seconds < 5 or timeout_seconds > 120:
+            raise ValueError("El timeout debe estar entre 5 y 120 segundos")
+        if recalc_days < 0 or recalc_days > 31:
+            raise ValueError("El recalculo debe estar entre 0 y 31 dias")
+
+        updates = [
+            (BIOTIME_CONFIG_KEYS["base_url"], base_url),
+            (BIOTIME_CONFIG_KEYS["sync_activo"], "true" if sync_activo else "false"),
+            (BIOTIME_CONFIG_KEYS["interval_seconds"], str(interval_seconds)),
+            (BIOTIME_CONFIG_KEYS["page_size"], str(page_size)),
+            (BIOTIME_CONFIG_KEYS["lookback_hours"], str(lookback_hours)),
+            (BIOTIME_CONFIG_KEYS["timeout_seconds"], str(timeout_seconds)),
+            (BIOTIME_CONFIG_KEYS["recalc_days"], str(recalc_days)),
+        ]
+        if (access_key or "").strip():
+            updates.append((BIOTIME_CONFIG_KEYS["access_key"], resolved_access_key))
+
+        for clave, valor in updates:
+            await self.db.upsert_global_config(conn, clave, valor)
+        logger.info("Configuracion BioTime actualizada. sync_activo=%s", sync_activo)
+        ConfigService.invalidar_cache()
 
     async def reset_simulation_defaults(self, conn) -> None:
         """

@@ -290,16 +290,27 @@ async def ejecutar_descarga(
                 total_encontrados += 1
                 tipo = cfdi.tipo_factura.value if cfdi.tipo_factura else "NORMAL"
 
+                carpeta = f"{base_folder}/ISA/{year_str}/{month_str}"
+
                 if cfdi.uuid in ya_existentes:
                     total_duplicados += 1
+                    filename = f"{cfdi.uuid}.xml"
+                    sp_url = ""
+                    sp_item_id = None
+                    try:
+                        result = await sp.upload_bytes_direct(xml_bytes, filename, carpeta)
+                        sp_url = result.get("webUrl", "")
+                        sp_item_id = result.get("id")
+                    except Exception as e:
+                        logger.warning("No se pudo subir XML duplicado %s a SharePoint: %s", cfdi.uuid, e)
                     async with pool.acquire() as conn:
                         await sat_db_service.registrar_cfdi_descargado(
-                            conn, job_id, cfdi, "", None, "duplicado",
+                            conn, job_id, cfdi, sp_url, sp_item_id, "duplicado",
                             tipo_detectado=tipo,
                         )
                     continue
 
-                carpeta = f"{base_folder}/ISA/{year_str}/{month_str}"
+
                 filename = f"{cfdi.uuid}.xml"
                 try:
                     result = await sp.upload_bytes_direct(xml_bytes, filename, carpeta)

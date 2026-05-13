@@ -1,0 +1,994 @@
+from __future__ import annotations
+
+import logging
+from datetime import date, datetime, timedelta
+from io import BytesIO
+from typing import List, Optional
+from uuid import UUID
+
+import asyncpg
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from fastapi.templating import Jinja2Templates
+
+from core.database import get_db_connection
+from core.permissions import require_manager_access, require_module_access
+from core.security import get_current_user_context
+from modules.asistencia import db_service as asistencia_db
+from modules.asistencia.constants import ASISTENCIA_ESTADOS
+from modules.asistencia.logic import ensure_mx
+from modules.rrhh import service
+from modules.vacaciones import db_service as vac_db
+from modules.vacaciones import service as vac_service
+
+logger = logging.getLogger("rrhh.router")
+router = APIRouter(prefix="/rrhh", tags=["rrhh"])
+templates = Jinja2Templates(directory="templates")
+
+
+def _is_htmx(request: Request) -> bool:
+    return bool(
+        request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request")
+    )
+
+
+def _toast_error(request: Request, message: str, status_code: int = 400):
+    return templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"type": "error", "title": "Error", "message": message},
+        status_code=status_code,
+        headers={"HX-Reswap": "none"},
+    )
+
+
+def _toast_success(request: Request, message: str):
+    return templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"type": "success", "title": "Listo", "message": message},
+        headers={"HX-Reswap": "none"},
+    )
+
+
+def _format_date(value) -> str:
+    return value.strftime("%d/%m/%Y") if value else ""
+
+
+def _format_datetime(value) -> str:
+    if not value:
+        return ""
+    if isinstance(value, datetime):
+        return ensure_mx(value).strftime("%d/%m/%Y %H:%M")
+    return str(value)
+
+
+def _format_minutes(value) -> str:
+    total = int(value or 0)
+    return f"{total // 60}:{total % 60:02d}"
+
+
+def _excel_response(workbook, filename: str) -> StreamingResponse:
+    output = BytesIO()
+    workbook.save(output)
+    output.seek(0)
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def _build_workbook(title: str, headers: list[str], rows: list[list]):
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = title
+    worksheet.append(headers)
+    worksheet.freeze_panes = "A2"
+
+    for cell in worksheet[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="123456")
+
+    for row in rows:
+        worksheet.append(row)
+
+    for column in worksheet.columns:
+        width = max(len(str(cell.value or "")) for cell in column) + 2
+        worksheet.column_dimensions[column[0].column_letter].width = min(width, 36)
+
+    return workbook
+
+
+# ─────────────────────────────────────────────
+# Dashboard principal
+# ─────────────────────────────────────────────
+
+@router.get("/ui")
+async def rrhh_ui(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    data = await service.get_dashboard_data(conn)
+    ctx = {**data, "context": context}
+    if _is_htmx(request):
+        return templates.TemplateResponse(request, "rrhh/partials/content.html", ctx)
+    return templates.TemplateResponse(request, "rrhh/dashboard.html", ctx)
+
+
+# ─────────────────────────────────────────────
+# Vacaciones hoy
+# ─────────────────────────────────────────────
+
+@router.get("/vacaciones-hoy")
+async def vacaciones_hoy(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    from core.timezone import today_mx
+    hoy = today_mx()
+    vacaciones = await vac_db.get_vacaciones_hoy(conn, hoy)
+    return templates.TemplateResponse(
+        request, "rrhh/partials/vacaciones_hoy.html",
+        {"vacaciones_hoy": vacaciones, "hoy": hoy},
+    )
+
+
+# ─────────────────────────────────────────────
+# Aprobaciones pendientes (vista RH global)
+# ─────────────────────────────────────────────
+
+@router.get("/aprobaciones")
+async def aprobaciones_pendientes(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
+    return templates.TemplateResponse(
+        request, "rrhh/partials/aprobaciones_pendientes.html",
+        {"pendientes": pendientes, "context": context},
+    )
+
+
+# ─────────────────────────────────────────────
+# Gestión de empleados
+# ─────────────────────────────────────────────
+
+@router.get("/empleados")
+async def empleados_lista(
+    request: Request,
+    offset: int = 0,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    empleados = await vac_db.get_all_empleados_con_datos(conn, limit=50, offset=offset)
+    total = await vac_db.count_empleados(conn)
+    return templates.TemplateResponse(
+        request, "rrhh/partials/empleados_lista.html",
+        {"empleados": empleados, "total": total, "offset": offset},
+    )
+
+
+@router.get("/empleados/exportar-excel")
+async def empleados_exportar_excel(
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    from io import BytesIO
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill
+    from core.timezone import today_mx
+
+    empleados = await vac_db.get_all_empleados_con_datos(conn, limit=10000, offset=0)
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Vacaciones"
+    headers = [
+        "Empleado",
+        "Email",
+        "No. empleado",
+        "Departamento",
+        "Fecha contratacion",
+        "Periodo",
+        "Dias otorgados",
+        "Dias tomados",
+        "Dias restantes",
+        "Fecha expiracion",
+        "Dias para expirar",
+        "Aprobador",
+    ]
+    ws.append(headers)
+    for cell in ws[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = PatternFill("solid", fgColor="123456")
+
+    for emp in empleados:
+        balance = await vac_service.get_balance_usuario(conn, emp["id_usuario"])
+        periodos = balance.get("periodos") or []
+        if not periodos:
+            ws.append([
+                emp["nombre"],
+                emp["email"],
+                emp.get("numero_empleado"),
+                emp.get("departamento") or emp.get("department"),
+                emp.get("fecha_contratacion"),
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                emp.get("aprobador_nombre"),
+            ])
+            continue
+        for periodo in periodos:
+            if periodo.get("es_proximo"):
+                continue
+            ws.append([
+                emp["nombre"],
+                emp["email"],
+                emp.get("numero_empleado"),
+                emp.get("departamento") or emp.get("department"),
+                emp.get("fecha_contratacion"),
+                periodo.get("num_periodo"),
+                periodo.get("dias_otorgados"),
+                periodo.get("dias_usados"),
+                periodo.get("dias_restantes"),
+                periodo.get("fecha_expiracion"),
+                periodo.get("dias_para_expiracion"),
+                emp.get("aprobador_nombre"),
+            ])
+
+    for column in ws.columns:
+        width = max(len(str(cell.value or "")) for cell in column) + 2
+        ws.column_dimensions[column[0].column_letter].width = min(width, 32)
+
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    filename = f"empleados_vacaciones_{today_mx().strftime('%Y%m%d')}.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@router.get("/reportes")
+async def reportes_panel(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    ctx = await service.get_reportes_ctx(conn)
+    ctx["context"] = context
+    return templates.TemplateResponse(request, "rrhh/partials/reportes.html", ctx)
+
+
+@router.get("/reportes/asistencia.xlsx")
+async def reporte_asistencia_excel(
+    fecha_inicio: date,
+    fecha_fin: date,
+    usuario_id: Optional[UUID] = None,
+    sucursal_id: Optional[UUID] = None,
+    estado: Optional[str] = None,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    try:
+        service.validar_rango_reportes(fecha_inicio, fecha_fin)
+        rows = await asistencia_db.get_reporte_asistencia(
+            conn,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+            usuario_id=usuario_id,
+            sucursal_id=sucursal_id,
+            estado=estado or None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except asyncpg.PostgresError as exc:
+        logger.exception("Error de BD generando reporte de asistencia")
+        raise HTTPException(status_code=500, detail="No se pudo generar el reporte") from exc
+
+    workbook = _build_workbook(
+        "Asistencia",
+        [
+            "Fecha",
+            "Empleado",
+            "Email",
+            "Sucursal",
+            "Primera entrada",
+            "Ultima salida",
+            "Horas trabajadas",
+            "Horas programadas",
+            "Horas extra",
+            "Estado",
+            "Vacaciones",
+            "Observaciones",
+        ],
+        [
+            [
+                _format_date(row["fecha_laboral"]),
+                row.get("empleado_nombre") or "",
+                row.get("empleado_email") or "",
+                row.get("sucursal_nombre") or "",
+                _format_datetime(row.get("primera_entrada")),
+                _format_datetime(row.get("ultima_salida")),
+                _format_minutes(row.get("minutos_trabajados")),
+                _format_minutes(row.get("minutos_programados")),
+                _format_minutes(row.get("minutos_extra")),
+                row.get("estado") or "",
+                "Si" if row.get("tiene_vacaciones") else "No",
+                row.get("observaciones") or "",
+            ]
+            for row in rows
+        ],
+    )
+    filename = f"reporte_asistencia_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.xlsx"
+    return _excel_response(workbook, filename)
+
+
+@router.get("/reportes/vacaciones.xlsx")
+async def reporte_vacaciones_excel(
+    fecha_inicio: date,
+    fecha_fin: date,
+    usuario_id: Optional[UUID] = None,
+    estado: Optional[str] = None,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    try:
+        service.validar_rango_reportes(fecha_inicio, fecha_fin)
+        rows = await service.get_reporte_vacaciones(
+            conn,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+            usuario_id=usuario_id,
+            estado=estado or None,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except asyncpg.PostgresError as exc:
+        logger.exception("Error de BD generando reporte de vacaciones")
+        raise HTTPException(status_code=500, detail="No se pudo generar el reporte") from exc
+
+    workbook = _build_workbook(
+        "Vacaciones",
+        [
+            "Empleado",
+            "Email",
+            "No. empleado",
+            "Departamento",
+            "Inicio",
+            "Fin",
+            "Dias",
+            "Fecha a presentarse",
+            "Estado",
+            "Fecha solicitud",
+            "Fecha resolucion",
+            "Aprobado por",
+        ],
+        [
+            [
+                row.get("empleado_nombre") or "",
+                row.get("empleado_email") or "",
+                row.get("numero_empleado") or "",
+                row.get("departamento") or "",
+                _format_date(row.get("fecha_inicio")),
+                _format_date(row.get("fecha_fin")),
+                row.get("dias_solicitados") or 0,
+                _format_date(row.get("fecha_presentarse")),
+                row.get("estado") or "",
+                _format_datetime(row.get("fecha_solicitud")),
+                _format_datetime(row.get("fecha_resolucion")),
+                row.get("aprobado_por_nombre") or "",
+            ]
+            for row in rows
+        ],
+    )
+    filename = f"reporte_vacaciones_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.xlsx"
+    return _excel_response(workbook, filename)
+
+
+@router.get("/reportes/horas-extra.xlsx")
+async def reporte_horas_extra_excel(
+    fecha_inicio: date,
+    fecha_fin: date,
+    usuario_id: Optional[UUID] = None,
+    sucursal_id: Optional[UUID] = None,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    try:
+        service.validar_rango_reportes(fecha_inicio, fecha_fin)
+        rows = await asistencia_db.get_reporte_asistencia(
+            conn,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+            usuario_id=usuario_id,
+            sucursal_id=sucursal_id,
+            solo_horas_extra=True,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except asyncpg.PostgresError as exc:
+        logger.exception("Error de BD generando reporte de horas extra")
+        raise HTTPException(status_code=500, detail="No se pudo generar el reporte") from exc
+
+    workbook = _build_workbook(
+        "Horas extra",
+        [
+            "Fecha",
+            "Empleado",
+            "Sucursal",
+            "Primera entrada",
+            "Ultima salida",
+            "Horas trabajadas",
+            "Horas programadas",
+            "Horas extra",
+            "Estado",
+            "Observaciones",
+        ],
+        [
+            [
+                _format_date(row["fecha_laboral"]),
+                row.get("empleado_nombre") or "",
+                row.get("sucursal_nombre") or "",
+                _format_datetime(row.get("primera_entrada")),
+                _format_datetime(row.get("ultima_salida")),
+                _format_minutes(row.get("minutos_trabajados")),
+                _format_minutes(row.get("minutos_programados")),
+                _format_minutes(row.get("minutos_extra")),
+                row.get("estado") or "",
+                row.get("observaciones") or "",
+            ]
+            for row in rows
+        ],
+    )
+    filename = f"reporte_horas_extra_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.xlsx"
+    return _excel_response(workbook, filename)
+
+
+@router.get("/empleados/{usuario_id}/editar")
+async def empleado_editar_form(
+    request: Request,
+    usuario_id: UUID,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
+):
+    ctx = await service.get_empleado_edit_ctx(conn, usuario_id)
+    return templates.TemplateResponse(request, "rrhh/partials/empleado_editar.html", ctx)
+
+
+@router.post("/empleados/{usuario_id}")
+async def empleado_guardar(
+    request: Request,
+    usuario_id: UUID,
+    numero_empleado: Optional[str] = Form(None),
+    fecha_contratacion: Optional[date] = Form(None),
+    puesto: Optional[str] = Form(None),
+    departamento: Optional[str] = Form(None),
+    id_aprobador_vacaciones: Optional[UUID] = Form(None),
+    dias_vacaciones_ajuste: int = Form(0),
+    jefes_ids: List[UUID] = Form(default=[]),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
+):
+    try:
+        await service.guardar_empleado(
+            conn,
+            usuario_id=usuario_id,
+            numero_empleado=numero_empleado or None,
+            fecha_contratacion=fecha_contratacion,
+            puesto=puesto or None,
+            departamento=departamento or None,
+            id_aprobador_vacaciones=id_aprobador_vacaciones,
+            dias_vacaciones_ajuste=dias_vacaciones_ajuste,
+            jefes_ids=jefes_ids,
+            updated_by=UUID(context["user_db_id"]),
+        )
+    except ValueError as e:
+        return _toast_error(request, str(e))
+    return _toast_success(request, "Datos del empleado actualizados")
+
+
+# ─────────────────────────────────────────────
+# Admin RRHH
+# ─────────────────────────────────────────────
+
+@router.get("/admin")
+async def admin_config(
+    request: Request,
+    anio: Optional[int] = None,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_manager_access("rrhh", "editor"),
+):
+    ctx = await service.get_admin_ctx(conn, anio)
+    ctx["context"] = context
+    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
+
+
+@router.post("/admin/festivos/generar")
+async def admin_generar_festivos(
+    request: Request,
+    anio: int = Form(...),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_manager_access("rrhh", "editor"),
+):
+    try:
+        insertados = await service.generar_festivos_anio(
+            conn, anio, UUID(context["user_db_id"])
+        )
+    except ValueError as exc:
+        return _toast_error(request, str(exc))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD generando festivos")
+        return _toast_error(request, "No se pudieron generar los festivos")
+    ctx = await service.get_admin_ctx(conn, anio)
+    ctx.update({
+        "context": context,
+        "toast_type": "success",
+        "toast_msg": f"Festivos generados. Nuevas fechas: {insertados}",
+    })
+    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
+
+
+@router.post("/admin/festivos")
+async def admin_crear_festivo(
+    request: Request,
+    fecha: date = Form(...),
+    descripcion: str = Form(...),
+    es_oficial: bool = Form(False),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_manager_access("rrhh", "editor"),
+):
+    anio = fecha.year
+    try:
+        await service.guardar_festivo(
+            conn,
+            fecha=fecha,
+            descripcion=descripcion,
+            es_oficial=es_oficial,
+            user_id=UUID(context["user_db_id"]),
+        )
+    except ValueError as exc:
+        return _toast_error(request, str(exc))
+    except asyncpg.UniqueViolationError:
+        return _toast_error(request, "Ya existe un festivo con esa fecha")
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD creando festivo")
+        return _toast_error(request, "No se pudo guardar el festivo")
+    ctx = await service.get_admin_ctx(conn, anio)
+    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Festivo guardado"})
+    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
+
+
+@router.post("/admin/festivos/{festivo_id}")
+async def admin_actualizar_festivo(
+    request: Request,
+    festivo_id: UUID,
+    fecha: date = Form(...),
+    descripcion: str = Form(...),
+    es_oficial: bool = Form(False),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_manager_access("rrhh", "editor"),
+):
+    anio = fecha.year
+    try:
+        await service.guardar_festivo(
+            conn,
+            festivo_id=festivo_id,
+            fecha=fecha,
+            descripcion=descripcion,
+            es_oficial=es_oficial,
+            user_id=UUID(context["user_db_id"]),
+        )
+    except ValueError as exc:
+        return _toast_error(request, str(exc))
+    except asyncpg.UniqueViolationError:
+        return _toast_error(request, "Ya existe un festivo con esa fecha")
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD actualizando festivo")
+        return _toast_error(request, "No se pudo actualizar el festivo")
+    ctx = await service.get_admin_ctx(conn, anio)
+    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Festivo actualizado"})
+    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
+
+
+@router.delete("/admin/festivos/{festivo_id}")
+async def admin_eliminar_festivo(
+    request: Request,
+    festivo_id: UUID,
+    anio: int,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_manager_access("rrhh", "editor"),
+):
+    try:
+        await vac_db.delete_festivo(conn, festivo_id)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD eliminando festivo")
+        return _toast_error(request, "No se pudo eliminar el festivo")
+    ctx = await service.get_admin_ctx(conn, anio)
+    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Festivo eliminado"})
+    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
+
+
+@router.post("/admin/tipos-ausencia")
+async def admin_crear_tipo_ausencia(
+    request: Request,
+    nombre: str = Form(...),
+    slug: str = Form(...),
+    abreviatura: str = Form(...),
+    afecta_saldo: bool = Form(False),
+    requiere_aprobacion: bool = Form(False),
+    is_active: bool = Form(False),
+    orden: int = Form(0),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_manager_access("rrhh", "editor"),
+):
+    try:
+        await service.crear_tipo_ausencia(
+            conn,
+            nombre=nombre,
+            slug=slug,
+            abreviatura=abreviatura,
+            afecta_saldo=afecta_saldo,
+            requiere_aprobacion=requiere_aprobacion,
+            is_active=is_active,
+            orden=orden,
+            user_id=UUID(context["user_db_id"]),
+        )
+    except ValueError as exc:
+        return _toast_error(request, str(exc))
+    except asyncpg.UniqueViolationError:
+        return _toast_error(request, "Ya existe un tipo con ese slug")
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD creando tipo de ausencia")
+        return _toast_error(request, "No se pudo guardar el tipo de permiso")
+    ctx = await service.get_admin_ctx(conn)
+    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Tipo de permiso guardado"})
+    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
+
+
+@router.post("/admin/tipos-ausencia/{tipo_id}")
+async def admin_actualizar_tipo_ausencia(
+    request: Request,
+    tipo_id: UUID,
+    nombre: str = Form(...),
+    abreviatura: str = Form(...),
+    afecta_saldo: bool = Form(False),
+    requiere_aprobacion: bool = Form(False),
+    is_active: bool = Form(False),
+    orden: int = Form(0),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_manager_access("rrhh", "editor"),
+):
+    try:
+        await service.actualizar_tipo_ausencia(
+            conn,
+            tipo_id=tipo_id,
+            nombre=nombre,
+            abreviatura=abreviatura,
+            afecta_saldo=afecta_saldo,
+            requiere_aprobacion=requiere_aprobacion,
+            is_active=is_active,
+            orden=orden,
+            user_id=UUID(context["user_db_id"]),
+        )
+    except ValueError as exc:
+        return _toast_error(request, str(exc))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD actualizando tipo de ausencia")
+        return _toast_error(request, "No se pudo actualizar el tipo de permiso")
+    ctx = await service.get_admin_ctx(conn)
+    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Tipo de permiso actualizado"})
+    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
+
+
+@router.post("/admin/dias-vacaciones")
+async def admin_crear_dias_vacaciones(
+    request: Request,
+    antiguedad_anios: int = Form(...),
+    antiguedad_anios_fin: Optional[int] = Form(None),
+    dias_lft: int = Form(...),
+    dias_enertika: int = Form(...),
+    is_active: bool = Form(False),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_manager_access("rrhh", "editor"),
+):
+    try:
+        await service.guardar_dias_vacaciones(
+            conn,
+            antiguedad_anios=antiguedad_anios,
+            antiguedad_anios_fin=antiguedad_anios_fin,
+            dias_lft=dias_lft,
+            dias_enertika=dias_enertika,
+            is_active=is_active,
+            user_id=UUID(context["user_db_id"]),
+        )
+    except ValueError as exc:
+        return _toast_error(request, str(exc))
+    except asyncpg.UniqueViolationError:
+        return _toast_error(request, "Ya existe un rango con esa antiguedad inicial")
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD creando dias de vacaciones")
+        return _toast_error(request, "No se pudo guardar el rango")
+    ctx = await service.get_admin_ctx(conn)
+    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Rango guardado"})
+    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
+
+
+@router.post("/admin/dias-vacaciones/{row_id}")
+async def admin_actualizar_dias_vacaciones(
+    request: Request,
+    row_id: UUID,
+    antiguedad_anios: int = Form(...),
+    antiguedad_anios_fin: Optional[int] = Form(None),
+    dias_lft: int = Form(...),
+    dias_enertika: int = Form(...),
+    is_active: bool = Form(False),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_manager_access("rrhh", "editor"),
+):
+    try:
+        await service.guardar_dias_vacaciones(
+            conn,
+            row_id=row_id,
+            antiguedad_anios=antiguedad_anios,
+            antiguedad_anios_fin=antiguedad_anios_fin,
+            dias_lft=dias_lft,
+            dias_enertika=dias_enertika,
+            is_active=is_active,
+            user_id=UUID(context["user_db_id"]),
+        )
+    except ValueError as exc:
+        return _toast_error(request, str(exc))
+    except asyncpg.UniqueViolationError:
+        return _toast_error(request, "Ya existe un rango con esa antiguedad inicial")
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD actualizando dias de vacaciones")
+        return _toast_error(request, "No se pudo actualizar el rango")
+    ctx = await service.get_admin_ctx(conn)
+    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Rango actualizado"})
+    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
+
+
+@router.post("/admin/config")
+async def admin_guardar_config(
+    request: Request,
+    meses_expiracion: int = Form(...),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_manager_access("rrhh", "editor"),
+):
+    try:
+        await service.guardar_config_vacaciones(conn, meses_expiracion=meses_expiracion)
+    except ValueError as exc:
+        return _toast_error(request, str(exc))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD guardando config vacaciones")
+        return _toast_error(request, "No se pudo guardar la configuracion")
+    ctx = await service.get_admin_ctx(conn)
+    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Configuracion guardada"})
+    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
+
+
+# ─────────────────────────────────────────────
+# Festivos
+# ─────────────────────────────────────────────
+
+@router.get("/festivos")
+async def festivos_lista(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    festivos = await vac_db.get_festivos(conn)
+    return templates.TemplateResponse(
+        request, "rrhh/partials/festivos_lista.html",
+        {"festivos": festivos},
+    )
+
+
+@router.post("/festivos")
+async def festivo_crear(
+    request: Request,
+    fecha: date = Form(...),
+    descripcion: str = Form(...),
+    es_oficial: bool = Form(False),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
+):
+    try:
+        await vac_db.create_festivo(conn, fecha, descripcion, es_oficial, UUID(context["user_db_id"]))
+    except asyncpg.UniqueViolationError:
+        return _toast_error(request, "Ya existe un festivo con esa fecha")
+    except asyncpg.PostgresError as e:
+        logger.error("Error creando festivo: %s", e)
+        return _toast_error(request, "No se pudo crear el festivo")
+    festivos = await vac_db.get_festivos(conn)
+    return templates.TemplateResponse(
+        request, "rrhh/partials/festivos_lista.html",
+        {"festivos": festivos, "toast_type": "success", "toast_msg": "Festivo agregado"},
+    )
+
+
+@router.delete("/festivos/{festivo_id}")
+async def festivo_eliminar(
+    request: Request,
+    festivo_id: UUID,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
+):
+    await vac_db.delete_festivo(conn, festivo_id)
+    festivos = await vac_db.get_festivos(conn)
+    return templates.TemplateResponse(
+        request, "rrhh/partials/festivos_lista.html", {"festivos": festivos}
+    )
+
+
+# ─────────────────────────────────────────────
+# Asistencia (vista HTML)
+# ─────────────────────────────────────────────
+
+@router.get("/asistencia")
+async def asistencia_panel(
+    request: Request,
+    fecha_inicio: Optional[date] = None,
+    fecha_fin: Optional[date] = None,
+    usuario_id: Optional[UUID] = None,
+    sucursal_id: Optional[UUID] = None,
+    estado: Optional[str] = None,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    from core.timezone import today_mx
+    hoy = today_mx()
+    fi = fecha_inicio or (hoy - timedelta(days=6))
+    ff = fecha_fin or hoy
+
+    rows = []
+    error = None
+    try:
+        service.validar_rango_reportes(fi, ff)
+        raw = await asistencia_db.get_reporte_asistencia(
+            conn,
+            fecha_inicio=fi,
+            fecha_fin=ff,
+            usuario_id=usuario_id,
+            sucursal_id=sucursal_id,
+            estado=estado or None,
+        )
+        rows = [
+            {
+                **row,
+                "entrada_fmt": ensure_mx(row["primera_entrada"]).strftime("%H:%M") if row.get("primera_entrada") else "",
+                "salida_fmt": ensure_mx(row["ultima_salida"]).strftime("%H:%M") if row.get("ultima_salida") else "",
+                "horas_fmt": f"{(row.get('minutos_trabajados') or 0) // 60}:{(row.get('minutos_trabajados') or 0) % 60:02d}",
+                "extra_fmt": f"{(row.get('minutos_extra') or 0) // 60}:{(row.get('minutos_extra') or 0) % 60:02d}",
+            }
+            for row in raw
+        ]
+    except ValueError as exc:
+        error = str(exc)
+
+    usuarios = await vac_db.get_usuarios_activos_simples(conn)
+    sucursales = await asistencia_db.get_sucursales(conn)
+    return templates.TemplateResponse(
+        request,
+        "rrhh/partials/asistencia.html",
+        {
+            "rows": rows,
+            "fecha_inicio": fi,
+            "fecha_fin": ff,
+            "usuario_id_filtro": str(usuario_id) if usuario_id else "",
+            "sucursal_id_filtro": str(sucursal_id) if sucursal_id else "",
+            "estado_filtro": estado or "",
+            "usuarios": usuarios,
+            "sucursales": sucursales,
+            "estados_asistencia": sorted(ASISTENCIA_ESTADOS),
+            "error": error,
+        },
+    )
+
+
+# ─────────────────────────────────────────────
+# Solicitudes (vista global RH)
+# ─────────────────────────────────────────────
+
+@router.get("/solicitudes")
+async def solicitudes_lista(
+    request: Request,
+    estado: Optional[str] = None,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    solicitudes = await vac_db.get_todas_solicitudes(conn, estado=estado)
+    tipos = await vac_db.get_tipos_ausencia(conn)
+    return templates.TemplateResponse(
+        request, "rrhh/partials/solicitudes_lista.html",
+        {"solicitudes": solicitudes, "tipos": tipos, "estado_filtro": estado},
+    )
+
+
+@router.post("/solicitudes/{solicitud_id}/aprobar")
+async def aprobar_solicitud(
+    request: Request,
+    solicitud_id: UUID,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
+):
+    try:
+        await vac_service.aprobar_solicitud(conn, solicitud_id, context["user_db_id"], context)
+    except ValueError as e:
+        return _toast_error(request, str(e))
+    pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
+    return templates.TemplateResponse(
+        request, "rrhh/partials/aprobaciones_pendientes.html",
+        {
+            "pendientes": pendientes,
+            "context": context,
+            "toast_type": "success",
+            "toast_msg": "Solicitud aprobada",
+        },
+    )
+
+
+@router.post("/solicitudes/{solicitud_id}/rechazar")
+async def rechazar_solicitud(
+    request: Request,
+    solicitud_id: UUID,
+    motivo: str = Form(...),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
+):
+    try:
+        await vac_service.rechazar_solicitud(
+            conn, solicitud_id, context["user_db_id"], motivo, context
+        )
+    except ValueError as e:
+        return _toast_error(request, str(e))
+    pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
+    return templates.TemplateResponse(
+        request, "rrhh/partials/aprobaciones_pendientes.html",
+        {
+            "pendientes": pendientes,
+            "context": context,
+            "toast_type": "success",
+            "toast_msg": "Solicitud rechazada",
+        },
+    )

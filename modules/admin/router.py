@@ -14,12 +14,14 @@ from core.jinja_filters import register_timezone_filters
 from .service import AdminService, get_admin_service
 from core.tipo_cambio.service import TipoCambioService
 import asyncpg
+import httpx
 
 logger = logging.getLogger("AdminRouter")
 
 from . import endpoints_correos_notif
 from .schemas import ConfiguracionGlobalUpdate, TecnologiaCreate
 from core.config_service import ConfigService
+from modules.asistencia import service as asistencia_service
 
 router = APIRouter(
     prefix="/admin",
@@ -391,6 +393,107 @@ async def update_config_sharepoint(
     return templates.TemplateResponse(
         request, "shared/toast.html",
         {"message": "Configuración SharePoint guardada correctamente", "type": "success"},
+        headers={"HX-Reswap": "none"},
+    )
+
+
+@router.post("/config/biotime", include_in_schema=False)
+async def update_config_biotime(
+    request: Request,
+    biotime_base_url: str = Form(""),
+    biotime_access_key: str = Form(""),
+    biotime_sync_activo: bool = Form(False),
+    biotime_sync_interval_seg: int = Form(900),
+    biotime_sync_page_size: int = Form(1000),
+    biotime_sync_lookback_hrs: int = Form(48),
+    biotime_sync_timeout_seg: int = Form(30),
+    asistencia_recalc_dias: int = Form(7),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    try:
+        await service.update_biotime_config(
+            conn,
+            base_url=biotime_base_url,
+            access_key=biotime_access_key,
+            sync_activo=biotime_sync_activo,
+            interval_seconds=biotime_sync_interval_seg,
+            page_size=biotime_sync_page_size,
+            lookback_hours=biotime_sync_lookback_hrs,
+            timeout_seconds=biotime_sync_timeout_seg,
+            recalc_days=asistencia_recalc_dias,
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"message": str(exc), "type": "error"},
+            status_code=400,
+            headers={"HX-Reswap": "none"},
+        )
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD guardando configuracion BioTime")
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"message": "No se pudo guardar la configuracion BioTime", "type": "error"},
+            status_code=500,
+            headers={"HX-Reswap": "none"},
+        )
+
+    return templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"message": "Configuracion BioTime guardada correctamente", "type": "success"},
+        headers={"HX-Reswap": "none"},
+    )
+
+
+@router.post("/config/biotime/probar", include_in_schema=False)
+async def probar_config_biotime(
+    request: Request,
+    biotime_base_url: str = Form(""),
+    biotime_access_key: str = Form(""),
+    biotime_sync_timeout_seg: int = Form(30),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    try:
+        access_key = await service.resolve_biotime_access_key(conn, biotime_access_key)
+        result = await asistencia_service.probar_conexion_biotime(
+            base_url=biotime_base_url,
+            access_key=access_key,
+            timeout_seconds=biotime_sync_timeout_seg,
+        )
+        message = f"Conexion BioTime correcta. Registros leidos: {result['records_read']}"
+        type_ = "success"
+        status_code = 200
+    except ValueError as exc:
+        message = str(exc)
+        type_ = "error"
+        status_code = 400
+    except httpx.HTTPStatusError as exc:
+        message = f"BioTime respondio con HTTP {exc.response.status_code}"
+        type_ = "error"
+        status_code = 400
+    except httpx.HTTPError:
+        logger.exception("Error HTTP probando BioTime")
+        message = "No se pudo conectar con BioTime"
+        type_ = "error"
+        status_code = 400
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD leyendo configuracion BioTime")
+        message = "No se pudo leer la configuracion BioTime"
+        type_ = "error"
+        status_code = 500
+
+    return templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"message": message, "type": type_},
+        status_code=status_code,
         headers={"HX-Reswap": "none"},
     )
 

@@ -1,0 +1,151 @@
+{% if toast_msg %}
+{% with type=toast_type, title="Aviso", message=toast_msg %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+<div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden max-w-xl">
+  <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+    <h2 class="text-base font-semibold text-gray-900">Detalle de solicitud</h2>
+    <button
+      hx-get="/perfil/solicitudes"
+      hx-target="#tab-content"
+      hx-swap="innerHTML"
+      class="text-sm text-gray-400 hover:text-gray-600">
+      ← Volver
+    </button>
+  </div>
+
+  <div class="px-5 py-5 space-y-3 text-sm">
+    <div class="grid grid-cols-2 gap-y-3">
+      <span class="text-gray-500">Tipo</span>
+      <span class="font-medium text-gray-800">{{ solicitud.tipo_nombre }}</span>
+
+      <span class="text-gray-500">Período</span>
+      <span class="font-medium text-gray-800">
+        {{ solicitud.fecha_inicio.strftime('%d/%m/%Y') }} al {{ solicitud.fecha_fin.strftime('%d/%m/%Y') }}
+      </span>
+
+      <span class="text-gray-500">Días hábiles</span>
+      <span class="font-medium text-gray-800">{{ solicitud.dias_solicitados }}</span>
+
+      <span class="text-gray-500">Regreso</span>
+      <span class="font-medium text-gray-800">{{ solicitud.fecha_presentarse.strftime('%d/%m/%Y') }}</span>
+
+      <span class="text-gray-500">Estado</span>
+      <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold
+        {% if solicitud.firma_solicitante_pendiente %}bg-sky-100 text-sky-700
+        {% elif solicitud.estado == 'aprobado' %}bg-green-100 text-green-700
+        {% elif solicitud.estado == 'rechazado' %}bg-red-100 text-red-700
+        {% elif solicitud.estado == 'cancelado' %}bg-gray-100 text-gray-500
+        {% else %}bg-amber-100 text-amber-700{% endif %}">
+        {{ 'Pendiente firma' if solicitud.firma_solicitante_pendiente else solicitud.estado | capitalize }}
+      </span>
+
+      {% if solicitud.aprobado_por_nombre %}
+      <span class="text-gray-500">Aprobador</span>
+      <span class="font-medium text-gray-800">{{ solicitud.aprobado_por_nombre }}</span>
+      {% endif %}
+
+      {% if solicitud.motivo_rechazo %}
+      <span class="text-gray-500">Motivo</span>
+      <span class="text-red-600">{{ solicitud.motivo_rechazo }}</span>
+      {% endif %}
+
+      {% if solicitud.observaciones %}
+      <span class="text-gray-500">Observaciones</span>
+      <span class="text-gray-700">{{ solicitud.observaciones }}</span>
+      {% endif %}
+    </div>
+
+    {% if firmas %}
+    <div class="pt-3 border-t border-gray-100">
+      <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Firmas</p>
+      {% for f in firmas %}
+      <p class="text-xs text-gray-600">
+        <span class="font-medium">{{ f.rol_firma | capitalize }}:</span>
+        {{ f.firmante_nombre }} — {{ f.fecha_firma.strftime('%d/%m/%Y %H:%M') }}
+      </p>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+
+  <!-- Acciones -->
+  <div class="px-5 pb-5 flex flex-wrap gap-2">
+    {% if solicitud.estado in ['aprobado', 'pendiente'] and not solicitud.firma_solicitante_pendiente %}
+    <a href="/perfil/solicitudes/{{ solicitud.id }}/pdf" target="_blank"
+       class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+      </svg>
+      Descargar PDF
+    </a>
+    {% endif %}
+
+    {% if es_dueno and solicitud.firma_solicitante_pendiente %}
+    <button
+      hx-get="/perfil/firma?solicitud_pendiente_id={{ solicitud.id }}"
+      hx-target="#tab-content"
+      hx-swap="innerHTML"
+      class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition-colors">
+      Registrar firma
+    </button>
+    {% endif %}
+
+    {% if es_dueno and solicitud.estado == 'pendiente' %}
+    <button
+      hx-post="/perfil/solicitudes/{{ solicitud.id }}/cancelar"
+      hx-target="#tab-content"
+      hx-swap="innerHTML"
+      hx-confirm="¿Cancelar esta solicitud?"
+      class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 border border-red-200 rounded-lg text-red-600 hover:bg-red-50 transition-colors">
+      Cancelar solicitud
+    </button>
+    {% endif %}
+
+    {% if es_aprobador and solicitud.estado == 'pendiente' and not solicitud.firma_solicitante_pendiente %}
+    <button
+      hx-post="/perfil/solicitudes/{{ solicitud.id }}/aprobar"
+      hx-target="#tab-content"
+      hx-swap="innerHTML"
+      hx-confirm="¿Aprobar y firmar esta solicitud?"
+      class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors">
+      Aprobar y firmar
+    </button>
+
+    <button x-data
+      @click="$dispatch('open-rechazo-modal', {id: '{{ solicitud.id }}'})"
+      class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 border border-red-200 rounded-lg text-red-600 hover:bg-red-50 transition-colors">
+      Rechazar
+    </button>
+
+    <!-- Modal rechazo inline -->
+    <div x-data="{ open: false, motivo: '', solicitudId: '' }"
+         @open-rechazo-modal.window="open = true; solicitudId = $event.detail.id"
+         x-show="open"
+         class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+         x-cloak>
+      <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm" @click.stop>
+        <h3 class="text-base font-semibold text-gray-900 mb-3">Rechazar solicitud</h3>
+        <form :hx-post="'/perfil/solicitudes/' + solicitudId + '/rechazar'"
+              hx-target="#tab-content"
+              hx-swap="innerHTML"
+              @htmx:after-request="open = false">
+          <label class="block text-sm text-gray-700 mb-1.5">Motivo del rechazo *</label>
+          <textarea name="motivo" x-model="motivo" rows="3" required placeholder="Explica el motivo..."
+                    class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-red-400 outline-none mb-4"></textarea>
+          <div class="flex gap-2">
+            <button type="button" @click="open = false"
+                    class="flex-1 border border-gray-200 text-sm py-2 rounded-xl hover:bg-gray-50">Cancelar</button>
+            <button type="submit" :disabled="!motivo.trim()"
+                    class="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2 rounded-xl disabled:opacity-50 transition-colors">
+              Rechazar
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>

@@ -1,0 +1,94 @@
+{% if toast_msg %}
+{% with type=toast_type, title="Aviso", message=toast_msg %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+{% if balance is defined %}
+{% include "vacaciones/partials/balance.html" %}
+{% endif %}
+
+<div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mt-4">
+  <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+    <h2 class="text-sm font-semibold text-gray-700">Mis Solicitudes</h2>
+    <button
+      hx-get="/perfil/solicitudes/nueva"
+      hx-target="#tab-content"
+      hx-swap="innerHTML"
+      class="text-xs text-[#00BABB] hover:underline font-medium">
+      + Nueva
+    </button>
+  </div>
+
+  {% if not solicitudes %}
+  <div class="px-5 py-10 text-center text-sm text-gray-400">
+    No tienes solicitudes registradas.
+  </div>
+  {% else %}
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+        <tr>
+          <th class="px-4 py-2.5 text-left">Tipo</th>
+          <th class="px-4 py-2.5 text-left">Periodo</th>
+          <th class="px-4 py-2.5 text-right">Días</th>
+          <th class="px-4 py-2.5 text-left">Estado</th>
+          <th class="px-4 py-2.5 text-left">Acciones</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for s in solicitudes %}
+        <tr class="hover:bg-gray-50 transition-colors">
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
+              {{ s.tipo_abreviatura }}
+            </span>
+            <span class="ml-1 text-gray-600 hidden sm:inline">{{ s.tipo_nombre }}</span>
+          </td>
+          <td class="px-4 py-3 text-gray-700 whitespace-nowrap">
+            {{ s.fecha_inicio.strftime('%d/%m/%Y') }} — {{ s.fecha_fin.strftime('%d/%m/%Y') }}
+          </td>
+          <td class="px-4 py-3 text-right text-gray-700">{{ s.dias_solicitados }}</td>
+          <td class="px-4 py-3">
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold
+              {% if s.firma_solicitante_pendiente %}bg-sky-100 text-sky-700
+              {% elif s.estado == 'aprobado' %}bg-green-100 text-green-700
+              {% elif s.estado == 'rechazado' %}bg-red-100 text-red-700
+              {% elif s.estado == 'cancelado' %}bg-gray-100 text-gray-500
+              {% else %}bg-amber-100 text-amber-700{% endif %}">
+              {{ 'Pendiente firma' if s.firma_solicitante_pendiente else s.estado | capitalize }}
+            </span>
+          </td>
+          <td class="px-4 py-3 flex items-center gap-2">
+            <button
+              hx-get="/perfil/solicitudes/{{ s.id }}"
+              hx-target="#tab-content"
+              hx-swap="innerHTML"
+              class="text-xs text-[#00BABB] hover:underline">Ver</button>
+            {% if s.estado in ['aprobado', 'pendiente'] and not s.firma_solicitante_pendiente %}
+            <a href="/perfil/solicitudes/{{ s.id }}/pdf" target="_blank"
+               class="text-xs text-gray-500 hover:text-gray-700 hover:underline">PDF</a>
+            {% endif %}
+            {% if s.firma_solicitante_pendiente %}
+            <button
+              hx-get="/perfil/firma?solicitud_pendiente_id={{ s.id }}"
+              hx-target="#tab-content"
+              hx-swap="innerHTML"
+              class="text-xs text-sky-600 hover:underline">Firmar</button>
+            {% endif %}
+            {% if s.estado == 'pendiente' %}
+            <button
+              hx-post="/perfil/solicitudes/{{ s.id }}/cancelar"
+              hx-target="#tab-content"
+              hx-swap="innerHTML"
+              hx-confirm="¿Cancelar esta solicitud?"
+              class="text-xs text-red-500 hover:underline">Cancelar</button>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</div>

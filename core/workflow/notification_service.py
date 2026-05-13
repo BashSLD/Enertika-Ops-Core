@@ -838,7 +838,8 @@ class NotificationService:
         cc_emails: Set[str],
         subject: str,
         html_body: str,
-        sender_email: str  # Email del usuario que ejecuta la accion
+        sender_email: str,  # Email del usuario que ejecuta la accion
+        attachments_files: Optional[list[dict]] = None,
     ) -> bool:
         """
         Envía email usando Application-only token de Microsoft Graph.
@@ -873,7 +874,8 @@ class NotificationService:
                 body=html_body,
                 recipients=list(to_emails),
                 cc_recipients=list(cc_emails) if cc_emails else None,
-                importance="normal"
+                importance="normal",
+                attachments_files=attachments_files,
             )
             
             if success:
@@ -899,6 +901,206 @@ class NotificationService:
             # Error de base de datos (si aplica)
             logger.error(f"[NOTIFY] Error de BD al enviar email: {e}", exc_info=True)
             return False
+
+
+    # ===== VACACIONES =====
+
+    async def _get_rh_emails_cc(self, conn) -> set[str]:
+        rows = await conn.fetch(
+            "SELECT email FROM tb_usuarios WHERE is_active = true AND es_rh = true"
+        )
+        return {r["email"] for r in rows}
+
+    async def notify_periodo_expira(self, conn, empleado: dict, periodo: dict) -> None:
+        """Notifica por email al empleado y CC a RH cuando un periodo esta por expirar."""
+        try:
+            if not empleado.get("email"):
+                logger.info("[NOTIFY] Periodo por expirar sin email de empleado: %s", empleado.get("id_usuario"))
+                return
+            cc = await self._get_rh_emails_cc(conn)
+            html = self._render_template("shared/emails/vacaciones/periodo_expira.html", {
+                "empleado_nombre": empleado["nombre"],
+                "num_periodo": periodo["num_periodo"],
+                "dias_restantes": periodo["dias_restantes"],
+                "dias_para_expiracion": periodo["dias_para_expiracion"],
+                "fecha_expiracion": periodo["fecha_expiracion"].strftime("%d/%m/%Y"),
+                "base_url": settings.APP_BASE_URL,
+            })
+            sender = await self._get_notification_sender(conn)
+            await self._send_email(
+                {empleado["email"]},
+                cc,
+                "Periodo de vacaciones por expirar",
+                html,
+                sender["email"],
+            )
+        except asyncpg.PostgresError as e:
+            logger.error("[NOTIFY] BD error en notify_periodo_expira: %s", e, exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error("[NOTIFY] HTTP error en notify_periodo_expira: %s", e, exc_info=True)
+        except Exception as e:
+            logger.error("[NOTIFY] Error en notify_periodo_expira: %s", e, exc_info=True)
+
+    async def notify_solicitud_vencida(
+        self,
+        conn,
+        solicitud: dict,
+        to_emails: set[str],
+        cc_emails: set[str],
+    ) -> None:
+        """Notifica por email una solicitud pendiente vencida."""
+        try:
+            if not to_emails:
+                logger.info("[NOTIFY] Solicitud vencida sin destinatarios: %s", solicitud.get("id"))
+                return
+            html = self._render_template("shared/emails/vacaciones/solicitud_vencida.html", {
+                "solicitud_id": str(solicitud["id"]),
+                "solicitante_nombre": solicitud["solicitante_nombre"],
+                "tipo_nombre": solicitud["tipo_nombre"],
+                "fecha_inicio": solicitud["fecha_inicio"].strftime("%d/%m/%Y"),
+                "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
+                "base_url": settings.APP_BASE_URL,
+            })
+            sender = await self._get_notification_sender(conn)
+            await self._send_email(
+                to_emails,
+                cc_emails,
+                "Solicitud de ausencia vencida pendiente",
+                html,
+                sender["email"],
+            )
+        except asyncpg.PostgresError as e:
+            logger.error("[NOTIFY] BD error en notify_solicitud_vencida: %s", e, exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error("[NOTIFY] HTTP error en notify_solicitud_vencida: %s", e, exc_info=True)
+        except Exception as e:
+            logger.error("[NOTIFY] Error en notify_solicitud_vencida: %s", e, exc_info=True)
+
+    async def notify_vacation_request(self, conn, solicitud: dict, aprobador_email: str) -> None:
+        """Notifica al aprobador cuando el empleado envía una solicitud de ausencia."""
+        try:
+            aprobador = await conn.fetchrow(
+                "SELECT nombre FROM tb_usuarios WHERE email = $1", aprobador_email
+            )
+            aprobador_nombre = aprobador["nombre"] if aprobador else aprobador_email
+
+            html = self._render_template("shared/emails/vacaciones/solicitud_recibida.html", {
+                "aprobador_nombre": aprobador_nombre,
+                "solicitante_nombre": solicitud["solicitante_nombre"],
+                "tipo_nombre": solicitud["tipo_nombre"],
+                "fecha_inicio": solicitud["fecha_inicio"].strftime("%d/%m/%Y"),
+                "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
+                "dias": solicitud["dias_solicitados"],
+                "fecha_presentarse": solicitud["fecha_presentarse"].strftime("%d/%m/%Y"),
+                "observaciones": solicitud.get("observaciones"),
+                "solicitud_id": str(solicitud["id"]),
+                "base_url": settings.APP_BASE_URL,
+            })
+            sender = await self._get_notification_sender(conn)
+            await self._send_email({aprobador_email}, set(), f"Nueva solicitud de ausencia: {solicitud['solicitante_nombre']}", html, sender["email"])
+
+            await self._save_and_broadcast(
+                conn=conn,
+                recipient_email=aprobador_email,
+                tipo="SOLICITUD_VACACIONES",
+                titulo=f"Nueva solicitud de {solicitud['solicitante_nombre']}",
+                mensaje=f"{solicitud['tipo_nombre']} · {solicitud['dias_solicitados']} días hábiles",
+                id_oportunidad=None,
+                modulo_origen="vacaciones",
+            )
+        except asyncpg.PostgresError as e:
+            logger.error("[NOTIFY] BD error en notify_vacation_request: %s", e, exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error("[NOTIFY] HTTP error en notify_vacation_request: %s", e, exc_info=True)
+        except Exception as e:
+            logger.error("[NOTIFY] Error en notify_vacation_request: %s", e, exc_info=True)
+
+    async def notify_vacation_approved(self, conn, solicitud: dict) -> None:
+        """Notifica al solicitante + CC a RH cuando la solicitud es aprobada."""
+        try:
+            cc = await self._get_rh_emails_cc(conn)
+
+            html = self._render_template("shared/emails/vacaciones/solicitud_aprobada.html", {
+                "solicitante_nombre": solicitud["solicitante_nombre"],
+                "aprobador_nombre": solicitud.get("aprobado_por_nombre", ""),
+                "tipo_nombre": solicitud["tipo_nombre"],
+                "fecha_inicio": solicitud["fecha_inicio"].strftime("%d/%m/%Y"),
+                "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
+                "dias": solicitud["dias_solicitados"],
+                "fecha_presentarse": solicitud["fecha_presentarse"].strftime("%d/%m/%Y"),
+                "solicitud_id": str(solicitud["id"]),
+                "base_url": settings.APP_BASE_URL,
+            })
+            sender = await self._get_notification_sender(conn)
+            attachments = []
+            try:
+                from modules.vacaciones.service import generar_pdf_solicitud, _generar_folio
+                pdf_bytes = await generar_pdf_solicitud(conn, solicitud["id"])
+                attachments.append({
+                    "name": f"{_generar_folio(solicitud)}.pdf",
+                    "contentType": "application/pdf",
+                    "content_bytes": pdf_bytes,
+                })
+            except ValueError as e:
+                logger.error("[NOTIFY] No se pudo generar PDF de solicitud aprobada: %s", e)
+            await self._send_email(
+                {solicitud["solicitante_email"]},
+                cc,
+                f"Solicitud aprobada: {solicitud['tipo_nombre']}",
+                html,
+                sender["email"],
+                attachments_files=attachments,
+            )
+
+            await self._save_and_broadcast(
+                conn=conn,
+                recipient_email=solicitud["solicitante_email"],
+                tipo="VACACIONES_APROBADAS",
+                titulo="Solicitud aprobada",
+                mensaje=f"{solicitud['tipo_nombre']} · {solicitud['fecha_inicio'].strftime('%d/%m')} al {solicitud['fecha_fin'].strftime('%d/%m/%Y')}",
+                id_oportunidad=None,
+                modulo_origen="vacaciones",
+            )
+        except asyncpg.PostgresError as e:
+            logger.error("[NOTIFY] BD error en notify_vacation_approved: %s", e, exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error("[NOTIFY] HTTP error en notify_vacation_approved: %s", e, exc_info=True)
+        except Exception as e:
+            logger.error("[NOTIFY] Error en notify_vacation_approved: %s", e, exc_info=True)
+
+    async def notify_vacation_rejected(self, conn, solicitud: dict, motivo: str) -> None:
+        """Notifica al solicitante + CC a RH cuando la solicitud es rechazada."""
+        try:
+            cc = await self._get_rh_emails_cc(conn)
+
+            html = self._render_template("shared/emails/vacaciones/solicitud_rechazada.html", {
+                "solicitante_nombre": solicitud["solicitante_nombre"],
+                "aprobador_nombre": solicitud.get("aprobado_por_nombre", ""),
+                "tipo_nombre": solicitud["tipo_nombre"],
+                "fecha_inicio": solicitud["fecha_inicio"].strftime("%d/%m/%Y"),
+                "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
+                "motivo": motivo,
+                "solicitud_id": str(solicitud["id"]),
+                "base_url": settings.APP_BASE_URL,
+            })
+            sender = await self._get_notification_sender(conn)
+            await self._send_email({solicitud["solicitante_email"]}, cc, f"Solicitud de ausencia no aprobada: {solicitud['tipo_nombre']}", html, sender["email"])
+
+            await self._save_and_broadcast(
+                conn=conn,
+                recipient_email=solicitud["solicitante_email"],
+                tipo="VACACIONES_RECHAZADAS",
+                titulo="Solicitud rechazada",
+                mensaje=f"{solicitud['tipo_nombre']} · Motivo: {motivo[:80]}",
+                id_oportunidad=None,
+                modulo_origen="vacaciones",
+            )
+        except asyncpg.PostgresError as e:
+            logger.error("[NOTIFY] BD error en notify_vacation_rejected: %s", e, exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error("[NOTIFY] HTTP error en notify_vacation_rejected: %s", e, exc_info=True)
+        except Exception as e:
+            logger.error("[NOTIFY] Error en notify_vacation_rejected: %s", e, exc_info=True)
 
 
 def get_notification_service():

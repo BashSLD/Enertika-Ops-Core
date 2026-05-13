@@ -236,6 +236,91 @@
                     </div>
                 </div>
 
+                <div class="border border-teal-200 rounded-lg p-4 space-y-3 bg-teal-50/40">
+                    <h4 class="text-sm font-semibold text-gray-700">BioTime</h4>
+                    <div id="biotime-fields" class="space-y-3">
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">URL base</label>
+                                <input type="url" name="biotime_base_url" value="{{ config_global.biotime_base_url }}"
+                                    placeholder="http://IP_PUBLICA:8082"
+                                    class="w-full rounded-lg border-gray-300 bg-white px-3 focus:ring-[#00BABB] focus:border-[#00BABB] text-xs">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Access key</label>
+                                <input type="password" name="biotime_access_key"
+                                    placeholder="{{ config_global.biotime_access_key_masked or 'Access key de BioTime' }}"
+                                    class="w-full rounded-lg border-gray-300 bg-white px-3 focus:ring-[#00BABB] focus:border-[#00BABB] text-xs"
+                                    autocomplete="off">
+                                {% if config_global.biotime_access_key_configured %}
+                                <p class="text-xs text-green-700 mt-1">Llave configurada. Dejar vacio para mantener la actual.</p>
+                                {% endif %}
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+                            <label class="inline-flex items-center gap-2 bg-white border border-teal-100 rounded-lg px-3 py-2">
+                                <input type="checkbox" name="biotime_sync_activo" value="true"
+                                    {% if config_global.biotime_sync_activo %}checked{% endif %}
+                                    class="rounded text-[#00BABB] focus:ring-[#00BABB]">
+                                <span class="text-sm text-gray-700">Sync activo</span>
+                            </label>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">Intervalo seg.</label>
+                                <input type="number" name="biotime_sync_interval_seg"
+                                    value="{{ config_global.biotime_sync_interval_seg }}" min="60" max="86400"
+                                    class="w-full rounded-lg border-gray-300 bg-white px-3 text-sm focus:ring-[#00BABB] focus:border-[#00BABB]">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">Pagina</label>
+                                <input type="number" name="biotime_sync_page_size"
+                                    value="{{ config_global.biotime_sync_page_size }}" min="1" max="2000"
+                                    class="w-full rounded-lg border-gray-300 bg-white px-3 text-sm focus:ring-[#00BABB] focus:border-[#00BABB]">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">Lookback hrs.</label>
+                                <input type="number" name="biotime_sync_lookback_hrs"
+                                    value="{{ config_global.biotime_sync_lookback_hrs }}" min="1" max="744"
+                                    class="w-full rounded-lg border-gray-300 bg-white px-3 text-sm focus:ring-[#00BABB] focus:border-[#00BABB]">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">Timeout seg.</label>
+                                <input type="number" name="biotime_sync_timeout_seg"
+                                    value="{{ config_global.biotime_sync_timeout_seg }}" min="5" max="120"
+                                    class="w-full rounded-lg border-gray-300 bg-white px-3 text-sm focus:ring-[#00BABB] focus:border-[#00BABB]">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label class="block text-xs font-bold text-gray-700 mb-1">Recalculo dias</label>
+                                <input type="number" name="asistencia_recalc_dias"
+                                    value="{{ config_global.asistencia_recalc_dias }}" min="0" max="31"
+                                    class="w-full rounded-lg border-gray-300 bg-white px-3 text-sm focus:ring-[#00BABB] focus:border-[#00BABB]">
+                            </div>
+                        </div>
+
+                        <div class="flex flex-wrap gap-3">
+                            <button type="button"
+                                hx-post="/admin/config/biotime"
+                                hx-include="#biotime-fields"
+                                hx-target="#global-toast-container"
+                                hx-swap="afterbegin"
+                                class="rounded-lg bg-[#00BABB] px-4 py-2 text-sm font-medium text-white hover:bg-[#009999] transition-colors">
+                                Guardar BioTime
+                            </button>
+                            <button type="button"
+                                hx-post="/admin/config/biotime/probar"
+                                hx-include="#biotime-fields"
+                                hx-target="#global-toast-container"
+                                hx-swap="afterbegin"
+                                class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm text-gray-700 hover:border-gray-400 transition-colors">
+                                Probar conexion
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
         {# ── 5. KPIs de Simulación ─────────────────────────── #}
             <div class="bg-purple-50 p-4 rounded-lg border border-purple-200 relative">
                 <div class="flex justify-between items-center mb-3">

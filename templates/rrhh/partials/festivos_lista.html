@@ -1,0 +1,100 @@
+{% if toast_msg %}
+{% with type=toast_type, title="Aviso", message=toast_msg %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+<div x-data="{ showForm: false }">
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-base font-semibold text-gray-800">Festivos</h2>
+    <button @click="showForm = !showForm"
+      class="bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2 px-4 rounded-xl flex items-center gap-2 transition-colors">
+      <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+      </svg>
+      Agregar
+    </button>
+  </div>
+
+  <!-- Formulario agregar festivo -->
+  <div x-show="showForm" x-collapse class="bg-gray-50 rounded-xl border border-gray-200 p-4 mb-4">
+    <form
+      hx-post="/rrhh/festivos"
+      hx-target="#rrhh-content"
+      hx-swap="innerHTML"
+      @submit="showForm = false"
+      class="grid grid-cols-1 sm:grid-cols-3 gap-3 items-end">
+      <div>
+        <label class="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
+        <input type="date" name="fecha" required
+          class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+      </div>
+      <div class="sm:col-span-2">
+        <label class="block text-xs font-medium text-gray-600 mb-1">Descripción</label>
+        <input type="text" name="descripcion" required placeholder="ej. Día de la Independencia"
+          class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+      </div>
+      <div class="flex items-center gap-2">
+        <input type="checkbox" name="es_oficial" id="es_oficial" value="true"
+          class="rounded text-[#00BABB]">
+        <label for="es_oficial" class="text-sm text-gray-600">Festivo oficial</label>
+      </div>
+      <div class="sm:col-span-2 flex gap-2 justify-end">
+        <button type="button" @click="showForm = false"
+          class="border border-gray-200 text-gray-600 text-sm font-medium py-2 px-4 rounded-xl hover:bg-white transition-colors">
+          Cancelar
+        </button>
+        <button type="submit"
+          class="bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors">
+          Guardar
+        </button>
+      </div>
+    </form>
+  </div>
+
+  {% if festivos %}
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+        <tr>
+          <th class="text-left px-4 py-3">Fecha</th>
+          <th class="text-left px-4 py-3">Descripción</th>
+          <th class="text-center px-4 py-3 hidden sm:table-cell">Oficial</th>
+          <th class="px-4 py-3 w-12"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for f in festivos %}
+        <tr class="hover:bg-gray-50 transition-colors">
+          <td class="px-4 py-3 font-medium text-gray-800 whitespace-nowrap">
+            {{ f.fecha.strftime('%d/%m/%Y') }}
+          </td>
+          <td class="px-4 py-3 text-gray-600">{{ f.descripcion }}</td>
+          <td class="px-4 py-3 text-center hidden sm:table-cell">
+            {% if f.es_oficial %}
+            <span class="text-green-600">✓</span>
+            {% else %}
+            <span class="text-gray-300">—</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-right">
+            <button
+              hx-delete="/rrhh/festivos/{{ f.id }}"
+              hx-target="#rrhh-content"
+              hx-swap="innerHTML"
+              hx-confirm="¿Eliminar este festivo?"
+              class="text-red-400 hover:text-red-600 transition-colors text-xs">
+              Eliminar
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center text-gray-400">
+    <p class="text-sm">No hay festivos registrados</p>
+  </div>
+  {% endif %}
+</div>

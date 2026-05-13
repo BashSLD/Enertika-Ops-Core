@@ -824,7 +824,8 @@ class ComprasService:
         cfdi_data: dict,
         id_comprobante: UUID,
         user_id: UUID,
-        guardar_relacion: bool = True
+        guardar_relacion: bool = True,
+        forzar_match: bool = False,
     ) -> dict:
         """
         Confirma el match entre un XML y un comprobante de pago.
@@ -942,11 +943,17 @@ class ComprasService:
             proyectado = monto_ya_facturado + monto_factura
             if proyectado > monto_pago + tolerancia_monto:
                 exceso = proyectado - monto_pago
-                raise ValueError(
-                    f"La factura excede el monto del pago por ${exceso:,.2f} "
-                    f"(ya facturado: ${monto_ya_facturado:,.2f}, "
-                    f"nueva factura: ${monto_factura:,.2f}, "
-                    f"pago total: ${monto_pago:,.2f})"
+                if not forzar_match:
+                    raise ValueError(
+                        f"EXCESO_MONTO|{exceso:.2f}|"
+                        f"La factura excede el monto del pago por ${exceso:,.2f} "
+                        f"(ya facturado: ${monto_ya_facturado:,.2f}, "
+                        f"nueva factura: ${monto_factura:,.2f}, "
+                        f"pago total: ${monto_pago:,.2f})"
+                    )
+                logger.warning(
+                    "Match forzado por usuario: comprobante=%s exceso=$%s user=%s",
+                    id_comprobante, f"{exceso:.2f}", user_id,
                 )
 
         # 1. Insertar en junction table PRIMERO (confirmar_match lee desde aqui)
@@ -971,6 +978,8 @@ class ComprasService:
             conn, id_comprobante, uuid_factura, id_proveedor,
             tipo_factura, current_estatus, monto_factura,
             id_comprobante_anticipo=id_comprobante_anticipo,
+            monto_comprobante=monto_pago,
+            monto_acumulado=monto_ya_facturado,
         )
 
         # 2. Guardar relaciones beneficiario↔proveedor (bidireccional)

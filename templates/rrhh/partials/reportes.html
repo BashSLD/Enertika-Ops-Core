@@ -1,0 +1,118 @@
+<div class="space-y-5">
+  <div class="flex items-center justify-between">
+    <div>
+      <h2 class="text-lg font-semibold text-gray-900">Reportes</h2>
+      <p class="text-sm text-gray-500">Descargas para asistencia, vacaciones y horas extra.</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
+    <form method="get" class="bg-white border border-gray-200 rounded-xl shadow-sm p-5 space-y-4">
+      <div>
+        <h3 class="font-semibold text-gray-900">Asistencia y horas extra</h3>
+        <p class="text-xs text-gray-500 mt-1">La hora extra se calcula en ECO con la asistencia diaria.</p>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
+          <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" required
+            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
+          <input type="date" name="fecha_fin" value="{{ fecha_fin }}" required
+            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Empleado</label>
+          <select name="usuario_id"
+            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+            <option value="">Todos</option>
+            {% for usuario in usuarios %}
+            <option value="{{ usuario.id_usuario }}">{{ usuario.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Sucursal</label>
+          <select name="sucursal_id"
+            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+            <option value="">Todas</option>
+            {% for sucursal in sucursales %}
+            <option value="{{ sucursal.id }}">{{ sucursal.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="sm:col-span-2">
+          <label class="block text-sm font-medium text-gray-700 mb-1">Estado de asistencia</label>
+          <select name="estado"
+            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+            <option value="">Todos</option>
+            {% for estado in estados_asistencia | sort %}
+            <option value="{{ estado }}">{{ estado.replace('_', ' ') }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="flex flex-wrap gap-2 justify-end pt-2">
+        <button type="submit" formaction="/rrhh/reportes/asistencia.xlsx"
+          class="rounded-lg bg-[#123456] px-4 py-2 text-sm font-medium text-white hover:bg-[#0e2a45] transition-colors">
+          Descargar asistencia
+        </button>
+        <button type="submit" formaction="/rrhh/reportes/horas-extra.xlsx"
+          class="rounded-lg bg-[#00BABB] px-4 py-2 text-sm font-medium text-white hover:bg-[#009999] transition-colors">
+          Descargar horas extra
+        </button>
+      </div>
+    </form>
+
+    <form method="get" class="bg-white border border-gray-200 rounded-xl shadow-sm p-5 space-y-4">
+      <div>
+        <h3 class="font-semibold text-gray-900">Vacaciones</h3>
+        <p class="text-xs text-gray-500 mt-1">Solicitudes de vacaciones en el rango seleccionado.</p>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
+          <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" required
+            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
+          <input type="date" name="fecha_fin" value="{{ fecha_fin }}" required
+            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Empleado</label>
+          <select name="usuario_id"
+            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+            <option value="">Todos</option>
+            {% for usuario in usuarios %}
+            <option value="{{ usuario.id_usuario }}">{{ usuario.nombre }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-gray-700 mb-1">Estado</label>
+          <select name="estado"
+            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+            <option value="">Todos</option>
+            {% for estado in estados_vacaciones %}
+            <option value="{{ estado }}">{{ estado }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="flex justify-end pt-2">
+        <button type="submit" formaction="/rrhh/reportes/vacaciones.xlsx"
+          class="rounded-lg bg-[#123456] px-4 py-2 text-sm font-medium text-white hover:bg-[#0e2a45] transition-colors">
+          Descargar vacaciones
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

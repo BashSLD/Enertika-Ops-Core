@@ -305,7 +305,27 @@ async def buscar_comprobantes(
     )
 
 
-async def _procesar_match_unico(conn: asyncpg.Connection, inbox_id: UUID, comprobante_id: UUID, user_id: UUID):
+def _render_exceso_response(
+    request: Request,
+    action_url: str,
+    inbox_ids: list[str],
+    user_msg: str,
+) -> HTMLResponse:
+    html = templates.TemplateResponse(
+        request,
+        "compras/partials/sat_confirm_exceso.html",
+        {"message": user_msg, "action_url": action_url, "inbox_ids": inbox_ids},
+    ).body.decode("utf-8")
+    return HTMLResponse(content=html, headers={"HX-Reswap": "none"})
+
+
+async def _procesar_match_unico(
+    conn: asyncpg.Connection,
+    inbox_id: UUID,
+    comprobante_id: UUID,
+    user_id: UUID,
+    forzar_match: bool = False,
+):
     from modules.compras.sat_service import descargar_xml_de_inbox
     from modules.compras.xml_extractor import parse_cfdi_xml
     from modules.compras.service import ComprasService
@@ -336,7 +356,8 @@ async def _procesar_match_unico(conn: asyncpg.Connection, inbox_id: UUID, compro
         await sat_db_service.marcar_matcheado(conn, inbox_id, comprobante_id)
         await compras_service.confirmar_match_xml(
             conn, cfdi_data, comprobante_id, user_id,
-            guardar_relacion=True
+            guardar_relacion=True,
+            forzar_match=forzar_match,
         )
 
     # Copiar el XML a la carpeta de facturas en SharePoint
@@ -383,6 +404,7 @@ async def confirmar_match(
     except ValueError:
         limit = 50
     comprobante_id_str = (form.get("comprobante_id") or "").strip()
+    forzar_match = (form.get("forzar_match") or "").lower() == "true"
     try:
         comprobante_id = UUID(comprobante_id_str)
     except ValueError:
@@ -394,12 +416,27 @@ async def confirmar_match(
         )
 
     try:
-        await _procesar_match_unico(conn, inbox_id, comprobante_id, user["user_db_id"])
+        await _procesar_match_unico(conn, inbox_id, comprobante_id, user["user_db_id"], forzar_match=forzar_match)
     except ValueError as e:
+        msg = str(e)
+        if msg.startswith("EXCESO_MONTO|"):
+            _, exceso_str, user_msg = msg.split("|", 2)
+            return templates.TemplateResponse(
+                request,
+                "compras/partials/xml_match_error.html",
+                {
+                    "message": user_msg,
+                    "exceso_monto": exceso_str,
+                    "inbox_id": str(inbox_id),
+                    "comprobante_id": comprobante_id_str,
+                    "limit": limit,
+                },
+                status_code=400,
+            )
         return templates.TemplateResponse(
             request,
             "compras/partials/xml_match_error.html",
-            {"message": str(e)},
+            {"message": msg},
             status_code=400,
         )
     except asyncpg.PostgresError:
@@ -462,10 +499,29 @@ async def procesar_item(
             headers={"HX-Reswap": "none"},
         )
 
+    anticipo_preseleccionado = None
+    if tipo == "CIERRE_ANTICIPO":
+        db_svc = get_db_service()
+        for rel in (cfdi.relacionados or []):
+            if rel.tipo_relacion == "07" and rel.uuid:
+                anticipo_row = await db_svc.get_comprobante_anticipo_by_uuid(conn, rel.uuid)
+                if anticipo_row:
+                    anticipo_preseleccionado = next(
+                        (c for c in comprobantes if str(c["id_comprobante"]) == str(anticipo_row["id_comprobante"])),
+                        None,
+                    )
+                    break
+
     return templates.TemplateResponse(
         request,
         "compras/partials/sat_match_modal.html",
-        {"cfdi": cfdi, "inbox_id": inbox_id, "comprobantes": comprobantes, "limit": limit},
+        {
+            "cfdi": cfdi,
+            "inbox_id": inbox_id,
+            "comprobantes": comprobantes,
+            "limit": limit,
+            "anticipo_preseleccionado": anticipo_preseleccionado,
+        },
     )
 
 
@@ -519,7 +575,10 @@ async def confirm_auto_match(
             logger.info("Auto-match OK: inbox=%s comprobante=%s", inbox_id_str, comprobante_id_str)
             procesados += 1
         except (ValueError, asyncpg.PostgresError) as e:
-            logger.warning("Error en auto-match para %s: %s", match_str, e)
+            msg = str(e)
+            if msg.startswith("EXCESO_MONTO|"):
+                msg = msg.split("|", 2)[2]
+            logger.warning("Error en auto-match para %s: %s", match_str, msg)
             errores += 1
         except Exception:
             logger.exception("Error inesperado en auto-match para %s", match_str)
@@ -611,10 +670,12 @@ async def match_candidatos_desde_comprobante(
     request: Request,
     id_comprobante: UUID,
     inbox_ids: list[str] = Form(default=[]),
+    forzar_match_raw: str = Form("false"),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=require_module_access("compras", "editor"),
 ):
+    forzar_match = forzar_match_raw.lower() == "true"
     try:
         ids_unicos = sat_service.normalizar_inbox_ids(inbox_ids)
     except ValueError:
@@ -647,7 +708,7 @@ async def match_candidatos_desde_comprobante(
         ultimo_error = ""
         for inbox_id in ids_unicos:
             try:
-                await _procesar_match_unico(conn, inbox_id, id_comprobante, user_id)
+                await _procesar_match_unico(conn, inbox_id, id_comprobante, user_id, forzar_match=forzar_match)
                 procesados += 1
             except (ValueError, asyncpg.PostgresError) as e:
                 if len(ids_unicos) == 1:
@@ -665,11 +726,20 @@ async def match_candidatos_desde_comprobante(
                 f"No se pudo vincular ningun CFDI seleccionado. {ultimo_error}".strip()
             )
     except (ValueError, asyncpg.PostgresError) as e:
-        logger.warning("match-candidatos validacion error comp=%s: %s", id_comprobante, e)
+        msg = str(e)
+        if msg.startswith("EXCESO_MONTO|"):
+            user_msg = msg.split("|", 2)[2]
+            return _render_exceso_response(
+                request,
+                f"/compras/sat/comprobante/{id_comprobante}/match-candidatos",
+                [str(uid) for uid in ids_unicos],
+                user_msg,
+            )
+        logger.warning("match-candidatos validacion error comp=%s: %s", id_comprobante, msg)
         toast_html = templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"message": str(e), "type": "error"},
+            {"message": msg, "type": "error"},
         ).body.decode("utf-8")
         return HTMLResponse(content=toast_html, headers={"HX-Reswap": "none"})
 
@@ -700,19 +770,30 @@ async def match_desde_comprobante(
     request: Request,
     inbox_id: UUID,
     comprobante_id: UUID = Form(...),
+    forzar_match_raw: str = Form("false"),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=require_module_access("compras", "editor"),
 ):
+    forzar_match = forzar_match_raw.lower() == "true"
     user_id = user["user_db_id"]
     try:
-        await _procesar_match_unico(conn, inbox_id, comprobante_id, user_id)
+        await _procesar_match_unico(conn, inbox_id, comprobante_id, user_id, forzar_match=forzar_match)
     except (ValueError, asyncpg.PostgresError) as e:
-        logger.warning("match-desde-comprobante error inbox=%s comp=%s: %s", inbox_id, comprobante_id, e)
+        msg = str(e)
+        if msg.startswith("EXCESO_MONTO|"):
+            user_msg = msg.split("|", 2)[2]
+            return _render_exceso_response(
+                request,
+                f"/compras/sat/comprobante/{comprobante_id}/match-candidatos",
+                [str(inbox_id)],
+                user_msg,
+            )
+        logger.warning("match-desde-comprobante error inbox=%s comp=%s: %s", inbox_id, comprobante_id, msg)
         toast_html = templates.TemplateResponse(
             request,
             "shared/toast.html",
-            {"message": str(e), "type": "error"},
+            {"message": msg, "type": "error"},
         ).body.decode("utf-8")
         return HTMLResponse(content=toast_html, headers={"HX-Reswap": "none"})
     except Exception:

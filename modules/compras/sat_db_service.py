@@ -196,7 +196,7 @@ async def descartar_inbox_item_bulk(conn: asyncpg.Connection, inbox_ids: list[UU
 async def restaurar_inbox_item(conn: asyncpg.Connection, inbox_id: UUID) -> None:
     result = await conn.execute(
         "UPDATE tb_sat_inbox SET estado = 'pendiente', comprobante_id = NULL, updated_at = NOW() "
-        "WHERE id = $1 AND estado IN ('descartado', 'matcheado')",
+        "WHERE id = $1 AND estado IN ('descartado', 'matcheado', 'duplicado')",
         inbox_id,
     )
     if result == "UPDATE 0":
@@ -463,7 +463,12 @@ async def registrar_cfdi_descargado(
            fecha_cfdi, total, moneda, sharepoint_url,
            sharepoint_item_id, estado, tipo_detectado)
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-        ON CONFLICT (uuid_cfdi) DO NOTHING
+        ON CONFLICT (uuid_cfdi) DO UPDATE
+          SET sharepoint_url      = EXCLUDED.sharepoint_url,
+              sharepoint_item_id  = EXCLUDED.sharepoint_item_id,
+              updated_at          = NOW()
+          WHERE tb_sat_inbox.sharepoint_item_id IS NULL
+            AND EXCLUDED.sharepoint_item_id IS NOT NULL
         """,
         job_id, cfdi.uuid, cfdi.emisor_rfc, cfdi.emisor_nombre,
         date.fromisoformat(cfdi.fecha[:10]) if cfdi.fecha else None,

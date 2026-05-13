@@ -1,0 +1,96 @@
+<div>
+  <div class="flex items-center justify-between mb-4">
+    <h2 class="text-base font-semibold text-gray-800">
+      Empleados
+      <span class="ml-1 text-sm font-normal text-gray-400">({{ total }})</span>
+    </h2>
+    <a href="/rrhh/empleados/exportar-excel"
+       class="text-xs text-[#00BABB] hover:text-[#009A9B] font-semibold hover:underline">
+      Exportar Excel
+    </a>
+  </div>
+
+  {% if empleados %}
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+        <tr>
+          <th class="text-left px-4 py-3">Empleado</th>
+          <th class="text-left px-4 py-3 hidden sm:table-cell">No. Empleado</th>
+          <th class="text-left px-4 py-3 hidden md:table-cell">Contratación</th>
+          <th class="text-left px-4 py-3 hidden lg:table-cell">Aprobador</th>
+          <th class="px-4 py-3 w-16"></th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for emp in empleados %}
+        <tr class="hover:bg-gray-50 transition-colors">
+          <td class="px-4 py-3">
+            <p class="font-medium text-gray-800 truncate max-w-[180px]">{{ emp.nombre }}</p>
+            <p class="text-xs text-gray-400">{{ emp.email or '—' }}</p>
+          </td>
+          <td class="px-4 py-3 hidden sm:table-cell text-gray-600">
+            {{ emp.numero_empleado or '—' }}
+          </td>
+          <td class="px-4 py-3 hidden md:table-cell text-gray-600">
+            {{ emp.fecha_contratacion.strftime('%d/%m/%Y') if emp.fecha_contratacion else '—' }}
+          </td>
+          <td class="px-4 py-3 hidden lg:table-cell text-gray-600 text-xs">
+            {{ emp.aprobador_nombre or '—' }}
+          </td>
+          <td class="px-4 py-3 text-right">
+            <button
+              hx-get="/rrhh/empleados/{{ emp.id_usuario }}/editar"
+              hx-target="#empleado-modal-content"
+              hx-swap="innerHTML"
+              @click="$dispatch('open-empleado-modal')"
+              class="text-[#00BABB] hover:text-[#009A9B] text-xs font-medium transition-colors">
+              Editar
+            </button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if offset + empleados | length < total %}
+  <div class="mt-4 text-center">
+    <button
+      hx-get="/rrhh/empleados?offset={{ offset + empleados | length }}"
+      hx-target="#rrhh-content"
+      hx-swap="innerHTML"
+      class="text-sm text-[#00BABB] hover:text-[#009A9B] font-medium transition-colors">
+      Cargar más ({{ total - offset - empleados | length }} restantes)
+    </button>
+  </div>
+  {% endif %}
+
+  {% else %}
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center text-gray-400">
+    <p class="text-sm">No hay empleados registrados</p>
+  </div>
+  {% endif %}
+
+  <!-- Modal editar empleado -->
+  <div id="empleado-modal"
+    x-data="{ open: false }"
+    @open-empleado-modal.window="open = true"
+    x-show="open" x-cloak
+    class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90dvh] flex flex-col"
+      @click.outside="open = false">
+      <div class="px-6 pt-5 pb-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+        <h3 class="text-base font-semibold text-gray-900">Editar datos de empleado</h3>
+        <button @click="open = false" class="text-gray-400 hover:text-gray-600 transition-colors">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+      <div id="empleado-modal-content" class="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+        <p class="text-sm text-gray-400 text-center py-8">Selecciona un empleado para editar</p>
+      </div>
+    </div>
+  </div>
+</div>

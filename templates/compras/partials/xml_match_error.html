@@ -1,4 +1,21 @@
 <div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
     <p class="font-semibold">No se pudo confirmar el match</p>
     <p class="mt-1">{{ message }}</p>
+    {% if exceso_monto %}
+    <div class="mt-3 border-t border-red-200 pt-3">
+        <p class="text-xs text-red-600 mb-2">Si el diferencial es intencional (ej. descuento, redondeo), puedes confirmar de todos modos. El comprobante podria quedar como Parcialmente Facturado.</p>
+        <form hx-post="/compras/sat/inbox/{{ inbox_id }}/match"
+              hx-target="#sat-inbox-table"
+              hx-swap="outerHTML"
+              hx-on::after-request="if(event.detail.successful) document.getElementById('sat-match-modal-container').innerHTML = ''">
+            <input type="hidden" name="comprobante_id" value="{{ comprobante_id }}">
+            <input type="hidden" name="limit" value="{{ limit }}">
+            <input type="hidden" name="forzar_match" value="true">
+            <button type="submit"
+                    class="px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
+                Confirmar de todos modos
+            </button>
+        </form>
+    </div>
+    {% endif %}
 </div>

@@ -1,0 +1,109 @@
+{% if toast_msg %}
+{% with type=toast_type, title="Aviso", message=toast_msg %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+<div x-data="{ rechazandoId: null, motivoRechazo: '' }">
+  <h2 class="text-base font-semibold text-gray-800 mb-4">
+    Solicitudes pendientes de aprobación
+    {% if pendientes %}
+    <span class="ml-1 bg-amber-100 text-amber-700 text-xs font-semibold px-2 py-0.5 rounded-full">{{ pendientes | length }}</span>
+    {% endif %}
+  </h2>
+
+  {% if pendientes %}
+  <div class="space-y-3">
+    {% for sol in pendientes %}
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+      <div class="flex items-start justify-between gap-4 mb-3">
+        <div>
+          <p class="text-sm font-semibold text-gray-800">{{ sol.solicitante_nombre }}</p>
+          <p class="text-xs text-gray-500">{{ sol.tipo_nombre }}</p>
+        </div>
+        <span class="bg-amber-50 text-amber-700 text-xs font-medium px-2 py-1 rounded-lg flex-shrink-0">Pendiente</span>
+      </div>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs text-gray-600 mb-4">
+        <div>
+          <p class="text-gray-400">Inicio</p>
+          <p class="font-medium">{{ sol.fecha_inicio.strftime('%d/%m/%Y') }}</p>
+        </div>
+        <div>
+          <p class="text-gray-400">Fin</p>
+          <p class="font-medium">{{ sol.fecha_fin.strftime('%d/%m/%Y') }}</p>
+        </div>
+        <div>
+          <p class="text-gray-400">Días hábiles</p>
+          <p class="font-semibold text-gray-800">{{ sol.dias_solicitados }}</p>
+        </div>
+        <div>
+          <p class="text-gray-400">Solicitada</p>
+          <p class="font-medium">{{ sol.fecha_solicitud.strftime('%d/%m/%Y') if sol.fecha_solicitud else '—' }}</p>
+        </div>
+      </div>
+      {% if sol.observaciones %}
+      <p class="text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2 mb-3">{{ sol.observaciones }}</p>
+      {% endif %}
+      <div class="flex gap-2">
+        <button
+          hx-post="/rrhh/solicitudes/{{ sol.id }}/aprobar"
+          hx-target="#rrhh-content"
+          hx-swap="innerHTML"
+          class="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold py-2 px-3 rounded-lg transition-colors">
+          Aprobar
+        </button>
+        <button @click="rechazandoId = '{{ sol.id }}'"
+          class="flex-1 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-semibold py-2 px-3 rounded-lg transition-colors">
+          Rechazar
+        </button>
+        <a href="/perfil/solicitudes/{{ sol.id }}"
+          hx-get="/perfil/solicitudes/{{ sol.id }}"
+          hx-target="#main-content"
+          hx-push-url="true"
+          class="bg-gray-50 hover:bg-gray-100 text-gray-600 text-xs font-medium py-2 px-3 rounded-lg transition-colors">
+          Ver
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center text-gray-400">
+    <svg class="w-10 h-10 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+    </svg>
+    <p class="text-sm">No hay solicitudes pendientes</p>
+  </div>
+  {% endif %}
+
+  <!-- Modal rechazo -->
+  <div x-show="rechazandoId !== null" x-cloak
+    class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-md p-6" @click.outside="rechazandoId = null">
+      <h3 class="text-base font-semibold text-gray-900 mb-1">Rechazar solicitud</h3>
+      <p class="text-sm text-gray-500 mb-4">Indica el motivo para notificar al empleado.</p>
+      <textarea x-model="motivoRechazo" rows="3"
+        placeholder="Motivo del rechazo..."
+        class="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-red-300 mb-4"></textarea>
+      <div class="flex gap-3">
+        <button @click="rechazandoId = null; motivoRechazo = ''"
+          class="flex-1 border border-gray-200 text-gray-600 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
+          Cancelar
+        </button>
+        <button
+          @click="
+            if (!motivoRechazo.trim()) return;
+            const fd = new FormData();
+            fd.append('motivo', motivoRechazo);
+            htmx.ajax('POST', '/rrhh/solicitudes/' + rechazandoId + '/rechazar', {
+              target: '#rrhh-content', swap: 'innerHTML', values: fd
+            });
+            rechazandoId = null; motivoRechazo = '';
+          "
+          class="flex-1 bg-red-600 text-white text-sm font-semibold py-2.5 rounded-xl hover:bg-red-700 transition-colors">
+          Confirmar rechazo
+        </button>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,50 @@
+{% if toast_msg %}
+{% with type=toast_type, title="Aviso", message=toast_msg %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+<div class="space-y-4">
+  <h2 class="text-sm font-semibold text-gray-700">Mi Equipo</h2>
+
+  {% if not equipo %}
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-10 text-center text-sm text-gray-400">
+    No hay personas en tu equipo actualmente.
+  </div>
+  {% else %}
+  {% for item in equipo %}
+  <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <div>
+        <p class="text-sm font-semibold text-gray-800">{{ item.usuario.nombre }}</p>
+        <p class="text-xs text-gray-400">{{ item.usuario.email }}</p>
+      </div>
+      <button
+        hx-get="/perfil/equipo/{{ item.usuario.id_usuario }}"
+        hx-target="#tab-content"
+        hx-swap="innerHTML"
+        class="text-xs text-[#00BABB] hover:underline font-medium">
+        Ver detalle
+      </button>
+    </div>
+    {% if item.balance.periodos %}
+    <div class="px-5 py-3 flex items-center justify-between text-sm">
+      <span class="text-gray-500">Días disponibles</span>
+      <span class="font-bold text-gray-900">{{ item.balance.total_disponible }}</span>
+    </div>
+    {% if item.balance.periodos | selectattr('alerta') | list %}
+    <div class="px-5 pb-3">
+      {% for p in item.balance.periodos if p.alerta and not p.es_proximo %}
+      <p class="text-xs {{ 'text-red-500' if p.dias_para_expiracion < 30 else 'text-amber-500' }}">
+        ⚠ Período {{ p.periodo }}: {{ p.dias_restantes }} días expiran el {{ p.fecha_expiracion.strftime('%d/%m/%Y') }}
+      </p>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% else %}
+    <div class="px-5 py-3 text-xs text-gray-400">Sin datos laborales registrados.</div>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>

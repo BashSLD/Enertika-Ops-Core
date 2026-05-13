@@ -41,7 +41,7 @@ async def get_current_user_context(
 
     # 3. Consultar DB para obtener ID interno, ROL, DEPARTAMENTO Y MÓDULO PREFERIDO
     row = await conn.fetchrow(
-        "SELECT id_usuario, nombre, rol_sistema, department, modulo_preferido, rol_organizacional, is_active FROM tb_usuarios WHERE email = $1",
+        "SELECT id_usuario, nombre, rol_sistema, department, modulo_preferido, rol_organizacional, is_active, es_rh FROM tb_usuarios WHERE email = $1",
         final_email
     )
 
@@ -58,6 +58,7 @@ async def get_current_user_context(
     db_dept = None
     db_name = None
     modulo_preferido = None
+    es_rh = False
 
     if row:
         user_db_id = row['id_usuario']
@@ -65,6 +66,7 @@ async def get_current_user_context(
         db_dept = row['department']
         db_name = row['nombre']
         modulo_preferido = row['modulo_preferido']
+        es_rh = bool(row['es_rh'])
     else:
         # Auto-create user on the fly if not exists (First Login)
         try:
@@ -150,6 +152,7 @@ async def get_current_user_context(
         "module_roles": module_roles,  # Nueva: Dict {slug: rol}
         "user_db_id": user_db_id,
         "rol_organizacional": db_rol_org,
+        "es_rh": es_rh,
     }
 
 import asyncio # Added for non-blocking execution

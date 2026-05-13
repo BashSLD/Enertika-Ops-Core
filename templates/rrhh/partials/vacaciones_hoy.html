@@ -1,0 +1,40 @@
+<div>
+  <h2 class="text-base font-semibold text-gray-800 mb-4">
+    Ausencias activas hoy
+    <span class="ml-2 text-sm font-normal text-gray-500">{{ hoy.strftime('%d/%m/%Y') }}</span>
+  </h2>
+
+  {% if vacaciones_hoy %}
+  <div class="space-y-2">
+    {% for v in vacaciones_hoy %}
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="w-9 h-9 rounded-full bg-[#00BABB]/10 flex items-center justify-center flex-shrink-0">
+          <svg class="w-4 h-4 text-[#00BABB]" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4z"/>
+          </svg>
+        </div>
+        <div class="min-w-0">
+          <p class="text-sm font-medium text-gray-800 truncate">{{ v.empleado_nombre }}</p>
+          <p class="text-xs text-gray-500">
+            {{ v.fecha_inicio.strftime('%d/%m') }} — {{ v.fecha_fin.strftime('%d/%m/%Y') }}
+            · {{ v.dias_solicitados }} día{{ 's' if v.dias_solicitados != 1 else '' }}
+          </p>
+        </div>
+      </div>
+      <div class="text-right flex-shrink-0">
+        <p class="text-xs text-gray-400">Regresa</p>
+        <p class="text-sm font-semibold text-gray-700">{{ v.fecha_presentarse.strftime('%d/%m/%Y') }}</p>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center text-gray-400">
+    <svg class="w-10 h-10 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+    </svg>
+    <p class="text-sm">No hay empleados de vacaciones hoy</p>
+  </div>
+  {% endif %}
+</div>

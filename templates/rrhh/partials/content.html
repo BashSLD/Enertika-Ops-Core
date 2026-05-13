@@ -1,0 +1,82 @@
+<div class="animate-fade-in-down px-4 pb-8" x-data="{ tab: 'hoy' }">
+
+  <!-- Encabezado -->
+  <div class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-2xl font-bold text-gray-900">RRHH</h1>
+      <p class="text-sm text-gray-500 mt-0.5">Gestión de personas y vacaciones</p>
+    </div>
+  </div>
+
+  <!-- KPIs rápidos -->
+  <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">De vacaciones hoy</p>
+      <p class="text-2xl font-bold text-[#00BABB]">{{ vacaciones_hoy | length }}</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Aprobaciones pendientes</p>
+      <p class="text-2xl font-bold text-amber-500">{{ pendientes | length }}</p>
+    </div>
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 col-span-2 sm:col-span-1">
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Total empleados</p>
+      <p class="text-2xl font-bold text-gray-800">{{ total_empleados }}</p>
+    </div>
+  </div>
+
+  <!-- Pestañas -->
+  <div class="flex gap-1 border-b border-gray-200 mb-6 overflow-x-auto">
+    <button @click="tab = 'hoy'; htmx.ajax('GET', '/rrhh/vacaciones-hoy', {target: '#rrhh-content', swap: 'innerHTML'})"
+      :class="tab === 'hoy' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
+      class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
+      Hoy
+    </button>
+    <button @click="tab = 'aprobaciones'; htmx.ajax('GET', '/rrhh/aprobaciones', {target: '#rrhh-content', swap: 'innerHTML'})"
+      :class="tab === 'aprobaciones' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
+      class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
+      Aprobaciones
+      {% if pendientes | length > 0 %}
+      <span class="ml-1 bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5">{{ pendientes | length }}</span>
+      {% endif %}
+    </button>
+    <button @click="tab = 'empleados'; htmx.ajax('GET', '/rrhh/empleados', {target: '#rrhh-content', swap: 'innerHTML'})"
+      :class="tab === 'empleados' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
+      class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
+      Empleados
+    </button>
+    <button @click="tab = 'festivos'; htmx.ajax('GET', '/rrhh/festivos', {target: '#rrhh-content', swap: 'innerHTML'})"
+      :class="tab === 'festivos' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
+      class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
+      Festivos
+    </button>
+    <button @click="tab = 'solicitudes'; htmx.ajax('GET', '/rrhh/solicitudes', {target: '#rrhh-content', swap: 'innerHTML'})"
+      :class="tab === 'solicitudes' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
+      class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
+      Solicitudes
+    </button>
+    <button @click="tab = 'asistencia'; htmx.ajax('GET', '/rrhh/asistencia', {target: '#rrhh-content', swap: 'innerHTML'})"
+      :class="tab === 'asistencia' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
+      class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
+      Asistencia
+    </button>
+    <button @click="tab = 'reportes'; htmx.ajax('GET', '/rrhh/reportes', {target: '#rrhh-content', swap: 'innerHTML'})"
+      :class="tab === 'reportes' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
+      class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
+      Reportes
+    </button>
+    {% set rrhh_role = (context.module_roles or {}).get('rrhh', '') %}
+    {% if context.role == 'ADMIN' or rrhh_role == 'admin' or (context.role == 'MANAGER' and rrhh_role in ['editor', 'admin']) %}
+    <button @click="tab = 'admin'; htmx.ajax('GET', '/rrhh/admin', {target: '#rrhh-content', swap: 'innerHTML'})"
+      :class="tab === 'admin' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
+      class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
+      Admin
+    </button>
+    {% endif %}
+  </div>
+
+  <!-- Contenido de pestaña -->
+  <div id="rrhh-content">
+    {% include "rrhh/partials/vacaciones_hoy.html" %}
+  </div>
+
+</div>

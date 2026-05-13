@@ -142,6 +142,15 @@ app.include_router(notifications_router.router)
 from core.projects import router as projects_router
 app.include_router(projects_router)
 
+from modules.vacaciones.router import router as vacaciones_router
+app.include_router(vacaciones_router)
+
+from modules.rrhh.router import router as rrhh_router
+app.include_router(rrhh_router)
+
+from modules.asistencia.router import router as asistencia_router
+app.include_router(asistencia_router)
+
 # --- Background Tasks ---
 # Las tareas periódicas (CEO report, tipo cambio, recordatorios, limpieza, etc.)
 # corren en el Worker service independiente de Railway (worker.py).
@@ -201,19 +210,16 @@ async def root(
         role = context.get("role")
         module_roles = context.get("module_roles", {})
         modulo_preferido = context.get("modulo_preferido")
+        if not modulo_preferido:
+            return RedirectResponse(url="/perfil/ui")
         
         # 1. Admins → Admin UI (siempre tienen acceso total)
         if role == 'ADMIN':
              return RedirectResponse(url="/admin/ui")
         
-        # 2. Usuarios sin módulos asignados → Mostrar mensaje
+        # 2. Usuarios sin módulos asignados → Mi Perfil
         if not module_roles:
-            return templates.TemplateResponse(
-                request, "index.html",
-                {                    "app_name": "Enertika Core Ops",
-                    "error_message": "No tienes módulos asignados. Contacta al administrador para obtener acceso."
-                }
-            )
+            return RedirectResponse(url="/perfil/ui")
         
         # 3. Función para generar rutas de módulos dinámicamente
         def get_module_route(slug: str) -> str:
@@ -227,7 +233,7 @@ async def root(
             VALID_MODULES = {
                 "comercial", "simulacion", "levantamientos", "proyectos",
                 "construccion", "compras", "oym", "admin", "ingenieria", "finanzas",
-                "calculadora_polizas"
+                "calculadora_polizas", "rrhh"
             }
             
             if slug not in VALID_MODULES:

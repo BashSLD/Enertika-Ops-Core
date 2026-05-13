@@ -570,6 +570,8 @@ class ComprasDBService:
         current_estatus: Optional[str] = None,
         monto_factura: Decimal = Decimal("0"),
         id_comprobante_anticipo: Optional[UUID] = None,
+        monto_comprobante: Optional[Decimal] = None,
+        monto_acumulado: Optional[Decimal] = None,
     ):
         """Actualiza comprobante con datos de la factura XML.
 
@@ -616,16 +618,21 @@ class ComprasDBService:
             return
 
         if tipo_factura == "CIERRE_ANTICIPO":
-            row = await conn.fetchrow("""
-                SELECT monto
-                FROM tb_comprobantes_pago
-                WHERE id_comprobante = $1
-            """, id_comprobante)
-            monto_total = row['monto'] if row else Decimal("0")
-            monto_cierre = min(monto_factura, monto_total)
+            if monto_comprobante is not None and monto_acumulado is not None:
+                monto_total = monto_comprobante
+                monto_nuevo = monto_acumulado + monto_factura
+            else:
+                row = await conn.fetchrow("""
+                    SELECT monto, COALESCE(monto_facturado, 0) AS monto_facturado
+                    FROM tb_comprobantes_pago
+                    WHERE id_comprobante = $1
+                """, id_comprobante)
+                monto_total = row['monto'] if row else Decimal("0")
+                monto_nuevo = Decimal(str(row['monto_facturado'])) if row else Decimal("0")
+                monto_nuevo += monto_factura
             nuevo_estatus = (
                 "FACTURADO"
-                if monto_cierre >= monto_total - tolerancia
+                if monto_nuevo >= monto_total - tolerancia
                 else "PARCIALMENTE_FACTURADO"
             )
 
@@ -641,7 +648,7 @@ class ComprasDBService:
                     updated_at = NOW()
                 WHERE id_comprobante = $7
             """, uuid_factura, id_proveedor, tipo_factura, id_comprobante_anticipo,
-                nuevo_estatus, monto_cierre, id_comprobante)
+                nuevo_estatus, monto_nuevo, id_comprobante)
             return
 
         # NORMAL: calcular si cubre el pago completo
