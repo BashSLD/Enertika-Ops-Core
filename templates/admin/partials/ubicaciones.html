@@ -1,0 +1,164 @@
+{# templates/admin/partials/ubicaciones.html #}
+<div id="ubicaciones-container" class="space-y-6 mt-8">
+
+    {% if toast_type %}
+    {% with type=toast_type, message=toast_msg, title="" %}
+    {% include "shared/toast.html" %}
+    {% endwith %}
+    {% endif %}
+
+    <div class="flex items-center gap-3 border-b border-gray-200 pb-3">
+        <div class="p-2 bg-blue-50 rounded-lg">
+            <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z">
+                </path>
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M15 11a3 3 0 11-6 0 3 3 0 016 0z"></path>
+            </svg>
+        </div>
+        <div>
+            <h3 class="text-base font-bold text-gray-800">Ubicaciones</h3>
+            <p class="text-xs text-gray-500">Sucursales (RRHH / Asistencia) y Zonas de Compra (Compras)</p>
+        </div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        <!-- Sucursales -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 flex flex-col">
+            <div class="p-4 border-b bg-gray-50 flex justify-between items-center rounded-t-lg">
+                <h4 class="font-semibold text-gray-700 flex items-center gap-2 text-sm">
+                    <svg class="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-2 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4">
+                        </path>
+                    </svg>
+                    Sucursales
+                </h4>
+                <span class="text-xs bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full font-medium">
+                    {{ sucursales | selectattr('activa') | list | length }} activas
+                </span>
+            </div>
+
+            <div class="p-4 flex-1">
+                <form hx-post="/admin/catalogos/sucursales"
+                    hx-target="#ubicaciones-container" hx-swap="outerHTML"
+                    class="mb-4 space-y-2">
+                    <div class="flex gap-2">
+                        <input type="text" name="codigo" required placeholder="CÓDIGO (ej. MTY)"
+                            maxlength="20"
+                            class="w-28 text-sm rounded-lg border-gray-300 uppercase focus:border-blue-500 focus:ring-blue-500 font-mono">
+                        <input type="text" name="nombre" required placeholder="Nombre de la sucursal"
+                            class="flex-1 text-sm rounded-lg border-gray-300 focus:border-blue-500 focus:ring-blue-500">
+                        <button type="submit"
+                            class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg transition-colors flex items-center justify-center shadow-sm"
+                            title="Agregar sucursal">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path>
+                            </svg>
+                        </button>
+                    </div>
+                </form>
+
+                <ul class="space-y-1.5 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
+                    {% for s in sucursales %}
+                    <li class="flex items-center justify-between p-2 rounded {% if s.activa %}bg-gray-50 hover:bg-blue-50{% else %}bg-gray-100 opacity-60{% endif %} transition-colors">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="text-xs font-mono font-bold text-blue-700 bg-blue-100 px-1.5 py-0.5 rounded flex-shrink-0">
+                                {{ s.codigo }}
+                            </span>
+                            <span class="text-sm text-gray-700 truncate">{{ s.nombre }}</span>
+                        </div>
+                        <form hx-post="/admin/catalogos/sucursales/{{ s.id }}/toggle"
+                            hx-target="#ubicaciones-container" hx-swap="outerHTML"
+                            class="flex-shrink-0 ml-2">
+                            <input type="hidden" name="current_status" value="{{ s.activa | lower }}">
+                            <button type="submit"
+                                class="text-xs px-2 py-0.5 rounded border transition-colors
+                                {% if s.activa %}border-green-300 text-green-700 bg-green-50 hover:bg-red-50 hover:text-red-600 hover:border-red-300
+                                {% else %}border-gray-300 text-gray-500 bg-white hover:bg-green-50 hover:text-green-700 hover:border-green-300{% endif %}"
+                                title="{{ 'Desactivar' if s.activa else 'Activar' }}">
+                                {{ 'Activa' if s.activa else 'Inactiva' }}
+                            </button>
+                        </form>
+                    </li>
+                    {% else %}
+                    <li class="text-xs text-gray-400 italic text-center py-4">
+                        No hay sucursales registradas.
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+        <!-- Zonas de Compra -->
+        <div class="bg-white rounded-lg shadow-sm border border-gray-200 flex flex-col">
+            <div class="p-4 border-b bg-gray-50 flex justify-between items-center rounded-t-lg">
+                <h4 class="font-semibold text-gray-700 flex items-center gap-2 text-sm">
+                    <svg class="w-4 h-4 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                            d="M3.055 11H5a2 2 0 012 2v1a2 2 0 002 2 2 2 0 012 2v2.945M8 3.935V5.5A2.5 2.5 0 0010.5 8h.5a2 2 0 012 2 2 2 0 104 0 2 2 0 012-2h1.064M15 20.488V18a2 2 0 012-2h3.064">
+                        </path>
+                    </svg>
+                    Zonas de Compra
+                </h4>
+                <span class="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-medium">
+                    {{ zonas_compra | selectattr('activo') | list | length }} activas
+                </span>
+            </div>
+
+            <div class="p-4 flex-1">
+                <form hx-post="/admin/catalogos/zonas-compra"
+                    hx-target="#ubicaciones-container" hx-swap="outerHTML"
+                    class="mb-4 space-y-2">
+                    <div class="flex gap-2">
+                        <input type="text" name="nombre" required placeholder="Nombre de la zona"
+                            class="flex-1 text-sm rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500">
+                        <input type="number" name="orden" value="0" min="0" max="999"
+                            class="w-16 text-sm rounded-lg border-gray-300 focus:border-indigo-500 focus:ring-indigo-500 text-center"
+                            title="Orden de visualización">
+                        <button type="submit"
+                            class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg transition-colors flex items-center justify-center shadow-sm"
+                            title="Agregar zona">
+                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <p class="text-xs text-gray-400">El número de orden define la posición en listas (0 = primero).</p>
+                </form>
+
+                <ul class="space-y-1.5 max-h-64 overflow-y-auto pr-1 custom-scrollbar">
+                    {% for z in zonas_compra %}
+                    <li class="flex items-center justify-between p-2 rounded {% if z.activo %}bg-gray-50 hover:bg-indigo-50{% else %}bg-gray-100 opacity-60{% endif %} transition-colors">
+                        <div class="flex items-center gap-2 min-w-0">
+                            <span class="text-xs font-mono text-gray-400 flex-shrink-0 w-6 text-right">
+                                {{ z.orden }}
+                            </span>
+                            <span class="text-sm text-gray-700 truncate">{{ z.nombre }}</span>
+                        </div>
+                        <form hx-post="/admin/catalogos/zonas-compra/{{ z.id }}/toggle"
+                            hx-target="#ubicaciones-container" hx-swap="outerHTML"
+                            class="flex-shrink-0 ml-2">
+                            <input type="hidden" name="current_status" value="{{ z.activo | lower }}">
+                            <button type="submit"
+                                class="text-xs px-2 py-0.5 rounded border transition-colors
+                                {% if z.activo %}border-green-300 text-green-700 bg-green-50 hover:bg-red-50 hover:text-red-600 hover:border-red-300
+                                {% else %}border-gray-300 text-gray-500 bg-white hover:bg-green-50 hover:text-green-700 hover:border-green-300{% endif %}"
+                                title="{{ 'Desactivar' if z.activo else 'Activar' }}">
+                                {{ 'Activa' if z.activo else 'Inactiva' }}
+                            </button>
+                        </form>
+                    </li>
+                    {% else %}
+                    <li class="text-xs text-gray-400 italic text-center py-4">
+                        No hay zonas de compra registradas.
+                    </li>
+                    {% endfor %}
+                </ul>
+            </div>
+        </div>
+
+    </div>
+</div>

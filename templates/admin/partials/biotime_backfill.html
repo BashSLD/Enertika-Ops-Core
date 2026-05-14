@@ -1,0 +1,137 @@
+<div
+  id="biotime-backfill-container"
+  x-data="{
+    fechaInicio: '',
+    fechaFin: '',
+    procesando: false,
+    iniciado: false,
+    chunks: [],
+    currentChunk: 0,
+    hayError: false,
+    toLocalISO(d) {
+      return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    },
+    get btnDeshabilitado() { return this.procesando || !this.fechaInicio || !this.fechaFin; },
+    init() {
+      const hoy = new Date();
+      hoy.setDate(hoy.getDate() - 1);
+      this.fechaFin = this.toLocalISO(hoy);
+      this.fechaInicio = `${hoy.getFullYear()}-01-01`;
+    },
+    generarChunks() {
+      const inicio = new Date(this.fechaInicio + 'T00:00:00');
+      const fin = new Date(this.fechaFin + 'T00:00:00');
+      if (isNaN(inicio.getTime()) || isNaN(fin.getTime()) || inicio > fin) return [];
+      const result = [];
+      let cur = new Date(inicio.getFullYear(), inicio.getMonth(), 1);
+      while (cur <= fin) {
+        const chunkInicio = new Date(Math.max(cur.getTime(), inicio.getTime()));
+        const ultimoDia = new Date(cur.getFullYear(), cur.getMonth() + 1, 0);
+        const chunkFin = new Date(Math.min(ultimoDia.getTime(), fin.getTime()));
+        result.push({ inicio: this.toLocalISO(chunkInicio), fin: this.toLocalISO(chunkFin) });
+        cur = new Date(cur.getFullYear(), cur.getMonth() + 1, 1);
+      }
+      return result;
+    },
+    iniciarBackfill() {
+      this.chunks = this.generarChunks();
+      if (this.chunks.length === 0) return;
+      this.procesando = true;
+      this.iniciado = true;
+      this.currentChunk = 0;
+      this.hayError = false;
+      document.getElementById('backfill-resultados').innerHTML = '';
+      this.$nextTick(() => this.enviarChunk(0));
+    },
+    enviarChunk(i) {
+      if (i >= this.chunks.length) {
+        this.procesando = false;
+        return;
+      }
+      const chunk = this.chunks[i];
+      const form = document.getElementById('backfill-chunk-form');
+      form.querySelector('[name=chunk_inicio]').value = chunk.inicio;
+      form.querySelector('[name=chunk_fin]').value = chunk.fin;
+      form.querySelector('[name=chunk_index]').value = i;
+      form.querySelector('[name=total_chunks]').value = this.chunks.length;
+      this.currentChunk = i;
+      htmx.trigger(form, 'submit');
+    }
+  }"
+  @htmx:after-swap="
+    if (procesando) {
+      const lastEl = document.querySelector('#backfill-resultados [data-chunk-index=\"' + currentChunk + '\"]');
+      const isError = lastEl && lastEl.hasAttribute('data-has-error');
+      if (isError) { hayError = true; procesando = false; return; }
+      const siguiente = currentChunk + 1;
+      if (siguiente >= chunks.length) { procesando = false; return; }
+      $nextTick(() => enviarChunk(siguiente));
+    }
+  "
+  class="space-y-4 mt-3 border-t border-teal-200 pt-4">
+
+  <h5 class="text-sm font-semibold text-gray-700">Importar histórico de checadas</h5>
+  <p class="text-xs text-gray-500">
+    Descarga e importa checadas BioTime para un rango de fechas. Procesa un mes por vez.
+    Es seguro re-ejecutar rangos ya importados — no duplica datos.
+  </p>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <div>
+      <label class="block text-xs font-bold text-gray-700 mb-1">Fecha inicio</label>
+      <input type="date" x-model="fechaInicio"
+        :disabled="procesando"
+        class="w-full rounded-lg border-gray-300 bg-white px-3 text-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:opacity-50">
+    </div>
+    <div>
+      <label class="block text-xs font-bold text-gray-700 mb-1">Fecha fin</label>
+      <input type="date" x-model="fechaFin"
+        :disabled="procesando"
+        class="w-full rounded-lg border-gray-300 bg-white px-3 text-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:opacity-50">
+    </div>
+  </div>
+
+  <template x-if="generarChunks().length > 24">
+    <p class="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+      El rango seleccionado cubre <span x-text="generarChunks().length"></span> meses.
+      El proceso puede tardar varios minutos.
+    </p>
+  </template>
+
+  <div class="flex items-center gap-3">
+    <button type="button"
+      @click="iniciarBackfill()"
+      :disabled="btnDeshabilitado"
+      :class="btnDeshabilitado ? 'opacity-50 cursor-not-allowed' : 'hover:bg-teal-700'"
+      class="rounded-lg bg-[#00BABB] px-4 py-2 text-sm font-medium text-white transition-colors">
+      <span x-show="!procesando">Importar histórico</span>
+      <span x-show="procesando" x-cloak>
+        Procesando <span x-text="currentChunk + 1"></span> de <span x-text="chunks.length"></span>...
+      </span>
+    </button>
+    <span x-show="iniciado && !procesando && !hayError" x-cloak class="text-xs text-green-700 font-medium">
+      Importación completada
+    </span>
+    <span x-show="iniciado && !procesando && hayError" x-cloak class="text-xs text-red-600 font-medium">
+      Detenido por error
+    </span>
+  </div>
+
+  {# Formulario oculto — HTMX lo envía por chunk #}
+  <form id="backfill-chunk-form"
+    hx-post="/admin/asistencia/backfill/chunk"
+    hx-target="#backfill-resultados"
+    hx-swap="beforeend"
+    class="hidden">
+    <input type="hidden" name="chunk_inicio" value="">
+    <input type="hidden" name="chunk_fin" value="">
+    <input type="hidden" name="chunk_index" value="">
+    <input type="hidden" name="total_chunks" value="">
+  </form>
+
+  <div x-show="iniciado" x-cloak class="space-y-1">
+    <p class="text-xs font-semibold text-gray-600 mb-2">Progreso:</p>
+    <div id="backfill-resultados" class="space-y-1 max-h-64 overflow-y-auto">
+    </div>
+  </div>
+</div>
