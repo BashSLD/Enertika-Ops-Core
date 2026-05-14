@@ -1,11 +1,14 @@
 from fastapi import Request, Depends, HTTPException, status
+import asyncpg
 from core.database import get_db_connection, get_db_pool
 from core.config import settings
 from core.microsoft import get_ms_auth  # Para renovación de tokens
+from core.security_db_service import get_security_db_service
 import logging
 import time
 
-# Reutilizamos la lógica que estaba en comercial/router.py
+security_db = get_security_db_service()
+
 async def get_current_user_context(
     request: Request, 
     conn = Depends(get_db_connection)
@@ -18,12 +21,6 @@ async def get_current_user_context(
     user_email = request.session.get("user_email")
     user_name = request.session.get("user_name", "Usuario")
     
-    # Debug/Dev Override
-    department_overan = "Ventas" # Default
-    if settings.DEBUG_MODE:
-        # Mock department logic based on email if needed for testing
-        pass
-        
     final_email = user_email
 
     # 2. Si no hay email en sesión (no logueado), retornamos contexto mínimo
@@ -36,14 +33,12 @@ async def get_current_user_context(
             "role": None,
             "access_token": None,
             "department": None,
+            "puesto": None,
             "user_db_id": None
         }
 
     # 3. Consultar DB para obtener ID interno, ROL, DEPARTAMENTO Y MÓDULO PREFERIDO
-    row = await conn.fetchrow(
-        "SELECT id_usuario, nombre, rol_sistema, department, modulo_preferido, rol_organizacional, is_active, es_rh FROM tb_usuarios WHERE email = $1",
-        final_email
-    )
+    row = await security_db.get_user_by_email(conn, final_email)
 
     # Usuario desactivado — bloquear acceso sin revelar si la cuenta existe
     if row and not row['is_active']:
@@ -56,6 +51,7 @@ async def get_current_user_context(
     user_db_id = None
     role = "USER"
     db_dept = None
+    db_puesto = None
     db_name = None
     modulo_preferido = None
     es_rh = False
@@ -64,6 +60,7 @@ async def get_current_user_context(
         user_db_id = row['id_usuario']
         role = row['rol_sistema'] or "USER"
         db_dept = row['department']
+        db_puesto = row['puesto']
         db_name = row['nombre']
         modulo_preferido = row['modulo_preferido']
         es_rh = bool(row['es_rh'])
@@ -71,18 +68,9 @@ async def get_current_user_context(
         # Auto-create user on the fly if not exists (First Login)
         try:
              # Default role USER
-             user_db_id = await conn.fetchval(
-                 "INSERT INTO tb_usuarios (nombre, email, rol_sistema) VALUES ($1, $2, 'USER') RETURNING id_usuario",
-                 user_name, final_email
-             )
-        except Exception as e:
+             user_db_id = await security_db.create_user(conn, user_name, final_email)
+        except asyncpg.PostgresError as e:
             logging.error(f"Error auto-creating user: {e}")
-
-    # Trust database for role assignment
-    # No hardcoded overrides - all roles managed via tb_usuarios.rol_sistema
-    
-    # Priority for Department: DB > Session/Hardcoded
-    final_department = db_dept if db_dept else department_overan
 
     # Fix User Name priority: DB Name > Session Name > Email fallback
     if db_name:
@@ -90,55 +78,14 @@ async def get_current_user_context(
     elif user_name == "Usuario" and final_email:
         user_name = final_email.split("@")[0] # Fallback to part of email
     
-    # 4. NUEVA LÓGICA: Obtener módulos y roles asignados del usuario
     module_roles = {}
     
     if user_db_id:
         # Consultar módulos asignados desde tb_permisos_modulos
-        permisos = await conn.fetch(
-            "SELECT modulo_slug, rol_modulo FROM tb_permisos_modulos WHERE usuario_id = $1",
-            user_db_id
-        )
+        permisos = await security_db.get_module_permissions(conn, user_db_id)
         
         module_roles = {p['modulo_slug']: p['rol_modulo'] for p in permisos}
         
-        # Si no tiene módulos asignados, asignar por defecto según departamento
-        if not module_roles and final_department:
-            # Obtener slug del departamento
-            dept_slug = await conn.fetchval(
-                "SELECT slug FROM tb_cat_departamentos WHERE nombre = $1",
-                final_department
-            )
-            
-            if dept_slug:
-                # Obtener módulos por defecto del departamento
-                defaults = await conn.fetch(
-                    """SELECT modulo_slug, rol_default 
-                       FROM tb_departamento_modulos 
-                       WHERE departamento_slug = $1""",
-                    dept_slug
-                )
-                
-                # Insertar módulos por defecto
-                for d in defaults:
-                    try:
-                        await conn.execute(
-                            """INSERT INTO tb_permisos_modulos (usuario_id, modulo_slug, rol_modulo)
-                               VALUES ($1, $2, $3)
-                               ON CONFLICT (usuario_id, modulo_slug) DO NOTHING""",
-                            user_db_id, d['modulo_slug'], d['rol_default']
-                        )
-                    except Exception as e:
-                        logging.warning(f"No se pudo asignar módulo {d['modulo_slug']}: {e}")
-                
-                # Recargar permisos
-                permisos = await conn.fetch(
-                    "SELECT modulo_slug, rol_modulo FROM tb_permisos_modulos WHERE usuario_id = $1",
-                    user_db_id
-                )
-                module_roles = {p['modulo_slug']: p['rol_modulo'] for p in permisos}
-
-
     db_rol_org = row['rol_organizacional'] if row else None
 
     return {
@@ -147,15 +94,14 @@ async def get_current_user_context(
         "user_email": final_email,  # Alias para compatibilidad con WorkflowService
         "is_admin": (role == 'ADMIN'),
         "role": role,
-        "department": final_department,
+        "department": db_dept,
+        "puesto": db_puesto,
         "modulo_preferido": modulo_preferido,
         "module_roles": module_roles,  # Nueva: Dict {slug: rol}
         "user_db_id": user_db_id,
         "rol_organizacional": db_rol_org,
         "es_rh": es_rh,
     }
-
-import asyncio # Added for non-blocking execution
 
 async def get_valid_graph_token(request: Request):
     """
@@ -174,10 +120,7 @@ async def get_valid_graph_token(request: Request):
 
         # 3. Usar conexión del pool con context manager
         async with pool.acquire() as conn:
-            row = await conn.fetchrow("""
-                SELECT access_token, refresh_token, token_expires_at 
-                FROM tb_usuarios WHERE email = $1
-            """, user_email)
+            row = await security_db.get_user_tokens(conn, user_email)
             
             if not row:
                 return None
@@ -203,11 +146,13 @@ async def get_valid_graph_token(request: Request):
                     new_refresh = new_data.get("refresh_token", refresh_token) 
                     new_expires = int(time.time() + new_data.get("expires_in", 3600))
                     
-                    await conn.execute("""
-                        UPDATE tb_usuarios 
-                        SET access_token = $1, refresh_token = $2, token_expires_at = $3
-                        WHERE email = $4
-                    """, new_access, new_refresh, new_expires, user_email)
+                    await security_db.update_user_tokens(
+                        conn,
+                        user_email,
+                        new_access,
+                        new_refresh,
+                        new_expires,
+                    )
                     
                     return new_access
                 else:
@@ -215,7 +160,6 @@ async def get_valid_graph_token(request: Request):
                     
             return access_token
 
-    except Exception as e:
-        # ANTES: print(f"Error en seguridad DB: {e}")
-        logging.error(f"Error crítico renovando token en BD: {e}") # AHORA
+    except (asyncpg.PostgresError, RuntimeError, ValueError) as e:
+        logging.error(f"Error crítico renovando token en BD: {e}")
         return None

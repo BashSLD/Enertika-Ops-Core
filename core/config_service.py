@@ -8,8 +8,10 @@ import time
 import logging
 
 import redis.asyncio as aioredis
+from redis.exceptions import RedisError
 
 from core.config import settings
+from core.config_db_service import get_config_db_service
 
 logger = logging.getLogger("ConfigService")
 
@@ -50,6 +52,7 @@ class ConfigService:
     _cache_global: Dict[str, Tuple[float, Any]] = {}
     _CACHE_TTL = 30.0  # 30 segundos de vida
     _cache_lock: asyncio.Lock = asyncio.Lock()
+    _db = get_config_db_service()
 
     # Redis (caché compartida entre workers Gunicorn)
     _redis: Optional[aioredis.Redis] = None
@@ -86,7 +89,7 @@ class ConfigService:
                     except (json.JSONDecodeError, TypeError):
                         return cached
                 return None
-            except Exception as e:
+            except RedisError as e:
                 logger.debug("Redis get error, fallback a dict: %s", e)
 
         async with cls._cache_lock:
@@ -109,7 +112,7 @@ class ConfigService:
             try:
                 await redis.set(f"{cls._REDIS_PREFIX}{key}", json.dumps(value, default=str), ex=cls._REDIS_TTL_SECONDS)
                 return
-            except Exception as e:
+            except RedisError as e:
                 logger.debug("Redis set error, fallback a dict: %s", e)
 
         async with cls._cache_lock:
@@ -135,7 +138,7 @@ class ConfigService:
         if cached: return cached
 
         try:
-            rows = await conn.fetch(f"SELECT {key_col}, {val_col} FROM {table}")
+            rows = await cls._db.get_catalog_rows(conn, table, key_col, val_col)
             data = {str(row[key_col]).lower(): row[val_col] for row in rows}
             await cls.set_cached_value(cache_key, data)
             return data
@@ -168,21 +171,7 @@ class ConfigService:
             # Intentar primero con el nuevo campo departamento en caso que exista
             # Nota: Si la columna no existe aun, esto fallará y caerá en el except, devolviendo default.
             # Esto maneja la transición mientras se corre la migración.
-            row = await conn.fetchrow("""
-                SELECT 
-                    tipo_kpi,
-                    umbral_excelente,
-                    umbral_bueno,
-                    color_excelente,
-                    color_bueno,
-                    color_critico
-                FROM tb_config_umbrales_kpi
-                WHERE tipo_kpi = $1 
-                  AND activo = TRUE
-                  AND departamento = $2
-                ORDER BY id DESC
-                LIMIT 1
-            """, tipo_kpi, departamento)
+            row = await cls._db.get_umbrales_kpi(conn, tipo_kpi, departamento)
             
             if not row:
                 # Fallback a valores por defecto (usando Global Config si existe)
@@ -220,12 +209,12 @@ class ConfigService:
             cls._cache_umbrales[cache_key] = (time.time(), umbrales)
             
             return umbrales
-        except Exception as e:
+        except (asyncpg.PostgresError, TypeError, ValueError) as e:
             # Fallback seguro: Intentar leer global config incluso si falla query principal
             try:
                 u_verde = await cls.get_global_config(conn, "sim_umbral_verde", 90.0, float)
                 u_ambar = await cls.get_global_config(conn, "sim_umbral_ambar", 85.0, float)
-            except Exception as e:
+            except (asyncpg.PostgresError, TypeError, ValueError) as e:
                 logger.warning(f"Fallback config umbrales failed: {e}")
                 u_verde = 90.0
                 u_ambar = 85.0
@@ -270,9 +259,7 @@ class ConfigService:
                 pass  # valor corrupto en cache — releer de BD
 
         try:
-            row = await conn.fetchrow("""
-                SELECT valor, tipo_dato FROM tb_configuracion_global WHERE clave = $1
-            """, clave)
+            row = await cls._db.get_global_config(conn, clave)
 
             if not row:
                 return default

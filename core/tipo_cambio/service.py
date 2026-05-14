@@ -6,17 +6,17 @@ Consulta la API de Banxico (serie SF43718 — FIX interbancario).
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
-from zoneinfo import ZoneInfo
 import logging
 
-TZ_MX = ZoneInfo("America/Mexico_City")
+import asyncpg
+import httpx
+
+from core.timezone import today_mx
 
 
 def _hoy_mx():
     """Fecha actual en zona horaria México (no UTC del servidor)."""
-    return datetime.now(TZ_MX).date()
-
-import httpx
+    return today_mx()
 
 from .db_service import TipoCambioDBService
 
@@ -133,5 +133,5 @@ class TipoCambioService:
                 logger.info("[TIPO_CAMBIO] Startup: tasa %s = $%s MXN", resultado["fecha"], resultado["tasa_mxn"])
             else:
                 logger.warning("[TIPO_CAMBIO] Startup: no se pudo obtener tasa (token ausente o error Banxico)")
-        except Exception as exc:
+        except (asyncpg.PostgresError, RuntimeError, ValueError) as exc:
             logger.error("[TIPO_CAMBIO] Error en startup_refresh: %s", exc)

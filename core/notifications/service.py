@@ -10,13 +10,14 @@ Patrón: MULTIPLEXER (Shared Listener)
 """
 from typing import Dict, Optional, List, Tuple
 from uuid import UUID, uuid4
-from asyncio import Queue, create_task
+from asyncio import Queue
 import logging
 import json
 import asyncio
 import asyncpg
 from core.config import settings
 from core.database import get_db_pool
+from .db_service import NotificationsDBService, get_notifications_db_service
 
 logger = logging.getLogger("NotificationsService")
 
@@ -66,7 +67,7 @@ async def startup_notifications():
 
             except asyncio.TimeoutError:
                 logger.warning(f"[SSE-GLOBAL] Timeout conectando listener (intento {attempt + 1})")
-            except Exception as e:
+            except (asyncpg.PostgresError, OSError, RuntimeError) as e:
                 logger.warning(f"[SSE-GLOBAL] Error conectando listener (intento {attempt + 1}): {e}")
 
         # Sleep FUERA del lock — register/unregister pueden operar mientras esperamos
@@ -101,7 +102,7 @@ async def monitor_connection_task():
         except asyncio.CancelledError:
             logger.info("[SSE-MONITOR] Monitor detenido")
             break
-        except Exception as e:
+        except (asyncpg.PostgresError, OSError, RuntimeError) as e:
             logger.error(f"[SSE-MONITOR] Error en loop de monitor: {e}")
             await asyncio.sleep(60)
 
@@ -113,7 +114,7 @@ async def shutdown_notifications():
             try:
                 await _shared_listener_conn.close()
                 logger.info("[SSE-GLOBAL] Shared Listener cerrado.")
-            except Exception as e:
+            except (asyncpg.PostgresError, OSError, RuntimeError) as e:
                 logger.error(f"[SSE-GLOBAL] Error cerrando listener: {e}")
             finally:
                 _shared_listener_conn = None
@@ -151,7 +152,7 @@ async def _global_pg_listener(connection, pid, channel, payload):
         # Podemos registrar un callback ESPECÍFICO para cada canal que lleva el user_id "pegado".
         pass 
 
-    except Exception as e:
+    except (json.JSONDecodeError, TypeError) as e:
         logger.error(f"[SSE-ROUTER] Error procesando payload: {e}")
 
 
@@ -159,61 +160,60 @@ class NotificationsService:
     """
     Maneja lógica de negocio de notificaciones con Multiplexer.
     """
+
+    def __init__(self, db: NotificationsDBService | None = None):
+        self.db = db or get_notifications_db_service()
     
     # ... CRUD METODOS MANTENIDOS IGUAL ...
+
+    async def get_user_id_by_email(self, user_email: str) -> Optional[UUID]:
+        pool = await get_db_pool()
+        async with pool.acquire() as conn:
+            return await self.db.get_user_id_by_email(conn, user_email)
     
     async def get_pending_notifications(self, conn, usuario_id: UUID, limit: int = 10):
-        query = """
-            SELECT id, tipo, titulo, mensaje, id_oportunidad, created_at
-            FROM tb_notificaciones
-            WHERE usuario_id = $1 AND leida = false
-            ORDER BY created_at DESC
-            LIMIT $2
-        """
-        rows = await conn.fetch(query, usuario_id, limit)
-        return [dict(r) for r in rows]
+        return await self.db.get_pending_notifications(conn, usuario_id, limit)
+
+    async def list_unread_notifications(self, conn, usuario_id: UUID, limit: int = 20):
+        rows = await self.db.list_unread_notifications(conn, usuario_id, limit)
+        return [
+            {
+                "id": str(row["id"]),
+                "type": row["tipo"],
+                "title": row["titulo"],
+                "message": row["mensaje"],
+                "oportunidad_id": str(row["id_oportunidad"]) if row["id_oportunidad"] else None,
+                "read": row["leida"],
+                "created_at": row["created_at"].isoformat(),
+            }
+            for row in rows
+        ]
     
     async def get_unread_count(self, conn, usuario_id: UUID) -> int:
-        return await conn.fetchval(
-            "SELECT COUNT(*) FROM tb_notificaciones WHERE usuario_id = $1 AND leida = false",
-            usuario_id
-        ) or 0
+        return await self.db.get_unread_count(conn, usuario_id)
     
     async def mark_as_read(self, conn, notification_id: UUID, usuario_id: UUID):
-        await conn.execute(
-            "UPDATE tb_notificaciones SET leida = true WHERE id = $1 AND usuario_id = $2",
-            notification_id, usuario_id
-        )
+        await self.db.mark_as_read(conn, notification_id, usuario_id)
     
     async def delete_notification(self, conn, notification_id: UUID, usuario_id: UUID) -> bool:
-        result = await conn.execute(
-            "DELETE FROM tb_notificaciones WHERE id = $1 AND usuario_id = $2",
-            notification_id, usuario_id
-        )
-        return int(result.split()[-1]) > 0
+        return await self.db.delete_notification(conn, notification_id, usuario_id) > 0
 
     async def mark_all_read(self, conn, usuario_id: UUID) -> int:
-        result = await conn.execute(
-            "UPDATE tb_notificaciones SET leida = true WHERE usuario_id = $1 AND leida = false",
-            usuario_id
-        )
-        return int(result.split()[-1])
+        return await self.db.mark_all_read(conn, usuario_id)
 
     async def delete_all_notifications(self, conn, usuario_id: UUID) -> int:
         # Mantener método legacy por si acaso, pero router usará mark_all_read
-        result = await conn.execute(
-            "DELETE FROM tb_notificaciones WHERE usuario_id = $1",
-            usuario_id
-        )
-        return int(result.split()[-1])
+        return await self.db.delete_all_notifications(conn, usuario_id)
     
     async def create_notification(self, conn, usuario_id: UUID, tipo: str, titulo: str, mensaje: str, id_oportunidad: Optional[UUID] = None, modulo_origen: Optional[str] = None) -> dict:
-        query = """
-            INSERT INTO tb_notificaciones (usuario_id, tipo, titulo, mensaje, id_oportunidad)
-            VALUES ($1, $2, $3, $4, $5)
-            RETURNING id, created_at
-        """
-        row = await conn.fetchrow(query, usuario_id, tipo, titulo, mensaje, id_oportunidad)
+        row = await self.db.create_notification(
+            conn,
+            usuario_id,
+            tipo,
+            titulo,
+            mensaje,
+            id_oportunidad,
+        )
         
         data = {
             "id": str(row['id']),
@@ -226,6 +226,42 @@ class NotificationsService:
         }
         
         return data
+
+    async def resolve_notification_target(
+        self,
+        conn,
+        oportunidad_id: UUID,
+        modulo_origen: Optional[str] = None,
+    ) -> dict:
+        if modulo_origen == "levantamientos":
+            lev_id = await self.db.get_levantamiento_id_by_oportunidad(conn, oportunidad_id)
+            if lev_id:
+                return {
+                    "module": "levantamientos",
+                    "url": "/levantamientos/ui",
+                    "detail_url": f"/levantamientos/modals/detalle/{lev_id}",
+                }
+
+        if modulo_origen and modulo_origen != "levantamientos":
+            return {
+                "module": "simulacion",
+                "url": "/simulacion/ui",
+                "detail_url": f"/workflow/modals/detalle/{oportunidad_id}",
+            }
+
+        lev_id = await self.db.get_levantamiento_id_by_oportunidad(conn, oportunidad_id)
+        if lev_id:
+            return {
+                "module": "levantamientos",
+                "url": "/levantamientos/ui",
+                "detail_url": f"/levantamientos/modals/detalle/{lev_id}",
+            }
+
+        return {
+            "module": "simulacion",
+            "url": "/simulacion/ui",
+            "detail_url": f"/workflow/modals/detalle/{oportunidad_id}",
+        }
 
     # ... NUEVA LÓGICA MULTIPLEXER ...
 
@@ -260,7 +296,7 @@ class NotificationsService:
                         asyncio.create_task(q.put(data))
                     if user_conns:
                         logger.debug(f"[SSE-LISTENER] Evento para {usuario_id} ({len(user_conns)} streams)")
-                except Exception as e:
+                except (json.JSONDecodeError, RuntimeError, TypeError) as e:
                     logger.error(f"[SSE-LISTENER] Error decode: {e}")
 
             # Solo activar LISTEN si es el primer stream de este usuario
@@ -270,7 +306,7 @@ class NotificationsService:
                     await _shared_listener_conn.add_listener(channel, _user_listener)
                     callback = _user_listener
                     logger.info(f"[SSE-GLOBAL] LISTEN activo para {channel}")
-                except Exception as e:
+                except (asyncpg.PostgresError, OSError, RuntimeError) as e:
                     logger.error(f"[SSE-GLOBAL] Error adding listener: {e}")
                     return queue, conn_id
 
@@ -313,7 +349,7 @@ class NotificationsService:
                     try:
                         await _shared_listener_conn.remove_listener(channel, cb)
                         logger.debug(f"[SSE-GLOBAL] UNLISTEN {channel}")
-                    except Exception as e:
+                    except (asyncpg.PostgresError, OSError, RuntimeError) as e:
                         logger.warning(f"[SSE-GLOBAL] Error removing listener: {e}")
 
             logger.info(f"[SSE] Stream {conn_id[:8]} desconectado para {usuario_id} (quedan {len(active_connections.get(usuario_id, {}))})")
@@ -327,8 +363,8 @@ class NotificationsService:
         try:
             channel = f"user_notif_{str(usuario_id).replace('-', '_')}"
             payload = json.dumps(notification_data)
-            await conn.execute("SELECT pg_notify($1, $2)", channel, payload)
-        except Exception as e:
+            await self.db.notify_channel(conn, channel, payload)
+        except (asyncpg.PostgresError, RuntimeError, TypeError, ValueError) as e:
             logger.error(f"[NOTIF] Error broadcasting: {e}")
 
             # 2. Fallback in-memory (Solo si falla PG)

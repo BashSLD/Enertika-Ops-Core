@@ -408,6 +408,26 @@ class TransferDBService:
             "traspasos_pendientes": pendientes or 0,
         }
 
+    async def get_module_editors(self, conn, module_slug: str) -> List[Dict[str, Any]]:
+        rows = await conn.fetch("""
+            SELECT u.id_usuario, u.nombre, u.email
+            FROM tb_permisos_modulos pm
+            JOIN tb_usuarios u ON pm.usuario_id = u.id_usuario
+            JOIN tb_cat_modulos mc ON pm.modulo_slug = mc.slug
+            WHERE mc.slug = $1
+            AND pm.rol_modulo IN ('editor', 'admin')
+            AND u.is_active = true
+            AND u.email IS NOT NULL
+        """, module_slug)
+        return [dict(r) for r in rows]
+
+    async def get_user_by_id(self, conn, user_id: UUID) -> Optional[Dict[str, Any]]:
+        row = await conn.fetchrow(
+            "SELECT id_usuario, nombre, email FROM tb_usuarios WHERE id_usuario = $1",
+            user_id
+        )
+        return dict(row) if row else None
+
 
 def get_transfer_db_service() -> TransferDBService:
     return TransferDBService()

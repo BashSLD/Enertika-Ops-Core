@@ -1,343 +1,372 @@
+from typing import Any, List, Optional
 from uuid import UUID, uuid4
-from datetime import datetime
-from typing import List, Optional
-import logging
 import asyncio
-from zoneinfo import ZoneInfo
-from fastapi.templating import Jinja2Templates
-from fastapi import HTTPException, UploadFile
+import asyncpg
+import logging
+import time
 
-# Imports Core
+from core.integrations.sharepoint import SharePointService
 from core.microsoft import MicrosoftAuth
+from core.permissions import ROLE_HIERARCHY, user_has_module_access
+from core.timezone import now_mx
+
+from .constants import MODULE_TO_DEPT
+from .db_service import WorkflowDBService, get_workflow_db_service
 from .notification_service import get_notification_service
 
 logger = logging.getLogger("WorkflowCore")
-templates = Jinja2Templates(directory="templates")
 
-from core.integrations.sharepoint import get_sharepoint_service, SharePointService
 
 class WorkflowService:
     """
-    Servicio Centralizado para gestion de flujo de trabajo y comunicaciones.
+    Servicio centralizado para gestion de flujo de trabajo y comunicaciones.
     Usado por: Simulacion, Comercial, Ingenieria, etc.
     """
-    
-    def __init__(self):
+
+    def __init__(self, db: WorkflowDBService | None = None):
+        self.db = db or get_workflow_db_service()
         self.ms_auth = MicrosoftAuth()
         self.notification_service = get_notification_service()
 
+    def get_department_slug(self, module: str) -> str:
+        department = MODULE_TO_DEPT.get(module)
+        if not department:
+            raise ValueError(f"Modulo '{module}' no valido")
+        return department
+
+    async def build_comentarios_modal_context(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        module: str,
+        user_context: dict,
+    ) -> dict:
+        department_slug = self.get_department_slug(module)
+        op = await self.get_oportunidad_basic_info(conn, id_oportunidad)
+        if not op:
+            raise LookupError("Oportunidad no encontrada")
+
+        comentarios = await self.get_historial(conn, id_oportunidad)
+        can_comment = user_has_module_access(module, user_context, min_role="editor")
+
+        logger.info(
+            "[COMENTARIOS MODAL] Mostrando %s comentarios. Usuario puede comentar: %s",
+            len(comentarios),
+            can_comment,
+        )
+
+        return {
+            "id_oportunidad": id_oportunidad,
+            "module_slug": module,
+            "department_slug": department_slug,
+            "can_comment": can_comment,
+            "op_info": op,
+            "comentarios": comentarios,
+            "context": user_context,
+        }
+
+    async def create_comentario_and_get_historial(
+        self,
+        conn,
+        user_context: dict,
+        id_oportunidad: UUID,
+        comentario: str,
+        module: str,
+        file_uploads: Optional[List[Any]] = None,
+        sharepoint_token: Optional[str] = None,
+    ) -> List[dict]:
+        department_slug = self.get_department_slug(module)
+        if not user_has_module_access(module, user_context, min_role="editor"):
+            logger.warning(
+                "[CREATE COMENTARIO] Usuario %s sin permisos de editor en %s",
+                user_context.get("user_name"),
+                module,
+            )
+            raise PermissionError(f"No tienes permisos para comentar en el modulo {module}")
+
+        uploads = file_uploads or []
+        clean_comment = comentario.strip()
+        if clean_comment or uploads:
+            await self.add_comentario(
+                conn,
+                user_context,
+                id_oportunidad,
+                clean_comment,
+                departamento_slug=department_slug,
+                modulo_origen=module,
+                file_uploads=uploads,
+                sharepoint_token=sharepoint_token,
+            )
+            logger.info("[CREATE COMENTARIO] Comentario creado exitosamente")
+        else:
+            logger.warning("[CREATE COMENTARIO] Comentario vacio recibido, ignorado")
+
+        return await self.get_historial(conn, id_oportunidad)
+
     async def add_comentario(
-        self, 
-        conn, 
-        user_context: dict, 
-        id_oportunidad: UUID, 
-        comentario: str, 
+        self,
+        conn,
+        user_context: dict,
+        id_oportunidad: UUID,
+        comentario: str,
         departamento_slug: str,
         modulo_origen: str,
-        file_uploads: List[UploadFile] = [],
-        sharepoint_token: Optional[str] = None
+        file_uploads: Optional[List[Any]] = None,
+        sharepoint_token: Optional[str] = None,
     ) -> dict:
-        """
-        1. Inserta comentario en BD.
-        2. Determina destinatarios inteligentes.
-        3. Envia notificacion por correo.
-        
-        Args:
-            conn: Conexion a la base de datos
-            user_context: Contexto del usuario actual
-            id_oportunidad: UUID de la oportunidad
-            comentario: Texto del comentario
-            departamento_slug: Slug del departamento (ej: 'SIMULACION', 'COMERCIAL')
-            modulo_origen: Modulo desde donde se crea (ej: 'simulacion', 'comercial')
-            file_uploads: Lista de archivos adjuntos
-            sharepoint_token: Token de acceso a Graph API
-            
-        Returns:
-            dict con datos del comentario creado
-        """
         user_id = user_context.get("user_db_id")
         user_name = user_context.get("user_name", "Usuario Sistema")
         user_email = user_context.get("user_email") or user_context.get("email")
-        
-        # Validación: Si estamos aquí, el usuario DEBE estar autenticado y tener email
+
         if not user_email:
-            logger.error(f"[COMENTARIO] Usuario sin email en contexto: {user_context}")
-            raise HTTPException(
-                status_code=500,
-                detail="Error de sesión: no se pudo obtener el email del usuario. Por favor, cierre sesión y vuelva a iniciar."
+            logger.error("[COMENTARIO] Usuario sin email en contexto: %s", user_context)
+            raise RuntimeError(
+                "Error de sesion: no se pudo obtener el email del usuario. "
+                "Por favor, cierre sesion y vuelva a iniciar."
             )
-        
-        logger.info(f"[COMENTARIO] Iniciando add_comentario para {id_oportunidad} por {user_name}")
 
-        # 1. Insertar en BD
+        logger.info("[COMENTARIO] Iniciando add_comentario para %s por %s", id_oportunidad, user_name)
+
         new_id = uuid4()
-        now_mx = datetime.now(ZoneInfo("America/Mexico_City"))
-        
-        query = """
-            INSERT INTO tb_comentarios_workflow (
-                id, id_oportunidad, usuario_id, usuario_nombre, usuario_email,
-                comentario, departamento_origen, modulo_origen, fecha_comentario
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING id
-        """
-        
-        logger.info(f"[COMENTARIO] Ejecutando INSERT con ID {new_id}")
-        await conn.execute(
-            query, 
-            new_id, id_oportunidad, user_id, user_name, user_email,
-            comentario, departamento_slug, modulo_origen, now_mx
+        now = now_mx()
+
+        await self.db.insert_comentario(
+            conn,
+            {
+                "id": new_id,
+                "id_oportunidad": id_oportunidad,
+                "usuario_id": user_id,
+                "usuario_nombre": user_name,
+                "usuario_email": user_email,
+                "comentario": comentario,
+                "departamento_origen": departamento_slug,
+                "modulo_origen": modulo_origen,
+                "fecha_comentario": now,
+            },
         )
-        logger.info(f"[COMENTARIO] INSERT exitoso para {new_id}")
-        
-        # 1.5 Procesar Adjuntos (SharePoint) - Múltiples Archivos
-        attachments_data = [] # Lista de metadatos de adjuntos
-        if file_uploads and sharepoint_token:
-            logger.info(f"[COMENTARIO] Procesando {len(file_uploads)} adjuntos.")
-            
-            try:
-                # 1.5.1 Cargar configuración una sola vez
-                max_size_mb = 10  # Default conservador (10MB)
-                config_rows = await conn.fetch("""
-                    SELECT clave, valor FROM tb_configuracion_global 
-                    WHERE clave IN ('MAX_UPLOAD_SIZE_MB', 'SHAREPOINT_BASE_FOLDER')
-                """)
-                config_map = {row['clave']: row['valor'] for row in config_rows}
-                
-                max_size_mb = int(config_map.get('MAX_UPLOAD_SIZE_MB', '10'))
-                base_folder = config_map.get('SHAREPOINT_BASE_FOLDER', '').strip().strip("/")
-                
-                # Obtener ID estándar para la carpeta
-                op_estandar = await conn.fetchval(
-                    "SELECT op_id_estandar FROM tb_oportunidades WHERE id_oportunidad = $1",
-                    id_oportunidad
-                )
-                
-                if not op_estandar:
-                    logger.warning(f"[COMENTARIO] No se pudo subir adjunto: op_id_estandar es NULL para {id_oportunidad}")
-                else:
-                    # Construir Ruta Base
-                    relative_path = f"comentario/{op_estandar}"
-                    folder_path = f"{base_folder}/{relative_path}" if base_folder else relative_path
-                    
-                    # Usamos TOKEN DE APLICACIÓN para garantizar acceso a la carpeta del sistema
-                    # independientemente de los permisos individuales del usuario en SharePoint
-                    app_token = await self.ms_auth.get_application_token()
-                    sharepoint = SharePointService(access_token=app_token)
+        logger.info("[COMENTARIO] INSERT exitoso para %s", new_id)
 
-                    # Iterar sobre cada archivo
-                    import time
-                    for f_obj in file_uploads:
-                        try:
-                            # Validar Tamaño (Bypass async wrapper issue)
-                            f_obj.file.seek(0, 2)
-                            f_size = f_obj.file.tell()
-                            f_obj.file.seek(0)
-                            
-                            file_size_mb = f_size / (1024 * 1024)
-                            if file_size_mb > max_size_mb:
-                                logger.warning(f"[COMENTARIO] Archivo {f_obj.filename} excede limite: {f_size} bytes")
-                                continue 
-                            
-                            # Generar nombre único para evitar colisiones
-                            timestamp = int(time.time())
-                            original_name = f_obj.filename
-                            f_obj.filename = f"{timestamp}_{original_name}"
-                            
-                            logger.info(f"[COMENTARIO] Subiendo archivo: {f_obj.filename} a {folder_path}")
+        attachments_data = []
+        uploads = file_uploads or []
+        if uploads and sharepoint_token:
+            attachments_data = await self._procesar_adjuntos_comentario(
+                conn,
+                uploads,
+                id_oportunidad,
+                new_id,
+                user_id,
+            )
 
-                            # Subir a SharePoint
-                            upload_result = await sharepoint.upload_file(
-                                conn, 
-                                f_obj, 
-                                folder_path
-                            )
-                            
-                            # Registrar en BD
-                            doc_id = uuid4()
-                            parent_ref = upload_result.get('parentReference', {})
-                            
-                            await conn.execute("""
-                                INSERT INTO tb_documentos_attachments (
-                                    id_documento, nombre_archivo, url_sharepoint, drive_item_id, parent_drive_id,
-                                    tipo_contenido, tamano_bytes, id_comentario, id_oportunidad, subido_por_id,
-                                    origen_slug, activo
-                                ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'comentario', TRUE)
-                            """, 
-                                doc_id, 
-                                upload_result['name'],
-                                upload_result['webUrl'],
-                                upload_result['id'],
-                                parent_ref.get('driveId'),
-                                f_obj.content_type,
-                                upload_result['size'],
-                                new_id,
-                                id_oportunidad,
-                                user_id
-                            )
-                            
-                            attachments_data.append({
-                                "nombre": upload_result['name'],
-                                "url": upload_result['webUrl']
-                            })
-                            logger.info(f"[COMENTARIO] Adjunto registrado: {upload_result['name']}")
-                            
-                        except Exception as e_file:
-                             logger.error(f"[COMENTARIO] Error subiendo archivo individual {f_obj.filename}: {e_file}")
-                             # Continuar con el siguiente archivo
-                             
-            except Exception as e:
-                logger.error(f"[COMENTARIO] Fallo general en proceso de adjuntos: {e}")
-                
-        # 2. Notificacion Asincrona (Fire & Forget)
-        # Delegar a tarea en segundo plano para no bloquear respuesta HTTP
         asyncio.create_task(
             self._notificar_comentario(
-                id_oportunidad, 
-                comentario, 
-                user_context, 
-                departamento_slug
+                id_oportunidad,
+                comentario,
+                user_context,
+                departamento_slug,
             )
         )
-            
+
         return {
             "id": new_id,
             "usuario_nombre": user_name,
             "comentario": comentario,
-            "fecha": now_mx,
+            "fecha": now,
             "departamento": departamento_slug,
-            "adjuntos": attachments_data # Return list instead of single obj
+            "adjuntos": attachments_data,
         }
 
-    async def get_historial(
-        self, 
-        conn, 
-        id_oportunidad: UUID, 
-        limit: Optional[int] = None
+    async def _procesar_adjuntos_comentario(
+        self,
+        conn,
+        file_uploads: List[Any],
+        id_oportunidad: UUID,
+        id_comentario: UUID,
+        user_id: UUID,
     ) -> List[dict]:
-        """
-        Obtiene historial unificado de comentarios para el Muro.
-        Agrupa adjuntos por comentario.
-        Resuelve la cadena completa padre↔hijos para trazabilidad.
-        """
-        query = """
-            WITH cadena AS (
-                -- Caso 1: La oportunidad actual ES el padre → incluirse + sus hijos
-                SELECT id_oportunidad FROM tb_oportunidades WHERE id_oportunidad = $1
-                UNION
-                SELECT id_oportunidad FROM tb_oportunidades WHERE parent_id = $1
-                UNION
-                -- Caso 2: La oportunidad actual ES un hijo → incluir padre + hermanos
-                SELECT parent_id FROM tb_oportunidades 
-                WHERE id_oportunidad = $1 AND parent_id IS NOT NULL
-                UNION
-                SELECT id_oportunidad FROM tb_oportunidades 
-                WHERE parent_id = (
-                    SELECT parent_id FROM tb_oportunidades WHERE id_oportunidad = $1
-                ) AND parent_id IS NOT NULL
-            )
-            SELECT 
-                c.id, c.usuario_nombre, c.usuario_email, c.comentario, 
-                c.departamento_origen, c.modulo_origen, c.fecha_comentario,
-                c.id_oportunidad as comentario_oportunidad_id,
-                op.op_id_estandar as comentario_op_estandar,
-                d.nombre_archivo as adjunto_nombre,
-                d.url_sharepoint as adjunto_url
-            FROM tb_comentarios_workflow c
-            LEFT JOIN tb_documentos_attachments d ON c.id = d.id_comentario
-            LEFT JOIN tb_oportunidades op ON c.id_oportunidad = op.id_oportunidad
-            WHERE c.id_oportunidad IN (SELECT id_oportunidad FROM cadena)
-              AND (d.id_documento IS NULL OR d.activo = TRUE)
-            ORDER BY c.fecha_comentario DESC
-        """
-        if limit:
-            query += f" LIMIT {limit}"
-            
-        rows = await conn.fetch(query, id_oportunidad)
-        
-        # Agrupar por Comentario ID
+        logger.info("[COMENTARIO] Procesando %s adjuntos.", len(file_uploads))
+        attachments_data = []
+
+        try:
+            config_map = await self.db.get_attachment_config(conn)
+            max_size_mb = int(config_map.get("MAX_UPLOAD_SIZE_MB", "10"))
+            base_folder = config_map.get("SHAREPOINT_BASE_FOLDER", "").strip().strip("/")
+            op_estandar = await self.db.get_oportunidad_estandar(conn, id_oportunidad)
+
+            if not op_estandar:
+                logger.warning(
+                    "[COMENTARIO] No se pudo subir adjunto: op_id_estandar es NULL para %s",
+                    id_oportunidad,
+                )
+                return attachments_data
+
+            relative_path = f"comentario/{op_estandar}"
+            folder_path = f"{base_folder}/{relative_path}" if base_folder else relative_path
+
+            app_token = await self.ms_auth.get_application_token()
+            sharepoint = SharePointService(access_token=app_token)
+
+            for file_obj in file_uploads:
+                try:
+                    file_obj.file.seek(0, 2)
+                    file_size = file_obj.file.tell()
+                    file_obj.file.seek(0)
+
+                    file_size_mb = file_size / (1024 * 1024)
+                    if file_size_mb > max_size_mb:
+                        logger.warning(
+                            "[COMENTARIO] Archivo %s excede limite: %s bytes",
+                            file_obj.filename,
+                            file_size,
+                        )
+                        continue
+
+                    original_name = file_obj.filename
+                    file_obj.filename = f"{int(time.time())}_{original_name}"
+                    logger.info("[COMENTARIO] Subiendo archivo: %s a %s", file_obj.filename, folder_path)
+
+                    upload_result = await sharepoint.upload_file(conn, file_obj, folder_path)
+                    doc_id = uuid4()
+                    parent_ref = upload_result.get("parentReference", {})
+
+                    await self.db.insert_document_attachment(
+                        conn,
+                        {
+                            "id_documento": doc_id,
+                            "nombre_archivo": upload_result["name"],
+                            "url_sharepoint": upload_result["webUrl"],
+                            "drive_item_id": upload_result["id"],
+                            "parent_drive_id": parent_ref.get("driveId"),
+                            "tipo_contenido": file_obj.content_type,
+                            "tamano_bytes": upload_result["size"],
+                            "id_comentario": id_comentario,
+                            "id_oportunidad": id_oportunidad,
+                            "subido_por_id": user_id,
+                        },
+                    )
+
+                    attachments_data.append({
+                        "nombre": upload_result["name"],
+                        "url": upload_result["webUrl"],
+                    })
+                    logger.info("[COMENTARIO] Adjunto registrado: %s", upload_result["name"])
+                except (OSError, KeyError, RuntimeError, ValueError) as exc:
+                    logger.error(
+                        "[COMENTARIO] Error subiendo archivo individual %s: %s",
+                        getattr(file_obj, "filename", "(sin nombre)"),
+                        exc,
+                    )
+        except (OSError, RuntimeError, ValueError) as exc:
+            logger.error("[COMENTARIO] Fallo general en proceso de adjuntos: %s", exc)
+
+        return attachments_data
+
+    async def get_historial(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        limit: Optional[int] = None,
+    ) -> List[dict]:
+        rows = await self.db.get_historial_rows(conn, id_oportunidad, limit)
+
         grouped = {}
-        order = [] # Para mantener orden cronologico
-        
-        for r in rows:
-            cid = r['id']
-            if cid not in grouped:
-                grouped[cid] = {
-                    "id": cid,
-                    "usuario_nombre": r['usuario_nombre'],
-                    "usuario_email": r['usuario_email'],
-                    "comentario": r['comentario'],
-                    "departamento_origen": r['departamento_origen'],
-                    "modulo_origen": r['modulo_origen'],
-                    "fecha_comentario": r['fecha_comentario'],
-                    "comentario_op_estandar": r['comentario_op_estandar'],
-                    "adjuntos": []
+        order = []
+        for row in rows:
+            comment_id = row["id"]
+            if comment_id not in grouped:
+                grouped[comment_id] = {
+                    "id": comment_id,
+                    "usuario_nombre": row["usuario_nombre"],
+                    "usuario_email": row["usuario_email"],
+                    "comentario": row["comentario"],
+                    "departamento_origen": row["departamento_origen"],
+                    "modulo_origen": row["modulo_origen"],
+                    "fecha_comentario": row["fecha_comentario"],
+                    "comentario_op_estandar": row["comentario_op_estandar"],
+                    "adjuntos": [],
                 }
-                order.append(cid)
-            
-            if r['adjunto_url']:
-                grouped[cid]['adjuntos'].append({
-                    "nombre": r['adjunto_nombre'],
-                    "url": r['adjunto_url']
+                order.append(comment_id)
+
+            if row["adjunto_url"]:
+                grouped[comment_id]["adjuntos"].append({
+                    "nombre": row["adjunto_nombre"],
+                    "url": row["adjunto_url"],
                 })
-        
-        return [grouped[cid] for cid in order]
+
+        return [grouped[comment_id] for comment_id in order]
 
     async def get_detalle_oportunidad(self, conn, id_oportunidad: UUID) -> Optional[dict]:
-        """
-        Obtiene los detalles de una oportunidad para el modal unificado.
-        """
-        query = """
-            SELECT 
-                op.*,
-                c.nombre_fiscal as cliente_nombre,
-                t.nombre as tecnologia_nombre,
-                u_sim.nombre as responsable_simulacion,
-                u_com.email as responsable_email,
-                estatus.nombre as status_global
-            FROM tb_oportunidades op
-            LEFT JOIN tb_clientes c ON op.cliente_id = c.id
-            LEFT JOIN tb_cat_tecnologias t ON op.id_tecnologia = t.id
-            LEFT JOIN tb_usuarios u_sim ON op.responsable_simulacion_id = u_sim.id_usuario
-            LEFT JOIN tb_usuarios u_com ON op.creado_por_id = u_com.id_usuario
-            LEFT JOIN tb_cat_estatus_oportunidades estatus ON op.id_estatus_global = estatus.id
-            WHERE op.id_oportunidad = $1
-        """
-        row = await conn.fetchrow(query, id_oportunidad)
-        return dict(row) if row else None
+        return await self.db.get_detalle_oportunidad(conn, id_oportunidad)
 
     async def get_oportunidad_basic_info(self, conn, id_oportunidad: UUID) -> Optional[dict]:
-        """
-        Obtiene información básica de la oportunidad para el header del modal de comentarios.
-        """
-        query = """
-            SELECT op_id_estandar, nombre_proyecto, titulo_proyecto, cliente_nombre 
-            FROM tb_oportunidades 
-            WHERE id_oportunidad = $1
-        """
-        row = await conn.fetchrow(query, id_oportunidad)
-        return dict(row) if row else None
+        return await self.db.get_oportunidad_basic_info(conn, id_oportunidad)
 
-    # --- LOGICA DE NOTIFICACION INTELIGENTE ---
-    
+    async def build_detalle_oportunidad_context(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        source_module: str,
+        user_context: dict,
+    ) -> dict:
+        op = await self.get_detalle_oportunidad(conn, id_oportunidad)
+        if not op:
+            raise LookupError("Oportunidad no encontrada")
+
+        can_edit_comercial = user_has_module_access("comercial", user_context, min_role="editor")
+        can_close_sale = self._can_close_sale(user_context)
+
+        sitios = []
+        if can_close_sale and op.get("cantidad_sitios", 1) > 1:
+            sitios = await self.db.get_sitios_oportunidad(conn, id_oportunidad)
+
+        sitios_ganados_detalle = []
+        if (op.get("status_global") or "").lower() == "ganada":
+            sitios_ganados_detalle = await self.db.get_sitios_ganados_detalle(conn, id_oportunidad)
+
+        sitios_ganados_total = len(sitios_ganados_detalle)
+        sitios_con_proyecto_total = sum(
+            1 for sitio in sitios_ganados_detalle if sitio["tiene_proyecto"]
+        )
+
+        return {
+            "op": op,
+            "can_edit_comercial": can_edit_comercial,
+            "can_close_sale": can_close_sale,
+            "sitios": sitios,
+            "show_solicitar_actions": source_module == "comercial",
+            "tiene_proyecto": sitios_con_proyecto_total > 0,
+            "proyectos_completos": (
+                sitios_ganados_total > 0
+                and sitios_con_proyecto_total >= sitios_ganados_total
+            ),
+            "sitios_ganados_total": sitios_ganados_total,
+            "sitios_con_proyecto_total": sitios_con_proyecto_total,
+            "sitios_ganados_detalle": sitios_ganados_detalle,
+            "notificacion_ganada_at": op.get("notificacion_ganada_at"),
+        }
+
+    @staticmethod
+    def _can_close_sale(user_context: dict) -> bool:
+        context_role = user_context.get("role")
+        comercial_role = user_context.get("module_roles", {}).get("comercial", "")
+
+        if context_role == "ADMIN":
+            return True
+        if comercial_role == "admin":
+            return True
+        if context_role == "MANAGER":
+            user_level = ROLE_HIERARCHY.get(comercial_role, 0)
+            editor_level = ROLE_HIERARCHY.get("editor", 0)
+            return user_level >= editor_level
+        return False
+
     async def _notificar_comentario(
-        self, 
-        id_oportunidad: UUID, 
-        comentario: str, 
-        sender_ctx: dict, 
-        depto: str
+        self,
+        id_oportunidad: UUID,
+        comentario: str,
+        sender_ctx: dict,
+        depto: str,
     ):
-        """
-        Delega notificación de comentario a NotificationService.
-        Ejecuta en segundo plano (Fire & Forget).
-        
-        Args:
-            id_oportunidad: UUID de la oportunidad
-            comentario: Texto del comentario
-            sender_ctx: Contexto del usuario que comentó
-            depto: Slug del departamento/módulo origen
-        """
         try:
-            # Obtener pool y adquirir conexión propia (background task)
             from core.database import get_db_pool
             pool = await get_db_pool()
             async with pool.acquire() as conn:
@@ -346,11 +375,22 @@ class WorkflowService:
                     id_oportunidad=id_oportunidad,
                     comentario=comentario,
                     sender_ctx=sender_ctx,
-                    departamento=depto.upper()
+                    departamento=depto.upper(),
                 )
-        except Exception as e:
-            # Log pero no propagar (Fire & Forget)
-            logger.error(f"[NOTIFY] Fallo en notificacion de comentario {id_oportunidad}: {e}", exc_info=True)
+        except asyncpg.PostgresError as exc:
+            logger.error(
+                "[NOTIFY] Error de BD notificando comentario %s: %s",
+                id_oportunidad,
+                exc,
+                exc_info=True,
+            )
+        except (RuntimeError, TypeError, ValueError) as exc:
+            logger.error(
+                "[NOTIFY] Fallo en notificacion de comentario %s: %s",
+                id_oportunidad,
+                exc,
+                exc_info=True,
+            )
 
 
 def get_workflow_service():

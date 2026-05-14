@@ -4,10 +4,16 @@ import asyncio
 import logging
 import asyncpg
 import urllib.parse
-from datetime import datetime, timedelta
-from jinja2 import Environment, FileSystemLoader
+from datetime import timedelta
+from jinja2 import Environment, FileSystemLoader, TemplateError
+
+from core.tasks_db_service import get_tasks_db_service
+from core.timezone import now_mx
 
 logger = logging.getLogger("BackgroundTasks")
+tasks_db = get_tasks_db_service()
+TASK_RUNTIME_ERRORS = (RuntimeError, TypeError, ValueError)
+TASK_ROW_RUNTIME_ERRORS = (RuntimeError, TypeError, ValueError, KeyError, TemplateError)
 
 _lev_tpl = Environment(
     loader=FileSystemLoader("templates"), autoescape=True
@@ -51,13 +57,13 @@ async def cleanup_temp_uploads_periodically(interval_seconds: int = 3600, max_ag
                                 os.remove(file_path)
                                 count += 1
                                 logger.info(f"Eliminado archivo temporal expirado: {filename}")
-                            except Exception as e:
+                            except OSError as e:
                                 logger.error(f"Error eliminando {filename}: {e}")
                 
                 if count > 0:
                     logger.info(f"Limpieza completada. {count} archivos eliminados.")
             
-        except Exception as e:
+        except OSError as e:
             logger.error(f"Error en tarea de limpieza: {e}")
             
         # Esperar para la siguiente ejecución
@@ -95,54 +101,17 @@ async def check_levantamientos_sin_asignar_periodically(interval_seconds: int = 
 
             async with pool.acquire() as conn:
                 # Levantamientos pendientes sin responsable asignado > 24h con jefe asignado
-                rows = await conn.fetch("""
-                    SELECT
-                        l.id_levantamiento,
-                        l.jefe_area_id,
-                        l.id_oportunidad,
-                        l.fecha_solicitud AT TIME ZONE 'America/Mexico_City' AS fecha_solicitud,
-                        o.op_id_estandar,
-                        o.nombre_proyecto,
-                        o.titulo_proyecto,
-                        o.cliente_nombre,
-                        u_jefe.nombre AS jefe_nombre,
-                        u_jefe.email  AS jefe_email,
-                        s.nombre_sitio,
-                        s.direccion        AS sitio_direccion,
-                        s.google_maps_link AS sitio_maps_link,
-                        o.coordenadas_gps,
-                        o.google_maps_link AS op_maps_link
-                    FROM tb_levantamientos l
-                    INNER JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
-                    INNER JOIN tb_cat_estatus_levantamiento e ON l.id_estatus_global = e.id
-                    INNER JOIN tb_usuarios u_jefe ON l.jefe_area_id = u_jefe.id_usuario
-                    INNER JOIN tb_sitios_oportunidad s ON s.id_sitio = l.id_sitio
-                    WHERE e.codigo = 'pendiente'
-                      AND l.created_at < NOW() - INTERVAL '24 hours'
-                      AND o.email_enviado = true
-                      AND u_jefe.is_active = true
-                      AND u_jefe.email IS NOT NULL
-                      AND NOT EXISTS (
-                          SELECT 1 FROM tb_levantamiento_asignaciones la
-                          WHERE la.id_levantamiento = l.id_levantamiento
-                            AND la.es_responsable = true
-                      )
-                """)
+                rows = await tasks_db.get_unassigned_levantamientos_reminders(conn)
 
                 if not rows:
                     logger.debug("[LEV_REMINDER] Sin levantamientos pendientes sin responsable > 24h")
                     continue
 
                 # Remitente DEFAULT
-                sender_row = await conn.fetchrow("""
-                    SELECT email_remitente FROM tb_correos_notificaciones
-                    WHERE departamento = 'DEFAULT' AND activo = true
-                    LIMIT 1
-                """)
-                if not sender_row:
+                sender_email = await tasks_db.get_default_sender_email(conn)
+                if not sender_email:
                     logger.error("[LEV_REMINDER] No hay remitente DEFAULT configurado en tb_correos_notificaciones")
                     continue
-                sender_email = sender_row['email_remitente']
 
                 # Token de aplicacion (una sola vez por ciclo)
                 app_token = await ms_auth.get_application_token()
@@ -150,7 +119,7 @@ async def check_levantamientos_sin_asignar_periodically(interval_seconds: int = 
                     logger.error("[LEV_REMINDER] No se pudo obtener token de aplicacion para enviar recordatorios")
                     continue
 
-                now = datetime.utcnow()
+                now = now_mx()
 
                 # Limpiar entradas antiguas del dict anti-spam (> 48h)
                 cutoff = now - timedelta(hours=48)
@@ -209,7 +178,7 @@ async def check_levantamientos_sin_asignar_periodically(interval_seconds: int = 
 
         except asyncpg.PostgresError as e:
             logger.error("[LEV_REMINDER] Error de BD en tarea de recordatorios: %s", e)
-        except Exception as e:
+        except TASK_ROW_RUNTIME_ERRORS as e:
             logger.error("[LEV_REMINDER] Error inesperado en tarea de recordatorios: %s", e, exc_info=True)
 
 
@@ -241,14 +210,10 @@ async def check_recordatorios_levantamientos_periodically(interval_seconds: int 
 
             async with pool.acquire() as conn:
                 # Remitente DEFAULT
-                sender_row = await conn.fetchrow("""
-                    SELECT email_remitente FROM tb_correos_notificaciones
-                    WHERE departamento = 'DEFAULT' AND activo = true LIMIT 1
-                """)
-                if not sender_row:
+                sender_email = await tasks_db.get_default_sender_email(conn)
+                if not sender_email:
                     logger.error("[LEV_RECORDATORIO] Sin remitente DEFAULT en tb_correos_notificaciones")
                     continue
-                sender_email = sender_row["email_remitente"]
 
                 # Token de aplicación
                 app_token = await ms_auth.get_application_token()
@@ -257,52 +222,13 @@ async def check_recordatorios_levantamientos_periodically(interval_seconds: int 
                     continue
 
                 # Query unificada: pendientes sin agendar + agendados vencidos
-                rows = await conn.fetch("""
-                    SELECT
-                        l.id_levantamiento,
-                        CASE
-                            WHEN e.codigo = 'pendiente' THEN 'pendiente_sin_agendar'
-                            WHEN e.codigo = 'agendado'  THEN 'agendado_vencido'
-                        END AS tipo_recordatorio,
-                        o.op_id_estandar,
-                        o.nombre_proyecto,
-                        o.titulo_proyecto,
-                        o.cliente_nombre,
-                        l.fecha_visita_programada AT TIME ZONE 'America/Mexico_City' AS fecha_programada,
-                        u.nombre  AS responsable_nombre,
-                        u.email   AS responsable_email,
-                        s.nombre_sitio,
-                        s.direccion        AS sitio_direccion,
-                        s.google_maps_link AS sitio_maps_link,
-                        o.coordenadas_gps,
-                        o.google_maps_link AS op_maps_link
-                    FROM tb_levantamientos l
-                    JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
-                    JOIN tb_cat_estatus_levantamiento e ON l.id_estatus_global = e.id
-                    JOIN tb_levantamiento_asignaciones la
-                        ON la.id_levantamiento = l.id_levantamiento AND la.es_responsable = true
-                    JOIN tb_usuarios u ON la.tecnico_id = u.id_usuario
-                    JOIN tb_sitios_oportunidad s ON s.id_sitio = l.id_sitio
-                    WHERE u.email IS NOT NULL
-                      AND u.is_active = true
-                      AND o.email_enviado = true
-                      AND (
-                          -- Pendiente sin fecha > 24h
-                          (e.codigo = 'pendiente'
-                           AND l.fecha_visita_programada IS NULL
-                           AND l.created_at < NOW() - INTERVAL '24 hours')
-                          OR
-                          -- Agendado con fecha vencida > 1 día
-                          (e.codigo = 'agendado'
-                           AND l.fecha_visita_programada < NOW() - INTERVAL '1 day')
-                      )
-                """)
+                rows = await tasks_db.get_levantamientos_recordatorios(conn)
 
                 if not rows:
                     logger.debug("[LEV_RECORDATORIO] Sin levantamientos que requieran recordatorio")
                     continue
 
-                now = datetime.utcnow()
+                now = now_mx()
                 # Limpiar anti-spam > 48h
                 cutoff = now - timedelta(hours=48)
                 _enviados = {k: v for k, v in _enviados.items() if v > cutoff}
@@ -381,7 +307,7 @@ async def check_recordatorios_levantamientos_periodically(interval_seconds: int 
 
         except asyncpg.PostgresError as e:
             logger.error("[LEV_RECORDATORIO] Error de BD: %s", e)
-        except Exception as e:
+        except TASK_ROW_RUNTIME_ERRORS as e:
             logger.error("[LEV_RECORDATORIO] Error inesperado: %s", e, exc_info=True)
 
 
@@ -390,12 +316,8 @@ async def send_reporte_desarrollo_ceo_periodically():
     Tarea que envía el reporte de desarrollo semanal al CEO cada viernes a las 6:00 pm
     hora de Mexico. Calcula el tiempo de espera dinamicamente y luego repite semanal.
     """
-    from datetime import datetime, timedelta
-    from zoneinfo import ZoneInfo
-
     def _segundos_hasta_viernes_6pm() -> float:
-        mx = ZoneInfo("America/Mexico_City")
-        now = datetime.now(mx)
+        now = now_mx()
         dias_hasta_viernes = (4 - now.weekday()) % 7
         if dias_hasta_viernes == 0 and now.hour >= 18:
             dias_hasta_viernes = 7
@@ -428,10 +350,7 @@ async def send_reporte_desarrollo_ceo_periodically():
                     conn, "reporte_desarrollo_ceo_email", "", str
                 )
                 ceo_recipients = parse_ceo_recipients(ceo_emails_raw)
-                sender_row = await conn.fetchrow(
-                    "SELECT email_remitente FROM tb_correos_notificaciones "
-                    "WHERE departamento = 'DEFAULT' AND activo = true LIMIT 1"
-                )
+                sender_email = await tasks_db.get_default_sender_email(conn)
 
             if activo_raw.lower() != "true":
                 logger.info("[CEO_REPORT] Envio automatico desactivado — omitiendo")
@@ -439,18 +358,18 @@ async def send_reporte_desarrollo_ceo_periodically():
                 logger.warning(
                     "[CEO_REPORT] Sin destinatarios validos configurados — agregar en Admin > Correos"
                 )
-            elif not sender_row:
+            elif not sender_email:
                 logger.error("[CEO_REPORT] Sin remitente DEFAULT en tb_correos_notificaciones")
             else:
                 await generar_y_enviar_reporte_ceo(
                     ms_auth=ms_auth,
-                    sender_email=sender_row["email_remitente"],
+                    sender_email=sender_email,
                     ceo_recipients=ceo_recipients,
                 )
 
         except asyncpg.PostgresError as e:
             logger.error("[CEO_REPORT] Error de BD: %s", e)
-        except Exception as e:
+        except TASK_RUNTIME_ERRORS as e:
             logger.error("[CEO_REPORT] Error inesperado: %s", e, exc_info=True)
 
         # Esperar 1 hora antes de recalcular (evita doble ejecucion en el mismo viernes)
@@ -483,7 +402,7 @@ async def refresh_tipo_cambio_periodically(interval_seconds: int = 3600):
 
         except asyncpg.PostgresError as e:
             logger.error("[TIPO_CAMBIO] Error de BD en tarea periodica: %s", e)
-        except Exception as e:
+        except TASK_RUNTIME_ERRORS as e:
             logger.error("[TIPO_CAMBIO] Error inesperado en tarea periodica: %s", e)
 
 
@@ -508,86 +427,16 @@ async def check_recordatorios_oportunidad_ganada_periodically(interval_seconds: 
             notif_service = get_notification_service()
 
             async with pool.acquire() as conn:
-                ganada_id = await conn.fetchval(
-                    """
-                    SELECT id
-                    FROM tb_cat_estatus_oportunidades
-                    WHERE LOWER(nombre) = 'ganada'
-                    LIMIT 1
-                    """
-                )
+                ganada_id = await tasks_db.get_estatus_ganada_id(conn)
                 if not ganada_id:
                     logger.warning("[OPP_GANADA_REMINDER] No se encontró estatus 'ganada' en catálogo")
                     continue
 
                 # Cerrar ciclos donde ya existe proyecto
-                await conn.execute(
-                    """
-                    UPDATE tb_recordatorios_oportunidad_ganada r
-                    SET activo = FALSE,
-                        updated_at = NOW()
-                    WHERE r.activo = TRUE
-                      AND EXISTS (
-                          SELECT 1
-                          FROM tb_sitios_oportunidad s
-                          WHERE s.id_oportunidad = r.id_oportunidad
-                            AND s.id_estatus_global = $1
-                      )
-                      AND NOT EXISTS (
-                          SELECT 1
-                          FROM tb_sitios_oportunidad s
-                          WHERE s.id_oportunidad = r.id_oportunidad
-                            AND s.id_estatus_global = $1
-                            AND NOT EXISTS (
-                                SELECT 1
-                                FROM tb_proyectos_gate p
-                                WHERE p.id_sitio = s.id_sitio
-                            )
-                      )
-                    """,
-                    ganada_id,
-                )
+                await tasks_db.close_completed_opportunity_won_reminders(conn, ganada_id)
 
                 # Claim de lotes para evitar doble envío entre workers
-                due_rows = await conn.fetch(
-                    """
-                    WITH candidatos AS (
-                        SELECT r.id_oportunidad
-                        FROM tb_recordatorios_oportunidad_ganada r
-                        JOIN tb_oportunidades o ON o.id_oportunidad = r.id_oportunidad
-                        WHERE r.activo = TRUE
-                          AND r.proximo_recordatorio_at <= NOW()
-                          AND o.id_estatus_global = $1
-                          AND EXISTS (
-                              SELECT 1
-                              FROM tb_sitios_oportunidad s
-                              WHERE s.id_oportunidad = r.id_oportunidad
-                                AND s.id_estatus_global = $1
-                          )
-                          AND EXISTS (
-                              SELECT 1
-                              FROM tb_sitios_oportunidad s
-                              WHERE s.id_oportunidad = r.id_oportunidad
-                                AND s.id_estatus_global = $1
-                                AND NOT EXISTS (
-                                    SELECT 1
-                                    FROM tb_proyectos_gate p
-                                    WHERE p.id_sitio = s.id_sitio
-                                )
-                          )
-                        ORDER BY r.proximo_recordatorio_at ASC
-                        LIMIT 25
-                        FOR UPDATE SKIP LOCKED
-                    )
-                    UPDATE tb_recordatorios_oportunidad_ganada r
-                    SET proximo_recordatorio_at = NOW() + INTERVAL '10 minutes',
-                        updated_at = NOW()
-                    FROM candidatos c
-                    WHERE r.id_oportunidad = c.id_oportunidad
-                    RETURNING r.id_oportunidad, r.recordatorios_enviados
-                    """,
-                    ganada_id,
-                )
+                due_rows = await tasks_db.claim_due_opportunity_won_reminders(conn, ganada_id)
 
                 if not due_rows:
                     logger.debug("[OPP_GANADA_REMINDER] Sin recordatorios pendientes")
@@ -597,33 +446,13 @@ async def check_recordatorios_oportunidad_ganada_periodically(interval_seconds: 
                     id_oportunidad = row["id_oportunidad"]
                     reminder_count = int(row["recordatorios_enviados"] or 0)
 
-                    cobertura_completa = await conn.fetchval(
-                        """
-                        SELECT NOT EXISTS (
-                            SELECT 1
-                            FROM tb_sitios_oportunidad s
-                            WHERE s.id_oportunidad = $1
-                              AND s.id_estatus_global = $2
-                              AND NOT EXISTS (
-                                  SELECT 1
-                                  FROM tb_proyectos_gate p
-                                  WHERE p.id_sitio = s.id_sitio
-                              )
-                        )
-                        """,
+                    cobertura_completa = await tasks_db.opportunity_won_has_complete_coverage(
+                        conn,
                         id_oportunidad,
                         ganada_id,
                     )
                     if cobertura_completa:
-                        await conn.execute(
-                            """
-                            UPDATE tb_recordatorios_oportunidad_ganada
-                            SET activo = FALSE,
-                                updated_at = NOW()
-                            WHERE id_oportunidad = $1
-                            """,
-                            id_oportunidad,
-                        )
+                        await tasks_db.deactivate_opportunity_won_reminder(conn, id_oportunidad)
                         continue
 
                     include_director = reminder_count < 3
@@ -638,60 +467,15 @@ async def check_recordatorios_oportunidad_ganada_periodically(interval_seconds: 
                     )
 
                     if sent:
-                        await conn.execute(
-                            """
-                            UPDATE tb_recordatorios_oportunidad_ganada
-                            SET recordatorios_enviados = recordatorios_enviados + 1,
-                                ultimo_recordatorio_at = NOW(),
-                                proximo_recordatorio_at = NOW() + INTERVAL '48 hours',
-                                updated_at = NOW()
-                            WHERE id_oportunidad = $1
-                            """,
-                            id_oportunidad,
-                        )
-                        await conn.execute(
-                            """
-                            UPDATE tb_oportunidades
-                            SET notificacion_ganada_at = NOW() AT TIME ZONE 'America/Mexico_City'
-                            WHERE id_oportunidad = $1
-                            """,
-                            id_oportunidad,
-                        )
-                        await conn.execute(
-                            """
-                            INSERT INTO tb_recordatorios_oportunidad_ganada_log (
-                                id_oportunidad,
-                                numero_recordatorio,
-                                incluye_director,
-                                status,
-                                created_at
-                            ) VALUES ($1, $2, $3, 'ENVIADO', NOW())
-                            """,
+                        await tasks_db.mark_opportunity_won_reminder_sent(
+                            conn,
                             id_oportunidad,
                             reminder_number,
                             include_director,
                         )
                     else:
-                        await conn.execute(
-                            """
-                            UPDATE tb_recordatorios_oportunidad_ganada
-                            SET proximo_recordatorio_at = NOW() + INTERVAL '48 hours',
-                                updated_at = NOW()
-                            WHERE id_oportunidad = $1
-                            """,
-                            id_oportunidad,
-                        )
-                        await conn.execute(
-                            """
-                            INSERT INTO tb_recordatorios_oportunidad_ganada_log (
-                                id_oportunidad,
-                                numero_recordatorio,
-                                incluye_director,
-                                status,
-                                error_message,
-                                created_at
-                            ) VALUES ($1, $2, $3, 'NO_ENVIADO', 'No se enviaron destinatarios o fallo de envío', NOW())
-                            """,
+                        await tasks_db.mark_opportunity_won_reminder_not_sent(
+                            conn,
                             id_oportunidad,
                             reminder_number,
                             include_director,
@@ -699,7 +483,7 @@ async def check_recordatorios_oportunidad_ganada_periodically(interval_seconds: 
 
         except asyncpg.PostgresError as e:
             logger.error("[OPP_GANADA_REMINDER] Error de BD: %s", e)
-        except Exception as e:
+        except (RuntimeError, TypeError, ValueError) as e:
             logger.error("[OPP_GANADA_REMINDER] Error inesperado: %s", e, exc_info=True)
 
 
@@ -727,77 +511,23 @@ async def check_recordatorios_en_proceso_periodically(interval_seconds: int = 36
             ms_auth = MicrosoftAuth()
 
             async with pool.acquire() as conn:
-                sender_row = await conn.fetchrow("""
-                    SELECT email_remitente FROM tb_correos_notificaciones
-                    WHERE departamento = 'DEFAULT' AND activo = true LIMIT 1
-                """)
-                if not sender_row:
+                sender_email = await tasks_db.get_default_sender_email(conn)
+                if not sender_email:
                     logger.error("[LEV_EN_PROCESO] Sin remitente DEFAULT en tb_correos_notificaciones")
                     continue
-                sender_email = sender_row["email_remitente"]
 
                 app_token = await ms_auth.get_application_token()
                 if not app_token:
                     logger.error("[LEV_EN_PROCESO] No se pudo obtener token de aplicacion")
                     continue
 
-                rows = await conn.fetch("""
-                    SELECT
-                        l.id_levantamiento,
-                        CASE
-                            WHEN l.fecha_visita_programada IS NOT NULL THEN 'fecha_vencida'
-                            ELSE 'en_proceso_largo'
-                        END AS subtipo,
-                        o.op_id_estandar,
-                        o.nombre_proyecto,
-                        o.titulo_proyecto,
-                        o.cliente_nombre,
-                        l.fecha_visita_programada AT TIME ZONE 'America/Mexico_City' AS fecha_programada,
-                        h.fecha_transicion AT TIME ZONE 'America/Mexico_City' AS fecha_inicio_proceso,
-                        u_ing.nombre AS ingeniero_nombre,
-                        u_ing.email  AS ingeniero_email,
-                        u_jefe.nombre AS jefe_nombre,
-                        u_jefe.email  AS jefe_email,
-                        s.nombre_sitio,
-                        s.direccion        AS sitio_direccion,
-                        s.google_maps_link AS sitio_maps_link,
-                        o.coordenadas_gps,
-                        o.google_maps_link AS op_maps_link
-                    FROM tb_levantamientos l
-                    JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
-                    JOIN tb_cat_estatus_levantamiento e ON l.id_estatus_global = e.id
-                    LEFT JOIN LATERAL (
-                        SELECT fecha_transicion
-                        FROM tb_levantamientos_historial
-                        WHERE id_levantamiento = l.id_levantamiento
-                          AND id_estatus_nuevo = 3
-                        ORDER BY fecha_transicion DESC
-                        LIMIT 1
-                    ) h ON true
-                    LEFT JOIN tb_levantamiento_asignaciones la
-                        ON la.id_levantamiento = l.id_levantamiento AND la.es_responsable = true
-                    LEFT JOIN tb_usuarios u_ing
-                        ON la.tecnico_id = u_ing.id_usuario AND u_ing.is_active = true
-                    LEFT JOIN tb_usuarios u_jefe
-                        ON l.jefe_area_id = u_jefe.id_usuario AND u_jefe.is_active = true
-                    JOIN tb_sitios_oportunidad s ON s.id_sitio = l.id_sitio
-                    WHERE e.codigo = 'en_proceso'
-                      AND o.email_enviado = true
-                      AND (
-                          (l.fecha_visita_programada IS NOT NULL
-                           AND l.fecha_visita_programada < NOW() - INTERVAL '24 hours')
-                          OR
-                          (l.fecha_visita_programada IS NULL
-                           AND h.fecha_transicion IS NOT NULL
-                           AND h.fecha_transicion < NOW() - INTERVAL '48 hours')
-                      )
-                """)
+                rows = await tasks_db.get_levantamientos_en_proceso_reminders(conn)
 
                 if not rows:
                     logger.debug("[LEV_EN_PROCESO] Sin levantamientos en proceso que requieran recordatorio")
                     continue
 
-                now = datetime.utcnow()
+                now = now_mx()
                 cutoff = now - timedelta(hours=48)
                 _enviados = {k: v for k, v in _enviados.items() if v > cutoff}
 
@@ -883,7 +613,7 @@ async def check_recordatorios_en_proceso_periodically(interval_seconds: int = 36
 
         except asyncpg.PostgresError as e:
             logger.error("[LEV_EN_PROCESO] Error de BD: %s", e)
-        except Exception as e:
+        except TASK_ROW_RUNTIME_ERRORS as e:
             logger.error("[LEV_EN_PROCESO] Error inesperado: %s", e, exc_info=True)
 
 
@@ -911,64 +641,23 @@ async def check_recordatorios_completado_periodically(interval_seconds: int = 36
             ms_auth = MicrosoftAuth()
 
             async with pool.acquire() as conn:
-                sender_row = await conn.fetchrow("""
-                    SELECT email_remitente FROM tb_correos_notificaciones
-                    WHERE departamento = 'DEFAULT' AND activo = true LIMIT 1
-                """)
-                if not sender_row:
+                sender_email = await tasks_db.get_default_sender_email(conn)
+                if not sender_email:
                     logger.error("[LEV_COMPLETADO] Sin remitente DEFAULT en tb_correos_notificaciones")
                     continue
-                sender_email = sender_row["email_remitente"]
 
                 app_token = await ms_auth.get_application_token()
                 if not app_token:
                     logger.error("[LEV_COMPLETADO] No se pudo obtener token de aplicacion")
                     continue
 
-                rows = await conn.fetch("""
-                    SELECT
-                        l.id_levantamiento,
-                        o.op_id_estandar,
-                        o.nombre_proyecto,
-                        o.titulo_proyecto,
-                        o.cliente_nombre,
-                        h.fecha_transicion AT TIME ZONE 'America/Mexico_City' AS fecha_completado,
-                        u_ing.nombre AS ingeniero_nombre,
-                        u_ing.email  AS ingeniero_email,
-                        u_jefe.nombre AS jefe_nombre,
-                        u_jefe.email  AS jefe_email,
-                        s.nombre_sitio,
-                        s.direccion        AS sitio_direccion,
-                        s.google_maps_link AS sitio_maps_link,
-                        o.coordenadas_gps,
-                        o.google_maps_link AS op_maps_link
-                    FROM tb_levantamientos l
-                    JOIN tb_oportunidades o ON l.id_oportunidad = o.id_oportunidad
-                    JOIN tb_cat_estatus_levantamiento e ON l.id_estatus_global = e.id
-                    LEFT JOIN LATERAL (
-                        SELECT fecha_transicion
-                        FROM tb_levantamientos_historial
-                        WHERE id_levantamiento = l.id_levantamiento
-                          AND id_estatus_nuevo = 5
-                        ORDER BY fecha_transicion DESC
-                        LIMIT 1
-                    ) h ON true
-                    LEFT JOIN tb_levantamiento_asignaciones la
-                        ON la.id_levantamiento = l.id_levantamiento AND la.es_responsable = true
-                    LEFT JOIN tb_usuarios u_ing
-                        ON la.tecnico_id = u_ing.id_usuario AND u_ing.is_active = true
-                    LEFT JOIN tb_usuarios u_jefe
-                        ON l.jefe_area_id = u_jefe.id_usuario AND u_jefe.is_active = true
-                    JOIN tb_sitios_oportunidad s ON s.id_sitio = l.id_sitio
-                    WHERE e.codigo = 'completado'
-                      AND o.email_enviado = true
-                """)
+                rows = await tasks_db.get_completed_levantamientos_reminders(conn)
 
                 if not rows:
                     logger.debug("[LEV_COMPLETADO] Sin levantamientos completados pendientes de entrega")
                     continue
 
-                now = datetime.utcnow()
+                now = now_mx()
                 cutoff = now - timedelta(hours=48)
                 _enviados = {k: v for k, v in _enviados.items() if v > cutoff}
 
@@ -1027,7 +716,7 @@ async def check_recordatorios_completado_periodically(interval_seconds: int = 36
 
         except asyncpg.PostgresError as e:
             logger.error("[LEV_COMPLETADO] Error de BD: %s", e)
-        except Exception as e:
+        except TASK_ROW_RUNTIME_ERRORS as e:
             logger.error("[LEV_COMPLETADO] Error inesperado: %s", e, exc_info=True)
 
 
@@ -1051,7 +740,7 @@ async def sat_jobs_worker_periodically(interval_seconds: int = 30):
         except asyncpg.PostgresError as e:
             logger.error("[SAT Worker] Error de BD: %s", e)
             await asyncio.sleep(interval_seconds)
-        except Exception as e:
+        except TASK_RUNTIME_ERRORS as e:
             logger.error("[SAT Worker] Error inesperado: %s", e, exc_info=True)
             await asyncio.sleep(interval_seconds)
 
@@ -1074,42 +763,7 @@ async def verificar_recordatorios_aprobacion_periodically(interval_seconds: int 
             notif = get_notification_service()
 
             async with pool.acquire() as conn:
-                rows = await conn.fetch(
-                    """
-                    SELECT
-                        sa.id,
-                        sa.fecha_inicio,
-                        sa.fecha_fin,
-                        sa.dias_solicitados,
-                        sa.fecha_presentarse,
-                        sa.observaciones,
-                        ta.nombre AS tipo_nombre,
-                        ta.abreviatura AS tipo_abreviatura,
-                        u.nombre AS solicitante_nombre,
-                        u.email AS solicitante_email,
-                        COALESCE(u_ap.email, u_jefe.email) AS aprobador_email
-                    FROM tb_solicitudes_ausencia sa
-                    JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
-                    JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
-                    LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = sa.usuario_id
-                    LEFT JOIN tb_usuarios u_ap
-                        ON u_ap.id_usuario = ed.id_aprobador_vacaciones AND u_ap.is_active = true
-                    LEFT JOIN LATERAL (
-                        SELECT jefe_id FROM tb_empleados_jefes
-                        WHERE empleado_id = sa.usuario_id LIMIT 1
-                    ) ej ON true
-                    LEFT JOIN tb_usuarios u_jefe
-                        ON u_jefe.id_usuario = ej.jefe_id AND u_jefe.is_active = true
-                    WHERE sa.estado = 'pendiente'
-                      AND sa.firma_solicitante_pendiente = false
-                      AND sa.fecha_solicitud < NOW() - INTERVAL '24 hours'
-                      AND (
-                          sa.ultima_notificacion_aprobador IS NULL
-                          OR sa.ultima_notificacion_aprobador < NOW() - INTERVAL '24 hours'
-                      )
-                      AND COALESCE(u_ap.email, u_jefe.email) IS NOT NULL
-                    """
-                )
+                rows = await tasks_db.get_pending_absence_approval_reminders(conn)
 
                 if not rows:
                     logger.debug("[VAC_RECORDATORIO] Sin solicitudes pendientes que requieran recordatorio")
@@ -1129,10 +783,7 @@ async def verificar_recordatorios_aprobacion_periodically(interval_seconds: int 
                         "observaciones": row["observaciones"],
                     }
                     await notif.notify_vacation_request(conn, solicitud, row["aprobador_email"])
-                    await conn.execute(
-                        "UPDATE tb_solicitudes_ausencia SET ultima_notificacion_aprobador = now() WHERE id = $1",
-                        row["id"],
-                    )
+                    await tasks_db.mark_absence_approver_notified(conn, row["id"])
                     logger.info(
                         "[VAC_RECORDATORIO] Recordatorio enviado: sol=%s aprobador=%s",
                         row["id"], row["aprobador_email"],
@@ -1140,7 +791,7 @@ async def verificar_recordatorios_aprobacion_periodically(interval_seconds: int 
 
         except asyncpg.PostgresError as e:
             logger.error("[VAC_RECORDATORIO] Error de BD: %s", e)
-        except Exception as e:
+        except TASK_ROW_RUNTIME_ERRORS as e:
             logger.error("[VAC_RECORDATORIO] Error inesperado: %s", e, exc_info=True)
 
 
@@ -1174,7 +825,7 @@ async def generar_festivos_anuales_periodically(interval_seconds: int = 86400):
 
         except asyncpg.PostgresError as e:
             logger.error("[VAC_FESTIVOS] Error de BD: %s", e)
-        except Exception as e:
+        except TASK_RUNTIME_ERRORS as e:
             logger.error("[VAC_FESTIVOS] Error inesperado: %s", e, exc_info=True)
 
         await asyncio.sleep(interval_seconds)
@@ -1208,24 +859,12 @@ async def verificar_periodos_por_expirar_periodically(interval_seconds: int = 86
 
             async with pool.acquire() as conn:
                 hoy = today_mx()
-                catalogo_rows = await conn.fetch(
-                    "SELECT antiguedad_anios, antiguedad_anios_fin, dias_lft, dias_enertika "
-                    "FROM tb_cat_dias_vacaciones ORDER BY antiguedad_anios"
-                )
-                catalogo = [dict(r) for r in catalogo_rows]
+                catalogo = await tasks_db.get_vacation_days_catalog(conn)
                 meses_exp = await ConfigService.get_global_config(
                     conn, "VACACIONES_MESES_EXPIRACION", 18, int
                 )
 
-                empleados = await conn.fetch(
-                    """
-                    SELECT u.id_usuario, u.nombre, u.email, ed.fecha_contratacion,
-                           COALESCE(ed.dias_vacaciones_ajuste, 0) AS ajuste
-                    FROM tb_empleados_datos ed
-                    JOIN tb_usuarios u ON u.id_usuario = ed.usuario_id
-                    WHERE ed.fecha_contratacion IS NOT NULL AND u.is_active = true
-                    """
-                )
+                empleados = await tasks_db.get_active_employees_with_vacation_data(conn)
 
                 consumos_por_usuario = await get_consumos_bulk(
                     conn, [emp["id_usuario"] for emp in empleados]
@@ -1291,21 +930,21 @@ async def verificar_periodos_por_expirar_periodically(interval_seconds: int = 86
                             )
                     except asyncpg.PostgresError:
                         raise
-                    except Exception as e:
+                    except TASK_ROW_RUNTIME_ERRORS as e:
                         logger.error(
                             "[VAC_EXPIRACION] Error procesando empleado %s: %s", emp["id_usuario"], e
                         )
 
         except asyncpg.PostgresError as e:
             logger.error("[VAC_EXPIRACION] Error de BD: %s", e)
-        except Exception as e:
+        except TASK_ROW_RUNTIME_ERRORS as e:
             logger.error("[VAC_EXPIRACION] Error inesperado: %s", e, exc_info=True)
 
 
 async def verificar_solicitudes_vencidas_periodically(interval_seconds: int = 86400):
     """
     Tarea diaria que detecta solicitudes con estado='pendiente' cuya fecha_inicio
-    ya pasó y notifica vía SSE a todos los usuarios con es_rh=true y al aprobador.
+    ya paso y notifica via SSE a RRHH/Admin y al aprobador.
     """
     logger.info("[VAC_VENCIDAS] Tarea inicializada (intervalo: %sh)", interval_seconds // 3600)
 
@@ -1324,47 +963,13 @@ async def verificar_solicitudes_vencidas_periodically(interval_seconds: int = 86
 
             async with pool.acquire() as conn:
                 hoy = today_mx()
-                solicitudes = await conn.fetch(
-                    """
-                    SELECT
-                        sa.id,
-                        sa.fecha_inicio,
-                        sa.fecha_fin,
-                        ta.nombre AS tipo_nombre,
-                        u.nombre AS solicitante_nombre,
-                        COALESCE(u_ap.id_usuario, u_jefe.id_usuario) AS aprobador_id,
-                        COALESCE(u_ap.email, u_jefe.email) AS aprobador_email
-                    FROM tb_solicitudes_ausencia sa
-                    JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
-                    JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
-                    LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = sa.usuario_id
-                    LEFT JOIN tb_usuarios u_ap
-                        ON u_ap.id_usuario = ed.id_aprobador_vacaciones AND u_ap.is_active = true
-                    LEFT JOIN LATERAL (
-                        SELECT jefe_id FROM tb_empleados_jefes
-                        WHERE empleado_id = sa.usuario_id LIMIT 1
-                    ) ej ON true
-                    LEFT JOIN tb_usuarios u_jefe
-                        ON u_jefe.id_usuario = ej.jefe_id AND u_jefe.is_active = true
-                    WHERE sa.estado = 'pendiente'
-                      AND sa.firma_solicitante_pendiente = false
-                      AND sa.fecha_inicio <= CURRENT_DATE AT TIME ZONE 'America/Mexico_City'
-                    """
-                )
+                solicitudes = await tasks_db.get_overdue_absence_requests(conn, hoy)
 
                 if not solicitudes:
                     logger.debug("[VAC_VENCIDAS] Sin solicitudes vencidas pendientes")
                     continue
 
-                rh_rows = await conn.fetch(
-                    """
-                    SELECT id_usuario, email
-                    FROM tb_usuarios
-                    WHERE is_active = true
-                      AND es_rh = true
-                      AND email IS NOT NULL
-                    """
-                )
+                rh_rows = await tasks_db.get_active_rh_contacts(conn)
                 rh_ids = [r["id_usuario"] for r in rh_rows]
                 rh_emails = {r["email"] for r in rh_rows if r["email"]}
 
@@ -1421,13 +1026,12 @@ async def verificar_solicitudes_vencidas_periodically(interval_seconds: int = 86
 
         except asyncpg.PostgresError as e:
             logger.error("[VAC_VENCIDAS] Error de BD: %s", e)
-        except Exception as e:
+        except TASK_ROW_RUNTIME_ERRORS as e:
             logger.error("[VAC_VENCIDAS] Error inesperado: %s", e, exc_info=True)
 
 
 async def sat_inbox_cleanup_periodically(interval_seconds: int = 604800):
     from core.database import get_db_pool
-    from core.microsoft import get_ms_auth
 
     while True:
         await asyncio.sleep(interval_seconds)
@@ -1435,48 +1039,20 @@ async def sat_inbox_cleanup_periodically(interval_seconds: int = 604800):
         pool = await get_db_pool()
         try:
             async with pool.acquire() as conn:
-                rows = await conn.fetch(
-                    """
-                    SELECT id, sharepoint_url FROM tb_sat_inbox
-                    WHERE estado IN ('matcheado', 'descartado')
-                      AND updated_at < NOW() - INTERVAL '30 days'
-                      AND sharepoint_url != ''
-                    """
-                )
+                rows = await tasks_db.get_sat_inbox_cleanup_urls(conn)
                 if rows:
                     for row in rows:
                         logger.info("[SAT Cleanup] XML SP pendiente borrado manual: %s", row["sharepoint_url"])
 
-                deleted = await conn.execute(
-                    """
-                    DELETE FROM tb_sat_inbox
-                    WHERE estado IN ('matcheado', 'descartado')
-                      AND updated_at < NOW() - INTERVAL '30 days'
-                    """
-                )
+                deleted = await tasks_db.delete_sat_inbox_resolved_old(conn)
                 logger.info("[SAT Cleanup] Registros matcheados/descartados eliminados: %s", deleted)
 
-                deleted_old = await conn.execute(
-                    """
-                    DELETE FROM tb_sat_inbox
-                    WHERE estado = 'pendiente'
-                      AND created_at < NOW() - INTERVAL '90 days'
-                    """
-                )
+                deleted_old = await tasks_db.delete_sat_inbox_pending_old(conn)
                 logger.info("[SAT Cleanup] Registros pendientes antiguos eliminados: %s", deleted_old)
 
-                await conn.execute(
-                    """
-                    DELETE FROM tb_sat_jobs j
-                    WHERE j.created_at < NOW() - INTERVAL '90 days'
-                      AND NOT EXISTS (
-                        SELECT 1 FROM tb_sat_inbox i
-                        WHERE i.job_id = j.id AND i.estado = 'pendiente'
-                      )
-                    """
-                )
+                await tasks_db.delete_sat_orphan_jobs_old(conn)
 
         except asyncpg.PostgresError as e:
             logger.error("[SAT Cleanup] Error BD en limpieza: %s", e)
-        except Exception as e:
+        except (RuntimeError, TypeError, ValueError) as e:
             logger.error("[SAT Cleanup] Error inesperado en limpieza: %s", e, exc_info=True)

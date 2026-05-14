@@ -30,7 +30,7 @@ async def connect_to_db():
             # Cambiar a "Transaction Mode" en Supabase (Puerto 6543)
             # Esto permite miles de conexiones virtuales compartiendo pocas reales.
             logger.info("Pool de conexiones a Supabase creado exitosamente.")
-        except Exception as e:
+        except (asyncpg.PostgresError, OSError, ValueError) as e:
             import sys
             logger.critical(f"FALLO FATAL: No se pudo conectar a la DB: {e}")
             sys.exit(1)  # Forzar salida del proceso
@@ -48,7 +48,7 @@ async def get_db_connection():
     """Dependencia de FastAPI para obtener una conexión del pool."""
     if not _connection_pool:
         # En caso de que se intente usar antes del startup
-        raise Exception("El pool de conexiones no está inicializado. Verifique el log de startup.")
+        raise RuntimeError("El pool de conexiones no está inicializado. Verifique el log de startup.")
         
     # Usamos pool.acquire() como un gestor de contexto (with), que la libera automáticamente.
     async with _connection_pool.acquire() as conn:
@@ -58,5 +58,5 @@ async def get_db_pool():
     """Retorna el pool global para uso interno (seguridad, tareas, etc)."""
     global _connection_pool
     if not _connection_pool:
-        raise Exception("DB Pool no inicializado.")
+        raise RuntimeError("DB Pool no inicializado.")
     return _connection_pool

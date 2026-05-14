@@ -10,11 +10,12 @@ from fastapi import APIRouter, Depends, Request
 from sse_starlette.sse import EventSourceResponse
 from uuid import UUID
 import asyncio
+import asyncpg
 import json
 import logging
 
 from core.security import get_current_user_context
-from core.database import get_db_connection, get_db_pool
+from core.database import get_db_connection
 from .service import get_notifications_service, NotificationsService
 
 logger = logging.getLogger("NotificationsRouter")
@@ -54,12 +55,8 @@ async def stream_notifications(
         return EventSourceResponse(_not_auth())
 
     try:
-        pool = await get_db_pool()
-        async with pool.acquire() as conn:
-            usuario_id = await conn.fetchval(
-                "SELECT id_usuario FROM tb_usuarios WHERE email = $1", user_email
-            )
-    except Exception as e:
+        usuario_id = await service.get_user_id_by_email(user_email)
+    except (asyncpg.PostgresError, RuntimeError) as e:
         logger.error(f"[SSE] Error obteniendo user_db_id: {e}")
         async def _db_err():
             yield {"event": "error", "data": json.dumps({"error": "db_unavailable"}), "retry": 15000}
@@ -133,7 +130,7 @@ async def stream_notifications(
         
         except asyncio.CancelledError:
             logger.info(f"[SSE] Stream {conn_id[:8]} cancelado para {usuario_id}")
-        except Exception as e:
+        except (RuntimeError, TypeError, ValueError) as e:
             logger.error(f"[SSE] Error en stream {conn_id[:8]}: {e}", exc_info=True)
         finally:
             # 4. Desregistrar por conn_id (solo borra ESTE stream, no otros del mismo usuario)
@@ -177,7 +174,8 @@ async def resolve_notification_target(
     tipo: Optional[str] = None,
     modulo_origen: Optional[str] = None,
     context = Depends(get_current_user_context),
-    conn = Depends(get_db_connection)
+    conn = Depends(get_db_connection),
+    service: NotificationsService = Depends(get_notifications_service)
 ):
     """
     Determina a qué módulo/sección pertenece una oportunidad.
@@ -194,46 +192,11 @@ async def resolve_notification_target(
     Returns:
         {module, url, detail_url}
     """
-    # 1. Si tenemos modulo_origen explícito (notificaciones nuevas con SSE data)
-    if modulo_origen == 'levantamientos':
-        lev_id = await conn.fetchval(
-            "SELECT id_levantamiento FROM tb_levantamientos WHERE id_oportunidad = $1 LIMIT 1",
-            oportunidad_id
-        )
-        if lev_id:
-            return {
-                "module": "levantamientos",
-                "url": "/levantamientos/ui",
-                "detail_url": f"/levantamientos/modals/detalle/{lev_id}"
-            }
-    
-    if modulo_origen and modulo_origen != 'levantamientos':
-        # Cualquier otro módulo (simulacion, comercial, etc.) → modal detalle oportunidad
-        return {
-            "module": "simulacion",
-            "url": "/simulacion/ui",
-            "detail_url": f"/workflow/modals/detalle/{oportunidad_id}"
-        }
-    
-    # 2. Fallback: sin modulo_origen (notificaciones antiguas cargadas via HTTP list)
-    # Heurística por DB: si tiene levantamiento → ir a levantamientos, si no → simulacion
-    lev_id = await conn.fetchval(
-        "SELECT id_levantamiento FROM tb_levantamientos WHERE id_oportunidad = $1 LIMIT 1",
-        oportunidad_id
+    return await service.resolve_notification_target(
+        conn,
+        oportunidad_id,
+        modulo_origen=modulo_origen,
     )
-    
-    if lev_id:
-        return {
-            "module": "levantamientos",
-            "url": "/levantamientos/ui",
-            "detail_url": f"/levantamientos/modals/detalle/{lev_id}"
-        }
-    
-    return {
-        "module": "simulacion",
-        "url": "/simulacion/ui",
-        "detail_url": f"/workflow/modals/detalle/{oportunidad_id}"
-    }
 
 
 @router.delete("/all")
@@ -297,29 +260,9 @@ async def list_notifications(
     Las leídas se consideran "archivadas".
     """
     usuario_id = context['user_db_id']
-    
-    query = """
-        SELECT id, tipo, titulo, mensaje, id_oportunidad, leida, created_at
-        FROM tb_notificaciones
-        WHERE usuario_id = $1 AND leida = false
-        ORDER BY created_at DESC
-        LIMIT $2
-    """
-    rows = await conn.fetch(query, usuario_id, limit)
-    
+
     return {
-        "notifications": [
-            {
-                "id": str(r['id']),
-                "type": r['tipo'],
-                "title": r['titulo'],
-                "message": r['mensaje'],
-                "oportunidad_id": str(r['id_oportunidad']) if r['id_oportunidad'] else None,
-                "read": r['leida'],
-                "created_at": r['created_at'].isoformat()
-            }
-            for r in rows
-        ]
+        "notifications": await service.list_unread_notifications(conn, usuario_id, limit)
     }
 
 

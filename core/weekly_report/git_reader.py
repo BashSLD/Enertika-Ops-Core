@@ -3,11 +3,12 @@ import re
 import shutil
 import subprocess
 import json
-from urllib import request, parse
+from urllib import request, parse, error
 from datetime import date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from core.config import settings
+from core.timezone import now_mx
 
 MODULE_NAMES = {
     "comercial": "Comercial",
@@ -55,7 +56,7 @@ _COMMIT_RE = re.compile(r"^(\w+)\(([^)]+)\):\s*(.+)$")
 def _semana_actual() -> tuple[datetime, datetime]:
     """Ventana de fetch: viernes anterior 18:00 MX → este viernes 18:00 MX (exclusivo)."""
     mx = ZoneInfo("America/Mexico_City")
-    now = datetime.now(mx)
+    now = now_mx()
     today = now.date()
     dias_desde_viernes = (today.weekday() - 4) % 7
     viernes_actual = today - timedelta(days=dias_desde_viernes)
@@ -192,7 +193,7 @@ def _read_commits_github(since, until) -> list[str]:
         try:
             with request.urlopen(req, timeout=20) as resp:
                 payload = resp.read().decode("utf-8", errors="replace")
-        except Exception as exc:
+        except (error.URLError, TimeoutError, OSError) as exc:
             raise RuntimeError(f"Error consultando GitHub API: {exc}")
 
         try:
@@ -246,8 +247,7 @@ def get_weekly_commits(since=None, until=None) -> dict:
     if not since:
         since, until = _semana_actual()
         # Display: lunes–viernes de la semana actual, independiente de la ventana de fetch
-        mx = ZoneInfo("America/Mexico_City")
-        today = datetime.now(mx).date()
+        today = now_mx().date()
         display_since = today - timedelta(days=today.weekday())      # lunes
         display_until = display_since + timedelta(days=4)            # viernes
     else:
