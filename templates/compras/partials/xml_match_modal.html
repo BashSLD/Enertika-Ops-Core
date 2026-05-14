@@ -165,6 +165,7 @@
         if (!errorEl) return;
         errorEl.innerHTML = html;
         errorEl.classList.remove('hidden');
+        if (window.htmx) htmx.process(errorEl);
         errorEl.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 
@@ -349,6 +350,13 @@
         formData.append('relacionados_json', document.getElementById('match-xml-relacionados').value);
         formData.append('xml_content_b64', document.getElementById('match-xml-content-b64').value);
         formData.append('guardar_relacion', document.getElementById('match-guardar-relacion').checked ? 'true' : 'false');
+        formData.append('origen_match', 'modal_manual');
+
+        const montoAplicadoEl = document.querySelector('#match-error-container input[name="monto_aplicado"]');
+        if (montoAplicadoEl && montoAplicadoEl.value) {
+            formData.append('monto_aplicado', montoAplicadoEl.value);
+            formData.append('forzar_match', 'true');
+        }
 
         try {
             const response = await fetch('/compras/xml-confirm-match', {

@@ -47,6 +47,56 @@ templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 
 
+def _parse_exceso_monto_error(msg: str) -> tuple[Optional[str], Optional[str], str]:
+    parts = msg.split("|", 3)
+    if len(parts) == 4:
+        _, exceso_monto, monto_aplicado, user_msg = parts
+        return exceso_monto, monto_aplicado, user_msg
+    if len(parts) == 3:
+        _, exceso_monto, user_msg = parts
+        return exceso_monto, None, user_msg
+    return None, None, msg
+
+
+def _build_xml_manual_retry_context(
+    *,
+    uuid_factura: str,
+    id_comprobante: UUID,
+    emisor_rfc: str,
+    emisor_nombre: str,
+    total: str,
+    subtotal: Optional[str],
+    moneda: str,
+    fecha: str,
+    tipo_factura: str,
+    tipo_comprobante: Optional[str],
+    metodo_pago: Optional[str],
+    forma_pago: Optional[str],
+    conceptos_json: str,
+    relacionados_json: str,
+    xml_content_b64: str,
+    guardar_relacion: bool,
+) -> dict:
+    return {
+        "uuid_factura": uuid_factura,
+        "id_comprobante": str(id_comprobante),
+        "emisor_rfc": emisor_rfc,
+        "emisor_nombre": emisor_nombre,
+        "total": total,
+        "subtotal": subtotal or "",
+        "moneda": moneda,
+        "fecha": fecha,
+        "tipo_factura": tipo_factura,
+        "tipo_comprobante": tipo_comprobante or "",
+        "metodo_pago": metodo_pago or "",
+        "forma_pago": forma_pago or "",
+        "conceptos_json": conceptos_json or "[]",
+        "relacionados_json": relacionados_json or "[]",
+        "xml_content_b64": xml_content_b64,
+        "guardar_relacion": "true" if guardar_relacion else "false",
+    }
+
+
 def _serialize_xml_result(result):
     """Convierte XmlUploadResult a dict serializable para templates Jinja2.
 
@@ -650,6 +700,9 @@ async def confirm_xml_match(
     relacionados_json: str = Form("[]"),
     xml_content_b64: str = Form(""),
     guardar_relacion: bool = Form(True),
+    forzar_match: bool = Form(False),
+    monto_aplicado: Optional[str] = Form(None),
+    origen_match: Optional[str] = Form(None),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
     service: ComprasService = Depends(get_compras_service),
@@ -697,17 +750,48 @@ async def confirm_xml_match(
         "conceptos": conceptos,
         "relacionados": relacionados,
     }
+    if monto_aplicado not in (None, ""):
+        cfdi_data["monto_aplicado"] = monto_aplicado
 
     try:
         async with conn.transaction():
             resultado = await service.confirmar_match_xml(
                 conn, cfdi_data, id_comprobante, user_id,
-                guardar_relacion=guardar_relacion
+                guardar_relacion=guardar_relacion,
+                forzar_match=forzar_match,
             )
     except ValueError as e:
+        msg = str(e)
+        exceso_monto = None
+        monto_aplicado_sugerido = None
+        manual_retry = None
+        if msg.startswith("EXCESO_MONTO|"):
+            exceso_monto, monto_aplicado_sugerido, msg = _parse_exceso_monto_error(msg)
+            manual_retry = _build_xml_manual_retry_context(
+                uuid_factura=uuid_factura,
+                id_comprobante=id_comprobante,
+                emisor_rfc=emisor_rfc,
+                emisor_nombre=emisor_nombre,
+                total=total,
+                subtotal=subtotal,
+                moneda=moneda,
+                fecha=fecha,
+                tipo_factura=tipo_factura,
+                tipo_comprobante=tipo_comprobante,
+                metodo_pago=metodo_pago,
+                forma_pago=forma_pago,
+                conceptos_json=conceptos_json,
+                relacionados_json=relacionados_json,
+                xml_content_b64=xml_content_b64,
+                guardar_relacion=guardar_relacion,
+            )
         return templates.TemplateResponse(request,
              "compras/partials/xml_match_error.html",
-            {                "message": str(e),
+            {                "message": msg,
+                "exceso_monto": exceso_monto,
+                "monto_aplicado": monto_aplicado_sugerido,
+                "manual_retry": manual_retry,
+                "modal_manual": origen_match == "modal_manual",
             },
             status_code=400,
         )

@@ -21,6 +21,9 @@ logger = logging.getLogger("ComprasSATService")
 SAT_JOB_MAX_RUNTIME_MINUTES = 120
 
 
+async def _get_sat_sp_config(conn: asyncpg.Connection) -> tuple[str, str, str]:
+    return await sat_db_service.get_sat_sp_config(conn)
+
 
 async def listar_inbox(
     conn: asyncpg.Connection,
@@ -43,7 +46,7 @@ async def descargar_xml_de_inbox(
     if not row["sharepoint_item_id"]:
         raise ValueError("Item no tiene sharepoint_item_id en SharePoint")
 
-    sat_site_id, sat_drive_id, _ = await sat_db_service.get_sat_sp_config(conn)
+    sat_site_id, sat_drive_id, _ = await _get_sat_sp_config(conn)
 
     token = await get_ms_auth().get_application_token()
     if not token:
@@ -223,7 +226,7 @@ async def ejecutar_descarga(
             return
 
         async with pool.acquire() as conn:
-            sat_site_id, sat_drive_id, base_folder = await sat_db_service.get_sat_sp_config(conn)
+            sat_site_id, sat_drive_id, base_folder = await _get_sat_sp_config(conn)
             signer = await cargar_signer(conn, sat_site_id, sat_drive_id)
 
         token = await get_ms_auth().get_application_token()

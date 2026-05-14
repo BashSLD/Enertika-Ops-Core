@@ -1,9 +1,9 @@
-<div class="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+<div class="xml-match-error rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
     <p class="font-semibold">No se pudo confirmar el match</p>
     <p class="mt-1">{{ message }}</p>
-    {% if exceso_monto %}
+    {% if exceso_monto and inbox_id %}
     <div class="mt-3 border-t border-red-200 pt-3">
-        <p class="text-xs text-red-600 mb-2">Si el diferencial es intencional (ej. descuento, redondeo), puedes confirmar de todos modos. El comprobante podria quedar como Parcialmente Facturado.</p>
+        <p class="text-xs text-red-600 mb-2">Si el diferencial es correcto, confirma el monto que se aplicara a este pago.</p>
         <form hx-post="/compras/sat/inbox/{{ inbox_id }}/match"
               hx-target="#sat-inbox-table"
               hx-swap="outerHTML"
@@ -11,11 +11,72 @@
             <input type="hidden" name="comprobante_id" value="{{ comprobante_id }}">
             <input type="hidden" name="limit" value="{{ limit }}">
             <input type="hidden" name="forzar_match" value="true">
+            {% if monto_aplicado %}
+            <label class="block text-xs font-medium text-red-700 mb-1">Monto a aplicar</label>
+            <input type="number"
+                   name="monto_aplicado"
+                   value="{{ monto_aplicado }}"
+                   min="0.01"
+                   step="0.01"
+                   class="mb-2 w-full max-w-[180px] rounded-md border border-red-200 bg-white px-2 py-1.5 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-red-500">
+            {% endif %}
             <button type="submit"
                     class="px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
-                Confirmar de todos modos
+                Confirmar monto
             </button>
         </form>
+    </div>
+    {% elif exceso_monto and manual_retry %}
+    <div class="mt-3 border-t border-red-200 pt-3">
+        <p class="text-xs text-red-600 mb-2">Si el diferencial es correcto, confirma el monto que se aplicara a este pago.</p>
+        {% if modal_manual %}
+        <label class="block text-xs font-medium text-red-700 mb-1">Monto a aplicar</label>
+        <input type="number"
+               name="monto_aplicado"
+               value="{{ monto_aplicado }}"
+               min="0.01"
+               step="0.01"
+               class="mb-2 w-full max-w-[180px] rounded-md border border-red-200 bg-white px-2 py-1.5 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-red-500">
+        <input type="hidden" name="forzar_match" value="true">
+        <button type="button"
+                onclick="confirmarMatchManual()"
+                class="px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
+            Confirmar monto
+        </button>
+        {% else %}
+        <form hx-post="/compras/xml-confirm-match"
+              hx-target="closest .xml-match-error"
+              hx-swap="outerHTML">
+            <input type="hidden" name="uuid_factura" value="{{ manual_retry.uuid_factura }}">
+            <input type="hidden" name="id_comprobante" value="{{ manual_retry.id_comprobante }}">
+            <input type="hidden" name="emisor_rfc" value="{{ manual_retry.emisor_rfc }}">
+            <input type="hidden" name="emisor_nombre" value="{{ manual_retry.emisor_nombre }}">
+            <input type="hidden" name="total" value="{{ manual_retry.total }}">
+            <input type="hidden" name="subtotal" value="{{ manual_retry.subtotal }}">
+            <input type="hidden" name="moneda" value="{{ manual_retry.moneda }}">
+            <input type="hidden" name="fecha" value="{{ manual_retry.fecha }}">
+            <input type="hidden" name="tipo_factura" value="{{ manual_retry.tipo_factura }}">
+            <input type="hidden" name="tipo_comprobante" value="{{ manual_retry.tipo_comprobante }}">
+            <input type="hidden" name="metodo_pago" value="{{ manual_retry.metodo_pago }}">
+            <input type="hidden" name="forma_pago" value="{{ manual_retry.forma_pago }}">
+            <input type="hidden" name="conceptos_json" value="{{ manual_retry.conceptos_json|forceescape }}">
+            <input type="hidden" name="relacionados_json" value="{{ manual_retry.relacionados_json|forceescape }}">
+            <input type="hidden" name="xml_content_b64" value="{{ manual_retry.xml_content_b64 }}">
+            <input type="hidden" name="guardar_relacion" value="{{ manual_retry.guardar_relacion }}">
+            <input type="hidden" name="forzar_match" value="true">
+            <label class="block text-xs font-medium text-red-700 mb-1">Monto a aplicar</label>
+            <input type="number"
+                   name="monto_aplicado"
+                   value="{{ monto_aplicado }}"
+                   min="0.01"
+                   step="0.01"
+                   class="mb-2 w-full max-w-[180px] rounded-md border border-red-200 bg-white px-2 py-1.5 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-red-500">
+            <button type="submit"
+                    class="px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-lg hover:bg-red-700">
+                Confirmar monto
+            </button>
+        </form>
+        {% endif %}
     </div>
     {% endif %}
 </div>
