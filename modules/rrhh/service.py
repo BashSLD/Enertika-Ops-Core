@@ -1,18 +1,44 @@
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
+import hmac
+import json
 import logging
 import re
-from datetime import date, timedelta
+import time as time_module
+import unicodedata
+import zlib
+from datetime import date, time, timedelta
+from io import BytesIO
 from uuid import UUID
 
+from core.config import settings
 from core.config_service import ConfigService
 from core.timezone import today_mx
 from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.constants import ASISTENCIA_ESTADOS
+from modules.rrhh import db_service as rrhh_db
 from modules.vacaciones import db_service as vac_db
+from modules.vacaciones.constants import ESTADOS_SOLICITUD
 from modules.vacaciones.holidays import generar_feriados_mexico
+from modules.vacaciones.logic import calcular_balance, calcular_periodos
 
 logger = logging.getLogger("rrhh.service")
+
+DIAS_SEMANA = [
+    {"value": 0, "nombre": "Lunes"},
+    {"value": 1, "nombre": "Martes"},
+    {"value": 2, "nombre": "Miercoles"},
+    {"value": 3, "nombre": "Jueves"},
+    {"value": 4, "nombre": "Viernes"},
+    {"value": 5, "nombre": "Sabado"},
+    {"value": 6, "nombre": "Domingo"},
+]
+
+MIGRACION_PREVIEW_TTL_SECONDS = 20 * 60
+MIGRACION_MAX_FILE_BYTES = 5 * 1024 * 1024
 
 
 async def get_dashboard_data(conn) -> dict:
@@ -20,58 +46,912 @@ async def get_dashboard_data(conn) -> dict:
     vacaciones_hoy = await vac_db.get_vacaciones_hoy(conn, hoy)
     pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
     total_empleados = await vac_db.count_empleados(conn)
+    migracion_vacaciones = await vac_db.count_empleados_migrados(conn)
     return {
         "vacaciones_hoy": vacaciones_hoy,
         "pendientes": pendientes,
         "total_empleados": total_empleados,
+        "migracion_vacaciones": migracion_vacaciones,
         "hoy": hoy,
     }
 
 
 async def get_empleado_edit_ctx(conn, usuario_id: UUID) -> dict:
     empleado = await vac_db.get_empleado_datos(conn, usuario_id)
-    usuario = await conn.fetchrow(
-        "SELECT id_usuario, nombre, email FROM tb_usuarios WHERE id_usuario = $1",
-        usuario_id,
-    )
+    usuario = await rrhh_db.get_usuario_simple_by_id(conn, usuario_id)
     jefes = await vac_db.get_jefes_con_nombre(conn, usuario_id)
     usuarios = await vac_db.get_usuarios_activos_simples(conn)
     jefes_ids = {j["id_usuario"] for j in jefes}
     return {
         "empleado": empleado,
-        "usuario": dict(usuario) if usuario else {},
+        "usuario": usuario or {},
         "jefes": jefes,
         "jefes_ids": jefes_ids,
         "usuarios": usuarios,
+        "sucursales": await asistencia_db.get_sucursales(conn),
     }
+
+
+def _encode_b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode("ascii")
+
+
+def _decode_b64(value: str) -> bytes:
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode((value + padding).encode("ascii"))
+
+
+def _firmar_preview(rows: list[dict], ttl_seconds: int = MIGRACION_PREVIEW_TTL_SECONDS) -> str:
+    payload = {
+        "exp": int(time_module.time()) + ttl_seconds,
+        "rows": rows,
+    }
+    raw = zlib.compress(json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8"))
+    signature = hmac.new(settings.SECRET_KEY.encode("utf-8"), raw, hashlib.sha256).digest()
+    return f"{_encode_b64(raw)}.{_encode_b64(signature)}"
+
+
+def _leer_preview_firmado(token: str) -> list[dict]:
+    try:
+        payload_part, signature_part = token.split(".", 1)
+        raw = _decode_b64(payload_part)
+        signature = _decode_b64(signature_part)
+    except (ValueError, binascii.Error) as exc:
+        raise ValueError("La vista previa no es valida. Vuelve a importar el archivo.") from exc
+
+    expected = hmac.new(settings.SECRET_KEY.encode("utf-8"), raw, hashlib.sha256).digest()
+    if not hmac.compare_digest(signature, expected):
+        raise ValueError("La vista previa fue modificada. Vuelve a importar el archivo.")
+
+    try:
+        payload = json.loads(zlib.decompress(raw).decode("utf-8"))
+    except (zlib.error, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise ValueError("La vista previa no es valida. Vuelve a importar el archivo.") from exc
+
+    if int(payload.get("exp", 0)) < int(time_module.time()):
+        raise ValueError("La vista previa expiro. Vuelve a importar el archivo.")
+
+    rows = payload.get("rows")
+    if not isinstance(rows, list):
+        raise ValueError("La vista previa no contiene filas validas.")
+    return rows
+
+
+def _normalizar_header_excel(value: object) -> str:
+    text = str(value or "").strip().lower()
+    text = unicodedata.normalize("NFKD", text)
+    text = "".join(char for char in text if not unicodedata.combining(char))
+    return re.sub(r"\s+", " ", text)
+
+
+def _parse_dias_excel(value: object) -> int:
+    if value is None:
+        return 0
+    if isinstance(value, str):
+        value = value.strip()
+        if not value:
+            return 0
+        value = value.replace(",", ".")
+    if isinstance(value, bool):
+        raise ValueError("debe ser un numero entero")
+    if isinstance(value, int):
+        dias = value
+    elif isinstance(value, float) and value.is_integer():
+        dias = int(value)
+    elif isinstance(value, str) and re.fullmatch(r"\d+(\.0+)?", value):
+        dias = int(float(value))
+    else:
+        raise ValueError("debe ser un numero entero")
+    if dias < 0:
+        raise ValueError("no puede ser negativo")
+    return dias
+
+
+def _sumar_consumos_por_periodo(consumos: list[dict]) -> dict[int, int]:
+    result: dict[int, int] = {}
+    for consumo in consumos:
+        num_periodo = int(consumo["num_periodo"])
+        result[num_periodo] = result.get(num_periodo, 0) + int(consumo["dias_consumidos"])
+    return result
+
+
+def _token_rows_migracion(rows: list[dict]) -> list[dict]:
+    token_rows = []
+    for row in rows:
+        if row.get("errores") or not row.get("limpiar"):
+            continue
+        token_rows.append({
+            "usuario_id": str(row["usuario_id"]),
+            "limpiar": True,
+            "periodos": [
+                {"num_periodo": p["num_periodo"], "dias": p["dias"]}
+                for p in row.get("periodos", [])
+            ],
+        })
+    return token_rows
+
+
+def _periodo_preview(periodo: dict, dias: int, consumo_no_migrado: int) -> dict:
+    return {
+        "num_periodo": periodo["num_periodo"],
+        "dias": dias,
+        "dias_otorgados": periodo["dias_otorgados"],
+        "dias_maximos": max(0, periodo["dias_otorgados"] - consumo_no_migrado),
+        "fecha_aniversario": periodo["fecha_aniversario"],
+        "fecha_expiracion": periodo["fecha_expiracion"],
+        "expirado": periodo.get("expirado", False),
+    }
+
+
+def _periodos_migrables(
+    empleado: dict,
+    hoy: date,
+    catalogo: list[dict],
+    meses_exp: int,
+    consumos_no_migracion: list[dict],
+) -> tuple[list[dict], dict[int, int]]:
+    periodos = calcular_periodos(
+        empleado["fecha_contratacion"],
+        hoy,
+        catalogo,
+        ajuste_dias=empleado.get("dias_vacaciones_ajuste", 0),
+        meses_expiracion=meses_exp,
+    )
+    balance = calcular_balance(periodos, consumos_no_migracion)
+    consumo_por_periodo = _sumar_consumos_por_periodo(consumos_no_migracion)
+    return [p for p in balance if not p.get("es_proximo")], consumo_por_periodo
+
+
+async def _validar_rows_migracion(conn, raw_rows: list[dict]) -> list[dict]:
+    hoy = today_mx()
+    empleados = await vac_db.get_empleados_para_migracion(conn)
+    empleados_by_id = {str(emp["id_usuario"]): emp for emp in empleados}
+    catalogo = await vac_db.get_catalogo_dias(conn)
+    meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
+
+    normalizadas: list[dict] = []
+    usuarios_validos: list[UUID] = []
+    vistos: set[str] = set()
+
+    for raw in raw_rows:
+        errores = list(raw.get("errores", []))
+        usuario_id_text = str(raw.get("usuario_id") or "").strip()
+        usuario_uuid: UUID | None = None
+        empleado = None
+        if not usuario_id_text:
+            errores.append("Falta usuario_id")
+        else:
+            try:
+                usuario_uuid = UUID(usuario_id_text)
+            except ValueError:
+                errores.append("usuario_id no es valido")
+
+        if usuario_uuid:
+            empleado = empleados_by_id.get(str(usuario_uuid))
+            if not empleado:
+                errores.append("El empleado no existe, esta inactivo o no tiene fecha de contratacion")
+            elif str(usuario_uuid) in vistos:
+                errores.append("Empleado duplicado en la importacion")
+            else:
+                vistos.add(str(usuario_uuid))
+                usuarios_validos.append(usuario_uuid)
+
+        periodos_raw = raw.get("periodos") or []
+        touched = bool(raw.get("limpiar") or raw.get("tocado") or periodos_raw)
+        if not touched and not errores:
+            continue
+
+        dias_por_periodo: dict[int, int] = {}
+        for periodo_raw in periodos_raw:
+            try:
+                num_periodo = int(periodo_raw.get("num_periodo"))
+                dias = _parse_dias_excel(periodo_raw.get("dias"))
+            except (TypeError, ValueError) as exc:
+                errores.append(f"Periodo invalido: {exc}")
+                continue
+            if num_periodo <= 0:
+                errores.append("El periodo debe ser mayor a cero")
+                continue
+            if num_periodo in dias_por_periodo:
+                errores.append(f"Periodo {num_periodo} esta duplicado")
+                continue
+            dias_por_periodo[num_periodo] = dias
+
+        normalizadas.append({
+            "excel_row": raw.get("excel_row"),
+            "usuario_id": usuario_uuid,
+            "usuario_id_text": usuario_id_text,
+            "empleado": empleado,
+            "limpiar": touched,
+            "dias_por_periodo": dias_por_periodo,
+            "errores": errores,
+        })
+
+    consumos_no_migracion = await vac_db.get_consumos_no_migracion_bulk(conn, usuarios_validos)
+    resultado = []
+    for row in normalizadas:
+        empleado = row["empleado"]
+        usuario_id = row["usuario_id"]
+        errores = row["errores"]
+        periodos_preview = []
+        total_dias = 0
+
+        if empleado and usuario_id:
+            disponibles, consumo_no_migrado = _periodos_migrables(
+                empleado,
+                hoy,
+                catalogo,
+                meses_exp,
+                consumos_no_migracion.get(usuario_id, []),
+            )
+            disponibles_by_num = {p["num_periodo"]: p for p in disponibles}
+            total_otorgado = 0
+            total_consumo_no_migrado = 0
+            for periodo in disponibles:
+                num = periodo["num_periodo"]
+                total_otorgado += int(periodo["dias_otorgados"])
+                total_consumo_no_migrado += consumo_no_migrado.get(num, 0)
+
+            for num_periodo, dias in sorted(row["dias_por_periodo"].items()):
+                periodo = disponibles_by_num.get(num_periodo)
+                if not periodo:
+                    errores.append(f"Periodo {num_periodo} no existe o aun no esta disponible")
+                    continue
+                consumo_actual = consumo_no_migrado.get(num_periodo, 0)
+                if dias + consumo_actual > periodo["dias_otorgados"]:
+                    errores.append(
+                        f"Periodo {num_periodo}: {dias} dias excede el maximo disponible "
+                        f"({max(0, periodo['dias_otorgados'] - consumo_actual)})"
+                    )
+                    continue
+                total_dias += dias
+                if dias > 0:
+                    periodos_preview.append(_periodo_preview(periodo, dias, consumo_actual))
+
+            if total_dias + total_consumo_no_migrado > total_otorgado:
+                errores.append("La suma total excede los dias otorgados")
+
+        resultado.append({
+            "excel_row": row["excel_row"],
+            "usuario_id": usuario_id,
+            "usuario_id_text": row["usuario_id_text"],
+            "nombre": empleado["nombre"] if empleado else "",
+            "email": empleado["email"] if empleado else "",
+            "limpiar": row["limpiar"],
+            "periodos": periodos_preview,
+            "total_dias": total_dias,
+            "errores": errores,
+        })
+    return resultado
+
+
+async def get_migracion_ctx(conn) -> dict:
+    conteo = await vac_db.count_empleados_migrados(conn)
+    empleados = await vac_db.get_empleados_para_migracion(conn)
+    return {
+        "conteo": conteo,
+        "empleados": empleados,
+    }
+
+
+async def generar_plantilla_migracion(conn):
+    from openpyxl import Workbook
+    from openpyxl.comments import Comment
+    from openpyxl.styles import Font, PatternFill, Protection
+
+    hoy = today_mx()
+    empleados = await vac_db.get_empleados_para_migracion(conn)
+    catalogo = await vac_db.get_catalogo_dias(conn)
+    meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
+    usuario_ids = [emp["id_usuario"] for emp in empleados]
+    consumos_no_migracion = await vac_db.get_consumos_no_migracion_bulk(conn, usuario_ids)
+    migraciones = await vac_db.get_consumos_migracion_bulk(conn, usuario_ids)
+
+    periodos_por_usuario: dict[UUID, list[dict]] = {}
+    max_periodo = 0
+    max_por_periodo: dict[int, int] = {}
+    for emp in empleados:
+        uid = emp["id_usuario"]
+        disponibles, consumo_no_migrado = _periodos_migrables(
+            emp,
+            hoy,
+            catalogo,
+            meses_exp,
+            consumos_no_migracion.get(uid, []),
+        )
+        periodos_por_usuario[uid] = disponibles
+        for periodo in disponibles:
+            num_periodo = periodo["num_periodo"]
+            max_migrable = max(0, periodo["dias_otorgados"] - consumo_no_migrado.get(num_periodo, 0))
+            max_por_periodo[num_periodo] = max(max_por_periodo.get(num_periodo, 0), max_migrable)
+        if disponibles:
+            max_periodo = max(max_periodo, max(p["num_periodo"] for p in disponibles))
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Migracion vacaciones"
+
+    headers = [
+        "usuario_id",
+        "Nombre",
+        "Email",
+        "Fecha contratacion",
+        "Periodos calculados",
+        "Ya migrado",
+    ] + [
+        f"Periodo {num} (max {max_por_periodo.get(num, 0)} dias)"
+        for num in range(1, max_periodo + 1)
+    ]
+    worksheet.append(headers)
+    worksheet.freeze_panes = "G2"
+
+    header_fill = PatternFill("solid", fgColor="123456")
+    editable_fill = PatternFill("solid", fgColor="E6FFFB")
+    locked_fill = PatternFill("solid", fgColor="F3F4F6")
+    expired_fill = PatternFill("solid", fgColor="E5E7EB")
+    migrated_fill = PatternFill("solid", fgColor="FEF3C7")
+
+    for cell in worksheet[1]:
+        cell.font = Font(bold=True, color="FFFFFF")
+        cell.fill = header_fill
+        cell.protection = Protection(locked=True)
+
+    for row_index, emp in enumerate(empleados, start=2):
+        uid = emp["id_usuario"]
+        periodos = periodos_por_usuario.get(uid, [])
+        periodos_by_num = {p["num_periodo"]: p for p in periodos}
+        consumo_no_migrado = _sumar_consumos_por_periodo(consumos_no_migracion.get(uid, []))
+        migrado_por_periodo = _sumar_consumos_por_periodo(migraciones.get(uid, []))
+        resumen = "; ".join(
+            f"P{p['num_periodo']}: {max(0, p['dias_otorgados'] - consumo_no_migrado.get(p['num_periodo'], 0))} dias"
+            for p in periodos
+        )
+        worksheet.append([
+            str(uid),
+            emp["nombre"],
+            emp["email"],
+            emp["fecha_contratacion"],
+            resumen,
+            "Si" if emp.get("ya_migrado") else "No",
+        ] + [None] * max_periodo)
+        if emp.get("ya_migrado"):
+            for cell in worksheet[row_index]:
+                cell.fill = migrated_fill
+
+        for fixed_cell in worksheet[row_index][:6]:
+            fixed_cell.protection = Protection(locked=True)
+
+        for num_periodo in range(1, max_periodo + 1):
+            cell = worksheet.cell(row=row_index, column=6 + num_periodo)
+            periodo = periodos_by_num.get(num_periodo)
+            if not periodo:
+                cell.fill = locked_fill
+                cell.protection = Protection(locked=True)
+                continue
+
+            consumo_actual = consumo_no_migrado.get(num_periodo, 0)
+            maximo = max(0, periodo["dias_otorgados"] - consumo_actual)
+            cell.value = migrado_por_periodo.get(num_periodo) or None
+            cell.number_format = "0"
+            cell.protection = Protection(locked=False)
+            cell.fill = expired_fill if periodo.get("expirado") else editable_fill
+            estado = "Vencido. " if periodo.get("expirado") else ""
+            cell.comment = Comment(
+                f"{estado}Maximo a migrar: {maximo} dias. "
+                f"Otorgados: {periodo['dias_otorgados']}. "
+                f"Consumos no migrados: {consumo_actual}. "
+                f"Aniversario: {periodo['fecha_aniversario']:%d/%m/%Y}. "
+                f"Expira: {periodo['fecha_expiracion']:%d/%m/%Y}.",
+                "Enertika",
+            )
+
+    worksheet.column_dimensions["A"].hidden = True
+    for column in worksheet.columns:
+        max_len = max(len(str(cell.value or "")) for cell in column)
+        worksheet.column_dimensions[column[0].column_letter].width = min(max_len + 2, 48)
+    worksheet.auto_filter.ref = worksheet.dimensions
+    worksheet.protection.sheet = True
+    worksheet.protection.enable()
+    return workbook
+
+
+async def validar_importacion_migracion(conn, file_bytes: bytes) -> dict:
+    from openpyxl import load_workbook
+    from openpyxl.utils.exceptions import InvalidFileException
+    from zipfile import BadZipFile
+
+    if not file_bytes:
+        raise ValueError("El archivo esta vacio")
+    if len(file_bytes) > MIGRACION_MAX_FILE_BYTES:
+        raise ValueError("El archivo excede el tamano maximo permitido")
+
+    try:
+        workbook = load_workbook(BytesIO(file_bytes), data_only=True, read_only=True)
+    except (BadZipFile, InvalidFileException, OSError) as exc:
+        raise ValueError("No se pudo leer el archivo Excel") from exc
+
+    worksheet = workbook.active
+    header_values = next(worksheet.iter_rows(min_row=1, max_row=1, values_only=True), None)
+    if not header_values:
+        workbook.close()
+        raise ValueError("La plantilla no contiene encabezados")
+    headers = [_normalizar_header_excel(value) for value in header_values]
+    try:
+        usuario_col = headers.index("usuario_id") + 1
+    except ValueError as exc:
+        workbook.close()
+        raise ValueError("La plantilla no contiene la columna usuario_id") from exc
+
+    periodo_cols: list[tuple[int, int]] = []
+    for index, header in enumerate(headers, start=1):
+        match = re.search(r"\bperiodo\s+(\d+)\b", header)
+        if match:
+            periodo_cols.append((index, int(match.group(1))))
+    if not periodo_cols:
+        workbook.close()
+        raise ValueError("La plantilla no contiene columnas de periodos")
+
+    raw_rows = []
+    for row_index, row in enumerate(worksheet.iter_rows(min_row=2, values_only=True), start=2):
+        usuario_id = row[usuario_col - 1] if len(row) >= usuario_col else None
+        periodos = []
+        errores = []
+        tocado = False
+        for col_index, num_periodo in periodo_cols:
+            value = row[col_index - 1] if len(row) >= col_index else None
+            if value is not None and str(value).strip() != "":
+                tocado = True
+            try:
+                dias = _parse_dias_excel(value)
+            except ValueError as exc:
+                errores.append(f"Periodo {num_periodo}: {exc}")
+                continue
+            if dias > 0:
+                periodos.append({"num_periodo": num_periodo, "dias": dias})
+        raw_rows.append({
+            "excel_row": row_index,
+            "usuario_id": usuario_id,
+            "tocado": tocado,
+            "periodos": periodos,
+            "errores": errores,
+        })
+    workbook.close()
+
+    filas = await _validar_rows_migracion(conn, raw_rows)
+    token_rows = _token_rows_migracion(filas)
+    tiene_errores = any(row["errores"] for row in filas)
+    total_dias = sum(row["total_dias"] for row in filas if not row["errores"])
+    return {
+        "filas": filas,
+        "tiene_errores": tiene_errores,
+        "token": _firmar_preview(token_rows) if token_rows and not tiene_errores else None,
+        "total_empleados": len(token_rows),
+        "total_dias": total_dias,
+    }
+
+
+async def _get_tipo_vacaciones_id(conn) -> UUID:
+    tipos = await vac_db.get_tipos_ausencia(conn)
+    for tipo in tipos:
+        if tipo["slug"] == "vacaciones":
+            return tipo["id"]
+    raise ValueError("No existe el tipo de ausencia vacaciones")
+
+
+async def ejecutar_migracion(conn, token: str, ejecutado_por: UUID) -> dict:
+    raw_rows = _leer_preview_firmado(token)
+    filas = await _validar_rows_migracion(conn, raw_rows)
+    errores = [row for row in filas if row["errores"]]
+    if errores:
+        raise ValueError("La informacion cambio o contiene errores. Vuelve a importar el archivo.")
+
+    tipo_vacaciones_id = await _get_tipo_vacaciones_id(conn)
+    actualizadas = 0
+    total_periodos = 0
+    total_dias = 0
+    async with conn.transaction():
+        for row in filas:
+            if not row.get("limpiar"):
+                continue
+            await vac_db.limpiar_migracion_usuario(conn, row["usuario_id"])
+            actualizadas += 1
+            for periodo in row["periodos"]:
+                solicitud_id = await vac_db.insertar_solicitud_migracion(
+                    conn,
+                    usuario_id=row["usuario_id"],
+                    tipo_ausencia_id=tipo_vacaciones_id,
+                    fecha_aniversario=periodo["fecha_aniversario"],
+                    dias_solicitados=periodo["dias"],
+                    num_periodo=periodo["num_periodo"],
+                    ejecutado_por=ejecutado_por,
+                )
+                await vac_db.insert_consumos(
+                    conn,
+                    solicitud_id,
+                    [{
+                        "num_periodo": periodo["num_periodo"],
+                        "dias_consumir": periodo["dias"],
+                        "fecha_aniversario_periodo": periodo["fecha_aniversario"],
+                    }],
+                )
+                total_periodos += 1
+                total_dias += periodo["dias"]
+
+    return {
+        "empleados_actualizados": actualizadas,
+        "periodos_insertados": total_periodos,
+        "dias_insertados": total_dias,
+    }
+
+
+async def get_migracion_empleado_ctx(conn, usuario_id: UUID) -> dict:
+    usuario = await rrhh_db.get_usuario_simple_by_id(conn, usuario_id)
+    empleado = await vac_db.get_empleado_datos(conn, usuario_id)
+    if not empleado or not empleado.get("fecha_contratacion"):
+        return {
+            "usuario": usuario or {},
+            "empleado": empleado,
+            "periodos": [],
+            "aviso": "El empleado no tiene fecha de contratacion.",
+        }
+
+    hoy = today_mx()
+    catalogo = await vac_db.get_catalogo_dias(conn)
+    meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
+    consumos_no_migracion = await vac_db.get_consumos_no_migracion_bulk(conn, [usuario_id])
+    migracion = await vac_db.get_migracion_usuario(conn, usuario_id)
+    migrado_por_periodo = _sumar_consumos_por_periodo(migracion)
+    visibles_base, consumo_no_migrado = _periodos_migrables(
+        empleado,
+        hoy,
+        catalogo,
+        meses_exp,
+        consumos_no_migracion.get(usuario_id, []),
+    )
+    visibles = []
+    for periodo in visibles_base:
+        num_periodo = periodo["num_periodo"]
+        consumo_actual = consumo_no_migrado.get(num_periodo, 0)
+        visibles.append({
+            **periodo,
+            "dias_migrados": migrado_por_periodo.get(num_periodo, 0),
+            "dias_maximos_migracion": max(0, periodo["dias_otorgados"] - consumo_actual),
+            "consumo_no_migrado": consumo_actual,
+        })
+
+    return {
+        "usuario": usuario or {},
+        "empleado": empleado,
+        "periodos": visibles,
+        "total_migrado": sum(migrado_por_periodo.values()),
+        "migracion": migracion,
+    }
+
+
+async def guardar_migracion_individual(
+    conn,
+    usuario_id: UUID,
+    periodos_dias: list[dict],
+    ejecutado_por: UUID,
+) -> dict:
+    raw_rows = [{
+        "usuario_id": str(usuario_id),
+        "limpiar": True,
+        "periodos": [
+            {"num_periodo": item["num_periodo"], "dias": item["dias"]}
+            for item in periodos_dias
+        ],
+    }]
+    filas = await _validar_rows_migracion(conn, raw_rows)
+    errores = [error for row in filas for error in row["errores"]]
+    if errores:
+        raise ValueError("; ".join(errores))
+    token = _firmar_preview(_token_rows_migracion(filas))
+    return await ejecutar_migracion(conn, token, ejecutado_por)
+
+
+async def limpiar_migracion_empleado(conn, usuario_id: UUID) -> int:
+    async with conn.transaction():
+        return await vac_db.limpiar_migracion_usuario(conn, usuario_id)
 
 
 async def get_admin_ctx(conn, anio: int | None = None) -> dict:
     anio = anio or today_mx().year
     meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
+    horarios_rows = await rrhh_db.get_horarios_sucursal_admin(conn)
     return {
         "anio": anio,
         "festivos": await vac_db.get_festivos_by_year(conn, anio),
         "tipos": await vac_db.get_tipos_ausencia_admin(conn),
         "dias_vacaciones": await vac_db.get_catalogo_dias_admin(conn),
         "vacaciones_meses_expiracion": meses_exp,
+        "sucursales": await rrhh_db.get_sucursales_admin(conn),
+        "dias_semana": DIAS_SEMANA,
+        "horarios_sucursal": _build_horarios_admin(horarios_rows),
     }
+
+
+def _build_horarios_admin(rows: list[dict]) -> list[dict]:
+    horarios: dict[UUID, dict] = {}
+    for row in rows:
+        horario_id = row["id"]
+        horario = horarios.setdefault(
+            horario_id,
+            {
+                "id": horario_id,
+                "sucursal_id": row["sucursal_id"],
+                "sucursal_nombre": row["sucursal_nombre"],
+                "nombre": row["nombre"],
+                "activo": row["activo"],
+                "margen_entrada_antes_min": row["margen_entrada_antes_min"],
+                "margen_salida_despues_min": row["margen_salida_despues_min"],
+                "tolerancia_extra_min": row["tolerancia_extra_min"],
+                "descuento_comida_min": row["descuento_comida_min"],
+                "updated_at": row["updated_at"],
+                "dias_by_index": {},
+            },
+        )
+        if row.get("dia_semana") is not None:
+            horario["dias_by_index"][row["dia_semana"]] = _format_horario_dia(row)
+
+    result = []
+    for horario in horarios.values():
+        dias = []
+        for dia in DIAS_SEMANA:
+            dias.append(
+                horario["dias_by_index"].get(
+                    dia["value"],
+                    {
+                        "dia_semana": dia["value"],
+                        "nombre": dia["nombre"],
+                        "es_laboral": dia["value"] < 5,
+                        "hora_entrada": None,
+                        "hora_salida": None,
+                        "hora_entrada_fmt": "08:00" if dia["value"] < 5 else "",
+                        "hora_salida_fmt": "17:00" if dia["value"] < 5 else "",
+                        "minutos_programados": 0,
+                        "cruza_medianoche": False,
+                    },
+                )
+            )
+        horario["dias"] = dias
+        horario["resumen_dias"] = _resumen_dias_horario(dias)
+        del horario["dias_by_index"]
+        result.append(horario)
+    return result
+
+
+def _format_horario_dia(row: dict) -> dict:
+    dia_semana = row["dia_semana"]
+    return {
+        "dia_semana": dia_semana,
+        "nombre": DIAS_SEMANA[dia_semana]["nombre"],
+        "es_laboral": row["es_laboral"],
+        "hora_entrada": row["hora_entrada"],
+        "hora_salida": row["hora_salida"],
+        "hora_entrada_fmt": _format_time(row["hora_entrada"]),
+        "hora_salida_fmt": _format_time(row["hora_salida"]),
+        "minutos_programados": row["minutos_programados"],
+        "cruza_medianoche": row["cruza_medianoche"],
+    }
+
+
+def _format_time(value: time | None) -> str:
+    return value.strftime("%H:%M") if value else ""
+
+
+def _resumen_dias_horario(dias: list[dict]) -> str:
+    laborables = [dia for dia in dias if dia["es_laboral"]]
+    if not laborables:
+        return "Sin dias laborales"
+    compact = []
+    for dia in laborables:
+        if dia["hora_entrada_fmt"] and dia["hora_salida_fmt"]:
+            compact.append(f"{dia['nombre'][:3]} {dia['hora_entrada_fmt']}-{dia['hora_salida_fmt']}")
+        else:
+            compact.append(dia["nombre"][:3])
+    return ", ".join(compact)
+
+
+async def guardar_horario_sucursal(
+    conn,
+    *,
+    sucursal_id: UUID,
+    nombre: str,
+    activo: bool,
+    margen_entrada_antes_min: int,
+    margen_salida_despues_min: int,
+    tolerancia_extra_min: int,
+    descuento_comida_min: int,
+    dias: list[dict],
+    user_id: UUID,
+    horario_id: UUID | None = None,
+) -> int:
+    nombre = (nombre or "").strip()
+    if not nombre:
+        raise ValueError("El nombre del horario es obligatorio")
+    if len(nombre) > 100:
+        raise ValueError("El nombre del horario no puede exceder 100 caracteres")
+    sucursales = await rrhh_db.get_sucursales_admin(conn)
+    if sucursal_id not in {sucursal["id"] for sucursal in sucursales}:
+        raise ValueError("Sucursal no encontrada")
+
+    _validar_minutos_config(
+        margen_entrada_antes_min=margen_entrada_antes_min,
+        margen_salida_despues_min=margen_salida_despues_min,
+        tolerancia_extra_min=tolerancia_extra_min,
+        descuento_comida_min=descuento_comida_min,
+    )
+    dias_normalizados = _normalizar_dias_horario(dias, descuento_comida_min)
+    if activo and not any(dia["es_laboral"] for dia in dias_normalizados):
+        raise ValueError("Un horario activo debe tener al menos un dia laboral")
+    sucursales_recalculo = {sucursal_id}
+
+    async with conn.transaction():
+        if horario_id:
+            existente = await rrhh_db.get_horario_sucursal(conn, horario_id)
+            if not existente:
+                raise ValueError("Horario no encontrado")
+            sucursales_recalculo.add(existente["sucursal_id"])
+
+        if activo:
+            await rrhh_db.deactivate_horarios_sucursal(
+                conn, sucursal_id=sucursal_id, exclude_id=horario_id
+            )
+
+        if horario_id:
+            updated = await rrhh_db.update_horario_sucursal(
+                conn,
+                horario_id=horario_id,
+                sucursal_id=sucursal_id,
+                nombre=nombre,
+                activo=activo,
+                margen_entrada_antes_min=margen_entrada_antes_min,
+                margen_salida_despues_min=margen_salida_despues_min,
+                tolerancia_extra_min=tolerancia_extra_min,
+                descuento_comida_min=descuento_comida_min,
+                updated_by=user_id,
+            )
+            if not updated:
+                raise ValueError("Horario no encontrado")
+            saved_id = updated["id"]
+        else:
+            saved_id = await rrhh_db.create_horario_sucursal(
+                conn,
+                sucursal_id=sucursal_id,
+                nombre=nombre,
+                activo=activo,
+                margen_entrada_antes_min=margen_entrada_antes_min,
+                margen_salida_despues_min=margen_salida_despues_min,
+                tolerancia_extra_min=tolerancia_extra_min,
+                descuento_comida_min=descuento_comida_min,
+                updated_by=user_id,
+            )
+
+        await rrhh_db.replace_horario_sucursal_dias(conn, saved_id, dias_normalizados)
+        return await _recalcular_sucursales_reciente(conn, sucursales_recalculo)
+
+
+async def desactivar_horario_sucursal(conn, horario_id: UUID, user_id: UUID) -> int:
+    async with conn.transaction():
+        updated = await rrhh_db.deactivate_horario_sucursal(conn, horario_id, user_id)
+        if not updated:
+            raise ValueError("Horario no encontrado")
+        return await _recalcular_sucursales_reciente(conn, {updated["sucursal_id"]})
+
+
+def _validar_minutos_config(
+    *,
+    margen_entrada_antes_min: int,
+    margen_salida_despues_min: int,
+    tolerancia_extra_min: int,
+    descuento_comida_min: int,
+) -> None:
+    valores = {
+        "ventana antes de entrada": margen_entrada_antes_min,
+        "ventana despues de salida": margen_salida_despues_min,
+        "tolerancia para horas extra": tolerancia_extra_min,
+        "descuento de comida": descuento_comida_min,
+    }
+    for nombre, valor in valores.items():
+        if valor < 0:
+            raise ValueError(f"El valor de {nombre} no puede ser negativo")
+        if valor > 1440:
+            raise ValueError(f"El valor de {nombre} no puede exceder 1440 minutos")
+
+
+def _normalizar_dias_horario(dias: list[dict], descuento_comida_min: int) -> list[dict]:
+    if len(dias) != 7:
+        raise ValueError("Debes configurar los 7 dias de la semana")
+    dias_by_index = {dia["dia_semana"]: dia for dia in dias}
+    if set(dias_by_index) != set(range(7)):
+        raise ValueError("La configuracion semanal debe incluir lunes a domingo")
+
+    normalizados = []
+    for dia_semana in range(7):
+        dia = dias_by_index[dia_semana]
+        es_laboral = bool(dia.get("es_laboral"))
+        cruza_medianoche = bool(dia.get("cruza_medianoche")) if es_laboral else False
+        if not es_laboral:
+            normalizados.append({
+                "dia_semana": dia_semana,
+                "hora_entrada": None,
+                "hora_salida": None,
+                "minutos_programados": 0,
+                "cruza_medianoche": False,
+                "es_laboral": False,
+            })
+            continue
+
+        entrada = _parse_hora(dia.get("hora_entrada"), f"entrada de {DIAS_SEMANA[dia_semana]['nombre']}")
+        salida = _parse_hora(dia.get("hora_salida"), f"salida de {DIAS_SEMANA[dia_semana]['nombre']}")
+        minutos_programados = _calcular_minutos_programados(
+            entrada, salida, cruza_medianoche, descuento_comida_min
+        )
+        normalizados.append({
+            "dia_semana": dia_semana,
+            "hora_entrada": entrada,
+            "hora_salida": salida,
+            "minutos_programados": minutos_programados,
+            "cruza_medianoche": cruza_medianoche,
+            "es_laboral": True,
+        })
+    return normalizados
+
+
+def _parse_hora(value: str | None, campo: str) -> time:
+    value = (value or "").strip()
+    if not value:
+        raise ValueError(f"La hora de {campo} es obligatoria")
+    try:
+        parts = value.split(":")
+        if len(parts) < 2:
+            raise ValueError
+        hour = int(parts[0])
+        minute = int(parts[1])
+        return time(hour=hour, minute=minute)
+    except ValueError as exc:
+        raise ValueError(f"La hora de {campo} no es valida") from exc
+
+
+def _calcular_minutos_programados(
+    entrada: time,
+    salida: time,
+    cruza_medianoche: bool,
+    descuento_comida_min: int,
+) -> int:
+    entrada_min = entrada.hour * 60 + entrada.minute
+    salida_min = salida.hour * 60 + salida.minute
+    if salida_min <= entrada_min:
+        if not cruza_medianoche:
+            raise ValueError("La salida debe ser mayor a la entrada si no cruza medianoche")
+        salida_min += 24 * 60
+    duracion = salida_min - entrada_min
+    if descuento_comida_min >= duracion:
+        raise ValueError("El descuento de comida no puede ser mayor o igual a la jornada")
+    return duracion - descuento_comida_min
+
+
+async def _recalcular_sucursales_reciente(conn, sucursal_ids: set[UUID], days: int = 7) -> int:
+    from modules.asistencia.service import recalcular_asistencia
+
+    hoy = today_mx()
+    targets = []
+    for sucursal_id in sucursal_ids:
+        usuarios = await rrhh_db.get_usuarios_asistencia_por_sucursal(conn, sucursal_id)
+        for usuario_id in usuarios:
+            for offset in range(days):
+                targets.append((usuario_id, hoy - timedelta(days=offset)))
+    if not targets:
+        return 0
+    await recalcular_asistencia(conn, targets)
+    return len(targets)
 
 
 async def guardar_config_vacaciones(conn, *, meses_expiracion: int) -> None:
     if meses_expiracion < 1 or meses_expiracion > 120:
         raise ValueError("Los meses de expiracion deben estar entre 1 y 120")
-    await conn.execute(
-        """
-        INSERT INTO tb_configuracion_global (clave, valor, tipo_dato, descripcion)
-        VALUES (
-            'VACACIONES_MESES_EXPIRACION', $1::text, 'int',
-            'Meses hasta que expira un periodo de vacaciones no utilizado'
-        )
-        ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
-        """,
-        str(meses_expiracion),
-    )
+    await rrhh_db.upsert_vacaciones_meses_expiracion(conn, meses_expiracion)
 
 
 async def get_reportes_ctx(conn) -> dict:
@@ -82,7 +962,7 @@ async def get_reportes_ctx(conn) -> dict:
         "usuarios": await vac_db.get_usuarios_activos_simples(conn),
         "sucursales": await asistencia_db.get_sucursales(conn),
         "estados_asistencia": ASISTENCIA_ESTADOS,
-        "estados_vacaciones": ["pendiente", "aprobado", "rechazado", "cancelado"],
+        "estados_vacaciones": list(ESTADOS_SOLICITUD),
     }
 
 
@@ -101,42 +981,69 @@ async def get_reporte_vacaciones(
     usuario_id: UUID | None = None,
     estado: str | None = None,
 ) -> list[dict]:
-    rows = await conn.fetch(
-        """
-        SELECT
-            sa.id,
-            sa.fecha_inicio,
-            sa.fecha_fin,
-            sa.fecha_presentarse,
-            sa.dias_solicitados,
-            sa.estado,
-            sa.fecha_solicitud,
-            sa.fecha_resolucion,
-            ta.nombre AS tipo_nombre,
-            u.id_usuario,
-            u.nombre AS empleado_nombre,
-            u.email AS empleado_email,
-            ed.numero_empleado,
-            COALESCE(ed.departamento, u.department) AS departamento,
-            aprobador.nombre AS aprobado_por_nombre
-        FROM tb_solicitudes_ausencia sa
-        JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
-        JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
-        LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = u.id_usuario
-        LEFT JOIN tb_usuarios aprobador ON aprobador.id_usuario = sa.aprobado_por
-        WHERE ta.slug = 'vacaciones'
-          AND sa.fecha_inicio <= $2
-          AND sa.fecha_fin >= $1
-          AND ($3::uuid IS NULL OR sa.usuario_id = $3)
-          AND ($4::text IS NULL OR sa.estado = $4)
-        ORDER BY sa.fecha_inicio DESC, u.nombre
-        """,
-        fecha_inicio,
-        fecha_fin,
-        usuario_id,
-        estado,
+    return await rrhh_db.get_reporte_vacaciones(
+        conn,
+        fecha_inicio=fecha_inicio,
+        fecha_fin=fecha_fin,
+        usuario_id=usuario_id,
+        estado=estado,
     )
-    return [dict(row) for row in rows]
+
+
+async def build_empleados_vacaciones_export(conn) -> tuple[list[str], list[list], str]:
+    hoy = today_mx()
+    empleados = await vac_db.get_all_empleados_con_datos(conn, limit=10000, offset=0)
+    catalogo = await vac_db.get_catalogo_dias(conn)
+    meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
+    usuario_ids = [emp["id_usuario"] for emp in empleados]
+    consumos_bulk = await vac_db.get_consumos_bulk(conn, usuario_ids)
+
+    headers = [
+        "Empleado", "Email", "No. empleado", "Departamento", "Fecha contratacion",
+        "Periodo", "Dias otorgados", "Dias tomados", "Dias restantes",
+        "Fecha expiracion", "Dias para expirar", "Aprobador",
+    ]
+    rows = []
+    for emp in empleados:
+        uid = emp["id_usuario"]
+        fecha_contratacion = emp.get("fecha_contratacion")
+        base_row = [
+            emp["nombre"],
+            emp["email"],
+            emp.get("numero_empleado"),
+            emp.get("departamento") or emp.get("department"),
+            fecha_contratacion,
+        ]
+        if not fecha_contratacion:
+            rows.append(base_row + ["", "", "", "", "", "", emp.get("aprobador_nombre")])
+            continue
+
+        periodos = calcular_periodos(
+            fecha_contratacion,
+            hoy,
+            catalogo,
+            ajuste_dias=emp.get("dias_vacaciones_ajuste", 0),
+            meses_expiracion=meses_exp,
+        )
+        balance = calcular_balance(periodos, consumos_bulk.get(uid, []))
+        activos = [periodo for periodo in balance if not periodo.get("es_proximo")]
+        if not activos:
+            rows.append(base_row + ["", "", "", "", "", "", emp.get("aprobador_nombre")])
+            continue
+
+        for periodo in activos:
+            rows.append(base_row + [
+                periodo.get("num_periodo"),
+                periodo.get("dias_otorgados"),
+                periodo.get("dias_usados"),
+                periodo.get("dias_restantes"),
+                periodo.get("fecha_expiracion"),
+                periodo.get("dias_para_expiracion"),
+                emp.get("aprobador_nombre"),
+            ])
+
+    filename = f"empleados_vacaciones_{hoy.strftime('%Y%m%d')}.xlsx"
+    return headers, rows, filename
 
 
 async def generar_festivos_anio(conn, anio: int, user_id: UUID | None = None) -> int:
@@ -334,6 +1241,7 @@ async def guardar_empleado(
     departamento: str | None,
     id_aprobador_vacaciones: UUID | None,
     dias_vacaciones_ajuste: int,
+    sucursal_id: UUID | None,
     jefes_ids: list[UUID],
     updated_by: UUID,
 ) -> None:
@@ -346,6 +1254,7 @@ async def guardar_empleado(
         departamento=departamento,
         id_aprobador_vacaciones=id_aprobador_vacaciones,
         dias_vacaciones_ajuste=dias_vacaciones_ajuste,
+        sucursal_id=sucursal_id,
         updated_by=updated_by,
     )
     await vac_db.set_jefes(conn, usuario_id, jefes_ids)

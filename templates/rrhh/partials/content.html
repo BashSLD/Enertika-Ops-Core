@@ -1,4 +1,5 @@
 <div class="animate-fade-in-down px-4 pb-8" x-data="{ tab: 'hoy' }">
+  {% set rrhh_role = (context.module_roles or {}).get('rrhh', '') %}
 
   <!-- Encabezado -->
   <div class="flex items-center justify-between mb-6">
@@ -6,6 +7,18 @@
       <h1 class="text-2xl font-bold text-gray-900">RRHH</h1>
       <p class="text-sm text-gray-500 mt-0.5">Gestión de personas y vacaciones</p>
     </div>
+    {% if context.role == 'ADMIN' or rrhh_role == 'admin' or (context.role == 'MANAGER' and rrhh_role in ['editor', 'admin']) %}
+    <button
+      hx-get="/rrhh/migracion"
+      hx-target="#main-content"
+      hx-push-url="true"
+      class="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 transition-colors">
+      Migracion historica
+      <span class="rounded-full bg-[#00BABB]/10 px-2 py-0.5 text-xs font-semibold text-[#007A7B]">
+        {{ migracion_vacaciones.total_migrados or 0 }}/{{ migracion_vacaciones.total_con_contratacion or 0 }}
+      </span>
+    </button>
+    {% endif %}
   </div>
 
   <!-- KPIs rápidos -->
@@ -26,12 +39,20 @@
 
   <!-- Pestañas -->
   <div class="flex gap-1 border-b border-gray-200 mb-6 overflow-x-auto">
-    <button @click="tab = 'hoy'; htmx.ajax('GET', '/rrhh/vacaciones-hoy', {target: '#rrhh-content', swap: 'innerHTML'})"
+    <button @click="tab = 'hoy'"
+      hx-get="/rrhh/vacaciones-hoy" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=hoy"
       :class="tab === 'hoy' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
       class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
       Hoy
     </button>
-    <button @click="tab = 'aprobaciones'; htmx.ajax('GET', '/rrhh/aprobaciones', {target: '#rrhh-content', swap: 'innerHTML'})"
+    <button @click="tab = 'asistencia'"
+      hx-get="/rrhh/asistencia" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=asistencia"
+      :class="tab === 'asistencia' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
+      class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
+      Asistencia
+    </button>
+    <button @click="tab = 'aprobaciones'"
+      hx-get="/rrhh/aprobaciones" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=aprobaciones"
       :class="tab === 'aprobaciones' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
       class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
       Aprobaciones
@@ -39,34 +60,33 @@
       <span class="ml-1 bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5">{{ pendientes | length }}</span>
       {% endif %}
     </button>
-    <button @click="tab = 'empleados'; htmx.ajax('GET', '/rrhh/empleados', {target: '#rrhh-content', swap: 'innerHTML'})"
-      :class="tab === 'empleados' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
-      class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
-      Empleados
-    </button>
-    <button @click="tab = 'festivos'; htmx.ajax('GET', '/rrhh/festivos', {target: '#rrhh-content', swap: 'innerHTML'})"
-      :class="tab === 'festivos' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
-      class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
-      Festivos
-    </button>
-    <button @click="tab = 'solicitudes'; htmx.ajax('GET', '/rrhh/solicitudes', {target: '#rrhh-content', swap: 'innerHTML'})"
+    <button @click="tab = 'solicitudes'"
+      hx-get="/rrhh/solicitudes" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=solicitudes"
       :class="tab === 'solicitudes' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
       class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
       Solicitudes
     </button>
-    <button @click="tab = 'asistencia'; htmx.ajax('GET', '/rrhh/asistencia', {target: '#rrhh-content', swap: 'innerHTML'})"
-      :class="tab === 'asistencia' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
+    <button @click="tab = 'empleados'"
+      hx-get="/rrhh/empleados" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=empleados"
+      :class="tab === 'empleados' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
       class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
-      Asistencia
+      Empleados
     </button>
-    <button @click="tab = 'reportes'; htmx.ajax('GET', '/rrhh/reportes', {target: '#rrhh-content', swap: 'innerHTML'})"
+    <button @click="tab = 'reportes'"
+      hx-get="/rrhh/reportes" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=reportes"
       :class="tab === 'reportes' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
       class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
       Reportes
     </button>
-    {% set rrhh_role = (context.module_roles or {}).get('rrhh', '') %}
+    <button @click="tab = 'festivos'"
+      hx-get="/rrhh/festivos" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=festivos"
+      :class="tab === 'festivos' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
+      class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
+      Festivos
+    </button>
     {% if context.role == 'ADMIN' or rrhh_role == 'admin' or (context.role == 'MANAGER' and rrhh_role in ['editor', 'admin']) %}
-    <button @click="tab = 'admin'; htmx.ajax('GET', '/rrhh/admin', {target: '#rrhh-content', swap: 'innerHTML'})"
+    <button @click="tab = 'admin'"
+      hx-get="/rrhh/admin" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=admin"
       :class="tab === 'admin' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
       class="px-4 py-2.5 text-sm whitespace-nowrap transition-colors">
       Admin

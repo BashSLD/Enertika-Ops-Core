@@ -37,7 +37,16 @@
             <td class="px-4 py-3">
               <p class="font-medium text-gray-800 truncate max-w-[140px]">{{ sol.solicitante_nombre }}</p>
             </td>
-            <td class="px-4 py-3 text-gray-600">{{ sol.tipo_nombre }}</td>
+            <td class="px-4 py-3 text-gray-600">
+              {% if sol.es_migracion %}
+              <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">
+                Historico
+              </span>
+              <p class="text-xs text-gray-400 mt-1">Antes del sistema</p>
+              {% else %}
+              {{ sol.tipo_nombre }}
+              {% endif %}
+            </td>
             <td class="px-4 py-3 hidden sm:table-cell text-gray-600 whitespace-nowrap">
               {{ sol.fecha_inicio.strftime('%d/%m/%Y') }} — {{ sol.fecha_fin.strftime('%d/%m/%Y') }}
             </td>
@@ -58,7 +67,7 @@
               {% endif %}
             </td>
             <td class="px-4 py-3 text-right">
-              <a hx-get="/perfil/solicitudes/{{ sol.id }}"
+              <a hx-get="/vacaciones/solicitudes/{{ sol.id }}"
                 hx-target="#main-content"
                 hx-push-url="true"
                 class="text-[#00BABB] hover:text-[#009A9B] text-xs font-medium transition-colors cursor-pointer">

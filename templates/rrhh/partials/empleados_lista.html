@@ -5,8 +5,9 @@
       <span class="ml-1 text-sm font-normal text-gray-400">({{ total }})</span>
     </h2>
     <a href="/rrhh/empleados/exportar-excel"
+       title="Incluye saldos, periodos, días tomados, días restantes, expiración y aprobador."
        class="text-xs text-[#00BABB] hover:text-[#009A9B] font-semibold hover:underline">
-      Exportar Excel
+      Exportar reporte de vacaciones
     </a>
   </div>
 
@@ -74,12 +75,11 @@
 
   <!-- Modal editar empleado -->
   <div id="empleado-modal"
-    x-data="{ open: false }"
+    x-data="{ open: false, saving: false }"
     @open-empleado-modal.window="open = true"
     x-show="open" x-cloak
     class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4">
-    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90dvh] flex flex-col"
-      @click.outside="open = false">
+    <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90dvh] flex flex-col">
       <div class="px-6 pt-5 pb-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
         <h3 class="text-base font-semibold text-gray-900">Editar datos de empleado</h3>
         <button @click="open = false" class="text-gray-400 hover:text-gray-600 transition-colors">
@@ -88,7 +88,10 @@
           </svg>
         </button>
       </div>
-      <div id="empleado-modal-content" class="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+      <div id="empleado-modal-content"
+           class="flex-1 min-h-0 overflow-y-auto px-6 py-4"
+           @htmx:before-request="saving = true"
+           @htmx:after-request="saving = false">
         <p class="text-sm text-gray-400 text-center py-8">Selecciona un empleado para editar</p>
       </div>
     </div>

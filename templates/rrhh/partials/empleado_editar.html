@@ -1,7 +1,7 @@
 <form
   hx-post="/rrhh/empleados/{{ usuario.id_usuario }}"
-  hx-target="#toast-container"
-  hx-swap="afterbegin"
+  hx-target="this"
+  hx-swap="none"
   class="space-y-4">
 
   <p class="text-sm font-semibold text-gray-800">{{ usuario.nombre }}</p>
@@ -13,6 +13,13 @@
       <input type="text" name="numero_empleado"
         value="{{ empleado.numero_empleado if empleado else '' }}"
         class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+      {% if empleado and empleado.biotime_emp_code %}
+      <div class="mt-3">
+        <label class="block text-xs font-medium text-gray-600 mb-1">Código BioTime</label>
+        <p class="text-sm text-gray-400 px-3 py-2 bg-gray-50 rounded-xl">{{ empleado.biotime_emp_code }}</p>
+        <p class="text-xs text-gray-400 mt-1">Sincronizado desde BioTime. No editable.</p>
+      </div>
+      {% endif %}
     </div>
     <div>
       <label class="block text-xs font-medium text-gray-600 mb-1">Fecha de contratación</label>
@@ -26,15 +33,29 @@
     <div>
       <label class="block text-xs font-medium text-gray-600 mb-1">Puesto</label>
       <input type="text" name="puesto"
-        value="{{ empleado.puesto if empleado else '' }}"
+        value="{{ usuario.get('puesto') or (empleado.puesto if empleado else '') }}"
         class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
     </div>
     <div>
       <label class="block text-xs font-medium text-gray-600 mb-1">Departamento</label>
       <input type="text" name="departamento"
-        value="{{ empleado.departamento if empleado else '' }}"
+        value="{{ empleado.departamento if (empleado and empleado.departamento) else (usuario.get('department') or '') }}"
         class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
     </div>
+  </div>
+
+  <div>
+    <label class="block text-xs font-medium text-gray-600 mb-1">Sucursal</label>
+    <select name="sucursal_id"
+      class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30 bg-white">
+      <option value="">Sin sucursal asignada</option>
+      {% for sucursal in sucursales %}
+      <option value="{{ sucursal.id }}"
+        {% if empleado and empleado.sucursal_id and empleado.sucursal_id | string == sucursal.id | string %}selected{% endif %}>
+        {{ sucursal.nombre }}
+      </option>
+      {% endfor %}
+    </select>
   </div>
 
   <div>
@@ -82,8 +103,17 @@
 
   <div class="pt-2 flex gap-3">
     <button type="submit"
+      :disabled="saving"
+      x-text="saving ? 'Guardando...' : 'Guardar cambios'"
       class="flex-1 bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
       Guardar cambios
     </button>
   </div>
 </form>
+
+<div id="migracion-empleado-{{ usuario.id_usuario }}"
+     hx-get="/rrhh/empleados/{{ usuario.id_usuario }}/migracion-historial"
+     hx-trigger="load"
+     hx-swap="outerHTML">
+  <div class="mt-4 h-12 bg-gray-50 rounded-xl animate-pulse"></div>
+</div>

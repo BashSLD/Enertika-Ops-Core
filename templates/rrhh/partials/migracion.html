@@ -1,0 +1,101 @@
+{% if toast_msg %}
+{% with type=toast_type, title="Aviso", message=toast_msg %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+{% set total = conteo.total_con_contratacion or 0 %}
+{% set migrados = conteo.total_migrados or 0 %}
+{% set pendientes = total - migrados %}
+{% set porcentaje = (migrados * 100 / total) if total else 0 %}
+
+<div class="animate-fade-in-down px-4 pb-8">
+  <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
+    <div>
+      <button
+        hx-get="/rrhh/ui"
+        hx-target="#main-content"
+        hx-push-url="true"
+        class="text-xs text-gray-500 hover:text-gray-700 mb-2">
+        Volver a RRHH
+      </button>
+      <h1 class="text-2xl font-bold text-gray-900">Migracion historica de vacaciones</h1>
+      <p class="text-sm text-gray-500 mt-0.5">Registros previos al sistema</p>
+    </div>
+    <a href="/rrhh/migracion/plantilla"
+       class="inline-flex items-center justify-center rounded-xl bg-[#00BABB] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#009A9B] transition-colors">
+      Descargar plantilla
+    </a>
+  </div>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-6">
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Empleados migrados</p>
+      <p class="text-2xl font-bold text-gray-900">{{ migrados }} / {{ total }}</p>
+      <div class="mt-3 h-2 rounded-full bg-gray-100 overflow-hidden">
+        <div class="h-full bg-[#00BABB]" style="width: {{ porcentaje }}%"></div>
+      </div>
+    </div>
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Pendientes</p>
+      <p class="text-2xl font-bold text-amber-500">{{ pendientes if pendientes > 0 else 0 }}</p>
+    </div>
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Con fecha de contratacion</p>
+      <p class="text-2xl font-bold text-gray-800">{{ total }}</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_420px] gap-6">
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-100">
+        <h2 class="text-base font-semibold text-gray-900">Carga masiva</h2>
+      </div>
+      <div class="p-5">
+        <form
+          hx-post="/rrhh/migracion/importar"
+          hx-target="#migracion-preview"
+          hx-swap="innerHTML"
+          hx-encoding="multipart/form-data"
+          class="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <div class="flex-1">
+            <label class="block text-xs font-medium text-gray-600 mb-1">Archivo Excel</label>
+            <input type="file" name="archivo" accept=".xlsx,.xlsm" required
+              class="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-gray-100 file:px-3 file:py-1.5 file:text-xs file:font-semibold file:text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+          </div>
+          <button type="submit"
+            class="rounded-xl bg-gray-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-gray-800 transition-colors">
+            Validar archivo
+          </button>
+        </form>
+        <div id="migracion-preview" class="mt-5"></div>
+      </div>
+    </div>
+
+    <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-100">
+        <h2 class="text-base font-semibold text-gray-900">Estado por empleado</h2>
+      </div>
+      <div class="max-h-[560px] overflow-y-auto divide-y divide-gray-50">
+        {% if empleados %}
+          {% for empleado in empleados %}
+          <div class="px-5 py-3 flex items-center justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-gray-800 truncate">{{ empleado.nombre }}</p>
+              <p class="text-xs text-gray-400 truncate">{{ empleado.email }}</p>
+            </div>
+            <span class="shrink-0 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-semibold
+              {% if empleado.ya_migrado %}bg-green-100 text-green-700{% else %}bg-gray-100 text-gray-500{% endif %}">
+              {{ "Migrado" if empleado.ya_migrado else "Pendiente" }}
+            </span>
+          </div>
+          {% endfor %}
+        {% else %}
+          <div class="px-5 py-10 text-center text-sm text-gray-400">
+            No hay empleados con fecha de contratacion.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
