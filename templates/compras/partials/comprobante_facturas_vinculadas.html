@@ -50,7 +50,9 @@
                 <tr class="text-gray-500 border-b border-orange-200">
                     <th class="text-left py-1 pr-3">UUID</th>
                     <th class="text-left py-1 pr-3">Emisor</th>
-                    <th class="text-right py-1 pr-3">Monto</th>
+                    <th class="text-right py-1 pr-3">Factura</th>
+                    <th class="text-right py-1 pr-3">Aplicado</th>
+                    <th class="text-right py-1 pr-3">Saldo factura</th>
                     <th class="text-left py-1 pr-3">Fecha</th>
                     <th class="text-left py-1 pr-3">Tipo</th>
                     {% if comprobante.estatus != 'CERRADO' %}
@@ -60,11 +62,19 @@
             </thead>
             <tbody>
                 {% for f in facturas %}
+                {% set monto_aplicado = f.monto_aplicado if f.monto_aplicado is defined else f.monto %}
+                {% set saldo_factura = f.saldo_factura if f.saldo_factura is defined else 0 %}
                 <tr class="border-b border-orange-100 hover:bg-orange-100">
                     <td class="py-1.5 pr-3 font-mono text-gray-500">{{ f.uuid_factura[:8] }}...</td>
                     <td class="py-1.5 pr-3 text-gray-700 max-w-[160px] truncate">{{ f.nombre_emisor or f.rfc_emisor or '-' }}</td>
                     <td class="py-1.5 pr-3 text-right font-medium text-gray-800">
                         ${{ "{:,.2f}".format(f.monto|float if f.monto else 0) }}
+                    </td>
+                    <td class="py-1.5 pr-3 text-right font-semibold text-gray-900">
+                        ${{ "{:,.2f}".format(monto_aplicado|float if monto_aplicado else 0) }}
+                    </td>
+                    <td class="py-1.5 pr-3 text-right text-gray-500">
+                        ${{ "{:,.2f}".format(saldo_factura|float if saldo_factura else 0) }}
                     </td>
                     <td class="py-1.5 pr-3 text-gray-500">{{ f.fecha_str if f.fecha_str is defined else '-' }}</td>
                     <td class="py-1.5 pr-3">

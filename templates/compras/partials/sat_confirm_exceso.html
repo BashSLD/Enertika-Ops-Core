@@ -1,0 +1,36 @@
+<div id="sat-confirm-exceso-banner" hx-swap-oob="innerHTML">
+  <div class="mx-0 mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-3 text-sm">
+    <p class="font-semibold text-amber-800">Diferencia de montos detectada</p>
+    <p class="mt-1 text-xs text-amber-700">{{ message }}</p>
+    <p class="mt-1 text-xs text-amber-600">Si el diferencial es correcto, confirma el monto que se aplicara a este pago.</p>
+    <form class="mt-2"
+          hx-post="{{ action_url }}"
+          hx-target="body"
+          hx-swap="none">
+      {% for inbox_id in inbox_ids %}
+      <input type="hidden" name="inbox_ids" value="{{ inbox_id }}">
+      {% endfor %}
+      <input type="hidden" name="forzar_match" value="true">
+      {% if monto_aplicado %}
+      <label class="block text-xs font-medium text-amber-900 mb-1">Monto a aplicar</label>
+      <div class="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <input type="number"
+               name="monto_aplicado"
+               value="{{ monto_aplicado }}"
+               min="0.01"
+               step="0.01"
+               class="w-full sm:w-40 rounded-md border border-amber-300 bg-white px-2 py-1.5 text-xs text-gray-900 focus:outline-none focus:ring-2 focus:ring-amber-500">
+        <button type="submit"
+                class="px-3 py-1.5 text-xs font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700">
+          Confirmar monto
+        </button>
+      </div>
+      {% else %}
+      <button type="submit"
+              class="px-3 py-1.5 text-xs font-medium text-white bg-amber-600 rounded-lg hover:bg-amber-700">
+        Confirmar de todos modos
+      </button>
+      {% endif %}
+    </form>
+  </div>
+</div>

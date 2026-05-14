@@ -1,0 +1,119 @@
+<form
+  hx-post="/rrhh/empleados/{{ usuario.id_usuario }}"
+  hx-target="this"
+  hx-swap="none"
+  class="space-y-4">
+
+  <p class="text-sm font-semibold text-gray-800">{{ usuario.nombre }}</p>
+  <p class="text-xs text-gray-400 -mt-3">{{ usuario.email }}</p>
+
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1">No. Empleado</label>
+      <input type="text" name="numero_empleado"
+        value="{{ empleado.numero_empleado if empleado else '' }}"
+        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+      {% if empleado and empleado.biotime_emp_code %}
+      <div class="mt-3">
+        <label class="block text-xs font-medium text-gray-600 mb-1">Código BioTime</label>
+        <p class="text-sm text-gray-400 px-3 py-2 bg-gray-50 rounded-xl">{{ empleado.biotime_emp_code }}</p>
+        <p class="text-xs text-gray-400 mt-1">Sincronizado desde BioTime. No editable.</p>
+      </div>
+      {% endif %}
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1">Fecha de contratación</label>
+      <input type="date" name="fecha_contratacion"
+        value="{{ empleado.fecha_contratacion.strftime('%Y-%m-%d') if empleado and empleado.fecha_contratacion else '' }}"
+        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 gap-4">
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1">Puesto</label>
+      <input type="text" name="puesto"
+        value="{{ usuario.get('puesto') or (empleado.puesto if empleado else '') }}"
+        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+    </div>
+    <div>
+      <label class="block text-xs font-medium text-gray-600 mb-1">Departamento</label>
+      <input type="text" name="departamento"
+        value="{{ empleado.departamento if (empleado and empleado.departamento) else (usuario.get('department') or '') }}"
+        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+    </div>
+  </div>
+
+  <div>
+    <label class="block text-xs font-medium text-gray-600 mb-1">Sucursal</label>
+    <select name="sucursal_id"
+      class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30 bg-white">
+      <option value="">Sin sucursal asignada</option>
+      {% for sucursal in sucursales %}
+      <option value="{{ sucursal.id }}"
+        {% if empleado and empleado.sucursal_id and empleado.sucursal_id | string == sucursal.id | string %}selected{% endif %}>
+        {{ sucursal.nombre }}
+      </option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div>
+    <label class="block text-xs font-medium text-gray-600 mb-1">Días de ajuste de vacaciones</label>
+    <input type="number" name="dias_vacaciones_ajuste" min="-30" max="30"
+      value="{{ empleado.dias_vacaciones_ajuste if empleado else 0 }}"
+      class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+    <p class="text-xs text-gray-400 mt-1">Suma o resta días al cálculo base según LFT.</p>
+  </div>
+
+  <div>
+    <label class="block text-xs font-medium text-gray-600 mb-1">Aprobador de vacaciones</label>
+    <select name="id_aprobador_vacaciones"
+      class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30 bg-white">
+      <option value="">— Sin aprobador designado —</option>
+      {% for u in usuarios %}
+      {% if u.id_usuario != usuario.id_usuario %}
+      <option value="{{ u.id_usuario }}"
+        {% if empleado and empleado.id_aprobador_vacaciones and empleado.id_aprobador_vacaciones | string == u.id_usuario | string %}selected{% endif %}>
+        {{ u.nombre }}
+      </option>
+      {% endif %}
+      {% endfor %}
+    </select>
+  </div>
+
+  <div>
+    <label class="block text-xs font-medium text-gray-600 mb-1">
+      Jefes directos
+      <span class="font-normal text-gray-400">(pueden aprobar vacaciones)</span>
+    </label>
+    <div class="border border-gray-200 rounded-xl divide-y divide-gray-50 max-h-40 overflow-y-auto">
+      {% for u in usuarios %}
+      {% if u.id_usuario != usuario.id_usuario %}
+      <label class="flex items-center gap-3 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+        <input type="checkbox" name="jefes_ids" value="{{ u.id_usuario }}"
+          {% if u.id_usuario in jefes_ids %}checked{% endif %}
+          class="rounded text-[#00BABB] focus:ring-[#00BABB]/30">
+        <span class="text-sm text-gray-700">{{ u.nombre }}</span>
+      </label>
+      {% endif %}
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="pt-2 flex gap-3">
+    <button type="submit"
+      :disabled="saving"
+      x-text="saving ? 'Guardando...' : 'Guardar cambios'"
+      class="flex-1 bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
+      Guardar cambios
+    </button>
+  </div>
+</form>
+
+<div id="migracion-empleado-{{ usuario.id_usuario }}"
+     hx-get="/rrhh/empleados/{{ usuario.id_usuario }}/migracion-historial"
+     hx-trigger="load"
+     hx-swap="outerHTML">
+  <div class="mt-4 h-12 bg-gray-50 rounded-xl animate-pulse"></div>
+</div>

@@ -7,7 +7,9 @@ basados en reglas configuradas en tb_config_emails (Admin Dashboard).
 Siempre incluye las reglas GLOBAL + las del módulo específico.
 """
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, List
+
+from core.email_rules_db_service import EmailRulesDBService, get_email_rules_db_service
 
 logger = logging.getLogger("Core.EmailRules")
 
@@ -29,6 +31,9 @@ class EmailRulesService:
         emails = await rules_svc.get_emails_by_record(conn, 'COMERCIAL', record_dict)
         # -> {"to": ["a@x.com"], "cc": ["b@x.com"]}
     """
+
+    def __init__(self, db: EmailRulesDBService | None = None):
+        self.db = db or get_email_rules_db_service()
 
     # Mapeo de nombre legible (trigger_field en BD) -> columna real en el registro
     FIELD_MAPPING = {
@@ -52,14 +57,7 @@ class EmailRulesService:
         Returns:
             Dict con claves 'to', 'cc', 'cco', cada una con lista de emails.
         """
-        rows = await conn.fetch("""
-            SELECT email_to_add, type
-            FROM tb_config_emails
-            WHERE modulo        IN ($1, 'GLOBAL')
-              AND trigger_field = 'EVENTO'
-              AND trigger_value = $2
-            ORDER BY email_to_add
-        """, modulo, evento)
+        rows = await self.db.get_event_rules(conn, modulo, evento)
 
         result = {"to": [], "cc": [], "cco": []}
         for r in rows:
@@ -97,10 +95,7 @@ class EmailRulesService:
         Returns:
             Dict con claves 'to' y 'cc', cada una con lista de emails que aplican.
         """
-        rules = await conn.fetch(
-            "SELECT * FROM tb_config_emails WHERE modulo IN ($1, 'GLOBAL')",
-            modulo
-        )
+        rules = await self.db.get_module_rules(conn, modulo)
 
         result = {"to": [], "cc": []}
 

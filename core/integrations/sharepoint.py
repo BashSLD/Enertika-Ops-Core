@@ -1,14 +1,13 @@
 import logging
 from typing import Optional, Dict
-from uuid import UUID
+import asyncpg
 import httpx
-from datetime import datetime
-import os
 import urllib.parse
 from fastapi import UploadFile
 
 from core.microsoft import get_ms_auth
 from core.config import settings
+from core.integrations.db_service import get_integrations_db_service
 
 logger = logging.getLogger("SharePointService")
 
@@ -50,17 +49,15 @@ class SharePointService:
         # Intentar leer de BD si hay conexión
         if conn:
             try:
-                db_config = await conn.fetch("""
-                    SELECT clave, valor FROM tb_configuracion_global 
-                    WHERE clave IN ('SHAREPOINT_SITE_ID', 'SHAREPOINT_DRIVE_ID')
-                """)
-                for row in db_config:
-                    if row['valor'] and row['valor'].strip():
-                        if row['clave'] == 'SHAREPOINT_SITE_ID':
-                            config['site_id'] = row['valor'].strip()
-                        elif row['clave'] == 'SHAREPOINT_DRIVE_ID':
-                            config['drive_id'] = row['valor'].strip()
-            except Exception as e:
+                db_config = await get_integrations_db_service().get_config_values(
+                    conn,
+                    ("SHAREPOINT_SITE_ID", "SHAREPOINT_DRIVE_ID"),
+                )
+                if db_config.get("SHAREPOINT_SITE_ID"):
+                    config["site_id"] = db_config["SHAREPOINT_SITE_ID"]
+                if db_config.get("SHAREPOINT_DRIVE_ID"):
+                    config["drive_id"] = db_config["SHAREPOINT_DRIVE_ID"]
+            except asyncpg.PostgresError as e:
                 logger.warning(f"No se pudo leer configuración de BD: {e}")
                 
         return config
@@ -175,7 +172,7 @@ class SharePointService:
                 
             upload_url = resp.json().get("uploadUrl")
             if not upload_url:
-                raise Exception("No se obtuvo uploadUrl de Graph API")
+                raise RuntimeError("No se obtuvo uploadUrl de Graph API")
             
             # 2. Subir por chunks
             # Graph recomienda 320 KiB * N. Usaremos 320 KB * 10 = ~3.2 MB chunks
@@ -212,7 +209,7 @@ class SharePointService:
                         
                         if put_resp.status_code not in (200, 201, 202):
                             logger.error(f"Error subiendo chunk {range_header}: {put_resp.text}")
-                            raise Exception(f"Fallo en chunk upload: {put_resp.status_code}")
+                            raise RuntimeError(f"Fallo en chunk upload: {put_resp.status_code}")
                         
                         bytes_sent += chunk_len
                         # logger.info(f"Chunk subido: {range_header}") # Verbose
@@ -230,12 +227,12 @@ class SharePointService:
                                 "parentReference": data.get("parentReference", {}) 
                             }
                             
-                    except Exception as e:
+                    except (httpx.HTTPError, OSError, RuntimeError, ValueError) as e:
                         logger.error(f"Excepción subiendo chunk {range_header}: {e}")
                         raise
 
             # Si llegamos aquí sin retorno final
-            raise Exception("Upload finalizado pero no se recibió confirmación 200/201")
+            raise RuntimeError("Upload finalizado pero no se recibió confirmación 200/201")
     
     @staticmethod
     def _sanitize_filename(filename: str) -> str:
@@ -275,7 +272,7 @@ class SharePointService:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.put(url, headers=headers, content=content)
             if resp.status_code not in (200, 201):
-                raise Exception(f"Error subiendo {safe_filename}: HTTP {resp.status_code} - {resp.text[:200]}")
+                raise RuntimeError(f"Error subiendo {safe_filename}: HTTP {resp.status_code} - {resp.text[:200]}")
             data = resp.json()
             return {"id": data.get("id"), "webUrl": data.get("webUrl"), "name": data.get("name")}
 
@@ -369,7 +366,7 @@ class SharePointService:
         async with httpx.AsyncClient(timeout=60.0) as client:
             resp = await client.put(url, headers=headers, content=content)
             if resp.status_code not in (200, 201):
-                raise Exception(f"Error subiendo {safe_filename}: HTTP {resp.status_code} - {resp.text[:200]}")
+                raise RuntimeError(f"Error subiendo {safe_filename}: HTTP {resp.status_code} - {resp.text[:200]}")
             data = resp.json()
             return {"id": data.get("id"), "webUrl": data.get("webUrl"), "name": data.get("name")}
 

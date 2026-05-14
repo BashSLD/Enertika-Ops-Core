@@ -564,12 +564,45 @@ class ComprasDBService:
         )
         return bool(exists)
 
+    async def uuid_factura_exists_for_comprobante(
+        self, conn, id_comprobante: UUID, uuid_factura: str
+    ) -> bool:
+        """Verifica si el UUID ya esta vinculado al comprobante indicado."""
+        exists = await conn.fetchval("""
+            SELECT 1
+            FROM tb_comprobante_facturas
+            WHERE id_comprobante = $1 AND uuid_factura = $2
+        """, id_comprobante, uuid_factura)
+        if exists:
+            return True
+
+        exists_legacy = await conn.fetchval("""
+            SELECT 1
+            FROM tb_comprobantes_pago
+            WHERE id_comprobante = $1 AND uuid_factura = $2::uuid
+        """, id_comprobante, uuid_factura)
+        return bool(exists_legacy)
+
+    async def get_factura_aplicacion_resumen(self, conn, uuid_factura: str) -> dict:
+        """Monto total y aplicado de una factura en todos los comprobantes."""
+        row = await conn.fetchrow("""
+            SELECT
+                COALESCE(MAX(monto), 0) AS monto_factura,
+                COALESCE(SUM(COALESCE(monto_aplicado, monto, 0)), 0) AS monto_aplicado
+            FROM tb_comprobante_facturas
+            WHERE uuid_factura = $1
+        """, uuid_factura)
+        return dict(row) if row else {"monto_factura": Decimal("0"), "monto_aplicado": Decimal("0")}
+
     async def confirmar_match(
         self, conn, id_comprobante: UUID, uuid_factura: str,
         id_proveedor: UUID, tipo_factura: str = "NORMAL",
         current_estatus: Optional[str] = None,
         monto_factura: Decimal = Decimal("0"),
         id_comprobante_anticipo: Optional[UUID] = None,
+        monto_comprobante: Optional[Decimal] = None,
+        monto_acumulado: Optional[Decimal] = None,
+        monto_aplicado: Optional[Decimal] = None,
     ):
         """Actualiza comprobante con datos de la factura XML.
 
@@ -585,6 +618,7 @@ class ComprasDBService:
         """
         tolerancia = Decimal("0.50")
         es_anticipo = tipo_factura == "ANTICIPO"
+        monto_movimiento = Decimal(str(monto_aplicado if monto_aplicado is not None else monto_factura))
 
         if tipo_factura == "NOTA_CREDITO":
             nuevo_estatus = current_estatus or "FACTURADO"
@@ -612,20 +646,26 @@ class ComprasDBService:
                     monto_facturado = monto_facturado + $4,
                     updated_at = NOW()
                 WHERE id_comprobante = $5
-            """, uuid_factura, id_proveedor, tipo_factura, monto_factura, id_comprobante)
+            """, uuid_factura, id_proveedor, tipo_factura, monto_movimiento, id_comprobante)
             return
 
         if tipo_factura == "CIERRE_ANTICIPO":
-            row = await conn.fetchrow("""
-                SELECT monto
-                FROM tb_comprobantes_pago
-                WHERE id_comprobante = $1
-            """, id_comprobante)
-            monto_total = row['monto'] if row else Decimal("0")
-            monto_cierre = min(monto_factura, monto_total)
+            if monto_comprobante is not None and monto_acumulado is not None:
+                monto_total = monto_comprobante
+                monto_nuevo = monto_acumulado + monto_movimiento
+            else:
+                row = await conn.fetchrow("""
+                    SELECT monto, COALESCE(monto_facturado, 0) AS monto_facturado
+                    FROM tb_comprobantes_pago
+                    WHERE id_comprobante = $1
+                """, id_comprobante)
+                row_data = dict(row) if row else {}
+                monto_total = row_data.get('monto', Decimal("0"))
+                monto_nuevo = Decimal(str(row_data.get('monto_facturado') or 0))
+                monto_nuevo += monto_movimiento
             nuevo_estatus = (
                 "FACTURADO"
-                if monto_cierre >= monto_total - tolerancia
+                if monto_nuevo >= monto_total - tolerancia
                 else "PARCIALMENTE_FACTURADO"
             )
 
@@ -641,7 +681,7 @@ class ComprasDBService:
                     updated_at = NOW()
                 WHERE id_comprobante = $7
             """, uuid_factura, id_proveedor, tipo_factura, id_comprobante_anticipo,
-                nuevo_estatus, monto_cierre, id_comprobante)
+                nuevo_estatus, monto_nuevo, id_comprobante)
             return
 
         # NORMAL: calcular si cubre el pago completo
@@ -650,7 +690,8 @@ class ComprasDBService:
             FROM tb_comprobantes_pago
             WHERE id_comprobante = $1
         """, id_comprobante)
-        nuevo_monto_facturado = row['monto_facturado'] + monto_factura
+        monto_actual = Decimal(str(row['monto_facturado'] or 0))
+        nuevo_monto_facturado = monto_actual + monto_movimiento
         if nuevo_monto_facturado >= row['monto'] - tolerancia:
             nuevo_estatus = "FACTURADO"
         else:
@@ -971,6 +1012,7 @@ class ComprasDBService:
     async def insertar_comprobante_factura(
         self, conn, id_comprobante: UUID, uuid_factura: str,
         tipo: str, monto: Optional[Decimal] = None,
+        monto_aplicado: Optional[Decimal] = None,
         moneda: str = "MXN", fecha: Optional[date] = None,
         id_proveedor: Optional[UUID] = None,
         rfc_emisor: Optional[str] = None,
@@ -979,11 +1021,11 @@ class ComprasDBService:
         """Inserta registro en junction table. ON CONFLICT DO NOTHING."""
         await conn.execute("""
             INSERT INTO tb_comprobante_facturas
-                (id_comprobante, uuid_factura, tipo, monto, moneda,
+                (id_comprobante, uuid_factura, tipo, monto, monto_aplicado, moneda,
                  fecha, id_proveedor, rfc_emisor, nombre_emisor)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
             ON CONFLICT (id_comprobante, uuid_factura) DO NOTHING
-        """, id_comprobante, uuid_factura, tipo, monto, moneda,
+        """, id_comprobante, uuid_factura, tipo, monto, monto_aplicado, moneda,
             fecha, id_proveedor, rfc_emisor, nombre_emisor)
 
     async def get_facturas_comprobante(
@@ -991,9 +1033,23 @@ class ComprasDBService:
     ) -> List[dict]:
         """Todas las facturas asociadas a un comprobante."""
         rows = await conn.fetch("""
-            SELECT uuid_factura, tipo, monto, moneda, fecha,
-                   rfc_emisor, nombre_emisor, created_at
-            FROM tb_comprobante_facturas
+            WITH facturas AS (
+                SELECT
+                    id_comprobante, uuid_factura, tipo, monto,
+                    COALESCE(monto_aplicado, monto, 0) AS monto_aplicado,
+                    GREATEST(
+                        COALESCE(MAX(monto) OVER (PARTITION BY uuid_factura), 0)
+                        - COALESCE(SUM(COALESCE(monto_aplicado, monto, 0)) OVER (PARTITION BY uuid_factura), 0),
+                        0
+                    ) AS saldo_factura,
+                    moneda, fecha, rfc_emisor, nombre_emisor, created_at
+                FROM tb_comprobante_facturas
+            )
+            SELECT
+                uuid_factura, tipo, monto,
+                monto_aplicado, saldo_factura,
+                moneda, fecha, rfc_emisor, nombre_emisor, created_at
+            FROM facturas
             WHERE id_comprobante = $1
             ORDER BY created_at
         """, id_comprobante)
@@ -1010,9 +1066,23 @@ class ComprasDBService:
         if not ids:
             return {}
         rows = await conn.fetch("""
-            SELECT id_comprobante, uuid_factura, tipo, monto, moneda,
-                   fecha, rfc_emisor, nombre_emisor
-            FROM tb_comprobante_facturas
+            WITH facturas AS (
+                SELECT
+                    id_comprobante, uuid_factura, tipo, monto,
+                    COALESCE(monto_aplicado, monto, 0) AS monto_aplicado,
+                    GREATEST(
+                        COALESCE(MAX(monto) OVER (PARTITION BY uuid_factura), 0)
+                        - COALESCE(SUM(COALESCE(monto_aplicado, monto, 0)) OVER (PARTITION BY uuid_factura), 0),
+                        0
+                    ) AS saldo_factura,
+                    moneda, fecha, rfc_emisor, nombre_emisor, created_at
+                FROM tb_comprobante_facturas
+            )
+            SELECT
+                id_comprobante, uuid_factura, tipo, monto,
+                monto_aplicado, saldo_factura,
+                moneda, fecha, rfc_emisor, nombre_emisor
+            FROM facturas
             WHERE id_comprobante = ANY($1)
             ORDER BY id_comprobante, created_at
         """, ids)
@@ -1136,7 +1206,7 @@ class ComprasDBService:
 
         # Recalcular monto_facturado desde junction
         nuevo_total = await conn.fetchval("""
-            SELECT COALESCE(SUM(monto), 0)
+            SELECT COALESCE(SUM(COALESCE(monto_aplicado, monto, 0)), 0)
             FROM tb_comprobante_facturas
             WHERE id_comprobante = $1
         """, id_comprobante)

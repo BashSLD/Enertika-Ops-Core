@@ -61,7 +61,7 @@ class AdminDBService:
             role, user_id
         )
 
-    async def update_user_department(self, conn, user_id: UUID, department_name: str) -> None:
+    async def update_user_department(self, conn, user_id: UUID, department_name: Optional[str]) -> None:
         """Actualiza el departamento de un usuario."""
         await conn.execute(
             "UPDATE tb_usuarios SET department = $1 WHERE id_usuario = $2",
@@ -426,6 +426,7 @@ class AdminDBService:
         "tb_cat_tipos_solicitud",
         "tb_cat_estatus_oportunidades",
         "tb_cat_origenes_adjuntos",
+        "tb_cat_zonas_compra",
     })
 
     async def toggle_catalogo_status(self, conn, table: str, item_id: int, new_status: bool) -> None:
@@ -450,6 +451,64 @@ class AdminDBService:
             new_status, item_id
         )
 
+    # ========================================
+    # UBICACIONES (Sucursales + Zonas de Compra)
+    # ========================================
+
+    async def fetch_sucursales(self, conn) -> list:
+        rows = await conn.fetch(
+            "SELECT id, codigo, nombre, activa FROM tb_cat_sucursales ORDER BY nombre"
+        )
+        return [dict(r) for r in rows]
+
+    async def insert_sucursal(self, conn, codigo: str, nombre: str) -> None:
+        await conn.execute(
+            "INSERT INTO tb_cat_sucursales (id, codigo, nombre, activa) VALUES (gen_random_uuid(), $1, $2, true)",
+            codigo, nombre,
+        )
+
+    async def toggle_sucursal(self, conn, sucursal_id: str, new_status: bool) -> None:
+        await conn.execute(
+            "UPDATE tb_cat_sucursales SET activa = $1 WHERE id = $2::uuid",
+            new_status, sucursal_id,
+        )
+
+    async def fetch_zonas_compra(self, conn) -> list:
+        rows = await conn.fetch(
+            "SELECT id, nombre, activo, orden FROM tb_cat_zonas_compra ORDER BY orden, nombre"
+        )
+        return [dict(r) for r in rows]
+
+    async def insert_zona_compra(self, conn, nombre: str, orden: int) -> None:
+        await conn.execute(
+            "INSERT INTO tb_cat_zonas_compra (nombre, activo, orden) VALUES ($1, true, $2)",
+            nombre, orden,
+        )
+
+    async def fetch_users_missing_profile(self, conn) -> list:
+        rows = await conn.fetch("""
+            SELECT id_usuario, refresh_token
+            FROM tb_usuarios
+            WHERE is_active = TRUE
+              AND refresh_token IS NOT NULL
+              AND (puesto IS NULL OR department IS NULL)
+        """)
+        return [dict(r) for r in rows]
+
+    async def update_user_ms_profile(
+        self, conn, user_id: UUID,
+        department: Optional[str], puesto: Optional[str],
+        access_token: str, refresh_token: str, token_expires_at: int,
+    ) -> None:
+        await conn.execute("""
+            UPDATE tb_usuarios
+            SET department       = COALESCE($2, department),
+                puesto           = COALESCE($3, puesto),
+                access_token     = $4,
+                refresh_token    = $5,
+                token_expires_at = $6
+            WHERE id_usuario = $1
+        """, user_id, department, puesto, access_token, refresh_token, token_expires_at)
 
     # ========================================
     # CONFIGURACION UMBRALES KPI

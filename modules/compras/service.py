@@ -9,7 +9,7 @@ from datetime import datetime, date
 from core.timezone import today_mx, now_mx
 from typing import List, Dict, Optional, Tuple, Any
 from fastapi import HTTPException
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import logging
 import time
 import json
@@ -26,6 +26,18 @@ logger = logging.getLogger("ComprasService")
 
 # Tolerancia de matching por monto (pesos/dolares)
 MATCH_TOLERANCIA = Decimal("0.50")
+
+
+def _to_decimal(value) -> Decimal:
+    return Decimal(str(value or 0))
+
+
+def _saldo_factura_desde_resumen(total_cfdi, factura_resumen: dict) -> Decimal:
+    monto_factura_base = max(
+        _to_decimal(total_cfdi),
+        _to_decimal(factura_resumen.get('monto_factura')),
+    )
+    return monto_factura_base - _to_decimal(factura_resumen.get('monto_aplicado'))
 
 
 def _es_concepto_producto(clave: str | None) -> bool:
@@ -448,7 +460,8 @@ class ComprasService:
         headers2 = [
             "Fecha de Pago", "Comprador", "Proveedor", "Proyecto",
             "Estatus Comprobante", "Monto Comprobante", "Moneda",
-            "UUID Factura", "Tipo", "Monto Factura", "Fecha Factura", "RFC Emisor", "Nombre Emisor",
+            "UUID Factura", "Tipo", "Monto Factura", "Monto Aplicado",
+            "Saldo Factura", "Estatus Factura", "Fecha Factura", "RFC Emisor", "Nombre Emisor",
         ]
         write_header_row(ws2, headers2)
 
@@ -464,6 +477,13 @@ class ComprasService:
 
             for f in comp_facturas:
                 fecha_factura_str = f.get('fecha').strftime("%d/%m/%Y") if f.get('fecha') else ''
+                monto_factura = float(f.get('monto') or 0)
+                monto_aplicado_val = f.get('monto_aplicado')
+                if monto_aplicado_val is None:
+                    monto_aplicado_val = f.get('monto')
+                monto_aplicado = float(monto_aplicado_val or 0)
+                saldo_factura = float(f.get('saldo_factura') or 0)
+                estatus_factura = "Cubierta" if saldo_factura <= 0.005 else "Parcial"
                 row_data2 = [
                     fecha_pago,
                     comp.get('comprador_nombre', ''),
@@ -474,7 +494,10 @@ class ComprasService:
                     comp.get('moneda', 'MXN'),
                     str(f.get('uuid_factura', '')),
                     TIPOS_ES.get(f.get('tipo') or 'NORMAL', f.get('tipo', '')),
-                    float(f.get('monto') or 0),
+                    monto_factura,
+                    monto_aplicado,
+                    saldo_factura,
+                    estatus_factura,
                     fecha_factura_str,
                     f.get('rfc_emisor', ''),
                     f.get('nombre_emisor', ''),
@@ -482,12 +505,12 @@ class ComprasService:
                 for col_num, value in enumerate(row_data2, 1):
                     cell = ws2.cell(row=row_num2, column=col_num, value=value)
                     cell.border = thin_border
-                    if col_num in (6, 10):
+                    if col_num in (6, 10, 11, 12):
                         cell.number_format = num_fmt
                         cell.alignment = right_align
                 row_num2 += 1
 
-        col_widths2 = [15, 20, 35, 30, 22, 16, 10, 38, 14, 15, 14, 18, 40]
+        col_widths2 = [15, 20, 35, 30, 22, 16, 10, 38, 14, 15, 15, 15, 15, 14, 18, 40]
         for i, w in enumerate(col_widths2, 1):
             ws2.column_dimensions[get_column_letter(i)].width = w
         ws2.freeze_panes = "A2"
@@ -629,19 +652,26 @@ class ComprasService:
                 ))
                 continue
 
-            # 4. Verificar UUID duplicado (en comprobantes y junction table)
-            if await db_svc.uuid_factura_exists(conn, cfdi.uuid):
-                result.duplicados.append(XmlUploadError(
-                    archivo=filename,
-                    error=f"UUID {cfdi.uuid[:8]}... ya existe en el sistema"
-                ))
-                continue
-            if await db_svc.uuid_factura_exists_in_junction(conn, cfdi.uuid):
-                result.duplicados.append(XmlUploadError(
-                    archivo=filename,
-                    error=f"UUID {cfdi.uuid[:8]}... ya registrado en facturas"
-                ))
-                continue
+            # 4. Verificar UUID duplicado. Una factura ya vinculada puede volver
+            # a usarse si conserva saldo pendiente por aplicar.
+            existe_legacy = await db_svc.uuid_factura_exists(conn, cfdi.uuid)
+            existe_junction = await db_svc.uuid_factura_exists_in_junction(conn, cfdi.uuid)
+            if existe_legacy or existe_junction:
+                if not existe_junction:
+                    result.duplicados.append(XmlUploadError(
+                        archivo=filename,
+                        error=f"UUID {cfdi.uuid[:8]}... ya existe en el sistema"
+                    ))
+                    continue
+
+                factura_resumen = await db_svc.get_factura_aplicacion_resumen(conn, cfdi.uuid)
+                saldo_factura = _saldo_factura_desde_resumen(cfdi.total, factura_resumen)
+                if saldo_factura <= MATCH_TOLERANCIA:
+                    result.duplicados.append(XmlUploadError(
+                        archivo=filename,
+                        error=f"UUID {cfdi.uuid[:8]}... ya esta cubierta por pagos relacionados"
+                    ))
+                    continue
 
             # 5. Buscar/crear proveedor
             proveedor = await db_svc.get_proveedor_by_rfc(conn, cfdi.emisor_rfc)
@@ -824,7 +854,8 @@ class ComprasService:
         cfdi_data: dict,
         id_comprobante: UUID,
         user_id: UUID,
-        guardar_relacion: bool = True
+        guardar_relacion: bool = True,
+        forzar_match: bool = False,
     ) -> dict:
         """
         Confirma el match entre un XML y un comprobante de pago.
@@ -847,11 +878,8 @@ class ComprasService:
         emisor_rfc = cfdi_data['emisor_rfc']
         tipo_factura = cfdi_data.get('tipo_factura', 'NORMAL')
 
-        # Verificar UUID duplicado (doble check en comprobantes y junction)
-        if await db_svc.uuid_factura_exists(conn, uuid_factura):
-            raise ValueError(f"UUID {uuid_factura[:8]}... ya existe en el sistema")
-        if await db_svc.uuid_factura_exists_in_junction(conn, uuid_factura):
-            raise ValueError(f"UUID {uuid_factura[:8]}... ya registrado en facturas")
+        if await db_svc.uuid_factura_exists_for_comprobante(conn, id_comprobante, uuid_factura):
+            raise ValueError(f"UUID {uuid_factura[:8]}... ya esta vinculado a este comprobante")
 
         # Obtener/crear proveedor
         proveedor = await db_svc.get_proveedor_by_rfc(conn, emisor_rfc)
@@ -881,6 +909,7 @@ class ComprasService:
         monto_pago = Decimal(str(comprobante['monto']))
         monto_ya_facturado = Decimal(str(comprobante.get('monto_facturado') or 0))
         tolerancia_monto = Decimal("0.50")
+        saldo_comprobante = monto_pago - monto_ya_facturado
 
         relacionados = cfdi_data.get('relacionados', [])
         id_comprobante_anticipo = None
@@ -937,16 +966,59 @@ class ComprasService:
                 )
                 id_comprobante_anticipo = id_comprobante
 
+        factura_resumen = await db_svc.get_factura_aplicacion_resumen(conn, uuid_factura)
+        saldo_factura = _saldo_factura_desde_resumen(monto_factura, factura_resumen)
+
+        monto_aplicado_raw = cfdi_data.get("monto_aplicado")
+        monto_aplicado_editado = monto_aplicado_raw not in (None, "")
+
+        if tipo_factura in ("NOTA_CREDITO", "PAGO"):
+            monto_aplicado = Decimal("0")
+        else:
+            if saldo_comprobante <= Decimal("0"):
+                raise ValueError("El comprobante ya no tiene saldo disponible para aplicar facturas")
+            if saldo_factura <= Decimal("0"):
+                raise ValueError(f"UUID {uuid_factura[:8]}... ya esta cubierto por otros pagos")
+
+            monto_aplicado_sugerido = min(saldo_comprobante, saldo_factura)
+            if monto_aplicado_editado:
+                try:
+                    monto_aplicado = Decimal(str(monto_aplicado_raw))
+                except (InvalidOperation, ValueError, TypeError):
+                    raise ValueError("El monto a aplicar no es valido")
+                if monto_aplicado <= Decimal("0"):
+                    raise ValueError("El monto a aplicar debe ser mayor a cero")
+                if monto_aplicado > saldo_comprobante + tolerancia_monto:
+                    raise ValueError(
+                        f"El monto a aplicar excede el saldo del comprobante "
+                        f"(${saldo_comprobante:,.2f})"
+                    )
+                if monto_aplicado > saldo_factura + tolerancia_monto:
+                    raise ValueError(
+                        f"El monto a aplicar excede el saldo de la factura "
+                        f"(${saldo_factura:,.2f})"
+                    )
+                monto_aplicado = min(monto_aplicado, saldo_comprobante, saldo_factura)
+            else:
+                monto_aplicado = monto_aplicado_sugerido
+
         # Validar anti-sobrefacturacion
         if tipo_factura not in ('NOTA_CREDITO', 'ANTICIPO', 'PAGO', 'CIERRE_ANTICIPO'):
             proyectado = monto_ya_facturado + monto_factura
             if proyectado > monto_pago + tolerancia_monto:
                 exceso = proyectado - monto_pago
-                raise ValueError(
-                    f"La factura excede el monto del pago por ${exceso:,.2f} "
-                    f"(ya facturado: ${monto_ya_facturado:,.2f}, "
-                    f"nueva factura: ${monto_factura:,.2f}, "
-                    f"pago total: ${monto_pago:,.2f})"
+                if not forzar_match and not monto_aplicado_editado:
+                    raise ValueError(
+                        f"EXCESO_MONTO|{exceso:.2f}|{monto_aplicado:.2f}|"
+                        f"La factura excede el monto del pago por ${exceso:,.2f} "
+                        f"(ya facturado: ${monto_ya_facturado:,.2f}, "
+                        f"nueva factura: ${monto_factura:,.2f}, "
+                        f"pago total: ${monto_pago:,.2f}). "
+                        f"Se aplicara ${monto_aplicado:,.2f} si confirmas."
+                    )
+                logger.warning(
+                    "Match con monto aplicado menor al CFDI: comprobante=%s exceso=$%s aplicado=$%s user=%s",
+                    id_comprobante, f"{exceso:.2f}", f"{monto_aplicado:.2f}", user_id,
                 )
 
         # 1. Insertar en junction table PRIMERO (confirmar_match lee desde aqui)
@@ -959,6 +1031,7 @@ class ComprasService:
         await db_svc.insertar_comprobante_factura(
             conn, id_comprobante, uuid_factura, tipo_factura,
             monto=monto_factura,
+            monto_aplicado=monto_aplicado,
             moneda=cfdi_moneda,
             fecha=fecha_factura,
             id_proveedor=id_proveedor,
@@ -971,6 +1044,9 @@ class ComprasService:
             conn, id_comprobante, uuid_factura, id_proveedor,
             tipo_factura, current_estatus, monto_factura,
             id_comprobante_anticipo=id_comprobante_anticipo,
+            monto_comprobante=monto_pago,
+            monto_acumulado=monto_ya_facturado,
+            monto_aplicado=monto_aplicado,
         )
 
         # 2. Guardar relaciones beneficiario↔proveedor (bidireccional)
@@ -1117,6 +1193,7 @@ class ComprasService:
         monto_facturado_nuevo = float(comprobante_actualizado.get('monto_facturado') or 0) if comprobante_actualizado else 0.0
         monto_pago_total = float(comprobante_actualizado.get('monto') or 0) if comprobante_actualizado else 0.0
         saldo_pendiente = monto_pago_total - monto_facturado_nuevo
+        saldo_factura_final = max(saldo_factura - monto_aplicado, Decimal("0"))
 
         logger.info(
             "Match confirmado: UUID=%s, Comprobante=%s, Proveedor=%s, Tipo=%s, Estatus=%s",
@@ -1139,8 +1216,10 @@ class ComprasService:
             "nuevo_estatus": nuevo_estatus,
             "es_parcial": nuevo_estatus == "PARCIALMENTE_FACTURADO",
             "monto_facturado": monto_facturado_nuevo,
+            "monto_aplicado": float(monto_aplicado),
             "monto_total": monto_pago_total,
             "saldo_pendiente": saldo_pendiente,
+            "saldo_factura": float(saldo_factura_final),
         }
 
     async def buscar_comprobantes_pendientes(
@@ -1180,8 +1259,9 @@ class ComprasService:
         db_svc = get_db_service()
         rows = await db_svc.get_facturas_comprobante(conn, id_comprobante)
         for r in rows:
-            if 'monto' in r and isinstance(r['monto'], Decimal):
-                r['monto'] = float(r['monto'])
+            for field in ('monto', 'monto_aplicado', 'saldo_factura'):
+                if field in r and isinstance(r[field], Decimal):
+                    r[field] = float(r[field])
             if 'fecha' in r and r['fecha'] and hasattr(r['fecha'], 'strftime'):
                 r['fecha_str'] = r['fecha'].strftime('%d/%m/%Y')
         return rows
@@ -1193,8 +1273,8 @@ class ComprasService:
         from .db_service import get_db_service
         db_svc = get_db_service()
 
-        # Verificar que la factura existe en la junction
-        exists = await db_svc.uuid_factura_exists_in_junction(conn, uuid_factura)
+        # Verificar que la factura existe en este comprobante
+        exists = await db_svc.uuid_factura_exists_for_comprobante(conn, id_comprobante, uuid_factura)
         if not exists:
             raise ValueError("La factura no esta vinculada a este comprobante")
 

@@ -1,0 +1,112 @@
+{% if toast_msg %}
+{% with type=toast_type, title="Aviso", message=toast_msg %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+{% if not balance.periodos %}
+<div class="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+  Tu perfil de empleado aún no tiene fecha de contratación configurada.
+  Contacta a RH para que registren tus datos laborales.
+</div>
+{% else %}
+
+{# ── Barra de progreso ── #}
+{% if balance.progreso %}
+{% set p = balance.progreso %}
+<div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-5 mb-5">
+  <div class="flex items-start justify-between mb-3">
+    <div>
+      <p class="text-sm font-semibold text-gray-700">
+        Progreso período {{ p.numero_periodo_actual }} ({{ p.fecha_proximo_aniversario.year }})
+      </p>
+      <p class="text-xs text-gray-400 mt-0.5">
+        {{ p.dias_transcurridos }} días desde tu último aniversario
+        ({{ p.fecha_ultimo_aniversario.strftime('%d/%m/%Y') }})
+      </p>
+    </div>
+    <span class="text-sm font-bold text-[#00BABB]">{{ p.porcentaje }}%</span>
+  </div>
+  <div class="w-full bg-gray-100 rounded-full h-2.5 mb-2">
+    <div class="bg-[#00BABB] h-2.5 rounded-full transition-all duration-500"
+         style="width: {{ p.porcentaje }}%"></div>
+  </div>
+  <p class="text-xs text-gray-500">
+    {{ p.dias_proporcionales }} de {{ p.dias_proximo_periodo }} días ganados proporcionalmente
+  </p>
+</div>
+{% endif %}
+
+{# ── Tabla de períodos ── #}
+<div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mb-5">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <h2 class="text-sm font-semibold text-gray-700">Mis Períodos</h2>
+  </div>
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+        <tr>
+          <th class="px-4 py-2.5 text-left">Período</th>
+          <th class="px-4 py-2.5 text-right">Días</th>
+          <th class="px-4 py-2.5 text-right">Usados</th>
+          <th class="px-4 py-2.5 text-right">Restantes</th>
+          <th class="px-4 py-2.5 text-left">Expira</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for p in balance.periodos %}
+        <tr class="{{ 'bg-amber-50' if p.alerta and p.dias_para_expiracion < 30 else 'bg-yellow-50/50' if p.alerta else '' }}">
+          <td class="px-4 py-3 text-gray-700">
+            {% if p.es_proximo %}
+              <span class="text-gray-400 italic">{{ p.periodo }} (próximo)</span>
+            {% else %}
+              {{ p.periodo }}
+            {% endif %}
+          </td>
+          <td class="px-4 py-3 text-right text-gray-700">{{ p.dias_otorgados }}</td>
+          <td class="px-4 py-3 text-right text-gray-500">{{ p.dias_usados }}</td>
+          <td class="px-4 py-3 text-right font-semibold {{ 'text-red-600' if p.dias_restantes < 0 else 'text-gray-900' }}">
+            {{ p.dias_restantes }}
+          </td>
+          <td class="px-4 py-3 text-gray-500 text-xs">
+            {% if not p.es_proximo %}
+              {% if p.expirado %}
+                <span class="text-red-500 font-semibold">Expirado</span>
+              {% elif p.dias_para_expiracion is not none %}
+                {{ p.fecha_expiracion.strftime('%d/%m/%Y') }}
+                {% if p.alerta %}
+                  <span class="{{ 'text-red-500' if p.dias_para_expiracion < 30 else 'text-amber-500' }} font-semibold ml-1">
+                    ({{ p.dias_para_expiracion }}d)
+                  </span>
+                {% endif %}
+              {% endif %}
+            {% else %}
+              —
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
+    <span class="text-xs text-gray-500">Total disponible</span>
+    <span class="text-sm font-bold text-gray-900">{{ balance.total_disponible }} días hábiles</span>
+  </div>
+</div>
+
+{# ── Alertas de expiración ── #}
+{% for p in balance.periodos if p.alerta and not p.es_proximo %}
+<div class="flex items-start gap-3 rounded-xl border p-4 mb-3
+  {{ 'bg-red-50 border-red-200 text-red-800' if p.dias_para_expiracion < 30 else 'bg-amber-50 border-amber-200 text-amber-800' }}">
+  <svg class="w-5 h-5 flex-shrink-0 mt-0.5" fill="currentColor" viewBox="0 0 20 20">
+    <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
+  </svg>
+  <div class="text-sm">
+    <p class="font-semibold">Período {{ p.periodo }}: {{ p.dias_restantes }} días restantes</p>
+    <p>Expiran el {{ p.fecha_expiracion.strftime('%d/%m/%Y') }} (en {{ p.dias_para_expiracion }} días). ¡Úsalos antes de que venzan!</p>
+  </div>
+</div>
+{% endfor %}
+
+{% endif %}

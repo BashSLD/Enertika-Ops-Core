@@ -1,26 +1,26 @@
 """
-Router Centralizado de Comentarios
-Endpoints compartidos por todos los módulos para gestión de comentarios
+Router centralizado de comentarios y detalle de oportunidades.
+
+El router solo recibe HTTP, valida errores esperados y renderiza templates.
+La logica de negocio vive en WorkflowService y el SQL en WorkflowDBService.
 """
 
-from fastapi import APIRouter, Request, Depends, Form, HTTPException, File, UploadFile, Query
-from fastapi.templating import Jinja2Templates
-import logging
 import json
+import logging
+from typing import List, Optional
 from uuid import UUID
-from typing import Optional, List
 
-# Core imports
-from core.security import get_current_user_context, get_valid_graph_token
-from core.permissions import user_has_module_access, ROLE_HIERARCHY
+import asyncpg
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi.templating import Jinja2Templates
+
 from core.database import get_db_connection
+from core.jinja_filters import register_timezone_filters
+from core.security import get_current_user_context, get_valid_graph_token
 from core.workflow.service import get_workflow_service
 
 logger = logging.getLogger("SharedComments")
 templates = Jinja2Templates(directory="templates")
-
-# Registrar filtros de timezone
-from core.jinja_filters import register_timezone_filters
 register_timezone_filters(templates.env)
 
 router = APIRouter(
@@ -28,63 +28,43 @@ router = APIRouter(
     tags=["Workflow - Comentarios Centralizados"],
 )
 
-# Mapeo de módulos a departamentos
-MODULE_TO_DEPT = {
-    "simulacion": "SIMULACION",
-    "comercial": "COMERCIAL",
-    "ingenieria": "INGENIERIA",
-    "levantamientos": "LEVANTAMIENTOS",
-    "proyectos": "PROYECTOS",
-    "compras": "COMPRAS",
-    "construccion": "CONSTRUCCION",
-    "oym": "OYM"
-}
 
 @router.get("/modals/comentarios")
 async def get_comentarios_modal(
     request: Request,
     id_oportunidad: UUID,
-    module: str,  # Slug del módulo: "simulacion", "comercial", etc.
-    workflow_service = Depends(get_workflow_service),
-    conn = Depends(get_db_connection),
-    context = Depends(get_current_user_context)
+    module: str,
+    workflow_service=Depends(get_workflow_service),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
 ):
-    """
-    Modal centralizado de comentarios para todos los módulos.
-    
-    Query params:
-        - id_oportunidad: UUID de la oportunidad
-        - module: slug del módulo (ej: "simulacion", "comercial")
-    """
-    logger.info(f"[COMENTARIOS MODAL] Solicitado para oportunidad {id_oportunidad} desde módulo {module}")
-    
-    # Validar que el módulo exista en el mapeo
-    if module not in MODULE_TO_DEPT:
-        raise HTTPException(status_code=400, detail=f"Módulo '{module}' no válido")
-    
-    # Obtener info de la oportunidad para el header
-    op = await workflow_service.get_oportunidad_basic_info(conn, id_oportunidad)
-    
-    if not op:
-        raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
-    
-    # Verificar permisos - CUALQUIER usuario con acceso al módulo puede VER comentarios
-    # Solo editores+ pueden CREAR comentarios
-    can_comment = user_has_module_access(module, context, min_role="editor")
-    
-    # Obtener historial de comentarios
-    comentarios = await workflow_service.get_historial(conn, id_oportunidad)
-    
-    logger.info(f"[COMENTARIOS MODAL] Mostrando {len(comentarios)} comentarios. Usuario puede comentar: {can_comment}")
-    
-    return templates.TemplateResponse(request, "shared/modals/comentarios_modal.html", {"id_oportunidad": id_oportunidad,
-        "module_slug": module,
-        "department_slug": MODULE_TO_DEPT.get(module),
-        "can_comment": can_comment,
-        "op_info": dict(op) if op else None,
-        "comentarios": comentarios,
-        "context": context
-    })
+    """Renderiza el modal centralizado de comentarios."""
+    logger.info(
+        "[COMENTARIOS MODAL] Solicitado para oportunidad %s desde modulo %s",
+        id_oportunidad,
+        module,
+    )
+
+    try:
+        template_context = await workflow_service.build_comentarios_modal_context(
+            conn,
+            id_oportunidad,
+            module,
+            context,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except asyncpg.PostgresError as exc:
+        logger.exception("[COMENTARIOS MODAL] Error de base de datos")
+        raise HTTPException(status_code=500, detail="Error al cargar comentarios") from exc
+
+    return templates.TemplateResponse(
+        request,
+        "shared/modals/comentarios_modal.html",
+        template_context,
+    )
 
 
 @router.post("/comentarios")
@@ -92,75 +72,64 @@ async def create_comentario_workflow(
     request: Request,
     id_oportunidad: UUID = Form(...),
     nuevo_comentario: str = Form(...),
-    module: str = Form(...),  # Slug del módulo
-    file_uploads: List[UploadFile] = File(None), # Nuevo: Lista de archivos
-    workflow_service = Depends(get_workflow_service),
-    conn = Depends(get_db_connection),
-    context = Depends(get_current_user_context)
+    module: str = Form(...),
+    file_uploads: Optional[List[UploadFile]] = File(None),
+    workflow_service=Depends(get_workflow_service),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
 ):
-    """
-    Endpoint centralizado para crear comentarios desde cualquier módulo.
-    
-    Valida permisos dinámicamente según el módulo de origen.
-    Retorna la lista actualizada de comentarios para reemplazar en el modal.
-    """
-    logger.info(f"[CREATE COMENTARIO] Módulo: {module}, Oportunidad: {id_oportunidad}, Usuario: {context.get('user_name')}")
-    
-    # Validar módulo
-    if module not in MODULE_TO_DEPT:
-        raise HTTPException(status_code=400, detail=f"Módulo '{module}' no válido")
-    
-    # Validar permisos dinámicamente
-    if not user_has_module_access(module, context, min_role="editor"):
-        logger.warning(f"[CREATE COMENTARIO] Usuario {context.get('user_name')} sin permisos de editor en {module}")
-        raise HTTPException(
-            status_code=403, 
-            detail=f"No tienes permisos para comentar en el módulo {module}"
-        )
-    
-    # Obtener token para SharePoint (Si hay archivos)
+    """Crea un comentario desde cualquier modulo y devuelve el historial actualizado."""
+    logger.info(
+        "[CREATE COMENTARIO] Modulo: %s, Oportunidad: %s, Usuario: %s",
+        module,
+        id_oportunidad,
+        context.get("user_name"),
+    )
+
     sharepoint_token = None
     if file_uploads:
         sharepoint_token = await get_valid_graph_token(request)
         if not sharepoint_token:
-            # Si expira, podríamos fallar o subir sin token (que fallará en service)
             logger.warning("[CREATE COMENTARIO] Token expirado al intentar subir archivo")
-            # Dejamos que el servicio maneje el error o falle
-    
-    # Crear comentario usando WorkflowService
-    if nuevo_comentario.strip() or file_uploads:
-        await workflow_service.add_comentario(
-            conn, 
-            context, 
-            id_oportunidad, 
-            nuevo_comentario.strip(),
-            departamento_slug=MODULE_TO_DEPT.get(module),
-            modulo_origen=module,
+
+    try:
+        comentarios = await workflow_service.create_comentario_and_get_historial(
+            conn,
+            context,
+            id_oportunidad,
+            nuevo_comentario,
+            module,
             file_uploads=file_uploads,
-            sharepoint_token=sharepoint_token
+            sharepoint_token=sharepoint_token,
         )
-        logger.info(f"[CREATE COMENTARIO] Comentario creado exitosamente")
-    else:
-        logger.warning(f"[CREATE COMENTARIO] Comentario vacío recibido, ignorado")
-    
-    # Retornar lista actualizada de comentarios
-    comentarios = await workflow_service.get_historial(conn, id_oportunidad)
-    
-    response = templates.TemplateResponse(request, "shared/partials/comentarios_list.html", {"comentarios": comentarios,
-        "mode": None,
-        "has_more": False,
-        "total_extra": 0,
-        "id_oportunidad": id_oportunidad
-    })
-    
-    # Trigger Toast (suponiendo que usas toast.js normalizado en tu frontend)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except RuntimeError as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except asyncpg.PostgresError as exc:
+        logger.exception("[CREATE COMENTARIO] Error de base de datos")
+        raise HTTPException(status_code=500, detail="Error al guardar comentario") from exc
+
+    response = templates.TemplateResponse(
+        request,
+        "shared/partials/comentarios_list.html",
+        {
+            "comentarios": comentarios,
+            "mode": None,
+            "has_more": False,
+            "total_extra": 0,
+            "id_oportunidad": id_oportunidad,
+        },
+    )
+
     response.headers["HX-Trigger"] = json.dumps({
         "showMessage": {
             "type": "success",
-            "message": "Comentario enviado exitosamente"
+            "message": "Comentario enviado exitosamente",
         }
     })
-    
     return response
 
 
@@ -169,96 +138,26 @@ async def get_detalle_oportunidad_modal(
     request: Request,
     id_oportunidad: UUID,
     source_module: str = Query(default="comercial"),
-    workflow_service = Depends(get_workflow_service),
-    conn = Depends(get_db_connection),
-    context = Depends(get_current_user_context)
+    workflow_service=Depends(get_workflow_service),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
 ):
-    """
-    Modal de detalles de oportunidad (Solo lectura).
-    Accesible desde Comercial y Simulación.
-    """
-    op = await workflow_service.get_detalle_oportunidad(conn, id_oportunidad)
-    
-    if not op:
-         raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
-
-    
-    # --- Lógica de Permisos para Botones de Acción ---
-    
-    # 1. Permiso para "Solicitar" (Actualización, Levantamiento, Oferta Final)
-    # Requiere: Role >= Editor en Módulo Comercial
-    can_edit_comercial = user_has_module_access("comercial", context, min_role="editor")
-    
-    # 2. Permiso para "Cierre de Venta"
-    # Requiere: ADMIN Global O Admin Comercial O (MANAGER Global + Editor Comercial)
-    can_close_sale = False
-    context_role = context.get("role")
-    comercial_role = context.get("module_roles", {}).get("comercial", "")
-    
-    if context_role == "ADMIN":
-        can_close_sale = True
-    elif comercial_role == "admin":
-        can_close_sale = True
-    elif context_role == "MANAGER":
-        # Verificar si tiene rol de editor o superior en comercial
-        user_level = ROLE_HIERARCHY.get(comercial_role, 0)
-        editor_level = ROLE_HIERARCHY.get("editor", 0)
-        if user_level >= editor_level:
-            can_close_sale = True
-
-    # 3. Obtener sitios para el formulario de cierre de venta (multisitio)
-    sitios = []
-    if can_close_sale and op.get('cantidad_sitios', 1) > 1:
-        sitios_rows = await conn.fetch("""
-            SELECT id_sitio, nombre_sitio
-            FROM tb_sitios_oportunidad
-            WHERE id_oportunidad = $1
-            ORDER BY nombre_sitio
-        """, id_oportunidad)
-        sitios = [dict(row) for row in sitios_rows]
-
-    # 4. Datos para sección "Recordatorio de Proyecto" (solo relevante si status=Ganada)
-    sitios_ganados_detalle = []
-    sitios_ganados_total = 0
-    sitios_con_proyecto_total = 0
-
-    if op.get('status_global', '').lower() == 'ganada':
-        ganada_rows = await conn.fetch(
-            """
-            SELECT
-                s.id_sitio,
-                s.nombre_sitio,
-                (p.id_proyecto IS NOT NULL) AS tiene_proyecto,
-                p.proyecto_id_estandar
-            FROM tb_sitios_oportunidad s
-            LEFT JOIN tb_proyectos_gate p ON p.id_sitio = s.id_sitio
-            WHERE s.id_oportunidad = $1
-              AND s.id_estatus_global = (
-                  SELECT id FROM tb_cat_estatus_oportunidades
-                  WHERE LOWER(nombre) = 'ganada' LIMIT 1
-              )
-            ORDER BY s.nombre_sitio
-            """,
+    """Renderiza el modal de detalle de oportunidad."""
+    try:
+        template_context = await workflow_service.build_detalle_oportunidad_context(
+            conn,
             id_oportunidad,
+            source_module,
+            context,
         )
-        sitios_ganados_detalle = [dict(r) for r in ganada_rows]
-        sitios_ganados_total = len(sitios_ganados_detalle)
-        sitios_con_proyecto_total = sum(1 for s in sitios_ganados_detalle if s["tiene_proyecto"])
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except asyncpg.PostgresError as exc:
+        logger.exception("[DETALLE OPORTUNIDAD] Error de base de datos")
+        raise HTTPException(status_code=500, detail="Error al cargar detalle") from exc
 
-    tiene_proyecto = sitios_con_proyecto_total > 0
-    proyectos_completos = sitios_ganados_total > 0 and sitios_con_proyecto_total >= sitios_ganados_total
-    notificacion_ganada_at = op.get('notificacion_ganada_at')
-
-    return templates.TemplateResponse(request, "shared/modals/detalle_oportunidad_modal.html", {"op": op,
-        "can_edit_comercial": can_edit_comercial,
-        "can_close_sale": can_close_sale,
-        "sitios": sitios,
-        "show_solicitar_actions": source_module == "comercial",
-        "tiene_proyecto": tiene_proyecto,
-        "proyectos_completos": proyectos_completos,
-        "sitios_ganados_total": sitios_ganados_total,
-        "sitios_con_proyecto_total": sitios_con_proyecto_total,
-        "sitios_ganados_detalle": sitios_ganados_detalle,
-        "notificacion_ganada_at": notificacion_ganada_at,
-    })
-
+    return templates.TemplateResponse(
+        request,
+        "shared/modals/detalle_oportunidad_modal.html",
+        template_context,
+    )

@@ -8,11 +8,14 @@ from typing import List, Dict, Optional
 from uuid import UUID
 import json
 import logging
+import time
 
 from .schemas import ConfiguracionGlobalUpdate, EmailRuleCreate
 from .db_service import AdminDBService
 from .constants import ROLES_ORGANIZACIONALES_VALIDOS
 from core.config_service import ConfigService
+from core.microsoft import MicrosoftAuth
+from modules.asistencia.constants import BIOTIME_CONFIG_KEYS
 
 logger = logging.getLogger("AdminModule")
 
@@ -169,6 +172,17 @@ class AdminService:
             "sp_sat_site_id": config_dict.get("SP_SAT_SITE_ID", ""),
             "sp_sat_drive_id": config_dict.get("SP_SAT_DRIVE_ID", ""),
             "sp_sat_base_folder": config_dict.get("SP_SAT_BASE_FOLDER", "SAT-Inbox"),
+            # BioTime
+            "biotime_base_url": config_dict.get("BIOTIME_BASE_URL", ""),
+            "biotime_username": config_dict.get("BIOTIME_USERNAME", ""),
+            "biotime_password_configured": bool(config_dict.get("BIOTIME_PASSWORD", "")),
+            "biotime_password_masked": "********" if config_dict.get("BIOTIME_PASSWORD", "") else "",
+            "biotime_sync_activo": config_dict.get("BIOTIME_SYNC_ACTIVO", "false").lower() == "true",
+            "biotime_sync_interval_seg": int(config_dict.get("BIOTIME_SYNC_INTERVAL_SEG", "900")),
+            "biotime_sync_page_size": int(config_dict.get("BIOTIME_SYNC_PAGE_SIZE", "200")),
+            "biotime_sync_lookback_hrs": int(config_dict.get("BIOTIME_SYNC_LOOKBACK_HRS", "48")),
+            "biotime_sync_timeout_seg": int(config_dict.get("BIOTIME_SYNC_TIMEOUT_SEG", "30")),
+            "asistencia_recalc_dias": int(config_dict.get("ASISTENCIA_RECALC_DIAS", "7")),
             # Simulation KPIS
             "sim_peso_compromiso": config_dict.get("sim_peso_compromiso", None),
             "sim_peso_interno": config_dict.get("sim_peso_interno", None),
@@ -246,6 +260,77 @@ class AdminService:
         logger.info(f"Configuración global actualizada (incluyendo SharePoint): SLA={datos.dias_sla_default}")
         ConfigService.invalidar_cache()
 
+
+    async def resolve_biotime_credentials(
+        self,
+        conn,
+        *,
+        base_url: str = "",
+        username: str = "",
+        password: str = "",
+    ) -> tuple[str, str, str]:
+        resolved_url = (base_url or "").strip().rstrip("/") or await ConfigService.get_global_config(
+            conn, BIOTIME_CONFIG_KEYS["base_url"], "", str
+        )
+        resolved_user = (username or "").strip() or await ConfigService.get_global_config(
+            conn, BIOTIME_CONFIG_KEYS["username"], "", str
+        )
+        resolved_pwd = (password or "").strip() or await ConfigService.get_global_config(
+            conn, BIOTIME_CONFIG_KEYS["password"], "", str
+        )
+        return resolved_url, resolved_user, resolved_pwd
+
+    async def update_biotime_config(
+        self,
+        conn,
+        *,
+        base_url: str,
+        username: str,
+        password: str,
+        sync_activo: bool,
+        interval_seconds: int,
+        page_size: int,
+        lookback_hours: int,
+        timeout_seconds: int,
+        recalc_days: int,
+    ) -> None:
+        base_url = (base_url or "").strip().rstrip("/")
+        username = (username or "").strip()
+        resolved_password = (password or "").strip() or await ConfigService.get_global_config(
+            conn, BIOTIME_CONFIG_KEYS["password"], "", str
+        )
+
+        if sync_activo and (not base_url or not username or not resolved_password):
+            raise ValueError("Para activar BioTime debes configurar URL base, usuario y contraseña")
+        if interval_seconds < 60:
+            raise ValueError("El intervalo mínimo de sincronización es 60 segundos")
+        if page_size < 1 or page_size > 1000:
+            raise ValueError("El tamaño de página debe estar entre 1 y 1000")
+        if lookback_hours < 1 or lookback_hours > 744:
+            raise ValueError("La ventana de busqueda debe estar entre 1 y 744 horas")
+        if timeout_seconds < 5 or timeout_seconds > 120:
+            raise ValueError("El timeout debe estar entre 5 y 120 segundos")
+        if recalc_days < 0 or recalc_days > 31:
+            raise ValueError("El recálculo debe estar entre 0 y 31 días")
+
+        updates = [
+            (BIOTIME_CONFIG_KEYS["base_url"], base_url),
+            (BIOTIME_CONFIG_KEYS["sync_activo"], "true" if sync_activo else "false"),
+            (BIOTIME_CONFIG_KEYS["interval_seconds"], str(interval_seconds)),
+            (BIOTIME_CONFIG_KEYS["page_size"], str(page_size)),
+            (BIOTIME_CONFIG_KEYS["lookback_hours"], str(lookback_hours)),
+            (BIOTIME_CONFIG_KEYS["timeout_seconds"], str(timeout_seconds)),
+            (BIOTIME_CONFIG_KEYS["recalc_days"], str(recalc_days)),
+        ]
+        if username:
+            updates.append((BIOTIME_CONFIG_KEYS["username"], username))
+        if (password or "").strip():
+            updates.append((BIOTIME_CONFIG_KEYS["password"], resolved_password))
+
+        for clave, valor in updates:
+            await self.db.upsert_global_config(conn, clave, valor)
+        logger.info("Configuracion BioTime actualizada. sync_activo=%s", sync_activo)
+        ConfigService.invalidar_cache()
 
     async def reset_simulation_defaults(self, conn) -> None:
         """
@@ -614,6 +699,62 @@ class AdminService:
         await self.db.toggle_catalogo_status(conn, table, item_id, new_status)
         logger.info(f"Catalogo {table} ID {item_id}: activo cambiado a {new_status}")
 
+    # --- Ubicaciones ---
+
+    async def get_ubicaciones(self, conn) -> dict:
+        return {
+            "sucursales": await self.db.fetch_sucursales(conn),
+            "zonas_compra": await self.db.fetch_zonas_compra(conn),
+        }
+
+    async def create_sucursal(self, conn, codigo: str, nombre: str) -> None:
+        codigo_clean = codigo.strip().upper()
+        nombre_clean = nombre.strip()
+        if not codigo_clean or not nombre_clean:
+            raise ValueError("Código y nombre son requeridos")
+        await self.db.insert_sucursal(conn, codigo_clean, nombre_clean)
+
+    async def toggle_sucursal(self, conn, sucursal_id: str, current_status: bool) -> None:
+        await self.db.toggle_sucursal(conn, sucursal_id, not current_status)
+
+    async def create_zona_compra(self, conn, nombre: str, orden: int) -> None:
+        nombre_clean = nombre.strip()
+        if not nombre_clean:
+            raise ValueError("El nombre es requerido")
+        await self.db.insert_zona_compra(conn, nombre_clean, orden)
+
+    async def toggle_zona_compra(self, conn, zona_id: int, current_status: bool) -> None:
+        await self.db.toggle_catalogo_status(conn, "tb_cat_zonas_compra", zona_id, not current_status)
+
+    async def sync_ms_profiles(self, conn) -> dict:
+        ms_auth = MicrosoftAuth()
+        users = await self.db.fetch_users_missing_profile(conn)
+        updated = 0
+        skipped = 0
+
+        for user in users:
+            token_result = await ms_auth.refresh_access_token(user["refresh_token"])
+            if not token_result or not token_result.get("access_token"):
+                skipped += 1
+                logger.warning("sync_ms_profiles: token expirado para %s", user["id_usuario"])
+                continue
+
+            new_access = token_result["access_token"]
+            new_refresh = token_result.get("refresh_token") or user["refresh_token"]
+            expires_at = int(time.time() + token_result.get("expires_in", 3600))
+
+            profile = await ms_auth.get_user_profile(new_access)
+            department = profile.get("department") or None
+            puesto = profile.get("jobTitle") or None
+
+            await self.db.update_user_ms_profile(
+                conn, user["id_usuario"],
+                department, puesto, new_access, new_refresh, expires_at,
+            )
+            updated += 1
+            logger.info("sync_ms_profiles: %s — dept=%s puesto=%s", user["id_usuario"], department, puesto)
+
+        return {"updated": updated, "skipped": skipped, "total": len(users)}
 
     # ========================================
     # REPORTE SEMANAL

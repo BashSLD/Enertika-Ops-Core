@@ -6,6 +6,7 @@ from satcfdi.models import Signer
 
 from core.integrations.sharepoint import SharePointService
 from core.microsoft import get_ms_auth
+from core.sat.db_service import SatDBService, get_sat_db_service
 
 logger = logging.getLogger("SATFielLoader")
 
@@ -28,13 +29,12 @@ class FielConfig:
         )
 
 
-async def cargar_fiel_config(conn: asyncpg.Connection) -> FielConfig:
+async def cargar_fiel_config(
+    conn: asyncpg.Connection,
+    db: SatDBService | None = None,
+) -> FielConfig:
     """Lee la configuracion FIEL activa de tb_sat_fiel_config."""
-    row = await conn.fetchrow(
-        "SELECT empresa, sp_path_cer, sp_path_key, password_fiel "
-        "FROM tb_sat_fiel_config WHERE activo = TRUE AND empresa = $1 LIMIT 1",
-        SAT_EMPRESA,
-    )
+    row = await (db or get_sat_db_service()).get_active_fiel_config(conn, SAT_EMPRESA)
     if not row:
         raise ValueError("No hay configuracion FIEL activa para ISA en tb_sat_fiel_config")
     if not row["sp_path_cer"] or not row["sp_path_key"] or not row["password_fiel"]:

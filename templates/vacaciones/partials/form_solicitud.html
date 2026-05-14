@@ -1,0 +1,98 @@
+<div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 max-w-lg"
+     x-data="{
+       tipoSlug: '',
+       afectaSaldo: false,
+       fechaInicio: '',
+       fechaFin: '',
+       diasHabiles: 0,
+       tipos: {{ tipos | tojson }},
+       async calcularDias() {
+         if (!this.fechaInicio || !this.fechaFin) { this.diasHabiles = 0; return; }
+         const r = await fetch('/vacaciones/dias-habiles?inicio=' + this.fechaInicio + '&fin=' + this.fechaFin);
+         if (r.ok) { const d = await r.json(); this.diasHabiles = d.dias; }
+       }
+     }">
+
+  <h2 class="text-lg font-bold text-gray-900 mb-5">Nueva Solicitud</h2>
+
+  {% if not tiene_firma %}
+  <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4 text-sm text-amber-800">
+    No tienes firma registrada. Se te pedirá que la crees al enviar la solicitud.
+  </div>
+  {% endif %}
+
+  <form hx-post="/vacaciones/solicitudes"
+        hx-target="#tab-content"
+        hx-swap="innerHTML"
+        class="space-y-4">
+
+    <!-- Tipo -->
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de solicitud *</label>
+      <select name="tipo_ausencia_id" required
+              @change="const t = tipos.find(x => x.id == $event.target.value); tipoSlug = t ? t.slug : ''; afectaSaldo = t ? t.afecta_saldo : false"
+              class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+        <option value="">Selecciona un tipo...</option>
+        {% for t in tipos %}
+        <option value="{{ t.id }}">{{ t.nombre }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <!-- Fechas -->
+    <div class="grid grid-cols-2 gap-3">
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Fecha inicio *</label>
+        <input type="date" name="fecha_inicio" required
+               x-model="fechaInicio"
+               @change="calcularDias()"
+               class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Fecha fin *</label>
+        <input type="date" name="fecha_fin" required
+               x-model="fechaFin"
+               @change="calcularDias()"
+               class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+      </div>
+    </div>
+
+    <!-- Días hábiles calculados -->
+    <div x-show="diasHabiles > 0" class="bg-[#00BABB]/10 rounded-xl px-4 py-2.5 text-sm text-[#009A9B] font-medium">
+      Días hábiles en el rango: <strong x-text="diasHabiles"></strong>
+      (L-V, excluyendo festivos)
+      <template x-if="afectaSaldo && {{ balance.total_disponible }} > 0 && diasHabiles > {{ balance.total_disponible }}">
+        <span class="ml-2 text-amber-600 font-semibold">⚠ Superarás tu saldo disponible</span>
+      </template>
+    </div>
+
+    <!-- Fecha de presentarse -->
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Fecha de regreso *</label>
+      <input type="date" name="fecha_presentarse" required
+             class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+    </div>
+
+    <!-- Observaciones -->
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
+      <textarea name="observaciones" rows="2" placeholder="Opcional..."
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none resize-none"></textarea>
+    </div>
+
+    <!-- Acciones -->
+    <div class="flex gap-3 pt-2">
+      <button type="button"
+              hx-get="/vacaciones/solicitudes"
+              hx-target="#tab-content"
+              hx-swap="innerHTML"
+              class="flex-1 border border-gray-200 text-gray-700 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition-colors">
+        Cancelar
+      </button>
+      <button type="submit"
+              class="flex-1 bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
+        Enviar solicitud
+      </button>
+    </div>
+  </form>
+</div>

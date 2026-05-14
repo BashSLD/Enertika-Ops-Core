@@ -1,0 +1,98 @@
+from datetime import date, datetime, time
+
+from modules.asistencia.logic import (
+    AttendanceCheck,
+    MX_TZ,
+    ScheduleConfig,
+    build_labor_window,
+    calcular_resumen_dia,
+)
+
+
+def _dt(year, month, day, hour, minute=0):
+    return datetime(year, month, day, hour, minute, tzinfo=MX_TZ)
+
+
+def test_labor_window_crosses_midnight():
+    schedule = ScheduleConfig(
+        hora_entrada=time(20, 0),
+        hora_salida=time(5, 0),
+        minutos_programados=540,
+        cruza_medianoche=True,
+        margen_entrada_antes_min=120,
+        margen_salida_despues_min=180,
+    )
+
+    window = build_labor_window(date(2026, 5, 12), schedule)
+
+    assert window.start == _dt(2026, 5, 12, 18, 0)
+    assert window.end == _dt(2026, 5, 13, 8, 0)
+
+
+def test_after_midnight_checkout_belongs_to_labor_day_summary():
+    schedule = ScheduleConfig(
+        hora_entrada=time(20, 0),
+        hora_salida=time(5, 0),
+        minutos_programados=540,
+        cruza_medianoche=True,
+    )
+    checks = [
+        AttendanceCheck(_dt(2026, 5, 12, 20, 0), "0"),
+        AttendanceCheck(_dt(2026, 5, 13, 0, 30), "1"),
+    ]
+
+    resumen = calcular_resumen_dia(
+        checks=checks,
+        schedule=schedule,
+        tiene_vacaciones=False,
+        es_feriado=False,
+    )
+
+    assert resumen["estado"] == "asistencia"
+    assert resumen["primera_entrada"] == _dt(2026, 5, 12, 20, 0)
+    assert resumen["ultima_salida"] == _dt(2026, 5, 13, 0, 30)
+    assert resumen["minutos_trabajados"] == 270
+    assert resumen["minutos_extra"] == 0
+
+
+def test_overtime_is_calculated_locally_from_schedule():
+    schedule = ScheduleConfig(
+        hora_entrada=time(8, 0),
+        hora_salida=time(17, 0),
+        minutos_programados=480,
+        tolerancia_extra_min=15,
+    )
+    checks = [
+        AttendanceCheck(_dt(2026, 5, 12, 8, 0), "0"),
+        AttendanceCheck(_dt(2026, 5, 12, 19, 0), "1"),
+    ]
+
+    resumen = calcular_resumen_dia(
+        checks=checks,
+        schedule=schedule,
+        tiene_vacaciones=False,
+        es_feriado=False,
+    )
+
+    assert resumen["minutos_trabajados"] == 660
+    assert resumen["minutos_programados"] == 480
+    assert resumen["minutos_extra"] == 165
+
+
+def test_vacation_without_checks_marks_vacaciones():
+    schedule = ScheduleConfig(
+        hora_entrada=time(8, 0),
+        hora_salida=time(17, 0),
+        minutos_programados=480,
+    )
+
+    resumen = calcular_resumen_dia(
+        checks=[],
+        schedule=schedule,
+        tiene_vacaciones=True,
+        es_feriado=False,
+    )
+
+    assert resumen["estado"] == "vacaciones"
+    assert resumen["minutos_trabajados"] == 0
+    assert resumen["minutos_extra"] == 0

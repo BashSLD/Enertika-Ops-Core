@@ -8,6 +8,7 @@ import logging
 from .config import settings 
 
 logger = logging.getLogger("MicrosoftGraph") 
+MICROSOFT_GRAPH_ERRORS = (httpx.HTTPError, RuntimeError, ValueError, KeyError, TypeError)
 
 class MicrosoftAuth:
     # Singleton pattern: safe in asyncio single-thread event loop.
@@ -56,7 +57,7 @@ class MicrosoftAuth:
             redirect_uri=settings.REDIRECT_URI
         )
         if "error" in result:
-            raise Exception(f"Error login: {result.get('error_description')}")
+            raise RuntimeError(f"Error login: {result.get('error_description')}")
         return result
 
     # --- GESTIÓN GLOBAL DE TOKEN (REFRESH) ---
@@ -81,7 +82,7 @@ class MicrosoftAuth:
                 return None
                 
             return result # Retorna el nuevo access_token y refresh_token
-        except Exception as e:
+        except MICROSOFT_GRAPH_ERRORS as e:
             logger.error(f"Excepción crítica en refresh_token: {e}")
             return None
 
@@ -109,7 +110,7 @@ class MicrosoftAuth:
             logger.info("[APP TOKEN] Token de aplicación obtenido exitosamente")
             return result.get("access_token")
             
-        except Exception as e:
+        except MICROSOFT_GRAPH_ERRORS as e:
             logger.error(f"Excepción obteniendo token de aplicación: {e}")
             return None
 
@@ -127,7 +128,7 @@ class MicrosoftAuth:
             if resp.status_code == 200:
                 return resp.json()
             return {}
-        except Exception as e:
+        except MICROSOFT_GRAPH_ERRORS as e:
             logger.error(f"Error obteniendo perfil: {e}")
             return {}
 
@@ -198,7 +199,7 @@ class MicrosoftAuth:
             else:
                 logger.error(f"Error Graph: {resp.status_code} - {resp.text}")
                 return []
-        except Exception as e:
+        except MICROSOFT_GRAPH_ERRORS as e:
             logger.error(f"Excepción buscando hilos candidatos: {e}")
             return []
 
@@ -327,7 +328,7 @@ class MicrosoftAuth:
                 else:
                     logger.error(f"ERROR GRAPH: {res.status_code} - {res.text}")
                     return False, f"Error Microsoft: {res.status_code}"
-            except Exception as e:
+            except MICROSOFT_GRAPH_ERRORS as e:
                 return False, str(e)
 
         # B: Envío Pesado (Draft + Upload)
@@ -363,7 +364,7 @@ class MicrosoftAuth:
                 return True, "Enviado"
             logger.error("Heavy send fallo: status=%s body=%r", res_send.status_code, res_send.text)
             return False, f"HTTP {res_send.status_code}: {res_send.text}"
-        except Exception as e:
+        except MICROSOFT_GRAPH_ERRORS as e:
             logger.error("Heavy send excepcion: %s", e, exc_info=True)
             return False, str(e) or repr(e)
 
@@ -381,7 +382,7 @@ class MicrosoftAuth:
                 json={"AttachmentItem": {"attachmentType": "file", "name": name, "size": size}}
             )
             if sess.status_code != 201:
-                raise Exception(f"Upload session fallo: HTTP {sess.status_code} - {sess.text}")
+                raise RuntimeError(f"Upload session fallo: HTTP {sess.status_code} - {sess.text}")
 
             upload_url = sess.json()["uploadUrl"]
 
@@ -395,7 +396,7 @@ class MicrosoftAuth:
                             "Content-Range": f"bytes {i}-{i+len(chunk)-1}/{size}"
                         }, content=chunk)
                         if not res.is_success:
-                            raise Exception(f"Chunk {i}-{i+len(chunk)-1} fallo: HTTP {res.status_code} - {res.text[:200]}")
+                            raise RuntimeError(f"Chunk {i}-{i+len(chunk)-1} fallo: HTTP {res.status_code} - {res.text[:200]}")
                 return  # todos los chunks subidos correctamente
             except httpx.TransportError as exc:
                 if attempt == 2:

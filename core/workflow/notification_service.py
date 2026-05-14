@@ -10,11 +10,16 @@ from uuid import UUID
 import logging
 import asyncpg
 import httpx
+from jinja2 import TemplateError
 
 from fastapi.templating import Jinja2Templates
 from core.microsoft import MicrosoftAuth
 from core.notifications.service import get_notifications_service
 from core.config import settings
+from core.workflow.notification_db_service import (
+    WorkflowNotificationDBService,
+    get_workflow_notification_db_service,
+)
 
 logger = logging.getLogger("NotificationService")
 
@@ -33,7 +38,8 @@ class NotificationService:
     - Enviar emails usando Application-only token de Microsoft Graph
     """
     
-    def __init__(self):
+    def __init__(self, db: WorkflowNotificationDBService | None = None):
+        self.db = db or get_workflow_notification_db_service()
         self.ms_auth = MicrosoftAuth()
         self.templates = Jinja2Templates(directory="templates")
     
@@ -100,7 +106,7 @@ class NotificationService:
             logger.error(f"[NOTIFY] Error de red/Graph API en notificacion de comentario {id_oportunidad}: {e}", exc_info=True)
         except KeyError as e:
             logger.error(f"[NOTIFY] Error de contexto/datos faltantes en notificacion {id_oportunidad}: campo {e}", exc_info=True)
-        except Exception as e:
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as e:
             logger.error(f"[NOTIFY] Error inesperado en notificacion de comentario {id_oportunidad}: {e}", exc_info=True)
     
     async def notify_assignment(
@@ -133,10 +139,7 @@ class NotificationService:
             return
         
         # Obtener datos del nuevo responsable
-        new_resp = await conn.fetchrow(
-            "SELECT nombre, email FROM tb_usuarios WHERE id_usuario = $1 AND is_active = TRUE",
-            new_responsable_id
-        )
+        new_resp = await self.db.get_active_user_contact(conn, new_responsable_id)
         
         if not new_resp or not new_resp['email']:
             logger.warning(f"[NOTIFY] Responsable {new_responsable_id} sin email")
@@ -205,23 +208,14 @@ class NotificationService:
         opp = await self._get_opportunity(conn, id_oportunidad)
         
         # Obtener email del creador
-        creator = await conn.fetchrow(
-            "SELECT nombre, email FROM tb_usuarios WHERE id_usuario = $1 AND is_active = TRUE",
-            opp['creado_por_id']
-        )
+        creator = await self.db.get_active_user_contact(conn, opp['creado_por_id'])
         
         if not creator or not creator['email']:
             logger.warning(f"[NOTIFY] Creador sin email - Opp: {id_oportunidad}")
             return
         
         # Obtener nombres de estatus
-        status_rows = await conn.fetch(
-            """SELECT id, nombre FROM tb_cat_estatus_oportunidades WHERE id = ANY($1::int[])
-               UNION ALL
-               SELECT id, nombre FROM tb_cat_estatus_levantamiento WHERE id = ANY($1::int[])""",
-            [old_status_id, new_status_id]
-        )
-        status_map = {s['id']: s['nombre'] for s in status_rows}
+        status_map = await self.db.get_status_names(conn, [old_status_id, new_status_id])
         
         to_emails = {creator['email']}
         cc_emails = await self._get_cc_emails(conn, 'CAMBIO_ESTATUS')
@@ -268,17 +262,7 @@ class NotificationService:
         """
         try:
             # Jefe de área y solicitante del levantamiento
-            destinatarios = await conn.fetch("""
-                SELECT u.nombre, u.email, 'jefe' AS rol
-                FROM tb_levantamientos l
-                JOIN tb_usuarios u ON l.jefe_area_id = u.id_usuario
-                WHERE l.id_levantamiento = $1 AND l.jefe_area_id IS NOT NULL
-                UNION
-                SELECT u.nombre, u.email, 'solicitante' AS rol
-                FROM tb_levantamientos l
-                JOIN tb_usuarios u ON l.solicitado_por_id = u.id_usuario
-                WHERE l.id_levantamiento = $1
-            """, id_levantamiento)
+            destinatarios = await self.db.get_cancellation_recipients(conn, id_levantamiento)
 
             to_emails = {r['email'] for r in destinatarios if r['email']}
 
@@ -308,7 +292,7 @@ class NotificationService:
             logger.error(f"[NOTIFY] Error red/Graph API en notificacion cancelacion {id_levantamiento}: {e}", exc_info=True)
         except KeyError as e:
             logger.error(f"[NOTIFY] Error datos faltantes en notificacion cancelacion {id_levantamiento}: campo {e}", exc_info=True)
-        except Exception as e:
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as e:
             logger.error(f"[NOTIFY] Error inesperado en notificacion cancelacion {id_levantamiento}: {e}", exc_info=True)
 
     async def notify_reassignment_request(
@@ -325,28 +309,8 @@ class NotificationService:
         CC: tb_config_emails con trigger_value='ASIGNACION'
         """
         try:
-            # Quien asignó (asignado_por_id del responsable actual)
-            asignador = await conn.fetchrow("""
-                SELECT u.nombre, u.email
-                FROM tb_levantamiento_asignaciones la
-                JOIN tb_usuarios u ON la.asignado_por_id = u.id_usuario
-                WHERE la.id_levantamiento = $1 AND la.es_responsable = true
-                LIMIT 1
-            """, id_levantamiento)
-
-            # Quien solicitó el levantamiento
-            solicitante = await conn.fetchrow("""
-                SELECT u.nombre, u.email
-                FROM tb_levantamientos l
-                JOIN tb_usuarios u ON l.solicitado_por_id = u.id_usuario
-                WHERE l.id_levantamiento = $1
-            """, id_levantamiento)
-
-            to_emails = set()
-            if asignador and asignador['email']:
-                to_emails.add(asignador['email'])
-            if solicitante and solicitante['email']:
-                to_emails.add(solicitante['email'])
+            destinatarios = await self.db.get_reassignment_recipients(conn, id_levantamiento)
+            to_emails = {row["email"] for row in destinatarios if row.get("email")}
 
             if not to_emails:
                 logger.warning(f"[NOTIFY] Sin destinatarios para solicitud reasignacion lev {id_levantamiento}")
@@ -374,7 +338,7 @@ class NotificationService:
             logger.error(f"[NOTIFY] Error red/Graph API en solicitud reasignacion {id_levantamiento}: {e}", exc_info=True)
         except KeyError as e:
             logger.error(f"[NOTIFY] Error datos faltantes en solicitud reasignacion {id_levantamiento}: campo {e}", exc_info=True)
-        except Exception as e:
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as e:
             logger.error(f"[NOTIFY] Error inesperado en solicitud reasignacion {id_levantamiento}: {e}", exc_info=True)
 
     async def notify_opportunity_won(
@@ -465,31 +429,8 @@ class NotificationService:
         - Reagenda el próximo envío a +48 horas.
         - Mantiene histórico de recordatorios enviados en la tabla dedicada.
         """
-        await conn.execute(
-            """
-            INSERT INTO tb_recordatorios_oportunidad_ganada (
-                id_oportunidad,
-                recordatorios_enviados,
-                ultimo_recordatorio_at,
-                proximo_recordatorio_at,
-                activo,
-                created_at,
-                updated_at
-            )
-            VALUES (
-                $1,
-                0,
-                NULL,
-                NOW() + ($2 * INTERVAL '1 hour'),
-                TRUE,
-                NOW(),
-                NOW()
-            )
-            ON CONFLICT (id_oportunidad) DO UPDATE
-            SET activo = TRUE,
-                proximo_recordatorio_at = NOW() + ($2 * INTERVAL '1 hour'),
-                updated_at = NOW()
-            """,
+        await self.db.schedule_opportunity_won_reminders(
+            conn,
             id_oportunidad,
             OPPORTUNITY_WON_REMINDER_HOURS,
         )
@@ -521,10 +462,7 @@ class NotificationService:
                 logger.warning(f"[NOTIFY] Poliza {cotizacion_id} sin creado_por — email no enviado")
                 return
 
-            creator = await conn.fetchrow(
-                "SELECT nombre, email FROM tb_usuarios WHERE id_usuario = $1 AND is_active = TRUE",
-                creado_por,
-            )
+            creator = await self.db.get_active_user_contact(conn, creado_por)
             if not creator or not creator["email"]:
                 logger.warning(f"[NOTIFY] Creador de poliza {cotizacion_id} sin email")
                 return
@@ -566,20 +504,7 @@ class NotificationService:
         Returns:
             dict: Datos de la oportunidad o dict vacío si no existe
         """
-        query = """
-            SELECT 
-                id_oportunidad, 
-                op_id_estandar, 
-                nombre_proyecto, 
-                cliente_nombre, 
-                creado_por_id, 
-                responsable_simulacion_id,
-                id_estatus_global
-            FROM tb_oportunidades
-            WHERE id_oportunidad = $1
-        """
-        row = await conn.fetchrow(query, id_oportunidad)
-        return dict(row) if row else {}
+        return await self.db.get_opportunity(conn, id_oportunidad)
 
     async def _get_opportunity_won_recipients(
         self,
@@ -595,24 +520,10 @@ class NotificationService:
         if include_director:
             roles.append(OPPORTUNITY_WON_DIRECTOR_ROLE)
 
-        role_rows = await conn.fetch(
-            """
-            SELECT email
-            FROM tb_usuarios
-            WHERE rol_organizacional = ANY($1::varchar[])
-              AND is_active = TRUE
-              AND email IS NOT NULL
-            """,
-            roles,
-        )
-
-        recipients = {r["email"].strip().lower() for r in role_rows if r["email"]}
+        recipients = await self.db.get_emails_by_organizational_roles(conn, roles)
 
         if owner_id:
-            owner_email = await conn.fetchval(
-                "SELECT email FROM tb_usuarios WHERE id_usuario = $1 AND is_active = TRUE",
-                owner_id,
-            )
+            owner_email = await self.db.get_active_user_email(conn, owner_id)
             if owner_email:
                 recipients.add(owner_email.strip().lower())
 
@@ -652,11 +563,7 @@ class NotificationService:
         if not user_ids:
             return set()
         
-        rows = await conn.fetch(
-            "SELECT id_usuario, email FROM tb_usuarios WHERE id_usuario = ANY($1::uuid[]) AND is_active = TRUE",
-            list(user_ids)
-        )
-        users_map = {str(r['id_usuario']): r['email'] for r in rows if r['email']}
+        users_map = await self.db.get_active_user_emails_by_ids(conn, list(user_ids))
         
         sender_id = str(sender_ctx.get('user_db_id', ''))
         recipients = set()
@@ -710,15 +617,7 @@ class NotificationService:
         Returns:
             Set[str]: Conjunto de emails configurados
         """
-        query = """
-            SELECT email_to_add
-            FROM tb_config_emails
-            WHERE trigger_field = 'EVENTO'
-              AND trigger_value = $1
-              AND type = $2
-        """
-        rows = await conn.fetch(query, trigger_value, type_filter)
-        return {r['email_to_add'] for r in rows if r['email_to_add']}
+        return await self.db.get_emails_for_event(conn, trigger_value, type_filter)
     
     async def _get_notification_sender(self, conn, departamento: str = 'DEFAULT') -> dict:
         """
@@ -732,29 +631,16 @@ class NotificationService:
             dict con 'email' y 'nombre' del remitente
         """
         # Buscar configuración específica del departamento activa
-        config = await conn.fetchrow("""
-            SELECT email_remitente, nombre_remitente
-            FROM tb_correos_notificaciones
-            WHERE departamento = $1 AND activo = true
-            LIMIT 1
-        """, departamento.upper())
+        config = await self.db.get_notification_sender(conn, departamento)
         
         # Si no existe configuración específica, usar DEFAULT
         if not config:
-            config = await conn.fetchrow("""
-                SELECT email_remitente, nombre_remitente
-                FROM tb_correos_notificaciones
-                WHERE departamento = 'DEFAULT' AND activo = true
-                LIMIT 1
-            """)
+            config = await self.db.get_default_notification_sender(conn)
         
-        # Fallback hardcoded (solo si la BD está vacía)
+        # Sin fallback hardcodeado: el remitente debe estar configurado en BD.
         if not config:
-            logger.warning("[NOTIFY] No hay configuración de sender en BD, usando fallback")
-            return {
-                'email': 'app-notifications@enertika.mx',
-                'nombre': 'Enertika App Notifications'
-            }
+            logger.error("[NOTIFY] No hay configuración de sender en BD para %s", departamento)
+            raise ValueError(f"No hay configuracion de remitente para {departamento}")
         
         return {
             'email': config['email_remitente'],
@@ -791,17 +677,12 @@ class NotificationService:
             masked_email = "***@***"
         
         # Obtener usuario_id desde email
-        user_row = await conn.fetchrow(
-            "SELECT id_usuario FROM tb_usuarios WHERE email = $1",
-            recipient_email
-        )
+        usuario_id = await self.db.get_user_id_by_email(conn, recipient_email)
         
-        if not user_row:
+        if not usuario_id:
             # No loguear email completo - usar identificador anónimo
             logger.warning(f"[NOTIFY] Usuario no encontrado para notificacion en Opp: {id_oportunidad} (email: {masked_email})")
             return
-        
-        usuario_id = user_row['id_usuario']
         
         # Crear notificación usando NotificationsService
         notif_service = get_notifications_service()
@@ -838,7 +719,8 @@ class NotificationService:
         cc_emails: Set[str],
         subject: str,
         html_body: str,
-        sender_email: str  # Email del usuario que ejecuta la accion
+        sender_email: str,  # Email del usuario que ejecuta la accion
+        attachments_files: Optional[list[dict]] = None,
     ) -> bool:
         """
         Envía email usando Application-only token de Microsoft Graph.
@@ -873,7 +755,8 @@ class NotificationService:
                 body=html_body,
                 recipients=list(to_emails),
                 cc_recipients=list(cc_emails) if cc_emails else None,
-                importance="normal"
+                importance="normal",
+                attachments_files=attachments_files,
             )
             
             if success:
@@ -899,6 +782,202 @@ class NotificationService:
             # Error de base de datos (si aplica)
             logger.error(f"[NOTIFY] Error de BD al enviar email: {e}", exc_info=True)
             return False
+
+
+    # ===== VACACIONES =====
+
+    async def _get_rh_emails_cc(self, conn) -> set[str]:
+        return await self.db.get_rh_emails(conn)
+
+    async def notify_periodo_expira(self, conn, empleado: dict, periodo: dict) -> None:
+        """Notifica por email al empleado y CC a RH cuando un periodo esta por expirar."""
+        try:
+            if not empleado.get("email"):
+                logger.info("[NOTIFY] Periodo por expirar sin email de empleado: %s", empleado.get("id_usuario"))
+                return
+            cc = await self._get_rh_emails_cc(conn)
+            html = self._render_template("shared/emails/vacaciones/periodo_expira.html", {
+                "empleado_nombre": empleado["nombre"],
+                "num_periodo": periodo["num_periodo"],
+                "dias_restantes": periodo["dias_restantes"],
+                "dias_para_expiracion": periodo["dias_para_expiracion"],
+                "fecha_expiracion": periodo["fecha_expiracion"].strftime("%d/%m/%Y"),
+                "base_url": settings.APP_BASE_URL,
+            })
+            sender = await self._get_notification_sender(conn)
+            await self._send_email(
+                {empleado["email"]},
+                cc,
+                "Periodo de vacaciones por expirar",
+                html,
+                sender["email"],
+            )
+        except asyncpg.PostgresError as e:
+            logger.error("[NOTIFY] BD error en notify_periodo_expira: %s", e, exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error("[NOTIFY] HTTP error en notify_periodo_expira: %s", e, exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as e:
+            logger.error("[NOTIFY] Error en notify_periodo_expira: %s", e, exc_info=True)
+
+    async def notify_solicitud_vencida(
+        self,
+        conn,
+        solicitud: dict,
+        to_emails: set[str],
+        cc_emails: set[str],
+    ) -> None:
+        """Notifica por email una solicitud pendiente vencida."""
+        try:
+            if not to_emails:
+                logger.info("[NOTIFY] Solicitud vencida sin destinatarios: %s", solicitud.get("id"))
+                return
+            html = self._render_template("shared/emails/vacaciones/solicitud_vencida.html", {
+                "solicitud_id": str(solicitud["id"]),
+                "solicitante_nombre": solicitud["solicitante_nombre"],
+                "tipo_nombre": solicitud["tipo_nombre"],
+                "fecha_inicio": solicitud["fecha_inicio"].strftime("%d/%m/%Y"),
+                "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
+                "base_url": settings.APP_BASE_URL,
+            })
+            sender = await self._get_notification_sender(conn)
+            await self._send_email(
+                to_emails,
+                cc_emails,
+                "Solicitud de ausencia vencida pendiente",
+                html,
+                sender["email"],
+            )
+        except asyncpg.PostgresError as e:
+            logger.error("[NOTIFY] BD error en notify_solicitud_vencida: %s", e, exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error("[NOTIFY] HTTP error en notify_solicitud_vencida: %s", e, exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as e:
+            logger.error("[NOTIFY] Error en notify_solicitud_vencida: %s", e, exc_info=True)
+
+    async def notify_vacation_request(self, conn, solicitud: dict, aprobador_email: str) -> None:
+        """Notifica al aprobador cuando el empleado envía una solicitud de ausencia."""
+        try:
+            aprobador_nombre = (
+                await self.db.get_user_name_by_email(conn, aprobador_email)
+            ) or aprobador_email
+
+            html = self._render_template("shared/emails/vacaciones/solicitud_recibida.html", {
+                "aprobador_nombre": aprobador_nombre,
+                "solicitante_nombre": solicitud["solicitante_nombre"],
+                "tipo_nombre": solicitud["tipo_nombre"],
+                "fecha_inicio": solicitud["fecha_inicio"].strftime("%d/%m/%Y"),
+                "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
+                "dias": solicitud["dias_solicitados"],
+                "fecha_presentarse": solicitud["fecha_presentarse"].strftime("%d/%m/%Y"),
+                "observaciones": solicitud.get("observaciones"),
+                "solicitud_id": str(solicitud["id"]),
+                "base_url": settings.APP_BASE_URL,
+            })
+            sender = await self._get_notification_sender(conn)
+            await self._send_email({aprobador_email}, set(), f"Nueva solicitud de ausencia: {solicitud['solicitante_nombre']}", html, sender["email"])
+
+            await self._save_and_broadcast(
+                conn=conn,
+                recipient_email=aprobador_email,
+                tipo="SOLICITUD_VACACIONES",
+                titulo=f"Nueva solicitud de {solicitud['solicitante_nombre']}",
+                mensaje=f"{solicitud['tipo_nombre']} · {solicitud['dias_solicitados']} días hábiles",
+                id_oportunidad=None,
+                modulo_origen="vacaciones",
+            )
+        except asyncpg.PostgresError as e:
+            logger.error("[NOTIFY] BD error en notify_vacation_request: %s", e, exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error("[NOTIFY] HTTP error en notify_vacation_request: %s", e, exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as e:
+            logger.error("[NOTIFY] Error en notify_vacation_request: %s", e, exc_info=True)
+
+    async def notify_vacation_approved(self, conn, solicitud: dict) -> None:
+        """Notifica al solicitante + CC a RH cuando la solicitud es aprobada."""
+        try:
+            cc = await self._get_rh_emails_cc(conn)
+
+            html = self._render_template("shared/emails/vacaciones/solicitud_aprobada.html", {
+                "solicitante_nombre": solicitud["solicitante_nombre"],
+                "aprobador_nombre": solicitud.get("aprobado_por_nombre", ""),
+                "tipo_nombre": solicitud["tipo_nombre"],
+                "fecha_inicio": solicitud["fecha_inicio"].strftime("%d/%m/%Y"),
+                "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
+                "dias": solicitud["dias_solicitados"],
+                "fecha_presentarse": solicitud["fecha_presentarse"].strftime("%d/%m/%Y"),
+                "solicitud_id": str(solicitud["id"]),
+                "base_url": settings.APP_BASE_URL,
+            })
+            sender = await self._get_notification_sender(conn)
+            attachments = []
+            try:
+                from modules.vacaciones.service import generar_pdf_solicitud, _generar_folio
+                pdf_bytes = await generar_pdf_solicitud(conn, solicitud["id"])
+                attachments.append({
+                    "name": f"{_generar_folio(solicitud)}.pdf",
+                    "contentType": "application/pdf",
+                    "content_bytes": pdf_bytes,
+                })
+            except ValueError as e:
+                logger.error("[NOTIFY] No se pudo generar PDF de solicitud aprobada: %s", e)
+            await self._send_email(
+                {solicitud["solicitante_email"]},
+                cc,
+                f"Solicitud aprobada: {solicitud['tipo_nombre']}",
+                html,
+                sender["email"],
+                attachments_files=attachments,
+            )
+
+            await self._save_and_broadcast(
+                conn=conn,
+                recipient_email=solicitud["solicitante_email"],
+                tipo="VACACIONES_APROBADAS",
+                titulo="Solicitud aprobada",
+                mensaje=f"{solicitud['tipo_nombre']} · {solicitud['fecha_inicio'].strftime('%d/%m')} al {solicitud['fecha_fin'].strftime('%d/%m/%Y')}",
+                id_oportunidad=None,
+                modulo_origen="vacaciones",
+            )
+        except asyncpg.PostgresError as e:
+            logger.error("[NOTIFY] BD error en notify_vacation_approved: %s", e, exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error("[NOTIFY] HTTP error en notify_vacation_approved: %s", e, exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as e:
+            logger.error("[NOTIFY] Error en notify_vacation_approved: %s", e, exc_info=True)
+
+    async def notify_vacation_rejected(self, conn, solicitud: dict, motivo: str) -> None:
+        """Notifica al solicitante + CC a RH cuando la solicitud es rechazada."""
+        try:
+            cc = await self._get_rh_emails_cc(conn)
+
+            html = self._render_template("shared/emails/vacaciones/solicitud_rechazada.html", {
+                "solicitante_nombre": solicitud["solicitante_nombre"],
+                "aprobador_nombre": solicitud.get("aprobado_por_nombre", ""),
+                "tipo_nombre": solicitud["tipo_nombre"],
+                "fecha_inicio": solicitud["fecha_inicio"].strftime("%d/%m/%Y"),
+                "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
+                "motivo": motivo,
+                "solicitud_id": str(solicitud["id"]),
+                "base_url": settings.APP_BASE_URL,
+            })
+            sender = await self._get_notification_sender(conn)
+            await self._send_email({solicitud["solicitante_email"]}, cc, f"Solicitud de ausencia no aprobada: {solicitud['tipo_nombre']}", html, sender["email"])
+
+            await self._save_and_broadcast(
+                conn=conn,
+                recipient_email=solicitud["solicitante_email"],
+                tipo="VACACIONES_RECHAZADAS",
+                titulo="Solicitud rechazada",
+                mensaje=f"{solicitud['tipo_nombre']} · Motivo: {motivo[:80]}",
+                id_oportunidad=None,
+                modulo_origen="vacaciones",
+            )
+        except asyncpg.PostgresError as e:
+            logger.error("[NOTIFY] BD error en notify_vacation_rejected: %s", e, exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error("[NOTIFY] HTTP error en notify_vacation_rejected: %s", e, exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as e:
+            logger.error("[NOTIFY] Error en notify_vacation_rejected: %s", e, exc_info=True)
 
 
 def get_notification_service():

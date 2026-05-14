@@ -1,5 +1,5 @@
 import logging
-from datetime import timedelta
+from datetime import date, timedelta
 from fastapi import APIRouter, Request, Depends, HTTPException, Form, Header
 from fastapi.responses import HTMLResponse, Response
 from typing import Optional
@@ -14,12 +14,14 @@ from core.jinja_filters import register_timezone_filters
 from .service import AdminService, get_admin_service
 from core.tipo_cambio.service import TipoCambioService
 import asyncpg
+import httpx
 
 logger = logging.getLogger("AdminRouter")
 
 from . import endpoints_correos_notif
 from .schemas import ConfiguracionGlobalUpdate, TecnologiaCreate
 from core.config_service import ConfigService
+from modules.asistencia import service as asistencia_service
 
 router = APIRouter(
     prefix="/admin",
@@ -48,6 +50,7 @@ async def admin_dashboard(
     departments_dict = await service.get_departments_catalog(conn)
     modules_dict = await service.get_modules_catalog(conn)
     catalogos = await service.get_catalogos_reglas(conn)
+    ubicaciones = await service.get_ubicaciones(conn)
     global_config = await service.get_global_config(conn)
     fiel_config = await service.db.fetch_fiel_config(conn)
     reporte = await service.generar_reporte_semanal(conn)
@@ -61,6 +64,8 @@ async def admin_dashboard(
         "departments": departments_dict,
         "modules": modules_dict,
         "catalogos": catalogos,
+        "sucursales": ubicaciones["sucursales"],
+        "zonas_compra": ubicaciones["zonas_compra"],
         "config_global": global_config,
         "fiel_config": fiel_config,
         "user_name": context.get("user_name"),
@@ -393,6 +398,157 @@ async def update_config_sharepoint(
         {"message": "Configuración SharePoint guardada correctamente", "type": "success"},
         headers={"HX-Reswap": "none"},
     )
+
+
+@router.post("/config/biotime", include_in_schema=False)
+async def update_config_biotime(
+    request: Request,
+    biotime_base_url: str = Form(""),
+    biotime_username: str = Form(""),
+    biotime_password: str = Form(""),
+    biotime_sync_activo: bool = Form(False),
+    biotime_sync_interval_seg: int = Form(900),
+    biotime_sync_page_size: int = Form(200),
+    biotime_sync_lookback_hrs: int = Form(48),
+    biotime_sync_timeout_seg: int = Form(30),
+    asistencia_recalc_dias: int = Form(7),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    try:
+        await service.update_biotime_config(
+            conn,
+            base_url=biotime_base_url,
+            username=biotime_username,
+            password=biotime_password,
+            sync_activo=biotime_sync_activo,
+            interval_seconds=biotime_sync_interval_seg,
+            page_size=biotime_sync_page_size,
+            lookback_hours=biotime_sync_lookback_hrs,
+            timeout_seconds=biotime_sync_timeout_seg,
+            recalc_days=asistencia_recalc_dias,
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"message": str(exc), "type": "error"},
+            status_code=400,
+            headers={"HX-Reswap": "none"},
+        )
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD guardando configuracion BioTime")
+        return templates.TemplateResponse(
+            request,
+            "shared/toast.html",
+            {"message": "No se pudo guardar la configuracion BioTime", "type": "error"},
+            status_code=500,
+            headers={"HX-Reswap": "none"},
+        )
+
+    return templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"message": "Configuracion BioTime guardada correctamente", "type": "success"},
+        headers={"HX-Reswap": "none"},
+    )
+
+
+@router.post("/config/biotime/probar", include_in_schema=False)
+async def probar_config_biotime(
+    request: Request,
+    biotime_base_url: str = Form(""),
+    biotime_username: str = Form(""),
+    biotime_password: str = Form(""),
+    biotime_sync_timeout_seg: int = Form(30),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    try:
+        base_url, username, password = await service.resolve_biotime_credentials(
+            conn,
+            base_url=biotime_base_url,
+            username=biotime_username,
+            password=biotime_password,
+        )
+        result = await asistencia_service.probar_conexion_biotime(
+            base_url=base_url,
+            username=username,
+            password=password,
+            timeout_seconds=biotime_sync_timeout_seg,
+        )
+        message = f"Conexion BioTime correcta. Registros leidos: {result['records_read']}"
+        type_ = "success"
+        status_code = 200
+    except ValueError as exc:
+        message = str(exc)
+        type_ = "error"
+        status_code = 400
+    except httpx.HTTPStatusError as exc:
+        message = f"BioTime respondio con HTTP {exc.response.status_code}"
+        type_ = "error"
+        status_code = 400
+    except httpx.HTTPError:
+        logger.exception("Error HTTP probando BioTime")
+        message = "No se pudo conectar con BioTime"
+        type_ = "error"
+        status_code = 400
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD leyendo configuracion BioTime")
+        message = "No se pudo leer la configuracion BioTime"
+        type_ = "error"
+        status_code = 500
+
+    return templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"message": message, "type": type_},
+        status_code=status_code,
+        headers={"HX-Reswap": "none"},
+    )
+
+
+@router.get("/asistencia/backfill", include_in_schema=False)
+async def backfill_biotime_panel(
+    request: Request,
+    _ = require_module_access("admin"),
+):
+    return templates.TemplateResponse(request, "admin/partials/biotime_backfill.html", {})
+
+
+@router.post("/asistencia/backfill/chunk", include_in_schema=False)
+async def backfill_biotime_chunk_endpoint(
+    request: Request,
+    chunk_inicio: str = Form(...),
+    chunk_fin: str = Form(...),
+    chunk_index: int = Form(...),
+    total_chunks: int = Form(...),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin"),
+):
+    fallback_label = f"{chunk_inicio} – {chunk_fin}"
+    ctx: dict = {"chunk_index": chunk_index, "total_chunks": total_chunks}
+    try:
+        fecha_inicio = date.fromisoformat(chunk_inicio)
+        fecha_fin = date.fromisoformat(chunk_fin)
+    except ValueError:
+        ctx.update({"chunk_label": fallback_label, "error": "Fecha inválida"})
+        return templates.TemplateResponse(request, "admin/partials/biotime_backfill_resultado.html", ctx)
+
+    try:
+        result = await asistencia_service.backfill_biotime_chunk(conn, fecha_inicio, fecha_fin)
+        ctx.update(result)
+    except ValueError as exc:
+        ctx.update({"chunk_label": fallback_label, "error": str(exc)})
+    except httpx.HTTPError as exc:
+        ctx.update({"chunk_label": fallback_label, "error": f"Error de conexión BioTime: {exc}"})
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD en backfill BioTime chunk %s-%s", chunk_inicio, chunk_fin)
+        ctx.update({"chunk_label": fallback_label, "error": "Error de base de datos al procesar el chunk"})
+
+    return templates.TemplateResponse(request, "admin/partials/biotime_backfill_resultado.html", ctx)
 
 
 @router.post("/config/simulacion-kpis", include_in_schema=False)
@@ -873,6 +1029,127 @@ async def create_origen_adjunto(
         return templates.TemplateResponse(request, "admin/partials/messages/error.html", {"title": "Error de Base de Datos",
             "message": "No se pudo guardar en la base de datos. Intente nuevamente."
         }, status_code=500)
+
+
+# --- SINCRONIZACIÓN DE PERFILES MICROSOFT ---
+
+@router.post("/sync-perfiles-ms", include_in_schema=False)
+async def sync_perfiles_ms(
+    request: Request,
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    _=require_module_access("admin", "admin"),
+):
+    result = await service.sync_ms_profiles(conn)
+    total = result["total"]
+    updated = result["updated"]
+    skipped = result["skipped"]
+
+    if total == 0:
+        msg = "No hay perfiles pendientes de sincronizar"
+        type_ = "success"
+    elif updated > 0:
+        msg = f"{updated} perfil(es) sincronizado(s)" + (f", {skipped} omitido(s) por token expirado" if skipped else "")
+        type_ = "success"
+    else:
+        msg = f"No se pudo sincronizar ningún perfil ({skipped} token(s) expirado(s))"
+        type_ = "error"
+
+    return templates.TemplateResponse(
+        request, "shared/toast.html",
+        {"message": msg, "type": type_},
+        headers={"HX-Reswap": "none"},
+    )
+
+
+# --- UBICACIONES (Sucursales + Zonas de Compra) ---
+
+def _ubicaciones_ctx(ubicaciones: dict, toast_type: str = "", toast_msg: str = "") -> dict:
+    return {**ubicaciones, "toast_type": toast_type, "toast_msg": toast_msg}
+
+
+@router.post("/catalogos/sucursales")
+async def create_sucursal(
+    request: Request,
+    codigo: str = Form(...),
+    nombre: str = Form(...),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("admin", "admin"),
+):
+    try:
+        await service.create_sucursal(conn, codigo, nombre)
+        toast = ("success", f"Sucursal '{nombre}' creada")
+    except ValueError as exc:
+        toast = ("error", str(exc))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD creando sucursal")
+        toast = ("error", "No se pudo guardar la sucursal")
+    ub = await service.get_ubicaciones(conn)
+    return templates.TemplateResponse(request, "admin/partials/ubicaciones.html", _ubicaciones_ctx(ub, *toast))
+
+
+@router.post("/catalogos/sucursales/{sucursal_id}/toggle")
+async def toggle_sucursal(
+    request: Request,
+    sucursal_id: str,
+    current_status: bool = Form(...),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("admin", "admin"),
+):
+    toast = ("", "")
+    try:
+        await service.toggle_sucursal(conn, sucursal_id, current_status)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD toggling sucursal")
+        toast = ("error", "No se pudo actualizar la sucursal")
+    ub = await service.get_ubicaciones(conn)
+    return templates.TemplateResponse(request, "admin/partials/ubicaciones.html", _ubicaciones_ctx(ub, *toast))
+
+
+@router.post("/catalogos/zonas-compra")
+async def create_zona_compra(
+    request: Request,
+    nombre: str = Form(...),
+    orden: int = Form(0),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("admin", "admin"),
+):
+    try:
+        await service.create_zona_compra(conn, nombre, orden)
+        toast = ("success", f"Zona '{nombre}' creada")
+    except ValueError as exc:
+        toast = ("error", str(exc))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD creando zona de compra")
+        toast = ("error", "No se pudo guardar la zona")
+    ub = await service.get_ubicaciones(conn)
+    return templates.TemplateResponse(request, "admin/partials/ubicaciones.html", _ubicaciones_ctx(ub, *toast))
+
+
+@router.post("/catalogos/zonas-compra/{zona_id}/toggle")
+async def toggle_zona_compra(
+    request: Request,
+    zona_id: int,
+    current_status: bool = Form(...),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("admin", "admin"),
+):
+    toast = ("", "")
+    try:
+        await service.toggle_zona_compra(conn, zona_id, current_status)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD toggling zona de compra")
+        toast = ("error", "No se pudo actualizar la zona")
+    ub = await service.get_ubicaciones(conn)
+    return templates.TemplateResponse(request, "admin/partials/ubicaciones.html", _ubicaciones_ctx(ub, *toast))
 
 
 # Include sub-routers

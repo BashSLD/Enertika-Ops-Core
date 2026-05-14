@@ -1,0 +1,157 @@
+{% extends "pdf/_base.html" %}
+
+{% block doc_title %}SOLICITUD DE VACACIONES / AUSENCIA{% endblock %}
+{% block doc_date %}Folio: {{ folio }}{% endblock %}
+{% block footer_label %}Solicitud de Ausencia — {{ folio }}{% endblock %}
+
+{% block extra_styles %}
+<style>
+.firma-box {
+    width: 48%;
+    display: inline-block;
+    vertical-align: top;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 12px;
+    min-height: 90px;
+}
+.firma-box img {
+    max-height: 60px;
+    max-width: 200px;
+    display: block;
+    margin-bottom: 6px;
+}
+.firma-line {
+    border-top: 1px solid #333;
+    margin-top: 4px;
+    padding-top: 4px;
+    font-size: 9pt;
+    color: #333;
+}
+.nota-legal {
+    font-size: 8pt;
+    color: #777;
+    margin-top: 18px;
+    border-top: 1px solid #eee;
+    padding-top: 8px;
+    text-align: center;
+}
+</style>
+{% endblock %}
+
+{% block content %}
+
+<p style="font-size:9pt; color:#666; margin: 6px 0 14px 0;">
+  Fecha de solicitud: {{ solicitud.fecha_solicitud.strftime('%d/%m/%Y %H:%M') }}
+</p>
+
+<!-- DATOS DEL EMPLEADO -->
+<div class="section-title">Datos del Empleado</div>
+<table class="data-table">
+  <tr><th>Nombre</th><td>{{ solicitud.solicitante_nombre }}</td></tr>
+  {% if empleado %}
+  {% if empleado.numero_empleado %}
+  <tr><th>No. Empleado</th><td>{{ empleado.numero_empleado }}</td></tr>
+  {% endif %}
+  {% if empleado.departamento %}
+  <tr><th>Departamento</th><td>{{ empleado.departamento }}</td></tr>
+  {% endif %}
+  {% if empleado.puesto %}
+  <tr><th>Puesto</th><td>{{ empleado.puesto }}</td></tr>
+  {% endif %}
+  {% if empleado.fecha_contratacion %}
+  <tr><th>Fecha de Contratación</th><td>{{ empleado.fecha_contratacion.strftime('%d/%m/%Y') }}</td></tr>
+  {% endif %}
+  {% endif %}
+</table>
+
+<!-- DATOS DE LA SOLICITUD -->
+<div class="section-title">Datos de la Solicitud</div>
+<table class="data-table">
+  <tr><th>Tipo</th><td>{{ solicitud.tipo_nombre }}</td></tr>
+  <tr><th>Período</th><td>{{ solicitud.fecha_inicio.strftime('%d/%m/%Y') }} al {{ solicitud.fecha_fin.strftime('%d/%m/%Y') }}</td></tr>
+  <tr><th>Días hábiles solicitados</th><td><strong>{{ solicitud.dias_solicitados }}</strong></td></tr>
+  <tr><th>Fecha de regreso</th><td>{{ solicitud.fecha_presentarse.strftime('%d/%m/%Y') }}</td></tr>
+  {% if solicitud.observaciones %}
+  <tr><th>Observaciones</th><td>{{ solicitud.observaciones }}</td></tr>
+  {% endif %}
+  <tr>
+    <th>Estado</th>
+    <td>
+      <strong class="{{ 'text-ok' if solicitud.estado == 'aprobado' else 'text-alert' if solicitud.estado == 'rechazado' else '' }}">
+        {{ solicitud.estado | upper }}
+      </strong>
+      {% if solicitud.fecha_resolucion %}
+      &nbsp;— {{ solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') }}
+      {% endif %}
+    </td>
+  </tr>
+  {% if solicitud.motivo_rechazo %}
+  <tr><th>Motivo de rechazo</th><td class="text-alert">{{ solicitud.motivo_rechazo }}</td></tr>
+  {% endif %}
+</table>
+
+{% if detalle_periodos %}
+<div class="section-title">Detalle de Periodos Afectados</div>
+<table class="data-table">
+  <tr>
+    <th>Periodo</th>
+    <th>Dias consumidos</th>
+    <th>Saldo restante</th>
+    <th>Fecha de expiracion</th>
+  </tr>
+  {% for p in detalle_periodos %}
+  <tr>
+    <td>Periodo {{ p.num_periodo }} ({{ p.periodo }})</td>
+    <td>{{ p.dias_consumidos }}</td>
+    <td>{{ p.dias_restantes if p.dias_restantes is not none else '-' }}</td>
+    <td>{{ p.fecha_expiracion.strftime('%d/%m/%Y') if p.fecha_expiracion else '-' }}</td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+
+<!-- FIRMAS -->
+<div class="section-title">Firmas</div>
+<div style="margin-top: 10px;">
+  <div class="firma-box" style="margin-right: 4%;">
+    {% if firma_solicitante_b64 %}
+    <img src="data:image/png;base64,{{ firma_solicitante_b64 }}" alt="Firma solicitante">
+    {% else %}
+    <div style="height: 60px;"></div>
+    {% endif %}
+    <div class="firma-line">
+      <strong>Solicitante</strong><br>
+      {{ solicitud.solicitante_nombre }}<br>
+      {% if firma_solicitante_info %}
+      Fecha: {{ firma_solicitante_info.fecha_firma.strftime('%d/%m/%Y %H:%M') }}
+      {% endif %}
+    </div>
+  </div>
+  <div class="firma-box">
+    {% if firma_aprobador_b64 %}
+    <img src="data:image/png;base64,{{ firma_aprobador_b64 }}" alt="Firma aprobador">
+    {% else %}
+    <div style="height: 60px; border-bottom: 1px dashed #aaa;"></div>
+    {% endif %}
+    <div class="firma-line">
+      <strong>Aprobador</strong><br>
+      {% if solicitud.aprobado_por_nombre %}
+      {{ solicitud.aprobado_por_nombre }}<br>
+      {% if firma_aprobador_info %}
+      Fecha: {{ firma_aprobador_info.fecha_firma.strftime('%d/%m/%Y %H:%M') }}
+      {% endif %}
+      {% else %}
+      Pendiente de aprobación
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<p class="nota-legal">
+  Este documento es un comprobante. Las firmas digitales registradas en el sistema
+  constituyen la autorización oficial de esta solicitud.<br>
+  CC: RH Enertika
+</p>
+
+{% endblock %}

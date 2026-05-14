@@ -1,0 +1,127 @@
+{% if toast_msg %}
+{% with type=toast_type, title="Aviso", message=toast_msg %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+<div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 max-w-lg"
+     x-data="{
+       modo: 'subir',
+       canvasLimpio: true,
+       sigPad: null,
+       initSignaturePad() {
+         if (this.sigPad || typeof SignaturePad === 'undefined' || !this.$refs.canvas) {
+           return;
+         }
+         this.sigPad = new SignaturePad(this.$refs.canvas, { penColor: '#1a1a1a', minWidth: 1, maxWidth: 2.5 });
+         const form = this.$el.querySelector('[data-firma-dibujada-form]');
+         if (form) {
+           form.sigPad = this.sigPad;
+         }
+         this.sigPad.addEventListener('beginStroke', () => { this.canvasLimpio = false; });
+       }
+     }"
+     x-init="$nextTick(() => initSignaturePad())"
+     @signature-pad-ready.window="$nextTick(() => initSignaturePad())">
+
+  <h2 class="text-lg font-bold text-gray-900 mb-1">Mi Firma</h2>
+  <p class="text-sm text-gray-500 mb-5">
+    Tu firma se usa para validar las solicitudes de ausencia.
+    Se almacena de forma segura y nunca se comparte.
+  </p>
+
+  {% if firma and firma_b64 %}
+  <div class="border border-gray-200 rounded-xl p-4 mb-5">
+    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Firma actual</p>
+    <img src="data:image/png;base64,{{ firma_b64 }}"
+         alt="Firma actual"
+         class="max-h-20 object-contain border border-gray-100 rounded-lg bg-gray-50 p-2 w-full">
+    <p class="text-xs text-gray-400 mt-1.5">
+      Tipo: {{ 'dibujada' if firma.tipo_firma == 'dibujada' else 'subida' }}
+    </p>
+  </div>
+  <p class="text-sm text-gray-600 mb-4">Para actualizar tu firma, selecciona una de las opciones abajo:</p>
+  {% endif %}
+
+  <div class="flex gap-2 mb-5">
+    <button @click="modo = 'subir'"
+            :class="modo === 'subir' ? 'bg-[#00BABB] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+            class="flex-1 text-sm font-medium py-2 rounded-xl transition-colors">
+      Subir imagen
+    </button>
+    <button @click="modo = 'dibujar'"
+            :class="modo === 'dibujar' ? 'bg-[#00BABB] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+            class="flex-1 text-sm font-medium py-2 rounded-xl transition-colors">
+      Dibujar firma
+    </button>
+  </div>
+
+  <div x-show="modo === 'subir'">
+    <form hx-post="/perfil/firma/upload"
+          hx-encoding="multipart/form-data"
+          hx-target="#tab-content"
+          hx-swap="innerHTML"
+          class="space-y-4">
+      {% if solicitud_pendiente_id %}
+      <input type="hidden" name="solicitud_pendiente_id" value="{{ solicitud_pendiente_id }}">
+      {% endif %}
+      <div>
+        <label class="block text-sm font-medium text-gray-700 mb-1">Imagen PNG de tu firma</label>
+        <input type="file" name="firma_file" accept="image/png" required
+               class="w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#00BABB] file:text-white hover:file:bg-[#009A9B] cursor-pointer">
+        <p class="text-xs text-gray-400 mt-1">Solo PNG - max. 500 KB - max. 500 x 200 px</p>
+      </div>
+      <button type="submit"
+              class="w-full bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
+        Guardar firma
+      </button>
+    </form>
+  </div>
+
+  <div x-show="modo === 'dibujar'">
+    <div class="mb-3">
+      <label class="block text-sm font-medium text-gray-700 mb-1.5">Dibuja tu firma abajo</label>
+      <div class="border-2 border-dashed border-gray-200 rounded-xl overflow-hidden bg-white">
+        <canvas id="firma-canvas" x-ref="canvas" width="460" height="160"
+                class="w-full touch-none cursor-crosshair"></canvas>
+      </div>
+      <button type="button" @click="sigPad && sigPad.clear(); canvasLimpio = true"
+              class="mt-2 text-xs text-gray-500 hover:text-gray-700 underline">
+        Limpiar
+      </button>
+    </div>
+    <form hx-post="/perfil/firma/draw"
+          hx-target="#tab-content"
+          hx-swap="innerHTML"
+          data-firma-dibujada-form
+          hx-on::config-request="
+            if (this.sigPad && !this.sigPad.isEmpty()) {
+              event.detail.parameters['firma_b64'] = this.sigPad.toDataURL('image/png');
+            } else {
+              event.preventDefault();
+            }
+          ">
+      {% if solicitud_pendiente_id %}
+      <input type="hidden" name="solicitud_pendiente_id" value="{{ solicitud_pendiente_id }}">
+      {% endif %}
+      <button type="submit" :disabled="canvasLimpio"
+              class="w-full bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+        Guardar firma
+      </button>
+    </form>
+  </div>
+
+</div>
+
+<script>
+if (typeof SignaturePad === 'undefined') {
+  const s = document.createElement('script');
+  s.src = '/static/vendor/signature_pad.min.js';
+  s.onload = () => {
+    window.dispatchEvent(new Event('signature-pad-ready'));
+  };
+  document.head.appendChild(s);
+} else {
+  window.dispatchEvent(new Event('signature-pad-ready'));
+}
+</script>

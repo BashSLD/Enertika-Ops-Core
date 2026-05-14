@@ -6,10 +6,19 @@ from uuid import UUID, uuid4
 from typing import Optional, List, Dict, Any, Set
 import asyncpg
 import logging
+from jinja2 import TemplateError
 
 from .db_service import TransferDBService, get_transfer_db_service
 
 logger = logging.getLogger("TransferService")
+TRANSFER_NOTIFICATION_ERRORS = (
+    asyncpg.PostgresError,
+    RuntimeError,
+    TypeError,
+    ValueError,
+    KeyError,
+    TemplateError,
+)
 
 AREA_FLOW = {
     "INGENIERIA": "CONSTRUCCION",
@@ -180,7 +189,7 @@ class TransferService:
             if traspaso.get("area_destino") == "OYM":
                 try:
                     await self._ensure_oym_planta_for_project(conn, traspaso["id_proyecto"])
-                except Exception:
+                except TRANSFER_NOTIFICATION_ERRORS:
                     logger.exception(
                         "No se pudo asegurar planta OYM para proyecto %s",
                         traspaso.get("proyecto_id_estandar") or traspaso.get("id_proyecto"),
@@ -353,26 +362,12 @@ class TransferService:
         Obtiene usuarios con rol editor o admin en un modulo.
         Estos son los "jefes" del area que deben recibir notificaciones.
         """
-        rows = await conn.fetch("""
-            SELECT u.id_usuario, u.nombre, u.email
-            FROM tb_permisos_modulos pm
-            JOIN tb_usuarios u ON pm.usuario_id = u.id_usuario
-            JOIN tb_cat_modulos mc ON pm.modulo_slug = mc.slug
-            WHERE mc.slug = $1
-            AND pm.rol_modulo IN ('editor', 'admin')
-            AND u.is_active = true
-            AND u.email IS NOT NULL
-        """, module_slug)
-        return [dict(r) for r in rows]
+        return await self.db.get_module_editors(conn, module_slug)
 
     async def _get_user_by_id(
         self, conn, user_id: UUID
     ) -> Optional[Dict[str, Any]]:
-        row = await conn.fetchrow(
-            "SELECT id_usuario, nombre, email FROM tb_usuarios WHERE id_usuario = $1",
-            user_id
-        )
-        return dict(row) if row else None
+        return await self.db.get_user_by_id(conn, user_id)
 
     async def _notify_traspaso_enviado(
         self, conn,
@@ -432,7 +427,7 @@ class TransferService:
                 departamento=dest_slug.upper(),
             )
 
-        except Exception:
+        except TRANSFER_NOTIFICATION_ERRORS:
             logger.exception("Error al notificar traspaso enviado")
 
     async def _notify_traspaso_aceptado(
@@ -486,7 +481,7 @@ class TransferService:
                 departamento=origen_slug.upper(),
             )
 
-        except Exception:
+        except TRANSFER_NOTIFICATION_ERRORS:
             logger.exception("Error al notificar traspaso aceptado")
 
     async def _notify_traspaso_rechazado(
@@ -544,7 +539,7 @@ class TransferService:
                 departamento=origen_slug.upper(),
             )
 
-        except Exception:
+        except TRANSFER_NOTIFICATION_ERRORS:
             logger.exception("Error al notificar traspaso rechazado")
 
     async def _send_notifications(
@@ -588,7 +583,7 @@ class TransferService:
                         modulo_origen=modulo_origen,
                     )
                     await notif_service.broadcast_to_user(conn, usuario_id, notification_data)
-                except Exception:
+                except TRANSFER_NOTIFICATION_ERRORS:
                     logger.exception(
                         "Error SSE para usuario %s en notificacion %s",
                         usuario_id, tipo
@@ -616,7 +611,7 @@ class TransferService:
                     to_emails, cc_emails, email_subject, html,
                     sender_config['email']
                 )
-            except Exception:
+            except TRANSFER_NOTIFICATION_ERRORS:
                 logger.exception("Error al enviar email de notificacion %s", tipo)
 
 

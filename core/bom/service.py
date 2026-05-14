@@ -6,12 +6,14 @@ Logica de negocio, workflow de aprobaciones, versionado y exportacion Excel.
 import logging
 from uuid import UUID
 from typing import Optional, List, Set
-from datetime import datetime, timezone
+
+import asyncpg
+from jinja2 import TemplateError
 
 from core.bom.db_service import BomDBService
 from core.bom.schemas import EstatusBOM, AccionHistorial, TipoAprobacion
 from core.config import settings
-from core.timezone import today_mx
+from core.timezone import now_mx, today_mx
 
 logger = logging.getLogger("BOM.Service")
 
@@ -233,13 +235,13 @@ class BomService:
                     raise ValueError("La cantidad recibida no puede exceder la cantidad total del item")
                 if cant_recibida >= cant_total:
                     campos_filtrados['entregado'] = True
-                    campos_filtrados['fecha_entrega_check'] = datetime.now(timezone.utc)
+                    campos_filtrados['fecha_entrega_check'] = now_mx()
                 else:
                     campos_filtrados['entregado'] = False
                     campos_filtrados['fecha_entrega_check'] = None
             # Marcar entregado manualmente (si no viene cantidad_recibida)
             elif 'entregado' in campos_filtrados and campos_filtrados['entregado']:
-                campos_filtrados['fecha_entrega_check'] = datetime.now(timezone.utc)
+                campos_filtrados['fecha_entrega_check'] = now_mx()
             elif 'entregado' in campos_filtrados and not campos_filtrados['entregado']:
                 campos_filtrados['fecha_entrega_check'] = None
         elif area_editor == 'compras':
@@ -394,7 +396,7 @@ class BomService:
             raise ValueError("El BOM debe tener al menos un item")
 
         update_kwargs = {
-            'fecha_envio_ing': datetime.now(timezone.utc)
+            'fecha_envio_ing': now_mx()
         }
         if responsable_ing:
             update_kwargs['responsable_ing'] = responsable_ing
@@ -426,7 +428,7 @@ class BomService:
 
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.APROBADO_ING,
-            fecha_aprobacion_ing=datetime.now(timezone.utc)
+            fecha_aprobacion_ing=now_mx()
         )
 
         await self.db.registrar_aprobacion(
@@ -481,7 +483,7 @@ class BomService:
             raise ValueError("El BOM debe estar APROBADO_ING para enviar a construccion")
 
         update_kwargs = {
-            'fecha_envio_const': datetime.now(timezone.utc)
+            'fecha_envio_const': now_mx()
         }
         if coordinador_obra:
             update_kwargs['coordinador_obra'] = coordinador_obra
@@ -510,7 +512,7 @@ class BomService:
 
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.APROBADO_CONST,
-            fecha_aprobacion_const=datetime.now(timezone.utc)
+            fecha_aprobacion_const=now_mx()
         )
 
         await self.db.registrar_aprobacion(
@@ -565,7 +567,7 @@ class BomService:
 
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.EN_REVISION_OBRA,
-            fecha_envio_obra=datetime.now(timezone.utc)
+            fecha_envio_obra=now_mx()
         )
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.ENVIO_REVISION_OBRA,
@@ -589,8 +591,8 @@ class BomService:
 
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.EN_REVISION_CONST,
-            fecha_aprobacion_obra=datetime.now(timezone.utc),
-            fecha_envio_const=datetime.now(timezone.utc)
+            fecha_aprobacion_obra=now_mx(),
+            fecha_envio_const=now_mx()
         )
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.APROBACION_OBRA,
@@ -797,11 +799,8 @@ class BomService:
             fecha_fin = date_type.fromisoformat(fecha_fin)
         if fecha_fin < today_mx():
             raise ValueError("La fecha fin de la suplencia debe ser futura")
-        row = await conn.fetchrow(
-            "SELECT id_usuario, nombre FROM tb_usuarios WHERE id_usuario = $1 AND is_active = TRUE",
-            suplente_id
-        )
-        if not row:
+        suplente = await self.db.get_usuario_activo_basico(conn, suplente_id)
+        if not suplente:
             raise ValueError("El usuario suplente no existe o no esta activo")
         return await self.db.crear_suplencia(conn, titular_id, suplente_id, fecha_fin)
 
@@ -822,7 +821,7 @@ class BomService:
         aprobador_id = await self.db.get_aprobador_final_id(conn)
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.EN_REVISION_FINAL,
-            fecha_envio_final=datetime.now(timezone.utc)
+            fecha_envio_final=now_mx()
         )
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.ENVIO_REVISION_FINAL,
@@ -849,7 +848,7 @@ class BomService:
 
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.APROBADO_FINAL,
-            fecha_aprobacion_final=datetime.now(timezone.utc)
+            fecha_aprobacion_final=now_mx()
         )
         await self.db.registrar_aprobacion(
             conn, id_bom, TipoAprobacion.APROBACION_FINAL,
@@ -918,9 +917,7 @@ class BomService:
 
             por_nombre = None
             if por_user_id:
-                por_nombre = await conn.fetchval(
-                    "SELECT nombre FROM tb_usuarios WHERE id_usuario = $1", por_user_id
-                )
+                por_nombre = await self.db.get_usuario_nombre(conn, por_user_id)
 
             html = notif._render_template('shared/emails/bom/bom_revision.html', {
                 'bom': bom,
@@ -947,7 +944,7 @@ class BomService:
 
             await notif._send_email({to_email}, set(), subject, html, sender_email)
             logger.info("BOM notify enviada: evento=%s to_user=%s", evento, to_user_id)
-        except Exception:
+        except (asyncpg.PostgresError, KeyError, RuntimeError, TemplateError, TypeError, ValueError):
             logger.exception("BOM notify: error enviando email, evento=%s", evento)
 
     # ─── CATALOGOS ──────────────────────────────────────────
@@ -1446,9 +1443,7 @@ class BomService:
 
             por_nombre = None
             if por_user_id:
-                por_nombre = await conn.fetchval(
-                    "SELECT nombre FROM tb_usuarios WHERE id_usuario = $1", por_user_id
-                )
+                por_nombre = await self.db.get_usuario_nombre(conn, por_user_id)
 
             html = notif._render_template('shared/emails/bom/bom_autorizacion.html', {
                 'autorizacion': autorizacion,
@@ -1470,7 +1465,7 @@ class BomService:
 
             await notif._send_email({to_email}, set(), subject, html, sender_email)
             logger.info("Autorizacion notify: evento=%s to_user=%s", evento, to_user_id)
-        except Exception:
+        except (asyncpg.PostgresError, KeyError, RuntimeError, TemplateError, TypeError, ValueError):
             logger.exception("Autorizacion notify: error enviando email, evento=%s", evento)
 
     async def rechazar_cotizacion(

@@ -1,0 +1,91 @@
+{% if toast_msg %}
+{% with type=toast_type, title="Aviso", message=toast_msg %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+<div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+  <div class="px-5 py-3 border-b border-gray-100">
+    <h2 class="text-sm font-semibold text-gray-700">
+      Aprobaciones pendientes
+      {% if pendientes %}
+      <span class="ml-1.5 bg-amber-100 text-amber-700 text-xs font-bold px-1.5 py-0.5 rounded-full">{{ pendientes | length }}</span>
+      {% endif %}
+    </h2>
+  </div>
+
+  {% if not pendientes %}
+  <div class="px-5 py-10 text-center text-sm text-gray-400">
+    No hay solicitudes pendientes de aprobación.
+  </div>
+  {% else %}
+  <div class="divide-y divide-gray-50">
+    {% for s in pendientes %}
+    <div class="px-5 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <div class="flex-1 min-w-0">
+        <p class="text-sm font-semibold text-gray-800 truncate">{{ s.solicitante_nombre }}</p>
+        <p class="text-xs text-gray-500 mt-0.5">
+          <span class="font-medium text-gray-600">{{ s.tipo_abreviatura }}</span>
+          {{ s.fecha_inicio.strftime('%d/%m/%Y') }} — {{ s.fecha_fin.strftime('%d/%m/%Y') }}
+          · {{ s.dias_solicitados }} días
+        </p>
+        {% if s.observaciones %}
+        <p class="text-xs text-gray-400 mt-0.5 truncate">{{ s.observaciones }}</p>
+        {% endif %}
+        <p class="text-xs text-gray-400 mt-0.5">
+          Enviada {{ s.fecha_solicitud.strftime('%d/%m/%Y %H:%M') }}
+        </p>
+      </div>
+      <div class="flex items-center gap-2 flex-shrink-0">
+        <button
+          hx-get="/vacaciones/solicitudes/{{ s.id }}"
+          hx-target="#tab-content"
+          hx-swap="innerHTML"
+          class="text-xs text-[#00BABB] hover:underline font-medium">Ver</button>
+        <button
+          hx-post="/vacaciones/solicitudes/{{ s.id }}/aprobar"
+          hx-target="#tab-content"
+          hx-swap="innerHTML"
+          hx-confirm="¿Aprobar la solicitud de {{ s.solicitante_nombre }}?"
+          class="text-xs font-semibold px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-lg transition-colors">
+          Aprobar
+        </button>
+        <button x-data
+          @click="$dispatch('open-rechazo', {id: '{{ s.id }}', nombre: '{{ s.solicitante_nombre }}'})"
+          class="text-xs font-medium px-3 py-1.5 border border-red-200 text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+          Rechazar
+        </button>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</div>
+
+<!-- Modal rechazo compartido -->
+<div x-data="{ open: false, motivo: '', solicitudId: '', nombre: '' }"
+     @open-rechazo.window="open = true; solicitudId = $event.detail.id; nombre = $event.detail.nombre"
+     x-show="open"
+     class="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4"
+     x-cloak>
+  <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm" @click.stop>
+    <h3 class="text-base font-semibold text-gray-900 mb-1">Rechazar solicitud</h3>
+    <p class="text-sm text-gray-500 mb-3" x-text="nombre"></p>
+    <form :hx-post="'/vacaciones/solicitudes/' + solicitudId + '/rechazar'"
+          hx-target="#tab-content"
+          hx-swap="innerHTML"
+          @htmx:after-request="open = false">
+      <label class="block text-sm text-gray-700 mb-1.5">Motivo del rechazo *</label>
+      <textarea name="motivo" x-model="motivo" rows="3" required placeholder="Explica el motivo..."
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm resize-none focus:ring-2 focus:ring-red-400 outline-none mb-4"></textarea>
+      <div class="flex gap-2">
+        <button type="button" @click="open = false"
+                class="flex-1 border border-gray-200 text-sm py-2 rounded-xl hover:bg-gray-50">Cancelar</button>
+        <button type="submit" :disabled="!motivo.trim()"
+                class="flex-1 bg-red-600 hover:bg-red-700 text-white text-sm font-semibold py-2 rounded-xl disabled:opacity-50 transition-colors">
+          Rechazar
+        </button>
+      </div>
+    </form>
+  </div>
+</div>

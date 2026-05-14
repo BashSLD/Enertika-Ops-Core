@@ -1,0 +1,65 @@
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <div style="background: #00BABB; padding: 20px 24px; border-radius: 8px 8px 0 0;">
+        <h2 style="color: #ffffff; margin: 0; font-size: 18px;">Formato de Visita a Obra</h2>
+        <p style="color: #e0fafa; margin: 4px 0 0; font-size: 13px;">Reporte No. {{ visita.numero_visita }}</p>
+    </div>
+    <div style="background: #f9fafb; padding: 24px; border: 1px solid #e5e7eb; border-top: none; border-radius: 0 0 8px 8px;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 14px; color: #374151;">
+            <tr>
+                <td style="padding: 8px 12px; font-weight: bold; width: 40%; background: #f3f4f6; border: 1px solid #e5e7eb;">Nombre del lugar</td>
+                <td style="padding: 8px 12px; border: 1px solid #e5e7eb;">{{ visita.nombre_planta }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 12px; font-weight: bold; background: #f3f4f6; border: 1px solid #e5e7eb;">ID de Proyecto</td>
+                <td style="padding: 8px 12px; border: 1px solid #e5e7eb;">{{ visita.id_proyecto }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 12px; font-weight: bold; background: #f3f4f6; border: 1px solid #e5e7eb;">Direccion / Ubicacion</td>
+                <td style="padding: 8px 12px; border: 1px solid #e5e7eb;">{{ ubicacion_display }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 12px; font-weight: bold; background: #f3f4f6; border: 1px solid #e5e7eb;">Fecha de visita</td>
+                <td style="padding: 8px 12px; border: 1px solid #e5e7eb;">{{ fecha_display }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 12px; font-weight: bold; background: #f3f4f6; border: 1px solid #e5e7eb;">Responsable interno</td>
+                <td style="padding: 8px 12px; border: 1px solid #e5e7eb;">{{ visita.persona_responsable_interna }}</td>
+            </tr>
+            <tr>
+                <td style="padding: 8px 12px; font-weight: bold; background: #f3f4f6; border: 1px solid #e5e7eb;">Responsable de obra</td>
+                <td style="padding: 8px 12px; border: 1px solid #e5e7eb;">{{ visita.responsable_obra }}</td>
+            </tr>
+            {% if sp_link %}
+            <tr>
+                <td style="padding: 8px 12px; font-weight: bold; background: #fef3c7; border: 1px solid #e5e7eb;">Fotografias</td>
+                <td style="padding: 8px 12px; border: 1px solid #e5e7eb; background: #fef3c7;">
+                    <a href="{{ sp_link }}" style="color: #0A2463; font-weight: bold;">
+                        Ver {{ fotos_count }} fotografia{% if fotos_count != 1 %}s{% endif %} en SharePoint
+                    </a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td style="padding: 8px 12px; font-weight: bold; background: #f3f4f6; border: 1px solid #e5e7eb;">Fotografias adjuntas</td>
+                <td style="padding: 8px 12px; border: 1px solid #e5e7eb;">{{ fotos_count }} imagen{% if fotos_count != 1 %}es{% endif %}</td>
+            </tr>
+            {% endif %}
+        </table>
+
+        {% if sp_link %}
+        <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 10px 14px; margin-top: 16px; border-radius: 4px; font-size: 12px; color: #92400e;">
+            Las {{ fotos_count }} fotografias no pudieron enviarse como adjuntos por el volumen de archivos.
+            Se encuentran disponibles en la carpeta de SharePoint indicada arriba.
+        </div>
+        {% endif %}
+
+        <p style="font-size: 12px; color: #9ca3af; margin-top: 20px;">
+            Este correo fue enviado desde ECO.
+            {% if sp_link %}
+                El reporte PDF completo se encuentra adjunto. Las fotografias estan disponibles en SharePoint.
+            {% else %}
+                El reporte PDF completo y las fotografias se encuentran adjuntos.
+            {% endif %}
+        </p>
+    </div>
+</div>

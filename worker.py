@@ -19,7 +19,12 @@ from core.tasks import (
     send_reporte_desarrollo_ceo_periodically,
     sat_jobs_worker_periodically,
     sat_inbox_cleanup_periodically,
+    generar_festivos_anuales_periodically,
+    verificar_recordatorios_aprobacion_periodically,
+    verificar_periodos_por_expirar_periodically,
+    verificar_solicitudes_vencidas_periodically,
 )
+from modules.asistencia.service import sync_biotime_periodically
 
 logging.basicConfig(
     level=logging.INFO,
@@ -57,6 +62,11 @@ async def main():
         asyncio.create_task(send_reporte_desarrollo_ceo_periodically()),
         asyncio.create_task(sat_jobs_worker_periodically()),
         asyncio.create_task(sat_inbox_cleanup_periodically()),
+        asyncio.create_task(generar_festivos_anuales_periodically()),
+        asyncio.create_task(verificar_recordatorios_aprobacion_periodically()),
+        asyncio.create_task(verificar_periodos_por_expirar_periodically()),
+        asyncio.create_task(verificar_solicitudes_vencidas_periodically()),
+        asyncio.create_task(sync_biotime_periodically()),
     ]
 
     logger.info("[WORKER] %d tareas activas", len(tasks))

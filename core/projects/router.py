@@ -219,10 +219,17 @@ async def crear_proyecto(
             }
         )
         
-    except HTTPException as e:
+    except LookupError as e:
         return templates.TemplateResponse(
             request, "shared/partials/proyecto_creado_result.html",
-            {"success": False, "proyecto": None, "mensaje": e.detail}
+            {"success": False, "proyecto": None, "mensaje": str(e)},
+            status_code=404,
+        )
+    except ValueError as e:
+        return templates.TemplateResponse(
+            request, "shared/partials/proyecto_creado_result.html",
+            {"success": False, "proyecto": None, "mensaje": str(e)},
+            status_code=400,
         )
     except asyncpg.exceptions.UniqueViolationError:
         return templates.TemplateResponse(
@@ -230,7 +237,14 @@ async def crear_proyecto(
             {"success": False, "proyecto": None,
              "mensaje": "El ID de proyecto generado ya existe. Verifica el consecutivo."}
         )
-    except Exception as e:
+    except asyncpg.PostgresError as e:
+        logger.error(f"Error de BD creando proyecto: {e}", exc_info=True)
+        return templates.TemplateResponse(
+            request, "shared/partials/proyecto_creado_result.html",
+            {"success": False, "proyecto": None, "mensaje": "Error de base de datos al crear proyecto"},
+            status_code=500,
+        )
+    except (RuntimeError, TypeError) as e:
         logger.error(f"Error creando proyecto: {e}", exc_info=True)
         return templates.TemplateResponse(
             request, "shared/partials/proyecto_creado_result.html",
@@ -263,15 +277,25 @@ async def crear_proyecto_json(
     if not user_id:
         raise HTTPException(status_code=401, detail="Usuario no identificado")
     
-    proyecto = await service.crear_proyecto(
-        conn=conn,
-        id_sitio=data.id_sitio,
-        prefijo=data.prefijo,
-        consecutivo=data.consecutivo,
-        id_tecnologia=data.id_tecnologia,
-        nombre_corto=data.nombre_corto,
-        user_id=user_id
-    )
+    try:
+        proyecto = await service.crear_proyecto(
+            conn=conn,
+            id_sitio=data.id_sitio,
+            prefijo=data.prefijo,
+            consecutivo=data.consecutivo,
+            id_tecnologia=data.id_tecnologia,
+            nombre_corto=data.nombre_corto,
+            user_id=user_id
+        )
+    except LookupError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e)) from e
+    except asyncpg.exceptions.UniqueViolationError as e:
+        raise HTTPException(
+            status_code=400,
+            detail="El ID de proyecto generado ya existe. Verifica el consecutivo.",
+        ) from e
     
     return {
         "success": True,

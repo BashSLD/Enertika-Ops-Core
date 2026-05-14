@@ -1,0 +1,93 @@
+{% if error %}
+<div class="rounded-xl border border-red-100 bg-red-50 px-4 py-3 text-sm text-red-700">
+  {{ error }}
+</div>
+{% elif preview %}
+<div class="rounded-2xl border border-gray-100 overflow-hidden">
+  <div class="px-4 py-3 bg-gray-50 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <div>
+      <p class="text-sm font-semibold text-gray-800">Vista previa</p>
+      <p class="text-xs text-gray-500">
+        {{ preview.total_empleados }} empleados a actualizar · {{ preview.total_dias }} dias
+      </p>
+    </div>
+    {% if preview.token %}
+    <form hx-post="/rrhh/migracion/confirmar" hx-target="#main-content" hx-swap="innerHTML">
+      <input type="hidden" name="token" value="{{ preview.token }}">
+      <button type="submit"
+        hx-confirm="¿Aplicar esta migracion historica?"
+        class="rounded-xl bg-[#00BABB] px-4 py-2 text-sm font-semibold text-white hover:bg-[#009A9B] transition-colors">
+        Confirmar migracion
+      </button>
+    </form>
+    {% endif %}
+  </div>
+
+  {% if preview.tiene_errores %}
+  <div class="px-4 py-3 border-b border-red-100 bg-red-50 text-sm text-red-700">
+    Corrige los errores en el Excel y vuelve a importarlo.
+  </div>
+  {% elif not preview.token %}
+  <div class="px-4 py-3 border-b border-amber-100 bg-amber-50 text-sm text-amber-700">
+    No se detectaron periodos capturados.
+  </div>
+  {% endif %}
+
+  <div class="overflow-x-auto">
+    <table class="w-full text-sm">
+      <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
+        <tr>
+          <th class="px-4 py-2.5 text-left">Fila</th>
+          <th class="px-4 py-2.5 text-left">Empleado</th>
+          <th class="px-4 py-2.5 text-left">Periodos</th>
+          <th class="px-4 py-2.5 text-left">Estado</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-gray-50">
+        {% for row in preview.filas %}
+        <tr class="{% if row.errores %}bg-red-50/60{% endif %}">
+          <td class="px-4 py-3 text-gray-500">{{ row.excel_row or "-" }}</td>
+          <td class="px-4 py-3">
+            <p class="font-medium text-gray-800">{{ row.nombre or row.usuario_id_text }}</p>
+            {% if row.email %}<p class="text-xs text-gray-400">{{ row.email }}</p>{% endif %}
+          </td>
+          <td class="px-4 py-3 text-gray-700">
+            {% if row.periodos %}
+              <div class="space-y-1">
+                {% for periodo in row.periodos %}
+                <p class="text-xs">
+                  Periodo {{ periodo.num_periodo }}:
+                  <span class="font-semibold">{{ periodo.dias }}</span> dias
+                  <span class="text-gray-400">({{ periodo.fecha_aniversario.strftime('%d/%m/%Y') }})</span>
+                  {% if periodo.expirado %}
+                  <span class="ml-1 rounded-full bg-gray-100 px-1.5 py-0.5 text-[11px] font-semibold text-gray-500">Vencido</span>
+                  {% endif %}
+                </p>
+                {% endfor %}
+              </div>
+            {% elif row.limpiar and not row.errores %}
+              <span class="text-xs text-gray-500">Limpiar historial previo</span>
+            {% else %}
+              <span class="text-xs text-gray-400">Sin cambios</span>
+            {% endif %}
+          </td>
+          <td class="px-4 py-3">
+            {% if row.errores %}
+              <div class="space-y-1">
+                {% for error in row.errores %}
+                <p class="text-xs text-red-700">{{ error }}</p>
+                {% endfor %}
+              </div>
+            {% else %}
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold text-green-700">
+                Listo
+              </span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
