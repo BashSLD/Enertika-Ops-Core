@@ -20,6 +20,25 @@ services:
       - 8.8.8.8
       - 8.8.4.4
 
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: python worker.py
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    environment:
+      QUICKCHART_URL: "http://quickchart:3400"
+      REDIS_URL: "redis://redis:6379"
+    depends_on:
+      - app
+      - redis
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
   quickchart:
     image: ianw/quickchart
     ports:

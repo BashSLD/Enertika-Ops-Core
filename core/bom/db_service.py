@@ -643,6 +643,21 @@ class BomDBService:
             user_id
         )
 
+    async def get_usuario_activo_basico(self, conn, user_id: UUID) -> Optional[dict]:
+        """Retorna id y nombre de un usuario activo."""
+        row = await conn.fetchrow(
+            "SELECT id_usuario, nombre FROM tb_usuarios WHERE id_usuario = $1 AND is_active = TRUE",
+            user_id,
+        )
+        return dict(row) if row else None
+
+    async def get_usuario_nombre(self, conn, user_id: UUID) -> Optional[str]:
+        """Retorna el nombre de un usuario, o None si no existe."""
+        return await conn.fetchval(
+            "SELECT nombre FROM tb_usuarios WHERE id_usuario = $1",
+            user_id,
+        )
+
     async def get_sender_email(self, conn, departamento: str = 'DEFAULT') -> Optional[str]:
         """Retorna email_remitente del buzon de notificaciones configurado."""
         email = await conn.fetchval("""

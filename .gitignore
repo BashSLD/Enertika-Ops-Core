@@ -28,6 +28,7 @@ pip-delete-this-directory.txt
 *.log
 temp_uploads/
 MD/
+_planVacations/
 
 # Design prototypes (agentes de diseño)
 HOMEECO/

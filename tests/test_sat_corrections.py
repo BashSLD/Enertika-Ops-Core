@@ -191,8 +191,11 @@ async def test_confirmar_match_xml_cierre_anticipo_sin_relacion_07_usa_anticipo_
     id_proveedor = uuid4()
 
     fake_db = SimpleNamespace(
-        uuid_factura_exists=AsyncMock(return_value=False),
-        uuid_factura_exists_in_junction=AsyncMock(return_value=False),
+        uuid_factura_exists_for_comprobante=AsyncMock(return_value=False),
+        get_factura_aplicacion_resumen=AsyncMock(return_value={
+            "monto_factura": Decimal("0.00"),
+            "monto_aplicado": Decimal("0.00"),
+        }),
         get_proveedor_by_rfc=AsyncMock(return_value={
             "id_proveedor": id_proveedor,
             "razon_social": "Proveedor Demo",
@@ -250,8 +253,11 @@ async def test_confirmar_match_xml_cierre_anticipo_sin_relacion_07_rechaza_no_an
     id_proveedor = uuid4()
 
     fake_db = SimpleNamespace(
-        uuid_factura_exists=AsyncMock(return_value=False),
-        uuid_factura_exists_in_junction=AsyncMock(return_value=False),
+        uuid_factura_exists_for_comprobante=AsyncMock(return_value=False),
+        get_factura_aplicacion_resumen=AsyncMock(return_value={
+            "monto_factura": Decimal("0.00"),
+            "monto_aplicado": Decimal("0.00"),
+        }),
         get_proveedor_by_rfc=AsyncMock(return_value={
             "id_proveedor": id_proveedor,
             "razon_social": "Proveedor Demo",
@@ -293,8 +299,11 @@ async def test_confirmar_match_xml_cierre_anticipo_sin_relacion_07_rechaza_exced
     id_proveedor = uuid4()
 
     fake_db = SimpleNamespace(
-        uuid_factura_exists=AsyncMock(return_value=False),
-        uuid_factura_exists_in_junction=AsyncMock(return_value=False),
+        uuid_factura_exists_for_comprobante=AsyncMock(return_value=False),
+        get_factura_aplicacion_resumen=AsyncMock(return_value={
+            "monto_factura": Decimal("0.00"),
+            "monto_aplicado": Decimal("0.00"),
+        }),
         get_proveedor_by_rfc=AsyncMock(return_value={
             "id_proveedor": id_proveedor,
             "razon_social": "Proveedor Demo",
@@ -341,8 +350,11 @@ async def test_confirmar_match_xml_rechaza_moneda_distinta(monkeypatch):
     id_proveedor = uuid4()
 
     fake_db = SimpleNamespace(
-        uuid_factura_exists=AsyncMock(return_value=False),
-        uuid_factura_exists_in_junction=AsyncMock(return_value=False),
+        uuid_factura_exists_for_comprobante=AsyncMock(return_value=False),
+        get_factura_aplicacion_resumen=AsyncMock(return_value={
+            "monto_factura": Decimal("0.00"),
+            "monto_aplicado": Decimal("0.00"),
+        }),
         get_proveedor_by_rfc=AsyncMock(return_value={
             "id_proveedor": id_proveedor,
             "razon_social": "Proveedor Demo",
@@ -375,6 +387,118 @@ async def test_confirmar_match_xml_rechaza_moneda_distinta(monkeypatch):
         await ComprasService().confirmar_match_xml(
             AsyncMock(),
             cfdi_data,
+            id_comprobante,
+            uuid4(),
+            guardar_relacion=False,
+        )
+
+    fake_db.insertar_comprobante_factura.assert_not_awaited()
+    fake_db.confirmar_match.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_confirmar_match_xml_factura_grande_aplica_saldo_del_pago(monkeypatch):
+    id_comprobante = uuid4()
+    id_proveedor = uuid4()
+
+    fake_db = SimpleNamespace(
+        uuid_factura_exists_for_comprobante=AsyncMock(return_value=False),
+        get_factura_aplicacion_resumen=AsyncMock(return_value={
+            "monto_factura": Decimal("0.00"),
+            "monto_aplicado": Decimal("0.00"),
+        }),
+        get_proveedor_by_rfc=AsyncMock(return_value={
+            "id_proveedor": id_proveedor,
+            "razon_social": "Proveedor Demo",
+        }),
+        get_comprobante_by_id=AsyncMock(side_effect=[
+            {
+                "id_comprobante": id_comprobante,
+                "estatus": "PENDIENTE",
+                "monto": Decimal("30000.00"),
+                "moneda": "MXN",
+                "monto_facturado": Decimal("0.00"),
+                "beneficiario_orig": "Proveedor Demo",
+            },
+            {
+                "id_comprobante": id_comprobante,
+                "estatus": "FACTURADO",
+                "monto": Decimal("30000.00"),
+                "moneda": "MXN",
+                "monto_facturado": Decimal("30000.00"),
+                "beneficiario_orig": "Proveedor Demo",
+            },
+        ]),
+        insertar_comprobante_factura=AsyncMock(),
+        confirmar_match=AsyncMock(),
+        confirm_xml_staging=AsyncMock(),
+    )
+    monkeypatch.setattr(compras_db_module, "get_db_service", lambda: fake_db)
+
+    resultado = await ComprasService().confirmar_match_xml(
+        AsyncMock(),
+        {
+            "uuid": "EEEEEEEE-1111-2222-3333-444444444444",
+            "emisor_rfc": "AAA010101AAA",
+            "emisor_nombre": "Proveedor Demo",
+            "total": "100000.00",
+            "moneda": "MXN",
+            "tipo_factura": "NORMAL",
+            "relacionados": [],
+        },
+        id_comprobante,
+        uuid4(),
+        guardar_relacion=False,
+        forzar_match=True,
+    )
+
+    assert resultado["monto_aplicado"] == 30000.00
+    assert resultado["saldo_factura"] == 70000.00
+    assert fake_db.insertar_comprobante_factura.await_args.kwargs["monto"] == Decimal("100000.00")
+    assert fake_db.insertar_comprobante_factura.await_args.kwargs["monto_aplicado"] == Decimal("30000.00")
+    assert fake_db.confirmar_match.await_args.kwargs["monto_aplicado"] == Decimal("30000.00")
+
+
+@pytest.mark.asyncio
+async def test_confirmar_match_xml_factura_grande_pide_confirmacion_con_monto_sugerido(monkeypatch):
+    id_comprobante = uuid4()
+    id_proveedor = uuid4()
+
+    fake_db = SimpleNamespace(
+        uuid_factura_exists_for_comprobante=AsyncMock(return_value=False),
+        get_factura_aplicacion_resumen=AsyncMock(return_value={
+            "monto_factura": Decimal("0.00"),
+            "monto_aplicado": Decimal("0.00"),
+        }),
+        get_proveedor_by_rfc=AsyncMock(return_value={
+            "id_proveedor": id_proveedor,
+            "razon_social": "Proveedor Demo",
+        }),
+        get_comprobante_by_id=AsyncMock(return_value={
+            "id_comprobante": id_comprobante,
+            "estatus": "PENDIENTE",
+            "monto": Decimal("30000.00"),
+            "moneda": "MXN",
+            "monto_facturado": Decimal("0.00"),
+            "beneficiario_orig": "Proveedor Demo",
+        }),
+        insertar_comprobante_factura=AsyncMock(),
+        confirmar_match=AsyncMock(),
+    )
+    monkeypatch.setattr(compras_db_module, "get_db_service", lambda: fake_db)
+
+    with pytest.raises(ValueError, match=r"EXCESO_MONTO\|70000.00\|30000.00"):
+        await ComprasService().confirmar_match_xml(
+            AsyncMock(),
+            {
+                "uuid": "EEEEEEEE-1111-2222-3333-444444444444",
+                "emisor_rfc": "AAA010101AAA",
+                "emisor_nombre": "Proveedor Demo",
+                "total": "100000.00",
+                "moneda": "MXN",
+                "tipo_factura": "NORMAL",
+                "relacionados": [],
+            },
             id_comprobante,
             uuid4(),
             guardar_relacion=False,
@@ -618,6 +742,58 @@ def test_sat_candidatos_count_refleja_monto_rfc_y_fuzzy():
     assert "ABS(i.total - c.monto) <= 1.00" in sql
     assert "p.rfc = i.rfc_emisor" in sql
     assert "extensions.word_similarity" in sql
+
+
+def test_xml_match_error_manual_retry_preserva_datos_y_monto_editable():
+    env = Environment(loader=FileSystemLoader("templates"))
+    template = env.get_template("compras/partials/xml_match_error.html")
+    html = template.render(
+        message="La factura excede el monto del pago",
+        exceso_monto="70000.00",
+        monto_aplicado="30000.00",
+        manual_retry={
+            "uuid_factura": "EEEEEEEE-1111-2222-3333-444444444444",
+            "id_comprobante": str(uuid4()),
+            "emisor_rfc": "AAA010101AAA",
+            "emisor_nombre": "Proveedor Demo",
+            "total": "100000.00",
+            "subtotal": "86206.90",
+            "moneda": "MXN",
+            "fecha": "2026-05-14T12:00:00",
+            "tipo_factura": "NORMAL",
+            "tipo_comprobante": "I",
+            "metodo_pago": "PPD",
+            "forma_pago": "99",
+            "conceptos_json": '[{"descripcion":"Panel"}]',
+            "relacionados_json": "[]",
+            "xml_content_b64": "PD94bWw+",
+            "guardar_relacion": "true",
+        },
+        modal_manual=False,
+    )
+
+    assert 'hx-post="/compras/xml-confirm-match"' in html
+    assert 'name="forzar_match" value="true"' in html
+    assert 'name="monto_aplicado"' in html
+    assert 'value="30000.00"' in html
+    assert 'name="xml_content_b64" value="PD94bWw+"' in html
+    assert 'name="conceptos_json"' in html
+
+
+def test_xml_match_error_modal_manual_usa_confirmar_match_manual():
+    env = Environment(loader=FileSystemLoader("templates"))
+    template = env.get_template("compras/partials/xml_match_error.html")
+    html = template.render(
+        message="La factura excede el monto del pago",
+        exceso_monto="70000.00",
+        monto_aplicado="30000.00",
+        manual_retry={"uuid_factura": "EEEEEEEE-1111-2222-3333-444444444444"},
+        modal_manual=True,
+    )
+
+    assert 'onclick="confirmarMatchManual()"' in html
+    assert 'name="monto_aplicado"' in html
+    assert 'value="30000.00"' in html
 
 
 def test_row_comprobante_mueve_sat_a_acciones_y_oculta_para_viewer():
