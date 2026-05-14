@@ -97,6 +97,111 @@ async def get_employee_map(conn, emp_codes: list[str]) -> dict[str, dict]:
     return {row["code"]: dict(row) for row in rows}
 
 
+async def upsert_biotime_employee_mappings(conn, employees: list[dict]) -> list[dict]:
+    if not employees:
+        return []
+    rows = await conn.fetch(
+        """
+        WITH incoming_raw AS (
+            SELECT *
+            FROM jsonb_to_recordset($1::jsonb) AS x(
+                biotime_emp_code TEXT,
+                biotime_pin TEXT,
+                email TEXT,
+                nombre TEXT,
+                biotime_deptnumber TEXT,
+                biotime_deptname TEXT
+            )
+        ),
+        incoming AS (
+            SELECT DISTINCT ON (biotime_emp_code)
+                NULLIF(TRIM(biotime_emp_code), '') AS biotime_emp_code,
+                NULLIF(TRIM(biotime_pin), '') AS biotime_pin,
+                NULLIF(LOWER(TRIM(email)), '') AS email,
+                NULLIF(TRIM(nombre), '') AS nombre,
+                NULLIF(TRIM(biotime_deptnumber), '') AS biotime_deptnumber,
+                NULLIF(TRIM(biotime_deptname), '') AS biotime_deptname
+            FROM incoming_raw
+            WHERE NULLIF(TRIM(biotime_emp_code), '') IS NOT NULL
+            ORDER BY biotime_emp_code
+        ),
+        matched AS (
+            SELECT
+                i.*,
+                COALESCE(u_email.id_usuario, ed_code.usuario_id) AS usuario_id,
+                CASE
+                    WHEN u_email.id_usuario IS NOT NULL THEN 'email'
+                    WHEN ed_code.usuario_id IS NOT NULL THEN 'codigo'
+                    ELSE NULL
+                END AS matched_by
+            FROM incoming i
+            LEFT JOIN tb_usuarios u_email
+                ON i.email IS NOT NULL
+               AND LOWER(u_email.email) = i.email
+               AND u_email.is_active = true
+            LEFT JOIN tb_empleados_datos ed_code
+                ON ed_code.biotime_emp_code = i.biotime_emp_code
+                OR ed_code.numero_empleado = i.biotime_emp_code
+            WHERE COALESCE(u_email.id_usuario, ed_code.usuario_id) IS NOT NULL
+        ),
+        ranked AS (
+            SELECT
+                matched.*,
+                ROW_NUMBER() OVER (
+                    PARTITION BY usuario_id
+                    ORDER BY CASE WHEN matched_by = 'email' THEN 0 ELSE 1 END, biotime_emp_code
+                ) AS user_rank
+            FROM matched
+        ),
+        to_upsert AS (
+            SELECT
+                r.*,
+                ed.id AS empleado_datos_id,
+                ed.sucursal_id
+            FROM ranked r
+            LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = r.usuario_id
+            WHERE r.user_rank = 1
+        ),
+        deactivated AS (
+            UPDATE tb_biotime_empleado_map m
+            SET activo = false,
+                updated_at = now()
+            FROM to_upsert t
+            WHERE m.activo = true
+              AND m.usuario_id = t.usuario_id
+              AND m.biotime_emp_code <> t.biotime_emp_code
+            RETURNING m.id
+        )
+        INSERT INTO tb_biotime_empleado_map
+            (usuario_id, empleado_datos_id, biotime_emp_code, biotime_pin,
+             biotime_deptnumber, biotime_deptname, sucursal_id, activo, updated_at)
+        SELECT
+            usuario_id,
+            empleado_datos_id,
+            biotime_emp_code,
+            COALESCE(biotime_pin, biotime_emp_code),
+            biotime_deptnumber,
+            biotime_deptname,
+            sucursal_id,
+            true,
+            now()
+        FROM to_upsert
+        ON CONFLICT (biotime_emp_code) WHERE activo = true
+        DO UPDATE SET
+            usuario_id = EXCLUDED.usuario_id,
+            empleado_datos_id = EXCLUDED.empleado_datos_id,
+            biotime_pin = EXCLUDED.biotime_pin,
+            biotime_deptnumber = EXCLUDED.biotime_deptnumber,
+            biotime_deptname = EXCLUDED.biotime_deptname,
+            sucursal_id = COALESCE(EXCLUDED.sucursal_id, tb_biotime_empleado_map.sucursal_id),
+            updated_at = now()
+        RETURNING usuario_id, biotime_emp_code, biotime_pin, biotime_deptnumber, biotime_deptname
+        """,
+        json.dumps(employees, default=str),
+    )
+    return [dict(row) for row in rows]
+
+
 async def insert_checks_batch(conn, checks: list[dict]) -> list[dict]:
     if not checks:
         return []
@@ -239,6 +344,7 @@ async def get_vacaciones_aprobadas(
         WHERE sa.usuario_id = ANY($1::uuid[])
           AND sa.estado = 'aprobado'
           AND ta.slug = 'vacaciones'
+          AND COALESCE(sa.es_migracion, false) = false
           AND sa.fecha_inicio <= $3
           AND sa.fecha_fin >= $2
         """,
@@ -281,7 +387,7 @@ async def get_sucursales(conn) -> list[dict]:
         """
         SELECT id, codigo, nombre
         FROM tb_cat_sucursales
-        WHERE is_active = true
+        WHERE activa = true
         ORDER BY nombre
         """
     )
@@ -378,5 +484,45 @@ async def get_reporte_asistencia(
         sucursal_id,
         estado,
         solo_horas_extra,
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_horas_extra_equipo(
+    conn,
+    usuario_ids: list[UUID],
+    fecha_inicio: date,
+    fecha_fin: date,
+) -> list[dict]:
+    if not usuario_ids:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT
+            ad.id,
+            ad.usuario_id,
+            ad.fecha_laboral,
+            ad.primera_entrada,
+            ad.ultima_salida,
+            ad.minutos_trabajados,
+            ad.minutos_programados,
+            ad.minutos_extra,
+            ad.estado,
+            ad.observaciones,
+            u.nombre AS empleado_nombre,
+            u.email AS empleado_email,
+            s.nombre AS sucursal_nombre
+        FROM tb_asistencia_diaria ad
+        JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
+        LEFT JOIN tb_cat_sucursales s ON s.id = ad.sucursal_id
+        WHERE ad.usuario_id = ANY($1::uuid[])
+          AND ad.fecha_laboral >= $2
+          AND ad.fecha_laboral <= $3
+          AND ad.minutos_extra > 0
+        ORDER BY ad.fecha_laboral DESC, u.nombre
+        """,
+        usuario_ids,
+        fecha_inicio,
+        fecha_fin,
     )
     return [dict(row) for row in rows]

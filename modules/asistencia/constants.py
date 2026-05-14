@@ -15,7 +15,8 @@ ASISTENCIA_ESTADOS = {
 BIOTIME_CONFIG_KEYS = {
     "sync_activo": "BIOTIME_SYNC_ACTIVO",
     "base_url": "BIOTIME_BASE_URL",
-    "access_key": "BIOTIME_ACCESS_KEY",
+    "username": "BIOTIME_USERNAME",
+    "password": "BIOTIME_PASSWORD",
     "interval_seconds": "BIOTIME_SYNC_INTERVAL_SEG",
     "page_size": "BIOTIME_SYNC_PAGE_SIZE",
     "lookback_hours": "BIOTIME_SYNC_LOOKBACK_HRS",

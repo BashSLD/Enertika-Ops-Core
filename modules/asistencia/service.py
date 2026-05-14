@@ -55,14 +55,14 @@ async def sync_biotime_once(conn, *, force: bool = False) -> dict:
     if not activo and not force:
         return {"status": "disabled", "message": "Sincronizacion BioTime desactivada"}
 
-    base_url = await ConfigService.get_global_config(conn, BIOTIME_CONFIG_KEYS["base_url"], "", str)
-    access_key = await ConfigService.get_global_config(conn, BIOTIME_CONFIG_KEYS["access_key"], "", str)
-    page_size = await ConfigService.get_global_config(conn, BIOTIME_CONFIG_KEYS["page_size"], 1000, int)
+    cfg = await _load_biotime_client_config(conn)
+    base_url = cfg["base_url"]
+    username = cfg["username"]
+    password = cfg["password"]
+    page_size = cfg["page_size"]
+    timeout_seconds = cfg["timeout_seconds"]
     lookback_hours = await ConfigService.get_global_config(
         conn, BIOTIME_CONFIG_KEYS["lookback_hours"], 48, int
-    )
-    timeout_seconds = await ConfigService.get_global_config(
-        conn, BIOTIME_CONFIG_KEYS["timeout_seconds"], 30, int
     )
     recalc_days = await ConfigService.get_global_config(
         conn, BIOTIME_CONFIG_KEYS["recalc_days"], 7, int
@@ -79,14 +79,13 @@ async def sync_biotime_once(conn, *, force: bool = False) -> dict:
     )
 
     try:
-        client = BioTimeClient(base_url, access_key, timeout_seconds=timeout_seconds)
-        items = await _fetch_transaction_pages(
-            client,
-            window_start=window_start,
-            window_end=window_end,
-            last_id=last_id,
-            page_size=page_size,
-        )
+        async with BioTimeClient(base_url, username, password, timeout_seconds=timeout_seconds) as client:
+            items = await client.fetch_transactions(
+                starttime=window_start,
+                endtime=window_end,
+                page_size=page_size,
+            )
+            employee_sync = await _sync_employee_mappings_from_biotime(conn, client, items)
         normalized = await _normalize_transactions(conn, items)
         inserted = await db.insert_checks_batch(conn, normalized)
         affected_targets = _targets_from_inserted(inserted)
@@ -112,6 +111,7 @@ async def sync_biotime_once(conn, *, force: bool = False) -> dict:
             "records_inserted": len(inserted),
             "records_skipped": max(0, len(normalized) - len(inserted)),
             "affected_targets": len(affected_targets),
+            **employee_sync,
         }
     except (httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
         await db.finish_sync_run(
@@ -127,23 +127,107 @@ async def sync_biotime_once(conn, *, force: bool = False) -> dict:
 async def probar_conexion_biotime(
     *,
     base_url: str,
-    access_key: str,
+    username: str,
+    password: str,
     timeout_seconds: int = 30,
 ) -> dict:
-    window_end = now_mx()
-    window_start = window_end - timedelta(days=1)
-    client = BioTimeClient(base_url, access_key, timeout_seconds=timeout_seconds)
-    items = await client.fetch_transactions(
-        starttime=window_start,
-        endtime=window_end,
-        number=1,
-    )
+    async with BioTimeClient(base_url, username, password, timeout_seconds=timeout_seconds) as client:
+        total = await client.ping()
+    return {"status": "success", "records_read": total}
+
+
+_MESES = {
+    1: "Enero", 2: "Febrero", 3: "Marzo", 4: "Abril",
+    5: "Mayo", 6: "Junio", 7: "Julio", 8: "Agosto",
+    9: "Septiembre", 10: "Octubre", 11: "Noviembre", 12: "Diciembre",
+}
+
+
+def _chunk_label(fecha_inicio: date, fecha_fin: date) -> str:
+    if fecha_inicio.year == fecha_fin.year and fecha_inicio.month == fecha_fin.month:
+        return f"{_MESES[fecha_inicio.month]} {fecha_inicio.year}"
+    return f"{fecha_inicio.strftime('%d/%m/%Y')} – {fecha_fin.strftime('%d/%m/%Y')}"
+
+
+async def _load_biotime_client_config(conn) -> dict:
     return {
-        "status": "success",
-        "records_read": len(items),
-        "window_start": window_start,
-        "window_end": window_end,
+        "base_url": await ConfigService.get_global_config(conn, BIOTIME_CONFIG_KEYS["base_url"], "", str),
+        "username": await ConfigService.get_global_config(conn, BIOTIME_CONFIG_KEYS["username"], "", str),
+        "password": await ConfigService.get_global_config(conn, BIOTIME_CONFIG_KEYS["password"], "", str),
+        "page_size": await ConfigService.get_global_config(conn, BIOTIME_CONFIG_KEYS["page_size"], 200, int),
+        "timeout_seconds": await ConfigService.get_global_config(conn, BIOTIME_CONFIG_KEYS["timeout_seconds"], 30, int),
     }
+
+
+async def backfill_biotime_chunk(
+    conn,
+    fecha_inicio: date,
+    fecha_fin: date,
+) -> dict:
+    if (fecha_fin - fecha_inicio).days > 31:
+        raise ValueError("El rango del chunk no puede superar 31 días")
+
+    cfg = await _load_biotime_client_config(conn)
+    base_url = cfg["base_url"]
+    username = cfg["username"]
+    password = cfg["password"]
+    page_size = cfg["page_size"]
+    timeout_seconds = cfg["timeout_seconds"]
+
+    window_start = datetime.combine(fecha_inicio, time.min, tzinfo=MX_TZ)
+    window_end = datetime.combine(fecha_fin + timedelta(days=1), time.min, tzinfo=MX_TZ)
+    chunk_label = _chunk_label(fecha_inicio, fecha_fin)
+
+    run_id = await db.create_sync_run(
+        conn,
+        from_transaction_id=None,
+        window_start=window_start,
+        window_end=window_end,
+    )
+
+    try:
+        async with BioTimeClient(base_url, username, password, timeout_seconds=timeout_seconds) as client:
+            items = await client.fetch_transactions(
+                starttime=window_start,
+                endtime=window_end,
+                page_size=page_size,
+            )
+            employee_sync = await _sync_employee_mappings_from_biotime(conn, client, items)
+
+        normalized = await _normalize_transactions(conn, items)
+        inserted = await db.insert_checks_batch(conn, normalized)
+        targets = _targets_from_inserted(inserted)
+
+        if targets:
+            await recalcular_asistencia(conn, targets)
+
+        to_id = _max_transaction_id(normalized)
+        await db.finish_sync_run(
+            conn,
+            run_id=run_id,
+            status="success",
+            to_transaction_id=to_id,
+            records_read=len(items),
+            records_inserted=len(inserted),
+            records_skipped=max(0, len(normalized) - len(inserted)),
+        )
+        return {
+            "chunk_label": chunk_label,
+            "records_read": len(items),
+            "records_inserted": len(inserted),
+            "records_skipped": max(0, len(normalized) - len(inserted)),
+            "targets_recalculated": len(targets),
+            **employee_sync,
+        }
+    except (httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
+        await db.finish_sync_run(
+            conn,
+            run_id=run_id,
+            status="error",
+            records_read=0,
+            error_message=str(exc)[:1000],
+        )
+        raise
 
 
 async def _normalize_transactions(conn, items: list[dict[str, Any]]) -> list[dict]:
@@ -157,7 +241,11 @@ async def _normalize_transactions(conn, items: list[dict[str, Any]]) -> list[dic
 
     for item in items:
         emp_code = str(_first_value(item, "pin", "emp_code", "badgenumber", "employee_code") or "").strip()
-        check_time = parse_biotime_check_time(_first_value(item, "checktime", "punch_time", "check_time"))
+        raw_time = _first_value(item, "transaction_punch_time", "checktime", "punch_time", "check_time")
+        punch_date = item.get("transaction_punch_date")
+        if raw_time and punch_date and ":" in str(raw_time) and "-" not in str(raw_time):
+            raw_time = f"{punch_date} {raw_time}"
+        check_time = parse_biotime_check_time(raw_time)
         if not emp_code or not check_time:
             continue
 
@@ -172,10 +260,61 @@ async def _normalize_transactions(conn, items: list[dict[str, Any]]) -> list[dic
             "terminal_sn": _string_or_none(_first_value(item, "sn", "terminal_sn")),
             "terminal_alias": _string_or_none(_first_value(item, "alias", "terminal_alias")),
             "deptnumber": _string_or_none(item.get("deptnumber")),
-            "deptname": _string_or_none(item.get("deptname")),
+            "deptname": _string_or_none(_first_value(item, "deptname", "employee_department")),
             "raw_payload": item,
         })
     return normalized
+
+
+async def _sync_employee_mappings_from_biotime(
+    conn,
+    client: BioTimeClient,
+    items: list[dict[str, Any]],
+) -> dict:
+    has_employee_codes = any(
+        _first_value(item, "pin", "emp_code", "badgenumber", "employee_code")
+        for item in items
+    )
+    if not has_employee_codes:
+        return {"employees_read": 0, "employee_mappings": 0}
+
+    try:
+        employees = await client.fetch_employees()
+    except (httpx.HTTPError, ValueError, TypeError) as exc:
+        logger.warning("[BIOTIME_SYNC] No se pudieron consultar empleados BioTime: %s", exc)
+        return {"employees_read": 0, "employee_mappings": 0}
+
+    normalized = [
+        employee
+        for employee in (_normalize_biotime_employee(item) for item in employees)
+        if employee
+    ]
+    mapped = await db.upsert_biotime_employee_mappings(conn, normalized)
+    return {"employees_read": len(employees), "employee_mappings": len(mapped)}
+
+
+def _normalize_biotime_employee(item: dict[str, Any]) -> dict | None:
+    emp_code = _string_or_none(_first_value(item, "pin", "emp_code", "userpin", "badgenumber", "employee_code"))
+    if not emp_code:
+        return None
+    first = _string_or_none(_first_value(item, "first_name", "name", "username", "ename"))
+    last = _string_or_none(_first_value(item, "last_name", "surname"))
+    nombre = " ".join(part for part in [first, last] if part) or None
+    dept_name = _string_or_none(_first_value(item, "department", "dept_name", "deptname", "department_name"))
+    dept_code = _string_or_none(_first_value(item, "dept_code", "deptnumber", "department_code"))
+    return {
+        "biotime_emp_code": emp_code,
+        "biotime_pin": _string_or_none(_first_value(item, "pin", "userpin", "emp_code")),
+        "email": _normalize_email(_first_value(item, "email", "mail")),
+        "nombre": nombre,
+        "biotime_deptnumber": dept_code,
+        "biotime_deptname": dept_name,
+    }
+
+
+def _normalize_email(value: Any) -> str | None:
+    text = _string_or_none(value)
+    return text.lower() if text else None
 
 
 def _first_value(item: dict[str, Any], *keys: str) -> Any:
@@ -184,36 +323,6 @@ def _first_value(item: dict[str, Any], *keys: str) -> Any:
         if value is not None and value != "":
             return value
     return None
-
-
-async def _fetch_transaction_pages(
-    client: BioTimeClient,
-    *,
-    window_start: datetime,
-    window_end: datetime,
-    last_id: int | None,
-    page_size: int,
-) -> list[dict[str, Any]]:
-    all_items: list[dict[str, Any]] = []
-    current_id = last_id
-    safe_page_size = max(1, min(page_size, 2000))
-
-    for _ in range(20):
-        page = await client.fetch_transactions(
-            starttime=window_start,
-            endtime=window_end,
-            last_id=current_id,
-            number=safe_page_size,
-        )
-        if not page:
-            break
-        all_items.extend(page)
-        page_max_id = _max_item_id(page)
-        if page_max_id is None or page_max_id == current_id or len(page) < safe_page_size:
-            break
-        current_id = page_max_id
-
-    return all_items
 
 
 def _string_or_none(value: Any) -> str | None:
@@ -230,12 +339,6 @@ def _safe_int(value: Any) -> int | None:
         return int(value)
     except (TypeError, ValueError):
         return None
-
-
-def _max_item_id(items: list[dict[str, Any]]) -> int | None:
-    values = [_safe_int(item.get("id")) for item in items]
-    valid_values = [value for value in values if value is not None]
-    return max(valid_values) if valid_values else None
 
 
 def _max_transaction_id(rows: list[dict]) -> int | None:
