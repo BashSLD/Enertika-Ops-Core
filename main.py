@@ -1,11 +1,12 @@
 # Archivo: main.py
 
 import asyncio
+import contextlib
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from modules.comercial import router as comercial_router
-from core.database import connect_to_db, close_db_connection
+from core.database import connect_to_db, close_db_connection, get_db_connection
 from modules.proyectos import router as proyectos_router
 
 from starlette.middleware.sessions import SessionMiddleware
@@ -27,6 +28,7 @@ logging.basicConfig(
         RotatingFileHandler("system_errors.log", maxBytes=5*1024*1024, backupCount=3) # Archivo 5MB
     ]
 )
+logger = logging.getLogger("Main")
 
 app = FastAPI(title="Enertika Core Ops",on_startup=[connect_to_db],on_shutdown=[close_db_connection])
 
@@ -131,16 +133,34 @@ from core.notifications.service import startup_notifications, shutdown_notificat
 app.router.on_startup.append(startup_notifications)
 # Registrar monitor en background (wrapper para que sea async)
 async def start_sse_monitor():
-    asyncio.create_task(monitor_connection_task())
+    existing_task = getattr(app.state, "sse_monitor_task", None)
+    if existing_task and not existing_task.done():
+        return
+    app.state.sse_monitor_task = asyncio.create_task(monitor_connection_task())
+
+
+async def stop_sse_monitor():
+    task = getattr(app.state, "sse_monitor_task", None)
+    if task:
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        app.state.sse_monitor_task = None
+    await shutdown_notifications()
+
+
 app.router.on_startup.append(start_sse_monitor)
 
-app.router.on_shutdown.append(shutdown_notifications)
+app.router.on_shutdown.insert(0, stop_sse_monitor)
 
 app.include_router(notifications_router.router)
 
 # Agregar después de los otros routers
 from core.projects import router as projects_router
 app.include_router(projects_router)
+
+from modules.perfil.router import router as perfil_router
+app.include_router(perfil_router)
 
 from modules.vacaciones.router import router as vacaciones_router
 app.include_router(vacaciones_router)
@@ -157,6 +177,7 @@ app.include_router(asistencia_router)
 # Aquí solo iniciamos el monitor de SSE que necesita el proceso web.
 
 from core.security import get_current_user_context
+from core.navigation.service import NavigationService, get_navigation_service
 from fastapi import Depends
 from fastapi.responses import RedirectResponse, JSONResponse, FileResponse
 
@@ -200,9 +221,11 @@ async def offline_page():
 @app.get("/", tags=["Home"])
 async def root(
     request: Request,
-    context = Depends(get_current_user_context)
+    context = Depends(get_current_user_context),
+    conn = Depends(get_db_connection),
+    navigation_service: NavigationService = Depends(get_navigation_service),
 ):
-    """Endpoint principal: Login si no hay sesión, Redirect a Comercial si hay sesión."""
+    """Endpoint principal: login si no hay sesion; redireccion por catalogo si hay sesion."""
     user_name = context.get("user_name") # Será None si no hay login
     
     if user_name and user_name != "Usuario":
@@ -210,64 +233,54 @@ async def root(
         role = context.get("role")
         module_roles = context.get("module_roles", {})
         modulo_preferido = context.get("modulo_preferido")
-        if not modulo_preferido:
-            return RedirectResponse(url="/perfil/ui")
-        
+
         # 1. Admins → Admin UI (siempre tienen acceso total)
         if role == 'ADMIN':
-             return RedirectResponse(url="/admin/ui")
-        
-        # 2. Usuarios sin módulos asignados → Mi Perfil
-        if not module_roles:
+            admin_route = await navigation_service.get_module_route(conn, "admin")
+            if admin_route:
+                return RedirectResponse(url=admin_route)
+
+            logger.error("Ruta de modulo admin no configurada en tb_cat_modulos")
+            return templates.TemplateResponse(
+                request, "index.html",
+                {
+                    "app_name": "Enertika Core Ops",
+                    "error_message": "Error de configuracion. Contacta al administrador."
+                }
+            )
+
+        # 2. Sin módulo preferido o sin módulos asignados → Mi Perfil
+        if not modulo_preferido or not module_roles:
             return RedirectResponse(url="/perfil/ui")
         
-        # 3. Función para generar rutas de módulos dinámicamente
-        def get_module_route(slug: str) -> str:
-            """
-            Genera la ruta del módulo basado en su slug.
-            
-            Patrón estándar: /{slug}/ui
-            Valida contra lista de módulos conocidos para evitar rutas inválidas.
-            """
-            # Lista de módulos válidos (actualizar al agregar nuevos módulos)
-            VALID_MODULES = {
-                "comercial", "simulacion", "levantamientos", "proyectos",
-                "construccion", "compras", "oym", "admin", "ingenieria", "finanzas",
-                "calculadora_polizas", "rrhh"
-            }
-            
-            if slug not in VALID_MODULES:
-                return None
-            
-            if slug == "calculadora_polizas":
-                return "/calculadora-polizas/ui"
-                
-            return f"/{slug}/ui"
-        
-        # 4. Si tiene módulo preferido y tiene acceso, ir ahí
+        # 3. Si tiene modulo preferido y tiene acceso, ir ahi
         if modulo_preferido and modulo_preferido in module_roles:
-            ruta = get_module_route(modulo_preferido)
+            ruta = await navigation_service.get_module_route(conn, modulo_preferido)
             if ruta:
                 return RedirectResponse(url=ruta)
         
-        # 5. Ir al primer módulo disponible (en orden alfabético de slug)
-        primer_slug = sorted(module_roles.keys())[0]
-        ruta = get_module_route(primer_slug)
+        # 4. Ir al primer modulo disponible con ruta configurada en catalogo
+        ruta = await navigation_service.get_first_accessible_module_route(
+            conn,
+            module_roles.keys(),
+        )
         if ruta:
             return RedirectResponse(url=ruta)
         
-        # 6. Fallback final (no debería llegar aquí)
+        # 5. Fallback final (no deberia llegar aqui)
         return templates.TemplateResponse(
             request, "index.html",
-            {                "app_name": "Enertika Core Ops",
-                "error_message": "Error de configuración. Contacta al administrador."
+            {
+                "app_name": "Enertika Core Ops",
+                "error_message": "Error de configuracion. Contacta al administrador."
             }
         )
     
     # NO LOGUEADO -> Mostrar Login
     return templates.TemplateResponse(
         request, "index.html",
-        {            "app_name": "Enertika Core Ops"
+        {
+            "app_name": "Enertika Core Ops"
         }
     )
     

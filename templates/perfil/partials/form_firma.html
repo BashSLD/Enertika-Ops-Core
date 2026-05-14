@@ -5,16 +5,24 @@
 {% endif %}
 
 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 max-w-lg"
-     x-data="{ modo: 'subir', canvasLimpio: true }"
-     x-init="
-       $nextTick(() => {
-         const canvas = document.getElementById('firma-canvas');
-         if (canvas && typeof SignaturePad !== 'undefined') {
-           window._sigPad = new SignaturePad(canvas, { penColor: '#1a1a1a', minWidth: 1, maxWidth: 2.5 });
-           window._sigPad.addEventListener('beginStroke', () => { canvasLimpio = false; });
+     x-data="{
+       modo: 'subir',
+       canvasLimpio: true,
+       sigPad: null,
+       initSignaturePad() {
+         if (this.sigPad || typeof SignaturePad === 'undefined' || !this.$refs.canvas) {
+           return;
          }
-       })
-     ">
+         this.sigPad = new SignaturePad(this.$refs.canvas, { penColor: '#1a1a1a', minWidth: 1, maxWidth: 2.5 });
+         const form = this.$el.querySelector('[data-firma-dibujada-form]');
+         if (form) {
+           form.sigPad = this.sigPad;
+         }
+         this.sigPad.addEventListener('beginStroke', () => { this.canvasLimpio = false; });
+       }
+     }"
+     x-init="$nextTick(() => initSignaturePad())"
+     @signature-pad-ready.window="$nextTick(() => initSignaturePad())">
 
   <h2 class="text-lg font-bold text-gray-900 mb-1">Mi Firma</h2>
   <p class="text-sm text-gray-500 mb-5">
@@ -23,7 +31,6 @@
   </p>
 
   {% if firma and firma_b64 %}
-  <!-- Vista previa firma existente -->
   <div class="border border-gray-200 rounded-xl p-4 mb-5">
     <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Firma actual</p>
     <img src="data:image/png;base64,{{ firma_b64 }}"
@@ -36,7 +43,6 @@
   <p class="text-sm text-gray-600 mb-4">Para actualizar tu firma, selecciona una de las opciones abajo:</p>
   {% endif %}
 
-  <!-- Selector de modo -->
   <div class="flex gap-2 mb-5">
     <button @click="modo = 'subir'"
             :class="modo === 'subir' ? 'bg-[#00BABB] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
@@ -50,7 +56,6 @@
     </button>
   </div>
 
-  <!-- Subir imagen -->
   <div x-show="modo === 'subir'">
     <form hx-post="/perfil/firma/upload"
           hx-encoding="multipart/form-data"
@@ -64,7 +69,7 @@
         <label class="block text-sm font-medium text-gray-700 mb-1">Imagen PNG de tu firma</label>
         <input type="file" name="firma_file" accept="image/png" required
                class="w-full text-sm text-gray-600 file:mr-3 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-[#00BABB] file:text-white hover:file:bg-[#009A9B] cursor-pointer">
-        <p class="text-xs text-gray-400 mt-1">Recomendado: PNG con fondo transparente, máx. 500 KB</p>
+        <p class="text-xs text-gray-400 mt-1">Solo PNG - max. 500 KB - max. 500 x 200 px</p>
       </div>
       <button type="submit"
               class="w-full bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
@@ -73,15 +78,14 @@
     </form>
   </div>
 
-  <!-- Dibujar firma -->
   <div x-show="modo === 'dibujar'">
     <div class="mb-3">
       <label class="block text-sm font-medium text-gray-700 mb-1.5">Dibuja tu firma abajo</label>
       <div class="border-2 border-dashed border-gray-200 rounded-xl overflow-hidden bg-white">
-        <canvas id="firma-canvas" width="460" height="160"
+        <canvas id="firma-canvas" x-ref="canvas" width="460" height="160"
                 class="w-full touch-none cursor-crosshair"></canvas>
       </div>
-      <button type="button" @click="window._sigPad && window._sigPad.clear(); canvasLimpio = true"
+      <button type="button" @click="sigPad && sigPad.clear(); canvasLimpio = true"
               class="mt-2 text-xs text-gray-500 hover:text-gray-700 underline">
         Limpiar
       </button>
@@ -89,17 +93,17 @@
     <form hx-post="/perfil/firma/draw"
           hx-target="#tab-content"
           hx-swap="innerHTML"
-          @submit.prevent="
-            if (window._sigPad && !window._sigPad.isEmpty()) {
-              const dataUrl = window._sigPad.toDataURL('image/png');
-              $el.querySelector('[name=firma_b64]').value = dataUrl;
-              htmx.trigger($el, 'submit');
+          data-firma-dibujada-form
+          hx-on::config-request="
+            if (this.sigPad && !this.sigPad.isEmpty()) {
+              event.detail.parameters['firma_b64'] = this.sigPad.toDataURL('image/png');
+            } else {
+              event.preventDefault();
             }
           ">
       {% if solicitud_pendiente_id %}
       <input type="hidden" name="solicitud_pendiente_id" value="{{ solicitud_pendiente_id }}">
       {% endif %}
-      <input type="hidden" name="firma_b64">
       <button type="submit" :disabled="canvasLimpio"
               class="w-full bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
         Guardar firma
@@ -109,17 +113,15 @@
 
 </div>
 
-<!-- signature_pad.js — cargado una sola vez -->
 <script>
 if (typeof SignaturePad === 'undefined') {
   const s = document.createElement('script');
   s.src = '/static/vendor/signature_pad.min.js';
   s.onload = () => {
-    const canvas = document.getElementById('firma-canvas');
-    if (canvas) {
-      window._sigPad = new SignaturePad(canvas, { penColor: '#1a1a1a', minWidth: 1, maxWidth: 2.5 });
-    }
+    window.dispatchEvent(new Event('signature-pad-ready'));
   };
   document.head.appendChild(s);
+} else {
+  window.dispatchEvent(new Event('signature-pad-ready'));
 }
 </script>

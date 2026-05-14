@@ -760,7 +760,7 @@
             <div x-data="{ userMenuOpen: false }" style="border-top:1px solid var(--e-line);padding:10px 10px 12px;position:relative;">
                 <!-- Dropdown menu -->
                 <div x-show="userMenuOpen" x-transition @click.outside="userMenuOpen = false"
-                    style="position:absolute;bottom:64px;left:8px;right:8px;background:#1a2b4a;border:1px solid var(--e-line);border-radius:10px;padding:4px;box-shadow:0 -4px 20px rgba(0,0,0,0.4);z-index:50;">
+                    style="position:absolute;bottom:64px;left:8px;right:8px;min-width:180px;background:#1a2b4a;border:1px solid var(--e-line);border-radius:10px;padding:4px;box-shadow:0 -4px 20px rgba(0,0,0,0.4);z-index:50;">
                     <a hx-get="/perfil/ui" hx-target="#main-content" hx-push-url="true"
                         @click="userMenuOpen = false"
                         style="display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;color:#e2e8f0;font-size:12.5px;text-decoration:none;cursor:pointer;"
