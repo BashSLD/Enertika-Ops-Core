@@ -8,7 +8,7 @@
        tipos: {{ tipos | tojson }},
        async calcularDias() {
          if (!this.fechaInicio || !this.fechaFin) { this.diasHabiles = 0; return; }
-         const r = await fetch('/perfil/dias-habiles?inicio=' + this.fechaInicio + '&fin=' + this.fechaFin);
+         const r = await fetch('/vacaciones/dias-habiles?inicio=' + this.fechaInicio + '&fin=' + this.fechaFin);
          if (r.ok) { const d = await r.json(); this.diasHabiles = d.dias; }
        }
      }">
@@ -21,7 +21,7 @@
   </div>
   {% endif %}
 
-  <form hx-post="/perfil/solicitudes"
+  <form hx-post="/vacaciones/solicitudes"
         hx-target="#tab-content"
         hx-swap="innerHTML"
         class="space-y-4">
@@ -83,7 +83,7 @@
     <!-- Acciones -->
     <div class="flex gap-3 pt-2">
       <button type="button"
-              hx-get="/perfil/solicitudes"
+              hx-get="/vacaciones/solicitudes"
               hx-target="#tab-content"
               hx-swap="innerHTML"
               class="flex-1 border border-gray-200 text-gray-700 text-sm font-medium py-2.5 rounded-xl hover:bg-gray-50 transition-colors">

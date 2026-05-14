@@ -4,47 +4,160 @@
 {% endwith %}
 {% endif %}
 
-<div class="space-y-4">
-  <h2 class="text-sm font-semibold text-gray-700">Mi Equipo</h2>
-
-  {% if not equipo %}
-  <div class="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-10 text-center text-sm text-gray-400">
-    No hay personas en tu equipo actualmente.
+<div class="space-y-5">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+    <div>
+      <h2 class="text-sm font-semibold text-gray-700">Mi Equipo</h2>
+      <p class="text-xs text-gray-400">Vacaciones aprobadas, ausencias activas y horas extra por validar.</p>
+    </div>
+    <div class="flex flex-wrap gap-2 text-xs">
+      <span class="px-2.5 py-1 rounded-full bg-[#00BABB]/10 text-[#007C7D] font-semibold">
+        {{ vacaciones_actuales | length }} de vacaciones hoy
+      </span>
+      <span class="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 font-semibold">
+        {{ horas_extra_pendientes | length }} horas extra pendientes
+      </span>
+    </div>
   </div>
-  {% else %}
-  {% for item in equipo %}
-  <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+
+  <section class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
     <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
       <div>
-        <p class="text-sm font-semibold text-gray-800">{{ item.usuario.nombre }}</p>
-        <p class="text-xs text-gray-400">{{ item.usuario.email }}</p>
+        <h3 class="text-sm font-semibold text-gray-800">Vacaciones del equipo</h3>
+        <p class="text-xs text-gray-400">Hoy y próximas vacaciones aprobadas.</p>
       </div>
-      <button
-        hx-get="/perfil/equipo/{{ item.usuario.id_usuario }}"
-        hx-target="#tab-content"
-        hx-swap="innerHTML"
-        class="text-xs text-[#00BABB] hover:underline font-medium">
-        Ver detalle
-      </button>
+      <span class="text-xs text-gray-400">{{ hoy.strftime('%d/%m/%Y') }}</span>
     </div>
-    {% if item.balance.periodos %}
-    <div class="px-5 py-3 flex items-center justify-between text-sm">
-      <span class="text-gray-500">Días disponibles</span>
-      <span class="font-bold text-gray-900">{{ item.balance.total_disponible }}</span>
+
+    {% if not vacaciones_actuales and not vacaciones_proximas %}
+    <div class="px-5 py-8 text-center text-sm text-gray-400">
+      No hay vacaciones aprobadas activas o próximas.
     </div>
-    {% if item.balance.periodos | selectattr('alerta') | list %}
-    <div class="px-5 pb-3">
-      {% for p in item.balance.periodos if p.alerta and not p.es_proximo %}
-      <p class="text-xs {{ 'text-red-500' if p.dias_para_expiracion < 30 else 'text-amber-500' }}">
-        ⚠ Período {{ p.periodo }}: {{ p.dias_restantes }} días expiran el {{ p.fecha_expiracion.strftime('%d/%m/%Y') }}
-      </p>
+    {% else %}
+    <div class="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-100">
+      <div class="p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Actualmente de vacaciones</h4>
+          <span class="text-xs font-bold text-[#00BABB]">{{ vacaciones_actuales | length }}</span>
+        </div>
+        {% if vacaciones_actuales %}
+        <div class="space-y-2">
+          {% for v in vacaciones_actuales %}
+          <div class="rounded-xl border border-[#00BABB]/20 bg-[#00BABB]/5 px-3 py-2">
+            <p class="text-sm font-semibold text-gray-800">{{ v.empleado_nombre }}</p>
+            <p class="text-xs text-gray-500">
+              {{ v.fecha_inicio.strftime('%d/%m') }} a {{ v.fecha_fin.strftime('%d/%m/%Y') }}
+              · regresa {{ v.fecha_presentarse.strftime('%d/%m/%Y') }}
+            </p>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-400">Nadie del equipo está de vacaciones hoy.</p>
+        {% endif %}
+      </div>
+
+      <div class="p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Próximas aprobadas</h4>
+          <span class="text-xs font-bold text-gray-500">{{ vacaciones_proximas | length }}</span>
+        </div>
+        {% if vacaciones_proximas %}
+        <div class="space-y-2">
+          {% for v in vacaciones_proximas %}
+          <div class="rounded-xl border border-gray-100 px-3 py-2">
+            <p class="text-sm font-semibold text-gray-800">{{ v.empleado_nombre }}</p>
+            <p class="text-xs text-gray-500">
+              {{ v.fecha_inicio.strftime('%d/%m') }} a {{ v.fecha_fin.strftime('%d/%m/%Y') }}
+              · {{ v.dias_solicitados }} día{{ 's' if v.dias_solicitados != 1 else '' }}
+            </p>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-400">No hay próximas vacaciones aprobadas.</p>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+  </section>
+
+  <section class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="px-5 py-3 border-b border-gray-100">
+      <h3 class="text-sm font-semibold text-gray-800">Horas extra pendientes de aprobación</h3>
+      <p class="text-xs text-gray-400">Registros calculados de los últimos 30 días.</p>
+    </div>
+
+    {% if not horas_extra_pendientes %}
+    <div class="px-5 py-8 text-center text-sm text-gray-400">
+      No hay horas extra pendientes de aprobación.
+    </div>
+    {% else %}
+    <div class="divide-y divide-gray-50">
+      {% for row in horas_extra_pendientes %}
+      <div class="px-5 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-sm font-semibold text-gray-800 truncate">{{ row.empleado_nombre }}</p>
+          <p class="text-xs text-gray-500">
+            {{ row.fecha_laboral.strftime('%d/%m/%Y') }}
+            · {{ row.sucursal_nombre or 'Sin sucursal' }}
+            · {{ row.estado | replace('_', ' ') }}
+          </p>
+        </div>
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <span class="text-sm font-bold text-gray-900">{{ row.extra_fmt }} h</span>
+          <span class="px-2 py-1 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+            Horas extra detectadas
+          </span>
+        </div>
+      </div>
       {% endfor %}
     </div>
     {% endif %}
+  </section>
+
+  <section class="space-y-3">
+    <h3 class="text-sm font-semibold text-gray-700">Personas de tu equipo</h3>
+
+    {% if not equipo %}
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-10 text-center text-sm text-gray-400">
+      No hay personas en tu equipo actualmente.
+    </div>
     {% else %}
-    <div class="px-5 py-3 text-xs text-gray-400">Sin datos laborales registrados.</div>
+    {% for item in equipo %}
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+        <div>
+          <p class="text-sm font-semibold text-gray-800">{{ item.usuario.nombre }}</p>
+          <p class="text-xs text-gray-400">{{ item.usuario.email }}</p>
+        </div>
+        <button
+          hx-get="/vacaciones/equipo/{{ item.usuario.id_usuario }}"
+          hx-target="#tab-content"
+          hx-swap="innerHTML"
+          class="text-xs text-[#00BABB] hover:underline font-medium">
+          Ver detalle
+        </button>
+      </div>
+      {% if item.balance.periodos %}
+      <div class="px-5 py-3 flex items-center justify-between text-sm">
+        <span class="text-gray-500">Días disponibles</span>
+        <span class="font-bold text-gray-900">{{ item.balance.total_disponible }}</span>
+      </div>
+      {% if item.balance.periodos | selectattr('alerta') | list %}
+      <div class="px-5 pb-3">
+        {% for p in item.balance.periodos if p.alerta and not p.es_proximo %}
+        <p class="text-xs {{ 'text-red-500' if p.dias_para_expiracion < 30 else 'text-amber-500' }}">
+          Período {{ p.periodo }}: {{ p.dias_restantes }} días expiran el {{ p.fecha_expiracion.strftime('%d/%m/%Y') }}
+        </p>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% else %}
+      <div class="px-5 py-3 text-xs text-gray-400">Sin datos laborales registrados.</div>
+      {% endif %}
+    </div>
+    {% endfor %}
     {% endif %}
-  </div>
-  {% endfor %}
-  {% endif %}
+  </section>
 </div>

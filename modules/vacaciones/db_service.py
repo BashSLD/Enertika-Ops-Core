@@ -290,7 +290,7 @@ async def get_dias_vacaciones_by_id(conn, row_id: UUID) -> Optional[dict]:
 async def get_empleado_datos(conn, usuario_id: UUID) -> Optional[dict]:
     row = await conn.fetchrow(
         "SELECT id, usuario_id, numero_empleado, fecha_contratacion, puesto, departamento, "
-        "id_aprobador_vacaciones, dias_vacaciones_ajuste "
+        "id_aprobador_vacaciones, dias_vacaciones_ajuste, sucursal_id, biotime_emp_code "
         "FROM tb_empleados_datos WHERE usuario_id = $1",
         usuario_id,
     )
@@ -306,14 +306,15 @@ async def upsert_empleado_datos(
     departamento: Optional[str],
     id_aprobador_vacaciones: Optional[UUID],
     dias_vacaciones_ajuste: int,
+    sucursal_id: Optional[UUID],
     updated_by: UUID,
 ) -> dict:
     row = await conn.fetchrow(
         """
         INSERT INTO tb_empleados_datos
             (usuario_id, numero_empleado, fecha_contratacion, puesto, departamento,
-             id_aprobador_vacaciones, dias_vacaciones_ajuste, updated_by, updated_at)
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,now())
+             id_aprobador_vacaciones, dias_vacaciones_ajuste, sucursal_id, updated_by, updated_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now())
         ON CONFLICT (usuario_id) DO UPDATE SET
             numero_empleado           = EXCLUDED.numero_empleado,
             fecha_contratacion        = EXCLUDED.fecha_contratacion,
@@ -321,13 +322,15 @@ async def upsert_empleado_datos(
             departamento              = EXCLUDED.departamento,
             id_aprobador_vacaciones   = EXCLUDED.id_aprobador_vacaciones,
             dias_vacaciones_ajuste    = EXCLUDED.dias_vacaciones_ajuste,
+            sucursal_id               = EXCLUDED.sucursal_id,
             updated_by                = EXCLUDED.updated_by,
             updated_at                = now()
         RETURNING id, usuario_id, numero_empleado, fecha_contratacion, puesto,
-                  departamento, id_aprobador_vacaciones, dias_vacaciones_ajuste
+                  departamento, id_aprobador_vacaciones, dias_vacaciones_ajuste,
+                  sucursal_id
         """,
         usuario_id, numero_empleado, fecha_contratacion, puesto, departamento,
-        id_aprobador_vacaciones, dias_vacaciones_ajuste, updated_by,
+        id_aprobador_vacaciones, dias_vacaciones_ajuste, sucursal_id, updated_by,
     )
     return dict(row)
 
@@ -411,31 +414,128 @@ async def count_empleados(conn) -> int:
 
 
 # ─────────────────────────────────────────────
-# Firmas
+# Migracion historica de vacaciones
 # ─────────────────────────────────────────────
 
-async def get_firma_usuario(conn, usuario_id: UUID) -> Optional[dict]:
+async def get_empleados_para_migracion(conn) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT
+            u.id_usuario,
+            u.nombre,
+            u.email,
+            e.fecha_contratacion,
+            COALESCE(e.dias_vacaciones_ajuste, 0) AS dias_vacaciones_ajuste,
+            EXISTS (
+                SELECT 1
+                FROM tb_solicitudes_ausencia sa
+                WHERE sa.usuario_id = u.id_usuario
+                  AND sa.es_migracion = TRUE
+            ) AS ya_migrado
+        FROM tb_usuarios u
+        JOIN tb_empleados_datos e ON e.usuario_id = u.id_usuario
+        WHERE u.is_active = true
+          AND e.fecha_contratacion IS NOT NULL
+        ORDER BY u.nombre
+        """
+    )
+    return [dict(r) for r in rows]
+
+
+async def count_empleados_migrados(conn) -> dict:
     row = await conn.fetchrow(
-        "SELECT usuario_id, firma_data, tipo_firma, fecha_carga "
-        "FROM tb_usuarios_firmas WHERE usuario_id = $1",
+        """
+        SELECT
+            COUNT(DISTINCT e.usuario_id) AS total_con_contratacion,
+            COUNT(DISTINCT e.usuario_id) FILTER (WHERE sa.usuario_id IS NOT NULL) AS total_migrados
+        FROM tb_empleados_datos e
+        JOIN tb_usuarios u ON u.id_usuario = e.usuario_id
+        LEFT JOIN tb_solicitudes_ausencia sa
+            ON sa.usuario_id = e.usuario_id
+           AND sa.es_migracion = TRUE
+        WHERE u.is_active = true
+          AND e.fecha_contratacion IS NOT NULL
+        """
+    )
+    if not row:
+        return {"total_con_contratacion": 0, "total_migrados": 0}
+    return dict(row)
+
+
+async def limpiar_migracion_usuario(conn, usuario_id: UUID) -> int:
+    deleted = await conn.fetchval(
+        """
+        WITH deleted AS (
+            DELETE FROM tb_solicitudes_ausencia
+            WHERE usuario_id = $1
+              AND es_migracion = TRUE
+            RETURNING id
+        )
+        SELECT COUNT(*) FROM deleted
+        """,
         usuario_id,
     )
-    return dict(row) if row else None
+    return int(deleted or 0)
 
 
-async def upsert_firma_usuario(conn, usuario_id: UUID, firma_bytes: bytes, tipo: str) -> None:
-    await conn.execute(
+async def insertar_solicitud_migracion(
+    conn,
+    usuario_id: UUID,
+    tipo_ausencia_id: UUID,
+    fecha_aniversario: date,
+    dias_solicitados: int,
+    num_periodo: int,
+    ejecutado_por: UUID,
+) -> UUID:
+    row = await conn.fetchrow(
         """
-        INSERT INTO tb_usuarios_firmas (usuario_id, firma_data, tipo_firma, fecha_carga)
-        VALUES ($1, $2, $3, now())
-        ON CONFLICT (usuario_id) DO UPDATE SET
-            firma_data  = EXCLUDED.firma_data,
-            tipo_firma  = EXCLUDED.tipo_firma,
-            fecha_carga = now()
+        INSERT INTO tb_solicitudes_ausencia
+            (usuario_id, tipo_ausencia_id, fecha_inicio, fecha_fin,
+             dias_solicitados, fecha_presentarse, observaciones,
+             firma_solicitante_pendiente, estado, aprobado_por,
+             fecha_resolucion, es_migracion, migrado_por)
+        VALUES ($1, $2, $3, $3, $4, $3, $5, false, 'aprobado', $6, now(), true, $6)
+        RETURNING id
         """,
-        usuario_id, firma_bytes, tipo,
+        usuario_id,
+        tipo_ausencia_id,
+        fecha_aniversario,
+        dias_solicitados,
+        f"Registro historico previo al sistema - Periodo {num_periodo}",
+        ejecutado_por,
     )
+    return row["id"]
 
+
+async def get_migracion_usuario(conn, usuario_id: UUID) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT
+            sa.id,
+            sa.dias_solicitados,
+            sa.observaciones,
+            sa.fecha_solicitud,
+            sa.fecha_resolucion,
+            sa.migrado_por,
+            m.nombre AS migrado_por_nombre,
+            vc.num_periodo,
+            vc.dias_consumidos,
+            vc.fecha_aniversario_periodo
+        FROM tb_solicitudes_ausencia sa
+        JOIN tb_vacaciones_consumo vc ON vc.solicitud_id = sa.id
+        LEFT JOIN tb_usuarios m ON m.id_usuario = sa.migrado_por
+        WHERE sa.usuario_id = $1
+          AND sa.es_migracion = TRUE
+        ORDER BY vc.num_periodo
+        """,
+        usuario_id,
+    )
+    return [dict(r) for r in rows]
+
+
+# ─────────────────────────────────────────────
+# Firmas
+# ─────────────────────────────────────────────
 
 async def insert_firma_solicitud(conn, solicitud_id: UUID, firmante_id: UUID, rol: str) -> None:
     await conn.execute(
@@ -497,14 +597,17 @@ async def get_solicitud(conn, solicitud_id: UUID) -> Optional[dict]:
                sa.estado, sa.aprobado_por, sa.motivo_rechazo,
                sa.fecha_solicitud, sa.fecha_resolucion,
                sa.ultima_notificacion_aprobador, sa.firma_solicitante_pendiente,
+               sa.es_migracion, sa.migrado_por,
                ta.nombre AS tipo_nombre, ta.abreviatura AS tipo_abreviatura,
                ta.slug AS tipo_slug, ta.afecta_saldo,
                u.nombre AS solicitante_nombre, u.email AS solicitante_email,
-               a.nombre AS aprobado_por_nombre
+               a.nombre AS aprobado_por_nombre,
+               m.nombre AS migrado_por_nombre
         FROM tb_solicitudes_ausencia sa
         JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
         JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
         LEFT JOIN tb_usuarios a ON a.id_usuario = sa.aprobado_por
+        LEFT JOIN tb_usuarios m ON m.id_usuario = sa.migrado_por
         WHERE sa.id = $1
         """,
         solicitud_id,
@@ -518,12 +621,16 @@ async def get_solicitudes_usuario(conn, usuario_id: UUID) -> list[dict]:
         SELECT sa.id, sa.tipo_ausencia_id, sa.fecha_inicio, sa.fecha_fin,
                sa.dias_solicitados, sa.fecha_presentarse, sa.estado,
                sa.motivo_rechazo, sa.fecha_solicitud, sa.fecha_resolucion,
-               sa.firma_solicitante_pendiente,
+               sa.firma_solicitante_pendiente, sa.es_migracion, sa.migrado_por,
+               vc.num_periodo AS migracion_num_periodo,
                ta.nombre AS tipo_nombre, ta.abreviatura AS tipo_abreviatura,
-               a.nombre AS aprobado_por_nombre
+               a.nombre AS aprobado_por_nombre,
+               m.nombre AS migrado_por_nombre
         FROM tb_solicitudes_ausencia sa
         JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
         LEFT JOIN tb_usuarios a ON a.id_usuario = sa.aprobado_por
+        LEFT JOIN tb_usuarios m ON m.id_usuario = sa.migrado_por
+        LEFT JOIN tb_vacaciones_consumo vc ON vc.solicitud_id = sa.id AND sa.es_migracion = TRUE
         WHERE sa.usuario_id = $1
         ORDER BY sa.created_at DESC
         """,
@@ -583,13 +690,15 @@ async def get_todas_solicitudes(conn, estado: Optional[str] = None) -> list[dict
         SELECT sa.id, sa.usuario_id, sa.tipo_ausencia_id, sa.fecha_inicio, sa.fecha_fin,
                sa.dias_solicitados, sa.fecha_presentarse, sa.estado,
                sa.motivo_rechazo, sa.fecha_solicitud, sa.fecha_resolucion,
-               sa.firma_solicitante_pendiente,
+               sa.firma_solicitante_pendiente, sa.es_migracion, sa.migrado_por,
                ta.nombre AS tipo_nombre, ta.abreviatura AS tipo_abreviatura,
-               u.nombre AS solicitante_nombre, a.nombre AS aprobado_por_nombre
+               u.nombre AS solicitante_nombre, a.nombre AS aprobado_por_nombre,
+               m.nombre AS migrado_por_nombre
         FROM tb_solicitudes_ausencia sa
         JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
         JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
         LEFT JOIN tb_usuarios a ON a.id_usuario = sa.aprobado_por
+        LEFT JOIN tb_usuarios m ON m.id_usuario = sa.migrado_por
     """
     if estado:
         rows = await conn.fetch(base + " WHERE sa.estado = $1 ORDER BY sa.created_at DESC", estado)
@@ -644,6 +753,7 @@ async def get_solicitudes_activas_en_rango(
         SELECT id FROM tb_solicitudes_ausencia
         WHERE usuario_id = $1
           AND estado IN ('pendiente','aprobado')
+          AND COALESCE(es_migracion, false) = false
           AND fecha_inicio <= $3 AND fecha_fin >= $2
           AND ($4::uuid IS NULL OR id != $4)
         """,
@@ -663,6 +773,7 @@ async def get_vacaciones_hoy(conn, hoy: date) -> list[dict]:
         JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
         WHERE sa.estado = 'aprobado'
           AND ta.slug = 'vacaciones'
+          AND COALESCE(sa.es_migracion, false) = false
           AND sa.fecha_inicio <= $1 AND sa.fecha_fin >= $1
         ORDER BY u.nombre
         """,
@@ -674,6 +785,43 @@ async def get_vacaciones_hoy(conn, hoy: date) -> list[dict]:
 # ─────────────────────────────────────────────
 # Consumo de períodos (FIFO)
 # ─────────────────────────────────────────────
+
+async def get_vacaciones_aprobadas_equipo(
+    conn,
+    usuario_ids: list[UUID],
+    fecha_inicio: date,
+    fecha_fin: date,
+) -> list[dict]:
+    if not usuario_ids:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT
+            sa.id,
+            sa.usuario_id,
+            sa.fecha_inicio,
+            sa.fecha_fin,
+            sa.fecha_presentarse,
+            sa.dias_solicitados,
+            u.nombre AS empleado_nombre,
+            u.email AS empleado_email
+        FROM tb_solicitudes_ausencia sa
+        JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
+        JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
+        WHERE sa.usuario_id = ANY($1::uuid[])
+          AND sa.estado = 'aprobado'
+          AND ta.slug = 'vacaciones'
+          AND COALESCE(sa.es_migracion, false) = false
+          AND sa.fecha_inicio <= $3
+          AND sa.fecha_fin >= $2
+        ORDER BY sa.fecha_inicio, u.nombre
+        """,
+        usuario_ids,
+        fecha_inicio,
+        fecha_fin,
+    )
+    return [dict(r) for r in rows]
+
 
 async def get_consumos_usuario(conn, usuario_id: UUID) -> list[dict]:
     rows = await conn.fetch(
@@ -703,6 +851,18 @@ async def get_consumos_solicitud(conn, solicitud_id: UUID) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _group_consumos_by_usuario(rows) -> dict[UUID, list[dict]]:
+    result: dict[UUID, list[dict]] = {}
+    for row in rows:
+        uid = row["usuario_id"]
+        result.setdefault(uid, []).append({
+            "num_periodo": row["num_periodo"],
+            "dias_consumidos": row["dias_consumidos"],
+            "fecha_aniversario_periodo": row["fecha_aniversario_periodo"],
+        })
+    return result
+
+
 async def get_consumos_bulk(conn, usuario_ids: list[UUID]) -> dict[UUID, list[dict]]:
     """Returns consumos grouped by usuario_id for a batch of users."""
     if not usuario_ids:
@@ -718,15 +878,43 @@ async def get_consumos_bulk(conn, usuario_ids: list[UUID]) -> dict[UUID, list[di
         """,
         usuario_ids,
     )
-    result: dict[UUID, list[dict]] = {}
-    for r in rows:
-        uid = r["usuario_id"]
-        result.setdefault(uid, []).append({
-            "num_periodo": r["num_periodo"],
-            "dias_consumidos": r["dias_consumidos"],
-            "fecha_aniversario_periodo": r["fecha_aniversario_periodo"],
-        })
-    return result
+    return _group_consumos_by_usuario(rows)
+
+
+async def get_consumos_no_migracion_bulk(conn, usuario_ids: list[UUID]) -> dict[UUID, list[dict]]:
+    if not usuario_ids:
+        return {}
+    rows = await conn.fetch(
+        """
+        SELECT sa.usuario_id, vc.num_periodo, vc.dias_consumidos, vc.fecha_aniversario_periodo
+        FROM tb_vacaciones_consumo vc
+        JOIN tb_solicitudes_ausencia sa ON sa.id = vc.solicitud_id
+        WHERE sa.usuario_id = ANY($1::uuid[])
+          AND sa.estado IN ('pendiente', 'aprobado')
+          AND COALESCE(sa.es_migracion, false) = false
+        ORDER BY sa.usuario_id, vc.num_periodo
+        """,
+        usuario_ids,
+    )
+    return _group_consumos_by_usuario(rows)
+
+
+async def get_consumos_migracion_bulk(conn, usuario_ids: list[UUID]) -> dict[UUID, list[dict]]:
+    if not usuario_ids:
+        return {}
+    rows = await conn.fetch(
+        """
+        SELECT sa.usuario_id, vc.num_periodo, vc.dias_consumidos, vc.fecha_aniversario_periodo
+        FROM tb_vacaciones_consumo vc
+        JOIN tb_solicitudes_ausencia sa ON sa.id = vc.solicitud_id
+        WHERE sa.usuario_id = ANY($1::uuid[])
+          AND sa.estado IN ('pendiente', 'aprobado')
+          AND sa.es_migracion = TRUE
+        ORDER BY sa.usuario_id, vc.num_periodo
+        """,
+        usuario_ids,
+    )
+    return _group_consumos_by_usuario(rows)
 
 
 async def insert_consumos(conn, solicitud_id: UUID, consumos: list[dict]) -> None:
@@ -799,11 +987,15 @@ async def get_aprobador_emails(conn, solicitud_id: UUID) -> list[str]:
 async def get_rh_emails(conn) -> list[str]:
     rows = await conn.fetch(
         """
-        SELECT email
-        FROM tb_usuarios
-        WHERE is_active = true
-          AND email IS NOT NULL
-          AND (es_rh = true OR rol_sistema = 'ADMIN')
+        SELECT DISTINCT u.email
+        FROM tb_usuarios u
+        LEFT JOIN tb_permisos_modulos pm
+            ON pm.usuario_id = u.id_usuario
+           AND pm.modulo_slug = 'rrhh'
+           AND pm.rol_modulo IN ('editor', 'admin')
+        WHERE u.is_active = true
+          AND u.email IS NOT NULL
+          AND (u.rol_sistema = 'ADMIN' OR pm.usuario_id IS NOT NULL)
         """
     )
     return [r["email"] for r in rows]
@@ -860,6 +1052,14 @@ async def get_usuarios_activos_simples(conn) -> list[dict]:
         "SELECT id_usuario, nombre, email FROM tb_usuarios WHERE is_active = true ORDER BY nombre"
     )
     return [dict(r) for r in rows]
+
+
+async def get_usuario_simple_by_id(conn, usuario_id: UUID) -> Optional[dict]:
+    row = await conn.fetchrow(
+        "SELECT id_usuario, nombre, email FROM tb_usuarios WHERE id_usuario = $1",
+        usuario_id,
+    )
+    return dict(row) if row else None
 
 
 async def get_jefes_con_nombre(conn, usuario_id: UUID) -> list[dict]:

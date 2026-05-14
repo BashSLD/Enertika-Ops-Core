@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import base64
 import logging
-import struct
-from datetime import date
+from datetime import date, timedelta
 from typing import Any, Optional
 from uuid import UUID
 
 from core.config_service import ConfigService
+from core.permissions import user_has_module_access
 from core.timezone import today_mx
+from modules.asistencia import db_service as asistencia_db
+from modules.shared import signatures_db_service as signatures_db
 from modules.vacaciones import db_service as db
 from modules.vacaciones.constants import VACACIONES_SLUGS
 from modules.vacaciones.logic import (
@@ -73,7 +75,7 @@ async def get_balance_usuario(conn, usuario_id: UUID) -> dict[str, Any]:
 # ─────────────────────────────────────────────
 
 async def puede_aprobar(conn, solicitud_id: UUID, current_user_id: UUID, user_ctx: dict) -> bool:
-    if user_ctx.get("role") == "ADMIN" or user_ctx.get("es_rh"):
+    if user_has_module_access("rrhh", user_ctx, "editor"):
         return True
     solicitud = await db.get_solicitud(conn, solicitud_id)
     if not solicitud:
@@ -126,7 +128,7 @@ async def crear_solicitud(
     if solapadas:
         raise ValueError("Ya existe una solicitud activa para ese rango de fechas")
 
-    firma = await db.get_firma_usuario(conn, usuario_id)
+    firma = await signatures_db.get_firma_usuario(conn, usuario_id)
     requiere_firma = firma is None
 
     solicitud = await db.create_solicitud(
@@ -157,6 +159,7 @@ async def cancelar_solicitud(conn, solicitud_id: UUID, current_user_id: UUID) ->
 
     await db.delete_consumos_solicitud(conn, solicitud_id)
     await db.update_solicitud_estado(conn, solicitud_id, "cancelado")
+    await _recalcular_asistencia_por_solicitud(conn, solicitud)
 
 
 async def aprobar_solicitud(
@@ -179,6 +182,7 @@ async def aprobar_solicitud(
     await db.insert_firma_solicitud(conn, solicitud_id, aprobador_id, "aprobador")
     await db.update_solicitud_estado(conn, solicitud_id, "aprobado", aprobado_por=aprobador_id)
     aprobada = await db.get_solicitud(conn, solicitud_id)
+    await _recalcular_asistencia_por_solicitud(conn, aprobada)
 
     from core.workflow.notification_service import get_notification_service
     notif = get_notification_service()
@@ -207,6 +211,7 @@ async def rechazar_solicitud(
         conn, solicitud_id, "rechazado", aprobado_por=aprobador_id, motivo_rechazo=motivo
     )
     rechazada = await db.get_solicitud(conn, solicitud_id)
+    await _recalcular_asistencia_por_solicitud(conn, rechazada)
     from core.workflow.notification_service import get_notification_service
     notif = get_notification_service()
     await notif.notify_vacation_rejected(conn, rechazada, motivo)
@@ -215,38 +220,6 @@ async def rechazar_solicitud(
 # ─────────────────────────────────────────────
 # Firmas
 # ─────────────────────────────────────────────
-
-async def guardar_firma(
-    conn,
-    usuario_id: UUID,
-    firma_bytes: bytes,
-    tipo: str,
-    solicitud_pendiente_id: Optional[UUID] = None,
-) -> None:
-    """Guarda firma y, si hay solicitud pendiente sin firma, la registra."""
-    from modules.vacaciones.constants import FIRMA_MAX_BYTES
-    if len(firma_bytes) > FIRMA_MAX_BYTES:
-        raise ValueError(f"La firma excede el tamaño máximo ({FIRMA_MAX_BYTES // 1024} KB)")
-    validar_firma_png(firma_bytes)
-    await db.upsert_firma_usuario(conn, usuario_id, firma_bytes, tipo)
-    if solicitud_pendiente_id:
-        await db.insert_firma_solicitud(conn, solicitud_pendiente_id, usuario_id, "solicitante")
-        await _activar_solicitud_pendiente_firma(conn, solicitud_pendiente_id, usuario_id)
-
-
-def firma_bytes_to_base64(firma_bytes: bytes) -> str:
-    return base64.b64encode(firma_bytes).decode()
-
-
-def validar_firma_png(firma_bytes: bytes) -> None:
-    if not firma_bytes.startswith(b"\x89PNG\r\n\x1a\n"):
-        raise ValueError("La firma debe ser una imagen PNG valida")
-    if len(firma_bytes) < 24:
-        raise ValueError("La firma PNG esta incompleta")
-    width, height = struct.unpack(">II", firma_bytes[16:24])
-    if width > 500 or height > 200:
-        raise ValueError("La firma debe medir maximo 500 x 200 px")
-
 
 async def _registrar_consumos_si_aplica(
     conn,
@@ -264,7 +237,7 @@ async def _registrar_consumos_si_aplica(
             await db.insert_consumos(conn, solicitud_id, consumos_fifo)
 
 
-async def _activar_solicitud_pendiente_firma(
+async def activar_solicitud_tras_firma(
     conn,
     solicitud_id: UUID,
     usuario_id: UUID,
@@ -299,6 +272,20 @@ async def _notificar_aprobadores(conn, solicitud_id: UUID) -> None:
     await db.update_ultima_notificacion_aprobador(conn, solicitud_id)
 
 
+async def _recalcular_asistencia_por_solicitud(conn, solicitud: dict | None) -> None:
+    if not solicitud or solicitud.get("tipo_slug") not in VACACIONES_SLUGS:
+        return
+    from modules.asistencia.service import recalcular_asistencia
+
+    fecha_inicio = solicitud["fecha_inicio"]
+    fecha_fin = solicitud["fecha_fin"]
+    targets = [
+        (solicitud["usuario_id"], fecha_inicio + timedelta(days=offset))
+        for offset in range((fecha_fin - fecha_inicio).days + 1)
+    ]
+    await recalcular_asistencia(conn, targets)
+
+
 # ─────────────────────────────────────────────
 # PDF
 # ─────────────────────────────────────────────
@@ -317,14 +304,14 @@ async def generar_pdf_solicitud(conn, solicitud_id: UUID) -> bytes:
     firma_aprobador_b64 = None
 
     if "solicitante" in firmas_map:
-        row = await db.get_firma_usuario(conn, solicitud["usuario_id"])
+        row = await signatures_db.get_firma_usuario(conn, solicitud["usuario_id"])
         if row:
-            firma_solicitante_b64 = firma_bytes_to_base64(bytes(row["firma_data"]))
+            firma_solicitante_b64 = base64.b64encode(bytes(row["firma_data"])).decode()
 
     if "aprobador" in firmas_map and solicitud["aprobado_por"]:
-        row = await db.get_firma_usuario(conn, solicitud["aprobado_por"])
+        row = await signatures_db.get_firma_usuario(conn, solicitud["aprobado_por"])
         if row:
-            firma_aprobador_b64 = firma_bytes_to_base64(bytes(row["firma_data"]))
+            firma_aprobador_b64 = base64.b64encode(bytes(row["firma_data"])).decode()
 
     empleado = await db.get_empleado_datos(conn, solicitud["usuario_id"])
     detalle_periodos = await _get_detalle_periodos_pdf(conn, solicitud)
@@ -383,7 +370,7 @@ async def get_equipo_balances(conn, user_id: UUID, user_ctx: dict) -> list[dict]
     ids_aprobador = await db.get_empleados_donde_soy_aprobador(conn, user_id)
     all_ids = list({*ids_jefe, *ids_aprobador})
 
-    if user_ctx.get("role") == "ADMIN" or user_ctx.get("es_rh"):
+    if user_has_module_access("rrhh", user_ctx, "viewer"):
         rows = await db.get_all_empleados_con_datos(conn, limit=500, offset=0)
         all_ids = [r["id_usuario"] for r in rows]
 
@@ -453,3 +440,51 @@ async def get_equipo_balances(conn, user_id: UUID, user_ctx: dict) -> list[dict]
             "balance": balance,
         })
     return resultados
+
+
+async def get_equipo_dashboard(conn, user_id: UUID, user_ctx: dict) -> dict:
+    equipo = await get_equipo_balances(conn, user_id, user_ctx)
+    usuario_ids = [item["usuario"]["id_usuario"] for item in equipo]
+    hoy = today_mx()
+    if not usuario_ids:
+        return {
+            "equipo": [],
+            "vacaciones_actuales": [],
+            "vacaciones_proximas": [],
+            "horas_extra_pendientes": [],
+            "hoy": hoy,
+        }
+
+    vacaciones = await db.get_vacaciones_aprobadas_equipo(
+        conn,
+        usuario_ids,
+        hoy,
+        hoy + timedelta(days=60),
+    )
+    vacaciones_actuales = [
+        row for row in vacaciones if row["fecha_inicio"] <= hoy <= row["fecha_fin"]
+    ]
+    vacaciones_proximas = [
+        row for row in vacaciones if row["fecha_inicio"] > hoy
+    ]
+
+    horas_extra = await asistencia_db.get_horas_extra_equipo(
+        conn,
+        usuario_ids,
+        hoy - timedelta(days=30),
+        hoy,
+    )
+    for row in horas_extra:
+        row["extra_fmt"] = _format_minutes(row.get("minutos_extra") or 0)
+
+    return {
+        "equipo": equipo,
+        "vacaciones_actuales": vacaciones_actuales,
+        "vacaciones_proximas": vacaciones_proximas,
+        "horas_extra_pendientes": horas_extra,
+        "hoy": hoy,
+    }
+
+
+def _format_minutes(minutes: int) -> str:
+    return f"{minutes // 60}:{minutes % 60:02d}"

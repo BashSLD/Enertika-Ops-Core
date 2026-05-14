@@ -12,7 +12,7 @@
   <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
     <h2 class="text-sm font-semibold text-gray-700">Mis Solicitudes</h2>
     <button
-      hx-get="/perfil/solicitudes/nueva"
+      hx-get="/vacaciones/solicitudes/nueva"
       hx-target="#tab-content"
       hx-swap="innerHTML"
       class="text-xs text-[#00BABB] hover:underline font-medium">
@@ -40,10 +40,20 @@
         {% for s in solicitudes %}
         <tr class="hover:bg-gray-50 transition-colors">
           <td class="px-4 py-3">
+            {% if s.es_migracion %}
+            <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-600">
+              Historico
+            </span>
+            <span class="ml-1 text-gray-600 hidden sm:inline">Vacaciones tomadas antes del sistema</span>
+            {% if s.migracion_num_periodo %}
+            <p class="text-xs text-gray-400 mt-1">Periodo {{ s.migracion_num_periodo }}</p>
+            {% endif %}
+            {% else %}
             <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-gray-100 text-gray-700">
               {{ s.tipo_abreviatura }}
             </span>
             <span class="ml-1 text-gray-600 hidden sm:inline">{{ s.tipo_nombre }}</span>
+            {% endif %}
           </td>
           <td class="px-4 py-3 text-gray-700 whitespace-nowrap">
             {{ s.fecha_inicio.strftime('%d/%m/%Y') }} — {{ s.fecha_fin.strftime('%d/%m/%Y') }}
@@ -60,13 +70,16 @@
             </span>
           </td>
           <td class="px-4 py-3 flex items-center gap-2">
+            {% if s.es_migracion %}
+            <span class="text-xs text-gray-400">Registro historico</span>
+            {% else %}
             <button
-              hx-get="/perfil/solicitudes/{{ s.id }}"
+              hx-get="/vacaciones/solicitudes/{{ s.id }}"
               hx-target="#tab-content"
               hx-swap="innerHTML"
               class="text-xs text-[#00BABB] hover:underline">Ver</button>
             {% if s.estado in ['aprobado', 'pendiente'] and not s.firma_solicitante_pendiente %}
-            <a href="/perfil/solicitudes/{{ s.id }}/pdf" target="_blank"
+            <a href="/vacaciones/solicitudes/{{ s.id }}/pdf" target="_blank"
                class="text-xs text-gray-500 hover:text-gray-700 hover:underline">PDF</a>
             {% endif %}
             {% if s.firma_solicitante_pendiente %}
@@ -78,11 +91,12 @@
             {% endif %}
             {% if s.estado == 'pendiente' %}
             <button
-              hx-post="/perfil/solicitudes/{{ s.id }}/cancelar"
+              hx-post="/vacaciones/solicitudes/{{ s.id }}/cancelar"
               hx-target="#tab-content"
               hx-swap="innerHTML"
               hx-confirm="¿Cancelar esta solicitud?"
               class="text-xs text-red-500 hover:underline">Cancelar</button>
+            {% endif %}
             {% endif %}
           </td>
         </tr>

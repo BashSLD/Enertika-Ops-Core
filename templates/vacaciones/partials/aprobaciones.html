@@ -38,12 +38,12 @@
       </div>
       <div class="flex items-center gap-2 flex-shrink-0">
         <button
-          hx-get="/perfil/solicitudes/{{ s.id }}"
+          hx-get="/vacaciones/solicitudes/{{ s.id }}"
           hx-target="#tab-content"
           hx-swap="innerHTML"
           class="text-xs text-[#00BABB] hover:underline font-medium">Ver</button>
         <button
-          hx-post="/perfil/solicitudes/{{ s.id }}/aprobar"
+          hx-post="/vacaciones/solicitudes/{{ s.id }}/aprobar"
           hx-target="#tab-content"
           hx-swap="innerHTML"
           hx-confirm="¿Aprobar la solicitud de {{ s.solicitante_nombre }}?"
@@ -71,7 +71,7 @@
   <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm" @click.stop>
     <h3 class="text-base font-semibold text-gray-900 mb-1">Rechazar solicitud</h3>
     <p class="text-sm text-gray-500 mb-3" x-text="nombre"></p>
-    <form :hx-post="'/perfil/solicitudes/' + solicitudId + '/rechazar'"
+    <form :hx-post="'/vacaciones/solicitudes/' + solicitudId + '/rechazar'"
           hx-target="#tab-content"
           hx-swap="innerHTML"
           @htmx:after-request="open = false">

@@ -1,28 +1,20 @@
 from __future__ import annotations
 
-import base64
-import binascii
-import logging
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from core.database import get_db_connection
+from core.permissions import user_has_module_access
 from core.security import get_current_user_context
+from modules.shared import signatures_db_service as signatures_db
 from modules.vacaciones import db_service as db
 from modules.vacaciones import service
 
-logger = logging.getLogger("vacaciones.router")
-router = APIRouter(prefix="/perfil", tags=["perfil"])
+router = APIRouter(prefix="/vacaciones", tags=["vacaciones"])
 templates = Jinja2Templates(directory="templates")
-
-
-def _is_htmx(request: Request) -> bool:
-    return bool(
-        request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request")
-    )
 
 
 def _toast_error(request: Request, message: str, status_code: int = 400):
@@ -60,36 +52,6 @@ async def dias_habiles(
 
 
 # ─────────────────────────────────────────────
-# Página principal Mi Perfil
-# ─────────────────────────────────────────────
-
-@router.get("/ui")
-async def perfil_ui(
-    request: Request,
-    conn=Depends(get_db_connection),
-    context=Depends(get_current_user_context),
-):
-    usuario_id = UUID(context["user_db_id"])
-    balance = await service.get_balance_usuario(conn, usuario_id)
-    solicitudes = await db.get_solicitudes_usuario(conn, usuario_id)
-    tipos = await db.get_tipos_ausencia(conn)
-    firma = await db.get_firma_usuario(conn, usuario_id)
-    es_jefe = await service.es_jefe_o_aprobador_de_alguien(conn, usuario_id)
-
-    ctx = {
-        "balance": balance,
-        "solicitudes": solicitudes,
-        "tipos": tipos,
-        "firma": firma,
-        "es_jefe_o_aprobador": es_jefe or context.get("es_rh") or context.get("role") == "ADMIN",
-        "context": context,
-    }
-    if _is_htmx(request):
-        return templates.TemplateResponse(request, "vacaciones/partials/content.html", ctx)
-    return templates.TemplateResponse(request, "vacaciones/perfil.html", ctx)
-
-
-# ─────────────────────────────────────────────
 # Balance (HTMX partial)
 # ─────────────────────────────────────────────
 
@@ -99,7 +61,7 @@ async def perfil_balance(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(context["user_db_id"])
+    usuario_id = UUID(str(context["user_db_id"]))
     balance = await service.get_balance_usuario(conn, usuario_id)
     return templates.TemplateResponse(
         request, "vacaciones/partials/balance.html", {"balance": balance, "context": context}
@@ -116,7 +78,7 @@ async def mis_solicitudes(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(context["user_db_id"])
+    usuario_id = UUID(str(context["user_db_id"]))
     solicitudes = await db.get_solicitudes_usuario(conn, usuario_id)
     return templates.TemplateResponse(
         request,
@@ -131,10 +93,10 @@ async def form_nueva_solicitud(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(context["user_db_id"])
+    usuario_id = UUID(str(context["user_db_id"]))
     tipos = await db.get_tipos_ausencia(conn)
     balance = await service.get_balance_usuario(conn, usuario_id)
-    firma = await db.get_firma_usuario(conn, usuario_id)
+    firma = await signatures_db.get_firma_usuario(conn, usuario_id)
     return templates.TemplateResponse(
         request,
         "vacaciones/partials/form_solicitud.html",
@@ -155,7 +117,7 @@ async def crear_solicitud(
 ):
     from datetime import date
 
-    usuario_id = UUID(context["user_db_id"])
+    usuario_id = UUID(str(context["user_db_id"]))
     try:
         result = await service.crear_solicitud(
             conn,
@@ -173,7 +135,7 @@ async def crear_solicitud(
         solicitud_id = str(result["solicitud"]["id"])
         return templates.TemplateResponse(
             request,
-            "vacaciones/partials/form_firma.html",
+            "perfil/partials/form_firma.html",
             {
                 "solicitud_pendiente_id": solicitud_id,
                 "context": context,
@@ -207,7 +169,7 @@ async def detalle_solicitud(
     solicitud = await db.get_solicitud(conn, solicitud_id)
     if not solicitud:
         raise HTTPException(404)
-    usuario_id = UUID(context["user_db_id"])
+    usuario_id = UUID(str(context["user_db_id"]))
     es_dueno = solicitud["usuario_id"] == usuario_id
     es_aprobador = await service.puede_aprobar(conn, solicitud_id, usuario_id, context)
     if not es_dueno and not es_aprobador:
@@ -233,7 +195,7 @@ async def cancelar_solicitud(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(context["user_db_id"])
+    usuario_id = UUID(str(context["user_db_id"]))
     try:
         await service.cancelar_solicitud(conn, solicitud_id, usuario_id)
     except ValueError as exc:
@@ -260,10 +222,12 @@ async def descargar_pdf(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(context["user_db_id"])
+    usuario_id = UUID(str(context["user_db_id"]))
     solicitud = await db.get_solicitud(conn, solicitud_id)
     if not solicitud:
         raise HTTPException(404)
+    if solicitud.get("es_migracion"):
+        raise HTTPException(status_code=400, detail="Los registros historicos no generan PDF.")
     es_dueno = solicitud["usuario_id"] == usuario_id
     es_aprobador = await service.puede_aprobar(conn, solicitud_id, usuario_id, context)
     if not es_dueno and not es_aprobador:
@@ -288,8 +252,8 @@ async def mis_aprobaciones(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(context["user_db_id"])
-    if context.get("es_rh") or context.get("role") == "ADMIN":
+    usuario_id = UUID(str(context["user_db_id"]))
+    if user_has_module_access("rrhh", context, "editor"):
         pendientes = await db.get_todas_solicitudes_pendientes(conn)
     else:
         pendientes = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
@@ -307,13 +271,13 @@ async def aprobar_solicitud(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(context["user_db_id"])
+    usuario_id = UUID(str(context["user_db_id"]))
     try:
         aprobada = await service.aprobar_solicitud(conn, solicitud_id, usuario_id, context)
     except ValueError as exc:
         return _toast_error(request, str(exc))
 
-    if context.get("es_rh") or context.get("role") == "ADMIN":
+    if user_has_module_access("rrhh", context, "editor"):
         pendientes = await db.get_todas_solicitudes_pendientes(conn)
     else:
         pendientes = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
@@ -337,13 +301,13 @@ async def rechazar_solicitud(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(context["user_db_id"])
+    usuario_id = UUID(str(context["user_db_id"]))
     try:
         await service.rechazar_solicitud(conn, solicitud_id, usuario_id, motivo, context)
     except ValueError as exc:
         return _toast_error(request, str(exc))
 
-    if context.get("es_rh") or context.get("role") == "ADMIN":
+    if user_has_module_access("rrhh", context, "editor"):
         pendientes = await db.get_todas_solicitudes_pendientes(conn)
     else:
         pendientes = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
@@ -369,12 +333,12 @@ async def mi_equipo(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(context["user_db_id"])
-    equipo = await service.get_equipo_balances(conn, usuario_id, context)
+    usuario_id = UUID(str(context["user_db_id"]))
+    equipo_ctx = await service.get_equipo_dashboard(conn, usuario_id, context)
     return templates.TemplateResponse(
         request,
         "vacaciones/partials/equipo.html",
-        {"equipo": equipo, "context": context},
+        {**equipo_ctx, "context": context},
     )
 
 
@@ -385,116 +349,17 @@ async def detalle_equipo_usuario(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(context["user_db_id"])
+    usuario_id = UUID(str(context["user_db_id"]))
     if not (
-        context.get("es_rh")
-        or context.get("role") == "ADMIN"
+        user_has_module_access("rrhh", context, "viewer")
         or uid in await db.get_empleados_donde_soy_jefe(conn, usuario_id)
         or uid in await db.get_empleados_donde_soy_aprobador(conn, usuario_id)
     ):
         raise HTTPException(403)
     balance = await service.get_balance_usuario(conn, uid)
-    row = await conn.fetchrow(
-        "SELECT id_usuario, nombre, email FROM tb_usuarios WHERE id_usuario = $1", uid
-    )
+    usuario_equipo = await db.get_usuario_simple_by_id(conn, uid)
     return templates.TemplateResponse(
         request,
         "vacaciones/partials/balance.html",
-        {"balance": balance, "usuario_equipo": dict(row) if row else {}, "context": context},
-    )
-
-
-# ─────────────────────────────────────────────
-# Firma digital
-# ─────────────────────────────────────────────
-
-@router.get("/firma")
-async def ver_firma(
-    request: Request,
-    solicitud_pendiente_id: str = None,
-    conn=Depends(get_db_connection),
-    context=Depends(get_current_user_context),
-):
-    usuario_id = UUID(context["user_db_id"])
-    firma = await db.get_firma_usuario(conn, usuario_id)
-    firma_b64 = None
-    if firma:
-        firma_b64 = service.firma_bytes_to_base64(bytes(firma["firma_data"]))
-    return templates.TemplateResponse(
-        request,
-        "vacaciones/partials/form_firma.html",
-        {
-            "firma": firma,
-            "firma_b64": firma_b64,
-            "solicitud_pendiente_id": solicitud_pendiente_id,
-            "context": context,
-        },
-    )
-
-
-@router.post("/firma/upload")
-async def subir_firma(
-    request: Request,
-    firma_file: UploadFile = File(...),
-    solicitud_pendiente_id: str = Form(None),
-    conn=Depends(get_db_connection),
-    context=Depends(get_current_user_context),
-):
-    usuario_id = UUID(context["user_db_id"])
-    if firma_file.content_type != "image/png":
-        return _toast_error(request, "Solo se aceptan imágenes PNG.")
-    firma_bytes = await firma_file.read()
-    pending_id = UUID(solicitud_pendiente_id) if solicitud_pendiente_id else None
-    try:
-        await service.guardar_firma(conn, usuario_id, firma_bytes, "subida", pending_id)
-    except ValueError as exc:
-        return _toast_error(request, str(exc))
-
-    firma_b64 = service.firma_bytes_to_base64(firma_bytes)
-    return templates.TemplateResponse(
-        request,
-        "vacaciones/partials/form_firma.html",
-        {
-            "firma": {"tipo_firma": "subida"},
-            "firma_b64": firma_b64,
-            "solicitud_pendiente_id": solicitud_pendiente_id,
-            "context": context,
-            "toast_msg": "Firma guardada correctamente.",
-            "toast_type": "success",
-        },
-    )
-
-
-@router.post("/firma/draw")
-async def guardar_firma_dibujada(
-    request: Request,
-    firma_b64: str = Form(...),
-    solicitud_pendiente_id: str = Form(None),
-    conn=Depends(get_db_connection),
-    context=Depends(get_current_user_context),
-):
-    usuario_id = UUID(context["user_db_id"])
-    try:
-        raw = firma_b64.split(",", 1)[-1]
-        firma_bytes = base64.b64decode(raw, validate=True)
-    except (binascii.Error, ValueError):
-        return _toast_error(request, "Firma inválida.")
-
-    pending_id = UUID(solicitud_pendiente_id) if solicitud_pendiente_id else None
-    try:
-        await service.guardar_firma(conn, usuario_id, firma_bytes, "dibujada", pending_id)
-    except ValueError as exc:
-        return _toast_error(request, str(exc))
-
-    return templates.TemplateResponse(
-        request,
-        "vacaciones/partials/form_firma.html",
-        {
-            "firma": {"tipo_firma": "dibujada"},
-            "firma_b64": firma_b64.split(",", 1)[-1],
-            "solicitud_pendiente_id": solicitud_pendiente_id,
-            "context": context,
-            "toast_msg": "Firma guardada correctamente.",
-            "toast_type": "success",
-        },
+        {"balance": balance, "usuario_equipo": usuario_equipo or {}, "context": context},
     )

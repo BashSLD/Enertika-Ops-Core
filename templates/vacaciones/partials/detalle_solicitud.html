@@ -8,7 +8,7 @@
   <div class="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
     <h2 class="text-base font-semibold text-gray-900">Detalle de solicitud</h2>
     <button
-      hx-get="/perfil/solicitudes"
+      hx-get="/vacaciones/solicitudes"
       hx-target="#tab-content"
       hx-swap="innerHTML"
       class="text-sm text-gray-400 hover:text-gray-600">
@@ -19,7 +19,14 @@
   <div class="px-5 py-5 space-y-3 text-sm">
     <div class="grid grid-cols-2 gap-y-3">
       <span class="text-gray-500">Tipo</span>
-      <span class="font-medium text-gray-800">{{ solicitud.tipo_nombre }}</span>
+      <span class="font-medium text-gray-800">
+        {% if solicitud.es_migracion %}
+        Vacaciones tomadas antes del sistema
+        <span class="ml-1 rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-500">Registro historico</span>
+        {% else %}
+        {{ solicitud.tipo_nombre }}
+        {% endif %}
+      </span>
 
       <span class="text-gray-500">Período</span>
       <span class="font-medium text-gray-800">
@@ -45,6 +52,11 @@
       {% if solicitud.aprobado_por_nombre %}
       <span class="text-gray-500">Aprobador</span>
       <span class="font-medium text-gray-800">{{ solicitud.aprobado_por_nombre }}</span>
+      {% endif %}
+
+      {% if solicitud.es_migracion and solicitud.migrado_por_nombre %}
+      <span class="text-gray-500">Migrado por</span>
+      <span class="font-medium text-gray-800">{{ solicitud.migrado_por_nombre }}</span>
       {% endif %}
 
       {% if solicitud.motivo_rechazo %}
@@ -73,8 +85,14 @@
 
   <!-- Acciones -->
   <div class="px-5 pb-5 flex flex-wrap gap-2">
-    {% if solicitud.estado in ['aprobado', 'pendiente'] and not solicitud.firma_solicitante_pendiente %}
-    <a href="/perfil/solicitudes/{{ solicitud.id }}/pdf" target="_blank"
+    {% if solicitud.es_migracion %}
+    <span class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 rounded-lg bg-gray-100 text-gray-500">
+      Registro historico sin acciones operativas
+    </span>
+    {% endif %}
+
+    {% if not solicitud.es_migracion and solicitud.estado in ['aprobado', 'pendiente'] and not solicitud.firma_solicitante_pendiente %}
+    <a href="/vacaciones/solicitudes/{{ solicitud.id }}/pdf" target="_blank"
        class="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-2 border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors">
       <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
@@ -83,7 +101,7 @@
     </a>
     {% endif %}
 
-    {% if es_dueno and solicitud.firma_solicitante_pendiente %}
+    {% if not solicitud.es_migracion and es_dueno and solicitud.firma_solicitante_pendiente %}
     <button
       hx-get="/perfil/firma?solicitud_pendiente_id={{ solicitud.id }}"
       hx-target="#tab-content"
@@ -93,9 +111,9 @@
     </button>
     {% endif %}
 
-    {% if es_dueno and solicitud.estado == 'pendiente' %}
+    {% if not solicitud.es_migracion and es_dueno and solicitud.estado == 'pendiente' %}
     <button
-      hx-post="/perfil/solicitudes/{{ solicitud.id }}/cancelar"
+      hx-post="/vacaciones/solicitudes/{{ solicitud.id }}/cancelar"
       hx-target="#tab-content"
       hx-swap="innerHTML"
       hx-confirm="¿Cancelar esta solicitud?"
@@ -104,9 +122,9 @@
     </button>
     {% endif %}
 
-    {% if es_aprobador and solicitud.estado == 'pendiente' and not solicitud.firma_solicitante_pendiente %}
+    {% if not solicitud.es_migracion and es_aprobador and solicitud.estado == 'pendiente' and not solicitud.firma_solicitante_pendiente %}
     <button
-      hx-post="/perfil/solicitudes/{{ solicitud.id }}/aprobar"
+      hx-post="/vacaciones/solicitudes/{{ solicitud.id }}/aprobar"
       hx-target="#tab-content"
       hx-swap="innerHTML"
       hx-confirm="¿Aprobar y firmar esta solicitud?"
@@ -128,7 +146,7 @@
          x-cloak>
       <div class="bg-white rounded-2xl shadow-xl p-6 w-full max-w-sm" @click.stop>
         <h3 class="text-base font-semibold text-gray-900 mb-3">Rechazar solicitud</h3>
-        <form :hx-post="'/perfil/solicitudes/' + solicitudId + '/rechazar'"
+        <form :hx-post="'/vacaciones/solicitudes/' + solicitudId + '/rechazar'"
               hx-target="#tab-content"
               hx-swap="innerHTML"
               @htmx:after-request="open = false">
