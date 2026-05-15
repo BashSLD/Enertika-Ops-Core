@@ -325,7 +325,7 @@ async def get_migracion_ctx(conn) -> dict:
 async def generar_plantilla_migracion(conn):
     from openpyxl import Workbook
     from openpyxl.comments import Comment
-    from openpyxl.styles import Font, PatternFill, Protection
+    from openpyxl.styles import Alignment, Font, PatternFill, Protection
 
     hoy = today_mx()
     empleados = await vac_db.get_empleados_para_migracion(conn)
@@ -356,8 +356,138 @@ async def generar_plantilla_migracion(conn):
             max_periodo = max(max_periodo, max(p["num_periodo"] for p in disponibles))
 
     workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = "Migracion vacaciones"
+
+    # --- Hoja de instrucciones ---
+    instrucciones = workbook.active
+    instrucciones.title = "Instrucciones"
+    instrucciones.sheet_view.showGridLines = False
+    instrucciones.column_dimensions["A"].width = 3
+    instrucciones.column_dimensions["B"].width = 28
+    instrucciones.column_dimensions["C"].width = 60
+
+    titulo_font = Font(bold=True, size=14, color="123456")
+    seccion_font = Font(bold=True, size=11, color="FFFFFF")
+    seccion_fill = PatternFill("solid", fgColor="123456")
+    normal_font = Font(size=10)
+    ejemplo_fill = PatternFill("solid", fgColor="F0FFFE")
+
+    def _ins(row, col, value, font=None, fill=None, wrap=False):
+        cell = instrucciones.cell(row=row, column=col, value=value)
+        cell.font = font or normal_font
+        if fill:
+            cell.fill = fill
+        if wrap:
+            cell.alignment = Alignment(wrap_text=True, vertical="top")
+        return cell
+
+    instrucciones.row_dimensions[1].height = 8
+    _ins(2, 2, "Plantilla de migracion historica de vacaciones", font=titulo_font)
+    instrucciones.row_dimensions[2].height = 22
+
+    instrucciones.row_dimensions[3].height = 6
+    _ins(4, 2, "QUE ES ESTA PLANTILLA", font=seccion_font, fill=seccion_fill)
+    instrucciones.merge_cells("B4:C4")
+    instrucciones.row_dimensions[4].height = 18
+    instrucciones.row_dimensions[5].height = 48
+    _ins(5, 2, "Para que sirve:", font=Font(bold=True, size=10))
+    _ins(5, 3,
+         "Registrar los dias de vacaciones que cada empleado YA USO antes de que el sistema existiera. "
+         "Esto permite que el saldo que muestra el sistema sea correcto desde el primer dia.",
+         wrap=True)
+    instrucciones.row_dimensions[6].height = 40
+    _ins(6, 2, "Que NO capturar:", font=Font(bold=True, size=10))
+    _ins(6, 3,
+         "No captures dias pendientes ni saldos disponibles. Solo los dias que el empleado "
+         "efectivamente tomo ANTES de que el sistema entrara en operacion.",
+         wrap=True)
+
+    instrucciones.row_dimensions[7].height = 8
+    _ins(8, 2, "COLUMNAS DE LA HOJA DE DATOS", font=seccion_font, fill=seccion_fill)
+    instrucciones.merge_cells("B8:C8")
+    instrucciones.row_dimensions[8].height = 18
+
+    columnas = [
+        ("usuario_id", "Identificador interno. No modificar."),
+        ("Nombre / Email", "Datos del empleado. No modificar."),
+        ("Fecha contratacion", "Fecha de ingreso. No modificar."),
+        ("Periodos calculados", "Resumen de dias disponibles por periodo. Solo referencia."),
+        ("Ya migrado", "Si = ya tiene historial cargado. No = pendiente."),
+        ("Periodo N (max X dias)",
+         "UNICO CAMPO A LLENAR. Escribe cuantos dias tomo el empleado en ese periodo "
+         "antes del sistema. Si no tomo ninguno, deja la celda en blanco o pon 0. "
+         "No puedes capturar mas del maximo indicado."),
+    ]
+    for i, (col_name, desc) in enumerate(columnas, start=9):
+        instrucciones.row_dimensions[i].height = 36 if i == 14 else 20
+        _ins(i, 2, col_name, font=Font(bold=True, size=10))
+        _ins(i, 3, desc, wrap=True)
+
+    instrucciones.row_dimensions[15].height = 8
+    _ins(16, 2, "COLORES EN LA HOJA DE DATOS", font=seccion_font, fill=seccion_fill)
+    instrucciones.merge_cells("B16:C16")
+    instrucciones.row_dimensions[16].height = 18
+
+    colores = [
+        (PatternFill("solid", fgColor="E6FFFB"), "Verde claro", "Celda editable. Captura aqui los dias tomados."),
+        (PatternFill("solid", fgColor="E5E7EB"), "Gris", "No aplica para este empleado en este periodo."),
+        (PatternFill("solid", fgColor="F3F4F6"), "Gris oscuro", "Periodo aun no disponible o bloqueado."),
+        (PatternFill("solid", fgColor="E5E7EB"), "Gris (vencido)", "El periodo ya expiro pero puedes registrar dias tomados."),
+        (PatternFill("solid", fgColor="FEF3C7"), "Amarillo", "Empleado ya tiene historial cargado anteriormente."),
+    ]
+    for i, (fill, nombre, desc) in enumerate(colores, start=17):
+        instrucciones.row_dimensions[i].height = 18
+        color_cell = instrucciones.cell(row=i, column=2, value=nombre)
+        color_cell.fill = fill
+        color_cell.font = Font(size=10)
+        _ins(i, 3, desc)
+
+    instrucciones.row_dimensions[22].height = 8
+    _ins(23, 2, "EJEMPLO", font=seccion_font, fill=seccion_fill)
+    instrucciones.merge_cells("B23:C23")
+    instrucciones.row_dimensions[23].height = 18
+
+    ejemplo_rows = [
+        ("Empleado con 2 periodos completos:",
+         "Le corresponden 15 dias en P1 y 14 dias en P2 segun el catalogo Enertika."),
+        ("Tomo 8 dias en P1 antes del sistema:",
+         "Captura 8 en la columna Periodo 1. El sistema mostrara 7 dias disponibles en P1."),
+        ("No tomo nada en P2:",
+         "Deja Periodo 2 en blanco. El sistema mostrara 14 dias disponibles en P2."),
+        ("Empleado nuevo (menos de 1 anio):",
+         "Sus columnas de periodo apareceran bloqueadas. No hay nada que migrar aun."),
+    ]
+    for i, (concepto, explicacion) in enumerate(ejemplo_rows, start=24):
+        instrucciones.row_dimensions[i].height = 20
+        c = instrucciones.cell(row=i, column=2, value=concepto)
+        c.font = Font(bold=True, size=10)
+        c.fill = ejemplo_fill
+        e = instrucciones.cell(row=i, column=3, value=explicacion)
+        e.font = normal_font
+        e.fill = ejemplo_fill
+        e.alignment = Alignment(wrap_text=True, vertical="top")
+
+    instrucciones.row_dimensions[28].height = 8
+    _ins(29, 2, "PROCESO DE CARGA", font=seccion_font, fill=seccion_fill)
+    instrucciones.merge_cells("B29:C29")
+    instrucciones.row_dimensions[29].height = 18
+
+    pasos = [
+        ("1. Llenar", "Captura los dias en las celdas verdes de la hoja 'Migracion vacaciones'."),
+        ("2. Guardar", "Guarda el archivo en formato .xlsx sin cambiar el nombre de las hojas."),
+        ("3. Subir", "En RRHH > Migracion historica, selecciona el archivo y haz clic en 'Validar archivo'."),
+        ("4. Revisar", "El sistema muestra una vista previa con errores si los hay. Corrige y vuelve a subir si es necesario."),
+        ("5. Confirmar", "Si todo esta correcto, haz clic en 'Confirmar importacion'. Los saldos se actualizan al instante."),
+    ]
+    for i, (paso, desc) in enumerate(pasos, start=30):
+        instrucciones.row_dimensions[i].height = 20
+        _ins(i, 2, paso, font=Font(bold=True, size=10))
+        _ins(i, 3, desc, wrap=True)
+
+    instrucciones.protection.sheet = True
+    instrucciones.protection.enable()
+
+    # --- Hoja de datos ---
+    worksheet = workbook.create_sheet("Migracion vacaciones")
 
     headers = [
         "usuario_id",
@@ -423,13 +553,15 @@ async def generar_plantilla_migracion(conn):
             cell.number_format = "0"
             cell.protection = Protection(locked=False)
             cell.fill = expired_fill if periodo.get("expirado") else editable_fill
-            estado = "Vencido. " if periodo.get("expirado") else ""
+            vencido = periodo.get("expirado")
             cell.comment = Comment(
-                f"{estado}Maximo a migrar: {maximo} dias. "
-                f"Otorgados: {periodo['dias_otorgados']}. "
-                f"Consumos no migrados: {consumo_actual}. "
-                f"Aniversario: {periodo['fecha_aniversario']:%d/%m/%Y}. "
-                f"Expira: {periodo['fecha_expiracion']:%d/%m/%Y}.",
+                f"{'PERIODO VENCIDO. ' if vencido else ''}"
+                f"Captura aqui cuantos dias tomo este empleado en este periodo ANTES de que el sistema existiera.\n"
+                f"Si no tomo ninguno, deja en blanco o pon 0.\n\n"
+                f"Dias otorgados en este periodo: {periodo['dias_otorgados']}\n"
+                f"Maximo que puedes capturar: {maximo}\n"
+                f"Aniversario del periodo: {periodo['fecha_aniversario']:%d/%m/%Y}\n"
+                f"Expira: {periodo['fecha_expiracion']:%d/%m/%Y}",
                 "Enertika",
             )
 
