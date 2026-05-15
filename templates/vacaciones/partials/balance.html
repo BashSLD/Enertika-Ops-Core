@@ -11,6 +11,19 @@
 </div>
 {% else %}
 
+{# ── Días tomados anticipadamente ── #}
+{% if balance.anticipo_habilitado and balance.dias_tomados_anticipadamente > 0 %}
+<div class="flex items-start gap-3 rounded-xl border bg-blue-50 border-blue-200 p-4 mb-5">
+  <svg class="w-5 h-5 flex-shrink-0 mt-0.5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+    <path fill-rule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clip-rule="evenodd"/>
+  </svg>
+  <div class="text-sm text-blue-800">
+    <p class="font-semibold">{{ balance.dias_tomados_anticipadamente }} día{{ 's' if balance.dias_tomados_anticipadamente != 1 }} de vacaciones tomados anticipadamente</p>
+    <p class="mt-0.5 text-blue-600">Se descontarán automáticamente al acumular el saldo correspondiente.</p>
+  </div>
+</div>
+{% endif %}
+
 {# ── Barra de progreso ── #}
 {% if balance.progreso %}
 {% set p = balance.progreso %}
@@ -31,13 +44,29 @@
     </div>
     <span class="text-sm font-bold text-[#00BABB]">{{ p.porcentaje }}%</span>
   </div>
-  <div class="w-full bg-gray-100 rounded-full h-2.5 mb-2">
+  <div class="w-full bg-gray-100 rounded-full h-2.5 mb-2 relative">
     <div class="bg-[#00BABB] h-2.5 rounded-full transition-all duration-500"
          style="width: {{ p.porcentaje }}%"></div>
+    {% if balance.semestre %}
+    <div class="absolute top-0 h-2.5 w-0.5 {{ 'bg-[#00BABB]/40' if balance.semestre.semestre_activo else 'bg-amber-400' }}"
+         style="left: {{ balance.semestre.semestre_pct }}%"
+         title="{{ balance.semestre.meses_semestre }} meses: {{ balance.semestre.dias_liberados }} días liberados"></div>
+    {% endif %}
   </div>
-  <p class="text-xs text-gray-500">
-    {{ p.dias_proporcionales }} de {{ p.dias_proximo_periodo }} días ganados proporcionalmente
-  </p>
+  <div class="flex items-center justify-between text-xs text-gray-500">
+    <span>{{ p.dias_proporcionales }} de {{ p.dias_proximo_periodo }} días ganados proporcionalmente</span>
+    {% if balance.semestre %}
+    {% if not balance.semestre.semestre_activo %}
+    <span class="text-amber-600 font-medium">
+      {{ balance.semestre.fecha_semestre.strftime('%d/%m/%Y') }}: {{ balance.semestre.dias_liberados }} días disponibles
+    </span>
+    {% else %}
+    <span class="text-[#00BABB] font-medium">
+      Semestre activo: {{ balance.semestre.dias_liberados }} días liberados
+    </span>
+    {% endif %}
+    {% endif %}
+  </div>
 </div>
 {% endif %}
 
@@ -94,8 +123,20 @@
     </table>
   </div>
   <div class="px-5 py-3 bg-gray-50 border-t border-gray-100 flex items-center justify-between">
-    <span class="text-xs text-gray-500">Total disponible</span>
+    <span class="text-xs text-gray-500">
+      {% if balance.anticipo_habilitado and balance.semestre and balance.semestre.semestre_activo %}
+        Total efectivo disponible
+      {% else %}
+        Total disponible
+      {% endif %}
+    </span>
+    {% if balance.anticipo_habilitado %}
+    <span class="text-sm font-bold {{ 'text-red-600' if balance.dias_efectivos_disponibles < 0 else 'text-gray-900' }}">
+      {{ balance.dias_efectivos_disponibles }} días hábiles
+    </span>
+    {% else %}
     <span class="text-sm font-bold text-gray-900">{{ balance.total_disponible }} días hábiles</span>
+    {% endif %}
   </div>
 </div>
 

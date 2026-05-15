@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from math import floor
 from typing import Any
 
 from dateutil.relativedelta import relativedelta
@@ -155,20 +156,23 @@ def asignar_consumo_fifo(
     return resultado
 
 
+def _ancla_periodo(
+    fecha_contratacion: date, hoy: date
+) -> tuple[int, date, date, int]:
+    anios_cumplidos = relativedelta(hoy, fecha_contratacion).years
+    ultimo = fecha_contratacion + relativedelta(years=anios_cumplidos)
+    proximo = fecha_contratacion + relativedelta(years=anios_cumplidos + 1)
+    dias_totales = (proximo - ultimo).days or 365
+    return anios_cumplidos, ultimo, proximo, dias_totales
+
+
 def calcular_progreso(
     fecha_contratacion: date,
     hoy: date,
     catalogo_dias: list[dict],
 ) -> dict[str, Any]:
-    """
-    Calcula el progreso proporcional de días ganados desde el último aniversario.
-    Fórmula: (días_transcurridos / 365) * días_próximo_período
-    """
-    anios_cumplidos = relativedelta(hoy, fecha_contratacion).years
-    ultimo_aniversario = fecha_contratacion + relativedelta(years=anios_cumplidos)
-    proximo_aniversario = fecha_contratacion + relativedelta(years=anios_cumplidos + 1)
+    anios_cumplidos, ultimo_aniversario, proximo_aniversario, dias_totales = _ancla_periodo(fecha_contratacion, hoy)
     dias_transcurridos = (hoy - ultimo_aniversario).days
-    dias_totales = (proximo_aniversario - ultimo_aniversario).days or 365
     dias_proximo = obtener_dias_por_antiguedad(anios_cumplidos + 1, catalogo_dias)
     dias_proporcionales = round((dias_transcurridos / dias_totales) * dias_proximo, 1)
     porcentaje = round((dias_transcurridos / dias_totales) * 100, 1)
@@ -182,6 +186,36 @@ def calcular_progreso(
         "fecha_ultimo_aniversario": ultimo_aniversario,
         "fecha_proximo_aniversario": proximo_aniversario,
         "numero_periodo_actual": anios_cumplidos + 1,
+    }
+
+
+def calcular_semestre_liberado(
+    fecha_contratacion: date,
+    hoy: date,
+    catalogo: list[dict],
+    meses_semestre: int = 6,
+    porcentaje_liberacion: int = 50,
+) -> dict[str, Any]:
+    """
+    Dias liberados en el hito semestral del periodo actual.
+    A los meses_semestre desde el ultimo aniversario se libera porcentaje_liberacion%
+    de los dias del siguiente periodo. Aplica a todos los años: año 1→6m, año 2→18m, etc.
+    """
+    anios_cumplidos, ultimo_aniversario, _, dias_totales = _ancla_periodo(fecha_contratacion, hoy)
+    fecha_semestre = ultimo_aniversario + relativedelta(months=meses_semestre)
+    semestre_activo = hoy >= fecha_semestre
+    dias_proximo_periodo = obtener_dias_por_antiguedad(anios_cumplidos + 1, catalogo)
+    dias_liberados = floor(dias_proximo_periodo * porcentaje_liberacion / 100) if semestre_activo else 0
+    dias_hasta_semestre = min(dias_totales, max(0, (fecha_semestre - ultimo_aniversario).days))
+    semestre_pct = round((dias_hasta_semestre / dias_totales) * 100, 1)
+
+    return {
+        "fecha_semestre": fecha_semestre,
+        "dias_liberados": dias_liberados,
+        "semestre_activo": semestre_activo,
+        "dias_proximo_periodo": dias_proximo_periodo,
+        "meses_semestre": meses_semestre,
+        "semestre_pct": semestre_pct,
     }
 
 

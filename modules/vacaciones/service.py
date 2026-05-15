@@ -20,6 +20,7 @@ from modules.vacaciones.logic import (
     calcular_balance,
     calcular_periodos,
     calcular_progreso,
+    calcular_semestre_liberado,
     contar_dias_habiles,
 )
 
@@ -32,7 +33,7 @@ logger = logging.getLogger("vacaciones.service")
 
 async def get_balance_usuario(conn, usuario_id: UUID) -> dict[str, Any]:
     """
-    Devuelve el balance completo: periodos, saldos, progreso y alertas.
+    Devuelve el balance completo: periodos, saldos, progreso, alertas y datos de anticipacion.
     Retorna None en 'periodos' si el empleado no tiene fecha_contratacion.
     """
     empleado = await db.get_empleado_datos(conn, usuario_id)
@@ -42,13 +43,19 @@ async def get_balance_usuario(conn, usuario_id: UUID) -> dict[str, Any]:
             "periodos": None,
             "progreso": None,
             "total_disponible": 0,
+            "semestre": None,
+            "dias_efectivos_disponibles": 0,
+            "dias_tomados_anticipadamente": 0,
+            "anticipo_habilitado": False,
         }
 
     hoy = today_mx()
     catalogo = await db.get_catalogo_dias(conn)
-    meses_exp = await ConfigService.get_global_config(
-        conn, "VACACIONES_MESES_EXPIRACION", 18, int
-    )
+    meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
+    anticipo_habilitado = await ConfigService.get_global_config(conn, "VACACIONES_ANTICIPO_HABILITADO", True, bool)
+    meses_semestre = await ConfigService.get_global_config(conn, "VACACIONES_ANTICIPO_MESES_SEMESTRE", 6, int)
+    porcentaje_liberacion = await ConfigService.get_global_config(conn, "VACACIONES_ANTICIPO_PORCENTAJE_LIBERACION", 50, int)
+
     periodos = calcular_periodos(
         empleado["fecha_contratacion"],
         hoy,
@@ -60,15 +67,32 @@ async def get_balance_usuario(conn, usuario_id: UUID) -> dict[str, Any]:
     balance = calcular_balance(periodos, consumos)
     progreso = calcular_progreso(empleado["fecha_contratacion"], hoy, catalogo)
 
-    total_disponible = sum(
-        max(p["dias_restantes"], 0) for p in balance if not p.get("es_proximo") and not p.get("expirado")
-    )
+    periodos_activos = [p for p in balance if not p.get("es_proximo") and not p.get("expirado")]
+    total_disponible = sum(max(p["dias_restantes"], 0) for p in periodos_activos)
+
+    semestre = None
+    dias_efectivos_disponibles = total_disponible
+    dias_tomados_anticipadamente = 0
+
+    if anticipo_habilitado:
+        semestre = calcular_semestre_liberado(
+            empleado["fecha_contratacion"], hoy, catalogo, meses_semestre, porcentaje_liberacion
+        )
+        dias_de_aniversarios = sum(p["dias_otorgados"] for p in periodos_activos)
+        total_usados = sum(p["dias_usados"] for p in balance)
+        dias_semestre = semestre["dias_liberados"] if semestre["semestre_activo"] else 0
+        dias_efectivos_disponibles = dias_de_aniversarios + dias_semestre - total_usados
+        dias_tomados_anticipadamente = max(0, -dias_efectivos_disponibles)
 
     return {
         "empleado": empleado,
         "periodos": balance,
         "progreso": progreso,
         "total_disponible": total_disponible,
+        "semestre": semestre,
+        "dias_efectivos_disponibles": dias_efectivos_disponibles,
+        "dias_tomados_anticipadamente": dias_tomados_anticipadamente,
+        "anticipo_habilitado": anticipo_habilitado,
     }
 
 
@@ -103,6 +127,29 @@ async def es_jefe_o_aprobador_de_alguien(conn, user_id: UUID) -> bool:
 # Solicitudes
 # ─────────────────────────────────────────────
 
+async def _validar_anticipo_vacaciones(conn, balance_info: dict, dias_solicitados: int) -> None:
+    if not balance_info["periodos"]:
+        return
+
+    dias_efectivos = balance_info["dias_efectivos_disponibles"]
+    nuevo_efectivo = dias_efectivos - dias_solicitados
+
+    if not balance_info["anticipo_habilitado"]:
+        if nuevo_efectivo < 0:
+            raise ValueError(
+                f"No tienes suficientes dias de vacaciones disponibles. "
+                f"Disponibles: {max(0, dias_efectivos)} dias."
+            )
+        return
+
+    max_anticipado = await ConfigService.get_global_config(conn, "VACACIONES_ANTICIPO_MAXIMO_DIAS", 7, int)
+    if nuevo_efectivo < -max_anticipado:
+        raise ValueError(
+            f"Excede el limite de anticipacion de {max_anticipado} dias. "
+            f"Dias disponibles: {max(0, dias_efectivos)}."
+        )
+
+
 async def crear_solicitud(
     conn,
     usuario_id: UUID,
@@ -130,6 +177,11 @@ async def crear_solicitud(
     if solapadas:
         raise ValueError("Ya existe una solicitud activa para ese rango de fechas")
 
+    balance_info = None
+    if tipo["afecta_saldo"] and tipo["slug"] in VACACIONES_SLUGS:
+        balance_info = await get_balance_usuario(conn, usuario_id)
+        await _validar_anticipo_vacaciones(conn, balance_info, dias)
+
     firma = await signatures_db.get_firma_usuario(conn, usuario_id)
     requiere_firma = firma is None
 
@@ -141,7 +193,7 @@ async def crear_solicitud(
     solicitud_id = solicitud["id"]
 
     if not requiere_firma:
-        await _registrar_consumos_si_aplica(conn, solicitud_id, usuario_id, tipo, dias)
+        await _registrar_consumos_si_aplica(conn, solicitud_id, usuario_id, tipo, dias, balance_info)
         await db.insert_firma_solicitud(conn, solicitud_id, usuario_id, "solicitante")
         await _notificar_aprobadores(conn, solicitud_id, solicitud)
 
@@ -229,10 +281,11 @@ async def _registrar_consumos_si_aplica(
     usuario_id: UUID,
     tipo: dict,
     dias: int,
+    balance_info: dict | None = None,
 ) -> None:
     if not (tipo["afecta_saldo"] and tipo["slug"] in VACACIONES_SLUGS):
         return
-    balance = await get_balance_usuario(conn, usuario_id)
+    balance = balance_info or await get_balance_usuario(conn, usuario_id)
     if balance["periodos"]:
         consumos_fifo = asignar_consumo_fifo(balance["periodos"], dias)
         if consumos_fifo:
