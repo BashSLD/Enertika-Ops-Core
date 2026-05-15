@@ -238,11 +238,10 @@
                 const result = event.detail.target;
                 // Si hubo inserciones exitosas O duplicados (que implica procesamiento correcto)
                 if (result.querySelector('.success-message') || result.querySelector('.text-yellow-800')) {
-                    // Esperar 2 segundos, limpiar y redirigir explícitamente a /compras/ui
                     setTimeout(() => {
                         window.clearUploadModal();
                         window.location.href = '/compras/ui';
-                    }, 2000);
+                    }, 4000);
                 }
             }
         });

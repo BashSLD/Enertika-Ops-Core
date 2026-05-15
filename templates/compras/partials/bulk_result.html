@@ -21,7 +21,6 @@
 
 
 <script>
-    // Auto-hide toast after 3 seconds
     setTimeout(() => {
         const toast = document.getElementById('bulk-toast');
         if (toast) {
@@ -29,5 +28,5 @@
             toast.style.transition = 'opacity 0.3s';
             setTimeout(() => toast.remove(), 300);
         }
-    }, 3000);
+    }, 5000);
 </script>

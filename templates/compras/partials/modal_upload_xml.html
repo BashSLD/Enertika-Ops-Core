@@ -129,7 +129,7 @@
 
             const xmlFiles = newFiles.filter(f => f.name.toLowerCase().endsWith('.xml'));
             if (xmlFiles.length === 0) {
-                alert('Por favor selecciona archivos XML');
+                showToast({ title: 'Tipo de archivo incorrecto', message: 'Solo se permiten archivos .xml', type: 'error' });
                 if (xmlStoredFiles.length === 0) input.value = '';
                 return;
             }
