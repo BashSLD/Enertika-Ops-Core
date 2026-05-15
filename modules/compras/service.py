@@ -28,6 +28,17 @@ logger = logging.getLogger("ComprasService")
 MATCH_TOLERANCIA = Decimal("0.50")
 
 
+def parse_exceso_monto_error(msg: str) -> tuple[str | None, str | None, str]:
+    parts = msg.split("|", 3)
+    if len(parts) == 4:
+        _, exceso_monto, monto_aplicado, user_msg = parts
+        return exceso_monto, monto_aplicado, user_msg
+    if len(parts) == 3:
+        _, exceso_monto, user_msg = parts
+        return exceso_monto, None, user_msg
+    return None, None, msg
+
+
 def _to_decimal(value) -> Decimal:
     return Decimal(str(value or 0))
 

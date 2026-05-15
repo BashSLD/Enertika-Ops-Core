@@ -32,7 +32,7 @@ from core.config import settings
 from core.timezone import now_mx, today_mx
 
 # Module imports
-from .service import ComprasService, get_compras_service
+from .service import ComprasService, get_compras_service, parse_exceso_monto_error
 from .schemas import (
     ComprobanteUpdate,
     ComprobanteBulkUpdate,
@@ -46,16 +46,6 @@ logger = logging.getLogger("ComprasModule")
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 
-
-def _parse_exceso_monto_error(msg: str) -> tuple[Optional[str], Optional[str], str]:
-    parts = msg.split("|", 3)
-    if len(parts) == 4:
-        _, exceso_monto, monto_aplicado, user_msg = parts
-        return exceso_monto, monto_aplicado, user_msg
-    if len(parts) == 3:
-        _, exceso_monto, user_msg = parts
-        return exceso_monto, None, user_msg
-    return None, None, msg
 
 
 def _build_xml_manual_retry_context(
@@ -766,7 +756,7 @@ async def confirm_xml_match(
         monto_aplicado_sugerido = None
         manual_retry = None
         if msg.startswith("EXCESO_MONTO|"):
-            exceso_monto, monto_aplicado_sugerido, msg = _parse_exceso_monto_error(msg)
+            exceso_monto, monto_aplicado_sugerido, msg = parse_exceso_monto_error(msg)
             manual_retry = _build_xml_manual_retry_context(
                 uuid_factura=uuid_factura,
                 id_comprobante=id_comprobante,

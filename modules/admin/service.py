@@ -715,6 +715,10 @@ class AdminService:
         await self.db.insert_sucursal(conn, codigo_clean, nombre_clean)
 
     async def toggle_sucursal(self, conn, sucursal_id: str, current_status: bool) -> None:
+        try:
+            UUID(sucursal_id)
+        except ValueError as exc:
+            raise ValueError("ID de sucursal no valido") from exc
         await self.db.toggle_sucursal(conn, sucursal_id, not current_status)
 
     async def create_zona_compra(self, conn, nombre: str, orden: int) -> None:
@@ -747,12 +751,16 @@ class AdminService:
             department = profile.get("department") or None
             puesto = profile.get("jobTitle") or None
 
-            await self.db.update_user_ms_profile(
-                conn, user["id_usuario"],
-                department, puesto, new_access, new_refresh, expires_at,
-            )
-            updated += 1
-            logger.info("sync_ms_profiles: %s — dept=%s puesto=%s", user["id_usuario"], department, puesto)
+            try:
+                await self.db.update_user_ms_profile(
+                    conn, user["id_usuario"],
+                    department, puesto, new_access, new_refresh, expires_at,
+                )
+                updated += 1
+                logger.info("sync_ms_profiles: %s — dept=%s puesto=%s", user["id_usuario"], department, puesto)
+            except asyncpg.PostgresError:
+                logger.error("sync_ms_profiles: error BD para %s", user["id_usuario"])
+                continue
 
         return {"updated": updated, "skipped": skipped, "total": len(users)}
 

@@ -246,6 +246,40 @@ class ConfigService:
         return valor
 
     @classmethod
+    async def get_global_configs_bulk(
+        cls, conn: asyncpg.Connection, specs: dict[str, tuple[Any, type]]
+    ) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        missing: list[tuple[str, Any, type]] = []
+
+        for clave, (default, tipo) in specs.items():
+            cached = await cls.get_cached_value(f"CFG_{clave}")
+            if cached is not None:
+                try:
+                    result[clave] = cls._cast_config_value(cached, tipo)
+                    continue
+                except (ValueError, TypeError):
+                    pass
+            missing.append((clave, default, tipo))
+
+        if missing:
+            try:
+                rows = await cls._db.get_global_configs(conn, [m[0] for m in missing])
+                for clave, default, tipo in missing:
+                    valor = rows.get(clave)
+                    if valor is None:
+                        result[clave] = default
+                    else:
+                        await cls.set_cached_value(f"CFG_{clave}", valor)
+                        result[clave] = cls._cast_config_value(valor, tipo)
+            except asyncpg.PostgresError as e:
+                logger.warning("Error obteniendo configs bulk: %s", e)
+                for clave, default, _ in missing:
+                    result[clave] = default
+
+        return result
+
+    @classmethod
     async def get_global_config(cls, conn: asyncpg.Connection, clave: str, default: Any, tipo: type = str) -> Any:
         """
         Obtiene un valor de configuración global con cast de tipo.

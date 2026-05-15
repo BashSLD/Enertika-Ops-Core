@@ -10,7 +10,9 @@ from core.config_service import ConfigService
 from core.permissions import user_has_module_access
 from core.timezone import today_mx
 from modules.asistencia import db_service as asistencia_db
+from modules.asistencia.service import recalcular_asistencia
 from modules.shared import signatures_db_service as signatures_db
+from modules.shared.utils import format_minutes
 from modules.vacaciones import db_service as db
 from modules.vacaciones.constants import VACACIONES_SLUGS
 from modules.vacaciones.logic import (
@@ -141,7 +143,7 @@ async def crear_solicitud(
     if not requiere_firma:
         await _registrar_consumos_si_aplica(conn, solicitud_id, usuario_id, tipo, dias)
         await db.insert_firma_solicitud(conn, solicitud_id, usuario_id, "solicitante")
-        await _notificar_aprobadores(conn, solicitud_id)
+        await _notificar_aprobadores(conn, solicitud_id, solicitud)
 
     return {
         "solicitud": solicitud,
@@ -256,27 +258,24 @@ async def activar_solicitud_tras_firma(
         conn, solicitud_id, usuario_id, tipo, solicitud["dias_solicitados"]
     )
     await db.completar_firma_solicitante(conn, solicitud_id)
-    await _notificar_aprobadores(conn, solicitud_id)
+    await _notificar_aprobadores(conn, solicitud_id, solicitud)
 
 
-async def _notificar_aprobadores(conn, solicitud_id: UUID) -> None:
+async def _notificar_aprobadores(conn, solicitud_id: UUID, solicitud: dict) -> None:
     aprobador_emails = await db.get_aprobador_emails(conn, solicitud_id)
     if not aprobador_emails:
         logger.warning("Solicitud %s sin aprobador ni RH para notificar", solicitud_id)
         return
     from core.workflow.notification_service import get_notification_service
-    solicitud_completa = await db.get_solicitud(conn, solicitud_id)
     notif = get_notification_service()
     for aprobador_email in aprobador_emails:
-        await notif.notify_vacation_request(conn, solicitud_completa, aprobador_email)
+        await notif.notify_vacation_request(conn, solicitud, aprobador_email)
     await db.update_ultima_notificacion_aprobador(conn, solicitud_id)
 
 
 async def _recalcular_asistencia_por_solicitud(conn, solicitud: dict | None) -> None:
     if not solicitud or solicitud.get("tipo_slug") not in VACACIONES_SLUGS:
         return
-    from modules.asistencia.service import recalcular_asistencia
-
     fecha_inicio = solicitud["fecha_inicio"]
     fecha_fin = solicitud["fecha_fin"]
     targets = [
@@ -370,7 +369,7 @@ async def get_equipo_balances(conn, user_id: UUID, user_ctx: dict) -> list[dict]
     ids_aprobador = await db.get_empleados_donde_soy_aprobador(conn, user_id)
     all_ids = list({*ids_jefe, *ids_aprobador})
 
-    if user_has_module_access("rrhh", user_ctx, "viewer"):
+    if user_has_module_access("rrhh", user_ctx, "editor"):
         rows = await db.get_all_empleados_con_datos(conn, limit=500, offset=0)
         all_ids = [r["id_usuario"] for r in rows]
 
@@ -475,7 +474,7 @@ async def get_equipo_dashboard(conn, user_id: UUID, user_ctx: dict) -> dict:
         hoy,
     )
     for row in horas_extra:
-        row["extra_fmt"] = _format_minutes(row.get("minutos_extra") or 0)
+        row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
 
     return {
         "equipo": equipo,
@@ -486,5 +485,3 @@ async def get_equipo_dashboard(conn, user_id: UUID, user_ctx: dict) -> dict:
     }
 
 
-def _format_minutes(minutes: int) -> str:
-    return f"{minutes // 60}:{minutes % 60:02d}"

@@ -18,6 +18,7 @@ from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.constants import ASISTENCIA_ESTADOS
 from modules.asistencia.logic import ensure_mx
 from modules.rrhh import service
+from modules.shared.utils import format_minutes, is_htmx, toast_error, toast_success
 from modules.vacaciones import db_service as vac_db
 from modules.vacaciones import service as vac_service
 
@@ -25,30 +26,6 @@ logger = logging.getLogger("rrhh.router")
 router = APIRouter(prefix="/rrhh", tags=["rrhh"])
 templates = Jinja2Templates(directory="templates")
 
-
-def _is_htmx(request: Request) -> bool:
-    return bool(
-        request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request")
-    )
-
-
-def _toast_error(request: Request, message: str, status_code: int = 400):
-    return templates.TemplateResponse(
-        request,
-        "shared/toast.html",
-        {"type": "error", "title": "Error", "message": message},
-        status_code=status_code,
-        headers={"HX-Reswap": "none"},
-    )
-
-
-def _toast_success(request: Request, message: str):
-    return templates.TemplateResponse(
-        request,
-        "shared/toast.html",
-        {"type": "success", "title": "Listo", "message": message},
-        headers={"HX-Reswap": "none"},
-    )
 
 
 def _parse_optional_uuid(value: Optional[str], field_name: str) -> Optional[UUID]:
@@ -80,10 +57,6 @@ def _format_datetime(value) -> str:
         return ensure_mx(value).strftime("%d/%m/%Y %H:%M")
     return str(value)
 
-
-def _format_minutes(value) -> str:
-    total = int(value or 0)
-    return f"{total // 60}:{total % 60:02d}"
 
 
 def _build_horario_dias_form(
@@ -156,8 +129,8 @@ async def rrhh_ui(
     _=require_module_access("rrhh", "viewer"),
 ):
     data = await service.get_dashboard_data(conn)
-    ctx = {**data, "context": context, "user_name": context.get("user_name"), "role": context.get("role"), "module_roles": context.get("module_roles", {})}
-    if _is_htmx(request):
+    ctx = {**data, "context": context}
+    if is_htmx(request):
         return templates.TemplateResponse(request, "rrhh/partials/content.html", ctx)
     return templates.TemplateResponse(request, "rrhh/dashboard.html", ctx)
 
@@ -296,9 +269,9 @@ async def reporte_asistencia_excel(
                 row.get("sucursal_nombre") or "",
                 _format_datetime(row.get("primera_entrada")),
                 _format_datetime(row.get("ultima_salida")),
-                _format_minutes(row.get("minutos_trabajados")),
-                _format_minutes(row.get("minutos_programados")),
-                _format_minutes(row.get("minutos_extra")),
+                format_minutes(row.get("minutos_trabajados")),
+                format_minutes(row.get("minutos_programados")),
+                format_minutes(row.get("minutos_extra")),
                 row.get("estado") or "",
                 "Si" if row.get("tiene_vacaciones") else "No",
                 row.get("observaciones") or "",
@@ -423,9 +396,9 @@ async def reporte_horas_extra_excel(
                 row.get("sucursal_nombre") or "",
                 _format_datetime(row.get("primera_entrada")),
                 _format_datetime(row.get("ultima_salida")),
-                _format_minutes(row.get("minutos_trabajados")),
-                _format_minutes(row.get("minutos_programados")),
-                _format_minutes(row.get("minutos_extra")),
+                format_minutes(row.get("minutos_trabajados")),
+                format_minutes(row.get("minutos_programados")),
+                format_minutes(row.get("minutos_extra")),
                 row.get("estado") or "",
                 row.get("observaciones") or "",
             ]
@@ -479,8 +452,8 @@ async def empleado_guardar(
             updated_by=UUID(str(context["user_db_id"])),
         )
     except ValueError as e:
-        return _toast_error(request, str(e))
-    return _toast_success(request, "Datos del empleado actualizados")
+        return toast_error(request, str(e))
+    return toast_success(request, "Datos del empleado actualizados")
 
 
 # ─────────────────────────────────────────────
@@ -496,7 +469,7 @@ async def migracion_vacaciones(
 ):
     ctx = await service.get_migracion_ctx(conn)
     ctx["context"] = context
-    if _is_htmx(request):
+    if is_htmx(request):
         return templates.TemplateResponse(request, "rrhh/partials/migracion.html", ctx)
     return templates.TemplateResponse(request, "rrhh/migracion_page.html", ctx)
 
@@ -695,10 +668,10 @@ async def admin_crear_horario(
             user_id=UUID(str(context["user_db_id"])),
         )
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
     except asyncpg.PostgresError:
         logger.exception("Error de BD creando horario de sucursal")
-        return _toast_error(request, "No se pudo guardar el horario")
+        return toast_error(request, "No se pudo guardar el horario")
     ctx = await service.get_admin_ctx(conn, anio)
     ctx.update({
         "context": context,
@@ -746,10 +719,10 @@ async def admin_actualizar_horario(
             user_id=UUID(str(context["user_db_id"])),
         )
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
     except asyncpg.PostgresError:
         logger.exception("Error de BD actualizando horario de sucursal")
-        return _toast_error(request, "No se pudo actualizar el horario")
+        return toast_error(request, "No se pudo actualizar el horario")
     ctx = await service.get_admin_ctx(conn, anio)
     ctx.update({
         "context": context,
@@ -773,10 +746,10 @@ async def admin_desactivar_horario(
             conn, horario_id, UUID(str(context["user_db_id"]))
         )
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
     except asyncpg.PostgresError:
         logger.exception("Error de BD desactivando horario de sucursal")
-        return _toast_error(request, "No se pudo desactivar el horario")
+        return toast_error(request, "No se pudo desactivar el horario")
     ctx = await service.get_admin_ctx(conn, anio)
     ctx.update({
         "context": context,
@@ -799,10 +772,10 @@ async def admin_generar_festivos(
             conn, anio, UUID(str(context["user_db_id"]))
         )
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
     except asyncpg.PostgresError:
         logger.exception("Error de BD generando festivos")
-        return _toast_error(request, "No se pudieron generar los festivos")
+        return toast_error(request, "No se pudieron generar los festivos")
     ctx = await service.get_admin_ctx(conn, anio)
     ctx.update({
         "context": context,
@@ -832,12 +805,12 @@ async def admin_crear_festivo(
             user_id=UUID(str(context["user_db_id"])),
         )
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
     except asyncpg.UniqueViolationError:
-        return _toast_error(request, "Ya existe un festivo con esa fecha")
+        return toast_error(request, "Ya existe un festivo con esa fecha")
     except asyncpg.PostgresError:
         logger.exception("Error de BD creando festivo")
-        return _toast_error(request, "No se pudo guardar el festivo")
+        return toast_error(request, "No se pudo guardar el festivo")
     ctx = await service.get_admin_ctx(conn, anio)
     ctx.update({"context": context, "toast_type": "success", "toast_msg": "Festivo guardado"})
     return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
@@ -865,12 +838,12 @@ async def admin_actualizar_festivo(
             user_id=UUID(str(context["user_db_id"])),
         )
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
     except asyncpg.UniqueViolationError:
-        return _toast_error(request, "Ya existe un festivo con esa fecha")
+        return toast_error(request, "Ya existe un festivo con esa fecha")
     except asyncpg.PostgresError:
         logger.exception("Error de BD actualizando festivo")
-        return _toast_error(request, "No se pudo actualizar el festivo")
+        return toast_error(request, "No se pudo actualizar el festivo")
     ctx = await service.get_admin_ctx(conn, anio)
     ctx.update({"context": context, "toast_type": "success", "toast_msg": "Festivo actualizado"})
     return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
@@ -889,7 +862,7 @@ async def admin_eliminar_festivo(
         await vac_db.delete_festivo(conn, festivo_id)
     except asyncpg.PostgresError:
         logger.exception("Error de BD eliminando festivo")
-        return _toast_error(request, "No se pudo eliminar el festivo")
+        return toast_error(request, "No se pudo eliminar el festivo")
     ctx = await service.get_admin_ctx(conn, anio)
     ctx.update({"context": context, "toast_type": "success", "toast_msg": "Festivo eliminado"})
     return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
@@ -922,12 +895,12 @@ async def admin_crear_tipo_ausencia(
             user_id=UUID(str(context["user_db_id"])),
         )
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
     except asyncpg.UniqueViolationError:
-        return _toast_error(request, "Ya existe un tipo con ese slug")
+        return toast_error(request, "Ya existe un tipo con ese slug")
     except asyncpg.PostgresError:
         logger.exception("Error de BD creando tipo de ausencia")
-        return _toast_error(request, "No se pudo guardar el tipo de permiso")
+        return toast_error(request, "No se pudo guardar el tipo de permiso")
     ctx = await service.get_admin_ctx(conn)
     ctx.update({"context": context, "toast_type": "success", "toast_msg": "Tipo de permiso guardado"})
     return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
@@ -960,10 +933,10 @@ async def admin_actualizar_tipo_ausencia(
             user_id=UUID(str(context["user_db_id"])),
         )
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
     except asyncpg.PostgresError:
         logger.exception("Error de BD actualizando tipo de ausencia")
-        return _toast_error(request, "No se pudo actualizar el tipo de permiso")
+        return toast_error(request, "No se pudo actualizar el tipo de permiso")
     ctx = await service.get_admin_ctx(conn)
     ctx.update({"context": context, "toast_type": "success", "toast_msg": "Tipo de permiso actualizado"})
     return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
@@ -992,12 +965,12 @@ async def admin_crear_dias_vacaciones(
             user_id=UUID(str(context["user_db_id"])),
         )
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
     except asyncpg.UniqueViolationError:
-        return _toast_error(request, "Ya existe un rango con esa antiguedad inicial")
+        return toast_error(request, "Ya existe un rango con esa antiguedad inicial")
     except asyncpg.PostgresError:
         logger.exception("Error de BD creando dias de vacaciones")
-        return _toast_error(request, "No se pudo guardar el rango")
+        return toast_error(request, "No se pudo guardar el rango")
     ctx = await service.get_admin_ctx(conn)
     ctx.update({"context": context, "toast_type": "success", "toast_msg": "Rango guardado"})
     return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
@@ -1028,12 +1001,12 @@ async def admin_actualizar_dias_vacaciones(
             user_id=UUID(str(context["user_db_id"])),
         )
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
     except asyncpg.UniqueViolationError:
-        return _toast_error(request, "Ya existe un rango con esa antiguedad inicial")
+        return toast_error(request, "Ya existe un rango con esa antiguedad inicial")
     except asyncpg.PostgresError:
         logger.exception("Error de BD actualizando dias de vacaciones")
-        return _toast_error(request, "No se pudo actualizar el rango")
+        return toast_error(request, "No se pudo actualizar el rango")
     ctx = await service.get_admin_ctx(conn)
     ctx.update({"context": context, "toast_type": "success", "toast_msg": "Rango actualizado"})
     return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
@@ -1050,10 +1023,10 @@ async def admin_guardar_config(
     try:
         await service.guardar_config_vacaciones(conn, meses_expiracion=meses_expiracion)
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
     except asyncpg.PostgresError:
         logger.exception("Error de BD guardando config vacaciones")
-        return _toast_error(request, "No se pudo guardar la configuracion")
+        return toast_error(request, "No se pudo guardar la configuracion")
     ctx = await service.get_admin_ctx(conn)
     ctx.update({"context": context, "toast_type": "success", "toast_msg": "Configuracion guardada"})
     return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
@@ -1090,10 +1063,10 @@ async def festivo_crear(
     try:
         await vac_db.create_festivo(conn, fecha, descripcion, es_oficial, UUID(str(context["user_db_id"])))
     except asyncpg.UniqueViolationError:
-        return _toast_error(request, "Ya existe un festivo con esa fecha")
+        return toast_error(request, "Ya existe un festivo con esa fecha")
     except asyncpg.PostgresError as e:
         logger.error("Error creando festivo: %s", e)
-        return _toast_error(request, "No se pudo crear el festivo")
+        return toast_error(request, "No se pudo crear el festivo")
     festivos = await vac_db.get_festivos(conn)
     return templates.TemplateResponse(
         request, "rrhh/partials/festivos_lista.html",
@@ -1215,7 +1188,7 @@ async def aprobar_solicitud(
     try:
         await vac_service.aprobar_solicitud(conn, solicitud_id, context["user_db_id"], context)
     except ValueError as e:
-        return _toast_error(request, str(e))
+        return toast_error(request, str(e))
     pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
     return templates.TemplateResponse(
         request, "rrhh/partials/aprobaciones_pendientes.html",
@@ -1242,7 +1215,7 @@ async def rechazar_solicitud(
             conn, solicitud_id, context["user_db_id"], motivo, context
         )
     except ValueError as e:
-        return _toast_error(request, str(e))
+        return toast_error(request, str(e))
     pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
     return templates.TemplateResponse(
         request, "rrhh/partials/aprobaciones_pendientes.html",

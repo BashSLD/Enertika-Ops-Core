@@ -16,6 +16,7 @@ from modules.compras import sat_db_service
 from modules.compras import sat_service
 from modules.compras.db_service import get_db_service
 from modules.compras.sat_service import SAT_JOB_MAX_RUNTIME_MINUTES
+from modules.compras.service import parse_exceso_monto_error
 
 logger = logging.getLogger("ComprasSATRouter")
 
@@ -325,16 +326,6 @@ def _render_exceso_response(
     return HTMLResponse(content=html, headers={"HX-Reswap": "none"})
 
 
-def _parse_exceso_monto_error(msg: str) -> tuple[str | None, str | None, str]:
-    parts = msg.split("|", 3)
-    if len(parts) == 4:
-        _, exceso, monto_aplicado, user_msg = parts
-        return exceso, monto_aplicado, user_msg
-    if len(parts) == 3:
-        _, exceso, user_msg = parts
-        return exceso, None, user_msg
-    return None, None, msg
-
 
 async def _procesar_match_unico(
     conn: asyncpg.Connection,
@@ -449,7 +440,7 @@ async def confirmar_match(
     except ValueError as e:
         msg = str(e)
         if msg.startswith("EXCESO_MONTO|"):
-            exceso_str, monto_aplicado_sugerido, user_msg = _parse_exceso_monto_error(msg)
+            exceso_str, monto_aplicado_sugerido, user_msg = parse_exceso_monto_error(msg)
             return templates.TemplateResponse(
                 request,
                 "compras/partials/xml_match_error.html",
@@ -607,7 +598,7 @@ async def confirm_auto_match(
         except (ValueError, asyncpg.PostgresError) as e:
             msg = str(e)
             if msg.startswith("EXCESO_MONTO|"):
-                _, _, msg = _parse_exceso_monto_error(msg)
+                _, _, msg = parse_exceso_monto_error(msg)
             logger.warning("Error en auto-match para %s: %s", match_str, msg)
             errores += 1
         except Exception:
@@ -768,7 +759,7 @@ async def match_candidatos_desde_comprobante(
     except (ValueError, asyncpg.PostgresError) as e:
         msg = str(e)
         if msg.startswith("EXCESO_MONTO|"):
-            _, monto_aplicado_sugerido, user_msg = _parse_exceso_monto_error(msg)
+            _, monto_aplicado_sugerido, user_msg = parse_exceso_monto_error(msg)
             return _render_exceso_response(
                 request,
                 f"/compras/sat/comprobante/{id_comprobante}/match-candidatos",
@@ -832,7 +823,7 @@ async def match_desde_comprobante(
     except (ValueError, asyncpg.PostgresError) as e:
         msg = str(e)
         if msg.startswith("EXCESO_MONTO|"):
-            _, monto_aplicado_sugerido, user_msg = _parse_exceso_monto_error(msg)
+            _, monto_aplicado_sugerido, user_msg = parse_exceso_monto_error(msg)
             return _render_exceso_response(
                 request,
                 f"/compras/sat/comprobante/{comprobante_id}/match-candidatos",

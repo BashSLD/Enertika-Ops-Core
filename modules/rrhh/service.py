@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import hashlib
-import hmac
 import json
 import logging
 import re
@@ -14,10 +12,13 @@ from datetime import date, time, timedelta
 from io import BytesIO
 from uuid import UUID
 
+from itsdangerous import BadData, SignatureExpired, TimestampSigner
+
 from core.config import settings
 from core.config_service import ConfigService
 from core.timezone import today_mx
 from modules.asistencia import db_service as asistencia_db
+from modules.asistencia.service import recalcular_asistencia
 from modules.asistencia.constants import ASISTENCIA_ESTADOS
 from modules.rrhh import db_service as rrhh_db
 from modules.vacaciones import db_service as vac_db
@@ -82,36 +83,22 @@ def _decode_b64(value: str) -> bytes:
 
 
 def _firmar_preview(rows: list[dict], ttl_seconds: int = MIGRACION_PREVIEW_TTL_SECONDS) -> str:
-    payload = {
-        "exp": int(time_module.time()) + ttl_seconds,
-        "rows": rows,
-    }
-    raw = zlib.compress(json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8"))
-    signature = hmac.new(settings.SECRET_KEY.encode("utf-8"), raw, hashlib.sha256).digest()
-    return f"{_encode_b64(raw)}.{_encode_b64(signature)}"
+    raw = zlib.compress(json.dumps(rows, separators=(",", ":"), default=str).encode("utf-8"))
+    signer = TimestampSigner(settings.SECRET_KEY)
+    return signer.sign(_encode_b64(raw)).decode("ascii")
 
 
 def _leer_preview_firmado(token: str) -> list[dict]:
+    signer = TimestampSigner(settings.SECRET_KEY)
     try:
-        payload_part, signature_part = token.split(".", 1)
-        raw = _decode_b64(payload_part)
-        signature = _decode_b64(signature_part)
-    except (ValueError, binascii.Error) as exc:
+        encoded = signer.unsign(token, max_age=MIGRACION_PREVIEW_TTL_SECONDS).decode("ascii")
+        rows = json.loads(zlib.decompress(_decode_b64(encoded)).decode("utf-8"))
+    except SignatureExpired:
+        raise ValueError("La vista previa expiro. Vuelve a importar el archivo.")
+    except (BadData, binascii.Error) as exc:
         raise ValueError("La vista previa no es valida. Vuelve a importar el archivo.") from exc
-
-    expected = hmac.new(settings.SECRET_KEY.encode("utf-8"), raw, hashlib.sha256).digest()
-    if not hmac.compare_digest(signature, expected):
-        raise ValueError("La vista previa fue modificada. Vuelve a importar el archivo.")
-
-    try:
-        payload = json.loads(zlib.decompress(raw).decode("utf-8"))
     except (zlib.error, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("La vista previa no es valida. Vuelve a importar el archivo.") from exc
-
-    if int(payload.get("exp", 0)) < int(time_module.time()):
-        raise ValueError("La vista previa expiro. Vuelve a importar el archivo.")
-
-    rows = payload.get("rows")
     if not isinstance(rows, list):
         raise ValueError("La vista previa no contiene filas validas.")
     return rows
@@ -933,15 +920,13 @@ def _calcular_minutos_programados(
 
 
 async def _recalcular_sucursales_reciente(conn, sucursal_ids: set[UUID], days: int = 7) -> int:
-    from modules.asistencia.service import recalcular_asistencia
-
     hoy = today_mx()
-    targets = []
-    for sucursal_id in sucursal_ids:
-        usuarios = await rrhh_db.get_usuarios_asistencia_por_sucursal(conn, sucursal_id)
-        for usuario_id in usuarios:
-            for offset in range(days):
-                targets.append((usuario_id, hoy - timedelta(days=offset)))
+    usuarios = await rrhh_db.get_usuarios_asistencia_por_sucursales(conn, list(sucursal_ids))
+    targets = [
+        (usuario_id, hoy - timedelta(days=offset))
+        for usuario_id in usuarios
+        for offset in range(days)
+    ]
     if not targets:
         return 0
     await recalcular_asistencia(conn, targets)

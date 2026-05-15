@@ -14,27 +14,13 @@ from core.security import get_current_user_context
 from modules.perfil import db_service as perfil_db
 from modules.perfil import service as perfil_service
 from modules.shared import signatures_db_service as signatures_db
+from modules.shared.utils import is_htmx, toast_error
 from modules.vacaciones import db_service as vac_db
 from modules.vacaciones import service as vac_service
 
 router = APIRouter(prefix="/perfil", tags=["perfil"])
 templates = Jinja2Templates(directory="templates")
 
-
-def _is_htmx(request: Request) -> bool:
-    return bool(
-        request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request")
-    )
-
-
-def _toast_error(request: Request, message: str, status_code: int = 400):
-    return templates.TemplateResponse(
-        request,
-        "shared/toast.html",
-        {"type": "error", "title": "Error", "message": message},
-        status_code=status_code,
-        headers={"HX-Reswap": "none"},
-    )
 
 
 def _legacy_redirect(path: str) -> RedirectResponse:
@@ -80,7 +66,7 @@ async def perfil_ui(
         "role": context_perfil.get("role"),
         "module_roles": context_perfil.get("module_roles", {}),
     }
-    if _is_htmx(request):
+    if is_htmx(request):
         return templates.TemplateResponse(request, "perfil/partials/content.html", ctx)
     return templates.TemplateResponse(request, "perfil/perfil.html", ctx)
 
@@ -119,13 +105,13 @@ async def subir_firma(
 ):
     usuario_id = UUID(str(context["user_db_id"]))
     if firma_file.content_type != "image/png":
-        return _toast_error(request, "Solo se aceptan imagenes PNG.", status_code=200)
+        return toast_error(request, "Solo se aceptan imagenes PNG.", status_code=200)
     firma_bytes = await firma_file.read()
     pending_id = UUID(solicitud_pendiente_id) if solicitud_pendiente_id else None
     try:
         await perfil_service.guardar_firma(conn, usuario_id, firma_bytes, "subida", pending_id)
     except ValueError as exc:
-        return _toast_error(request, str(exc), status_code=200)
+        return toast_error(request, str(exc), status_code=200)
 
     firma_b64 = perfil_service.firma_bytes_to_base64(firma_bytes)
     return templates.TemplateResponse(
@@ -155,13 +141,13 @@ async def guardar_firma_dibujada(
         raw = firma_b64.split(",", 1)[-1]
         firma_bytes = base64.b64decode(raw, validate=True)
     except (binascii.Error, ValueError):
-        return _toast_error(request, "Firma invalida.", status_code=200)
+        return toast_error(request, "Firma invalida.", status_code=200)
 
     pending_id = UUID(solicitud_pendiente_id) if solicitud_pendiente_id else None
     try:
         await perfil_service.guardar_firma(conn, usuario_id, firma_bytes, "dibujada", pending_id)
     except ValueError as exc:
-        return _toast_error(request, str(exc), status_code=200)
+        return toast_error(request, str(exc), status_code=200)
 
     return templates.TemplateResponse(
         request,

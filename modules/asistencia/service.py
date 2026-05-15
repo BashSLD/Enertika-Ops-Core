@@ -150,12 +150,19 @@ def _chunk_label(fecha_inicio: date, fecha_fin: date) -> str:
 
 
 async def _load_biotime_client_config(conn) -> dict:
+    configs = await ConfigService.get_global_configs_bulk(conn, {
+        BIOTIME_CONFIG_KEYS["base_url"]: ("", str),
+        BIOTIME_CONFIG_KEYS["username"]: ("", str),
+        BIOTIME_CONFIG_KEYS["password"]: ("", str),
+        BIOTIME_CONFIG_KEYS["page_size"]: (200, int),
+        BIOTIME_CONFIG_KEYS["timeout_seconds"]: (30, int),
+    })
     return {
-        "base_url": await ConfigService.get_global_config(conn, BIOTIME_CONFIG_KEYS["base_url"], "", str),
-        "username": await ConfigService.get_global_config(conn, BIOTIME_CONFIG_KEYS["username"], "", str),
-        "password": await ConfigService.get_global_config(conn, BIOTIME_CONFIG_KEYS["password"], "", str),
-        "page_size": await ConfigService.get_global_config(conn, BIOTIME_CONFIG_KEYS["page_size"], 200, int),
-        "timeout_seconds": await ConfigService.get_global_config(conn, BIOTIME_CONFIG_KEYS["timeout_seconds"], 30, int),
+        "base_url": configs[BIOTIME_CONFIG_KEYS["base_url"]],
+        "username": configs[BIOTIME_CONFIG_KEYS["username"]],
+        "password": configs[BIOTIME_CONFIG_KEYS["password"]],
+        "page_size": configs[BIOTIME_CONFIG_KEYS["page_size"]],
+        "timeout_seconds": configs[BIOTIME_CONFIG_KEYS["timeout_seconds"]],
     }
 
 
