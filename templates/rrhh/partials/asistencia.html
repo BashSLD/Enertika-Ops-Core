@@ -5,12 +5,34 @@
       <h2 class="text-base font-semibold text-gray-800">Asistencia</h2>
       <p class="text-sm text-gray-500">Registros diarios de entrada y salida</p>
     </div>
-    {% if not error %}
-    <a href="/rrhh/reportes/asistencia.xlsx?fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}{% if usuario_id_filtro %}&usuario_id={{ usuario_id_filtro }}{% endif %}{% if sucursal_id_filtro %}&sucursal_id={{ sucursal_id_filtro }}{% endif %}{% if estado_filtro %}&estado={{ estado_filtro }}{% endif %}"
-       class="flex items-center gap-2 bg-[#123456] hover:bg-[#0d2741] text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors self-start">
-      Exportar Excel
-    </a>
-    {% endif %}
+    <div class="flex items-center gap-2 self-start">
+      <button x-data="{ syncing: false }"
+              @click="syncing = true;
+                      fetch('/asistencia/api/biotime/sync', { method: 'POST' })
+                        .then(r => r.json())
+                        .then(() => {
+                          syncing = false;
+                          htmx.ajax('GET', '/rrhh/asistencia?fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}{% if usuario_id_filtro %}&usuario_id={{ usuario_id_filtro }}{% endif %}{% if sucursal_id_filtro %}&sucursal_id={{ sucursal_id_filtro }}{% endif %}{% if estado_filtro %}&estado={{ estado_filtro }}{% endif %}', { target: '#rrhh-content', swap: 'innerHTML' });
+                        })
+                        .catch(() => { syncing = false })"
+              :disabled="syncing"
+              title="Sincronizar BioTime"
+              class="flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 transition-colors disabled:opacity-50">
+        <svg x-show="!syncing" xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+        </svg>
+        <svg x-show="syncing" class="w-4 h-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+          <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+          <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+        </svg>
+      </button>
+      {% if not error %}
+      <a href="/rrhh/reportes/asistencia.xlsx?fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}{% if usuario_id_filtro %}&usuario_id={{ usuario_id_filtro }}{% endif %}{% if sucursal_id_filtro %}&sucursal_id={{ sucursal_id_filtro }}{% endif %}{% if estado_filtro %}&estado={{ estado_filtro }}{% endif %}"
+         class="flex items-center gap-2 bg-[#123456] hover:bg-[#0d2741] text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors">
+        Exportar Excel
+      </a>
+      {% endif %}
+    </div>
   </div>
 
   <!-- Filtros -->
