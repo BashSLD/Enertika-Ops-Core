@@ -411,7 +411,7 @@
     {% endif %}
 
     <div class="flex h-screen overflow-hidden" x-data="{
-            sidebarOpen: $persist(false),
+            sidebarOpen: false,
             mobileMenuOpen: false,
             moduleNames: {comercial:'Comercial',simulacion:'Simulación',levantamientos:'Levantamientos',proyectos:'Proyectos',compras:'Compras',ingenieria:'Ingeniería',construccion:'Construcción',finanzas:'Finanzas',oym:'O & M',rrhh:'RRHH',admin:'Admin',materials:'Materiales'},
             setActiveGroupBySlug(slug) { /* grupos no colapsables en variante E */ },
