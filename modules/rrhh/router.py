@@ -161,7 +161,13 @@ async def rrhh_ui(
     _=require_module_access("rrhh", "viewer"),
 ):
     data = await service.get_dashboard_data(conn)
-    ctx = {**data, "context": context}
+    ctx = {
+        **data,
+        "context": context,
+        "user_name": context.get("user_name"),
+        "role": context.get("role"),
+        "module_roles": context.get("module_roles", {}),
+    }
     if is_htmx(request):
         return templates.TemplateResponse(request, "rrhh/partials/content.html", ctx)
     return templates.TemplateResponse(request, "rrhh/dashboard.html", ctx)
@@ -507,6 +513,9 @@ async def migracion_vacaciones(
 ):
     ctx = await service.get_migracion_ctx(conn)
     ctx["context"] = context
+    ctx["user_name"] = context.get("user_name")
+    ctx["role"] = context.get("role")
+    ctx["module_roles"] = context.get("module_roles", {})
     if is_htmx(request):
         return templates.TemplateResponse(request, "rrhh/partials/migracion.html", ctx)
     return templates.TemplateResponse(request, "rrhh/migracion_page.html", ctx)
