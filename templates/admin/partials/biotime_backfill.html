@@ -17,6 +17,16 @@
       hoy.setDate(hoy.getDate() - 1);
       this.fechaFin = this.toLocalISO(hoy);
       this.fechaInicio = `${hoy.getFullYear()}-01-01`;
+      this.$el.addEventListener('htmx:afterSwap', () => {
+        if (!this.procesando) return;
+        const sel = `#backfill-resultados [data-chunk-index="${this.currentChunk}"]`;
+        const lastEl = document.querySelector(sel);
+        const isError = lastEl && lastEl.hasAttribute('data-has-error');
+        if (isError) { this.hayError = true; this.procesando = false; return; }
+        const siguiente = this.currentChunk + 1;
+        if (siguiente >= this.chunks.length) { this.procesando = false; return; }
+        this.$nextTick(() => this.enviarChunk(siguiente));
+      });
     },
     generarChunks() {
       const inicio = new Date(this.fechaInicio + 'T00:00:00');
@@ -58,16 +68,6 @@
       htmx.trigger(form, 'submit');
     }
   }"
-  @htmx:after-swap="
-    if (procesando) {
-      const lastEl = document.querySelector('#backfill-resultados [data-chunk-index=\"' + currentChunk + '\"]');
-      const isError = lastEl && lastEl.hasAttribute('data-has-error');
-      if (isError) { hayError = true; procesando = false; return; }
-      const siguiente = currentChunk + 1;
-      if (siguiente >= chunks.length) { procesando = false; return; }
-      $nextTick(() => enviarChunk(siguiente));
-    }
-  "
   class="space-y-4 mt-3 border-t border-teal-200 pt-4">
 
   <h5 class="text-sm font-semibold text-gray-700">Importar histórico de checadas</h5>

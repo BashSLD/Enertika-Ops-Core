@@ -160,7 +160,7 @@ async def get_reportes_ui(
     }
     
     # Detección HTMX vs carga directa
-    if request.headers.get("hx-request"):
+    if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
         return templates.TemplateResponse(request, "simulacion/reportes/tabs.html", template_data)
     else:
         return templates.TemplateResponse(request, "simulacion/reportes/dashboard.html", template_data)
@@ -265,29 +265,23 @@ async def get_analisis_detallado(
     }
 
     # Detección HTMX vs carga directa
-    if request.headers.get("hx-request"):
-        # Determinar qué parcial devolver según el target
+    is_htmx = request.headers.get("hx-request")
+    is_history_restore = request.headers.get("hx-history-restore-request")
+    if is_htmx and not is_history_restore:
         hx_target = request.headers.get("hx-target")
-        
         if hx_target == "report-content":
-            # Caso: Filtrado dentro de la vista (solo contenido interno)
-            return templates.TemplateResponse(request, 
-                "simulacion/reportes/analisis_detallado_content.html", 
+            return templates.TemplateResponse(request,
+                "simulacion/reportes/analisis_detallado_content.html",
                 template_data
             )
-        else:
-            # Caso: Navegación desde Dashboard (Breadcrumbs + Wrapper + Contenido)
-            # Esto asume target="main-content" o similar
-            return templates.TemplateResponse(request, 
-                "simulacion/reportes/analisis_detallado_inner.html", 
-                template_data
-            )
-    else:
-        # Carga completa (F5)
-        return templates.TemplateResponse(request, 
-            "simulacion/reportes/analisis_detallado.html", 
+        return templates.TemplateResponse(request,
+            "simulacion/reportes/analisis_detallado_inner.html",
             template_data
         )
+    return templates.TemplateResponse(request,
+        "simulacion/reportes/analisis_detallado.html",
+        template_data
+    )
 
 
 # =============================================================================

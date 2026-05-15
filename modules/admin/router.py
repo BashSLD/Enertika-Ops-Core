@@ -1186,7 +1186,7 @@ async def get_config_umbrales(
     umbrales_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno", "SIMULACION")
     umbrales_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso", "SIMULACION")
     
-    if request.headers.get("hx-request"):
+    if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
         template = "admin/config_umbrales.html"
     else:
         # Si no es HTMX, renderizar dentro del dashboard (necesitamos un wrapper si dashboard.html no soporta block content dinámico aparte de partials)
@@ -1241,7 +1241,7 @@ async def reporte_semanal_page(
         **context,
     }
 
-    if request.headers.get("hx-request"):
+    if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
         return templates.TemplateResponse(request, "admin/partials/reporte_semanal.html", ctx)
     return templates.TemplateResponse(request, "admin/reporte_semanal_full.html", ctx)
 

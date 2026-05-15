@@ -913,7 +913,7 @@ async def get_metricas_operativas(
     
     tipos_solicitud = await db_service.get_tipos_solicitud(conn)
     
-    if request.headers.get("hx-request"):
+    if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
         template = "simulacion/metricas_operativas.html"
     else:
         template = "simulacion/dashboard.html"
