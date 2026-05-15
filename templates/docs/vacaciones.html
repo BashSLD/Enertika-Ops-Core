@@ -1,0 +1,232 @@
+<!-- Documentación: Vacaciones -->
+<div x-data="{ activeTab: 'balance' }" class="bg-white min-h-full">
+
+    <!-- Tabs Navigation -->
+    <div class="border-b border-gray-200 bg-white sticky top-0 z-10 px-6 pt-2">
+        <nav class="flex space-x-6 overflow-x-auto no-scrollbar" aria-label="Tabs">
+            <button @click="activeTab = 'balance'"
+                :class="activeTab === 'balance' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                <span>📊</span> Mi Balance
+            </button>
+            <button @click="activeTab = 'solicitudes'"
+                :class="activeTab === 'solicitudes' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                <span>📝</span> Solicitudes
+            </button>
+            <button @click="activeTab = 'firma'"
+                :class="activeTab === 'firma' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                <span>✍️</span> Mi Firma
+            </button>
+        </nav>
+    </div>
+
+    <!-- Content Area -->
+    <div class="p-6 md:p-8">
+
+        <!-- TAB: Balance -->
+        <div x-show="activeTab === 'balance'" x-transition:enter="transition ease-out duration-300">
+            <h3 class="text-2xl font-bold text-[#123456] mb-2">Mi Balance de Vacaciones</h3>
+            <p class="text-sm text-gray-500 mb-6">El balance refleja los días disponibles que tienes para tomar en cada período de vacaciones.</p>
+
+            <div class="bg-white border rounded-lg p-5 shadow-sm mb-6">
+                <h4 class="font-bold text-gray-800 mb-4">¿Cómo se calcula?</h4>
+                <div class="flex flex-wrap items-center gap-2 text-sm font-mono text-center">
+                    <div class="bg-green-100 text-green-800 px-3 py-2 rounded">Días del período</div>
+                    <div class="text-gray-500 font-sans">−</div>
+                    <div class="bg-red-100 text-red-800 px-3 py-2 rounded">Días usados (aprobados)</div>
+                    <div class="text-gray-500 font-sans">=</div>
+                    <div class="bg-[#00BABB]/10 text-[#00BABB] px-3 py-2 rounded font-bold border border-[#00BABB]/20">Días disponibles</div>
+                </div>
+                <p class="text-xs text-gray-500 mt-4">Los días se descuentan en orden <strong>FIFO</strong>: primero se consumen los períodos más antiguos (los que vencen antes).</p>
+            </div>
+
+            <div class="bg-white border rounded-lg p-5 shadow-sm mb-6">
+                <h4 class="font-bold text-gray-800 mb-3">¿Qué es un período?</h4>
+                <p class="text-sm text-gray-600 mb-4">Cada año cumplido de servicio genera un nuevo período de vacaciones. Los días que corresponden dependen de la antigüedad del empleado según la política de la empresa y la LFT.</p>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs border-collapse">
+                        <thead>
+                            <tr class="bg-gray-50">
+                                <th class="text-left px-3 py-2 border border-gray-200 text-gray-600">Años de servicio</th>
+                                <th class="text-center px-3 py-2 border border-gray-200 text-gray-600">Días mínimos LFT</th>
+                            </tr>
+                        </thead>
+                        <tbody class="text-gray-700">
+                            <tr><td class="px-3 py-2 border border-gray-200">1 año</td><td class="px-3 py-2 border border-gray-200 text-center">12 días</td></tr>
+                            <tr class="bg-gray-50"><td class="px-3 py-2 border border-gray-200">2 años</td><td class="px-3 py-2 border border-gray-200 text-center">14 días</td></tr>
+                            <tr><td class="px-3 py-2 border border-gray-200">3 años</td><td class="px-3 py-2 border border-gray-200 text-center">16 días</td></tr>
+                            <tr class="bg-gray-50"><td class="px-3 py-2 border border-gray-200">4 años</td><td class="px-3 py-2 border border-gray-200 text-center">18 días</td></tr>
+                            <tr><td class="px-3 py-2 border border-gray-200">5 o más años</td><td class="px-3 py-2 border border-gray-200 text-center">20 días (+2 cada 5 años)</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <p class="text-xs text-gray-400 mt-2">La política interna puede otorgar días adicionales a los mínimos de la LFT.</p>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
+                    <h5 class="font-bold text-amber-800 text-sm mb-2">⏳ Vencimiento de días</h5>
+                    <p class="text-xs text-amber-700">Los días no usados vencen a los <strong>N meses</strong> del inicio del período. Este plazo es configurable por RH en Admin. Días vencidos ya no pueden usarse.</p>
+                </div>
+                <div class="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                    <h5 class="font-bold text-gray-700 text-sm mb-2">📁 Registros históricos</h5>
+                    <p class="text-xs text-gray-600">Vacaciones tomadas antes de usar el sistema pueden ser importadas por RH. Aparecen en tu balance con la etiqueta <span class="bg-gray-200 text-gray-600 px-1 rounded text-[10px]">Histórico</span> y no generan comprobante PDF.</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: Solicitudes -->
+        <div x-show="activeTab === 'solicitudes'" x-transition:enter="transition ease-out duration-300">
+            <h3 class="text-2xl font-bold text-[#123456] mb-2">Solicitudes de Ausencia</h3>
+            <p class="text-sm text-gray-500 mb-6">Desde aquí puedes crear solicitudes, ver su estado y descargar tu comprobante cuando sea aprobada.</p>
+
+            <div class="relative border-l-2 border-gray-200 ml-4 space-y-8 mb-8">
+                <div class="relative">
+                    <span class="absolute -left-[21px] flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 ring-4 ring-white">
+                        <span class="text-blue-600 font-bold">1</span>
+                    </span>
+                    <div class="ml-8">
+                        <h4 class="text-sm font-bold text-gray-800">Crear solicitud</h4>
+                        <p class="text-xs text-gray-500 mt-1">Ve a <strong>Mis Vacaciones → Nueva Solicitud</strong>. Selecciona tipo, fechas de inicio y fin, fecha en que te presentas de vuelta, y observaciones opcionales. El sistema calcula automáticamente los días hábiles.</p>
+                    </div>
+                </div>
+                <div class="relative">
+                    <span class="absolute -left-[21px] flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 ring-4 ring-white">
+                        <span class="text-indigo-600 font-bold">2</span>
+                    </span>
+                    <div class="ml-8">
+                        <h4 class="text-sm font-bold text-gray-800">Firmar la solicitud</h4>
+                        <p class="text-xs text-gray-500 mt-1">Si aún no tienes firma registrada, el sistema te redirigirá para registrarla. Una vez que firmes, la solicitud queda en estado <span class="bg-amber-100 text-amber-700 px-1 rounded text-[10px] font-medium">Pendiente</span> de aprobación.</p>
+                    </div>
+                </div>
+                <div class="relative">
+                    <span class="absolute -left-[21px] flex h-10 w-10 items-center justify-center rounded-full bg-green-100 ring-4 ring-white">
+                        <span class="text-green-600 font-bold">3</span>
+                    </span>
+                    <div class="ml-8">
+                        <h4 class="text-sm font-bold text-gray-800">Aprobación</h4>
+                        <p class="text-xs text-gray-500 mt-1">Tu aprobador o jefe inmediato recibe una notificación por correo. Una vez que apruebe, recibirás un correo con el comprobante PDF adjunto. RH también queda notificado.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white border rounded-lg p-5 shadow-sm mb-6">
+                <h4 class="font-bold text-gray-800 mb-2">¿Qué son días hábiles?</h4>
+                <p class="text-sm text-gray-600 mb-3">El sistema cuenta únicamente los días que son laborables dentro del rango seleccionado, excluyendo:</p>
+                <div class="flex flex-wrap gap-2">
+                    <span class="bg-gray-100 text-gray-600 text-xs px-3 py-1 rounded-full">Sábados</span>
+                    <span class="bg-gray-100 text-gray-600 text-xs px-3 py-1 rounded-full">Domingos</span>
+                    <span class="bg-gray-100 text-gray-600 text-xs px-3 py-1 rounded-full">Días festivos configurados en el sistema</span>
+                </div>
+            </div>
+
+            <h4 class="text-base font-bold text-gray-800 mb-3">Estados de una solicitud</h4>
+            <div class="space-y-2 mb-6">
+                <div class="flex items-start gap-3">
+                    <span class="bg-sky-50 text-sky-700 text-xs font-medium px-2 py-0.5 rounded-full min-w-fit mt-0.5">Pendiente firma</span>
+                    <span class="text-sm text-gray-600">La solicitud fue creada pero debes registrar tu firma para enviarla.</span>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="bg-amber-50 text-amber-700 text-xs font-medium px-2 py-0.5 rounded-full min-w-fit mt-0.5">Pendiente</span>
+                    <span class="text-sm text-gray-600">Enviada y esperando que el aprobador o jefe la revise.</span>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="bg-green-50 text-green-700 text-xs font-medium px-2 py-0.5 rounded-full min-w-fit mt-0.5">Aprobada</span>
+                    <span class="text-sm text-gray-600">Autorizada. Los días se descuentan de tu balance y se genera el comprobante PDF.</span>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="bg-red-50 text-red-700 text-xs font-medium px-2 py-0.5 rounded-full min-w-fit mt-0.5">Rechazada</span>
+                    <span class="text-sm text-gray-600">No autorizada. Verás el motivo en el detalle de la solicitud.</span>
+                </div>
+                <div class="flex items-start gap-3">
+                    <span class="bg-gray-100 text-gray-500 text-xs font-medium px-2 py-0.5 rounded-full min-w-fit mt-0.5">Cancelada</span>
+                    <span class="text-sm text-gray-600">Cancelada por ti antes de ser procesada. Los días regresan a tu balance.</span>
+                </div>
+            </div>
+
+            <div class="space-y-3">
+                <div x-data="{ open: false }" class="border border-gray-200 rounded-lg">
+                    <button @click="open = !open" class="w-full text-left px-4 py-3 bg-gray-50 font-medium text-gray-700 flex justify-between items-center text-sm">
+                        <span>¿Cómo descargo mi comprobante PDF?</span>
+                        <span x-text="open ? '−' : '+'" class="text-lg"></span>
+                    </button>
+                    <div x-show="open" class="px-4 py-3 bg-white text-xs text-gray-600">
+                        Una vez aprobada la solicitud, aparece el ícono de PDF en la lista de solicitudes (tanto en Mis Vacaciones como en RRHH para el equipo de RH). También lo recibes por correo al momento de la aprobación.
+                    </div>
+                </div>
+                <div x-data="{ open: false }" class="border border-gray-200 rounded-lg">
+                    <button @click="open = !open" class="w-full text-left px-4 py-3 bg-gray-50 font-medium text-gray-700 flex justify-between items-center text-sm">
+                        <span>¿Puedo cancelar una solicitud ya aprobada?</span>
+                        <span x-text="open ? '−' : '+'" class="text-lg"></span>
+                    </button>
+                    <div x-show="open" class="px-4 py-3 bg-white text-xs text-gray-600">
+                        Solo se pueden cancelar solicitudes en estado <em>Pendiente</em>. Si ya fue aprobada, contacta a RH para que haga el ajuste correspondiente directamente en el sistema.
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: Mi Firma -->
+        <div x-show="activeTab === 'firma'" x-transition:enter="transition ease-out duration-300">
+            <h3 class="text-2xl font-bold text-[#123456] mb-2">Mi Firma Digital</h3>
+            <p class="text-sm text-gray-500 mb-6">La firma digital es tu validación de identidad en las solicitudes de ausencia. Es obligatoria para enviar cualquier solicitud.</p>
+
+            <div class="bg-white border rounded-lg p-5 shadow-sm mb-6">
+                <div class="flex items-start gap-3 mb-4">
+                    <span class="text-2xl mt-0.5">✍️</span>
+                    <div>
+                        <h4 class="font-bold text-gray-800">¿Para qué sirve?</h4>
+                        <p class="text-sm text-gray-600 mt-1">Tu firma aparece impresa en el comprobante PDF de vacaciones aprobadas, junto con la firma del aprobador. Sirve como constancia oficial de que conocías y aprobaste los términos de tu solicitud.</p>
+                    </div>
+                </div>
+                <div class="bg-gray-50 rounded-lg p-3 text-xs text-gray-500">
+                    Sin firma registrada, el sistema te pedirá que la captures en el momento de crear una solicitud. Puedes evitar esta interrupción registrándola con anticipación en tu perfil.
+                </div>
+            </div>
+
+            <div class="relative border-l-2 border-gray-200 ml-4 space-y-6 mb-6">
+                <div class="relative">
+                    <span class="absolute -left-[21px] flex h-10 w-10 items-center justify-center rounded-full bg-blue-100 ring-4 ring-white">
+                        <span class="text-blue-600 font-bold">1</span>
+                    </span>
+                    <div class="ml-8">
+                        <h4 class="text-sm font-bold text-gray-800">Ve a tu perfil</h4>
+                        <p class="text-xs text-gray-500 mt-1">Haz clic en tu nombre en la esquina superior derecha → <strong>Mi Perfil</strong>.</p>
+                    </div>
+                </div>
+                <div class="relative">
+                    <span class="absolute -left-[21px] flex h-10 w-10 items-center justify-center rounded-full bg-indigo-100 ring-4 ring-white">
+                        <span class="text-indigo-600 font-bold">2</span>
+                    </span>
+                    <div class="ml-8">
+                        <h4 class="text-sm font-bold text-gray-800">Abre la pestaña "Firma"</h4>
+                        <p class="text-xs text-gray-500 mt-1">Encontrarás el panel de firma. Si ya tienes una registrada, se mostrará una vista previa.</p>
+                    </div>
+                </div>
+                <div class="relative">
+                    <span class="absolute -left-[21px] flex h-10 w-10 items-center justify-center rounded-full bg-green-100 ring-4 ring-white">
+                        <span class="text-green-600 font-bold">3</span>
+                    </span>
+                    <div class="ml-8">
+                        <h4 class="text-sm font-bold text-gray-800">Dibuja tu firma</h4>
+                        <p class="text-xs text-gray-500 mt-1">Usa el ratón o el dedo (en pantalla táctil) para trazar tu firma en el recuadro. Puedes borrar y repetir. Cuando estés conforme, guarda.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div class="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <h5 class="font-bold text-green-800 text-sm mb-1">¿Puedo actualizarla?</h5>
+                    <p class="text-xs text-green-700">Sí. Vuelve a Mi Perfil → Firma en cualquier momento y registra una nueva. La anterior se reemplaza. Las solicitudes ya firmadas conservan la imagen de la firma al momento de generarse el PDF.</p>
+                </div>
+                <div class="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                    <h5 class="font-bold text-blue-800 text-sm mb-1">¿Es segura?</h5>
+                    <p class="text-xs text-blue-700">La firma se almacena de forma privada y solo se usa para tus solicitudes de ausencia. No es visible para otros usuarios del sistema.</p>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</div>
