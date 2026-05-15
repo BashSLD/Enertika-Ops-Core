@@ -21,7 +21,11 @@
         Progreso período {{ p.numero_periodo_actual }} ({{ p.fecha_proximo_aniversario.year }})
       </p>
       <p class="text-xs text-gray-400 mt-0.5">
-        {{ p.dias_transcurridos }} días desde tu último aniversario
+        {% if p.numero_periodo_actual == 1 %}
+          {{ p.dias_transcurridos }} días desde tu ingreso
+        {% else %}
+          {{ p.dias_transcurridos }} días desde tu último aniversario
+        {% endif %}
         ({{ p.fecha_ultimo_aniversario.strftime('%d/%m/%Y') }})
       </p>
     </div>
