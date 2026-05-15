@@ -45,7 +45,8 @@ async def get_horarios_sucursal_admin(conn) -> list[dict]:
             d.hora_salida,
             d.minutos_programados,
             d.cruza_medianoche,
-            d.es_laboral
+            d.es_laboral,
+            COALESCE(d.descuento_comida_min, h.descuento_comida_min, 0) AS dia_descuento_comida_min
         FROM tb_horarios_sucursal h
         JOIN tb_cat_sucursales s ON s.id = h.sucursal_id
         LEFT JOIN tb_horarios_sucursal_dias d ON d.horario_sucursal_id = h.id
@@ -197,9 +198,9 @@ async def replace_horario_sucursal_dias(conn, horario_id: UUID, dias: list[dict]
         """
         INSERT INTO tb_horarios_sucursal_dias (
             horario_sucursal_id, dia_semana, hora_entrada, hora_salida,
-            minutos_programados, cruza_medianoche, es_laboral
+            minutos_programados, cruza_medianoche, es_laboral, descuento_comida_min
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         """,
         [
             (
@@ -210,6 +211,7 @@ async def replace_horario_sucursal_dias(conn, horario_id: UUID, dias: list[dict]
                 dia["minutos_programados"],
                 dia["cruza_medianoche"],
                 dia["es_laboral"],
+                dia["descuento_comida_min"],
             )
             for dia in dias
         ],
@@ -228,6 +230,24 @@ async def get_usuarios_asistencia_por_sucursal(conn, sucursal_id: UUID) -> list[
           AND (ed.biotime_emp_code IS NOT NULL OR ed.numero_empleado IS NOT NULL OR m.id IS NOT NULL)
         """,
         sucursal_id,
+    )
+    return [row["id_usuario"] for row in rows]
+
+
+async def get_usuarios_asistencia_por_sucursales(conn, sucursal_ids: list[UUID]) -> list[UUID]:
+    if not sucursal_ids:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT DISTINCT u.id_usuario
+        FROM tb_usuarios u
+        LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = u.id_usuario
+        LEFT JOIN tb_biotime_empleado_map m ON m.usuario_id = u.id_usuario AND m.activo = true
+        WHERE u.is_active = true
+          AND COALESCE(m.sucursal_id, ed.sucursal_id) = ANY($1::uuid[])
+          AND (ed.biotime_emp_code IS NOT NULL OR ed.numero_empleado IS NOT NULL OR m.id IS NOT NULL)
+        """,
+        sucursal_ids,
     )
     return [row["id_usuario"] for row in rows]
 

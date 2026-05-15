@@ -1,4 +1,20 @@
-<section x-data="{ open: false, help: false, showNew: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
+<section x-data="{
+    open: false,
+    help: false,
+    showNew: false,
+    cruceLabel(laboral, entrada, salida) {
+      if (!laboral) return 'No laboral';
+      if (!entrada || !salida) return 'Automatico';
+      if (salida === entrada) return 'Horario invalido';
+      return salida < entrada ? 'Cruza medianoche' : 'No cruza';
+    },
+    cruceClass(laboral, entrada, salida) {
+      if (!laboral) return 'bg-gray-100 text-gray-500';
+      if (!entrada || !salida) return 'bg-gray-100 text-gray-500';
+      if (salida === entrada) return 'bg-red-100 text-red-700';
+      return salida < entrada ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600';
+    }
+  }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
   <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
     <button type="button"
             @click="open = !open"
@@ -41,13 +57,13 @@
         </div>
         <div class="rounded-lg border border-gray-200 bg-white p-3">
           <p class="font-semibold text-gray-800">Descuento de comida</p>
-          <p class="mt-1">Minutos que se restan del tiempo trabajado bruto y de la jornada programada.</p>
-          <p class="mt-1 text-gray-400">Ejemplo: 08:00 a 17:00 con comida 60 = 8 horas netas.</p>
+          <p class="mt-1">El valor general sirve como default y cada dia laboral puede tener su propio descuento.</p>
+          <p class="mt-1 text-gray-400">Ejemplo: lunes a jueves 60 min y viernes 0 min.</p>
         </div>
         <div class="rounded-lg border border-gray-200 bg-white p-3">
           <p class="font-semibold text-gray-800">Cruza medianoche</p>
-          <p class="mt-1">Usalo para turnos que empiezan un dia y terminan al siguiente.</p>
-          <p class="mt-1 text-gray-400">Ejemplo: entrada 22:00, salida 06:00.</p>
+          <p class="mt-1">Se calcula automaticamente cuando la salida es menor que la entrada.</p>
+          <p class="mt-1 text-gray-400">Las salidas tarde o en madrugada se controlan con la ventana despues de salida.</p>
         </div>
       </div>
     </div>
@@ -104,8 +120,8 @@
             </div>
             <div>
               <label class="block text-xs font-medium text-gray-600 mb-1">
-                Comida
-                <span tabindex="0" title="Minutos de comida que se descuentan del tiempo trabajado." class="ml-1 text-[#00BABB] cursor-help">?</span>
+                Comida por defecto
+                <span tabindex="0" title="Minutos de comida que se usan para llenar los dias laborales." class="ml-1 text-[#00BABB] cursor-help">?</span>
               </label>
               <input type="number" name="descuento_comida_min" min="0" max="1440" value="60" required
                      class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
@@ -121,29 +137,36 @@
                 <th class="px-3 py-2 text-left">Laboral</th>
                 <th class="px-3 py-2 text-left">Entrada</th>
                 <th class="px-3 py-2 text-left">Salida</th>
+                <th class="px-3 py-2 text-left">Comida</th>
                 <th class="px-3 py-2 text-left">Cruza medianoche</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-gray-50">
               {% for dia in dias_semana %}
-              <tr>
+              <tr x-data="{ laboral: {{ 'true' if dia.value < 5 else 'false' }}, entrada: '{{ '08:00' if dia.value < 5 else '' }}', salida: '{{ '17:00' if dia.value < 5 else '' }}', comida: {{ 60 if dia.value < 5 else 0 }} }">
                 <td class="px-3 py-2 font-medium text-gray-700">
                   {{ dia.nombre }}
                   <input type="hidden" name="dia_semana" value="{{ dia.value }}">
                 </td>
                 <td class="px-3 py-2">
-                  <input type="checkbox" name="dias_laborales" value="{{ dia.value }}" {% if dia.value < 5 %}checked{% endif %} class="rounded text-[#00BABB]">
+                  <input type="checkbox" name="dias_laborales" value="{{ dia.value }}" x-model="laboral" @change="if (!laboral) comida = 0" class="rounded text-[#00BABB]">
                 </td>
                 <td class="px-3 py-2">
-                  <input type="time" name="hora_entrada" value="{{ '08:00' if dia.value < 5 else '' }}"
+                  <input type="time" name="hora_entrada" value="{{ '08:00' if dia.value < 5 else '' }}" x-model="entrada"
                          class="w-28 border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
                 </td>
                 <td class="px-3 py-2">
-                  <input type="time" name="hora_salida" value="{{ '17:00' if dia.value < 5 else '' }}"
+                  <input type="time" name="hora_salida" value="{{ '17:00' if dia.value < 5 else '' }}" x-model="salida"
                          class="w-28 border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
                 </td>
                 <td class="px-3 py-2">
-                  <input type="checkbox" name="cruza_medianoche" value="{{ dia.value }}" class="rounded text-[#00BABB]">
+                  <input type="number" name="descuento_comida_min_dia" min="0" max="1440" value="{{ 60 if dia.value < 5 else 0 }}" x-model.number="comida"
+                         class="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
+                </td>
+                <td class="px-3 py-2">
+                  <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium"
+                        :class="cruceClass(laboral, entrada, salida)"
+                        x-text="cruceLabel(laboral, entrada, salida)"></span>
                 </td>
               </tr>
               {% endfor %}
@@ -180,7 +203,7 @@
             <p class="mt-1 text-xs text-gray-500">{{ horario.resumen_dias }}</p>
             <p class="mt-1 text-xs text-gray-400">
               Ventana {{ horario.margen_entrada_antes_min }} min antes / {{ horario.margen_salida_despues_min }} min despues -
-              tolerancia {{ horario.tolerancia_extra_min }} min - comida {{ horario.descuento_comida_min }} min
+              tolerancia {{ horario.tolerancia_extra_min }} min - comida default {{ horario.descuento_comida_min }} min
             </p>
           </div>
           <div class="flex items-center gap-3">
@@ -241,7 +264,7 @@
                        class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
               </div>
               <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">Comida</label>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Comida por defecto</label>
                 <input type="number" name="descuento_comida_min" min="0" max="1440" value="{{ horario.descuento_comida_min }}" required
                        class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
               </div>
@@ -256,29 +279,36 @@
                   <th class="px-3 py-2 text-left">Laboral</th>
                   <th class="px-3 py-2 text-left">Entrada</th>
                   <th class="px-3 py-2 text-left">Salida</th>
+                  <th class="px-3 py-2 text-left">Comida</th>
                   <th class="px-3 py-2 text-left">Cruza medianoche</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-gray-50">
                 {% for dia in horario.dias %}
-                <tr>
+                <tr x-data="{ laboral: {{ 'true' if dia.es_laboral else 'false' }}, entrada: '{{ dia.hora_entrada_fmt }}', salida: '{{ dia.hora_salida_fmt }}', comida: {{ dia.descuento_comida_min }} }">
                   <td class="px-3 py-2 font-medium text-gray-700">
                     {{ dia.nombre }}
                     <input type="hidden" name="dia_semana" value="{{ dia.dia_semana }}">
                   </td>
                   <td class="px-3 py-2">
-                    <input type="checkbox" name="dias_laborales" value="{{ dia.dia_semana }}" {% if dia.es_laboral %}checked{% endif %} class="rounded text-[#00BABB]">
+                    <input type="checkbox" name="dias_laborales" value="{{ dia.dia_semana }}" x-model="laboral" @change="if (!laboral) comida = 0" class="rounded text-[#00BABB]">
                   </td>
                   <td class="px-3 py-2">
-                    <input type="time" name="hora_entrada" value="{{ dia.hora_entrada_fmt }}"
+                    <input type="time" name="hora_entrada" value="{{ dia.hora_entrada_fmt }}" x-model="entrada"
                            class="w-28 border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
                   </td>
                   <td class="px-3 py-2">
-                    <input type="time" name="hora_salida" value="{{ dia.hora_salida_fmt }}"
+                    <input type="time" name="hora_salida" value="{{ dia.hora_salida_fmt }}" x-model="salida"
                            class="w-28 border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
                   </td>
                   <td class="px-3 py-2">
-                    <input type="checkbox" name="cruza_medianoche" value="{{ dia.dia_semana }}" {% if dia.cruza_medianoche %}checked{% endif %} class="rounded text-[#00BABB]">
+                    <input type="number" name="descuento_comida_min_dia" min="0" max="1440" value="{{ dia.descuento_comida_min }}" x-model.number="comida"
+                           class="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white">
+                  </td>
+                  <td class="px-3 py-2">
+                    <span class="inline-flex px-2 py-0.5 rounded-full text-xs font-medium"
+                          :class="cruceClass(laboral, entrada, salida)"
+                          x-text="cruceLabel(laboral, entrada, salida)"></span>
                   </td>
                 </tr>
                 {% endfor %}

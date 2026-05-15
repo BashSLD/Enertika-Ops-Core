@@ -10,21 +10,13 @@ from core.database import get_db_connection
 from core.permissions import user_has_module_access
 from core.security import get_current_user_context
 from modules.shared import signatures_db_service as signatures_db
+from modules.shared.utils import toast_error
 from modules.vacaciones import db_service as db
 from modules.vacaciones import service
 
 router = APIRouter(prefix="/vacaciones", tags=["vacaciones"])
 templates = Jinja2Templates(directory="templates")
 
-
-def _toast_error(request: Request, message: str, status_code: int = 400):
-    return templates.TemplateResponse(
-        request,
-        "shared/toast.html",
-        {"type": "error", "title": "Error", "message": message},
-        status_code=status_code,
-        headers={"HX-Reswap": "none"},
-    )
 
 
 # ─────────────────────────────────────────────
@@ -129,7 +121,7 @@ async def crear_solicitud(
             observaciones=observaciones or None,
         )
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
 
     if result["requiere_firma"]:
         solicitud_id = str(result["solicitud"]["id"])
@@ -199,7 +191,7 @@ async def cancelar_solicitud(
     try:
         await service.cancelar_solicitud(conn, solicitud_id, usuario_id)
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
 
     solicitudes = await db.get_solicitudes_usuario(conn, usuario_id)
     balance = await service.get_balance_usuario(conn, usuario_id)
@@ -230,7 +222,8 @@ async def descargar_pdf(
         raise HTTPException(status_code=400, detail="Los registros historicos no generan PDF.")
     es_dueno = solicitud["usuario_id"] == usuario_id
     es_aprobador = await service.puede_aprobar(conn, solicitud_id, usuario_id, context)
-    if not es_dueno and not es_aprobador:
+    es_rh = user_has_module_access("rrhh", context, "editor")
+    if not es_dueno and not es_aprobador and not es_rh:
         raise HTTPException(403)
 
     pdf_bytes = await service.generar_pdf_solicitud(conn, solicitud_id)
@@ -275,7 +268,7 @@ async def aprobar_solicitud(
     try:
         aprobada = await service.aprobar_solicitud(conn, solicitud_id, usuario_id, context)
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
 
     if user_has_module_access("rrhh", context, "editor"):
         pendientes = await db.get_todas_solicitudes_pendientes(conn)
@@ -305,7 +298,7 @@ async def rechazar_solicitud(
     try:
         await service.rechazar_solicitud(conn, solicitud_id, usuario_id, motivo, context)
     except ValueError as exc:
-        return _toast_error(request, str(exc))
+        return toast_error(request, str(exc))
 
     if user_has_module_access("rrhh", context, "editor"):
         pendientes = await db.get_todas_solicitudes_pendientes(conn)

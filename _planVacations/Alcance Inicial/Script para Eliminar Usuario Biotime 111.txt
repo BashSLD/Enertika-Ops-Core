@@ -1,0 +1,80 @@
+-- =========================================================
+--  Script: delete_employee_safe.sql
+--  Autor: Bash & Chati
+--  Propósito: eliminar empleados de forma segura
+--  Uso:
+--     1️⃣ Cambia el valor de la variable employee_ids según necesites.
+--     2️⃣ Ejecuta todo el bloque en pgAdmin4.
+-- =========================================================
+
+DO $$
+DECLARE
+    employee_ids CONSTANT TEXT := '(55,56)';  -- <--- modifica aquí los IDs a eliminar
+    deps RECORD;
+    sql TEXT;
+    cnt INTEGER;
+BEGIN
+    RAISE NOTICE '=== INICIANDO LIMPIEZA DE EMPLEADOS % ===', employee_ids;
+
+    FOR deps IN
+        SELECT * FROM (
+            VALUES
+                ('acc_accprivilege','employee_id'),
+                ('att_attschedule','employee_id'),
+                ('att_changeschedule','employee_id'),
+                ('att_leave','employee_id'),
+                ('att_manuallog','employee_id'),
+                ('att_overtime','employee_id'),
+                ('att_payloadbase','emp_id'),
+                ('att_payloadmulpunchset','emp_id'),
+                ('att_payloadpunch','emp_id'),
+                ('att_tempschedule','employee_id'),
+                ('att_training','employee_id'),
+                ('att_vacationemployee','employee_id'),
+                ('base_departmentalert','emplist_id'),
+                ('base_messengersentlog','emp_id'),
+                ('base_personalalert_employee','employee_id'),
+                ('ep_eptransaction','emp_id'),
+                ('iclock_biodata','employee_id'),
+                ('iclock_biophoto','employee_id'),
+                ('iclock_privatemessage','employee_id'),
+                ('iclock_transaction','emp_id'),
+                ('mobile_announcement','receiver_id'),
+                ('mobile_appnotification','receiver_id'),
+                ('mobile_gpsforemployee','employee_id'),
+                ('payroll_emploan','employee_id'),
+                ('payroll_emppayrollprofile','employee_id'),
+                ('payroll_extradeduction','employee_id'),
+                ('payroll_extraincrease','employee_id'),
+                ('payroll_monthlysalary','employee_id'),
+                ('payroll_reimbursement','employee_id'),
+                ('payroll_salaryadvance','employee_id'),
+                ('payroll_salarystructure','employee_id'),
+                ('personnel_assignareaemployee','employee_id'),
+                ('personnel_employee_area','employee_id'),
+                ('personnel_employee_area_privilege','employee_id'),
+                ('personnel_employee_flow_role','employee_id'),
+                ('personnel_employeecertification','employee_id'),
+                ('personnel_employeeprofile','emp_id'),
+                ('personnel_resign','employee_id'),
+                ('staff_stafftoken','user_id'),
+                ('workflow_nodeinstance','approver_employee_id'),
+                ('workflow_workflowengine_employee','employee_id'),
+                ('workflow_workflowinstance','employee_id')
+        ) AS t(tabla,columna)
+    LOOP
+        sql := format('SELECT COUNT(*) FROM %I WHERE %I IN %s;', deps.tabla, deps.columna, employee_ids);
+        EXECUTE sql INTO cnt;
+
+        IF cnt > 0 THEN
+            RAISE NOTICE '🧹 Eliminando % registros en %', cnt, deps.tabla;
+            sql := format('DELETE FROM %I WHERE %I IN %s;', deps.tabla, deps.columna, employee_ids);
+            EXECUTE sql;
+        END IF;
+    END LOOP;
+
+    -- Finalmente, elimina de la tabla principal
+    EXECUTE format('DELETE FROM personnel_employee WHERE id IN %s;', employee_ids);
+
+    RAISE NOTICE '✅ Limpieza completada para empleados %', employee_ids;
+END $$;

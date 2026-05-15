@@ -1,11 +1,19 @@
+import time
 from typing import Iterable, List, Optional
+
+_ROUTE_CACHE_TTL = 60.0
 
 
 class NavigationDBService:
     """Acceso a datos para resolver rutas de navegacion desde catalogos."""
 
+    _route_cache: dict[str, tuple[float, Optional[str]]] = {}
+
     async def get_module_route(self, conn, slug: str) -> Optional[str]:
-        return await conn.fetchval(
+        cached = self._route_cache.get(slug)
+        if cached and time.time() - cached[0] < _ROUTE_CACHE_TTL:
+            return cached[1]
+        ruta = await conn.fetchval(
             """
             SELECT ruta
             FROM tb_cat_modulos
@@ -17,6 +25,8 @@ class NavigationDBService:
             """,
             slug,
         )
+        self._route_cache[slug] = (time.time(), ruta)
+        return ruta
 
     async def get_module_routes(self, conn, slugs: Iterable[str]) -> List[dict]:
         slug_list = sorted({slug for slug in slugs if slug})

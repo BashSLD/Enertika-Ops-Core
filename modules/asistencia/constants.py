@@ -6,10 +6,24 @@ ASISTENCIA_ESTADOS = {
     "sin_registro",
     "falta",
     "incompleto",
+    "en_curso",
     "descanso",
     "feriado",
     "checada_en_vacaciones",
     "sin_horario",
+}
+
+ASISTENCIA_ESTADO_LABELS = {
+    "asistencia": "Asistencia",
+    "vacaciones": "Vacaciones",
+    "sin_registro": "Sin registro",
+    "falta": "Falta",
+    "incompleto": "Incompleto",
+    "en_curso": "Entrada registrada",
+    "descanso": "Descanso",
+    "feriado": "Feriado",
+    "checada_en_vacaciones": "Checada en vacaciones",
+    "sin_horario": "Sin horario",
 }
 
 BIOTIME_CONFIG_KEYS = {

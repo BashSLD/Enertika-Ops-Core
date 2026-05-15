@@ -52,6 +52,13 @@ class ConfigDBService:
         )
         return dict(row) if row else None
 
+    async def get_global_configs(self, conn, claves: list[str]) -> dict[str, str]:
+        rows = await conn.fetch(
+            "SELECT clave, valor FROM tb_configuracion_global WHERE clave = ANY($1::text[])",
+            claves,
+        )
+        return {row["clave"]: row["valor"] for row in rows}
+
 
 def get_config_db_service() -> ConfigDBService:
     return ConfigDBService()

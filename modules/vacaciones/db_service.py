@@ -989,13 +989,12 @@ async def get_rh_emails(conn) -> list[str]:
         """
         SELECT DISTINCT u.email
         FROM tb_usuarios u
-        LEFT JOIN tb_permisos_modulos pm
+        JOIN tb_permisos_modulos pm
             ON pm.usuario_id = u.id_usuario
            AND pm.modulo_slug = 'rrhh'
            AND pm.rol_modulo IN ('editor', 'admin')
         WHERE u.is_active = true
           AND u.email IS NOT NULL
-          AND (u.rol_sistema = 'ADMIN' OR pm.usuario_id IS NOT NULL)
         """
     )
     return [r["email"] for r in rows]

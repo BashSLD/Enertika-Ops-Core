@@ -438,6 +438,40 @@
 
             <div id="config-msg"></div>
 
+        <hr class="border-gray-200">
+
+        {# ── Notificaciones Vacaciones ─────────────────────────── #}
+        <div id="vacaciones-notif-fields">
+            <div class="flex items-center gap-2 mb-3">
+                <svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                </svg>
+                <h4 class="font-bold text-gray-700 text-sm">Notificaciones de Vacaciones — CCO</h4>
+            </div>
+            <p class="text-xs text-gray-500 mb-3">
+                Correos que reciben <strong>copia oculta (CCO)</strong> cuando se aprueba o rechaza una solicitud de vacaciones.
+                Separa múltiples correos con coma. Los correos del módulo RRHH (editor/admin) siempre reciben CC visible.
+            </p>
+            <div>
+                <label class="block text-sm font-bold text-gray-700 mb-1">Correos CCO</label>
+                <input type="text" name="vacaciones_cco_emails"
+                    value="{{ config_global.vacaciones_cco_emails }}"
+                    placeholder="gerencia@empresa.mx, direccion@empresa.mx"
+                    class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 py-2 text-sm focus:ring-teal-500 focus:border-teal-500">
+            </div>
+            <div class="flex justify-end mt-3">
+                <button type="button"
+                    hx-post="/admin/config/vacaciones-notificaciones"
+                    hx-include="#vacaciones-notif-fields"
+                    hx-target="#global-toast-container"
+                    hx-swap="afterbegin"
+                    class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
+                    Guardar CCO
+                </button>
+            </div>
+        </div>
+
     </div>
 </div>
 

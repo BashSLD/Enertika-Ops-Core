@@ -48,7 +48,7 @@ def build_labor_window(fecha_laboral: date, schedule: ScheduleConfig | None) -> 
 
     entrada = datetime.combine(fecha_laboral, schedule.hora_entrada, tzinfo=MX_TZ)
     salida = datetime.combine(fecha_laboral, schedule.hora_salida, tzinfo=MX_TZ)
-    if schedule.cruza_medianoche or schedule.hora_salida <= schedule.hora_entrada:
+    if schedule.cruza_medianoche or schedule.hora_salida < schedule.hora_entrada:
         salida += timedelta(days=1)
 
     return LaborWindow(
@@ -71,6 +71,8 @@ def calcular_resumen_dia(
     schedule: ScheduleConfig | None,
     tiene_vacaciones: bool,
     es_feriado: bool,
+    fecha_laboral: date | None = None,
+    now: datetime | None = None,
 ) -> dict:
     checks_ordenados = sorted(checks, key=lambda c: ensure_mx(c.check_time))
     observaciones: list[str] = []
@@ -101,20 +103,20 @@ def calcular_resumen_dia(
     salidas = [c for c in checks_ordenados if is_out_state(c.punch_state)]
 
     primera = ensure_mx(entradas[0].check_time if entradas else checks_ordenados[0].check_time)
-    ultima = ensure_mx(salidas[-1].check_time if salidas else checks_ordenados[-1].check_time)
+    ultima_salida = ensure_mx(salidas[-1].check_time) if salidas else None
 
     if not entradas:
-        observaciones.append("Sin estado de entrada confiable")
+        observaciones.append("Sin entrada registrada")
     if not salidas:
-        observaciones.append("Sin estado de salida confiable")
+        observaciones.append("Sin salida registrada")
     if schedule is None:
         observaciones.append("Sin horario configurado")
     if tiene_vacaciones:
         observaciones.append("Tiene vacaciones aprobadas y tambien registro checadas")
 
     minutos_trabajados = 0
-    if ultima > primera:
-        minutos_trabajados = int((ultima - primera).total_seconds() // 60)
+    if entradas and ultima_salida and ultima_salida > primera:
+        minutos_trabajados = int((ultima_salida - primera).total_seconds() // 60)
         descuento = schedule.descuento_comida_min if schedule else 0
         minutos_trabajados = max(0, minutos_trabajados - descuento)
 
@@ -122,10 +124,18 @@ def calcular_resumen_dia(
 
     if tiene_vacaciones:
         estado = "checada_en_vacaciones"
-    elif len(checks_ordenados) < 2 or ultima <= primera:
-        estado = "incompleto"
     elif schedule is None:
         estado = "sin_horario"
+    elif not entradas:
+        estado = "incompleto"
+    elif not salidas:
+        estado = "en_curso" if _es_jornada_en_curso(
+            fecha_laboral=fecha_laboral,
+            schedule=schedule,
+            now=now,
+        ) else "incompleto"
+    elif ultima_salida <= primera:
+        estado = "incompleto"
     else:
         estado = "asistencia"
 
@@ -140,12 +150,27 @@ def calcular_resumen_dia(
     return {
         "estado": estado,
         "primera_entrada": primera,
-        "ultima_salida": ultima,
+        "ultima_salida": ultima_salida,
         "minutos_trabajados": minutos_trabajados,
         "minutos_programados": minutos_programados,
         "minutos_extra": minutos_extra,
         "observaciones": "; ".join(observaciones) if observaciones else None,
     }
+
+
+def _es_jornada_en_curso(
+    *,
+    fecha_laboral: date | None,
+    schedule: ScheduleConfig | None,
+    now: datetime | None,
+) -> bool:
+    if not fecha_laboral or not now:
+        return False
+    if not schedule or not schedule.es_laboral or not schedule.hora_entrada or not schedule.hora_salida:
+        return False
+    window = build_labor_window(fecha_laboral, schedule)
+    current = ensure_mx(now)
+    return window.start <= current < window.end
 
 
 def _minutos_programados(schedule: ScheduleConfig | None, es_feriado: bool) -> int:

@@ -50,7 +50,7 @@
             class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
             <option value="">Todos</option>
             {% for estado in estados_asistencia | sort %}
-            <option value="{{ estado }}">{{ estado.replace('_', ' ') }}</option>
+            <option value="{{ estado }}">{{ estados_asistencia_labels.get(estado, estado.replace('_', ' ')) }}</option>
             {% endfor %}
           </select>
         </div>

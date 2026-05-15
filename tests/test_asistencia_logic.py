@@ -96,3 +96,72 @@ def test_vacation_without_checks_marks_vacaciones():
     assert resumen["estado"] == "vacaciones"
     assert resumen["minutos_trabajados"] == 0
     assert resumen["minutos_extra"] == 0
+
+
+def test_entry_without_exit_inside_window_marks_en_curso():
+    schedule = ScheduleConfig(
+        hora_entrada=time(8, 0),
+        hora_salida=time(17, 0),
+        minutos_programados=480,
+        margen_salida_despues_min=360,
+    )
+
+    resumen = calcular_resumen_dia(
+        checks=[AttendanceCheck(_dt(2026, 5, 12, 8, 5), "0")],
+        schedule=schedule,
+        tiene_vacaciones=False,
+        es_feriado=False,
+        fecha_laboral=date(2026, 5, 12),
+        now=_dt(2026, 5, 12, 12, 0),
+    )
+
+    assert resumen["estado"] == "en_curso"
+    assert resumen["primera_entrada"] == _dt(2026, 5, 12, 8, 5)
+    assert resumen["ultima_salida"] is None
+    assert resumen["observaciones"] == "Sin salida registrada"
+
+
+def test_entry_without_exit_after_window_marks_incompleto():
+    schedule = ScheduleConfig(
+        hora_entrada=time(8, 0),
+        hora_salida=time(17, 0),
+        minutos_programados=480,
+        margen_salida_despues_min=360,
+    )
+
+    resumen = calcular_resumen_dia(
+        checks=[AttendanceCheck(_dt(2026, 5, 12, 8, 5), "0")],
+        schedule=schedule,
+        tiene_vacaciones=False,
+        es_feriado=False,
+        fecha_laboral=date(2026, 5, 12),
+        now=_dt(2026, 5, 12, 23, 30),
+    )
+
+    assert resumen["estado"] == "incompleto"
+    assert resumen["ultima_salida"] is None
+    assert resumen["observaciones"] == "Sin salida registrada"
+
+
+def test_missing_exit_never_marks_asistencia():
+    schedule = ScheduleConfig(
+        hora_entrada=time(8, 0),
+        hora_salida=time(17, 0),
+        minutos_programados=480,
+        margen_salida_despues_min=360,
+    )
+
+    resumen = calcular_resumen_dia(
+        checks=[
+            AttendanceCheck(_dt(2026, 5, 12, 8, 5), "0"),
+            AttendanceCheck(_dt(2026, 5, 12, 10, 0), "0"),
+        ],
+        schedule=schedule,
+        tiene_vacaciones=False,
+        es_feriado=False,
+        fecha_laboral=date(2026, 5, 12),
+        now=_dt(2026, 5, 12, 23, 30),
+    )
+
+    assert resumen["estado"] == "incompleto"
+    assert resumen["ultima_salida"] is None

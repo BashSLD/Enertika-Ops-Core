@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import hashlib
-import hmac
 import json
 import logging
 import re
@@ -14,11 +12,14 @@ from datetime import date, time, timedelta
 from io import BytesIO
 from uuid import UUID
 
+from itsdangerous import BadData, SignatureExpired, TimestampSigner
+
 from core.config import settings
 from core.config_service import ConfigService
 from core.timezone import today_mx
 from modules.asistencia import db_service as asistencia_db
-from modules.asistencia.constants import ASISTENCIA_ESTADOS
+from modules.asistencia.service import recalcular_asistencia
+from modules.asistencia.constants import ASISTENCIA_ESTADO_LABELS, ASISTENCIA_ESTADOS
 from modules.rrhh import db_service as rrhh_db
 from modules.vacaciones import db_service as vac_db
 from modules.vacaciones.constants import ESTADOS_SOLICITUD
@@ -37,6 +38,7 @@ DIAS_SEMANA = [
     {"value": 6, "nombre": "Domingo"},
 ]
 
+MINUTOS_DIA = 24 * 60
 MIGRACION_PREVIEW_TTL_SECONDS = 20 * 60
 MIGRACION_MAX_FILE_BYTES = 5 * 1024 * 1024
 
@@ -82,36 +84,22 @@ def _decode_b64(value: str) -> bytes:
 
 
 def _firmar_preview(rows: list[dict], ttl_seconds: int = MIGRACION_PREVIEW_TTL_SECONDS) -> str:
-    payload = {
-        "exp": int(time_module.time()) + ttl_seconds,
-        "rows": rows,
-    }
-    raw = zlib.compress(json.dumps(payload, separators=(",", ":"), default=str).encode("utf-8"))
-    signature = hmac.new(settings.SECRET_KEY.encode("utf-8"), raw, hashlib.sha256).digest()
-    return f"{_encode_b64(raw)}.{_encode_b64(signature)}"
+    raw = zlib.compress(json.dumps(rows, separators=(",", ":"), default=str).encode("utf-8"))
+    signer = TimestampSigner(settings.SECRET_KEY)
+    return signer.sign(_encode_b64(raw)).decode("ascii")
 
 
 def _leer_preview_firmado(token: str) -> list[dict]:
+    signer = TimestampSigner(settings.SECRET_KEY)
     try:
-        payload_part, signature_part = token.split(".", 1)
-        raw = _decode_b64(payload_part)
-        signature = _decode_b64(signature_part)
-    except (ValueError, binascii.Error) as exc:
+        encoded = signer.unsign(token, max_age=MIGRACION_PREVIEW_TTL_SECONDS).decode("ascii")
+        rows = json.loads(zlib.decompress(_decode_b64(encoded)).decode("utf-8"))
+    except SignatureExpired:
+        raise ValueError("La vista previa expiro. Vuelve a importar el archivo.")
+    except (BadData, binascii.Error) as exc:
         raise ValueError("La vista previa no es valida. Vuelve a importar el archivo.") from exc
-
-    expected = hmac.new(settings.SECRET_KEY.encode("utf-8"), raw, hashlib.sha256).digest()
-    if not hmac.compare_digest(signature, expected):
-        raise ValueError("La vista previa fue modificada. Vuelve a importar el archivo.")
-
-    try:
-        payload = json.loads(zlib.decompress(raw).decode("utf-8"))
     except (zlib.error, UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise ValueError("La vista previa no es valida. Vuelve a importar el archivo.") from exc
-
-    if int(payload.get("exp", 0)) < int(time_module.time()):
-        raise ValueError("La vista previa expiro. Vuelve a importar el archivo.")
-
-    rows = payload.get("rows")
     if not isinstance(rows, list):
         raise ValueError("La vista previa no contiene filas validas.")
     return rows
@@ -711,6 +699,7 @@ def _build_horarios_admin(rows: list[dict]) -> list[dict]:
                         "hora_salida_fmt": "17:00" if dia["value"] < 5 else "",
                         "minutos_programados": 0,
                         "cruza_medianoche": False,
+                        "descuento_comida_min": horario["descuento_comida_min"] if dia["value"] < 5 else 0,
                     },
                 )
             )
@@ -733,6 +722,7 @@ def _format_horario_dia(row: dict) -> dict:
         "hora_salida_fmt": _format_time(row["hora_salida"]),
         "minutos_programados": row["minutos_programados"],
         "cruza_medianoche": row["cruza_medianoche"],
+        "descuento_comida_min": row["dia_descuento_comida_min"],
     }
 
 
@@ -782,7 +772,12 @@ async def guardar_horario_sucursal(
         tolerancia_extra_min=tolerancia_extra_min,
         descuento_comida_min=descuento_comida_min,
     )
-    dias_normalizados = _normalizar_dias_horario(dias, descuento_comida_min)
+    dias_normalizados = _normalizar_dias_horario(
+        dias,
+        descuento_comida_min,
+        margen_entrada_antes_min=margen_entrada_antes_min,
+        margen_salida_despues_min=margen_salida_despues_min,
+    )
     if activo and not any(dia["es_laboral"] for dia in dias_normalizados):
         raise ValueError("Un horario activo debe tener al menos un dia laboral")
     sucursales_recalculo = {sucursal_id}
@@ -829,7 +824,7 @@ async def guardar_horario_sucursal(
             )
 
         await rrhh_db.replace_horario_sucursal_dias(conn, saved_id, dias_normalizados)
-        return await _recalcular_sucursales_reciente(conn, sucursales_recalculo)
+        return await _recalcular_sucursales_completo(conn, sucursales_recalculo)
 
 
 async def desactivar_horario_sucursal(conn, horario_id: UUID, user_id: UUID) -> int:
@@ -837,7 +832,7 @@ async def desactivar_horario_sucursal(conn, horario_id: UUID, user_id: UUID) -> 
         updated = await rrhh_db.deactivate_horario_sucursal(conn, horario_id, user_id)
         if not updated:
             raise ValueError("Horario no encontrado")
-        return await _recalcular_sucursales_reciente(conn, {updated["sucursal_id"]})
+        return await _recalcular_sucursales_completo(conn, {updated["sucursal_id"]})
 
 
 def _validar_minutos_config(
@@ -860,7 +855,13 @@ def _validar_minutos_config(
             raise ValueError(f"El valor de {nombre} no puede exceder 1440 minutos")
 
 
-def _normalizar_dias_horario(dias: list[dict], descuento_comida_min: int) -> list[dict]:
+def _normalizar_dias_horario(
+    dias: list[dict],
+    descuento_comida_min: int,
+    *,
+    margen_entrada_antes_min: int,
+    margen_salida_despues_min: int,
+) -> list[dict]:
     if len(dias) != 7:
         raise ValueError("Debes configurar los 7 dias de la semana")
     dias_by_index = {dia["dia_semana"]: dia for dia in dias}
@@ -871,7 +872,6 @@ def _normalizar_dias_horario(dias: list[dict], descuento_comida_min: int) -> lis
     for dia_semana in range(7):
         dia = dias_by_index[dia_semana]
         es_laboral = bool(dia.get("es_laboral"))
-        cruza_medianoche = bool(dia.get("cruza_medianoche")) if es_laboral else False
         if not es_laboral:
             normalizados.append({
                 "dia_semana": dia_semana,
@@ -880,14 +880,23 @@ def _normalizar_dias_horario(dias: list[dict], descuento_comida_min: int) -> lis
                 "minutos_programados": 0,
                 "cruza_medianoche": False,
                 "es_laboral": False,
+                "descuento_comida_min": 0,
             })
             continue
 
         entrada = _parse_hora(dia.get("hora_entrada"), f"entrada de {DIAS_SEMANA[dia_semana]['nombre']}")
         salida = _parse_hora(dia.get("hora_salida"), f"salida de {DIAS_SEMANA[dia_semana]['nombre']}")
-        minutos_programados = _calcular_minutos_programados(
-            entrada, salida, cruza_medianoche, descuento_comida_min
+        cruza_medianoche = _calcular_cruza_medianoche(
+            entrada,
+            salida,
+            DIAS_SEMANA[dia_semana]["nombre"],
         )
+        comida_dia = _parse_minutos_dia(
+            dia.get("descuento_comida_min"),
+            f"comida de {DIAS_SEMANA[dia_semana]['nombre']}",
+            descuento_comida_min,
+        )
+        minutos_programados = _calcular_minutos_programados(entrada, salida, comida_dia)
         normalizados.append({
             "dia_semana": dia_semana,
             "hora_entrada": entrada,
@@ -895,7 +904,13 @@ def _normalizar_dias_horario(dias: list[dict], descuento_comida_min: int) -> lis
             "minutos_programados": minutos_programados,
             "cruza_medianoche": cruza_medianoche,
             "es_laboral": True,
+            "descuento_comida_min": comida_dia,
         })
+    _validar_ventanas_no_traslapadas(
+        normalizados,
+        margen_entrada_antes_min=margen_entrada_antes_min,
+        margen_salida_despues_min=margen_salida_despues_min,
+    )
     return normalizados
 
 
@@ -914,36 +929,126 @@ def _parse_hora(value: str | None, campo: str) -> time:
         raise ValueError(f"La hora de {campo} no es valida") from exc
 
 
+def _parse_minutos_dia(value: object, campo: str, default: int) -> int:
+    if value is None or value == "":
+        valor = default
+    else:
+        try:
+            valor = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"El valor de {campo} no es valido") from exc
+    if valor < 0:
+        raise ValueError(f"El valor de {campo} no puede ser negativo")
+    if valor > 1440:
+        raise ValueError(f"El valor de {campo} no puede exceder 1440 minutos")
+    return valor
+
+
+def _minutos_hora(value: time) -> int:
+    return value.hour * 60 + value.minute
+
+
+def _calcular_cruza_medianoche(entrada: time, salida: time, dia_nombre: str) -> bool:
+    entrada_min = _minutos_hora(entrada)
+    salida_min = _minutos_hora(salida)
+    if salida_min == entrada_min:
+        raise ValueError(f"La entrada y salida de {dia_nombre} no pueden ser iguales")
+    return salida_min < entrada_min
+
+
 def _calcular_minutos_programados(
     entrada: time,
     salida: time,
-    cruza_medianoche: bool,
     descuento_comida_min: int,
 ) -> int:
-    entrada_min = entrada.hour * 60 + entrada.minute
-    salida_min = salida.hour * 60 + salida.minute
-    if salida_min <= entrada_min:
-        if not cruza_medianoche:
-            raise ValueError("La salida debe ser mayor a la entrada si no cruza medianoche")
-        salida_min += 24 * 60
+    entrada_min = _minutos_hora(entrada)
+    salida_min = _minutos_hora(salida)
+    if salida_min < entrada_min:
+        salida_min += MINUTOS_DIA
     duracion = salida_min - entrada_min
     if descuento_comida_min >= duracion:
         raise ValueError("El descuento de comida no puede ser mayor o igual a la jornada")
     return duracion - descuento_comida_min
 
 
-async def _recalcular_sucursales_reciente(conn, sucursal_ids: set[UUID], days: int = 7) -> int:
-    from modules.asistencia.service import recalcular_asistencia
+def _inicio_ventana_semana(dia: dict, dia_offset: int, margen_entrada_antes_min: int) -> int:
+    return dia_offset * MINUTOS_DIA + _minutos_hora(dia["hora_entrada"]) - margen_entrada_antes_min
 
-    hoy = today_mx()
-    targets = []
-    for sucursal_id in sucursal_ids:
-        usuarios = await rrhh_db.get_usuarios_asistencia_por_sucursal(conn, sucursal_id)
-        for usuario_id in usuarios:
-            for offset in range(days):
-                targets.append((usuario_id, hoy - timedelta(days=offset)))
-    if not targets:
+
+def _fin_ventana_semana(dia: dict, dia_offset: int, margen_salida_despues_min: int) -> int:
+    salida_min = _minutos_hora(dia["hora_salida"])
+    ajuste_cruce = MINUTOS_DIA if dia["cruza_medianoche"] else 0
+    return dia_offset * MINUTOS_DIA + salida_min + ajuste_cruce + margen_salida_despues_min
+
+
+def _validar_ventanas_no_traslapadas(
+    dias: list[dict],
+    *,
+    margen_entrada_antes_min: int,
+    margen_salida_despues_min: int,
+) -> None:
+    dias_by_index = {dia["dia_semana"]: dia for dia in dias if dia["es_laboral"]}
+    for dia_semana in range(7):
+        actual = dias_by_index.get(dia_semana)
+        siguiente_idx = (dia_semana + 1) % 7
+        siguiente = dias_by_index.get(siguiente_idx)
+        if not actual or not siguiente:
+            continue
+
+        fin_actual = _fin_ventana_semana(actual, dia_semana, margen_salida_despues_min)
+        inicio_siguiente = _inicio_ventana_semana(
+            siguiente,
+            dia_semana + 1,
+            margen_entrada_antes_min,
+        )
+
+        if fin_actual >= inicio_siguiente:
+            dia_actual = DIAS_SEMANA[dia_semana]["nombre"]
+            dia_siguiente = DIAS_SEMANA[siguiente_idx]["nombre"]
+            logger.warning(
+                "Ventanas de horario traslapadas",
+                extra={
+                    "dia_actual": dia_actual,
+                    "dia_siguiente": dia_siguiente,
+                    "fin_actual": _format_minuto_semana(fin_actual),
+                    "inicio_siguiente": _format_minuto_semana(inicio_siguiente),
+                    "hora_entrada_actual": actual["hora_entrada"].isoformat(timespec="minutes"),
+                    "hora_salida_actual": actual["hora_salida"].isoformat(timespec="minutes"),
+                    "hora_entrada_siguiente": siguiente["hora_entrada"].isoformat(timespec="minutes"),
+                    "hora_salida_siguiente": siguiente["hora_salida"].isoformat(timespec="minutes"),
+                    "margen_entrada_antes_min": margen_entrada_antes_min,
+                    "margen_salida_despues_min": margen_salida_despues_min,
+                },
+            )
+            raise ValueError(
+                f"La ventana del {dia_actual} se cruza con la ventana del {dia_siguiente}. "
+                "Reduce el margen de salida o el margen de entrada para evitar que una checada "
+                "pueda pertenecer a dos dias."
+            )
+
+
+def _format_minuto_semana(minutos_abs: int) -> str:
+    dia_offset = minutos_abs // MINUTOS_DIA
+    minuto_dia = minutos_abs % MINUTOS_DIA
+    dia = DIAS_SEMANA[dia_offset % 7]["nombre"]
+    suffix = " siguiente" if dia_offset >= 7 else ""
+    return f"{dia}{suffix} {minuto_dia // 60:02d}:{minuto_dia % 60:02d}"
+
+
+async def _recalcular_sucursales_completo(conn, sucursal_ids: set[UUID]) -> int:
+    usuarios = await rrhh_db.get_usuarios_asistencia_por_sucursales(conn, list(sucursal_ids))
+    if not usuarios:
         return 0
+    bounds = await asistencia_db.get_recalculo_bounds(conn, usuarios)
+    if not bounds:
+        return 0
+    fecha_inicio = bounds["fecha_inicio"]
+    fecha_fin = max(bounds["fecha_fin"], today_mx())
+    targets = [
+        (usuario_id, fecha_inicio + timedelta(days=offset))
+        for usuario_id in usuarios
+        for offset in range((fecha_fin - fecha_inicio).days + 1)
+    ]
     await recalcular_asistencia(conn, targets)
     return len(targets)
 
@@ -962,6 +1067,7 @@ async def get_reportes_ctx(conn) -> dict:
         "usuarios": await vac_db.get_usuarios_activos_simples(conn),
         "sucursales": await asistencia_db.get_sucursales(conn),
         "estados_asistencia": ASISTENCIA_ESTADOS,
+        "estados_asistencia_labels": ASISTENCIA_ESTADO_LABELS,
         "estados_vacaciones": list(ESTADOS_SOLICITUD),
     }
 

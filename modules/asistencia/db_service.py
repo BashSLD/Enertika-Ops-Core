@@ -79,8 +79,8 @@ async def get_employee_map(conn, emp_codes: list[str]) -> dict[str, dict]:
         )
         SELECT
             c.code,
-            COALESCE(m.usuario_id, ed.usuario_id) AS usuario_id,
-            COALESCE(m.sucursal_id, ed.sucursal_id) AS sucursal_id
+            m.usuario_id,
+            m.sucursal_id
         FROM codes c
         LEFT JOIN LATERAL (
             SELECT usuario_id, sucursal_id
@@ -89,8 +89,6 @@ async def get_employee_map(conn, emp_codes: list[str]) -> dict[str, dict]:
             ORDER BY updated_at DESC
             LIMIT 1
         ) m ON true
-        LEFT JOIN tb_empleados_datos ed
-            ON (ed.biotime_emp_code = c.code OR ed.numero_empleado = c.code)
         """,
         emp_codes,
     )
@@ -105,6 +103,7 @@ async def upsert_biotime_employee_mappings(conn, employees: list[dict]) -> list[
         WITH incoming_raw AS (
             SELECT *
             FROM jsonb_to_recordset($1::jsonb) AS x(
+                biotime_emp_id INTEGER,
                 biotime_emp_code TEXT,
                 biotime_pin TEXT,
                 email TEXT,
@@ -115,6 +114,7 @@ async def upsert_biotime_employee_mappings(conn, employees: list[dict]) -> list[
         ),
         incoming AS (
             SELECT DISTINCT ON (biotime_emp_code)
+                biotime_emp_id,
                 NULLIF(TRIM(biotime_emp_code), '') AS biotime_emp_code,
                 NULLIF(TRIM(biotime_pin), '') AS biotime_pin,
                 NULLIF(LOWER(TRIM(email)), '') AS email,
@@ -125,41 +125,50 @@ async def upsert_biotime_employee_mappings(conn, employees: list[dict]) -> list[
             WHERE NULLIF(TRIM(biotime_emp_code), '') IS NOT NULL
             ORDER BY biotime_emp_code
         ),
+        unique_users AS (
+            SELECT LOWER(TRIM(email)) AS email, (ARRAY_AGG(id_usuario ORDER BY id_usuario::text))[1] AS usuario_id
+            FROM tb_usuarios
+            WHERE is_active = true
+              AND NULLIF(TRIM(email), '') IS NOT NULL
+            GROUP BY LOWER(TRIM(email))
+            HAVING COUNT(*) = 1
+        ),
         matched AS (
             SELECT
                 i.*,
-                COALESCE(u_email.id_usuario, ed_code.usuario_id) AS usuario_id,
-                CASE
-                    WHEN u_email.id_usuario IS NOT NULL THEN 'email'
-                    WHEN ed_code.usuario_id IS NOT NULL THEN 'codigo'
-                    ELSE NULL
-                END AS matched_by
+                u.usuario_id,
+                'email'::text AS matched_by
             FROM incoming i
-            LEFT JOIN tb_usuarios u_email
-                ON i.email IS NOT NULL
-               AND LOWER(u_email.email) = i.email
-               AND u_email.is_active = true
-            LEFT JOIN tb_empleados_datos ed_code
-                ON ed_code.biotime_emp_code = i.biotime_emp_code
-                OR ed_code.numero_empleado = i.biotime_emp_code
-            WHERE COALESCE(u_email.id_usuario, ed_code.usuario_id) IS NOT NULL
+            JOIN unique_users u ON u.email = i.email
+            WHERE i.email IS NOT NULL
         ),
         ranked AS (
             SELECT
                 matched.*,
                 ROW_NUMBER() OVER (
                     PARTITION BY usuario_id
-                    ORDER BY CASE WHEN matched_by = 'email' THEN 0 ELSE 1 END, biotime_emp_code
+                    ORDER BY biotime_emp_code
                 ) AS user_rank
             FROM matched
+        ),
+        empleado_rows AS (
+            INSERT INTO tb_empleados_datos
+                (usuario_id, biotime_emp_code, updated_at)
+            SELECT usuario_id, biotime_emp_code, now()
+            FROM ranked
+            WHERE user_rank = 1
+            ON CONFLICT (usuario_id) DO UPDATE SET
+                biotime_emp_code = EXCLUDED.biotime_emp_code,
+                updated_at = now()
+            RETURNING id, usuario_id, sucursal_id
         ),
         to_upsert AS (
             SELECT
                 r.*,
-                ed.id AS empleado_datos_id,
-                ed.sucursal_id
+                er.id AS empleado_datos_id,
+                er.sucursal_id
             FROM ranked r
-            LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = r.usuario_id
+            LEFT JOIN empleado_rows er ON er.usuario_id = r.usuario_id
             WHERE r.user_rank = 1
         ),
         deactivated AS (
@@ -173,29 +182,39 @@ async def upsert_biotime_employee_mappings(conn, employees: list[dict]) -> list[
             RETURNING m.id
         )
         INSERT INTO tb_biotime_empleado_map
-            (usuario_id, empleado_datos_id, biotime_emp_code, biotime_pin,
-             biotime_deptnumber, biotime_deptname, sucursal_id, activo, updated_at)
+            (usuario_id, empleado_datos_id, biotime_emp_id, biotime_emp_code,
+             biotime_pin, biotime_email, match_source, biotime_deptnumber,
+             biotime_deptname, sucursal_id, activo, updated_at, last_seen_at)
         SELECT
             usuario_id,
             empleado_datos_id,
+            biotime_emp_id,
             biotime_emp_code,
             COALESCE(biotime_pin, biotime_emp_code),
+            email,
+            matched_by,
             biotime_deptnumber,
             biotime_deptname,
             sucursal_id,
             true,
+            now(),
             now()
         FROM to_upsert
         ON CONFLICT (biotime_emp_code) WHERE activo = true
         DO UPDATE SET
             usuario_id = EXCLUDED.usuario_id,
             empleado_datos_id = EXCLUDED.empleado_datos_id,
+            biotime_emp_id = EXCLUDED.biotime_emp_id,
             biotime_pin = EXCLUDED.biotime_pin,
+            biotime_email = EXCLUDED.biotime_email,
+            match_source = EXCLUDED.match_source,
             biotime_deptnumber = EXCLUDED.biotime_deptnumber,
             biotime_deptname = EXCLUDED.biotime_deptname,
             sucursal_id = COALESCE(EXCLUDED.sucursal_id, tb_biotime_empleado_map.sucursal_id),
-            updated_at = now()
-        RETURNING usuario_id, biotime_emp_code, biotime_pin, biotime_deptnumber, biotime_deptname
+            updated_at = now(),
+            last_seen_at = now()
+        RETURNING usuario_id, biotime_emp_id, biotime_emp_code, biotime_pin,
+                  biotime_email, match_source, biotime_deptnumber, biotime_deptname
         """,
         json.dumps(employees, default=str),
     )
@@ -244,13 +263,27 @@ async def insert_checks_batch(conn, checks: list[dict]) -> list[dict]:
             WHERE biotime_emp_code IS NOT NULL
               AND check_time IS NOT NULL
             ON CONFLICT DO NOTHING
-            RETURNING usuario_id, check_time
+            RETURNING usuario_id, check_time, biotime_emp_code
         )
-        SELECT usuario_id, check_time
+        SELECT usuario_id, check_time, biotime_emp_code
         FROM inserted
-        WHERE usuario_id IS NOT NULL
         """,
         json.dumps(checks, default=str),
+    )
+    return [dict(row) for row in rows]
+
+
+async def assign_unmapped_checks_from_mappings(conn) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        UPDATE tb_biotime_checks c
+        SET usuario_id = m.usuario_id
+        FROM tb_biotime_empleado_map m
+        WHERE c.usuario_id IS NULL
+          AND m.activo = true
+          AND m.biotime_emp_code = c.biotime_emp_code
+        RETURNING c.usuario_id, c.check_time, c.biotime_emp_code
+        """
     )
     return [dict(row) for row in rows]
 
@@ -270,7 +303,7 @@ async def get_attendance_contexts(conn, usuario_ids: list[UUID]) -> list[dict]:
             h.margen_entrada_antes_min,
             h.margen_salida_despues_min,
             h.tolerancia_extra_min,
-            h.descuento_comida_min,
+            COALESCE(d.descuento_comida_min, h.descuento_comida_min, 0) AS descuento_comida_min,
             d.id AS dia_id,
             d.dia_semana,
             d.hora_entrada,
@@ -382,6 +415,43 @@ async def get_active_attendance_users(conn) -> list[UUID]:
     return [row["id_usuario"] for row in rows]
 
 
+async def get_recalculo_bounds(conn, usuario_ids: list[UUID]) -> dict | None:
+    if not usuario_ids:
+        return None
+    row = await conn.fetchrow(
+        """
+        WITH checks_bounds AS (
+            SELECT
+                MIN((check_time AT TIME ZONE 'America/Mexico_City')::date) AS fecha_inicio,
+                MAX((check_time AT TIME ZONE 'America/Mexico_City')::date) AS fecha_fin
+            FROM tb_biotime_checks
+            WHERE usuario_id = ANY($1::uuid[])
+        ),
+        asistencia_bounds AS (
+            SELECT
+                MIN(fecha_laboral) AS fecha_inicio,
+                MAX(fecha_laboral) AS fecha_fin
+            FROM tb_asistencia_diaria
+            WHERE usuario_id = ANY($1::uuid[])
+        )
+        SELECT
+            (
+                SELECT MIN(fecha)
+                FROM (VALUES (checks_bounds.fecha_inicio), (asistencia_bounds.fecha_inicio)) AS v(fecha)
+            ) AS fecha_inicio,
+            (
+                SELECT MAX(fecha)
+                FROM (VALUES (checks_bounds.fecha_fin), (asistencia_bounds.fecha_fin)) AS v(fecha)
+            ) AS fecha_fin
+        FROM checks_bounds, asistencia_bounds
+        """,
+        usuario_ids,
+    )
+    if not row or not row["fecha_inicio"] or not row["fecha_fin"]:
+        return None
+    return dict(row)
+
+
 async def get_sucursales(conn) -> list[dict]:
     rows = await conn.fetch(
         """
@@ -484,6 +554,36 @@ async def get_reporte_asistencia(
         sucursal_id,
         estado,
         solo_horas_extra,
+    )
+    return [dict(row) for row in rows]
+
+
+async def get_unmapped_biotime_checks_summary(
+    conn,
+    *,
+    fecha_inicio: date,
+    fecha_fin: date,
+    limit: int = 50,
+) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT
+            c.biotime_emp_code,
+            MAX(c.deptname) AS deptname,
+            COUNT(*)::int AS total,
+            MIN(c.check_time) AS primera_checada,
+            MAX(c.check_time) AS ultima_checada
+        FROM tb_biotime_checks c
+        WHERE c.usuario_id IS NULL
+          AND (c.check_time AT TIME ZONE 'America/Mexico_City')::date >= $1
+          AND (c.check_time AT TIME ZONE 'America/Mexico_City')::date <= $2
+        GROUP BY c.biotime_emp_code
+        ORDER BY ultima_checada DESC
+        LIMIT $3
+        """,
+        fecha_inicio,
+        fecha_fin,
+        limit,
     )
     return [dict(row) for row in rows]
 
