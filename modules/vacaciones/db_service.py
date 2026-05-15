@@ -305,7 +305,7 @@ async def upsert_empleado_datos(
     puesto: Optional[str],
     departamento: Optional[str],
     id_aprobador_vacaciones: Optional[UUID],
-    dias_vacaciones_ajuste: int,
+    dias_vacaciones_ajuste: Optional[int],
     sucursal_id: Optional[UUID],
     updated_by: UUID,
 ) -> dict:
@@ -321,7 +321,7 @@ async def upsert_empleado_datos(
             puesto                    = EXCLUDED.puesto,
             departamento              = EXCLUDED.departamento,
             id_aprobador_vacaciones   = EXCLUDED.id_aprobador_vacaciones,
-            dias_vacaciones_ajuste    = EXCLUDED.dias_vacaciones_ajuste,
+            dias_vacaciones_ajuste    = COALESCE(EXCLUDED.dias_vacaciones_ajuste, tb_empleados_datos.dias_vacaciones_ajuste),
             sucursal_id               = EXCLUDED.sucursal_id,
             updated_by                = EXCLUDED.updated_by,
             updated_at                = now()

@@ -1346,7 +1346,7 @@ async def guardar_empleado(
     puesto: str | None,
     departamento: str | None,
     id_aprobador_vacaciones: UUID | None,
-    dias_vacaciones_ajuste: int,
+    dias_vacaciones_ajuste: int | None,
     sucursal_id: UUID | None,
     jefes_ids: list[UUID],
     updated_by: UUID,

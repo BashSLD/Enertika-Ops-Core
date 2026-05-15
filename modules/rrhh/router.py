@@ -469,7 +469,7 @@ async def empleado_guardar(
     departamento: Optional[str] = Form(None),
     sucursal_id: Optional[UUID] = Form(None),
     id_aprobador_vacaciones: Optional[UUID] = Form(None),
-    dias_vacaciones_ajuste: int = Form(0),
+    dias_vacaciones_ajuste: Optional[int] = Form(None),
     jefes_ids: List[UUID] = Form(default=[]),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),

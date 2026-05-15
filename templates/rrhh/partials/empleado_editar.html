@@ -4,29 +4,36 @@
   hx-swap="none"
   class="space-y-4">
 
-  <p class="text-sm font-semibold text-gray-800">{{ usuario.nombre }}</p>
-  <p class="text-xs text-gray-400 -mt-3">{{ usuario.email }}</p>
-
-  <div class="grid grid-cols-2 gap-4">
+  <div class="grid grid-cols-2 gap-4 items-end">
     <div>
-      <label class="block text-xs font-medium text-gray-600 mb-1">No. Empleado</label>
+      <label class="block text-xs font-medium text-gray-600 mb-1">No. empleado (IMSS)</label>
       <input type="text" name="numero_empleado"
-        value="{{ empleado.numero_empleado if empleado else '' }}"
+        value="{{ empleado.numero_empleado or '' if empleado else '' }}"
+        placeholder="Sin número asignado"
         class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+    </div>
+    <div class="pb-2">
+      <p class="text-sm font-semibold text-gray-800">{{ usuario.nombre }}</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-2 gap-4 items-center">
+    <div>
       {% if empleado and empleado.biotime_emp_code %}
-      <div class="mt-3">
-        <label class="block text-xs font-medium text-gray-600 mb-1">Código BioTime</label>
-        <p class="text-sm text-gray-400 px-3 py-2 bg-gray-50 rounded-xl">{{ empleado.biotime_emp_code }}</p>
-        <p class="text-xs text-gray-400 mt-1">Sincronizado desde BioTime. No editable.</p>
-      </div>
+      <label class="block text-xs font-medium text-gray-600 mb-1">Código BioTime</label>
+      <p class="text-sm text-gray-400 px-3 py-2 bg-gray-50 rounded-xl">{{ empleado.biotime_emp_code }}</p>
       {% endif %}
     </div>
     <div>
-      <label class="block text-xs font-medium text-gray-600 mb-1">Fecha de contratación</label>
-      <input type="date" name="fecha_contratacion"
-        value="{{ empleado.fecha_contratacion.strftime('%Y-%m-%d') if empleado and empleado.fecha_contratacion else '' }}"
-        class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+      <p class="text-xs text-gray-400">{{ usuario.email }}</p>
     </div>
+  </div>
+
+  <div>
+    <label class="block text-xs font-medium text-gray-600 mb-1">Fecha de contratación</label>
+    <input type="date" name="fecha_contratacion"
+      value="{{ empleado.fecha_contratacion.strftime('%Y-%m-%d') if empleado and empleado.fecha_contratacion else '' }}"
+      class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
   </div>
 
   <div class="grid grid-cols-2 gap-4">
@@ -56,14 +63,6 @@
       </option>
       {% endfor %}
     </select>
-  </div>
-
-  <div>
-    <label class="block text-xs font-medium text-gray-600 mb-1">Días de ajuste de vacaciones</label>
-    <input type="number" name="dias_vacaciones_ajuste" min="-30" max="30"
-      value="{{ empleado.dias_vacaciones_ajuste if empleado else 0 }}"
-      class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
-    <p class="text-xs text-gray-400 mt-1">Suma o resta días al cálculo base según LFT.</p>
   </div>
 
   <div>
