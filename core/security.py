@@ -95,10 +95,7 @@ async def get_current_user_context(
         "is_admin": (role == 'ADMIN'),
         "role": role,
         "department": db_dept,
-<<<<<<< HEAD
-=======
         "puesto": db_puesto,
->>>>>>> feature/vacaciones
         "modulo_preferido": modulo_preferido,
         "module_roles": module_roles,  # Nueva: Dict {slug: rol}
         "user_db_id": user_db_id,
