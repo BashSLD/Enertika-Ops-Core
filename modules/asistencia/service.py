@@ -85,10 +85,11 @@ async def sync_biotime_once(conn, *, force: bool = False) -> dict:
                 endtime=window_end,
                 page_size=page_size,
             )
-            employee_sync = await _sync_employee_mappings_from_biotime(conn, client, items)
+            employee_sync = await _sync_employee_mappings_from_biotime(conn, client)
         normalized = await _normalize_transactions(conn, items)
         inserted = await db.insert_checks_batch(conn, normalized)
-        affected_targets = _targets_from_inserted(inserted)
+        reassigned = await db.assign_unmapped_checks_from_mappings(conn)
+        affected_targets = _targets_from_inserted(inserted + reassigned)
 
         if affected_targets:
             await recalcular_asistencia(conn, affected_targets)
@@ -105,12 +106,22 @@ async def sync_biotime_once(conn, *, force: bool = False) -> dict:
             records_inserted=len(inserted),
             records_skipped=max(0, len(normalized) - len(inserted)),
         )
+        unmapped = await db.get_unmapped_biotime_checks_summary(
+            conn,
+            fecha_inicio=ensure_mx(window_start).date(),
+            fecha_fin=ensure_mx(window_end).date(),
+        )
+        insert_metrics = _check_insert_metrics(inserted)
         return {
             "status": "success",
             "records_read": len(items),
             "records_inserted": len(inserted),
             "records_skipped": max(0, len(normalized) - len(inserted)),
+            **insert_metrics,
+            "historical_checks_mapped": len(reassigned),
             "affected_targets": len(affected_targets),
+            "unmapped_biotime_codes": [row["biotime_emp_code"] for row in unmapped],
+            "unmapped_biotime_count": sum(row["total"] for row in unmapped),
             **employee_sync,
         }
     except (httpx.HTTPError, ValueError, TypeError, RuntimeError) as exc:
@@ -199,11 +210,12 @@ async def backfill_biotime_chunk(
                 endtime=window_end,
                 page_size=page_size,
             )
-            employee_sync = await _sync_employee_mappings_from_biotime(conn, client, items)
+            employee_sync = await _sync_employee_mappings_from_biotime(conn, client)
 
         normalized = await _normalize_transactions(conn, items)
         inserted = await db.insert_checks_batch(conn, normalized)
-        targets = _targets_from_inserted(inserted)
+        reassigned = await db.assign_unmapped_checks_from_mappings(conn)
+        targets = _targets_from_inserted(inserted + reassigned)
 
         if targets:
             await recalcular_asistencia(conn, targets)
@@ -218,11 +230,20 @@ async def backfill_biotime_chunk(
             records_inserted=len(inserted),
             records_skipped=max(0, len(normalized) - len(inserted)),
         )
+        unmapped = await db.get_unmapped_biotime_checks_summary(
+            conn,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+        )
         return {
             "chunk_label": chunk_label,
             "records_read": len(items),
             "records_inserted": len(inserted),
             "records_skipped": max(0, len(normalized) - len(inserted)),
+            **_check_insert_metrics(inserted),
+            "historical_checks_mapped": len(reassigned),
+            "unmapped_biotime_codes": [row["biotime_emp_code"] for row in unmapped],
+            "unmapped_biotime_count": sum(row["total"] for row in unmapped),
             "targets_recalculated": len(targets),
             **employee_sync,
         }
@@ -239,15 +260,15 @@ async def backfill_biotime_chunk(
 
 async def _normalize_transactions(conn, items: list[dict[str, Any]]) -> list[dict]:
     emp_codes = sorted({
-        str(_first_value(item, "pin", "emp_code", "badgenumber", "employee_code") or "").strip()
+        str(_first_value(item, "emp_code", "pin", "badgenumber", "employee_code") or "").strip()
         for item in items
-        if _first_value(item, "pin", "emp_code", "badgenumber", "employee_code")
+        if _first_value(item, "emp_code", "pin", "badgenumber", "employee_code")
     })
     employee_map = await db.get_employee_map(conn, emp_codes)
     normalized: list[dict] = []
 
     for item in items:
-        emp_code = str(_first_value(item, "pin", "emp_code", "badgenumber", "employee_code") or "").strip()
+        emp_code = str(_first_value(item, "emp_code", "pin", "badgenumber", "employee_code") or "").strip()
         raw_time = _first_value(item, "transaction_punch_time", "checktime", "punch_time", "check_time")
         punch_date = item.get("transaction_punch_date")
         if raw_time and punch_date and ":" in str(raw_time) and "-" not in str(raw_time):
@@ -263,7 +284,7 @@ async def _normalize_transactions(conn, items: list[dict[str, Any]]) -> list[dic
             "usuario_id": str(mapping["usuario_id"]) if mapping.get("usuario_id") else None,
             "check_time": check_time.isoformat(),
             "punch_state": _string_or_none(_first_value(item, "stateno", "punch_state", "state")),
-            "verify_type": _string_or_none(_first_value(item, "verify", "verify_type")),
+            "verify_type": _string_or_none(_first_value(item, "verify_type", "verify")),
             "terminal_sn": _string_or_none(_first_value(item, "sn", "terminal_sn")),
             "terminal_alias": _string_or_none(_first_value(item, "alias", "terminal_alias")),
             "deptnumber": _string_or_none(item.get("deptnumber")),
@@ -276,15 +297,7 @@ async def _normalize_transactions(conn, items: list[dict[str, Any]]) -> list[dic
 async def _sync_employee_mappings_from_biotime(
     conn,
     client: BioTimeClient,
-    items: list[dict[str, Any]],
 ) -> dict:
-    has_employee_codes = any(
-        _first_value(item, "pin", "emp_code", "badgenumber", "employee_code")
-        for item in items
-    )
-    if not has_employee_codes:
-        return {"employees_read": 0, "employee_mappings": 0}
-
     try:
         employees = await client.fetch_employees()
     except (httpx.HTTPError, ValueError, TypeError) as exc:
@@ -301,15 +314,18 @@ async def _sync_employee_mappings_from_biotime(
 
 
 def _normalize_biotime_employee(item: dict[str, Any]) -> dict | None:
-    emp_code = _string_or_none(_first_value(item, "pin", "emp_code", "userpin", "badgenumber", "employee_code"))
+    emp_code = _string_or_none(_first_value(item, "emp_code", "pin", "userpin", "badgenumber", "employee_code"))
     if not emp_code:
         return None
     first = _string_or_none(_first_value(item, "first_name", "name", "username", "ename"))
     last = _string_or_none(_first_value(item, "last_name", "surname"))
     nombre = " ".join(part for part in [first, last] if part) or None
-    dept_name = _string_or_none(_first_value(item, "department", "dept_name", "deptname", "department_name"))
-    dept_code = _string_or_none(_first_value(item, "dept_code", "deptnumber", "department_code"))
+    dept_name = _string_or_none(_first_value(
+        item, "employee_department", "department", "dept_name", "deptname", "department_name",
+    ))
+    dept_code = _string_or_none(_first_value(item, "dept_code", "deptnumber", "department_code", "department_id"))
     return {
+        "biotime_emp_id": _safe_int(item.get("id")),
         "biotime_emp_code": emp_code,
         "biotime_pin": _string_or_none(_first_value(item, "pin", "userpin", "emp_code")),
         "email": _normalize_email(_first_value(item, "email", "mail")),
@@ -351,6 +367,15 @@ def _safe_int(value: Any) -> int | None:
 def _max_transaction_id(rows: list[dict]) -> int | None:
     values = [row["biotime_transaction_id"] for row in rows if row.get("biotime_transaction_id")]
     return max(values) if values else None
+
+
+def _check_insert_metrics(rows: list[dict]) -> dict:
+    mapped = sum(1 for row in rows if row.get("usuario_id"))
+    unmapped = len(rows) - mapped
+    return {
+        "records_inserted_mapped": mapped,
+        "records_inserted_unmapped": unmapped,
+    }
 
 
 def _targets_from_inserted(inserted: list[dict]) -> list[tuple[UUID, date]]:
@@ -425,6 +450,8 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
             schedule=schedule,
             tiene_vacaciones=solicitud_id is not None,
             es_feriado=fecha_laboral in festivos,
+            fecha_laboral=fecha_laboral,
+            now=calculated_at,
         )
         rows_to_save.append({
             "usuario_id": usuario_id,
