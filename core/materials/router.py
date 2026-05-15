@@ -109,7 +109,7 @@ async def get_materials_ui(
         "estadisticas": estadisticas,
     }
 
-    if request.headers.get("hx-request"):
+    if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
         template = "materials/partials/content.html"
     else:
         template = "materials/dashboard.html"

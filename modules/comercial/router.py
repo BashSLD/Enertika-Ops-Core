@@ -887,7 +887,7 @@ async def get_paso3_email_form(
             status_code=200
         )
 
-    template = "comercial/email_form.html" if request.headers.get("hx-request") else "comercial/email_full.html"
+    template = "comercial/email_form.html" if (request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request")) else "comercial/email_full.html"
 
     # Buscar correos de usuarios activos en el sistema para la lista desplegable
     system_users = await conn.fetch("SELECT email, nombre FROM tb_usuarios WHERE is_active = TRUE AND email IS NOT NULL AND email != '' ORDER BY nombre")
