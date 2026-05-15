@@ -222,7 +222,8 @@ async def descargar_pdf(
         raise HTTPException(status_code=400, detail="Los registros historicos no generan PDF.")
     es_dueno = solicitud["usuario_id"] == usuario_id
     es_aprobador = await service.puede_aprobar(conn, solicitud_id, usuario_id, context)
-    if not es_dueno and not es_aprobador:
+    es_rh = user_has_module_access("rrhh", context, "editor")
+    if not es_dueno and not es_aprobador and not es_rh:
         raise HTTPException(403)
 
     pdf_bytes = await service.generar_pdf_solicitud(conn, solicitud_id)

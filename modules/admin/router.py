@@ -660,6 +660,21 @@ async def toggle_reporte_semanal_activo(
     )
 
 
+@router.post("/config/vacaciones-notificaciones", include_in_schema=False)
+async def update_config_vacaciones_notificaciones(
+    request: Request,
+    vacaciones_cco_emails: str = Form(""),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    _=require_module_access("admin"),
+):
+    await service.db.upsert_global_config(conn, "VACACIONES_CCO_EMAILS", vacaciones_cco_emails.strip())
+    ConfigService.invalidar_cache()
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {
+        "title": "Guardado", "message": "Correos CCO de vacaciones actualizados."
+    })
+
+
 @router.post("/config/sat-inbox", include_in_schema=False)
 async def update_config_sat_inbox(
     request: Request,

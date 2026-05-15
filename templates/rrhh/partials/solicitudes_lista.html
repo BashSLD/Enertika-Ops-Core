@@ -67,12 +67,24 @@
               {% endif %}
             </td>
             <td class="px-4 py-3 text-right">
-              <a hx-get="/vacaciones/solicitudes/{{ sol.id }}"
-                hx-target="#main-content"
-                hx-push-url="true"
-                class="text-[#00BABB] hover:text-[#009A9B] text-xs font-medium transition-colors cursor-pointer">
-                Ver
-              </a>
+              <div class="flex items-center justify-end gap-3">
+                <a hx-get="/vacaciones/solicitudes/{{ sol.id }}"
+                  hx-target="#main-content"
+                  hx-push-url="true"
+                  class="text-[#00BABB] hover:text-[#009A9B] text-xs font-medium transition-colors cursor-pointer">
+                  Ver
+                </a>
+                {% if sol.estado == 'aprobado' and not sol.es_migracion %}
+                <a href="/vacaciones/solicitudes/{{ sol.id }}/pdf" target="_blank"
+                  title="Descargar PDF"
+                  class="text-gray-400 hover:text-gray-600 transition-colors">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                  </svg>
+                </a>
+                {% endif %}
+              </div>
             </td>
           </tr>
           {% endfor %}

@@ -205,6 +205,8 @@ class AdminService:
             # Reporte Desarrollo CEO
             "reporte_desarrollo_ceo_email": config_dict.get("reporte_desarrollo_ceo_email") or "",
             "reporte_ceo_activo": config_dict.get("reporte_desarrollo_ceo_activo", "true").lower() == "true",
+            # Notificaciones Vacaciones
+            "vacaciones_cco_emails": config_dict.get("VACACIONES_CCO_EMAILS") or "",
         }
 
     async def update_global_config(self, conn, datos: ConfiguracionGlobalUpdate) -> None:

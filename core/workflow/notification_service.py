@@ -713,6 +713,10 @@ class NotificationService:
         template = self.templates.get_template(template_path)
         return template.render(**context)
     
+    async def _get_vacaciones_bcc_emails(self, conn) -> set[str]:
+        raw = await ConfigService.get_global_config(conn, "VACACIONES_CCO_EMAILS", "", str)
+        return {e.strip() for e in raw.split(",") if e.strip()}
+
     async def _send_email(
         self,
         to_emails: Set[str],
@@ -721,13 +725,15 @@ class NotificationService:
         html_body: str,
         sender_email: str,  # Email del usuario que ejecuta la accion
         attachments_files: Optional[list[dict]] = None,
+        bcc_emails: Optional[set[str]] = None,
     ) -> bool:
         """
         Envía email usando Application-only token de Microsoft Graph.
-        
+
         Args:
             to_emails: Destinatarios principales (TO)
             cc_emails: Correos en copia (CC)
+            bcc_emails: Correos en copia oculta (CCO)
             subject: Asunto del email
             html_body: Cuerpo del email en HTML
             sender_email: Email del usuario autenticado que ejecuta la accion (FROM)
@@ -748,19 +754,21 @@ class NotificationService:
                 return False
             
             # Enviar email via Microsoft Graph API
+            bcc = (bcc_emails or set()) - to_emails - cc_emails
             success, msg = await self.ms_auth.send_email_with_attachments(
                 access_token=app_token,
-                from_email=sender_email,  # Primero from_email
+                from_email=sender_email,
                 subject=subject,
                 body=html_body,
                 recipients=list(to_emails),
                 cc_recipients=list(cc_emails) if cc_emails else None,
+                bcc_recipients=list(bcc) if bcc else None,
                 importance="normal",
                 attachments_files=attachments_files,
             )
-            
+
             if success:
-                logger.info(f"[NOTIFY] Email enviado - TO: {len(to_emails)}, CC: {len(cc_emails)}")
+                logger.info("[NOTIFY] Email enviado - TO: %d, CC: %d, BCC: %d", len(to_emails), len(cc_emails), len(bcc))
                 return True
             else:
                 # Enmascarar PII en logs de error
@@ -893,9 +901,10 @@ class NotificationService:
             logger.error("[NOTIFY] Error en notify_vacation_request: %s", e, exc_info=True)
 
     async def notify_vacation_approved(self, conn, solicitud: dict) -> None:
-        """Notifica al solicitante + CC a RH cuando la solicitud es aprobada."""
+        """Notifica al solicitante + CC a RH + CCO configurado cuando la solicitud es aprobada."""
         try:
             cc = await self._get_rh_emails_cc(conn)
+            bcc = await self._get_vacaciones_bcc_emails(conn)
 
             html = self._render_template("shared/emails/vacaciones/solicitud_aprobada.html", {
                 "solicitante_nombre": solicitud["solicitante_nombre"],
@@ -927,6 +936,7 @@ class NotificationService:
                 html,
                 sender["email"],
                 attachments_files=attachments,
+                bcc_emails=bcc,
             )
 
             await self._save_and_broadcast(
@@ -946,9 +956,10 @@ class NotificationService:
             logger.error("[NOTIFY] Error en notify_vacation_approved: %s", e, exc_info=True)
 
     async def notify_vacation_rejected(self, conn, solicitud: dict, motivo: str) -> None:
-        """Notifica al solicitante + CC a RH cuando la solicitud es rechazada."""
+        """Notifica al solicitante + CC a RH + CCO configurado cuando la solicitud es rechazada."""
         try:
             cc = await self._get_rh_emails_cc(conn)
+            bcc = await self._get_vacaciones_bcc_emails(conn)
 
             html = self._render_template("shared/emails/vacaciones/solicitud_rechazada.html", {
                 "solicitante_nombre": solicitud["solicitante_nombre"],
@@ -961,7 +972,7 @@ class NotificationService:
                 "base_url": settings.APP_BASE_URL,
             })
             sender = await self._get_notification_sender(conn)
-            await self._send_email({solicitud["solicitante_email"]}, cc, f"Solicitud de ausencia no aprobada: {solicitud['tipo_nombre']}", html, sender["email"])
+            await self._send_email({solicitud["solicitante_email"]}, cc, f"Solicitud de ausencia no aprobada: {solicitud['tipo_nombre']}", html, sender["email"], bcc_emails=bcc)
 
             await self._save_and_broadcast(
                 conn=conn,
