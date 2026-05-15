@@ -187,7 +187,7 @@ def _periodos_migrables(
     )
     balance = calcular_balance(periodos, consumos_no_migracion)
     consumo_por_periodo = _sumar_consumos_por_periodo(consumos_no_migracion)
-    return [p for p in balance if not p.get("es_proximo")], consumo_por_periodo
+    return [p for p in balance if not p.get("expirado")], consumo_por_periodo
 
 
 async def _validar_rows_migracion(conn, raw_rows: list[dict]) -> list[dict]:
@@ -286,7 +286,7 @@ async def _validar_rows_migracion(conn, raw_rows: list[dict]) -> list[dict]:
                     errores.append(f"Periodo {num_periodo} no existe o aun no esta disponible")
                     continue
                 consumo_actual = consumo_no_migrado.get(num_periodo, 0)
-                if dias + consumo_actual > periodo["dias_otorgados"]:
+                if not periodo.get("es_proximo") and dias + consumo_actual > periodo["dias_otorgados"]:
                     errores.append(
                         f"Periodo {num_periodo}: {dias} dias excede el maximo disponible "
                         f"({max(0, periodo['dias_otorgados'] - consumo_actual)})"
@@ -296,7 +296,8 @@ async def _validar_rows_migracion(conn, raw_rows: list[dict]) -> list[dict]:
                 if dias > 0:
                     periodos_preview.append(_periodo_preview(periodo, dias, consumo_actual))
 
-            if total_dias + total_consumo_no_migrado > total_otorgado:
+            has_proximo = any(p.get("es_proximo") for p in disponibles)
+            if not has_proximo and total_dias + total_consumo_no_migrado > total_otorgado:
                 errores.append("La suma total excede los dias otorgados")
 
         resultado.append({
@@ -454,7 +455,7 @@ async def generar_plantilla_migracion(conn):
         ("No tomo nada en P2:",
          "Deja Periodo 2 en blanco. El sistema mostrara 14 dias disponibles en P2."),
         ("Empleado nuevo (menos de 1 anio):",
-         "Sus columnas de periodo apareceran bloqueadas. No hay nada que migrar aun."),
+         "El Periodo 1 aparece editable. Captura los dias que tomo como anticipo antes de que el sistema existiera."),
     ]
     for i, (concepto, explicacion) in enumerate(ejemplo_rows, start=24):
         instrucciones.row_dimensions[i].height = 20
@@ -549,6 +550,7 @@ async def generar_plantilla_migracion(conn):
 
             consumo_actual = consumo_no_migrado.get(num_periodo, 0)
             maximo = max(0, periodo["dias_otorgados"] - consumo_actual)
+            es_proximo = periodo.get("es_proximo", False)
             cell.value = migrado_por_periodo.get(num_periodo) or None
             cell.number_format = "0"
             cell.protection = Protection(locked=False)
@@ -556,10 +558,11 @@ async def generar_plantilla_migracion(conn):
             vencido = periodo.get("expirado")
             cell.comment = Comment(
                 f"{'PERIODO VENCIDO. ' if vencido else ''}"
+                f"{'ANTICIPO: El empleado aun no cumple aniversario. Captura los dias tomados anticipadamente.\n' if es_proximo else ''}"
                 f"Captura aqui cuantos dias tomo este empleado en este periodo ANTES de que el sistema existiera.\n"
                 f"Si no tomo ninguno, deja en blanco o pon 0.\n\n"
                 f"Dias otorgados en este periodo: {periodo['dias_otorgados']}\n"
-                f"Maximo que puedes capturar: {maximo}\n"
+                f"{'Sin limite maximo (son dias anticipados)' if es_proximo else f'Maximo que puedes capturar: {maximo}'}\n"
                 f"Aniversario del periodo: {periodo['fecha_aniversario']:%d/%m/%Y}\n"
                 f"Expira: {periodo['fecha_expiracion']:%d/%m/%Y}",
                 "Enertika",
