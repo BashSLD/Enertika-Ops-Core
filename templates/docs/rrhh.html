@@ -44,12 +44,12 @@
                 <div class="bg-green-50 border border-green-200 rounded-lg p-4">
                     <div class="text-xs font-bold text-green-600 uppercase tracking-wide mb-1">Número de Empleado</div>
                     <p class="text-sm text-gray-700 font-medium mb-1">Clave de nómina / IMSS</p>
-                    <p class="text-xs text-gray-500">Se registra manualmente en el perfil del empleado. Puede usarse como fallback para mapear checadas de BioTime si no hay emp_code.</p>
+                    <p class="text-xs text-gray-500">Se registra manualmente en el perfil del empleado. Es un dato interno de RH y no se usa para mapear checadas de BioTime.</p>
                 </div>
                 <div class="bg-amber-50 border border-amber-200 rounded-lg p-4">
                     <div class="text-xs font-bold text-amber-600 uppercase tracking-wide mb-1">Código BioTime (emp_code)</div>
                     <p class="text-sm text-gray-700 font-medium mb-1">ID en el dispositivo de checado</p>
-                    <p class="text-xs text-gray-500">Asignado por BioTime PRO. Es el identificador que aparece en las checadas. Se configura en el perfil o en el mapeo manual de Admin.</p>
+                    <p class="text-xs text-gray-500">Asignado por BioTime PRO. Se sincroniza automaticamente cuando el correo de BioTime coincide con el correo corporativo en ECO.</p>
                 </div>
             </div>
 
@@ -76,8 +76,8 @@
                     <p class="text-xs text-gray-500 mb-3">Sincronización periódica automática. También puede iniciarse manualmente desde Admin.</p>
                     <ul class="space-y-1 text-sm text-gray-600">
                         <li class="flex items-center gap-2"><span class="text-green-500">✓</span> Checadas (entrada / salida)</li>
-                        <li class="flex items-center gap-2"><span class="text-green-500">✓</span> Horario activo asignado</li>
-                        <li class="flex items-center gap-2"><span class="text-green-500">✓</span> Nombre y apellido (respaldo)</li>
+                        <li class="flex items-center gap-2"><span class="text-green-500">✓</span> Codigo BioTime (emp_code)</li>
+                        <li class="flex items-center gap-2"><span class="text-green-500">✓</span> Correo para mapeo automatico</li>
                     </ul>
                 </div>
             </div>
@@ -89,8 +89,8 @@
                         <span class="text-blue-600 font-bold text-sm">1°</span>
                     </span>
                     <div class="ml-8">
-                        <h5 class="text-sm font-bold text-gray-800">Mapeo manual en Admin</h5>
-                        <p class="text-xs text-gray-500">Admin → BioTime → Mapeo de empleados. Tiene prioridad absoluta.</p>
+                        <h5 class="text-sm font-bold text-gray-800">Correo corporativo</h5>
+                        <p class="text-xs text-gray-500">El correo de BioTime se normaliza y se compara contra el correo activo en ECO. Si coincide de forma unica, se crea el mapeo.</p>
                     </div>
                 </div>
                 <div class="relative">
@@ -98,8 +98,8 @@
                         <span class="text-indigo-600 font-bold text-sm">2°</span>
                     </span>
                     <div class="ml-8">
-                        <h5 class="text-sm font-bold text-gray-800">emp_code del perfil</h5>
-                        <p class="text-xs text-gray-500">Campo "Código BioTime" en RRHH → Empleados → perfil del empleado.</p>
+                        <h5 class="text-sm font-bold text-gray-800">Codigo BioTime sincronizado</h5>
+                        <p class="text-xs text-gray-500">Despues del match por correo, ECO guarda el emp_code en datos laborales y lo muestra como solo lectura en RRHH -> Empleados.</p>
                     </div>
                 </div>
                 <div class="relative">
@@ -107,14 +107,17 @@
                         <span class="text-gray-500 font-bold text-sm">3°</span>
                     </span>
                     <div class="ml-8">
-                        <h5 class="text-sm font-bold text-gray-800">Número de empleado (fallback)</h5>
-                        <p class="text-xs text-gray-500">Si el emp_code coincide con el número de empleado registrado en nómina. Solo si los anteriores no aplican.</p>
+                        <h5 class="text-sm font-bold text-gray-800">Excepciones visibles</h5>
+                        <p class="text-xs text-gray-500">Si no hay correo, no coincide o esta duplicado, la checada queda sin usuario y aparece en RRHH -> Asistencia.</p>
                     </div>
                 </div>
             </div>
 
             <div class="bg-amber-50 border-l-4 border-amber-400 p-4 rounded-r-lg">
-                <p class="text-sm text-amber-900"><strong>Si las checadas de un empleado no se reflejan:</strong> verifica que tenga un emp_code registrado o crea un mapeo manual en Admin → BioTime.</p>
+                <p class="text-sm text-amber-900"><strong>Si las checadas de un empleado no se reflejan:</strong> corrige el correo del empleado en BioTime o ECO y vuelve a sincronizar. No uses el numero de empleado como sustituto del codigo BioTime.</p>
+            </div>
+            <div class="bg-blue-50 border-l-4 border-blue-400 p-4 rounded-r-lg mt-3">
+                <p class="text-sm text-blue-900">El reporte Excel de asistencia agrega una hoja <strong>Checadas sin mapear</strong> cuando existen codigos BioTime sin empleado asociado en el rango.</p>
             </div>
         </div>
 
@@ -142,17 +145,17 @@
                     <span class="text-2xl mt-0.5">🌙</span>
                     <div>
                         <h4 class="font-bold text-gray-800">¿Qué es "Cruza medianoche"?</h4>
-                        <p class="text-sm text-gray-600 mt-1">Es la opción para turnos que <strong>inician un día y terminan al siguiente</strong>. Sin esta marca, el sistema calcularía una ventana de asistencia incorrecta para ese turno.</p>
+                        <p class="text-sm text-gray-600 mt-1">Es un indicador automático para horarios que <strong>inician un día y terminan al siguiente</strong>. El sistema lo calcula comparando hora de entrada y hora de salida.</p>
                     </div>
                 </div>
 
                 <div class="bg-gray-50 rounded-lg p-4 mb-4">
-                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Ejemplo: Turno nocturno</p>
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Ejemplo: horario que termina al día siguiente</p>
                     <div class="grid grid-cols-3 gap-2 text-center text-xs">
                         <div class="bg-blue-100 rounded p-2">
                             <div class="font-bold text-blue-800">Lunes</div>
                             <div class="text-blue-600">22:00 → 06:00 mar</div>
-                            <div class="mt-1 text-green-700 font-bold">✓ Marcar "Cruza medianoche"</div>
+                            <div class="mt-1 text-green-700 font-bold">Detectado automáticamente</div>
                         </div>
                         <div class="bg-gray-100 rounded p-2">
                             <div class="font-bold text-gray-600">Martes</div>
@@ -162,24 +165,24 @@
                         <div class="bg-blue-100 rounded p-2">
                             <div class="font-bold text-blue-800">Miércoles</div>
                             <div class="text-blue-600">22:00 → 06:00 jue</div>
-                            <div class="mt-1 text-green-700 font-bold">✓ Marcar "Cruza medianoche"</div>
+                            <div class="mt-1 text-green-700 font-bold">Detectado automáticamente</div>
                         </div>
                     </div>
-                    <p class="text-xs text-gray-500 mt-3">La salida de las 06:00 del martes pertenece al turno del <em>lunes</em>. El sistema extiende la ventana de ese día hasta la mañana siguiente para capturar esa checada.</p>
+                    <p class="text-xs text-gray-500 mt-3">La salida de las 06:00 del martes pertenece al turno del <em>lunes</em>. El día seleccionado siempre es el día en que inicia la jornada.</p>
                 </div>
 
                 <div class="space-y-2">
                     <div class="flex items-start gap-2 text-sm">
                         <span class="text-[#00BABB] mt-0.5">→</span>
-                        <span class="text-gray-700">Marcar el checkbox en el <strong>día en que inicia el turno</strong>, no en el que termina.</span>
+                        <span class="text-gray-700">Si la salida es menor que la entrada, el sistema marca automáticamente que cruza medianoche.</span>
                     </div>
                     <div class="flex items-start gap-2 text-sm">
                         <span class="text-[#00BABB] mt-0.5">→</span>
-                        <span class="text-gray-700">Si todos los días laborales del horario son nocturnos, marcar cada uno de esos días.</span>
+                        <span class="text-gray-700">Si la salida es mayor que la entrada, el horario no cruza medianoche.</span>
                     </div>
                     <div class="flex items-start gap-2 text-sm">
                         <span class="text-[#00BABB] mt-0.5">→</span>
-                        <span class="text-gray-700">El sistema también detecta cruces automáticamente cuando hora salida ≤ hora entrada, pero el checkbox da control explícito día por día.</span>
+                        <span class="text-gray-700">Si entrada y salida son iguales, el horario es inválido. Las salidas muy tarde o en madrugada se manejan con la ventana después de salida.</span>
                     </div>
                 </div>
             </div>
@@ -201,7 +204,7 @@
                     </span>
                     <div class="ml-8">
                         <h4 class="text-sm font-bold text-gray-800">Sincronización automática con BioTime</h4>
-                        <p class="text-xs text-gray-500 mt-1">El sistema descarga periódicamente las checadas de las últimas 48 horas. Cada checada incluye: empleado, fecha/hora y tipo (entrada o salida).</p>
+                        <p class="text-xs text-gray-500 mt-1">El sistema descarga periodicamente empleados y checadas. Primero crea mappings por correo; despues guarda cada checada con su usuario cuando el emp_code ya esta mapeado.</p>
                     </div>
                 </div>
                 <div class="relative">
@@ -219,7 +222,7 @@
                     </span>
                     <div class="ml-8">
                         <h4 class="text-sm font-bold text-gray-800">Resultado visible en RRHH → Asistencia</h4>
-                        <p class="text-xs text-gray-500 mt-1">Se muestra la hora real de entrada, salida, minutos de retraso y estado del día. Los días sin registro aparecen marcados para revisión.</p>
+                        <p class="text-xs text-gray-500 mt-1">Se muestra la hora real de entrada, salida, horas trabajadas, horas extra y estado del dia. Si hay checadas sin usuario, aparece un aviso por codigo BioTime.</p>
                     </div>
                 </div>
             </div>
@@ -228,11 +231,11 @@
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                 <div class="bg-white border rounded-lg p-4 shadow-sm">
                     <h5 class="font-bold text-gray-800 text-sm mb-2">Importar histórico</h5>
-                    <p class="text-xs text-gray-600">Disponible en <strong>Admin → Configuración BioTime → Importar histórico</strong>. Permite descargar checadas de un rango de fechas pasado para reconstruir asistencia antes de la integración.</p>
+                    <p class="text-xs text-gray-600">Disponible en <strong>Admin -> Configuracion BioTime -> Importar historico</strong>. Permite descargar checadas de un rango pasado; tambien intenta mapear empleados por correo antes de recalcular.</p>
                 </div>
                 <div class="bg-white border rounded-lg p-4 shadow-sm">
                     <h5 class="font-bold text-gray-800 text-sm mb-2">Recalcular asistencia</h5>
-                    <p class="text-xs text-gray-600">Si se corrige un horario o se importan checadas retroactivas, el recálculo actualiza los registros de asistencia sin borrar el histórico de checadas.</p>
+                    <p class="text-xs text-gray-600">Si se corrige un horario o se importan checadas retroactivas, el recalculo actualiza los registros de asistencia sin borrar el historico de checadas.</p>
                 </div>
             </div>
 
@@ -245,7 +248,8 @@
                     <div x-show="open" class="px-4 py-3 bg-white text-xs text-gray-600 space-y-1">
                         <p>Puede ser por alguna de estas razones:</p>
                         <ul class="list-disc list-inside space-y-1 mt-1">
-                            <li>No tiene emp_code vinculado — el sistema no puede asociar la checada al empleado.</li>
+                            <li>El correo en BioTime no coincide con el correo activo en ECO.</li>
+                            <li>El correo esta duplicado o vacio en alguno de los sistemas.</li>
                             <li>El dispositivo BioTime aún no sincronizó esas checadas al servidor.</li>
                             <li>La checada está fuera de la ventana del horario configurado.</li>
                         </ul>
@@ -257,7 +261,7 @@
                         <span x-text="open ? '−' : '+'" class="text-lg"></span>
                     </button>
                     <div x-show="open" class="px-4 py-3 bg-white text-xs text-gray-600">
-                        Sin horario, el sistema no puede calcular la asistencia diaria aunque reciba las checadas. Las checadas se guardan en bruto. Asigna un horario en RRHH → Admin → Horarios y luego recalcula el período.
+                        Sin horario, el sistema no puede calcular la asistencia diaria aunque reciba las checadas. Las checadas se guardan en bruto. Asigna un horario en RRHH -> Admin -> Horarios y luego recalcula el periodo.
                     </div>
                 </div>
             </div>

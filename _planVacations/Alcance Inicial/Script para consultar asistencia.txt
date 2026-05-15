@@ -1,0 +1,78 @@
+-- =========================================================
+Consultamos una tabla con el ID y badget de todos los usuarios:
+-- =========================================================
+
+SELECT id,
+       emp_code AS badge,
+       CONCAT(first_name, ' ', last_name) AS nombre
+FROM personnel_employee
+ORDER BY id;
+
+*************************************************************************************************
+Con este Script consultamos los registros:
+*************************************************************************************************
+
+SELECT 
+    t.id,
+    t.emp_id,
+    e.emp_code,
+    CONCAT(e.first_name, ' ', e.last_name) AS empleado,
+    t.punch_time,
+    t.punch_state,
+    t.verify_type,
+    t.work_code
+FROM iclock_transaction AS t
+LEFT JOIN personnel_employee AS e ON t.emp_id = e.id
+ORDER BY t.punch_time DESC
+LIMIT 10;
+
+Podemos utilizar el primer ID que seria el ID que genero el registro
+y podemos eliminar con (los números dentro del paréntesis corresponen al o los Id's a Eliminar:
+
+DELETE FROM iclock_transaction
+WHERE id IN (12791,12790,12789);
+
+UPDATE iclock_transaction
+SET punch_time = '2026-01-30 08:30:00-06'
+WHERE id = 15500;
+
+*************************************************************************************************
+Mostrar Entradas y o salidas (0 entradas 1 salidas)
+*************************************************************************************************
+
+SELECT 
+    t.id,
+    t.emp_id,
+    e.emp_code,
+    CONCAT(e.first_name, ' ', e.last_name) AS empleado,
+    t.punch_time,
+    t.punch_state,
+    t.verify_type,
+    t.work_code
+FROM iclock_transaction AS t
+LEFT JOIN personnel_employee AS e ON t.emp_id = e.id
+WHERE CAST(t.punch_state AS integer) = 0
+ORDER BY t.punch_time DESC
+LIMIT 10;
+
+
+
+*************************************************************************************************
+Mostrar registros 101 (AppMobil)
+*************************************************************************************************
+
+SELECT 
+    t.id,
+    t.emp_id,
+    e.emp_code,
+    CONCAT(e.first_name, ' ', e.last_name) AS empleado,
+    t.punch_time,
+    t.punch_state,
+    t.verify_type,
+    t.work_code
+FROM iclock_transaction AS t
+LEFT JOIN personnel_employee AS e ON t.emp_id = e.id
+WHERE t.verify_type = 101
+ORDER BY t.punch_time DESC
+LIMIT 10;
+
