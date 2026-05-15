@@ -10,12 +10,13 @@ import asyncpg
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
+from openpyxl.styles import Font, PatternFill
 
 from core.database import get_db_connection
 from core.permissions import require_manager_access, require_module_access
 from core.security import get_current_user_context
 from modules.asistencia import db_service as asistencia_db
-from modules.asistencia.constants import ASISTENCIA_ESTADOS
+from modules.asistencia.constants import ASISTENCIA_ESTADO_LABELS, ASISTENCIA_ESTADOS
 from modules.asistencia.logic import ensure_mx
 from modules.rrhh import service
 from modules.shared.utils import format_minutes, is_htmx, toast_error, toast_success
@@ -64,22 +65,28 @@ def _build_horario_dias_form(
     dias_laborales: Optional[List[int]],
     hora_entrada: List[str],
     hora_salida: List[str],
-    cruza_medianoche: Optional[List[int]],
+    descuento_comida_min_dia: List[int],
 ) -> list[dict]:
-    if len(dia_semana) != 7 or len(hora_entrada) != 7 or len(hora_salida) != 7:
+    campos_semana = (dia_semana, hora_entrada, hora_salida, descuento_comida_min_dia)
+    if any(len(campo) != 7 for campo in campos_semana):
         raise ValueError("Debes enviar la configuracion completa de lunes a domingo")
     laborables = set(dias_laborales or [])
-    cruces = set(cruza_medianoche or [])
     return [
         {
             "dia_semana": dia,
             "es_laboral": dia in laborables,
             "hora_entrada": hora_entrada[index],
             "hora_salida": hora_salida[index],
-            "cruza_medianoche": dia in cruces,
+            "descuento_comida_min": descuento_comida_min_dia[index],
         }
         for index, dia in enumerate(dia_semana)
     ]
+
+
+def _format_estado_asistencia(estado: str | None) -> str:
+    if not estado:
+        return ""
+    return ASISTENCIA_ESTADO_LABELS.get(estado, estado.replace("_", " "))
 
 
 def _excel_response(workbook, filename: str) -> StreamingResponse:
@@ -93,28 +100,53 @@ def _excel_response(workbook, filename: str) -> StreamingResponse:
     )
 
 
-def _build_workbook(title: str, headers: list[str], rows: list[list]):
-    from openpyxl import Workbook
-    from openpyxl.styles import Font, PatternFill
-
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = title
+def _style_sheet(worksheet, headers: list[str]) -> None:
     worksheet.append(headers)
     worksheet.freeze_panes = "A2"
-
     for cell in worksheet[1]:
         cell.font = Font(bold=True, color="FFFFFF")
         cell.fill = PatternFill("solid", fgColor="123456")
 
-    for row in rows:
-        worksheet.append(row)
 
+def _autofit_columns(worksheet) -> None:
     for column in worksheet.columns:
         width = max(len(str(cell.value or "")) for cell in column) + 2
         worksheet.column_dimensions[column[0].column_letter].width = min(width, 36)
 
+
+def _build_workbook(title: str, headers: list[str], rows: list[list]):
+    from openpyxl import Workbook
+
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = title
+    _style_sheet(worksheet, headers)
+    for row in rows:
+        worksheet.append(row)
+    _autofit_columns(worksheet)
     return workbook
+
+
+def _append_unmapped_biotime_sheet(workbook, rows: list[dict]) -> None:
+    if not rows:
+        return
+    worksheet = workbook.create_sheet("Checadas sin mapear")
+    _style_sheet(worksheet, [
+        "Codigo BioTime",
+        "Departamento",
+        "Checadas",
+        "Primera checada",
+        "Ultima checada",
+    ])
+    for row in rows:
+        worksheet.append([
+            row.get("biotime_emp_code") or "",
+            row.get("deptname") or "",
+            row.get("total") or 0,
+            _format_datetime(row.get("primera_checada")),
+            _format_datetime(row.get("ultima_checada")),
+        ])
+    _autofit_columns(worksheet)
 
 
 # ─────────────────────────────────────────────
@@ -239,6 +271,11 @@ async def reporte_asistencia_excel(
             sucursal_id=sid,
             estado=estado or None,
         )
+        unmapped = await asistencia_db.get_unmapped_biotime_checks_summary(
+            conn,
+            fecha_inicio=fecha_inicio,
+            fecha_fin=fecha_fin,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except asyncpg.PostgresError as exc:
@@ -272,13 +309,14 @@ async def reporte_asistencia_excel(
                 format_minutes(row.get("minutos_trabajados")),
                 format_minutes(row.get("minutos_programados")),
                 format_minutes(row.get("minutos_extra")),
-                row.get("estado") or "",
+                _format_estado_asistencia(row.get("estado")),
                 "Si" if row.get("tiene_vacaciones") else "No",
                 row.get("observaciones") or "",
             ]
             for row in rows
         ],
     )
+    _append_unmapped_biotime_sheet(workbook, unmapped)
     filename = f"reporte_asistencia_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.xlsx"
     return _excel_response(workbook, filename)
 
@@ -399,7 +437,7 @@ async def reporte_horas_extra_excel(
                 format_minutes(row.get("minutos_trabajados")),
                 format_minutes(row.get("minutos_programados")),
                 format_minutes(row.get("minutos_extra")),
-                row.get("estado") or "",
+                _format_estado_asistencia(row.get("estado")),
                 row.get("observaciones") or "",
             ]
             for row in rows
@@ -646,7 +684,7 @@ async def admin_crear_horario(
     dias_laborales: Optional[List[int]] = Form(None),
     hora_entrada: List[str] = Form(...),
     hora_salida: List[str] = Form(...),
-    cruza_medianoche: Optional[List[int]] = Form(None),
+    descuento_comida_min_dia: List[int] = Form(...),
     anio: Optional[int] = Form(None),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
@@ -663,7 +701,7 @@ async def admin_crear_horario(
             tolerancia_extra_min=tolerancia_extra_min,
             descuento_comida_min=descuento_comida_min,
             dias=_build_horario_dias_form(
-                dia_semana, dias_laborales, hora_entrada, hora_salida, cruza_medianoche
+                dia_semana, dias_laborales, hora_entrada, hora_salida, descuento_comida_min_dia
             ),
             user_id=UUID(str(context["user_db_id"])),
         )
@@ -696,7 +734,7 @@ async def admin_actualizar_horario(
     dias_laborales: Optional[List[int]] = Form(None),
     hora_entrada: List[str] = Form(...),
     hora_salida: List[str] = Form(...),
-    cruza_medianoche: Optional[List[int]] = Form(None),
+    descuento_comida_min_dia: List[int] = Form(...),
     anio: Optional[int] = Form(None),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
@@ -714,7 +752,7 @@ async def admin_actualizar_horario(
             tolerancia_extra_min=tolerancia_extra_min,
             descuento_comida_min=descuento_comida_min,
             dias=_build_horario_dias_form(
-                dia_semana, dias_laborales, hora_entrada, hora_salida, cruza_medianoche
+                dia_semana, dias_laborales, hora_entrada, hora_salida, descuento_comida_min_dia
             ),
             user_id=UUID(str(context["user_db_id"])),
         )
@@ -1111,6 +1149,7 @@ async def asistencia_panel(
     ff = fecha_fin or hoy
 
     rows = []
+    unmapped = []
     error = None
     try:
         uid = _parse_optional_uuid(usuario_id, "usuario_id")
@@ -1124,6 +1163,11 @@ async def asistencia_panel(
             sucursal_id=sid,
             estado=estado or None,
         )
+        unmapped = await asistencia_db.get_unmapped_biotime_checks_summary(
+            conn,
+            fecha_inicio=fi,
+            fecha_fin=ff,
+        )
         rows = [
             {
                 **row,
@@ -1131,6 +1175,7 @@ async def asistencia_panel(
                 "salida_fmt": ensure_mx(row["ultima_salida"]).strftime("%H:%M") if row.get("ultima_salida") else "",
                 "horas_fmt": f"{(row.get('minutos_trabajados') or 0) // 60}:{(row.get('minutos_trabajados') or 0) % 60:02d}",
                 "extra_fmt": f"{(row.get('minutos_extra') or 0) // 60}:{(row.get('minutos_extra') or 0) % 60:02d}",
+                "estado_label": _format_estado_asistencia(row.get("estado")),
             }
             for row in raw
         ]
@@ -1152,6 +1197,8 @@ async def asistencia_panel(
             "usuarios": usuarios,
             "sucursales": sucursales,
             "estados_asistencia": sorted(ASISTENCIA_ESTADOS),
+            "estados_asistencia_labels": ASISTENCIA_ESTADO_LABELS,
+            "checadas_sin_mapear": unmapped,
             "error": error,
         },
     )
