@@ -21,3 +21,14 @@ class AsistenciaReporteRow(BaseModel):
     empleado_nombre: str
     empleado_email: str | None
     sucursal_nombre: str | None
+
+
+class AprobacionHorasExtraIn(BaseModel):
+    minutos_aprobados: int
+    comentario: str
+
+
+class BulkAprobacionIn(BaseModel):
+    asistencia_ids: list[UUID]
+    minutos_aprobados: int
+    comentario: str

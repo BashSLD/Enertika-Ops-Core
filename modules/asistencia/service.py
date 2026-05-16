@@ -27,6 +27,15 @@ from modules.asistencia.logic import (
 logger = logging.getLogger("asistencia.service")
 
 
+def validate_aprobacion(minutos_aprobados: int, minutos_extra: int, comentario: str) -> None:
+    if not comentario or not comentario.strip():
+        raise ValueError("El comentario es obligatorio")
+    if minutos_aprobados < 30:
+        raise ValueError("El mínimo aprobable es 30 minutos")
+    if minutos_aprobados > minutos_extra:
+        raise ValueError(f"No puede aprobar más de {minutos_extra} minutos registrados")
+
+
 def parse_biotime_check_time(value: Any) -> datetime | None:
     if not value:
         return None
