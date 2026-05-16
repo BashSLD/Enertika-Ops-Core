@@ -675,6 +675,37 @@ async def update_config_vacaciones_notificaciones(
     })
 
 
+@router.post("/config/vacaciones-anticipos", include_in_schema=False)
+async def update_config_vacaciones_anticipos(
+    request: Request,
+    vacaciones_meses_expiracion: int = Form(18),
+    vacaciones_anticipo_habilitado: bool = Form(True),
+    vacaciones_anticipo_meses_semestre: int = Form(6),
+    vacaciones_anticipo_porcentaje_liberacion: int = Form(50),
+    vacaciones_anticipo_maximo_dias: int = Form(7),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    _=require_module_access("admin"),
+):
+    await service.db.upsert_global_config(conn, "VACACIONES_MESES_EXPIRACION", str(vacaciones_meses_expiracion))
+    await service.db.upsert_global_config(
+        conn, "VACACIONES_ANTICIPO_HABILITADO", "true" if vacaciones_anticipo_habilitado else "false"
+    )
+    await service.db.upsert_global_config(
+        conn, "VACACIONES_ANTICIPO_MESES_SEMESTRE", str(vacaciones_anticipo_meses_semestre)
+    )
+    await service.db.upsert_global_config(
+        conn, "VACACIONES_ANTICIPO_PORCENTAJE_LIBERACION", str(vacaciones_anticipo_porcentaje_liberacion)
+    )
+    await service.db.upsert_global_config(
+        conn, "VACACIONES_ANTICIPO_MAXIMO_DIAS", str(vacaciones_anticipo_maximo_dias)
+    )
+    ConfigService.invalidar_cache()
+    return templates.TemplateResponse(request, "admin/partials/messages/success.html", {
+        "title": "Guardado", "message": "Configuracion de anticipos de vacaciones actualizada."
+    })
+
+
 @router.post("/config/sat-inbox", include_in_schema=False)
 async def update_config_sat_inbox(
     request: Request,

@@ -207,6 +207,12 @@ class AdminService:
             "reporte_ceo_activo": config_dict.get("reporte_desarrollo_ceo_activo", "true").lower() == "true",
             # Notificaciones Vacaciones
             "vacaciones_cco_emails": config_dict.get("VACACIONES_CCO_EMAILS") or "",
+            # Vacaciones — Anticipos y Expiración
+            "vacaciones_meses_expiracion": int(config_dict.get("VACACIONES_MESES_EXPIRACION", "18")),
+            "vacaciones_anticipo_habilitado": config_dict.get("VACACIONES_ANTICIPO_HABILITADO", "true").lower() == "true",
+            "vacaciones_anticipo_meses_semestre": int(config_dict.get("VACACIONES_ANTICIPO_MESES_SEMESTRE", "6")),
+            "vacaciones_anticipo_porcentaje_liberacion": int(config_dict.get("VACACIONES_ANTICIPO_PORCENTAJE_LIBERACION", "50")),
+            "vacaciones_anticipo_maximo_dias": int(config_dict.get("VACACIONES_ANTICIPO_MAXIMO_DIAS", "7")),
         }
 
     async def update_global_config(self, conn, datos: ConfiguracionGlobalUpdate) -> None:

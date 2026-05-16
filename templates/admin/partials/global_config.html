@@ -472,6 +472,85 @@
             </div>
         </div>
 
+        <hr class="border-gray-200">
+
+        {# ── Anticipos y Expiración de Vacaciones ──────────────── #}
+        <div id="vacaciones-anticipos-fields">
+            <div class="flex items-center gap-2 mb-3">
+                <svg class="w-5 h-5 text-teal-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                </svg>
+                <h4 class="font-bold text-gray-700 text-sm">Vacaciones — Anticipos y Expiración</h4>
+            </div>
+            <p class="text-xs text-gray-500 mb-4">
+                Controla si los empleados pueden solicitar vacaciones anticipadas y bajo qué condiciones,
+                además del tiempo máximo antes de que un período no utilizado expire.
+            </p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                <div class="md:col-span-2">
+                    <label class="inline-flex items-center gap-3 bg-teal-50 border border-teal-200 rounded-lg px-4 py-3 cursor-pointer hover:bg-teal-100 transition-colors">
+                        <input type="checkbox" name="vacaciones_anticipo_habilitado" value="true"
+                            {% if config_global.vacaciones_anticipo_habilitado %}checked{% endif %}
+                            class="rounded text-teal-600 focus:ring-teal-500 w-4 h-4">
+                        <span class="text-sm font-medium text-gray-800">Habilitar solicitudes de vacaciones anticipadas</span>
+                    </label>
+                    <p class="text-xs text-gray-500 mt-1 ml-1">Permite solicitar días antes del aniversario o antes de cumplir el semestre.</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Semestre (meses desde aniversario)</label>
+                    <input type="number" name="vacaciones_anticipo_meses_semestre"
+                        value="{{ config_global.vacaciones_anticipo_meses_semestre }}"
+                        min="1" max="12"
+                        class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 focus:ring-teal-500 focus:border-teal-500">
+                    <p class="text-xs text-gray-500 mt-1">Al cumplir estos meses se libera el % configurado. Default: 6.</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">% de días liberados al semestre</label>
+                    <div class="flex items-center gap-2">
+                        <input type="number" name="vacaciones_anticipo_porcentaje_liberacion"
+                            value="{{ config_global.vacaciones_anticipo_porcentaje_liberacion }}"
+                            min="0" max="100"
+                            class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 focus:ring-teal-500 focus:border-teal-500">
+                        <span class="text-sm text-gray-500 whitespace-nowrap">%</span>
+                    </div>
+                    <p class="text-xs text-gray-500 mt-1">Del total del siguiente período. Default: 50%.</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Máximo días negativos permitidos</label>
+                    <input type="number" name="vacaciones_anticipo_maximo_dias"
+                        value="{{ config_global.vacaciones_anticipo_maximo_dias }}"
+                        min="1" max="60"
+                        class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 focus:ring-teal-500 focus:border-teal-500">
+                    <p class="text-xs text-gray-500 mt-1">Límite de días en negativo por anticipo. Default: 7.</p>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Expiración del período (meses)</label>
+                    <input type="number" name="vacaciones_meses_expiracion"
+                        value="{{ config_global.vacaciones_meses_expiracion }}"
+                        min="6" max="36"
+                        class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 focus:ring-teal-500 focus:border-teal-500">
+                    <p class="text-xs text-gray-500 mt-1">Meses desde el aniversario antes de que el período expire. Default: 18.</p>
+                </div>
+            </div>
+
+            <div class="flex justify-end">
+                <button type="button"
+                    hx-post="/admin/config/vacaciones-anticipos"
+                    hx-include="#vacaciones-anticipos-fields"
+                    hx-target="#global-toast-container"
+                    hx-swap="afterbegin"
+                    class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
+                    Guardar Anticipos
+                </button>
+            </div>
+        </div>
+
     </div>
 </div>
 
