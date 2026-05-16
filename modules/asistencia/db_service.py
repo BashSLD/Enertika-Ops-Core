@@ -533,13 +533,17 @@ async def get_reporte_asistencia(
             ad.estado,
             ad.tiene_vacaciones,
             ad.observaciones,
+            ad.horas_extra_estado,
             u.id_usuario,
             u.nombre AS empleado_nombre,
             u.email AS empleado_email,
-            s.nombre AS sucursal_nombre
+            s.nombre AS sucursal_nombre,
+            hea.minutos_aprobados,
+            hea.comentario AS aprobacion_comentario
         FROM tb_asistencia_diaria ad
         JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
         LEFT JOIN tb_cat_sucursales s ON s.id = ad.sucursal_id
+        LEFT JOIN tb_horas_extra_aprobaciones hea ON hea.asistencia_id = ad.id
         WHERE ad.fecha_laboral >= $1
           AND ad.fecha_laboral <= $2
           AND ($3::uuid IS NULL OR ad.usuario_id = $3)
@@ -619,6 +623,7 @@ async def get_horas_extra_equipo(
           AND ad.fecha_laboral >= $2
           AND ad.fecha_laboral <= $3
           AND ad.minutos_extra > 0
+          AND ad.horas_extra_estado = 'pendiente'
         ORDER BY ad.fecha_laboral DESC, u.nombre
         """,
         usuario_ids,

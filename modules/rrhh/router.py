@@ -432,6 +432,9 @@ async def reporte_horas_extra_excel(
             "Horas extra",
             "Estado",
             "Observaciones",
+            "Estado aprobacion",
+            "Horas aprobadas",
+            "Comentario aprobacion",
         ],
         [
             [
@@ -445,6 +448,9 @@ async def reporte_horas_extra_excel(
                 format_minutes(row.get("minutos_extra")),
                 _format_estado_asistencia(row.get("estado")),
                 row.get("observaciones") or "",
+                "Aprobado" if row.get("horas_extra_estado") == "aprobado" else "Pendiente",
+                format_minutes(row.get("minutos_aprobados")) if row.get("minutos_aprobados") else "—",
+                row.get("aprobacion_comentario") or "—",
             ]
             for row in rows
         ],
