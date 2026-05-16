@@ -39,15 +39,13 @@ def validate_aprobacion(minutos_aprobados: int, minutos_extra: int, comentario: 
 
 
 async def get_equipo_ids(conn, user_id: UUID, user_ctx: dict) -> list[UUID]:
-    ids_jefe = await vacaciones_db.get_empleados_donde_soy_jefe(conn, user_id)
-    ids_aprobador = await vacaciones_db.get_empleados_donde_soy_aprobador(conn, user_id)
-    all_ids = list({*ids_jefe, *ids_aprobador})
-
     if user_has_module_access("rrhh", user_ctx, "editor"):
         rows = await vacaciones_db.get_all_empleados_con_datos(conn, limit=500, offset=0)
-        all_ids = [r["id_usuario"] for r in rows]
+        return [r["id_usuario"] for r in rows]
 
-    return all_ids
+    ids_jefe = await vacaciones_db.get_empleados_donde_soy_jefe(conn, user_id)
+    ids_aprobador = await vacaciones_db.get_empleados_donde_soy_aprobador(conn, user_id)
+    return list({*ids_jefe, *ids_aprobador})
 
 
 async def aprobar_horas_extra_svc(

@@ -504,19 +504,6 @@ class NotificationService:
         dias_aprobados: list[dict],
         comentario: str,
     ) -> None:
-        """
-        Notifica la aprobacion de horas extra.
-
-        Args:
-            conn: Conexion a base de datos
-            aprobador_nombre: Nombre del aprobador
-            empleado_nombre: Nombre del empleado
-            dias_aprobados: Lista de dicts con keys 'fecha' (date) y 'minutos_aprobados' (int)
-            comentario: Comentario del aprobador
-
-        TO: Correos configurados en tb_config_emails con trigger_value='APROBACION_HORAS_EXTRA', tipo='TO'
-        CC: Correos configurados en tb_config_emails con trigger_value='APROBACION_HORAS_EXTRA', tipo='CC'
-        """
         try:
             to_emails = await self._get_emails_for_event(conn, "APROBACION_HORAS_EXTRA", "TO")
             cc_emails = await self._get_emails_for_event(conn, "APROBACION_HORAS_EXTRA", "CC")
