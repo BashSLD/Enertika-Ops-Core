@@ -11,6 +11,7 @@ import httpx
 
 from core.config_service import ConfigService
 from core.database import get_db_pool
+from core.permissions import user_has_module_access
 from core.timezone import now_mx, today_mx
 from modules.asistencia import db_service as db
 from modules.asistencia.biotime_client import BioTimeClient
@@ -23,8 +24,112 @@ from modules.asistencia.logic import (
     calcular_resumen_dia,
     ensure_mx,
 )
+from modules.vacaciones import db_service as vacaciones_db
 
 logger = logging.getLogger("asistencia.service")
+
+
+def validate_aprobacion(minutos_aprobados: int, minutos_extra: int, comentario: str) -> None:
+    if not comentario or not comentario.strip():
+        raise ValueError("El comentario es obligatorio")
+    if minutos_aprobados < 30:
+        raise ValueError("El mínimo aprobable es 30 minutos")
+    if minutos_aprobados > minutos_extra:
+        raise ValueError(f"No puede aprobar más de {minutos_extra} minutos registrados")
+
+
+async def get_equipo_ids(conn, user_id: UUID, user_ctx: dict) -> list[UUID]:
+    if user_has_module_access("rrhh", user_ctx, "editor"):
+        rows = await vacaciones_db.get_all_empleados_con_datos(conn, limit=500, offset=0)
+        return [r["id_usuario"] for r in rows]
+
+    ids_jefe = await vacaciones_db.get_empleados_donde_soy_jefe(conn, user_id)
+    ids_aprobador = await vacaciones_db.get_empleados_donde_soy_aprobador(conn, user_id)
+    return list({*ids_jefe, *ids_aprobador})
+
+
+async def aprobar_horas_extra_svc(
+    conn,
+    *,
+    asistencia_id: UUID,
+    aprobador_id: UUID,
+    minutos_aprobados: int,
+    comentario: str,
+    equipo_ids: list[UUID],
+) -> dict:
+    row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
+    if not row:
+        raise ValueError("Registro no encontrado")
+    if row["horas_extra_estado"] != "pendiente":
+        raise ValueError("Este registro ya fue aprobado")
+    if row["usuario_id"] not in equipo_ids:
+        raise ValueError("El empleado no pertenece a tu equipo")
+    validate_aprobacion(minutos_aprobados, row["minutos_extra"], comentario)
+
+    await db.aprobar_horas_extra(
+        conn,
+        asistencia_id=asistencia_id,
+        aprobador_id=aprobador_id,
+        minutos_aprobados=minutos_aprobados,
+        comentario=comentario,
+    )
+    return {
+        "empleado_nombre": row["empleado_nombre"],
+        "fecha_laboral": row["fecha_laboral"],
+        "minutos_aprobados": minutos_aprobados,
+        "comentario": comentario,
+    }
+
+
+async def bulk_aprobar_horas_extra_svc(
+    conn,
+    *,
+    asistencia_ids: list[UUID],
+    aprobador_id: UUID,
+    minutos_aprobados: int,
+    comentario: str,
+    equipo_ids: list[UUID],
+) -> dict:
+    if not asistencia_ids:
+        raise ValueError("Lista de registros vacía")
+
+    rows = await db.bulk_get_asistencia_info(conn, asistencia_ids)
+    if len(rows) != len(asistencia_ids):
+        raise ValueError("Uno o más registros no encontrados")
+
+    usuario_ids_set = {row["usuario_id"] for row in rows}
+    if len(usuario_ids_set) != 1:
+        raise ValueError("Los registros seleccionados deben pertenecer al mismo empleado")
+
+    empleado_id = next(iter(usuario_ids_set))
+    if empleado_id not in equipo_ids:
+        raise ValueError("El empleado no pertenece a tu equipo")
+
+    for row in rows:
+        if row["horas_extra_estado"] != "pendiente":
+            fecha = row["fecha_laboral"].strftime("%d/%m/%Y")
+            raise ValueError(f"El registro del {fecha} ya fue aprobado")
+        validate_aprobacion(minutos_aprobados, row["minutos_extra"], comentario)
+
+    await db.bulk_aprobar_horas_extra(
+        conn,
+        asistencia_ids=asistencia_ids,
+        aprobador_id=aprobador_id,
+        minutos_aprobados=minutos_aprobados,
+        comentario=comentario,
+    )
+
+    return {
+        "empleado_nombre": rows[0]["empleado_nombre"],
+        "dias_aprobados": [
+            {
+                "fecha": row["fecha_laboral"],
+                "minutos_aprobados": minutos_aprobados,
+            }
+            for row in rows
+        ],
+        "comentario": comentario,
+    }
 
 
 def parse_biotime_check_time(value: Any) -> datetime | None:
