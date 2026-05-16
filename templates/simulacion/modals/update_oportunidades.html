@@ -1,8 +1,8 @@
 <div id="modal-backdrop"
-    class="fixed inset-0 z-50 overflow-y-auto bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
+    class="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4 animate-fade-in"
     _="on keyup[key=='Escape'] remove #modal-backdrop">
 
-    <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl transform transition-all animate-scale-in relative"
+    <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90dvh] overflow-y-auto transform transition-all animate-scale-in relative"
         x-data="{ 
             status: {{ op.id_estatus_global }}, 
             initialStatus: {{ op.id_estatus_global }},
