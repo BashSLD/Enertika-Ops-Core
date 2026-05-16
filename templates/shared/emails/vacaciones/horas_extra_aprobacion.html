@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head><meta charset="UTF-8"><title>Horas Extra Aprobadas</title></head>
+<body style="margin:0;padding:0;font-family:'Segoe UI',sans-serif;background-color:#f4f4f4;color:#333;">
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:20px 0;">
+<tr><td align="center">
+  <table width="600" cellpadding="0" cellspacing="0" style="background-color:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
+    <tr>
+      <td style="background:linear-gradient(135deg,#1e40af 0%,#3b82f6 100%);padding:30px 40px;text-align:center;">
+        <h1 style="margin:0;color:#fff;font-size:24px;font-weight:600;">Horas Extra Aprobadas</h1>
+        <p style="margin:10px 0 0;color:#dbeafe;font-size:14px;">Registro de aprobacion de tiempo extra</p>
+      </td>
+    </tr>
+    <tr>
+      <td style="padding:40px;">
+        <p style="margin:0 0 20px;font-size:16px;">
+          <strong>{{ aprobador_nombre }}</strong> ha aprobado horas extra para <strong>{{ empleado_nombre }}</strong>.
+        </p>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9f9f9;border-left:4px solid #3b82f6;border-radius:4px;margin-bottom:28px;">
+          <tr><td style="padding:20px;">
+            <table width="100%" cellpadding="7" cellspacing="0">
+              {% for dia in dias_aprobados %}
+              <tr>
+                <td width="160" style="color:#1e40af;font-weight:600;font-size:14px;">
+                  {{ dia.fecha.strftime('%d/%m/%Y') }}
+                </td>
+                <td style="font-size:14px;">
+                  {{ dia.minutos_aprobados // 60 }} h
+                  {% if dia.minutos_aprobados % 60 %}{{ dia.minutos_aprobados % 60 }} min{% endif %}
+                  aprobados
+                </td>
+              </tr>
+              {% endfor %}
+            </table>
+          </td></tr>
+        </table>
+        <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f9ff;border-radius:4px;margin-bottom:20px;">
+          <tr><td style="padding:16px;">
+            <p style="margin:0;color:#374151;font-size:14px;font-weight:600;">Comentario:</p>
+            <p style="margin:8px 0 0;color:#555;font-size:14px;line-height:1.6;">{{ comentario }}</p>
+          </td></tr>
+        </table>
+      </td>
+    </tr>
+    <tr>
+      <td style="background:#f8f9fa;padding:20px 40px;text-align:center;border-top:1px solid #e0e0e0;">
+        <p style="margin:0;color:#00BABB;font-weight:700;">ECO &mdash; Enertika Core Ops</p>
+        <p style="margin:8px 0 0;color:#ccc;font-size:11px;">Correo automatico. No responder.</p>
+      </td>
+    </tr>
+  </table>
+</td></tr>
+</table>
+</body>
+</html>

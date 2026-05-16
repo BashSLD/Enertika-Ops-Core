@@ -495,6 +495,58 @@ class NotificationService:
         except KeyError as e:
             logger.error(f"[NOTIFY] Error datos faltantes en notify_poliza_estatus_change {cotizacion_id}: campo {e}", exc_info=True)
 
+    async def notify_horas_extra_aprobacion(
+        self,
+        conn,
+        *,
+        aprobador_nombre: str,
+        empleado_nombre: str,
+        dias_aprobados: list[dict],
+        comentario: str,
+    ) -> None:
+        """
+        Notifica la aprobacion de horas extra.
+
+        Args:
+            conn: Conexion a base de datos
+            aprobador_nombre: Nombre del aprobador
+            empleado_nombre: Nombre del empleado
+            dias_aprobados: Lista de dicts con keys 'fecha' (date) y 'minutos_aprobados' (int)
+            comentario: Comentario del aprobador
+
+        TO: Correos configurados en tb_config_emails con trigger_value='APROBACION_HORAS_EXTRA', tipo='TO'
+        CC: Correos configurados en tb_config_emails con trigger_value='APROBACION_HORAS_EXTRA', tipo='CC'
+        """
+        try:
+            to_emails = await self._get_emails_for_event(conn, "APROBACION_HORAS_EXTRA", "TO")
+            cc_emails = await self._get_emails_for_event(conn, "APROBACION_HORAS_EXTRA", "CC")
+
+            if not to_emails:
+                logger.info(
+                    "[NOTIFY] APROBACION_HORAS_EXTRA sin destinatarios TO configurados — omitiendo"
+                )
+                return
+
+            html = self._render_template(
+                "shared/emails/vacaciones/horas_extra_aprobacion.html",
+                {
+                    "aprobador_nombre": aprobador_nombre,
+                    "empleado_nombre": empleado_nombre,
+                    "dias_aprobados": dias_aprobados,
+                    "comentario": comentario,
+                },
+            )
+            subject = f"Horas extra aprobadas: {empleado_nombre}"
+            sender_config = await self._get_notification_sender(conn, "DEFAULT")
+            await self._send_email(to_emails, cc_emails, subject, html, sender_config["email"])
+
+        except asyncpg.PostgresError as exc:
+            logger.error("[NOTIFY] Error BD en APROBACION_HORAS_EXTRA: %s", exc, exc_info=True)
+        except httpx.HTTPError as exc:
+            logger.error("[NOTIFY] Error red en APROBACION_HORAS_EXTRA: %s", exc, exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as exc:
+            logger.error("[NOTIFY] Error inesperado en APROBACION_HORAS_EXTRA: %s", exc, exc_info=True)
+
     # ===== MÉTODOS PRIVADOS =====
 
     async def _get_opportunity(self, conn, id_oportunidad: UUID) -> dict:
