@@ -662,22 +662,19 @@ async def aprobar_horas_extra(
 ) -> None:
     await conn.execute(
         """
-        INSERT INTO tb_horas_extra_aprobaciones
-            (asistencia_id, aprobador_id, minutos_aprobados, comentario)
-        VALUES ($1, $2, $3, $4)
-        """,
-        asistencia_id,
-        aprobador_id,
-        minutos_aprobados,
-        comentario,
-    )
-    await conn.execute(
-        """
+        WITH ins AS (
+            INSERT INTO tb_horas_extra_aprobaciones
+                (asistencia_id, aprobador_id, minutos_aprobados, comentario)
+            VALUES ($1, $2, $3, $4)
+        )
         UPDATE tb_asistencia_diaria
         SET horas_extra_estado = 'aprobado'
         WHERE id = $1
         """,
         asistencia_id,
+        aprobador_id,
+        minutos_aprobados,
+        comentario,
     )
 
 
@@ -710,22 +707,22 @@ async def bulk_aprobar_horas_extra(
     minutos_aprobados: int,
     comentario: str,
 ) -> None:
-    await conn.executemany(
-        """
-        INSERT INTO tb_horas_extra_aprobaciones
-            (asistencia_id, aprobador_id, minutos_aprobados, comentario)
-        VALUES ($1, $2, $3, $4)
-        ON CONFLICT (asistencia_id) DO NOTHING
-        """,
-        [(aid, aprobador_id, minutos_aprobados, comentario) for aid in asistencia_ids],
-    )
     await conn.execute(
         """
+        WITH ins AS (
+            INSERT INTO tb_horas_extra_aprobaciones
+                (asistencia_id, aprobador_id, minutos_aprobados, comentario)
+            SELECT unnest($1::uuid[]), $2, $3, $4
+            ON CONFLICT (asistencia_id) DO NOTHING
+        )
         UPDATE tb_asistencia_diaria
         SET horas_extra_estado = 'aprobado'
         WHERE id = ANY($1::uuid[])
         """,
         asistencia_ids,
+        aprobador_id,
+        minutos_aprobados,
+        comentario,
     )
 
 

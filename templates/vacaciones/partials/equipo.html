@@ -182,7 +182,11 @@
               values: JSON.stringify(payload),
               headers: {'Content-Type': 'application/json'},
               swap: 'none'
-            }).then(() => onBulkDone());
+            }).then(() => {
+              if (selected.length > 0 && !document.getElementById('he-row-' + selected[0])) {
+                onBulkDone();
+              }
+            });
           "
           :disabled="!bulkComentario.trim() || bulkMinutos < 30"
           class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed">
@@ -277,7 +281,13 @@
                 values: JSON.stringify(payload),
                 headers: {'Content-Type': 'application/json'},
                 swap: 'none'
-              }).then(() => onAprobacionDone());
+              }).then(() => {
+                if (!document.getElementById('he-row-' + modalId)) {
+                  onAprobacionDone();
+                } else {
+                  openModal = false;
+                }
+              });
             "
             :disabled="!modalComentario.trim() || modalMinutos < 30 || modalMinutos > modalMaxMinutos"
             class="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed">
