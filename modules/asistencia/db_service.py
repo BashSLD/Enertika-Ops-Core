@@ -626,3 +626,114 @@ async def get_horas_extra_equipo(
         fecha_fin,
     )
     return [dict(row) for row in rows]
+
+
+async def get_asistencia_para_aprobar(conn, asistencia_id: UUID) -> dict | None:
+    row = await conn.fetchrow(
+        """
+        SELECT
+            ad.id,
+            ad.usuario_id,
+            ad.fecha_laboral,
+            ad.minutos_extra,
+            ad.horas_extra_estado,
+            u.nombre AS empleado_nombre
+        FROM tb_asistencia_diaria ad
+        JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
+        WHERE ad.id = $1
+        """,
+        asistencia_id,
+    )
+    return dict(row) if row else None
+
+
+async def aprobar_horas_extra(
+    conn,
+    *,
+    asistencia_id: UUID,
+    aprobador_id: UUID,
+    minutos_aprobados: int,
+    comentario: str,
+) -> None:
+    await conn.execute(
+        """
+        INSERT INTO tb_horas_extra_aprobaciones
+            (asistencia_id, aprobador_id, minutos_aprobados, comentario)
+        VALUES ($1, $2, $3, $4)
+        """,
+        asistencia_id,
+        aprobador_id,
+        minutos_aprobados,
+        comentario,
+    )
+    await conn.execute(
+        """
+        UPDATE tb_asistencia_diaria
+        SET horas_extra_estado = 'aprobado'
+        WHERE id = $1
+        """,
+        asistencia_id,
+    )
+
+
+async def bulk_get_asistencia_info(
+    conn, asistencia_ids: list[UUID]
+) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT
+            ad.id,
+            ad.usuario_id,
+            ad.fecha_laboral,
+            ad.minutos_extra,
+            ad.horas_extra_estado,
+            u.nombre AS empleado_nombre
+        FROM tb_asistencia_diaria ad
+        JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
+        WHERE ad.id = ANY($1::uuid[])
+        """,
+        asistencia_ids,
+    )
+    return [dict(row) for row in rows]
+
+
+async def bulk_aprobar_horas_extra(
+    conn,
+    *,
+    asistencia_ids: list[UUID],
+    aprobador_id: UUID,
+    minutos_aprobados: int,
+    comentario: str,
+) -> None:
+    await conn.executemany(
+        """
+        INSERT INTO tb_horas_extra_aprobaciones
+            (asistencia_id, aprobador_id, minutos_aprobados, comentario)
+        VALUES ($1, $2, $3, $4)
+        ON CONFLICT (asistencia_id) DO NOTHING
+        """,
+        [(aid, aprobador_id, minutos_aprobados, comentario) for aid in asistencia_ids],
+    )
+    await conn.execute(
+        """
+        UPDATE tb_asistencia_diaria
+        SET horas_extra_estado = 'aprobado'
+        WHERE id = ANY($1::uuid[])
+        """,
+        asistencia_ids,
+    )
+
+
+async def count_horas_extra_pendientes(conn, usuario_ids: list[UUID]) -> int:
+    if not usuario_ids:
+        return 0
+    return await conn.fetchval(
+        """
+        SELECT COUNT(*)
+        FROM tb_asistencia_diaria
+        WHERE usuario_id = ANY($1::uuid[])
+          AND horas_extra_estado = 'pendiente'
+          AND minutos_extra > 0
+        """,
+        usuario_ids,
+    ) or 0
