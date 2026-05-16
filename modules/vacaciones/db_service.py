@@ -32,7 +32,7 @@ async def get_catalogo_dias_admin(conn) -> list[dict]:
 
 async def get_tipos_ausencia(conn) -> list[dict]:
     rows = await conn.fetch(
-        "SELECT id, nombre, slug, abreviatura, afecta_saldo, requiere_aprobacion, orden "
+        "SELECT id::text AS id, nombre, slug, abreviatura, afecta_saldo, requiere_aprobacion, orden "
         "FROM tb_cat_tipos_ausencia WHERE is_active = true ORDER BY orden"
     )
     return [dict(r) for r in rows]

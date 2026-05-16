@@ -13,8 +13,9 @@
     <h2 class="text-sm font-semibold text-gray-700">Mis Solicitudes</h2>
     <button
       hx-get="/vacaciones/solicitudes/nueva"
-      hx-target="#tab-content"
+      hx-target="#modal-solicitud-body"
       hx-swap="innerHTML"
+      @click="$dispatch('abrir-modal-solicitud')"
       class="text-xs text-[#00BABB] hover:underline font-medium">
       + Nueva
     </button>

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import date
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -13,6 +14,7 @@ from modules.shared import signatures_db_service as signatures_db
 from modules.shared.utils import toast_error
 from modules.vacaciones import db_service as db
 from modules.vacaciones import service
+from modules.vacaciones.logic import contar_dias_habiles, siguiente_dia_habil
 
 router = APIRouter(prefix="/vacaciones", tags=["vacaciones"])
 templates = Jinja2Templates(directory="templates")
@@ -23,24 +25,22 @@ templates = Jinja2Templates(directory="templates")
 # Utilidad: cálculo de días hábiles (usado por el formulario vía JS)
 # ─────────────────────────────────────────────
 
-@router.get("/dias-habiles")
-async def dias_habiles(
+@router.get("/calcular-dias")
+async def calcular_dias(
     inicio: str = Query(...),
     fin: str = Query(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    from datetime import date
-    from modules.vacaciones.logic import contar_dias_habiles
-
     try:
         d_inicio = date.fromisoformat(inicio)
         d_fin = date.fromisoformat(fin)
     except ValueError:
-        return JSONResponse({"dias": 0})
+        return JSONResponse({"dias": 0, "fecha_presentarse": None})
     festivos = await db.get_festivos_set(conn)
-    dias = contar_dias_habiles(d_inicio, d_fin, festivos)
-    return JSONResponse({"dias": max(dias, 0)})
+    dias = max(contar_dias_habiles(d_inicio, d_fin, festivos), 0)
+    fecha_presentarse = siguiente_dia_habil(d_fin, festivos).isoformat()
+    return JSONResponse({"dias": dias, "fecha_presentarse": fecha_presentarse})
 
 
 # ─────────────────────────────────────────────

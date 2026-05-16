@@ -228,3 +228,11 @@ def contar_dias_habiles(inicio: date, fin: date, festivos: set[date]) -> int:
             count += 1
         current += relativedelta(days=1)
     return count
+
+
+def siguiente_dia_habil(desde: date, festivos: set[date]) -> date:
+    """Primer día hábil (L-V) posterior a `desde`, excluyendo festivos."""
+    current = desde + relativedelta(days=1)
+    while current.weekday() >= 5 or current in festivos:
+        current += relativedelta(days=1)
+    return current
