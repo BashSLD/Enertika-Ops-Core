@@ -18,27 +18,15 @@
 </div>
 
 <script>
-    // Cerrar modal después de 2 segundos
     setTimeout(() => {
         cerrarModalProyecto();
-        
-        // Refrescar datos si estamos en compras
         if (typeof htmx !== 'undefined') {
-            // Refrescar catálogos de proyectos en la página
-            htmx.ajax('GET', '/compras/catalogos', {
-                target: '#catalogos-container',
-                swap: 'none'
-            }).catch(() => {});
-            
-            // Refrescar la tabla de comprobantes
-            htmx.ajax('GET', '/compras/comprobantes', {
-                target: '#tabla-comprobantes',
-                swap: 'innerHTML'
+            htmx.ajax('GET', '/compras/ui', {
+                target: '#main-content',
+                swap: 'innerHTML',
+                headers: { 'HX-Request': 'true' }
             }).catch(() => {});
         }
-        
-        // Recargar la página para refrescar dropdowns
-        window.location.reload();
     }, 2000);
 </script>
 {% else %}

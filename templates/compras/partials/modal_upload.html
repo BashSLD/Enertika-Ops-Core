@@ -99,6 +99,7 @@
     (function () {
         // Almacenamiento local de archivos
         let storedFiles = [];
+        let _uploadRedirectTimer = null;
 
         // Definir elementos
         const dropZone = document.getElementById('drop-zone');
@@ -149,6 +150,10 @@
 
         // Función global para limpiar y cerrar modal
         window.clearUploadModal = function () {
+            if (_uploadRedirectTimer) {
+                clearTimeout(_uploadRedirectTimer);
+                _uploadRedirectTimer = null;
+            }
             storedFiles = [];
             if (fileInput) fileInput.value = '';
             if (resultContainer) resultContainer.innerHTML = '';
@@ -232,15 +237,19 @@
             });
         }
 
-        // Reset form post-submit exitoso
+        // Reset form post-submit exitoso (solo cuando hubo inserciones reales)
         document.body.addEventListener('htmx:afterSwap', (event) => {
             if (event.detail.target.id === 'upload-result') {
                 const result = event.detail.target;
-                // Si hubo inserciones exitosas O duplicados (que implica procesamiento correcto)
-                if (result.querySelector('.success-message') || result.querySelector('.text-yellow-800')) {
-                    setTimeout(() => {
+                if (result.querySelector('.success-message')) {
+                    _uploadRedirectTimer = setTimeout(() => {
+                        _uploadRedirectTimer = null;
                         window.clearUploadModal();
-                        window.location.href = '/compras/ui';
+                        htmx.ajax('GET', '/compras/ui', {
+                            target: '#main-content',
+                            swap: 'innerHTML',
+                            headers: { 'HX-Request': 'true' }
+                        });
                     }, 4000);
                 }
             }
