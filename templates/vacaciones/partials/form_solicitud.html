@@ -7,29 +7,41 @@
        fechaInicio: '',
        fechaFin: '',
        diasHabiles: 0,
-       diasSolicitados: '',
+       diasCalculados: false,
        fechaPresentarse: '',
        fechaPresentarseCalculada: '',
        saldoDisponible: 0,
        tipos: [],
+       _calcularCtrl: null,
        init() {
          this.tipos = JSON.parse(this.$el.dataset.tipos || '[]');
          this.saldoDisponible = parseInt(this.$el.dataset.saldoDisponible || '0');
        },
        async calcularDias() {
-         if (!this.fechaInicio || !this.fechaFin) { this.diasHabiles = 0; return; }
-         const r = await fetch('/vacaciones/calcular-dias?inicio=' + this.fechaInicio + '&fin=' + this.fechaFin);
-         if (r.ok) {
-           const d = await r.json();
-           this.diasHabiles = d.dias;
-           this.diasSolicitados = d.dias || '';
-           this.fechaPresentarseCalculada = d.fecha_presentarse || '';
-           this.fechaPresentarse = d.fecha_presentarse || '';
+         if (this._calcularCtrl) this._calcularCtrl.abort();
+         this._calcularCtrl = new AbortController();
+         this.diasCalculados = false;
+         if (!this.fechaInicio || !this.fechaFin) {
+           this.diasHabiles = 0;
+           this.fechaPresentarseCalculada = '';
+           this.fechaPresentarse = '';
+           return;
+         }
+         try {
+           const r = await fetch('/vacaciones/calcular-dias?inicio=' + this.fechaInicio + '&fin=' + this.fechaFin, { signal: this._calcularCtrl.signal });
+           if (r.ok) {
+             const d = await r.json();
+             this.diasHabiles = d.dias;
+             this.fechaPresentarseCalculada = d.fecha_presentarse || '';
+             this.fechaPresentarse = d.fecha_presentarse || '';
+             this.diasCalculados = true;
+           }
+         } catch (e) {
+           if (e.name !== 'AbortError') throw e;
          }
        },
-       get discrepancia() {
-         const ingresado = parseInt(this.diasSolicitados);
-         return !isNaN(ingresado) && this.diasHabiles > 0 && ingresado !== this.diasHabiles;
+       get sinDiasHabiles() {
+         return this.fechaInicio && this.fechaFin && this.diasCalculados && this.diasHabiles === 0;
        },
        get discrepanciaFecha() {
          return this.fechaPresentarse && this.fechaPresentarseCalculada && this.fechaPresentarse !== this.fechaPresentarseCalculada;
@@ -52,6 +64,7 @@
   <form hx-post="/vacaciones/solicitudes"
         hx-target="#tab-content"
         hx-swap="innerHTML"
+        hx-disabled-elt="find button[type='submit']"
         class="space-y-4">
 
     <!-- Tipo -->
@@ -74,41 +87,41 @@
         <input type="date" name="fecha_inicio" required
                x-model="fechaInicio"
                @change="calcularDias()"
-               class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+               class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Fecha fin *</label>
         <input type="date" name="fecha_fin" required
                x-model="fechaFin"
                @change="calcularDias()"
-               class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+               class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
       </div>
     </div>
 
     <!-- Días solicitados -->
     <div>
-      <label class="block text-sm font-medium text-gray-700 mb-1">Días solicitados *</label>
-      <input type="number" name="dias_solicitados" min="1" required
-             x-model="diasSolicitados"
-             placeholder="Ej. 5"
-             class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+      <label class="block text-sm font-medium text-gray-700 mb-1">Días solicitados</label>
+      <input type="number" readonly
+             :value="diasHabiles || ''"
+             placeholder="Se calcula con las fechas"
+             class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm bg-gray-50 text-gray-700 focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
       <p class="text-xs text-gray-400 mt-1">Solo días hábiles (L–V, sin festivos ni fines de semana).</p>
-      <template x-if="discrepancia">
-        <p class="text-amber-600 text-xs mt-1 font-medium">
-          El rango de fechas equivale a <span x-text="diasHabiles"></span> días hábiles. Verifica que el número ingresado sea correcto.
+      <template x-if="sinDiasHabiles">
+        <p class="text-red-600 text-xs mt-1 font-medium">
+          El rango seleccionado no contiene días hábiles. Ajusta las fechas para enviar la solicitud.
         </p>
       </template>
-      <template x-if="afectaSaldo && saldoDisponible > 0 && parseInt(diasSolicitados) > saldoDisponible">
+      <template x-if="afectaSaldo && saldoDisponible > 0 && diasHabiles > saldoDisponible">
         <p class="text-amber-600 text-xs mt-1 font-medium">Superarás tu saldo disponible (<span x-text="saldoDisponible"></span> días).</p>
       </template>
     </div>
 
     <!-- Fecha de presentarse -->
     <div>
-      <label class="block text-sm font-medium text-gray-700 mb-1">Fecha de regreso *</label>
-      <input type="date" name="fecha_presentarse" required
+      <label class="block text-sm font-medium text-gray-700 mb-1">Fecha de regreso</label>
+      <input type="date" name="fecha_presentarse"
              x-model="fechaPresentarse"
-             class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+             class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
       <template x-if="discrepanciaFecha">
         <p class="text-amber-600 text-xs mt-1 font-medium">
           El siguiente día hábil sugerido es <span x-text="formatFecha(fechaPresentarseCalculada)"></span>. Puedes mantener tu selección si es correcto.
@@ -131,7 +144,9 @@
         Cancelar
       </button>
       <button type="submit"
-              class="flex-1 bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
+              :disabled="sinDiasHabiles"
+              :class="sinDiasHabiles ? 'bg-gray-300 cursor-not-allowed hover:bg-gray-300' : 'bg-[#00BABB] hover:bg-[#009A9B]'"
+              class="flex-1 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
         Enviar solicitud
       </button>
     </div>
