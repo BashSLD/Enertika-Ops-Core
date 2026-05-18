@@ -6,9 +6,16 @@
 
 <div class="space-y-5">
   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-    <div>
-      <h2 class="text-sm font-semibold text-gray-700">Mi Equipo</h2>
-      <p class="text-xs text-gray-400">Vacaciones aprobadas, ausencias activas y horas extra por validar.</p>
+    <div class="flex items-start gap-2">
+      <span class="mt-0.5 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#00BABB]/10 text-[#007C7D]">
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M16.25 18.75v-1.1a3.4 3.4 0 0 0-3.4-3.4h-4.2a3.4 3.4 0 0 0-3.4 3.4v1.1M13.75 7.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM18.75 18.75v-1.05a3 3 0 0 0-2.25-2.9M16.75 4.95a3 3 0 0 1 0 5.6"/>
+        </svg>
+      </span>
+      <div>
+        <h2 class="text-sm font-semibold text-gray-700">Mi Team</h2>
+        <p class="text-xs text-gray-400">Vacaciones aprobadas, ausencias activas y horas extra por validar.</p>
+      </div>
     </div>
     <div class="flex flex-wrap gap-2 text-xs">
       <span class="px-2.5 py-1 rounded-full bg-[#00BABB]/10 text-[#007C7D] font-semibold">
@@ -23,7 +30,14 @@
   <section class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
     <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
       <div>
-        <h3 class="text-sm font-semibold text-gray-800">Vacaciones del equipo</h3>
+        <div class="flex items-center gap-2">
+          <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-sky-50 text-sky-600">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 2.75v3M16 2.75v3M4.75 9.25h14.5M6.75 4.75h10.5a2 2 0 0 1 2 2v10.5a2 2 0 0 1-2 2H6.75a2 2 0 0 1-2-2V6.75a2 2 0 0 1 2-2Z"/>
+            </svg>
+          </span>
+          <h3 class="text-sm font-semibold text-gray-800">Vacaciones de Mi Team</h3>
+        </div>
         <p class="text-xs text-gray-400">Hoy y próximas vacaciones aprobadas.</p>
       </div>
       <span class="text-xs text-gray-400">{{ hoy.strftime('%d/%m/%Y') }}</span>
@@ -53,7 +67,7 @@
           {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-400">Nadie del equipo está de vacaciones hoy.</p>
+        <p class="text-sm text-gray-400">Nadie de Mi Team está de vacaciones hoy.</p>
         {% endif %}
       </div>
 
@@ -135,7 +149,14 @@
     class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
 
     <div class="px-5 py-3 border-b border-gray-100">
-      <h3 class="text-sm font-semibold text-gray-800">Horas extra pendientes de aprobacion</h3>
+      <div class="flex items-center gap-2">
+        <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M12 6.75v5.5l3.25 2M12 3.75a8.25 8.25 0 1 1 0 16.5 8.25 8.25 0 0 1 0-16.5Z"/>
+          </svg>
+        </span>
+        <h3 class="text-sm font-semibold text-gray-800">Horas extra pendientes de aprobacion</h3>
+      </div>
       <p class="text-xs text-gray-400">Registros calculados de los ultimos 30 dias sin aprobar.</p>
     </div>
 
@@ -307,11 +328,18 @@
   </section>
 
   <section class="space-y-3">
-    <h3 class="text-sm font-semibold text-gray-700">Personas de tu equipo</h3>
+    <div class="flex items-center gap-2">
+      <span class="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-gray-100 text-gray-600">
+        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15.75 7.75a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.75 20.25a7.25 7.25 0 0 1 14.5 0"/>
+        </svg>
+      </span>
+      <h3 class="text-sm font-semibold text-gray-700">Personas de Mi Team</h3>
+    </div>
 
     {% if not equipo %}
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-10 text-center text-sm text-gray-400">
-      No hay personas en tu equipo actualmente.
+      No hay personas en Mi Team actualmente.
     </div>
     {% else %}
     {% for item in equipo %}

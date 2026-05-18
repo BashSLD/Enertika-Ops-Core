@@ -53,6 +53,13 @@ async def perfil_ui(
     firma = await signatures_db.get_firma_usuario(conn, usuario_id)
     es_jefe = await vac_service.es_jefe_o_aprobador_de_alguien(conn, usuario_id)
     es_rrhh_viewer = user_has_module_access("rrhh", context_perfil, "viewer")
+    es_rrhh_editor = user_has_module_access("rrhh", context_perfil, "editor")
+    if es_rrhh_editor:
+        pendientes_aprobacion = await vac_db.get_todas_solicitudes_pendientes(conn)
+    elif es_jefe:
+        pendientes_aprobacion = await vac_db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
+    else:
+        pendientes_aprobacion = []
 
     ctx = {
         "perfil": perfil or {},
@@ -61,6 +68,7 @@ async def perfil_ui(
         "tipos": tipos,
         "firma": firma,
         "es_jefe_o_aprobador": es_jefe or es_rrhh_viewer,
+        "pendientes_aprobaciones_count": len(pendientes_aprobacion),
         "context": context_perfil,
         "user_name": context_perfil.get("user_name"),
         "role": context_perfil.get("role"),
