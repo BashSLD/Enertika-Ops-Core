@@ -2,40 +2,100 @@
 
 {% block doc_title %}SOLICITUD DE VACACIONES / AUSENCIA{% endblock %}
 {% block doc_date %}Folio: {{ folio }}{% endblock %}
-{% block footer_label %}Solicitud de Ausencia — {{ folio }}{% endblock %}
+{% block footer_label %}Solicitud de Ausencia - {{ folio }}{% endblock %}
 
 {% block extra_styles %}
 <style>
-.firma-box {
-    width: 48%;
-    display: inline-block;
-    vertical-align: top;
-    border: 1px solid #ddd;
-    border-radius: 4px;
-    padding: 12px;
-    min-height: 90px;
-}
-.firma-box img {
-    max-height: 60px;
-    max-width: 200px;
-    display: block;
-    margin-bottom: 6px;
-}
-.firma-line {
-    border-top: 1px solid #333;
-    margin-top: 4px;
-    padding-top: 4px;
-    font-size: 9pt;
-    color: #333;
-}
-.nota-legal {
-    font-size: 8pt;
-    color: #777;
-    margin-top: 18px;
-    border-top: 1px solid #eee;
-    padding-top: 8px;
-    text-align: center;
-}
+    .data-table th {
+        width: auto;
+        background-color: #0e2841;
+        color: #fff;
+        font-weight: bold;
+        text-align: left;
+    }
+
+    .compact-table th,
+    .compact-table td {
+        padding: 6px 8px;
+        line-height: 1.25;
+    }
+
+    .employee-table th,
+    .employee-table td,
+    .request-table th,
+    .request-table td {
+        text-align: center;
+    }
+
+    .comments-cell {
+        text-align: left !important;
+    }
+
+    .period-col {
+        width: 42%;
+    }
+
+    .days-col,
+    .balance-col {
+        width: 16%;
+        text-align: center !important;
+        white-space: nowrap;
+    }
+
+    .expires-col {
+        width: 26%;
+        text-align: center !important;
+        white-space: nowrap;
+    }
+
+    .firmas-section,
+    .firmas-table,
+    .firma-box {
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+
+    .firmas-section {
+        margin-top: 10px;
+    }
+
+    .firmas-table {
+        width: 100%;
+        border-collapse: separate;
+        border-spacing: 10px 0;
+    }
+
+    .firma-box {
+        width: 50%;
+        vertical-align: top;
+        border: 1px solid #ddd;
+        border-radius: 4px;
+        padding: 12px;
+        min-height: 95px;
+    }
+
+    .firma-box img {
+        max-height: 58px;
+        max-width: 200px;
+        display: block;
+        margin-bottom: 6px;
+    }
+
+    .firma-placeholder {
+        height: 58px;
+    }
+
+    .firma-placeholder.dashed {
+        border-bottom: 1px dashed #aaa;
+    }
+
+    .firma-line {
+        border-top: 1px solid #333;
+        margin-top: 4px;
+        padding-top: 4px;
+        font-size: 9pt;
+        color: #333;
+    }
 </style>
 {% endblock %}
 
@@ -45,113 +105,131 @@
   Fecha de solicitud: {{ solicitud.fecha_solicitud.strftime('%d/%m/%Y %H:%M') }}
 </p>
 
-<!-- DATOS DEL EMPLEADO -->
 <div class="section-title">Datos del Empleado</div>
-<table class="data-table">
-  <tr><th>Nombre</th><td>{{ solicitud.solicitante_nombre }}</td></tr>
-  {% if empleado %}
-  {% if empleado.numero_empleado %}
-  <tr><th>No. Empleado</th><td>{{ empleado.numero_empleado }}</td></tr>
-  {% endif %}
-  {% if empleado.departamento %}
-  <tr><th>Departamento</th><td>{{ empleado.departamento }}</td></tr>
-  {% endif %}
-  {% if empleado.puesto %}
-  <tr><th>Puesto</th><td>{{ empleado.puesto }}</td></tr>
-  {% endif %}
-  {% if empleado.fecha_contratacion %}
-  <tr><th>Fecha de Contratación</th><td>{{ empleado.fecha_contratacion.strftime('%d/%m/%Y') }}</td></tr>
-  {% endif %}
+<table class="data-table compact-table employee-table">
+  <tr>
+    <th>No. Empleado</th>
+    <th>Nombre del empleado</th>
+    <th>Fecha de contratación</th>
+  </tr>
+  <tr>
+    <td>{{ empleado.numero_empleado if empleado and empleado.numero_empleado else '-' }}</td>
+    <td>{{ solicitud.solicitante_nombre }}</td>
+    <td>{{ empleado.fecha_contratacion.strftime('%d/%m/%Y') if empleado and empleado.fecha_contratacion else '-' }}</td>
+  </tr>
+  <tr>
+    <th colspan="2">Departamento</th>
+    <th>Puesto</th>
+  </tr>
+  <tr>
+    <td colspan="2">{{ empleado.departamento if empleado and empleado.departamento else '-' }}</td>
+    <td>{{ empleado.puesto if empleado and empleado.puesto else '-' }}</td>
+  </tr>
+  {% if solicitud.observaciones %}
+  <tr>
+    <th colspan="3">Comentarios</th>
+  </tr>
+  <tr>
+    <td colspan="3" class="comments-cell">{{ solicitud.observaciones }}</td>
+  </tr>
   {% endif %}
 </table>
 
-<!-- DATOS DE LA SOLICITUD -->
 <div class="section-title">Datos de la Solicitud</div>
-<table class="data-table">
-  <tr><th>Tipo</th><td>{{ solicitud.tipo_nombre }}</td></tr>
-  <tr><th>Período</th><td>{{ solicitud.fecha_inicio.strftime('%d/%m/%Y') }} al {{ solicitud.fecha_fin.strftime('%d/%m/%Y') }}</td></tr>
-  <tr><th>Días hábiles solicitados</th><td><strong>{{ solicitud.dias_solicitados }}</strong></td></tr>
-  <tr><th>Fecha de regreso</th><td>{{ solicitud.fecha_presentarse.strftime('%d/%m/%Y') }}</td></tr>
-  {% if solicitud.observaciones %}
-  <tr><th>Observaciones</th><td>{{ solicitud.observaciones }}</td></tr>
-  {% endif %}
+<table class="data-table compact-table request-table">
   <tr>
+    <th>Tipo</th>
+    <th>Periodo</th>
+    <th>Días solicitados</th>
+  </tr>
+  <tr>
+    <td>{{ solicitud.tipo_nombre }}</td>
+    <td>{{ solicitud.fecha_inicio.strftime('%d/%m/%Y') }} al {{ solicitud.fecha_fin.strftime('%d/%m/%Y') }}</td>
+    <td><strong>{{ solicitud.dias_solicitados }}</strong></td>
+  </tr>
+  <tr>
+    <th colspan="2">Fecha de regreso</th>
     <th>Estado</th>
+  </tr>
+  <tr>
+    <td colspan="2">{{ solicitud.fecha_presentarse.strftime('%d/%m/%Y') }}</td>
     <td>
       <strong class="{{ 'text-ok' if solicitud.estado == 'aprobado' else 'text-alert' if solicitud.estado == 'rechazado' else '' }}">
         {{ solicitud.estado | upper }}
       </strong>
       {% if solicitud.fecha_resolucion %}
-      &nbsp;— {{ solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') }}
+      <br>{{ solicitud.fecha_resolucion.strftime('%d/%m/%Y %H:%M') }}
       {% endif %}
     </td>
   </tr>
   {% if solicitud.motivo_rechazo %}
-  <tr><th>Motivo de rechazo</th><td class="text-alert">{{ solicitud.motivo_rechazo }}</td></tr>
+  <tr>
+    <th colspan="3">Motivo de rechazo</th>
+  </tr>
+  <tr>
+    <td colspan="3" class="text-alert comments-cell">{{ solicitud.motivo_rechazo }}</td>
+  </tr>
   {% endif %}
 </table>
 
 {% if detalle_periodos %}
 <div class="section-title">Detalle de Periodos Afectados</div>
-<table class="data-table">
+<table class="data-table compact-table">
   <tr>
-    <th>Periodo</th>
-    <th>Dias consumidos</th>
-    <th>Saldo restante</th>
-    <th>Fecha de expiracion</th>
+    <th class="period-col">Periodo</th>
+    <th class="days-col">Días consumidos</th>
+    <th class="balance-col">Saldo restante</th>
+    <th class="expires-col">Fecha de expiración</th>
   </tr>
   {% for p in detalle_periodos %}
   <tr>
     <td>Periodo {{ p.num_periodo }} ({{ p.periodo }})</td>
-    <td>{{ p.dias_consumidos }}</td>
-    <td>{{ p.dias_restantes if p.dias_restantes is not none else '-' }}</td>
-    <td>{{ p.fecha_expiracion.strftime('%d/%m/%Y') if p.fecha_expiracion else '-' }}</td>
+    <td class="days-col">{{ p.dias_consumidos }}</td>
+    <td class="balance-col">{{ p.dias_restantes if p.dias_restantes is not none else '-' }}</td>
+    <td class="expires-col">{{ p.fecha_expiracion.strftime('%d/%m/%Y') if p.fecha_expiracion else '-' }}</td>
   </tr>
   {% endfor %}
 </table>
 {% endif %}
 
-<!-- FIRMAS -->
-<div class="section-title">Firmas</div>
-<div style="margin-top: 10px;">
-  <div class="firma-box" style="margin-right: 4%;">
-    {% if firma_solicitante_b64 %}
-    <img src="data:image/png;base64,{{ firma_solicitante_b64 }}" alt="Firma solicitante">
-    {% else %}
-    <div style="height: 60px;"></div>
-    {% endif %}
-    <div class="firma-line">
-      <strong>Solicitante</strong><br>
-      {{ solicitud.solicitante_nombre }}<br>
-      {% if firma_solicitante_info %}
-      Fecha: {{ firma_solicitante_info.fecha_firma.strftime('%d/%m/%Y %H:%M') }}
-      {% endif %}
-    </div>
-  </div>
-  <div class="firma-box">
-    {% if firma_aprobador_b64 %}
-    <img src="data:image/png;base64,{{ firma_aprobador_b64 }}" alt="Firma aprobador">
-    {% else %}
-    <div style="height: 60px; border-bottom: 1px dashed #aaa;"></div>
-    {% endif %}
-    <div class="firma-line">
-      <strong>Aprobador</strong><br>
-      {% if solicitud.aprobado_por_nombre %}
-      {{ solicitud.aprobado_por_nombre }}<br>
-      {% if firma_aprobador_info %}
-      Fecha: {{ firma_aprobador_info.fecha_firma.strftime('%d/%m/%Y %H:%M') }}
-      {% endif %}
-      {% else %}
-      Pendiente de aprobación
-      {% endif %}
-    </div>
-  </div>
+<div class="firmas-section">
+  <div class="section-title">Firmas</div>
+  <table class="firmas-table">
+    <tr>
+      <td class="firma-box">
+        {% if firma_solicitante_b64 %}
+        <img src="data:image/png;base64,{{ firma_solicitante_b64 }}" alt="Firma solicitante">
+        {% else %}
+        <div class="firma-placeholder"></div>
+        {% endif %}
+        <div class="firma-line">
+          <strong>Solicitante</strong><br>
+          {{ solicitud.solicitante_nombre }}<br>
+          {% if firma_solicitante_info %}
+          Fecha: {{ firma_solicitante_info.fecha_firma.strftime('%d/%m/%Y %H:%M') }}
+          {% endif %}
+        </div>
+      </td>
+      <td class="firma-box">
+        {% if firma_aprobador_b64 %}
+        <img src="data:image/png;base64,{{ firma_aprobador_b64 }}" alt="Firma aprobador">
+        {% else %}
+        <div class="firma-placeholder dashed"></div>
+        {% endif %}
+        <div class="firma-line">
+          <strong>Aprobador</strong><br>
+          {% if solicitud.aprobado_por_nombre %}
+          {{ solicitud.aprobado_por_nombre }}<br>
+          {% if firma_aprobador_info %}
+          Fecha: {{ firma_aprobador_info.fecha_firma.strftime('%d/%m/%Y %H:%M') }}
+          {% endif %}
+          {% else %}
+          Pendiente de aprobación
+          {% endif %}
+        </div>
+      </td>
+    </tr>
+  </table>
 </div>
-
-<p class="nota-legal">
-  Este documento es un comprobante. Las firmas digitales registradas en el sistema
-  constituyen la autorización oficial de esta solicitud.<br>
-  CC: RH Enertika
-</p>
 
 {% endblock %}
