@@ -23,7 +23,7 @@ def calcular_periodos(
     fecha_contratacion: date,
     hoy: date,
     catalogo_dias: list[dict],
-    ajuste_dias: int = 0,
+    ajuste_dias: int | None = 0,
     meses_expiracion: int = 18,
 ) -> list[dict]:
     """
@@ -32,6 +32,7 @@ def calcular_periodos(
     Solo se incluyen períodos con fecha_aniversario <= hoy + 1 año.
     El ajuste manual de RH se aplica al período más reciente.
     """
+    ajuste_dias = ajuste_dias or 0
     periodos: list[dict] = []
     limite = hoy + relativedelta(years=1)
     num = 1

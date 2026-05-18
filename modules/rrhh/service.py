@@ -182,7 +182,7 @@ def _periodos_migrables(
         empleado["fecha_contratacion"],
         hoy,
         catalogo,
-        ajuste_dias=empleado.get("dias_vacaciones_ajuste", 0),
+        ajuste_dias=empleado.get("dias_vacaciones_ajuste") or 0,
         meses_expiracion=meses_exp,
     )
     balance = calcular_balance(periodos, consumos_no_migracion)
@@ -1263,7 +1263,7 @@ async def build_empleados_vacaciones_export(conn) -> tuple[list[str], list[list]
             fecha_contratacion,
             hoy,
             catalogo,
-            ajuste_dias=emp.get("dias_vacaciones_ajuste", 0),
+            ajuste_dias=emp.get("dias_vacaciones_ajuste") or 0,
             meses_expiracion=meses_exp,
         )
         balance = calcular_balance(periodos, consumos_bulk.get(uid, []))

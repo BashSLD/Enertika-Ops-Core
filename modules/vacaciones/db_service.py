@@ -632,7 +632,7 @@ async def get_solicitudes_usuario(conn, usuario_id: UUID) -> list[dict]:
         LEFT JOIN tb_usuarios m ON m.id_usuario = sa.migrado_por
         LEFT JOIN tb_vacaciones_consumo vc ON vc.solicitud_id = sa.id AND sa.es_migracion = TRUE
         WHERE sa.usuario_id = $1
-        ORDER BY sa.created_at DESC
+        ORDER BY COALESCE(sa.es_migracion, false) ASC, sa.created_at DESC
         """,
         usuario_id,
     )
@@ -717,8 +717,8 @@ async def update_solicitud_estado(
     await conn.execute(
         """
         UPDATE tb_solicitudes_ausencia
-        SET estado = $2, aprobado_por = $3, motivo_rechazo = $4,
-            fecha_resolucion = CASE WHEN $2 IN ('aprobado','rechazado','cancelado') THEN now() ELSE NULL END,
+        SET estado = $2::varchar, aprobado_por = $3, motivo_rechazo = $4,
+            fecha_resolucion = CASE WHEN $2::varchar IN ('aprobado','rechazado','cancelado') THEN now() ELSE NULL END,
             updated_at = now()
         WHERE id = $1
         """,

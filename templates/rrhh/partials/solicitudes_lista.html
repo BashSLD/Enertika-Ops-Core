@@ -35,7 +35,7 @@
           {% for sol in solicitudes %}
           <tr class="hover:bg-gray-50 transition-colors">
             <td class="px-4 py-3">
-              <p class="font-medium text-gray-800 truncate max-w-[140px]">{{ sol.solicitante_nombre }}</p>
+              <p class="max-w-[220px] truncate text-sm font-semibold text-gray-900">{{ sol.solicitante_nombre }}</p>
             </td>
             <td class="px-4 py-3 text-gray-600">
               {% if sol.es_migracion %}
@@ -44,7 +44,9 @@
               </span>
               <p class="text-xs text-gray-400 mt-1">Antes del sistema</p>
               {% else %}
-              {{ sol.tipo_nombre }}
+              <span class="inline-flex items-center rounded-full bg-gray-100 px-2 py-0.5 text-xs font-semibold text-gray-700">
+                {{ sol.tipo_nombre }}
+              </span>
               {% endif %}
             </td>
             <td class="px-4 py-3 hidden sm:table-cell text-gray-600 whitespace-nowrap">
@@ -55,22 +57,22 @@
             </td>
             <td class="px-4 py-3">
               {% if sol.firma_solicitante_pendiente %}
-              <span class="bg-sky-50 text-sky-700 text-xs font-medium px-2 py-0.5 rounded-full">Pendiente firma</span>
+              <span class="bg-sky-50 text-sky-700 text-xs font-semibold px-2.5 py-1 rounded-full">Pendiente firma</span>
               {% elif sol.estado == 'pendiente' %}
-              <span class="bg-amber-50 text-amber-700 text-xs font-medium px-2 py-0.5 rounded-full">Pendiente</span>
+              <span class="bg-amber-50 text-amber-700 text-xs font-semibold px-2.5 py-1 rounded-full">Pendiente</span>
               {% elif sol.estado == 'aprobado' %}
-              <span class="bg-green-50 text-green-700 text-xs font-medium px-2 py-0.5 rounded-full">Aprobada</span>
+              <span class="bg-green-50 text-green-700 text-xs font-semibold px-2.5 py-1 rounded-full">Aprobada</span>
               {% elif sol.estado == 'rechazado' %}
-              <span class="bg-red-50 text-red-700 text-xs font-medium px-2 py-0.5 rounded-full">Rechazada</span>
+              <span class="bg-red-50 text-red-700 text-xs font-semibold px-2.5 py-1 rounded-full">Rechazada</span>
               {% else %}
-              <span class="bg-gray-100 text-gray-500 text-xs font-medium px-2 py-0.5 rounded-full">Cancelada</span>
+              <span class="bg-gray-100 text-gray-500 text-xs font-semibold px-2.5 py-1 rounded-full">Cancelada</span>
               {% endif %}
             </td>
             <td class="px-4 py-3 text-right">
               <div class="flex items-center justify-end gap-3">
-                <a hx-get="/vacaciones/solicitudes/{{ sol.id }}"
-                  hx-target="#main-content"
-                  hx-push-url="true"
+                <a hx-get="/vacaciones/solicitudes/{{ sol.id }}?origen=rrhh_solicitudes"
+                  hx-target="#rrhh-content"
+                  hx-swap="innerHTML"
                   class="text-[#00BABB] hover:text-[#009A9B] text-xs font-medium transition-colors cursor-pointer">
                   Ver
                 </a>

@@ -11,7 +11,7 @@ from core.database import get_db_connection
 from core.permissions import user_has_module_access
 from core.security import get_current_user_context
 from modules.shared import signatures_db_service as signatures_db
-from modules.shared.utils import toast_error
+from modules.shared.utils import is_htmx, toast_error
 from modules.vacaciones import db_service as db
 from modules.vacaciones import service
 from modules.vacaciones.logic import contar_dias_habiles, siguiente_dia_habil
@@ -102,26 +102,31 @@ async def crear_solicitud(
     tipo_ausencia_id: UUID = Form(...),
     fecha_inicio: str = Form(...),
     fecha_fin: str = Form(...),
-    fecha_presentarse: str = Form(...),
+    fecha_presentarse: str | None = Form(None),
     observaciones: str = Form(None),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    from datetime import date
-
     usuario_id = UUID(str(context["user_db_id"]))
+    try:
+        fecha_inicio_date = date.fromisoformat(fecha_inicio)
+        fecha_fin_date = date.fromisoformat(fecha_fin)
+        fecha_presentarse_date = date.fromisoformat(fecha_presentarse) if fecha_presentarse else None
+    except ValueError:
+        return toast_error(request, "Las fechas capturadas no son válidas", status_code=200)
+
     try:
         result = await service.crear_solicitud(
             conn,
             usuario_id=usuario_id,
             tipo_ausencia_id=tipo_ausencia_id,
-            fecha_inicio=date.fromisoformat(fecha_inicio),
-            fecha_fin=date.fromisoformat(fecha_fin),
-            fecha_presentarse=date.fromisoformat(fecha_presentarse),
+            fecha_inicio=fecha_inicio_date,
+            fecha_fin=fecha_fin_date,
+            fecha_presentarse=fecha_presentarse_date,
             observaciones=observaciones or None,
         )
     except ValueError as exc:
-        return toast_error(request, str(exc))
+        return toast_error(request, str(exc), status_code=200)
 
     if result["requiere_firma"]:
         solicitud_id = str(result["solicitud"]["id"])
@@ -155,9 +160,14 @@ async def crear_solicitud(
 async def detalle_solicitud(
     request: Request,
     solicitud_id: UUID,
+    origen: str = "solicitudes",
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
+    es_request_htmx = is_htmx(request)
+    origenes_validos = {"solicitudes", "aprobaciones", "rrhh_aprobaciones", "rrhh_solicitudes"}
+    if origen not in origenes_validos:
+        origen = "solicitudes"
     solicitud = await db.get_solicitud(conn, solicitud_id)
     if not solicitud:
         raise HTTPException(404)
@@ -166,17 +176,53 @@ async def detalle_solicitud(
     es_aprobador = await service.puede_aprobar(conn, solicitud_id, usuario_id, context)
     if not es_dueno and not es_aprobador:
         raise HTTPException(403)
+    if not es_dueno and es_aprobador and origen == "solicitudes":
+        origen = "aprobaciones"
+    if not es_request_htmx:
+        if origen == "rrhh_aprobaciones":
+            origen = "aprobaciones"
+        elif origen == "rrhh_solicitudes":
+            origen = "solicitudes"
     firmas = await db.get_firmas_solicitud(conn, solicitud_id)
+
+    ctx = {
+        "solicitud": solicitud,
+        "firmas": firmas,
+        "es_aprobador": es_aprobador,
+        "es_dueno": es_dueno,
+        "origen": origen,
+        "context": context,
+    }
+    if es_request_htmx:
+        return templates.TemplateResponse(
+            request,
+            "vacaciones/partials/detalle_solicitud.html",
+            ctx,
+        )
+
+    es_jefe = await service.es_jefe_o_aprobador_de_alguien(conn, usuario_id)
+    es_rrhh_viewer = user_has_module_access("rrhh", context, "viewer")
+    if user_has_module_access("rrhh", context, "editor"):
+        pendientes_aprobacion = await db.get_todas_solicitudes_pendientes(conn)
+    elif es_jefe:
+        pendientes_aprobacion = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
+    else:
+        pendientes_aprobacion = []
+
+    ctx.update(
+        {
+            "es_jefe_o_aprobador": es_jefe or es_rrhh_viewer,
+            "pendientes_aprobaciones_count": len(pendientes_aprobacion),
+            "tab_activa": "aprobaciones" if origen == "aprobaciones" else "solicitudes",
+            "user_name": context.get("user_name"),
+            "role": context.get("role"),
+            "module_roles": context.get("module_roles", {}),
+        }
+    )
     return templates.TemplateResponse(
         request,
-        "vacaciones/partials/detalle_solicitud.html",
-        {
-            "solicitud": solicitud,
-            "firmas": firmas,
-            "es_aprobador": es_aprobador,
-            "es_dueno": es_dueno,
-            "context": context,
-        },
+        "vacaciones/detalle_solicitud.html",
+        ctx,
     )
 
 
@@ -191,7 +237,7 @@ async def cancelar_solicitud(
     try:
         await service.cancelar_solicitud(conn, solicitud_id, usuario_id)
     except ValueError as exc:
-        return toast_error(request, str(exc))
+        return toast_error(request, str(exc), status_code=200)
 
     solicitudes = await db.get_solicitudes_usuario(conn, usuario_id)
     balance = await service.get_balance_usuario(conn, usuario_id)
@@ -268,7 +314,7 @@ async def aprobar_solicitud(
     try:
         aprobada = await service.aprobar_solicitud(conn, solicitud_id, usuario_id, context)
     except ValueError as exc:
-        return toast_error(request, str(exc))
+        return toast_error(request, str(exc), status_code=200)
 
     if user_has_module_access("rrhh", context, "editor"):
         pendientes = await db.get_todas_solicitudes_pendientes(conn)
@@ -298,7 +344,7 @@ async def rechazar_solicitud(
     try:
         await service.rechazar_solicitud(conn, solicitud_id, usuario_id, motivo, context)
     except ValueError as exc:
-        return toast_error(request, str(exc))
+        return toast_error(request, str(exc), status_code=200)
 
     if user_has_module_access("rrhh", context, "editor"):
         pendientes = await db.get_todas_solicitudes_pendientes(conn)

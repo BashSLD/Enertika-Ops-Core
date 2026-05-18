@@ -13,6 +13,7 @@ import httpx
 from jinja2 import TemplateError
 
 from fastapi.templating import Jinja2Templates
+from core.config_service import ConfigService
 from core.microsoft import MicrosoftAuth
 from core.notifications.service import get_notifications_service
 from core.config import settings
@@ -926,7 +927,7 @@ class NotificationService:
             await self._save_and_broadcast(
                 conn=conn,
                 recipient_email=aprobador_email,
-                tipo="SOLICITUD_VACACIONES",
+                tipo="ASIGNACION",
                 titulo=f"Nueva solicitud de {solicitud['solicitante_nombre']}",
                 mensaje=f"{solicitud['tipo_nombre']} · {solicitud['dias_solicitados']} días hábiles",
                 id_oportunidad=None,
@@ -981,7 +982,7 @@ class NotificationService:
             await self._save_and_broadcast(
                 conn=conn,
                 recipient_email=solicitud["solicitante_email"],
-                tipo="VACACIONES_APROBADAS",
+                tipo="CAMBIO_ESTATUS",
                 titulo="Solicitud aprobada",
                 mensaje=f"{solicitud['tipo_nombre']} · {solicitud['fecha_inicio'].strftime('%d/%m')} al {solicitud['fecha_fin'].strftime('%d/%m/%Y')}",
                 id_oportunidad=None,
@@ -1016,7 +1017,7 @@ class NotificationService:
             await self._save_and_broadcast(
                 conn=conn,
                 recipient_email=solicitud["solicitante_email"],
-                tipo="VACACIONES_RECHAZADAS",
+                tipo="CAMBIO_ESTATUS",
                 titulo="Solicitud rechazada",
                 mensaje=f"{solicitud['tipo_nombre']} · Motivo: {motivo[:80]}",
                 id_oportunidad=None,

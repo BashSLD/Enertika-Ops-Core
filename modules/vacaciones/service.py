@@ -22,6 +22,7 @@ from modules.vacaciones.logic import (
     calcular_progreso,
     calcular_semestre_liberado,
     contar_dias_habiles,
+    siguiente_dia_habil,
 )
 
 logger = logging.getLogger("vacaciones.service")
@@ -60,7 +61,7 @@ async def get_balance_usuario(conn, usuario_id: UUID) -> dict[str, Any]:
         empleado["fecha_contratacion"],
         hoy,
         catalogo,
-        ajuste_dias=empleado.get("dias_vacaciones_ajuste", 0),
+        ajuste_dias=empleado.get("dias_vacaciones_ajuste") or 0,
         meses_expiracion=meses_exp,
     )
     consumos = await db.get_consumos_usuario(conn, usuario_id)
@@ -156,7 +157,7 @@ async def crear_solicitud(
     tipo_ausencia_id: UUID,
     fecha_inicio: date,
     fecha_fin: date,
-    fecha_presentarse: date,
+    fecha_presentarse: date | None,
     observaciones: Optional[str],
 ) -> dict[str, Any]:
     """
@@ -172,6 +173,8 @@ async def crear_solicitud(
     dias = contar_dias_habiles(fecha_inicio, fecha_fin, festivos)
     if dias <= 0:
         raise ValueError("El rango seleccionado no contiene días hábiles")
+    if fecha_presentarse is None:
+        fecha_presentarse = siguiente_dia_habil(fecha_fin, festivos)
 
     solapadas = await db.get_solicitudes_activas_en_rango(conn, usuario_id, fecha_inicio, fecha_fin)
     if solapadas:
@@ -232,6 +235,9 @@ async def aprobar_solicitud(
         raise ValueError("La solicitud ya fue resuelta")
     if solicitud.get("firma_solicitante_pendiente"):
         raise ValueError("La solicitud aun requiere firma del solicitante")
+    firma_aprobador = await signatures_db.get_firma_usuario(conn, aprobador_id)
+    if not firma_aprobador:
+        raise ValueError("Registra tu firma en Mi Firma antes de aprobar solicitudes")
 
     await db.insert_firma_solicitud(conn, solicitud_id, aprobador_id, "aprobador")
     await db.update_solicitud_estado(conn, solicitud_id, "aprobado", aprobado_por=aprobador_id)
@@ -251,6 +257,10 @@ async def rechazar_solicitud(
     motivo: str,
     user_ctx: dict,
 ) -> None:
+    motivo_limpio = (motivo or "").strip()
+    if not motivo_limpio:
+        raise ValueError("Debes indicar el motivo del rechazo")
+
     if not await puede_aprobar(conn, solicitud_id, aprobador_id, user_ctx):
         raise ValueError("No tienes permiso para rechazar esta solicitud")
 
@@ -262,13 +272,13 @@ async def rechazar_solicitud(
 
     await db.delete_consumos_solicitud(conn, solicitud_id)
     await db.update_solicitud_estado(
-        conn, solicitud_id, "rechazado", aprobado_por=aprobador_id, motivo_rechazo=motivo
+        conn, solicitud_id, "rechazado", aprobado_por=aprobador_id, motivo_rechazo=motivo_limpio
     )
     rechazada = await db.get_solicitud(conn, solicitud_id)
     await _recalcular_asistencia_por_solicitud(conn, rechazada)
     from core.workflow.notification_service import get_notification_service
     notif = get_notification_service()
-    await notif.notify_vacation_rejected(conn, rechazada, motivo)
+    await notif.notify_vacation_rejected(conn, rechazada, motivo_limpio)
 
 
 # ─────────────────────────────────────────────
@@ -319,10 +329,14 @@ async def _notificar_aprobadores(conn, solicitud_id: UUID, solicitud: dict) -> N
     if not aprobador_emails:
         logger.warning("Solicitud %s sin aprobador ni RH para notificar", solicitud_id)
         return
+    solicitud_notificacion = await db.get_solicitud(conn, solicitud_id)
+    if not solicitud_notificacion:
+        logger.warning("Solicitud %s no encontrada para notificar aprobadores", solicitud_id)
+        return
     from core.workflow.notification_service import get_notification_service
     notif = get_notification_service()
     for aprobador_email in aprobador_emails:
-        await notif.notify_vacation_request(conn, solicitud, aprobador_email)
+        await notif.notify_vacation_request(conn, solicitud_notificacion, aprobador_email)
     await db.update_ultima_notificacion_aprobador(conn, solicitud_id)
 
 
@@ -449,7 +463,7 @@ async def get_equipo_balances(conn, user_id: UUID, user_ctx: dict) -> list[dict]
             "puesto": emp.get("puesto"),
             "departamento": emp.get("departamento"),
             "id_aprobador_vacaciones": emp.get("id_aprobador_vacaciones"),
-            "dias_vacaciones_ajuste": emp.get("dias_vacaciones_ajuste", 0),
+            "dias_vacaciones_ajuste": emp.get("dias_vacaciones_ajuste") or 0,
         }
         if not empleado["fecha_contratacion"]:
             balance = {
