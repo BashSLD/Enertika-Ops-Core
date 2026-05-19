@@ -45,12 +45,12 @@ MIGRACION_MAX_FILE_BYTES = 5 * 1024 * 1024
 
 async def get_dashboard_data(conn) -> dict:
     hoy = today_mx()
-    vacaciones_hoy = await vac_db.get_vacaciones_hoy(conn, hoy)
+    ausencias_hoy = await vac_db.get_ausencias_activas(conn, hoy, hoy)
     pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
     total_empleados = await vac_db.count_empleados(conn)
     migracion_vacaciones = await vac_db.count_empleados_migrados(conn)
     return {
-        "vacaciones_hoy": vacaciones_hoy,
+        "ausencias_hoy": ausencias_hoy,
         "pendientes": pendientes,
         "total_empleados": total_empleados,
         "migracion_vacaciones": migracion_vacaciones,
@@ -1219,25 +1219,31 @@ async def get_reporte_vacaciones(
     *,
     fecha_inicio: date,
     fecha_fin: date,
-    usuario_id: UUID | None = None,
+    usuario_ids: list[UUID] | None = None,
     estado: str | None = None,
 ) -> list[dict]:
     return await rrhh_db.get_reporte_vacaciones(
         conn,
         fecha_inicio=fecha_inicio,
         fecha_fin=fecha_fin,
-        usuario_id=usuario_id,
+        usuario_ids=usuario_ids,
         estado=estado,
     )
 
 
-async def build_empleados_vacaciones_export(conn) -> tuple[list[str], list[list], str]:
+async def build_empleados_vacaciones_export(
+    conn,
+    sucursal_ids: list[UUID] | None = None,
+    usuario_ids: list[UUID] | None = None,
+) -> tuple[list[str], list[list], str]:
     hoy = today_mx()
-    empleados = await vac_db.get_all_empleados_con_datos(conn, limit=10000, offset=0)
+    empleados = await vac_db.get_all_empleados_con_datos(
+        conn, limit=10000, offset=0, sucursal_ids=sucursal_ids, usuario_ids=usuario_ids
+    )
     catalogo = await vac_db.get_catalogo_dias(conn)
     meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
-    usuario_ids = [emp["id_usuario"] for emp in empleados]
-    consumos_bulk = await vac_db.get_consumos_bulk(conn, usuario_ids)
+    ids_para_bulk = [emp["id_usuario"] for emp in empleados]
+    consumos_bulk = await vac_db.get_consumos_bulk(conn, ids_para_bulk)
 
     headers = [
         "Empleado", "Email", "No. empleado", "Departamento", "Fecha contratacion",

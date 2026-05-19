@@ -7,7 +7,7 @@ from typing import List, Optional
 from uuid import UUID
 
 import asyncpg
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from fastapi.templating import Jinja2Templates
 from openpyxl.styles import Font, PatternFill
@@ -22,6 +22,7 @@ from modules.rrhh import service
 from modules.shared.utils import format_minutes, is_htmx, toast_error, toast_success
 from modules.vacaciones import db_service as vac_db
 from modules.vacaciones import service as vac_service
+from core.timezone import today_mx
 
 logger = logging.getLogger("rrhh.router")
 router = APIRouter(prefix="/rrhh", tags=["rrhh"])
@@ -36,6 +37,13 @@ def _parse_optional_uuid(value: Optional[str], field_name: str) -> Optional[UUID
         return UUID(value)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"{field_name} no es un UUID valido") from exc
+
+
+def _parse_uuid_list(values: List[str], field_name: str) -> list[UUID]:
+    try:
+        return [UUID(v) for v in values if v]
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"{field_name} contiene un ID no valido") from exc
 
 
 def _migracion_preview_error(request: Request, message: str, status_code: int = 200):
@@ -161,12 +169,47 @@ async def rrhh_ui(
     _=require_module_access("rrhh", "viewer"),
 ):
     data = await service.get_dashboard_data(conn)
+    hoy = today_mx()
+    asistencia_rows = []
+    asistencia_unmapped = []
+    asistencia_error = None
+    try:
+        raw = await asistencia_db.get_reporte_asistencia(conn, fecha_inicio=hoy, fecha_fin=hoy)
+        asistencia_unmapped = await asistencia_db.get_unmapped_biotime_checks_summary(conn, fecha_inicio=hoy, fecha_fin=hoy)
+        asistencia_rows = [
+            {
+                **row,
+                "entrada_fmt": ensure_mx(row["primera_entrada"]).strftime("%H:%M") if row.get("primera_entrada") else "",
+                "salida_fmt": ensure_mx(row["ultima_salida"]).strftime("%H:%M") if row.get("ultima_salida") else "",
+                "horas_fmt": f"{(row.get('minutos_trabajados') or 0) // 60}:{(row.get('minutos_trabajados') or 0) % 60:02d}",
+                "extra_fmt": f"{(row.get('minutos_extra') or 0) // 60}:{(row.get('minutos_extra') or 0) % 60:02d}",
+                "estado_label": _format_estado_asistencia(row.get("estado")),
+            }
+            for row in raw
+        ]
+    except (ValueError, asyncpg.PostgresError) as exc:
+        logger.exception("Error cargando asistencia en dashboard RRHH")
+        asistencia_error = str(exc)
+    usuarios = await vac_db.get_usuarios_activos_simples(conn)
+    sucursales = await asistencia_db.get_sucursales(conn)
     ctx = {
         **data,
         "context": context,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
+        "rows": asistencia_rows,
+        "fecha_inicio": hoy,
+        "fecha_fin": hoy,
+        "usuario_id_filtro": "",
+        "sucursal_id_filtro": "",
+        "estado_filtro": "",
+        "usuarios": usuarios,
+        "sucursales": sucursales,
+        "estados_asistencia": sorted(ASISTENCIA_ESTADOS),
+        "estados_asistencia_labels": ASISTENCIA_ESTADO_LABELS,
+        "checadas_sin_mapear": asistencia_unmapped,
+        "error": asistencia_error,
     }
     if is_htmx(request):
         return templates.TemplateResponse(request, "rrhh/partials/content.html", ctx)
@@ -184,12 +227,45 @@ async def vacaciones_hoy(
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
 ):
-    from core.timezone import today_mx
     hoy = today_mx()
     vacaciones = await vac_db.get_vacaciones_hoy(conn, hoy)
     return templates.TemplateResponse(
         request, "rrhh/partials/vacaciones_hoy.html",
         {"vacaciones_hoy": vacaciones, "hoy": hoy},
+    )
+
+
+# ─────────────────────────────────────────────
+# Ausencias (todas las solicitudes aprobadas activas)
+# ─────────────────────────────────────────────
+
+@router.get("/ausencias")
+async def ausencias_panel(
+    request: Request,
+    fecha_inicio: Optional[date] = None,
+    fecha_fin: Optional[date] = None,
+    tipo: Optional[str] = None,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    hoy = today_mx()
+    fi = fecha_inicio or hoy
+    ff = fecha_fin or hoy
+    if ff < fi:
+        ff = fi
+    ausencias = await vac_db.get_ausencias_activas(conn, fi, ff, tipo_slug=tipo or None)
+    tipos = await vac_db.get_tipos_ausencia(conn)
+    return templates.TemplateResponse(
+        request, "rrhh/partials/ausencias.html",
+        {
+            "ausencias": ausencias,
+            "tipos": tipos,
+            "fecha_inicio": fi,
+            "fecha_fin": ff,
+            "tipo_filtro": tipo or "",
+            "hoy": hoy,
+        },
     )
 
 
@@ -236,8 +312,16 @@ async def empleados_exportar_excel(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
+    sucursal_id: List[str] = Query(default=[]),
+    usuario_id: List[str] = Query(default=[]),
 ):
-    headers, rows, filename = await service.build_empleados_vacaciones_export(conn)
+    sids = _parse_uuid_list(sucursal_id, "sucursal_id")
+    uids = _parse_uuid_list(usuario_id, "usuario_id")
+    headers, rows, filename = await service.build_empleados_vacaciones_export(
+        conn,
+        sucursal_ids=sids or None,
+        usuario_ids=uids or None,
+    )
     workbook = _build_workbook("Vacaciones", headers, rows)
     return _excel_response(workbook, filename)
 
@@ -258,23 +342,23 @@ async def reportes_panel(
 async def reporte_asistencia_excel(
     fecha_inicio: date,
     fecha_fin: date,
-    usuario_id: Optional[str] = None,
-    sucursal_id: Optional[str] = None,
+    usuario_id: List[str] = Query(default=[]),
+    sucursal_id: List[str] = Query(default=[]),
     estado: Optional[str] = None,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
 ):
+    uids = _parse_uuid_list(usuario_id, "usuario_id")
+    sids = _parse_uuid_list(sucursal_id, "sucursal_id")
     try:
-        uid = _parse_optional_uuid(usuario_id, "usuario_id")
-        sid = _parse_optional_uuid(sucursal_id, "sucursal_id")
         service.validar_rango_reportes(fecha_inicio, fecha_fin)
         rows = await asistencia_db.get_reporte_asistencia(
             conn,
             fecha_inicio=fecha_inicio,
             fecha_fin=fecha_fin,
-            usuario_id=uid,
-            sucursal_id=sid,
+            usuario_ids=uids or None,
+            sucursal_ids=sids or None,
             estado=estado or None,
         )
         unmapped = await asistencia_db.get_unmapped_biotime_checks_summary(
@@ -331,20 +415,20 @@ async def reporte_asistencia_excel(
 async def reporte_vacaciones_excel(
     fecha_inicio: date,
     fecha_fin: date,
-    usuario_id: Optional[str] = None,
+    usuario_id: List[str] = Query(default=[]),
     estado: Optional[str] = None,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
 ):
+    uids = _parse_uuid_list(usuario_id, "usuario_id")
     try:
-        uid = _parse_optional_uuid(usuario_id, "usuario_id")
         service.validar_rango_reportes(fecha_inicio, fecha_fin)
         rows = await service.get_reporte_vacaciones(
             conn,
             fecha_inicio=fecha_inicio,
             fecha_fin=fecha_fin,
-            usuario_id=uid,
+            usuario_ids=uids or None,
             estado=estado or None,
         )
     except ValueError as exc:
@@ -395,22 +479,22 @@ async def reporte_vacaciones_excel(
 async def reporte_horas_extra_excel(
     fecha_inicio: date,
     fecha_fin: date,
-    usuario_id: Optional[str] = None,
-    sucursal_id: Optional[str] = None,
+    usuario_id: List[str] = Query(default=[]),
+    sucursal_id: List[str] = Query(default=[]),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
 ):
+    uids = _parse_uuid_list(usuario_id, "usuario_id")
+    sids = _parse_uuid_list(sucursal_id, "sucursal_id")
     try:
-        uid = _parse_optional_uuid(usuario_id, "usuario_id")
-        sid = _parse_optional_uuid(sucursal_id, "sucursal_id")
         service.validar_rango_reportes(fecha_inicio, fecha_fin)
         rows = await asistencia_db.get_reporte_asistencia(
             conn,
             fecha_inicio=fecha_inicio,
             fecha_fin=fecha_fin,
-            usuario_id=uid,
-            sucursal_id=sid,
+            usuario_ids=uids or None,
+            sucursal_ids=sids or None,
             solo_horas_extra=True,
         )
     except ValueError as exc:
@@ -1158,7 +1242,6 @@ async def asistencia_panel(
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
 ):
-    from core.timezone import today_mx
     hoy = today_mx()
     fi = fecha_inicio or hoy
     ff = fecha_fin or hoy
@@ -1174,8 +1257,8 @@ async def asistencia_panel(
             conn,
             fecha_inicio=fi,
             fecha_fin=ff,
-            usuario_id=uid,
-            sucursal_id=sid,
+            usuario_ids=[uid] if uid else None,
+            sucursal_ids=[sid] if sid else None,
             estado=estado or None,
         )
         unmapped = await asistencia_db.get_unmapped_biotime_checks_summary(
@@ -1227,15 +1310,17 @@ async def asistencia_panel(
 async def solicitudes_lista(
     request: Request,
     estado: Optional[str] = None,
+    limit: int = 30,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
 ):
-    solicitudes = await vac_db.get_todas_solicitudes(conn, estado=estado)
-    tipos = await vac_db.get_tipos_ausencia(conn)
+    if limit not in {0, 15, 30, 50, 100}:
+        limit = 30
+    solicitudes = await vac_db.get_todas_solicitudes(conn, estado=estado, limit=limit)
     return templates.TemplateResponse(
         request, "rrhh/partials/solicitudes_lista.html",
-        {"solicitudes": solicitudes, "tipos": tipos, "estado_filtro": estado},
+        {"solicitudes": solicitudes, "estado_filtro": estado, "limit": limit},
     )
 
 

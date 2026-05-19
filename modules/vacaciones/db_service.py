@@ -367,9 +367,24 @@ async def get_empleados_donde_soy_aprobador(conn, aprobador_id: UUID) -> list[UU
     return [r["usuario_id"] for r in rows]
 
 
-async def get_all_empleados_con_datos(conn, limit: int = 20, offset: int = 0) -> list[dict]:
+async def get_all_empleados_con_datos(
+    conn,
+    limit: int = 20,
+    offset: int = 0,
+    sucursal_ids: list | None = None,
+    usuario_ids: list | None = None,
+) -> list[dict]:
+    conditions = ["u.is_active = true"]
+    params: list = [limit, offset]
+    if sucursal_ids:
+        params.append(sucursal_ids)
+        conditions.append(f"e.sucursal_id = ANY(${len(params)}::uuid[])")
+    if usuario_ids:
+        params.append(usuario_ids)
+        conditions.append(f"u.id_usuario = ANY(${len(params)}::uuid[])")
+    where = " AND ".join(conditions)
     rows = await conn.fetch(
-        """
+        f"""
         SELECT u.id_usuario, u.nombre, u.email, u.department,
                e.numero_empleado, e.fecha_contratacion, e.puesto, e.departamento,
                e.id_aprobador_vacaciones, e.dias_vacaciones_ajuste,
@@ -377,11 +392,11 @@ async def get_all_empleados_con_datos(conn, limit: int = 20, offset: int = 0) ->
         FROM tb_usuarios u
         LEFT JOIN tb_empleados_datos e ON e.usuario_id = u.id_usuario
         LEFT JOIN tb_usuarios a ON a.id_usuario = e.id_aprobador_vacaciones
-        WHERE u.is_active = true
+        WHERE {where}
         ORDER BY u.nombre
         LIMIT $1 OFFSET $2
         """,
-        limit, offset,
+        *params,
     )
     return [dict(r) for r in rows]
 
@@ -685,7 +700,7 @@ async def get_todas_solicitudes_pendientes(conn) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-async def get_todas_solicitudes(conn, estado: Optional[str] = None) -> list[dict]:
+async def get_todas_solicitudes(conn, estado: Optional[str] = None, limit: int = 30) -> list[dict]:
     base = """
         SELECT sa.id, sa.usuario_id, sa.tipo_ausencia_id, sa.fecha_inicio, sa.fecha_fin,
                sa.dias_solicitados, sa.fecha_presentarse, sa.estado,
@@ -700,10 +715,15 @@ async def get_todas_solicitudes(conn, estado: Optional[str] = None) -> list[dict
         LEFT JOIN tb_usuarios a ON a.id_usuario = sa.aprobado_por
         LEFT JOIN tb_usuarios m ON m.id_usuario = sa.migrado_por
     """
+    params = []
     if estado:
-        rows = await conn.fetch(base + " WHERE sa.estado = $1 ORDER BY sa.created_at DESC", estado)
-    else:
-        rows = await conn.fetch(base + " ORDER BY sa.created_at DESC")
+        params.append(estado)
+        base += " WHERE sa.estado = $1"
+    base += " ORDER BY sa.created_at DESC"
+    if limit > 0:
+        params.append(limit)
+        base += f" LIMIT ${len(params)}"
+    rows = await conn.fetch(base, *params)
     return [dict(r) for r in rows]
 
 
@@ -758,6 +778,34 @@ async def get_solicitudes_activas_en_rango(
           AND ($4::uuid IS NULL OR id != $4)
         """,
         usuario_id, fecha_inicio, fecha_fin, excluir_id,
+    )
+    return [dict(r) for r in rows]
+
+
+async def get_ausencias_activas(
+    conn,
+    fecha_inicio: date,
+    fecha_fin: date,
+    tipo_slug: str | None = None,
+) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT sa.id, sa.fecha_inicio, sa.fecha_fin, sa.fecha_presentarse,
+               sa.dias_solicitados,
+               u.nombre AS empleado_nombre, u.email AS empleado_email,
+               ta.nombre AS tipo_nombre, ta.abreviatura AS tipo_abreviatura,
+               ta.slug AS tipo_slug
+        FROM tb_solicitudes_ausencia sa
+        JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
+        JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
+        WHERE sa.estado = 'aprobado'
+          AND COALESCE(sa.es_migracion, false) = false
+          AND sa.fecha_inicio <= $2
+          AND sa.fecha_fin   >= $1
+          AND ($3::text IS NULL OR ta.slug = $3)
+        ORDER BY ta.orden, u.nombre
+        """,
+        fecha_inicio, fecha_fin, tipo_slug,
     )
     return [dict(r) for r in rows]
 

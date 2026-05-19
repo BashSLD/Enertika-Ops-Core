@@ -257,9 +257,10 @@ async def get_reporte_vacaciones(
     *,
     fecha_inicio: date,
     fecha_fin: date,
-    usuario_id: UUID | None = None,
+    usuario_ids: list[UUID] | None = None,
     estado: str | None = None,
 ) -> list[dict]:
+    uids = usuario_ids or []
     rows = await conn.fetch(
         """
         SELECT
@@ -287,13 +288,13 @@ async def get_reporte_vacaciones(
           AND COALESCE(sa.es_migracion, false) = false
           AND sa.fecha_inicio <= $2
           AND sa.fecha_fin >= $1
-          AND ($3::uuid IS NULL OR sa.usuario_id = $3)
+          AND (cardinality($3::uuid[]) = 0 OR sa.usuario_id = ANY($3))
           AND ($4::text IS NULL OR sa.estado = $4)
         ORDER BY sa.fecha_inicio DESC, u.nombre
         """,
         fecha_inicio,
         fecha_fin,
-        usuario_id,
+        uids,
         estado,
     )
     return [dict(row) for row in rows]

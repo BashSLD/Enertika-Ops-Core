@@ -515,11 +515,13 @@ async def get_reporte_asistencia(
     *,
     fecha_inicio: date,
     fecha_fin: date,
-    usuario_id: UUID | None = None,
-    sucursal_id: UUID | None = None,
+    usuario_ids: list[UUID] | None = None,
+    sucursal_ids: list[UUID] | None = None,
     estado: str | None = None,
     solo_horas_extra: bool = False,
 ) -> list[dict]:
+    uids = usuario_ids or []
+    sids = sucursal_ids or []
     rows = await conn.fetch(
         """
         SELECT
@@ -546,16 +548,16 @@ async def get_reporte_asistencia(
         LEFT JOIN tb_horas_extra_aprobaciones hea ON hea.asistencia_id = ad.id
         WHERE ad.fecha_laboral >= $1
           AND ad.fecha_laboral <= $2
-          AND ($3::uuid IS NULL OR ad.usuario_id = $3)
-          AND ($4::uuid IS NULL OR ad.sucursal_id = $4)
+          AND (cardinality($3::uuid[]) = 0 OR ad.usuario_id = ANY($3))
+          AND (cardinality($4::uuid[]) = 0 OR ad.sucursal_id = ANY($4))
           AND ($5::text IS NULL OR ad.estado = $5)
           AND ($6::bool = false OR ad.minutos_extra > 0)
         ORDER BY ad.fecha_laboral DESC, u.nombre
         """,
         fecha_inicio,
         fecha_fin,
-        usuario_id,
-        sucursal_id,
+        uids,
+        sids,
         estado,
         solo_horas_extra,
     )

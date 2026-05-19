@@ -49,8 +49,8 @@ async def reporte_asistencia(
         conn,
         fecha_inicio=fecha_inicio,
         fecha_fin=fecha_fin,
-        usuario_id=usuario_id,
-        sucursal_id=sucursal_id,
+        usuario_ids=[usuario_id] if usuario_id else None,
+        sucursal_ids=[sucursal_id] if sucursal_id else None,
         estado=estado,
     )
     return JSONResponse(jsonable_encoder({"items": rows, "count": len(rows)}))
