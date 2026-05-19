@@ -1,37 +1,71 @@
-{# Documentos de proveedor expandido — Finanzas solo lectura (Gap 8) #}
-<td colspan="5" class="px-8 py-3">
+{# Documentos vigentes de proveedor para Finanzas #}
+{% set labels = {
+    'acta_constitutiva': 'Acta Constitutiva',
+    'poderes_representante': 'Poderes Representante',
+    'ine_representante': 'INE Representante',
+    'constancia_fiscal': 'Constancia Fiscal',
+    'opinion_cumplimiento': 'Opinion Cumplimiento',
+    'comprobante_domicilio': 'Comprobante Domicilio',
+    'numero_localizacion': 'Numero Localizacion',
+    'ine': 'INE',
+    'otro': 'Otro'
+} %}
+<td colspan="7" class="px-8 py-4">
     {% if documentos %}
-    <div class="space-y-1.5">
-        {% for doc in documentos %}
-        <div class="flex items-center gap-3 text-sm">
-            {% set labels = {
-                'acta_constitutiva': 'Acta Constitutiva',
-                'poderes_representante': 'Poderes Representante',
-                'ine_representante': 'INE Representante',
-                'constancia_fiscal': 'Constancia Fiscal',
-                'opinion_cumplimiento': 'Opinión Cumplimiento',
-                'comprobante_domicilio': 'Comp. Domicilio',
-                'numero_localizacion': 'Núm. Localización',
-                'ine': 'INE',
-                'otro': 'Otro'
-            } %}
-            <a href="{{ doc.sharepoint_url }}" target="_blank" rel="noopener"
-                class="text-blue-600 hover:text-blue-800 min-w-[160px] {{ 'opacity-50' if not doc.vigente }}">
-                {{ labels.get(doc.tipo_documento, doc.tipo_documento|replace('_', ' ')|title) }}
-            </a>
-            <span class="text-xs text-gray-400">{{ doc.tipo_persona|title }}</span>
-            {% if doc.fecha_vencimiento %}
-            <span class="text-xs {{ 'text-red-600 font-medium' if not doc.vigente else 'text-gray-500' }}">
-                Vence: {{ doc.fecha_vencimiento.strftime('%d/%m/%Y') }}
-            </span>
-            {% endif %}
-            {% if not doc.vigente %}
-            <span class="text-xs text-red-400">(Vencido)</span>
-            {% endif %}
-        </div>
-        {% endfor %}
+    <div class="overflow-x-auto rounded-lg border border-gray-200 bg-white">
+        <table class="min-w-full divide-y divide-gray-200">
+            <thead class="bg-gray-50">
+                <tr>
+                    <th class="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Documento</th>
+                    <th class="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Persona</th>
+                    <th class="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Periodo</th>
+                    <th class="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Vence</th>
+                    <th class="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500">Version</th>
+                    <th class="w-24 px-3 py-2 text-center text-xs font-medium uppercase text-gray-500">Acciones</th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-100">
+                {% for doc in documentos %}
+                <tr>
+                    <td class="px-3 py-2 text-sm">
+                        <div class="font-medium text-gray-800">
+                            {{ doc.nombre_documento_personalizado or labels.get(doc.tipo_documento, doc.tipo_documento|replace('_', ' ')|title) }}
+                        </div>
+                        <div class="mt-0.5 max-w-[260px] truncate text-xs text-gray-400" title="{{ doc.nombre_archivo or doc.sharepoint_url }}">
+                            {{ doc.nombre_archivo or 'Archivo sin nombre' }}
+                        </div>
+                    </td>
+                    <td class="px-3 py-2 text-xs text-gray-500">{{ doc.tipo_persona|title }}</td>
+                    <td class="px-3 py-2 text-xs text-gray-500">{{ doc.periodo or '-' }}</td>
+                    <td class="px-3 py-2 text-xs text-gray-500">
+                        {{ doc.fecha_vencimiento.strftime('%d/%m/%Y') if doc.fecha_vencimiento else 'Sin vencimiento' }}
+                    </td>
+                    <td class="px-3 py-2 text-xs text-gray-500">v{{ doc.version or 1 }}</td>
+                    <td class="px-3 py-2">
+                        <div class="flex items-center justify-center gap-1">
+                            <a href="/proveedores/{{ id_proveedor }}/documentos/{{ doc.id }}/preview" target="_blank" rel="noopener"
+                                class="rounded p-1.5 text-gray-500 transition hover:bg-blue-50 hover:text-blue-700"
+                                title="Previsualizar">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/>
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 15a3 3 0 100-6 3 3 0 000 6z"/>
+                                </svg>
+                            </a>
+                            <a href="/proveedores/{{ id_proveedor }}/documentos/{{ doc.id }}/download"
+                                class="rounded p-1.5 text-gray-500 transition hover:bg-green-50 hover:text-green-700"
+                                title="Descargar">
+                                <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v12m0 0l-4-4m4 4l4-4M4 17v2a2 2 0 002 2h12a2 2 0 002-2v-2"/>
+                                </svg>
+                            </a>
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
     </div>
     {% else %}
-    <p class="text-xs text-gray-400">Sin documentos.</p>
+    <p class="text-xs text-gray-400">Sin documentos vigentes.</p>
     {% endif %}
 </td>
