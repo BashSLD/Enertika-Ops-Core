@@ -10,6 +10,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from core.timezone import now_mx
+
 from .extractor import MAX_XML_SIZE_BYTES, extraer_datos_xml
 from .profiles import obtener_perfil_cfe
 from .schemas import CfeExcelModo, CfeExcelProfile, CfeReceipt, CfeXmlInput
@@ -63,6 +65,16 @@ CAMPOS_PESOS = {
 }
 
 CAMPOS_CALCULADOS_FORMULA = {"consumo", "kw_cap", "kw_dist"}
+
+_GDMTO_OBSERVACIONES_IGNORADAS = {
+    "Falta kWh base",
+    "Falta kWh intermedia",
+    "Falta kWh punta",
+    "Falta kW base",
+    "Falta kW intermedia",
+    "Falta kW punta",
+    "Falta kVArh",
+}
 
 
 @dataclass(frozen=True)
@@ -140,7 +152,8 @@ def generar_excel_cfe(
     hoja_inicial = wb.active
     nombres_usados: set[str] = set()
 
-    for index, servicio in enumerate(sorted(grupos)):
+    servicios_ordenados = sorted(grupos)
+    for index, servicio in enumerate(servicios_ordenados):
         recibos = grupos[servicio]
         ws = hoja_inicial if index == 0 else wb.create_sheet()
         ws.title = _nombre_hoja(servicio, nombres_usados)
@@ -159,6 +172,16 @@ def generar_excel_cfe(
             ws.title,
             len(recibos),
         )
+
+    for servicio in servicios_ordenados:
+        recibo_historial = _recibo_con_historial(grupos[servicio])
+        if recibo_historial:
+            _agregar_hoja_historial(
+                wb,
+                servicio,
+                recibo_historial["historial"],
+                nombres_usados,
+            )
 
     if any(validacion.estatus == "Omitido" for validacion in validaciones):
         _agregar_hoja_validacion(wb, validaciones)
@@ -225,6 +248,26 @@ def _valor(
     return importe
 
 
+def _numero_dato(valor: Any) -> float | None:
+    if valor is None or valor == "":
+        return None
+    if isinstance(valor, (int, float)):
+        return float(valor)
+    try:
+        return float(str(valor).replace(",", ""))
+    except ValueError:
+        logger.warning("numero_cfe_invalido valor=%s", valor)
+        return None
+
+
+def _valor_medicion(medicion: dict[str, Any], campo: str) -> float | None:
+    return _numero_dato(medicion.get(campo))
+
+
+def _na(valor: float | None) -> float | str:
+    return valor if valor is not None else "N/A"
+
+
 def _dias_del_periodo(periodo: dict[str, str], observaciones: list[str]) -> int | None:
     partes = periodo["hasta"].split()
     if len(partes) < 3:
@@ -243,7 +286,11 @@ def _dias_del_periodo(periodo: dict[str, str], observaciones: list[str]) -> int 
         return None
 
     if anio < 100:
-        anio += 2000
+        anio_actual = now_mx().year
+        siglo_actual = (anio_actual // 100) * 100
+        anio += siglo_actual
+        if anio > anio_actual:
+            anio -= 100
     return calendar.monthrange(anio, mes)[1]
 
 
@@ -326,6 +373,9 @@ def _construir_datos_fila(recibo: CfeReceipt) -> dict[str, Any]:
         for linea in recibo["lineas_excel"]
     }
     observaciones: list[str] = []
+    medicion = recibo["medicion"]
+    es_gdmto = recibo["servicio"]["tarifa"] == "GDMTO"
+    consumo_directo = False
 
     consumo_base = _valor(importes, "kWh base", observaciones)
     consumo_intermedio = _valor(importes, "kWh intermedia", observaciones)
@@ -339,6 +389,16 @@ def _construir_datos_fila(recibo: CfeReceipt) -> dict[str, Any]:
 
     dias = _dias_del_periodo(recibo["periodo"], observaciones)
     reactiva = _valor(importes, "kVArh", observaciones)
+    if es_gdmto:
+        observaciones = [
+            observacion for observacion in observaciones
+            if observacion not in _GDMTO_OBSERVACIONES_IGNORADAS
+        ]
+        if consumo is None:
+            consumo = _valor_medicion(medicion, "consumo_kwh")
+            consumo_directo = consumo is not None
+        reactiva = importes.get("kVArh")
+
     fp_directo = importes.get("Factor de potencia %")
     fp = _calcular_fp(consumo, reactiva, fp_directo)
     if fp_directo is None and fp is not None:
@@ -346,21 +406,34 @@ def _construir_datos_fila(recibo: CfeReceipt) -> dict[str, Any]:
     elif fp_directo is None:
         observaciones.append("Falta Factor de potencia %")
 
+    kw_cap_directo = _valor_medicion(medicion, "demanda_capacidad")
+    kw_dist_directo = _valor_medicion(medicion, "demanda_distribucion")
+    kw_cap = (
+        kw_cap_directo
+        if kw_cap_directo is not None
+        else _calcular_kw_cap(consumo, potencia_punta, dias)
+    )
+    kw_dist = (
+        kw_dist_directo
+        if kw_dist_directo is not None
+        else _calcular_kw_dist(consumo, potencias, dias)
+    )
+
     datos = {
         "mes": _mes_con_anio(recibo["periodo"]),
-        "consumo": consumo,
-        "consumo_base": consumo_base,
-        "consumo_intermedio": consumo_intermedio,
-        "consumo_punta": consumo_punta,
-        "potencia_base": potencia_base,
-        "potencia_intermedia": potencia_intermedia,
-        "potencia_punta": potencia_punta,
+        "consumo": _na(consumo),
+        "consumo_base": _na(consumo_base),
+        "consumo_intermedio": _na(consumo_intermedio),
+        "consumo_punta": _na(consumo_punta),
+        "potencia_base": _na(potencia_base),
+        "potencia_intermedia": _na(potencia_intermedia),
+        "potencia_punta": _na(potencia_punta),
         "dias": dias,
-        "kw_cap": _calcular_kw_cap(consumo, potencia_punta, dias),
-        "kw_dist": _calcular_kw_dist(consumo, potencias, dias),
+        "kw_cap": kw_cap,
+        "kw_dist": kw_dist,
         "kwmax": _kwmax(importes, potencias, observaciones),
         "fp": fp,
-        "reactiva": reactiva,
+        "reactiva": _na(reactiva),
         "coste_energia_base": _valor(importes, "Generación B", observaciones),
         "coste_energia_intermedia": _valor(importes, "Generación I", observaciones),
         "coste_energia_punta": _valor(importes, "Generación P", observaciones),
@@ -375,6 +448,9 @@ def _construir_datos_fila(recibo: CfeReceipt) -> dict[str, Any]:
             importes, "Bonificacion Factor de Potencia((3))", observaciones
         ),
         "total": _valor(importes, "Subtotal", observaciones),
+        "_consumo_directo": consumo_directo,
+        "_kw_cap_directo": kw_cap_directo is not None,
+        "_kw_dist_directo": kw_dist_directo is not None,
     }
     datos["observaciones"] = "; ".join([
         _observacion_tarifa(recibo["servicio"]),
@@ -403,7 +479,12 @@ def _construir_fila(
     column_index = {column.key: idx for idx, column in enumerate(perfil.columns, start=1)}
     fila = []
     for column in perfil.columns:
-        if modo == CfeExcelModo.FORMULAS and column.key in CAMPOS_CALCULADOS_FORMULA:
+        usa_formula = (
+            modo == CfeExcelModo.FORMULAS
+            and column.key in CAMPOS_CALCULADOS_FORMULA
+            and not datos.get(f"_{column.key}_directo", False)
+        )
+        if usa_formula:
             fila.append(_formula_para_campo(column.key, row_idx, column_index) or datos.get(column.key))
         else:
             fila.append(datos.get(column.key))
@@ -459,6 +540,13 @@ def _agrupar_por_servicio(datos: Sequence[CfeReceipt]) -> dict[str, list[CfeRece
     return grupos
 
 
+def _recibo_con_historial(recibos: Sequence[CfeReceipt]) -> CfeReceipt | None:
+    for recibo in reversed(recibos):
+        if recibo.get("historial"):
+            return recibo
+    return None
+
+
 def _nombre_hoja(servicio: str, usados: set[str]) -> str:
     invalidos = "[]:*?/\\"
     nombre = "".join("_" if caracter in invalidos else caracter for caracter in servicio).strip()
@@ -474,6 +562,64 @@ def _nombre_hoja(servicio: str, usados: set[str]) -> str:
 
     usados.add(candidato)
     return candidato
+
+
+def _agregar_hoja_historial(
+    wb: Workbook,
+    servicio: str,
+    historial: list[dict[str, Any]],
+    nombres_usados: set[str],
+) -> None:
+    if not historial:
+        return
+
+    ws = wb.create_sheet()
+    ws.title = _nombre_hoja(f"{servicio} Historial", nombres_usados)
+    headers = [
+        "Mes",
+        "Consumo kWh",
+        "Demanda kW",
+        "Factor Potencia %",
+        "Factor Carga %",
+        "Precio Medio MXN",
+    ]
+    ws.append(headers)
+    for item in historial:
+        ws.append([
+            item["mes"],
+            item["consumo_kwh"],
+            item["demanda_kw"],
+            item["factor_potencia_pct"],
+            item["factor_carga_pct"],
+            item["precio_medio_mxn"],
+        ])
+
+    header_fill = PatternFill("solid", fgColor="1F4E79")
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    data_font = Font(name="Calibri", size=11)
+    thin = Side(style="thin", color="D9E2F3")
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+
+    for cell in ws[1]:
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+        cell.border = border
+
+    for row in ws.iter_rows(min_row=2):
+        for cell in row:
+            cell.font = data_font
+            cell.border = border
+            cell.alignment = Alignment(horizontal="right", vertical="center")
+
+    ws.column_dimensions["A"].width = 10
+    ws.column_dimensions["B"].width = 16
+    ws.column_dimensions["C"].width = 14
+    ws.column_dimensions["D"].width = 18
+    ws.column_dimensions["E"].width = 16
+    ws.column_dimensions["F"].width = 18
+    ws.freeze_panes = "B2"
+    ws.auto_filter.ref = ws.dimensions
 
 
 def _agregar_hoja_validacion(

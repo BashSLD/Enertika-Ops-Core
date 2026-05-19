@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 
 import defusedxml.ElementTree as ET
 
@@ -10,6 +11,7 @@ from .schemas import CfeReceipt
 logger = logging.getLogger("SharedCfeExtractor")
 
 MAX_XML_SIZE_BYTES = 10 * 1024 * 1024
+_MAX_COMPONENTES = 50
 
 TARIFA_CODES = {
     "ES1": "Suministro",
@@ -25,7 +27,14 @@ TARIFA_CODES = {
     "CAP": "Capacidad Adicional",
 }
 
-TARIFAS_RECONOCIDAS = {"GDMTH"}
+TARIFA_CODES.update({
+    "ET1": TARIFA_CODES["ETB"],
+    "EC1": TARIFA_CODES["ECB"],
+    "EG1": "Generacion",
+    "EM1": TARIFA_CODES["EMB"],
+})
+
+TARIFAS_RECONOCIDAS = {"GDMTH", "GDMTO"}
 
 MESES = [
     "ENE", "FEB", "MAR", "ABR", "MAY", "JUN",
@@ -155,6 +164,8 @@ def extraer_datos_xml(content: bytes, filename: str) -> CfeReceipt:
             "kw_base": text_of(reg, "DEMANDA3P"),
             "kw_intermedia": text_of(reg, "DEMANDA2P"),
             "kw_punta": text_of(reg, "DEMANDA1P"),
+            "demanda_capacidad": _numero(text_of(reg, "DEMANDA_CAPACIDAD")),
+            "demanda_distribucion": _numero(text_of(reg, "DEMANDA_DISTRIBUCION")),
             "kwmax": text_of(reg, "DEMANDA"),
             "kvarh": text_of(reg, "KVARH"),
             "carga_contratada": text_of(reg, "CARGA_CONTRATADA"),
@@ -171,6 +182,7 @@ def extraer_datos_xml(content: bytes, filename: str) -> CfeReceipt:
             "poblacion": text_of(reg, "NOMPOB"),
             "estado": text_of(reg, "NOMEST"),
         },
+        "historial": _extraer_serie_historica(reg),
     }
 
     for concepto_cfdi in conceptos_cfdi:
@@ -182,23 +194,29 @@ def extraer_datos_xml(content: bytes, filename: str) -> CfeReceipt:
             "objeto_imp": concepto_cfdi.attrib.get("ObjetoImp", ""),
         })
 
-    for index in range(1, 20):
+    index = 1
+    while index <= _MAX_COMPONENTES:
         motivo = text_of(reg, f"MOTIVO_REG_{index}")
+        if not motivo:
+            break
         total = text_of(reg, f"IMPTE_TOT_REG_{index}")
-        if motivo:
-            datos["componentes_tarifarios"].append({
-                "codigo": motivo,
-                "nombre": TARIFA_CODES.get(motivo, motivo),
-                "importe": _numero(total),
-            })
+        datos["componentes_tarifarios"].append({
+            "codigo": motivo,
+            "nombre": TARIFA_CODES.get(motivo, motivo),
+            "importe": _numero(total),
+        })
+        index += 1
 
     conceptos_el = reg.find("Conceptos")
     importes_el = reg.find("Importes")
     if conceptos_el is not None and importes_el is not None:
-        for index in range(1, 20):
+        index = 1
+        while index <= _MAX_COMPONENTES:
             concepto_el = conceptos_el.find(f"Concepto{index}")
+            if concepto_el is None:
+                break
             importe_el = importes_el.find(f"Importe{index}")
-            concepto = concepto_el.text.strip() if concepto_el is not None and concepto_el.text else ""
+            concepto = concepto_el.text.strip() if concepto_el.text else ""
             importe = importe_el.text.strip() if importe_el is not None and importe_el.text else ""
             concepto_limpio = _normalizar_concepto(concepto)
             if concepto and importe:
@@ -218,6 +236,7 @@ def extraer_datos_xml(content: bytes, filename: str) -> CfeReceipt:
                     "concepto": concepto_limpio,
                     "importe": None,
                 })
+            index += 1
 
     datos["lineas_excel"] = _lineas_excel(datos)
     return datos
@@ -232,6 +251,15 @@ def _calcular_mes(fecha_hasta: str) -> str:
 
 
 def _normalizar_concepto(concepto: str) -> str:
+    concepto = concepto.replace("\ufffd", "")
+    try:
+        recuperado = concepto.encode("latin-1").decode("utf-8")
+        if "?" not in recuperado and "\ufffd" not in recuperado:
+            concepto = recuperado
+    except (UnicodeDecodeError, UnicodeEncodeError):
+        pass
+    concepto = re.sub(r"\?{2,}", "((3))", concepto)
+
     reemplazos = {
         "Cargo Fijo???": "Cargo Fijo((3))",
         "Energ?a": "Energía",
@@ -280,6 +308,26 @@ def _mediciones_requeridas(reg: ET.Element) -> list[dict[str, float | None | str
         {"concepto": "kVArh", "importe": _numero(text_of(reg, "KVARH"))},
         {"concepto": "Factor de potencia %", "importe": _numero(text_of(reg, "FacPot"))},
     ]
+
+
+def _extraer_serie_historica(reg: ET.Element) -> list[dict[str, str | float | None]]:
+    historial: list[dict[str, str | float | None]] = []
+    index = 1
+    while index <= _MAX_COMPONENTES:
+        idx = f"{index:02d}"
+        mes = text_of(reg, f"MESR{idx}")
+        if not mes:
+            break
+        historial.append({
+            "mes": mes,
+            "consumo_kwh": _numero(text_of(reg, f"CONSUMOR{idx}")),
+            "demanda_kw": _numero(text_of(reg, f"DEMANDAR{idx}")),
+            "factor_potencia_pct": _numero(text_of(reg, f"FACPOTR{idx}")),
+            "factor_carga_pct": _numero(text_of(reg, f"FACARR{idx}")),
+            "precio_medio_mxn": _numero(text_of(reg, f"PMVR{idx}")),
+        })
+        index += 1
+    return historial
 
 
 def _lineas_excel(datos: CfeReceipt) -> list[dict[str, str | float | None]]:
