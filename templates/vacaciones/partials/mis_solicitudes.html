@@ -5,7 +5,9 @@
 {% endif %}
 
 {% if balance is defined %}
+{% with toast_msg="" %}
 {% include "vacaciones/partials/balance.html" %}
+{% endwith %}
 {% endif %}
 
 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mt-4">

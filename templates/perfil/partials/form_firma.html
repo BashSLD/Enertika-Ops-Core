@@ -50,17 +50,22 @@
   <p class="text-sm text-gray-600 mb-4">Para actualizar tu firma, selecciona una de las opciones abajo:</p>
   {% endif %}
 
-  <div class="flex gap-2 mb-5">
-    <button @click="modo = 'subir'"
-            :class="modo === 'subir' ? 'bg-[#00BABB] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
-            class="flex-1 text-sm font-medium py-2 rounded-xl transition-colors">
-      Subir imagen
-    </button>
-    <button @click="modo = 'dibujar'"
-            :class="modo === 'dibujar' ? 'bg-[#00BABB] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
-            class="flex-1 text-sm font-medium py-2 rounded-xl transition-colors">
-      Dibujar firma
-    </button>
+  <div class="mb-5">
+    <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Forma de firma</p>
+    <div class="grid grid-cols-2 gap-2 rounded-xl bg-gray-100 p-1">
+      <button type="button"
+              @click="modo = 'subir'"
+              :class="modo === 'subir' ? 'bg-[#00BABB] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+              class="text-sm font-medium py-2 rounded-lg transition-colors">
+        Archivo PNG
+      </button>
+      <button type="button"
+              @click="modo = 'dibujar'"
+              :class="modo === 'dibujar' ? 'bg-[#00BABB] text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'"
+              class="text-sm font-medium py-2 rounded-lg transition-colors">
+        Dibujar firma
+      </button>
+    </div>
   </div>
 
   <div x-show="modo === 'subir'">
