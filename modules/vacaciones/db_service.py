@@ -79,6 +79,84 @@ async def get_festivos_by_year(conn, anio: int) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def get_festivo_by_id(conn, festivo_id: UUID) -> Optional[dict]:
+    row = await conn.fetchrow(
+        """
+        SELECT id, fecha, descripcion, es_oficial, origen, updated_at
+        FROM tb_cat_festivos
+        WHERE id = $1
+        """,
+        festivo_id,
+    )
+    return dict(row) if row else None
+
+
+async def get_festivos_validacion(conn, anio: int) -> Optional[dict]:
+    row = await conn.fetchrow(
+        """
+        SELECT v.id, v.anio, v.estado, v.notas, v.validado_at, v.validado_by,
+               v.created_at, v.updated_at, v.updated_by,
+               u.nombre AS validado_por_nombre
+        FROM tb_rrhh_festivos_validacion v
+        LEFT JOIN tb_usuarios u ON u.id_usuario = v.validado_by
+        WHERE v.anio = $1
+        """,
+        anio,
+    )
+    return dict(row) if row else None
+
+
+async def mark_festivos_validacion_pendiente(
+    conn,
+    anio: int,
+    updated_by: Optional[UUID] = None,
+) -> dict:
+    row = await conn.fetchrow(
+        """
+        INSERT INTO tb_rrhh_festivos_validacion
+            (anio, estado, updated_by, updated_at)
+        VALUES ($1, 'pendiente', $2, now())
+        ON CONFLICT (anio) DO UPDATE SET
+            estado = 'pendiente',
+            notas = NULL,
+            validado_at = NULL,
+            validado_by = NULL,
+            updated_by = $2,
+            updated_at = now()
+        RETURNING id, anio, estado, notas, validado_at, validado_by,
+                  created_at, updated_at, updated_by
+        """,
+        anio, updated_by,
+    )
+    return dict(row)
+
+
+async def validar_festivos_anio(
+    conn,
+    anio: int,
+    notas: Optional[str],
+    user_id: UUID,
+) -> dict:
+    row = await conn.fetchrow(
+        """
+        INSERT INTO tb_rrhh_festivos_validacion
+            (anio, estado, notas, validado_at, validado_by, updated_by, updated_at)
+        VALUES ($1, 'validado', $2, now(), $3, $3, now())
+        ON CONFLICT (anio) DO UPDATE SET
+            estado = 'validado',
+            notas = $2,
+            validado_at = now(),
+            validado_by = $3,
+            updated_by = $3,
+            updated_at = now()
+        RETURNING id, anio, estado, notas, validado_at, validado_by,
+                  created_at, updated_at, updated_by
+        """,
+        anio, notas, user_id,
+    )
+    return dict(row)
+
+
 async def get_festivos_set(conn) -> set[date]:
     rows = await conn.fetch("SELECT fecha FROM tb_cat_festivos")
     return {r["fecha"] for r in rows}

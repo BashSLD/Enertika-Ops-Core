@@ -31,16 +31,18 @@ logger = logging.getLogger("rrhh.service")
 DIAS_SEMANA = [
     {"value": 0, "nombre": "Lunes"},
     {"value": 1, "nombre": "Martes"},
-    {"value": 2, "nombre": "Miercoles"},
+    {"value": 2, "nombre": "Miércoles"},
     {"value": 3, "nombre": "Jueves"},
     {"value": 4, "nombre": "Viernes"},
-    {"value": 5, "nombre": "Sabado"},
+    {"value": 5, "nombre": "Sábado"},
     {"value": 6, "nombre": "Domingo"},
 ]
 
 MINUTOS_DIA = 24 * 60
 MIGRACION_PREVIEW_TTL_SECONDS = 20 * 60
 MIGRACION_MAX_FILE_BYTES = 5 * 1024 * 1024
+FESTIVOS_ANIO_MIN = 2026
+FESTIVOS_ANIO_MAX = 2100
 
 
 async def get_dashboard_data(conn) -> dict:
@@ -217,7 +219,7 @@ async def _validar_rows_migracion(conn, raw_rows: list[dict]) -> list[dict]:
         if usuario_uuid:
             empleado = empleados_by_id.get(str(usuario_uuid))
             if not empleado:
-                errores.append("El empleado no existe, esta inactivo o no tiene fecha de contratacion")
+                errores.append("El empleado no existe, está inactivo o no tiene fecha de contratación")
             elif str(usuario_uuid) in vistos:
                 errores.append("Empleado duplicado en la importacion")
             else:
@@ -382,7 +384,7 @@ async def generar_plantilla_migracion(conn):
         return cell
 
     instrucciones.row_dimensions[1].height = 8
-    _ins(2, 2, "Plantilla de migracion historica de vacaciones", font=titulo_font)
+    _ins(2, 2, "Plantilla de migración histórica de vacaciones", font=titulo_font)
     instrucciones.row_dimensions[2].height = 22
 
     instrucciones.row_dimensions[3].height = 6
@@ -410,7 +412,7 @@ async def generar_plantilla_migracion(conn):
     columnas = [
         ("usuario_id", "Identificador interno. No modificar."),
         ("Nombre / Email", "Datos del empleado. No modificar."),
-        ("Fecha contratacion", "Fecha de ingreso. No modificar."),
+        ("Fecha contratación", "Fecha de ingreso. No modificar."),
         ("Periodos calculados", "Resumen de dias disponibles por periodo. Solo referencia."),
         ("Ya migrado", "Si = ya tiene historial cargado. No = pendiente."),
         ("Periodo N (max X dias)",
@@ -475,7 +477,7 @@ async def generar_plantilla_migracion(conn):
     pasos = [
         ("1. Llenar", "Captura los dias en las celdas verdes de la hoja 'Migracion vacaciones'."),
         ("2. Guardar", "Guarda el archivo en formato .xlsx sin cambiar el nombre de las hojas."),
-        ("3. Subir", "En RRHH > Migracion historica, selecciona el archivo y haz clic en 'Validar archivo'."),
+        ("3. Subir", "En RRHH > Migración histórica, selecciona el archivo y haz clic en 'Validar archivo'."),
         ("4. Revisar", "El sistema muestra una vista previa con errores si los hay. Corrige y vuelve a subir si es necesario."),
         ("5. Confirmar", "Si todo esta correcto, haz clic en 'Confirmar importacion'. Los saldos se actualizan al instante."),
     ]
@@ -488,13 +490,13 @@ async def generar_plantilla_migracion(conn):
     instrucciones.protection.enable()
 
     # --- Hoja de datos ---
-    worksheet = workbook.create_sheet("Migracion vacaciones")
+    worksheet = workbook.create_sheet("Migración vacaciones")
 
     headers = [
         "usuario_id",
         "Nombre",
         "Email",
-        "Fecha contratacion",
+        "Fecha contratación",
         "Periodos calculados",
         "Ya migrado",
     ] + [
@@ -715,7 +717,7 @@ async def get_migracion_empleado_ctx(conn, usuario_id: UUID) -> dict:
             "usuario": usuario or {},
             "empleado": empleado,
             "periodos": [],
-            "aviso": "El empleado no tiene fecha de contratacion.",
+            "aviso": "El empleado no tiene fecha de contratación.",
         }
 
     hoy = today_mx()
@@ -784,7 +786,6 @@ async def get_admin_ctx(conn, anio: int | None = None) -> dict:
     horarios_rows = await rrhh_db.get_horarios_sucursal_admin(conn)
     return {
         "anio": anio,
-        "festivos": await vac_db.get_festivos_by_year(conn, anio),
         "tipos": await vac_db.get_tipos_ausencia_admin(conn),
         "dias_vacaciones": await vac_db.get_catalogo_dias_admin(conn),
         "vacaciones_meses_expiracion": meses_exp,
@@ -1294,13 +1295,37 @@ async def build_empleados_vacaciones_export(
 
 
 async def generar_festivos_anio(conn, anio: int, user_id: UUID | None = None) -> int:
-    if anio < 2026 or anio > 2100:
-        raise ValueError("El ano debe estar entre 2026 y 2100")
-    return await vac_db.insert_festivos_generados(
-        conn,
-        generar_feriados_mexico(anio),
-        created_by=user_id,
-    )
+    _validar_anio_festivos(anio)
+    async with conn.transaction():
+        insertados = await vac_db.insert_festivos_generados(
+            conn,
+            generar_feriados_mexico(anio),
+            created_by=user_id,
+        )
+        await vac_db.mark_festivos_validacion_pendiente(conn, anio, updated_by=user_id)
+        return insertados
+
+
+async def get_festivos_ctx(conn, anio: int | None = None) -> dict:
+    anio_final = anio or today_mx().year
+    _validar_anio_festivos(anio_final)
+    validacion = await vac_db.get_festivos_validacion(conn, anio_final)
+    if not validacion:
+        validacion = {
+            "anio": anio_final,
+            "estado": "pendiente",
+            "notas": None,
+            "validado_at": None,
+            "validado_by": None,
+            "validado_por_nombre": None,
+        }
+    return {
+        "anio": anio_final,
+        "festivos": await vac_db.get_festivos_by_year(conn, anio_final),
+        "validacion": validacion,
+        "anio_min": FESTIVOS_ANIO_MIN,
+        "anio_max": FESTIVOS_ANIO_MAX,
+    }
 
 
 async def guardar_festivo(
@@ -1314,15 +1339,58 @@ async def guardar_festivo(
 ) -> None:
     descripcion = (descripcion or "").strip()
     if not descripcion:
-        raise ValueError("La descripcion es obligatoria")
-    if festivo_id:
-        updated = await vac_db.update_festivo(
-            conn, festivo_id, fecha, descripcion, es_oficial, user_id
-        )
-        if not updated:
+        raise ValueError("La descripción es obligatoria")
+    _validar_anio_festivos(fecha.year)
+    async with conn.transaction():
+        anios_pendientes = {fecha.year}
+        if festivo_id:
+            actual = await vac_db.get_festivo_by_id(conn, festivo_id)
+            if not actual:
+                raise ValueError("Festivo no encontrado")
+            anios_pendientes.add(actual["fecha"].year)
+            updated = await vac_db.update_festivo(
+                conn, festivo_id, fecha, descripcion, es_oficial, user_id
+            )
+            if not updated:
+                raise ValueError("Festivo no encontrado")
+        else:
+            await vac_db.create_festivo(conn, fecha, descripcion, es_oficial, user_id)
+
+        for anio in anios_pendientes:
+            await vac_db.mark_festivos_validacion_pendiente(conn, anio, updated_by=user_id)
+
+
+async def eliminar_festivo(conn, festivo_id: UUID, anio: int, user_id: UUID) -> None:
+    _validar_anio_festivos(anio)
+    async with conn.transaction():
+        deleted = await vac_db.delete_festivo(conn, festivo_id)
+        if not deleted:
             raise ValueError("Festivo no encontrado")
-    else:
-        await vac_db.create_festivo(conn, fecha, descripcion, es_oficial, user_id)
+        await vac_db.mark_festivos_validacion_pendiente(conn, anio, updated_by=user_id)
+
+
+async def validar_festivos_anio(conn, anio: int, notas: str | None, user_id: UUID) -> None:
+    _validar_anio_festivos(anio)
+    notas_clean = (notas or "").strip() or None
+    await vac_db.validar_festivos_anio(conn, anio, notas_clean, user_id)
+
+
+async def ensure_festivos_anio_worker(conn, anio: int) -> int:
+    _validar_anio_festivos(anio)
+    validacion = await vac_db.get_festivos_validacion(conn, anio)
+    if validacion and validacion.get("estado") == "validado":
+        return 0
+    existentes = await vac_db.get_festivos_by_year(conn, anio)
+    if existentes:
+        if not validacion:
+            await vac_db.mark_festivos_validacion_pendiente(conn, anio, updated_by=None)
+        return 0
+    return await generar_festivos_anio(conn, anio, user_id=None)
+
+
+def _validar_anio_festivos(anio: int) -> None:
+    if anio < FESTIVOS_ANIO_MIN or anio > FESTIVOS_ANIO_MAX:
+        raise ValueError(f"El año debe estar entre {FESTIVOS_ANIO_MIN} y {FESTIVOS_ANIO_MAX}")
 
 
 def _normalizar_slug(slug: str) -> str:

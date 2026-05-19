@@ -11,36 +11,36 @@ def _nth_weekday(year: int, month: int, weekday: int, n: int) -> date:
 
 
 def generar_feriados_mexico(anio: int) -> list[dict]:
-    """Feriados oficiales base en Mexico para generar el catalogo anual."""
+    """Festivos oficiales base en México para generar el catálogo anual."""
     feriados = [
         {
             "fecha": date(anio, 1, 1),
-            "descripcion": "Ano Nuevo",
+            "descripcion": "Año Nuevo",
             "es_oficial": True,
         },
         {
             "fecha": _nth_weekday(anio, 2, 0, 1),
-            "descripcion": "Dia de la Constitucion",
+            "descripcion": "Día de la Constitución",
             "es_oficial": True,
         },
         {
             "fecha": _nth_weekday(anio, 3, 0, 3),
-            "descripcion": "Natalicio de Benito Juarez",
+            "descripcion": "Natalicio de Benito Juárez",
             "es_oficial": True,
         },
         {
             "fecha": date(anio, 5, 1),
-            "descripcion": "Dia del Trabajo",
+            "descripcion": "Día del Trabajo",
             "es_oficial": True,
         },
         {
             "fecha": date(anio, 9, 16),
-            "descripcion": "Dia de la Independencia",
+            "descripcion": "Día de la Independencia",
             "es_oficial": True,
         },
         {
             "fecha": _nth_weekday(anio, 11, 0, 3),
-            "descripcion": "Revolucion Mexicana",
+            "descripcion": "Revolución Mexicana",
             "es_oficial": True,
         },
         {
@@ -53,7 +53,7 @@ def generar_feriados_mexico(anio: int) -> list[dict]:
     if (anio - 2024) % 6 == 0:
         feriados.append({
             "fecha": date(anio, 10, 1),
-            "descripcion": "Transmision del Poder Ejecutivo Federal",
+            "descripcion": "Transmisión del Poder Ejecutivo Federal",
             "es_oficial": True,
         })
 

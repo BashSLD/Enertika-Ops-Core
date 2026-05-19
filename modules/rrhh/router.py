@@ -28,6 +28,16 @@ logger = logging.getLogger("rrhh.router")
 router = APIRouter(prefix="/rrhh", tags=["rrhh"])
 templates = Jinja2Templates(directory="templates")
 
+RRHH_TAB_ENDPOINTS = {
+    "asistencia": "/rrhh/asistencia",
+    "ausencias": "/rrhh/ausencias",
+    "aprobaciones": "/rrhh/aprobaciones",
+    "solicitudes": "/rrhh/solicitudes",
+    "empleados": "/rrhh/empleados",
+    "reportes": "/rrhh/reportes",
+    "festivos": "/rrhh/festivos",
+    "admin": "/rrhh/admin",
+}
 
 
 def _parse_optional_uuid(value: Optional[str], field_name: str) -> Optional[UUID]:
@@ -53,6 +63,46 @@ def _migracion_preview_error(request: Request, message: str, status_code: int = 
         {"error": message},
         status_code=status_code,
     )
+
+
+def _has_rrhh_admin_access(context: dict) -> bool:
+    rrhh_role = (context.get("module_roles") or {}).get("rrhh", "")
+    return (
+        context.get("role") == "ADMIN"
+        or rrhh_role == "admin"
+        or (context.get("role") == "MANAGER" and rrhh_role in {"editor", "admin"})
+    )
+
+
+def _resolve_initial_tab(tab: Optional[str], anio: Optional[int], context: dict) -> tuple[str, str]:
+    initial_tab = tab if tab in RRHH_TAB_ENDPOINTS else "asistencia"
+    if initial_tab == "admin" and not _has_rrhh_admin_access(context):
+        initial_tab = "asistencia"
+    endpoint = RRHH_TAB_ENDPOINTS[initial_tab]
+    if initial_tab == "festivos":
+        endpoint = f"{endpoint}?anio={anio or today_mx().year}"
+    return initial_tab, endpoint
+
+
+async def _festivos_template_response(
+    request: Request,
+    conn,
+    context: dict,
+    anio: Optional[int],
+    *,
+    toast_type: Optional[str] = None,
+    toast_msg: Optional[str] = None,
+):
+    ctx = await service.get_festivos_ctx(conn, anio)
+    validacion = ctx.get("validacion") or {}
+    if validacion.get("validado_at"):
+        validacion["validado_at_fmt"] = _format_datetime(validacion["validado_at"])
+    ctx.update({
+        "context": context,
+        "toast_type": toast_type,
+        "toast_msg": toast_msg,
+    })
+    return templates.TemplateResponse(request, "rrhh/partials/festivos_lista.html", ctx)
 
 
 def _format_date(value) -> str:
@@ -164,52 +214,22 @@ def _append_unmapped_biotime_sheet(workbook, rows: list[dict]) -> None:
 @router.get("/ui")
 async def rrhh_ui(
     request: Request,
+    tab: Optional[str] = None,
+    anio: Optional[int] = None,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
 ):
     data = await service.get_dashboard_data(conn)
-    hoy = today_mx()
-    asistencia_rows = []
-    asistencia_unmapped = []
-    asistencia_error = None
-    try:
-        raw = await asistencia_db.get_reporte_asistencia(conn, fecha_inicio=hoy, fecha_fin=hoy)
-        asistencia_unmapped = await asistencia_db.get_unmapped_biotime_checks_summary(conn, fecha_inicio=hoy, fecha_fin=hoy)
-        asistencia_rows = [
-            {
-                **row,
-                "entrada_fmt": ensure_mx(row["primera_entrada"]).strftime("%H:%M") if row.get("primera_entrada") else "",
-                "salida_fmt": ensure_mx(row["ultima_salida"]).strftime("%H:%M") if row.get("ultima_salida") else "",
-                "horas_fmt": f"{(row.get('minutos_trabajados') or 0) // 60}:{(row.get('minutos_trabajados') or 0) % 60:02d}",
-                "extra_fmt": f"{(row.get('minutos_extra') or 0) // 60}:{(row.get('minutos_extra') or 0) % 60:02d}",
-                "estado_label": _format_estado_asistencia(row.get("estado")),
-            }
-            for row in raw
-        ]
-    except (ValueError, asyncpg.PostgresError) as exc:
-        logger.exception("Error cargando asistencia en dashboard RRHH")
-        asistencia_error = str(exc)
-    usuarios = await vac_db.get_usuarios_activos_simples(conn)
-    sucursales = await asistencia_db.get_sucursales(conn)
+    initial_tab, initial_endpoint = _resolve_initial_tab(tab, anio, context)
     ctx = {
         **data,
         "context": context,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
-        "rows": asistencia_rows,
-        "fecha_inicio": hoy,
-        "fecha_fin": hoy,
-        "usuario_id_filtro": "",
-        "sucursal_id_filtro": "",
-        "estado_filtro": "",
-        "usuarios": usuarios,
-        "sucursales": sucursales,
-        "estados_asistencia": sorted(ASISTENCIA_ESTADOS),
-        "estados_asistencia_labels": ASISTENCIA_ESTADO_LABELS,
-        "checadas_sin_mapear": asistencia_unmapped,
-        "error": asistencia_error,
+        "initial_tab": initial_tab,
+        "initial_endpoint": initial_endpoint,
     }
     if is_htmx(request):
         return templates.TemplateResponse(request, "rrhh/partials/content.html", ctx)
@@ -670,7 +690,7 @@ async def migracion_vacaciones_confirmar(
             "context": context,
             "toast_type": "success",
             "toast_msg": (
-                f"Migracion aplicada: {resultado['empleados_actualizados']} empleados, "
+                f"Migración aplicada: {resultado['empleados_actualizados']} empleados, "
                 f"{resultado['dias_insertados']} dias."
             ),
         })
@@ -896,115 +916,6 @@ async def admin_desactivar_horario(
     return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
 
 
-@router.post("/admin/festivos/generar")
-async def admin_generar_festivos(
-    request: Request,
-    anio: int = Form(...),
-    conn=Depends(get_db_connection),
-    context=Depends(get_current_user_context),
-    _=require_manager_access("rrhh", "editor"),
-):
-    try:
-        insertados = await service.generar_festivos_anio(
-            conn, anio, UUID(str(context["user_db_id"]))
-        )
-    except ValueError as exc:
-        return toast_error(request, str(exc))
-    except asyncpg.PostgresError:
-        logger.exception("Error de BD generando festivos")
-        return toast_error(request, "No se pudieron generar los festivos")
-    ctx = await service.get_admin_ctx(conn, anio)
-    ctx.update({
-        "context": context,
-        "toast_type": "success",
-        "toast_msg": f"Festivos generados. Nuevas fechas: {insertados}",
-    })
-    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
-
-
-@router.post("/admin/festivos")
-async def admin_crear_festivo(
-    request: Request,
-    fecha: date = Form(...),
-    descripcion: str = Form(...),
-    es_oficial: bool = Form(False),
-    conn=Depends(get_db_connection),
-    context=Depends(get_current_user_context),
-    _=require_manager_access("rrhh", "editor"),
-):
-    anio = fecha.year
-    try:
-        await service.guardar_festivo(
-            conn,
-            fecha=fecha,
-            descripcion=descripcion,
-            es_oficial=es_oficial,
-            user_id=UUID(str(context["user_db_id"])),
-        )
-    except ValueError as exc:
-        return toast_error(request, str(exc))
-    except asyncpg.UniqueViolationError:
-        return toast_error(request, "Ya existe un festivo con esa fecha")
-    except asyncpg.PostgresError:
-        logger.exception("Error de BD creando festivo")
-        return toast_error(request, "No se pudo guardar el festivo")
-    ctx = await service.get_admin_ctx(conn, anio)
-    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Festivo guardado"})
-    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
-
-
-@router.post("/admin/festivos/{festivo_id}")
-async def admin_actualizar_festivo(
-    request: Request,
-    festivo_id: UUID,
-    fecha: date = Form(...),
-    descripcion: str = Form(...),
-    es_oficial: bool = Form(False),
-    conn=Depends(get_db_connection),
-    context=Depends(get_current_user_context),
-    _=require_manager_access("rrhh", "editor"),
-):
-    anio = fecha.year
-    try:
-        await service.guardar_festivo(
-            conn,
-            festivo_id=festivo_id,
-            fecha=fecha,
-            descripcion=descripcion,
-            es_oficial=es_oficial,
-            user_id=UUID(str(context["user_db_id"])),
-        )
-    except ValueError as exc:
-        return toast_error(request, str(exc))
-    except asyncpg.UniqueViolationError:
-        return toast_error(request, "Ya existe un festivo con esa fecha")
-    except asyncpg.PostgresError:
-        logger.exception("Error de BD actualizando festivo")
-        return toast_error(request, "No se pudo actualizar el festivo")
-    ctx = await service.get_admin_ctx(conn, anio)
-    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Festivo actualizado"})
-    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
-
-
-@router.delete("/admin/festivos/{festivo_id}")
-async def admin_eliminar_festivo(
-    request: Request,
-    festivo_id: UUID,
-    anio: int,
-    conn=Depends(get_db_connection),
-    context=Depends(get_current_user_context),
-    _=require_manager_access("rrhh", "editor"),
-):
-    try:
-        await vac_db.delete_festivo(conn, festivo_id)
-    except asyncpg.PostgresError:
-        logger.exception("Error de BD eliminando festivo")
-        return toast_error(request, "No se pudo eliminar el festivo")
-    ctx = await service.get_admin_ctx(conn, anio)
-    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Festivo eliminado"})
-    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
-
-
 @router.post("/admin/tipos-ausencia")
 async def admin_crear_tipo_ausencia(
     request: Request,
@@ -1165,7 +1076,7 @@ async def admin_guardar_config(
         logger.exception("Error de BD guardando config vacaciones")
         return toast_error(request, "No se pudo guardar la configuracion")
     ctx = await service.get_admin_ctx(conn)
-    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Configuracion guardada"})
+    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Configuración guardada"})
     return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
 
 
@@ -1176,14 +1087,41 @@ async def admin_guardar_config(
 @router.get("/festivos")
 async def festivos_lista(
     request: Request,
+    anio: Optional[int] = None,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
 ):
-    festivos = await vac_db.get_festivos(conn)
-    return templates.TemplateResponse(
-        request, "rrhh/partials/festivos_lista.html",
-        {"festivos": festivos},
+    try:
+        return await _festivos_template_response(request, conn, context, anio)
+    except ValueError as exc:
+        return toast_error(request, str(exc))
+
+
+@router.post("/festivos/generar")
+async def festivos_generar(
+    request: Request,
+    anio: int = Form(...),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
+):
+    try:
+        insertados = await service.generar_festivos_anio(
+            conn, anio, UUID(str(context["user_db_id"]))
+        )
+    except ValueError as exc:
+        return toast_error(request, str(exc))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD sincronizando festivos")
+        return toast_error(request, "No se pudieron sincronizar los festivos")
+    return await _festivos_template_response(
+        request,
+        conn,
+        context,
+        anio,
+        toast_type="success",
+        toast_msg=f"Festivos oficiales sincronizados. Nuevas fechas: {insertados}",
     )
 
 
@@ -1197,17 +1135,80 @@ async def festivo_crear(
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "editor"),
 ):
+    anio = fecha.year
     try:
-        await vac_db.create_festivo(conn, fecha, descripcion, es_oficial, UUID(str(context["user_db_id"])))
+        await service.guardar_festivo(
+            conn,
+            fecha=fecha,
+            descripcion=descripcion,
+            es_oficial=es_oficial,
+            user_id=UUID(str(context["user_db_id"])),
+        )
+    except ValueError as exc:
+        return toast_error(request, str(exc))
     except asyncpg.UniqueViolationError:
         return toast_error(request, "Ya existe un festivo con esa fecha")
-    except asyncpg.PostgresError as e:
-        logger.error("Error creando festivo: %s", e)
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD creando festivo")
         return toast_error(request, "No se pudo crear el festivo")
-    festivos = await vac_db.get_festivos(conn)
-    return templates.TemplateResponse(
-        request, "rrhh/partials/festivos_lista.html",
-        {"festivos": festivos, "toast_type": "success", "toast_msg": "Festivo agregado"},
+    return await _festivos_template_response(
+        request, conn, context, anio, toast_type="success", toast_msg="Festivo agregado"
+    )
+
+
+@router.post("/festivos/validar")
+async def festivos_validar(
+    request: Request,
+    anio: int = Form(...),
+    notas: Optional[str] = Form(None),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
+):
+    try:
+        await service.validar_festivos_anio(
+            conn, anio, notas, UUID(str(context["user_db_id"]))
+        )
+    except ValueError as exc:
+        return toast_error(request, str(exc))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD validando festivos")
+        return toast_error(request, "No se pudo validar el año")
+    return await _festivos_template_response(
+        request, conn, context, anio, toast_type="success", toast_msg="Año validado por RH"
+    )
+
+
+@router.post("/festivos/{festivo_id}")
+async def festivo_actualizar(
+    request: Request,
+    festivo_id: UUID,
+    fecha: date = Form(...),
+    descripcion: str = Form(...),
+    es_oficial: bool = Form(False),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
+):
+    anio = fecha.year
+    try:
+        await service.guardar_festivo(
+            conn,
+            festivo_id=festivo_id,
+            fecha=fecha,
+            descripcion=descripcion,
+            es_oficial=es_oficial,
+            user_id=UUID(str(context["user_db_id"])),
+        )
+    except ValueError as exc:
+        return toast_error(request, str(exc))
+    except asyncpg.UniqueViolationError:
+        return toast_error(request, "Ya existe un festivo con esa fecha")
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD actualizando festivo")
+        return toast_error(request, "No se pudo actualizar el festivo")
+    return await _festivos_template_response(
+        request, conn, context, anio, toast_type="success", toast_msg="Festivo actualizado"
     )
 
 
@@ -1215,14 +1216,23 @@ async def festivo_crear(
 async def festivo_eliminar(
     request: Request,
     festivo_id: UUID,
+    anio: Optional[int] = None,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "editor"),
 ):
-    await vac_db.delete_festivo(conn, festivo_id)
-    festivos = await vac_db.get_festivos(conn)
-    return templates.TemplateResponse(
-        request, "rrhh/partials/festivos_lista.html", {"festivos": festivos}
+    anio_final = anio or today_mx().year
+    try:
+        await service.eliminar_festivo(
+            conn, festivo_id, anio_final, UUID(str(context["user_db_id"]))
+        )
+    except ValueError as exc:
+        return toast_error(request, str(exc))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD eliminando festivo")
+        return toast_error(request, "No se pudo eliminar el festivo")
+    return await _festivos_template_response(
+        request, conn, context, anio_final, toast_type="success", toast_msg="Festivo eliminado"
     )
 
 

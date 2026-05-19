@@ -4,8 +4,8 @@
     showNew: false,
     cruceLabel(laboral, entrada, salida) {
       if (!laboral) return 'No laboral';
-      if (!entrada || !salida) return 'Automatico';
-      if (salida === entrada) return 'Horario invalido';
+      if (!entrada || !salida) return 'Automático';
+      if (salida === entrada) return 'Horario inválido';
       return salida < entrada ? 'Cruza medianoche' : 'No cruza';
     },
     cruceClass(laboral, entrada, salida) {
@@ -15,7 +15,7 @@
       return salida < entrada ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-600';
     }
   }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
-  <div class="px-4 py-3 border-b border-gray-100 flex items-center justify-between gap-3">
+  <div class="px-4 py-3 border-b border-gray-100">
     <button type="button"
             @click="open = !open"
             :aria-expanded="open.toString()"
@@ -30,24 +30,30 @@
         <span class="block text-xs text-gray-400">Configura jornadas, ventanas de checadas y reglas de horas extra.</span>
       </span>
     </button>
-    <button type="button"
-            @click="open = true; showNew = !showNew"
-            class="bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2 px-4 rounded-lg transition-colors">
-      Nuevo horario
-    </button>
   </div>
 
   <div x-show="open" x-cloak x-transition>
-    <div class="px-4 py-3 border-b border-gray-100 bg-gray-50">
+    <div class="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between gap-3">
       <button type="button"
               @click="help = !help"
               class="text-xs font-semibold text-[#00BABB] hover:underline">
-        Ayuda: como se calculan asistencia y horas extra
+        Ayuda: cómo se calculan asistencia y horas extra
       </button>
+      <button type="button"
+              @click="showNew = !showNew"
+              title="Nuevo horario"
+              aria-label="Nuevo horario"
+              class="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[#00BABB] text-white hover:bg-[#009A9B] transition-colors">
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2" stroke-linecap="round">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+      </button>
+    </div>
+    <div class="px-4 bg-gray-50">
       <div x-show="help" x-cloak x-transition class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3 text-xs text-gray-600">
         <div class="rounded-lg border border-gray-200 bg-white p-3">
           <p class="font-semibold text-gray-800">Ventana de checadas</p>
-          <p class="mt-1">Define cuantos minutos antes de la entrada y despues de la salida pertenecen al mismo dia laboral.</p>
+          <p class="mt-1">Define cuántos minutos antes de la entrada y después de la salida pertenecen al mismo día laboral.</p>
           <p class="mt-1 text-gray-400">Ejemplo: entrada 08:00 con ventana 120 acepta checadas desde 06:00.</p>
         </div>
         <div class="rounded-lg border border-gray-200 bg-white p-3">
@@ -57,13 +63,13 @@
         </div>
         <div class="rounded-lg border border-gray-200 bg-white p-3">
           <p class="font-semibold text-gray-800">Descuento de comida</p>
-          <p class="mt-1">El valor general sirve como default y cada dia laboral puede tener su propio descuento.</p>
+          <p class="mt-1">El valor general sirve como default y cada día laboral puede tener su propio descuento.</p>
           <p class="mt-1 text-gray-400">Ejemplo: lunes a jueves 60 min y viernes 0 min.</p>
         </div>
         <div class="rounded-lg border border-gray-200 bg-white p-3">
           <p class="font-semibold text-gray-800">Cruza medianoche</p>
-          <p class="mt-1">Se calcula automaticamente cuando la salida es menor que la entrada.</p>
-          <p class="mt-1 text-gray-400">Las salidas tarde o en madrugada se controlan con la ventana despues de salida.</p>
+          <p class="mt-1">Se calcula automáticamente cuando la salida es menor que la entrada.</p>
+          <p class="mt-1 text-gray-400">Las salidas tarde o en madrugada se controlan con la ventana después de salida.</p>
         </div>
       </div>
     </div>
@@ -97,15 +103,15 @@
             <div>
               <label class="block text-xs font-medium text-gray-600 mb-1">
                 Antes entrada
-                <span tabindex="0" title="Minutos antes de la entrada en los que una checada pertenece a este dia laboral." class="ml-1 text-[#00BABB] cursor-help">?</span>
+                <span tabindex="0" title="Minutos antes de la entrada en los que una checada pertenece a este día laboral." class="ml-1 text-[#00BABB] cursor-help">?</span>
               </label>
               <input type="number" name="margen_entrada_antes_min" min="0" max="1440" value="120" required
                      class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
             </div>
             <div>
               <label class="block text-xs font-medium text-gray-600 mb-1">
-                Despues salida
-                <span tabindex="0" title="Minutos despues de la salida en los que una checada pertenece a este dia laboral." class="ml-1 text-[#00BABB] cursor-help">?</span>
+                Después salida
+                <span tabindex="0" title="Minutos después de la salida en los que una checada pertenece a este día laboral." class="ml-1 text-[#00BABB] cursor-help">?</span>
               </label>
               <input type="number" name="margen_salida_despues_min" min="0" max="1440" value="360" required
                      class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
@@ -133,7 +139,7 @@
           <table class="w-full text-sm">
             <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
               <tr>
-                <th class="px-3 py-2 text-left">Dia</th>
+                <th class="px-3 py-2 text-left">Día</th>
                 <th class="px-3 py-2 text-left">Laboral</th>
                 <th class="px-3 py-2 text-left">Entrada</th>
                 <th class="px-3 py-2 text-left">Salida</th>
@@ -202,7 +208,7 @@
             </div>
             <p class="mt-1 text-xs text-gray-500">{{ horario.resumen_dias }}</p>
             <p class="mt-1 text-xs text-gray-400">
-              Ventana {{ horario.margen_entrada_antes_min }} min antes / {{ horario.margen_salida_despues_min }} min despues -
+              Ventana {{ horario.margen_entrada_antes_min }} min antes / {{ horario.margen_salida_despues_min }} min después -
               tolerancia {{ horario.tolerancia_extra_min }} min - comida default {{ horario.descuento_comida_min }} min
             </p>
           </div>
@@ -254,7 +260,7 @@
                        class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
               </div>
               <div>
-                <label class="block text-xs font-medium text-gray-600 mb-1">Despues salida</label>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Después salida</label>
                 <input type="number" name="margen_salida_despues_min" min="0" max="1440" value="{{ horario.margen_salida_despues_min }}" required
                        class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
               </div>
@@ -275,7 +281,7 @@
             <table class="w-full text-sm">
               <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
                 <tr>
-                  <th class="px-3 py-2 text-left">Dia</th>
+                  <th class="px-3 py-2 text-left">Día</th>
                   <th class="px-3 py-2 text-left">Laboral</th>
                   <th class="px-3 py-2 text-left">Entrada</th>
                   <th class="px-3 py-2 text-left">Salida</th>

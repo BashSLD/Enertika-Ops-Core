@@ -797,9 +797,9 @@ async def verificar_recordatorios_aprobacion_periodically(interval_seconds: int 
 
 async def generar_festivos_anuales_periodically(interval_seconds: int = 86400):
     """
-    Verifica diariamente que exista el catalogo de feriados del ano actual.
-    Solo genera automaticamente cuando el ano no tiene ningun feriado registrado,
-    para no revertir correcciones manuales de RH.
+    Verifica diariamente que exista el catalogo de festivos del año actual.
+    Solo genera automaticamente cuando el año no tiene ningun festivo registrado,
+    y deja el calendario pendiente de validacion de RH.
     """
     logger.info("[VAC_FESTIVOS] Tarea inicializada (intervalo: %sh)", interval_seconds // 3600)
 
@@ -807,21 +807,16 @@ async def generar_festivos_anuales_periodically(interval_seconds: int = 86400):
         try:
             from core.database import get_db_pool
             from core.timezone import today_mx
-            from modules.rrhh.service import generar_festivos_anio
-            from modules.vacaciones.db_service import get_festivos_by_year
+            from modules.rrhh.service import ensure_festivos_anio_worker
 
             pool = await get_db_pool()
             async with pool.acquire() as conn:
                 anio = today_mx().year
-                existentes = await get_festivos_by_year(conn, anio)
-                if not existentes:
-                    insertados = await generar_festivos_anio(conn, anio, user_id=None)
-                    logger.info(
-                        "[VAC_FESTIVOS] Feriados generados para %s: %s",
-                        anio, insertados,
-                    )
+                insertados = await ensure_festivos_anio_worker(conn, anio)
+                if insertados:
+                    logger.info("[VAC_FESTIVOS] Festivos generados para %s: %s", anio, insertados)
                 else:
-                    logger.debug("[VAC_FESTIVOS] Catalogo %s ya existe", anio)
+                    logger.debug("[VAC_FESTIVOS] Catalogo %s sin cambios", anio)
 
         except asyncpg.PostgresError as e:
             logger.error("[VAC_FESTIVOS] Error de BD: %s", e)

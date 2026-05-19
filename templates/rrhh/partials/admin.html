@@ -8,42 +8,12 @@
   <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
     <div>
       <h2 class="text-base font-semibold text-gray-800">Admin RRHH</h2>
-      <p class="text-sm text-gray-500">Catalogos y reglas de vacaciones</p>
-    </div>
-    <div class="flex flex-wrap items-end gap-2">
-      <button
-        hx-get="/rrhh/migracion"
-        hx-target="#main-content"
-        hx-push-url="true"
-        title="Importar historial de vacaciones desde Excel"
-        class="inline-flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors">
-        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/>
-          <line x1="12" y1="18" x2="12" y2="12"/><polyline points="9,15 12,12 15,15"/>
-        </svg>
-        Migración histórica
-      </button>
-      <form hx-post="/rrhh/admin/festivos/generar"
-            hx-target="#rrhh-content"
-            hx-swap="innerHTML"
-            class="flex items-end gap-2">
-        <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Ano</label>
-          <input type="number" name="anio" min="2026" max="2100" value="{{ anio }}"
-                 class="w-24 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
-        </div>
-        <button type="submit"
-                class="bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2 px-4 rounded-lg transition-colors">
-          Generar feriados
-        </button>
-      </form>
+      <p class="text-sm text-gray-500">Catálogos y reglas de vacaciones</p>
     </div>
   </div>
 
-  {% include "rrhh/partials/admin_horarios.html" %}
-
   <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
-    <div class="px-4 py-3 border-b border-gray-100 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+    <div class="px-4 py-3 border-b border-gray-100">
       <button type="button"
               @click="open = !open"
               :aria-expanded="open.toString()"
@@ -54,84 +24,28 @@
           </svg>
         </span>
         <span>
-          <span class="block text-sm font-semibold text-gray-800">Feriados {{ anio }}</span>
-          <span class="block text-xs text-gray-400">La generacion anual solo agrega fechas faltantes.</span>
+          <span class="block text-sm font-semibold text-gray-800">Herramientas de migración</span>
+          <span class="block text-xs text-gray-400">Carga histórica de vacaciones previas al sistema.</span>
         </span>
       </button>
-      <form hx-get="/rrhh/admin" hx-target="#rrhh-content" hx-swap="innerHTML" class="flex items-center gap-2">
-        <input type="number" name="anio" min="2026" max="2100" value="{{ anio }}"
-               class="w-24 border border-gray-200 rounded-lg px-2 py-1.5 text-xs bg-white">
-        <button class="text-xs text-[#00BABB] font-semibold hover:underline">Ver ano</button>
-      </form>
     </div>
-
-    <div x-show="open" x-transition>
-      <div class="px-4 py-3 bg-gray-50 border-b border-gray-100">
-        <form hx-post="/rrhh/admin/festivos"
-              hx-target="#rrhh-content"
-              hx-swap="innerHTML"
-              class="grid grid-cols-1 md:grid-cols-12 gap-2 items-end">
-          <div class="md:col-span-2">
-            <label class="block text-xs font-medium text-gray-600 mb-1">Fecha</label>
-            <input type="date" name="fecha" required
-                   class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
-          </div>
-          <div class="md:col-span-5">
-            <label class="block text-xs font-medium text-gray-600 mb-1">Descripcion</label>
-            <input type="text" name="descripcion" required
-                   class="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
-          </div>
-          <label class="md:col-span-2 flex items-center gap-2 text-sm text-gray-600 pb-2">
-            <input type="checkbox" name="es_oficial" value="true" checked class="rounded text-[#00BABB]">
-            Oficial
-          </label>
-          <div class="md:col-span-3 flex justify-end">
-            <button type="submit"
-                    class="bg-[#123456] hover:bg-[#0d2741] text-white text-sm font-semibold px-4 py-2 rounded-lg">
-              Agregar fecha
-            </button>
-          </div>
-        </form>
-      </div>
-
-      {% if festivos %}
-      <div class="divide-y divide-gray-50">
-        {% for f in festivos %}
-        <form hx-post="/rrhh/admin/festivos/{{ f.id }}"
-              hx-target="#rrhh-content"
-              hx-swap="innerHTML"
-              class="grid grid-cols-1 md:grid-cols-12 gap-2 items-center px-4 py-3">
-          <input type="date" name="fecha" value="{{ f.fecha.strftime('%Y-%m-%d') }}" required
-                 class="md:col-span-2 border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
-          <input type="text" name="descripcion" value="{{ f.descripcion }}" required
-                 class="md:col-span-4 border border-gray-200 rounded-lg px-2 py-2 text-sm bg-white">
-          <label class="md:col-span-2 flex items-center gap-2 text-sm text-gray-600">
-            <input type="checkbox" name="es_oficial" value="true" {% if f.es_oficial %}checked{% endif %}
-                   class="rounded text-[#00BABB]">
-            Oficial
-          </label>
-          <div class="md:col-span-2 text-xs text-gray-400">
-            {{ 'Automatico' if f.origen == 'automatico' else 'Manual' }}
-          </div>
-          <div class="md:col-span-2 flex justify-end gap-2">
-            <button type="submit" class="text-xs text-[#00BABB] font-semibold hover:underline">Guardar</button>
-            <button type="button"
-                    hx-delete="/rrhh/admin/festivos/{{ f.id }}?anio={{ anio }}"
-                    hx-target="#rrhh-content"
-                    hx-swap="innerHTML"
-                    hx-confirm="Eliminar este festivo?"
-                    class="text-xs text-red-500 font-semibold hover:underline">
-              Eliminar
-            </button>
-          </div>
-        </form>
-        {% endfor %}
-      </div>
-      {% else %}
-      <div class="px-4 py-8 text-center text-sm text-gray-400">No hay feriados para este ano.</div>
-      {% endif %}
+    <div x-show="open" x-cloak x-transition class="px-4 py-4">
+      <button
+        hx-get="/rrhh/migracion"
+        hx-target="#main-content"
+        hx-push-url="true"
+        title="Importar historial de vacaciones desde Excel"
+        class="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 transition-colors"
+        aria-label="Migración histórica">
+        <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/>
+          <line x1="12" y1="18" x2="12" y2="12"/><polyline points="9,15 12,12 15,15"/>
+        </svg>
+      </button>
     </div>
   </section>
+
+  {% include "rrhh/partials/admin_horarios.html" %}
 
   <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
     <div class="px-4 py-3 border-b border-gray-100">
@@ -200,8 +114,8 @@
           </svg>
         </span>
         <span>
-          <span class="block text-sm font-semibold text-gray-800">Dias por antiguedad</span>
-          <span class="block text-xs text-gray-400">Los balances se recalculan al vuelo con el catalogo activo.</span>
+          <span class="block text-sm font-semibold text-gray-800">Días por antigüedad</span>
+          <span class="block text-xs text-gray-400">Los balances se recalculan al vuelo con el catálogo activo.</span>
         </span>
       </button>
     </div>
@@ -249,8 +163,8 @@
           </svg>
         </span>
         <span>
-          <span class="block text-sm font-semibold text-gray-800">Parametros de vacaciones</span>
-          <span class="block text-xs text-gray-400">Configuracion global del modulo de vacaciones.</span>
+          <span class="block text-sm font-semibold text-gray-800">Parámetros de vacaciones</span>
+          <span class="block text-xs text-gray-400">Configuración global del módulo de vacaciones.</span>
         </span>
       </button>
     </div>
@@ -260,7 +174,7 @@
             hx-swap="innerHTML"
             class="flex flex-col sm:flex-row sm:items-end gap-4">
         <div>
-          <label class="block text-xs font-medium text-gray-600 mb-1">Meses de expiracion de periodo</label>
+          <label class="block text-xs font-medium text-gray-600 mb-1">Meses de expiración de período</label>
           <input type="number" name="meses_expiracion" min="1" max="120"
                  value="{{ vacaciones_meses_expiracion }}"
                  class="w-32 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">

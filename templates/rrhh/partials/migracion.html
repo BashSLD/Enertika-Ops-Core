@@ -13,13 +13,13 @@
   <div class="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
     <div>
       <button
-        hx-get="/rrhh/ui"
+        hx-get="/rrhh/ui?tab=admin"
         hx-target="#main-content"
-        hx-push-url="true"
+        hx-push-url="/rrhh/ui?tab=admin"
         class="text-xs text-gray-500 hover:text-gray-700 mb-2">
         Volver a RRHH
       </button>
-      <h1 class="text-2xl font-bold text-gray-900">Migracion historica de vacaciones</h1>
+      <h1 class="text-2xl font-bold text-gray-900">Migración histórica de vacaciones</h1>
       <p class="text-sm text-gray-500 mt-0.5">Registros previos al sistema</p>
     </div>
     <a href="/rrhh/migracion/plantilla"
@@ -41,7 +41,7 @@
       <p class="text-2xl font-bold text-amber-500">{{ pendientes if pendientes > 0 else 0 }}</p>
     </div>
     <div class="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Con fecha de contratacion</p>
+      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Con fecha de contratación</p>
       <p class="text-2xl font-bold text-gray-800">{{ total }}</p>
     </div>
   </div>
@@ -92,7 +92,7 @@
           {% endfor %}
         {% else %}
           <div class="px-5 py-10 text-center text-sm text-gray-400">
-            No hay empleados con fecha de contratacion.
+            No hay empleados con fecha de contratación.
           </div>
         {% endif %}
       </div>
