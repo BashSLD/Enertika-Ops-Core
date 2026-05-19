@@ -296,3 +296,19 @@ textarea:focus {
 .pulse-badge {
     animation: pulse-badge 2s infinite;
 }
+
+/* RRHH Tab Navigation */
+.rrhh-tab { position: relative; overflow: hidden; }
+.rrhh-tab::before {
+    content: '';
+    position: absolute;
+    left: 0; right: 0; bottom: 0;
+    height: 0;
+    background: linear-gradient(to right, #00BABB, #007A7B);
+    transition: height 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    border-top-left-radius: 3px;
+    border-top-right-radius: 3px;
+}
+.rrhh-tab.active::before { height: 3px; }
+.rrhh-tabs { scrollbar-width: none; }
+.rrhh-tabs::-webkit-scrollbar { display: none; }

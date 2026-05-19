@@ -1,0 +1,154 @@
+<div class="space-y-3">
+
+  <!-- Barra de filtros -->
+  <div class="flex flex-wrap items-center gap-2">
+
+    <!-- Rango de fechas (auto-submit al cambiar) -->
+    <form hx-get="/rrhh/ausencias" hx-target="#rrhh-content" hx-swap="innerHTML"
+          hx-push-url="true" hx-trigger="change">
+      <input type="hidden" name="tipo" value="{{ tipo_filtro }}">
+      <div class="flex items-center gap-1 bg-white border border-gray-200 rounded-lg px-2 py-1.5 text-sm focus-within:ring-2 focus-within:ring-[#00BABB]/30">
+        <svg class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/>
+        </svg>
+        <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}"
+               class="bg-transparent text-sm text-gray-700 focus:outline-none w-32">
+        <span class="text-gray-300 mx-1">—</span>
+        <input type="date" name="fecha_fin" value="{{ fecha_fin }}"
+               class="bg-transparent text-sm text-gray-700 focus:outline-none w-32">
+      </div>
+    </form>
+
+    <!-- Dropdown tipo -->
+    <div x-data="{ open: false }" @click.away="open = false" class="relative">
+      <button type="button" @click="open = !open"
+              class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-sm transition-colors
+                     {% if tipo_filtro %}border-[#00BABB]/40 bg-[#00BABB]/10 text-[#007A7B] font-semibold{% else %}border-gray-200 bg-white text-gray-600 hover:bg-gray-50{% endif %}">
+        <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M7 7h10M7 12h6M7 17h3"/>
+        </svg>
+        {% if tipo_filtro %}
+          {% for tipo in tipos %}{% if tipo.slug == tipo_filtro %}{{ tipo.abreviatura }}{% endif %}{% endfor %}
+        {% else %}
+          Tipo
+        {% endif %}
+        <svg class="w-3 h-3 text-gray-400 transition-transform" :class="open && 'rotate-180'" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
+        </svg>
+      </button>
+
+      <!-- Panel dropdown -->
+      <div x-show="open" x-transition:enter="transition ease-out duration-100"
+           x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+           x-transition:leave="transition ease-in duration-75"
+           x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
+           class="absolute z-20 top-full left-0 mt-1 w-52 bg-white rounded-xl shadow-lg border border-gray-100 py-1"
+           style="display: none;">
+        <!-- Todas -->
+        <button hx-get="/rrhh/ausencias?fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}"
+                hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="true"
+                @click="open = false"
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors
+                       {% if not tipo_filtro %}bg-[#00BABB]/5 text-[#007A7B] font-semibold{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
+          <span class="w-4 flex-shrink-0">
+            {% if not tipo_filtro %}
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+            </svg>
+            {% endif %}
+          </span>
+          Todas las ausencias
+        </button>
+        <div class="my-1 border-t border-gray-100"></div>
+        {% for tipo in tipos %}
+        <button hx-get="/rrhh/ausencias?fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}&tipo={{ tipo.slug }}"
+                hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="true"
+                @click="open = false"
+                class="w-full flex items-center gap-2 px-3 py-2 text-sm text-left transition-colors
+                       {% if tipo_filtro == tipo.slug %}bg-[#00BABB]/5 text-[#007A7B] font-semibold{% else %}text-gray-700 hover:bg-gray-50{% endif %}">
+          <span class="w-4 flex-shrink-0">
+            {% if tipo_filtro == tipo.slug %}
+            <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/>
+            </svg>
+            {% endif %}
+          </span>
+          <span class="font-mono text-xs font-bold text-gray-400 w-8 flex-shrink-0">{{ tipo.abreviatura }}</span>
+          {{ tipo.nombre }}
+        </button>
+        {% endfor %}
+      </div>
+    </div>
+
+    <!-- Limpiar filtro de tipo (si hay uno activo) -->
+    {% if tipo_filtro %}
+    <button hx-get="/rrhh/ausencias?fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}"
+            hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="true"
+            title="Quitar filtro de tipo"
+            type="button"
+            class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
+      <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+        <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+    {% endif %}
+
+    <!-- Contador -->
+    <span class="ml-auto text-xs text-gray-400">{{ ausencias | length }} ausencia{{ 's' if ausencias | length != 1 else '' }}</span>
+  </div>
+
+  <!-- Lista -->
+  {% if ausencias %}
+  {% set badge_colors = {
+    'vacaciones':            'bg-blue-100 text-blue-700',
+    'extraordinaria':        'bg-orange-100 text-orange-700',
+    'home_office':           'bg-green-100 text-green-700',
+    'incapacidad':           'bg-red-100 text-red-700',
+    'permiso_con_goce':      'bg-purple-100 text-purple-700',
+    'permiso_sin_goce':      'bg-purple-100 text-purple-700',
+    'permiso_llegar_tarde':  'bg-amber-100 text-amber-700',
+    'permiso_salir_temprano':'bg-amber-100 text-amber-700',
+  } %}
+  <div class="space-y-2">
+    {% for a in ausencias %}
+    <div class="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3 min-w-0">
+        <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
+          <svg class="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4z"/>
+          </svg>
+        </div>
+        <div class="min-w-0">
+          <div class="flex items-center gap-2">
+            <p class="text-sm font-medium text-gray-800 truncate">{{ a.empleado_nombre }}</p>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 {{ badge_colors.get(a.tipo_slug, 'bg-gray-100 text-gray-600') }}"
+                  title="{{ a.tipo_nombre }}">
+              {{ a.tipo_abreviatura }}
+            </span>
+          </div>
+          <p class="text-xs text-gray-500">
+            {{ a.fecha_inicio.strftime('%d/%m') }} — {{ a.fecha_fin.strftime('%d/%m/%Y') }}
+            · {{ a.dias_solicitados }} día{{ 's' if a.dias_solicitados != 1 else '' }}
+          </p>
+        </div>
+      </div>
+      <div class="text-right flex-shrink-0">
+        <p class="text-xs text-gray-400">Regresa</p>
+        <p class="text-sm font-semibold text-gray-700">{{ a.fecha_presentarse.strftime('%d/%m/%Y') }}</p>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center text-gray-400">
+    <svg class="w-10 h-10 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+    </svg>
+    <p class="text-sm">Sin ausencias aprobadas en este periodo</p>
+    {% if tipo_filtro %}
+    <p class="text-xs mt-1 text-gray-400">Prueba quitando el filtro de tipo</p>
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>

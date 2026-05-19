@@ -1,118 +1,249 @@
-<div class="space-y-5">
-  <div class="flex items-center justify-between">
-    <div>
-      <h2 class="text-lg font-semibold text-gray-900">Reportes</h2>
-      <p class="text-sm text-gray-500">Descargas para asistencia, vacaciones y horas extra.</p>
+{% macro filtro_multi(field_name, opciones_json, placeholder="Todos") %}
+<div
+  x-data="{
+    opciones: [],
+    seleccionados: [],
+    busqueda: '',
+    abierto: false,
+    get filtrados() {
+      if (!this.busqueda) return this.opciones;
+      const q = this.busqueda.toLowerCase();
+      return this.opciones.filter(o => o.nombre.toLowerCase().includes(q));
+    },
+    toggle(id) {
+      const i = this.seleccionados.indexOf(id);
+      i >= 0 ? this.seleccionados.splice(i, 1) : this.seleccionados.push(id);
+    },
+    nombre(id) { return (this.opciones.find(o => o.id === id) || {}).nombre || ''; },
+    init() { this.opciones = JSON.parse(this.$el.dataset.opciones || '[]'); }
+  }"
+  data-opciones='{{ opciones_json }}'
+  class="relative"
+  @click.outside="abierto = false"
+  @keydown.escape="abierto = false"
+>
+  <template x-for="id in seleccionados" :key="id">
+    <input type="hidden" name="{{ field_name }}" :value="id">
+  </template>
+
+  <div
+    @click="abierto = !abierto"
+    class="w-full min-h-[2.25rem] cursor-pointer rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm flex flex-wrap gap-1 items-center"
+  >
+    <template x-if="seleccionados.length === 0">
+      <span class="select-none text-sm text-gray-400">{{ placeholder }}</span>
+    </template>
+    <template x-for="id in seleccionados" :key="'chip-' + id">
+      <span class="inline-flex items-center gap-1 rounded bg-[#00BABB]/10 px-1.5 py-0.5 text-xs text-[#008a8b]">
+        <span x-text="nombre(id)"></span>
+        <button type="button" @click.stop="toggle(id)" class="leading-none hover:text-red-500">&times;</button>
+      </span>
+    </template>
+  </div>
+
+  <div
+    x-show="abierto"
+    x-transition
+    class="absolute z-20 mt-1 w-full min-w-[14rem] rounded-lg border border-gray-200 bg-white shadow-lg"
+  >
+    <div class="border-b border-gray-100 p-1.5">
+      <input
+        type="text"
+        x-model="busqueda"
+        placeholder="Buscar..."
+        @click.stop
+        class="w-full rounded border-gray-200 text-xs focus:border-[#00BABB] focus:ring-[#00BABB]"
+      >
     </div>
+    <ul class="max-h-44 overflow-y-auto">
+      <template x-for="op in filtrados" :key="op.id">
+        <li>
+          <label class="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50">
+            <input
+              type="checkbox"
+              :checked="seleccionados.includes(op.id)"
+              @change="toggle(op.id)"
+              class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]"
+            >
+            <span x-text="op.nombre"></span>
+          </label>
+        </li>
+      </template>
+      <template x-if="filtrados.length === 0">
+        <li class="px-3 py-2 text-xs text-gray-400">Sin resultados</li>
+      </template>
+    </ul>
+    <template x-if="seleccionados.length > 0">
+      <div class="border-t border-gray-100 px-3 py-1.5">
+        <button type="button" @click="seleccionados = []; busqueda = ''" class="text-xs text-gray-400 hover:text-red-500">
+          Limpiar selección
+        </button>
+      </div>
+    </template>
+  </div>
+</div>
+{% endmacro %}
+
+{%- set ns_u = namespace(items=[]) -%}
+{%- for u in usuarios -%}
+  {%- set ns_u.items = ns_u.items + [{"id": u.id_usuario | string, "nombre": u.nombre}] -%}
+{%- endfor -%}
+{%- set ns_s = namespace(items=[]) -%}
+{%- for s in sucursales -%}
+  {%- set ns_s.items = ns_s.items + [{"id": s.id | string, "nombre": s.nombre}] -%}
+{%- endfor -%}
+
+<div class="space-y-3">
+  <div>
+    <h2 class="text-base font-semibold text-gray-800">Reportes</h2>
+    <p class="text-sm text-gray-500">Descargas para asistencia, vacaciones y horas extra.</p>
   </div>
 
-  <div class="grid grid-cols-1 xl:grid-cols-2 gap-4">
-    <form method="get" class="bg-white border border-gray-200 rounded-xl shadow-sm p-5 space-y-4">
-      <div>
-        <h3 class="font-semibold text-gray-900">Asistencia y horas extra</h3>
-        <p class="text-xs text-gray-500 mt-1">La hora extra se calcula en ECO con la asistencia diaria.</p>
-      </div>
+  <!-- Asistencia y horas extra -->
+  <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm">
+    <button type="button" @click="open = !open" :aria-expanded="open.toString()"
+            class="w-full flex items-center gap-3 px-4 py-3 text-left rounded-lg">
+      <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-gray-50 text-gray-500 flex-shrink-0">
+        <svg class="h-4 w-4 transition-transform" :class="open ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </span>
+      <span>
+        <span class="block text-sm font-semibold text-gray-800">Asistencia y horas extra</span>
+        <span class="block text-xs text-gray-400">La hora extra se calcula en ECO con la asistencia diaria.</span>
+      </span>
+    </button>
+    <div x-show="open" x-transition>
+      <form method="get" class="px-4 pb-4 pt-1 border-t border-gray-100 space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Fecha inicio</label>
+            <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" required
+              class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Fecha fin</label>
+            <input type="date" name="fecha_fin" value="{{ fecha_fin }}" required
+              class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Empleado</label>
+            {{ filtro_multi("usuario_id", ns_u.items | tojson, "Todos") }}
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Sucursal</label>
+            {{ filtro_multi("sucursal_id", ns_s.items | tojson, "Todas") }}
+          </div>
+          <div class="sm:col-span-2 lg:col-span-4">
+            <label class="block text-xs font-medium text-gray-600 mb-1">Estado de asistencia</label>
+            <select name="estado" class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+              <option value="">Todos</option>
+              {% for estado in estados_asistencia | sort %}
+              <option value="{{ estado }}">{{ estados_asistencia_labels.get(estado, estado.replace('_', ' ')) }}</option>
+              {% endfor %}
+            </select>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-2 justify-end">
+          <button type="submit" formaction="/rrhh/reportes/asistencia.xlsx"
+            class="rounded-lg bg-[#123456] px-4 py-2 text-sm font-medium text-white hover:bg-[#0e2a45] transition-colors">
+            Descargar asistencia
+          </button>
+          <button type="submit" formaction="/rrhh/reportes/horas-extra.xlsx"
+            class="rounded-lg bg-[#00BABB] px-4 py-2 text-sm font-medium text-white hover:bg-[#009999] transition-colors">
+            Descargar horas extra
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
 
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
-          <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" required
-            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+  <!-- Vacaciones -->
+  <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm">
+    <button type="button" @click="open = !open" :aria-expanded="open.toString()"
+            class="w-full flex items-center gap-3 px-4 py-3 text-left rounded-lg">
+      <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-gray-50 text-gray-500 flex-shrink-0">
+        <svg class="h-4 w-4 transition-transform" :class="open ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </span>
+      <span>
+        <span class="block text-sm font-semibold text-gray-800">Vacaciones</span>
+        <span class="block text-xs text-gray-400">Solicitudes de vacaciones en el rango seleccionado.</span>
+      </span>
+    </button>
+    <div x-show="open" x-transition>
+      <form method="get" class="px-4 pb-4 pt-1 border-t border-gray-100 space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Fecha inicio</label>
+            <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" required
+              class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Fecha fin</label>
+            <input type="date" name="fecha_fin" value="{{ fecha_fin }}" required
+              class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Empleado</label>
+            {{ filtro_multi("usuario_id", ns_u.items | tojson, "Todos") }}
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Estado</label>
+            <select name="estado" class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+              <option value="">Todos</option>
+              {% for estado in estados_vacaciones %}
+              <option value="{{ estado }}">{{ estado }}</option>
+              {% endfor %}
+            </select>
+          </div>
         </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
-          <input type="date" name="fecha_fin" value="{{ fecha_fin }}" required
-            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+        <div class="flex justify-end">
+          <button type="submit" formaction="/rrhh/reportes/vacaciones.xlsx"
+            class="rounded-lg bg-[#123456] px-4 py-2 text-sm font-medium text-white hover:bg-[#0e2a45] transition-colors">
+            Descargar vacaciones
+          </button>
         </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Empleado</label>
-          <select name="usuario_id"
-            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
-            <option value="">Todos</option>
-            {% for usuario in usuarios %}
-            <option value="{{ usuario.id_usuario }}">{{ usuario.nombre }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Sucursal</label>
-          <select name="sucursal_id"
-            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
-            <option value="">Todas</option>
-            {% for sucursal in sucursales %}
-            <option value="{{ sucursal.id }}">{{ sucursal.nombre }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div class="sm:col-span-2">
-          <label class="block text-sm font-medium text-gray-700 mb-1">Estado de asistencia</label>
-          <select name="estado"
-            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
-            <option value="">Todos</option>
-            {% for estado in estados_asistencia | sort %}
-            <option value="{{ estado }}">{{ estados_asistencia_labels.get(estado, estado.replace('_', ' ')) }}</option>
-            {% endfor %}
-          </select>
-        </div>
-      </div>
+      </form>
+    </div>
+  </section>
 
-      <div class="flex flex-wrap gap-2 justify-end pt-2">
-        <button type="submit" formaction="/rrhh/reportes/asistencia.xlsx"
-          class="rounded-lg bg-[#123456] px-4 py-2 text-sm font-medium text-white hover:bg-[#0e2a45] transition-colors">
-          Descargar asistencia
-        </button>
-        <button type="submit" formaction="/rrhh/reportes/horas-extra.xlsx"
-          class="rounded-lg bg-[#00BABB] px-4 py-2 text-sm font-medium text-white hover:bg-[#009999] transition-colors">
-          Descargar horas extra
-        </button>
-      </div>
-    </form>
+  <!-- Saldos de vacaciones -->
+  <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm">
+    <button type="button" @click="open = !open" :aria-expanded="open.toString()"
+            class="w-full flex items-center gap-3 px-4 py-3 text-left rounded-lg">
+      <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-gray-50 text-gray-500 flex-shrink-0">
+        <svg class="h-4 w-4 transition-transform" :class="open ? 'rotate-90' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+        </svg>
+      </span>
+      <span>
+        <span class="block text-sm font-semibold text-gray-800">Saldos de vacaciones</span>
+        <span class="block text-xs text-gray-400">Estado actual de saldos por empleado — sin filtro de fecha.</span>
+      </span>
+    </button>
+    <div x-show="open" x-transition>
+      <form method="get" action="/rrhh/empleados/exportar-excel" class="px-4 pb-4 pt-1 border-t border-gray-100 space-y-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Empleado</label>
+            {{ filtro_multi("usuario_id", ns_u.items | tojson, "Todos") }}
+          </div>
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Sucursal</label>
+            {{ filtro_multi("sucursal_id", ns_s.items | tojson, "Todas") }}
+          </div>
+        </div>
+        <p class="text-xs text-gray-400">Si seleccionas empleados y sucursal a la vez, se aplica intersección (solo empleados de esas sucursales).</p>
+        <div class="flex justify-end">
+          <button type="submit"
+            class="rounded-lg bg-[#00BABB] px-4 py-2 text-sm font-medium text-white hover:bg-[#009999] transition-colors">
+            Descargar saldos
+          </button>
+        </div>
+      </form>
+    </div>
+  </section>
 
-    <form method="get" class="bg-white border border-gray-200 rounded-xl shadow-sm p-5 space-y-4">
-      <div>
-        <h3 class="font-semibold text-gray-900">Vacaciones</h3>
-        <p class="text-xs text-gray-500 mt-1">Solicitudes de vacaciones en el rango seleccionado.</p>
-      </div>
-
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Fecha inicio</label>
-          <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" required
-            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Fecha fin</label>
-          <input type="date" name="fecha_fin" value="{{ fecha_fin }}" required
-            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Empleado</label>
-          <select name="usuario_id"
-            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
-            <option value="">Todos</option>
-            {% for usuario in usuarios %}
-            <option value="{{ usuario.id_usuario }}">{{ usuario.nombre }}</option>
-            {% endfor %}
-          </select>
-        </div>
-        <div>
-          <label class="block text-sm font-medium text-gray-700 mb-1">Estado</label>
-          <select name="estado"
-            class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
-            <option value="">Todos</option>
-            {% for estado in estados_vacaciones %}
-            <option value="{{ estado }}">{{ estado }}</option>
-            {% endfor %}
-          </select>
-        </div>
-      </div>
-
-      <div class="flex justify-end pt-2">
-        <button type="submit" formaction="/rrhh/reportes/vacaciones.xlsx"
-          class="rounded-lg bg-[#123456] px-4 py-2 text-sm font-medium text-white hover:bg-[#0e2a45] transition-colors">
-          Descargar vacaciones
-        </button>
-      </div>
-    </form>
-  </div>
 </div>

@@ -1,107 +1,158 @@
-<div class="animate-fade-in-down px-4 pb-8" x-data="{ tab: 'hoy' }">
+<div class="animate-fade-in-down px-4 pb-8" x-data="{ tab: 'asistencia' }">
   {% set rrhh_role = (context.module_roles or {}).get('rrhh', '') %}
+  {% macro rrhh_tab_icon(icon) -%}
+    {% if icon == 'hoy' %}
+    <svg aria-hidden="true" class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2"/>
+      <path d="M16 2v4M8 2v4M3 10h18"/>
+      <path d="M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>
+    </svg>
+    {% elif icon == 'asistencia' %}
+    <svg aria-hidden="true" class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9"/>
+      <path d="M12 7v5l3 2"/>
+    </svg>
+    {% elif icon == 'aprobaciones' %}
+    <svg aria-hidden="true" class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M9 11l3 3L22 4"/>
+      <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+    </svg>
+    {% elif icon == 'solicitudes' %}
+    <svg aria-hidden="true" class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+      <path d="M14 2v6h6M8 13h8M8 17h5"/>
+    </svg>
+    {% elif icon == 'empleados' %}
+    <svg aria-hidden="true" class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+      <circle cx="9" cy="7" r="4"/>
+      <path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>
+    </svg>
+    {% elif icon == 'reportes' %}
+    <svg aria-hidden="true" class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M3 3v18h18"/>
+      <path d="M7 15l4-4 3 3 5-7"/>
+    </svg>
+    {% elif icon == 'festivos' %}
+    <svg aria-hidden="true" class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="4" width="18" height="18" rx="2"/>
+      <path d="M16 2v4M8 2v4M3 10h18"/>
+      <path d="M9 16l2 2 4-5"/>
+    </svg>
+    {% elif icon == 'admin' %}
+    <svg aria-hidden="true" class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="3"/>
+      <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/>
+    </svg>
+    {% endif %}
+  {%- endmacro %}
 
-  <!-- Encabezado -->
-  <div class="flex items-center justify-between mb-6">
+  <div class="flex items-start justify-between gap-4 mb-6">
     <div>
       <h1 class="text-2xl font-bold text-gray-900">RRHH</h1>
       <p class="text-sm text-gray-500 mt-0.5">Gestión de personas y vacaciones</p>
     </div>
-    {% if context.role == 'ADMIN' or rrhh_role == 'admin' or (context.role == 'MANAGER' and rrhh_role in ['editor', 'admin']) %}
-    <button
-      hx-get="/rrhh/migracion"
-      hx-target="#main-content"
-      hx-push-url="true"
-      title="Importar historial de vacaciones desde Excel"
-      class="inline-flex items-center gap-2 rounded-xl border border-[#00BABB]/30 bg-[#00BABB]/10 px-3 py-2 text-sm font-semibold text-[#007A7B] hover:bg-[#00BABB]/20 transition-colors">
-      <svg class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14,2 14,8 20,8"/>
-        <line x1="12" y1="18" x2="12" y2="12"/><polyline points="9,15 12,12 15,15"/>
-      </svg>
-      Migracion historica
-      <span class="rounded-full bg-[#00BABB]/20 px-2 py-0.5 text-xs font-semibold text-[#007A7B]">
-        {{ migracion_vacaciones.total_migrados or 0 }}/{{ migracion_vacaciones.total_con_contratacion or 0 }}
+    <div class="flex flex-wrap items-center gap-2 pt-1">
+      <span class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-sm">
+        <span class="font-bold text-[#00BABB]">{{ ausencias_hoy | length }}</span>
+        <span class="text-gray-500">Ausencias hoy</span>
       </span>
-    </button>
-    {% endif %}
-  </div>
-
-  <!-- KPIs rápidos -->
-  <div class="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-6">
-    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">De vacaciones hoy</p>
-      <p class="text-2xl font-bold text-[#00BABB]">{{ vacaciones_hoy | length }}</p>
-    </div>
-    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4">
-      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Aprobaciones pendientes</p>
-      <p class="text-2xl font-bold text-amber-500">{{ pendientes | length }}</p>
-    </div>
-    <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-4 col-span-2 sm:col-span-1">
-      <p class="text-xs text-gray-500 uppercase tracking-wide mb-1">Total empleados</p>
-      <p class="text-2xl font-bold text-gray-800">{{ total_empleados }}</p>
+      <span class="inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-sm
+                   {% if pendientes | length > 0 %}border-amber-200 bg-amber-50{% else %}border-gray-200 bg-white{% endif %}">
+        <span class="font-bold {% if pendientes | length > 0 %}text-amber-500{% else %}text-gray-400{% endif %}">{{ pendientes | length }}</span>
+        <span class="text-gray-500">Aprobaciones</span>
+      </span>
+      <span class="inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 py-1 text-sm">
+        <span class="font-bold text-gray-700">{{ total_empleados }}</span>
+        <span class="text-gray-500">Empleados</span>
+      </span>
     </div>
   </div>
 
-  <!-- Pestañas -->
-  <div class="flex gap-0.5 bg-gray-100 rounded-xl p-1 mb-6 overflow-x-auto">
-    <button @click="tab = 'hoy'"
-      hx-get="/rrhh/vacaciones-hoy" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=hoy"
-      :class="tab === 'hoy' ? 'bg-white text-[#007A7B] font-semibold shadow-sm rounded-lg' : 'text-gray-500 hover:text-gray-700 hover:bg-white/60 rounded-lg'"
-      class="px-4 py-2 text-sm whitespace-nowrap transition-colors">
-      Hoy
-    </button>
-    <button @click="tab = 'asistencia'"
-      hx-get="/rrhh/asistencia" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=asistencia"
-      :class="tab === 'asistencia' ? 'bg-white text-[#007A7B] font-semibold shadow-sm rounded-lg' : 'text-gray-500 hover:text-gray-700 hover:bg-white/60 rounded-lg'"
-      class="px-4 py-2 text-sm whitespace-nowrap transition-colors">
-      Asistencia
-    </button>
-    <button @click="tab = 'aprobaciones'"
-      hx-get="/rrhh/aprobaciones" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=aprobaciones"
-      :class="tab === 'aprobaciones' ? 'bg-white text-[#007A7B] font-semibold shadow-sm rounded-lg' : 'text-gray-500 hover:text-gray-700 hover:bg-white/60 rounded-lg'"
-      class="px-4 py-2 text-sm whitespace-nowrap transition-colors">
-      Aprobaciones
-      {% if pendientes | length > 0 %}
-      <span class="ml-1 bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5">{{ pendientes | length }}</span>
+  <div class="mb-6 text-sm font-medium text-gray-500 border-b border-gray-200">
+    <ul class="rrhh-tabs flex -mb-px gap-0.5 overflow-x-auto">
+      <li class="shrink-0">
+        <button @click="tab = 'asistencia'"
+          hx-get="/rrhh/asistencia" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=asistencia"
+          :class="tab === 'asistencia' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
+          {{ rrhh_tab_icon('asistencia') }}
+          <span :class="tab === 'asistencia' ? 'font-semibold' : ''">Asistencia</span>
+        </button>
+      </li>
+      <li class="shrink-0">
+        <button @click="tab = 'ausencias'"
+          hx-get="/rrhh/ausencias" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=ausencias"
+          :class="tab === 'ausencias' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
+          {{ rrhh_tab_icon('hoy') }}
+          <span :class="tab === 'ausencias' ? 'font-semibold' : ''">Ausencias</span>
+        </button>
+      </li>
+      <li class="shrink-0">
+        <button @click="tab = 'aprobaciones'"
+          hx-get="/rrhh/aprobaciones" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=aprobaciones"
+          :class="tab === 'aprobaciones' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
+          {{ rrhh_tab_icon('aprobaciones') }}
+          <span :class="tab === 'aprobaciones' ? 'font-semibold' : ''">Aprobaciones</span>
+          {% if pendientes | length > 0 %}
+          <span class="bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{{ pendientes | length }}</span>
+          {% endif %}
+        </button>
+      </li>
+      <li class="shrink-0">
+        <button @click="tab = 'solicitudes'"
+          hx-get="/rrhh/solicitudes" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=solicitudes"
+          :class="tab === 'solicitudes' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
+          {{ rrhh_tab_icon('solicitudes') }}
+          <span :class="tab === 'solicitudes' ? 'font-semibold' : ''">Solicitudes</span>
+        </button>
+      </li>
+      <li class="shrink-0">
+        <button @click="tab = 'empleados'"
+          hx-get="/rrhh/empleados" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=empleados"
+          :class="tab === 'empleados' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
+          {{ rrhh_tab_icon('empleados') }}
+          <span :class="tab === 'empleados' ? 'font-semibold' : ''">Empleados</span>
+        </button>
+      </li>
+      <li class="shrink-0">
+        <button @click="tab = 'reportes'"
+          hx-get="/rrhh/reportes" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=reportes"
+          :class="tab === 'reportes' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
+          {{ rrhh_tab_icon('reportes') }}
+          <span :class="tab === 'reportes' ? 'font-semibold' : ''">Reportes</span>
+        </button>
+      </li>
+      <li class="shrink-0">
+        <button @click="tab = 'festivos'"
+          hx-get="/rrhh/festivos" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=festivos"
+          :class="tab === 'festivos' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
+          {{ rrhh_tab_icon('festivos') }}
+          <span :class="tab === 'festivos' ? 'font-semibold' : ''">Festivos</span>
+        </button>
+      </li>
+      {% if context.role == 'ADMIN' or rrhh_role == 'admin' or (context.role == 'MANAGER' and rrhh_role in ['editor', 'admin']) %}
+      <li class="shrink-0">
+        <button @click="tab = 'admin'"
+          hx-get="/rrhh/admin" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=admin"
+          :class="tab === 'admin' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
+          {{ rrhh_tab_icon('admin') }}
+          <span :class="tab === 'admin' ? 'font-semibold' : ''">Admin</span>
+        </button>
+      </li>
       {% endif %}
-    </button>
-    <button @click="tab = 'solicitudes'"
-      hx-get="/rrhh/solicitudes" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=solicitudes"
-      :class="tab === 'solicitudes' ? 'bg-white text-[#007A7B] font-semibold shadow-sm rounded-lg' : 'text-gray-500 hover:text-gray-700 hover:bg-white/60 rounded-lg'"
-      class="px-4 py-2 text-sm whitespace-nowrap transition-colors">
-      Solicitudes
-    </button>
-    <button @click="tab = 'empleados'"
-      hx-get="/rrhh/empleados" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=empleados"
-      :class="tab === 'empleados' ? 'bg-white text-[#007A7B] font-semibold shadow-sm rounded-lg' : 'text-gray-500 hover:text-gray-700 hover:bg-white/60 rounded-lg'"
-      class="px-4 py-2 text-sm whitespace-nowrap transition-colors">
-      Empleados
-    </button>
-    <button @click="tab = 'reportes'"
-      hx-get="/rrhh/reportes" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=reportes"
-      :class="tab === 'reportes' ? 'bg-white text-[#007A7B] font-semibold shadow-sm rounded-lg' : 'text-gray-500 hover:text-gray-700 hover:bg-white/60 rounded-lg'"
-      class="px-4 py-2 text-sm whitespace-nowrap transition-colors">
-      Reportes
-    </button>
-    <button @click="tab = 'festivos'"
-      hx-get="/rrhh/festivos" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=festivos"
-      :class="tab === 'festivos' ? 'bg-white text-[#007A7B] font-semibold shadow-sm rounded-lg' : 'text-gray-500 hover:text-gray-700 hover:bg-white/60 rounded-lg'"
-      class="px-4 py-2 text-sm whitespace-nowrap transition-colors">
-      Festivos
-    </button>
-    {% if context.role == 'ADMIN' or rrhh_role == 'admin' or (context.role == 'MANAGER' and rrhh_role in ['editor', 'admin']) %}
-    <button @click="tab = 'admin'"
-      hx-get="/rrhh/admin" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=admin"
-      :class="tab === 'admin' ? 'bg-white text-[#007A7B] font-semibold shadow-sm rounded-lg' : 'text-gray-500 hover:text-gray-700 hover:bg-white/60 rounded-lg'"
-      class="px-4 py-2 text-sm whitespace-nowrap transition-colors">
-      Admin
-    </button>
-    {% endif %}
+    </ul>
   </div>
 
-  <!-- Contenido de pestaña -->
   <div id="rrhh-content">
-    {% include "rrhh/partials/vacaciones_hoy.html" %}
+    {% include "rrhh/partials/asistencia.html" %}
   </div>
 
 </div>
