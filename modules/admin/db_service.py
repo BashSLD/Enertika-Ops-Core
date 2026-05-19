@@ -149,6 +149,16 @@ class AdminDBService:
             user_id, module_slug, rol
         )
 
+    async def insert_user_permissions_bulk(self, conn, user_id: UUID, module_roles: Dict[str, str]) -> None:
+        """Inserta permisos de modulo en lote para un usuario."""
+        if not module_roles:
+            return
+        await conn.executemany(
+            """INSERT INTO tb_permisos_modulos (usuario_id, modulo_slug, rol_modulo)
+               VALUES ($1, $2, $3)""",
+            [(user_id, slug, rol) for slug, rol in module_roles.items()]
+        )
+
     # ========================================
     # CATALOGOS (Departamentos, Modulos)
     # ========================================

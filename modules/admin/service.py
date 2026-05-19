@@ -591,25 +591,25 @@ class AdminService:
         if rol_organizacional not in ROLES_ORGANIZACIONALES_VALIDOS:
             raise ValueError(f"Rol organizacional inválido: {rol_organizacional}")
 
-        dept_nombre = None
-        if department_slug:
-            dept_nombre = await self.db.fetch_department_name_by_slug(conn, department_slug)
-            if not dept_nombre:
-                raise ValueError("Departamento no encontrado")
-
         async with conn.transaction():
+            if department_slug:
+                dept_nombre = await self.db.fetch_department_name_by_slug(conn, department_slug)
+                if not dept_nombre:
+                    raise ValueError("Departamento no encontrado")
+            else:
+                dept_nombre = None
             await self.db.update_user_role(conn, user_id, rol_sistema)
             await self.db.update_user_department(conn, user_id, dept_nombre)
             await self.db.delete_user_permissions(conn, user_id)
-            for slug, rol in module_roles.items():
-                await self.db.insert_user_permission(conn, user_id, slug, rol)
-            await self.db.update_user_preferred_module(conn, user_id, modulo_preferido or None)
+            await self.db.insert_user_permissions_bulk(conn, user_id, module_roles)
+            await self.db.update_user_preferred_module(conn, user_id, modulo_preferido)
             await self.db.update_user_simulation_flag(conn, user_id, puede_asignarse_simulacion)
             await self.db.update_user_levantamiento_flag(conn, user_id, puede_asignarse_levantamientos)
             await self.db.update_user_rol_organizacional(conn, user_id, rol_organizacional)
+            result = await self.get_user_enriched_by_id(conn, user_id)
 
         logger.info("Configuracion completa guardada para usuario %s", user_id)
-        return await self.get_user_enriched_by_id(conn, user_id)
+        return result
 
     async def deactivate_user(self, conn, user_id: UUID) -> Dict:
         """

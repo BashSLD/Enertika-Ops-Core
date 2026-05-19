@@ -1,0 +1,127 @@
+<!-- Documentación: Admin -->
+<div x-data="{ activeTab: 'roles' }" class="bg-white min-h-full">
+
+    <!-- Tabs Navigation -->
+    <div class="border-b border-gray-200 bg-white sticky top-0 z-10 px-6 pt-2">
+        <nav class="flex space-x-6 overflow-x-auto no-scrollbar" aria-label="Tabs">
+            <button @click="activeTab = 'roles'"
+                :class="activeTab === 'roles' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                Roles y Permisos
+            </button>
+            <button @click="activeTab = 'usuarios'"
+                :class="activeTab === 'usuarios' ? 'border-[#00BABB] text-[#00BABB]' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                class="whitespace-nowrap py-3 px-1 border-b-2 font-medium text-sm transition-colors duration-150 flex items-center gap-2">
+                Gestión de Usuarios
+            </button>
+        </nav>
+    </div>
+
+    <div class="p-6 md:p-8">
+
+        <!-- TAB: Roles y Permisos -->
+        <div x-show="activeTab === 'roles'" x-transition:enter="transition ease-out duration-200">
+            <h3 class="text-2xl font-bold text-[#123456] mb-1">Roles y Permisos</h3>
+            <p class="text-sm text-gray-500 mb-6">Existen dos niveles de acceso independientes: el rol de sistema (qué puede hacer el usuario en toda la plataforma) y el rol de módulo (qué puede hacer dentro de cada módulo específico).</p>
+
+            <!-- Roles de sistema -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Rol de sistema</h4>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                <div class="rounded-lg border border-gray-200 p-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-700">USER</span>
+                    </div>
+                    <p class="text-sm text-gray-700 font-medium mb-1">Usuario estándar</p>
+                    <p class="text-xs text-gray-500">Puede crear y editar sus propios registros dentro de los módulos donde tiene acceso. No puede reasignar ni ver registros de otros usuarios.</p>
+                </div>
+                <div class="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-100 text-amber-800">MANAGER</span>
+                    </div>
+                    <p class="text-sm text-gray-700 font-medium mb-1">Gestor de equipo</p>
+                    <p class="text-xs text-gray-500">Puede editar, reasignar y gestionar registros de su equipo. Equivale a rol de módulo "editor" en los módulos donde es Manager.</p>
+                </div>
+                <div class="rounded-lg border border-purple-200 bg-purple-50 p-4">
+                    <div class="flex items-center gap-2 mb-2">
+                        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-purple-100 text-purple-800">ADMIN</span>
+                    </div>
+                    <p class="text-sm text-gray-700 font-medium mb-1">Administrador</p>
+                    <p class="text-xs text-gray-500">Control total de la plataforma. Bypasea los controles de módulo — tiene acceso a todo sin necesitar permisos individuales de módulo.</p>
+                </div>
+            </div>
+
+            <!-- Roles de módulo -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Rol de módulo</h4>
+            <p class="text-sm text-gray-500 mb-3">Se asigna por separado en cada módulo. Un usuario puede ser <em>viewer</em> en Compras y <em>admin</em> en Simulación.</p>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+                <div class="rounded-lg border border-gray-200 p-4">
+                    <p class="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Viewer</p>
+                    <p class="text-sm text-gray-700">Solo lectura. Puede consultar registros pero no crear, editar ni eliminar.</p>
+                </div>
+                <div class="rounded-lg border border-[#00BABB] bg-[#E0F7F7] p-4">
+                    <p class="text-xs font-bold text-[#123456] uppercase tracking-wide mb-1">Editor</p>
+                    <p class="text-sm text-gray-700">Puede crear y editar sus propios registros. En algunos módulos puede ver y editar los de su equipo.</p>
+                </div>
+                <div class="rounded-lg border border-purple-200 bg-purple-50 p-4">
+                    <p class="text-xs font-bold text-purple-700 uppercase tracking-wide mb-1">Admin</p>
+                    <p class="text-sm text-gray-700">Control total del módulo: gestión completa de todos los registros, configuración y acciones administrativas.</p>
+                </div>
+            </div>
+
+            <!-- Rol organizacional -->
+            <h4 class="text-base font-bold text-gray-800 mb-3">Rol organizacional</h4>
+            <p class="text-sm text-gray-500 mb-3">Define autoridad transversal entre departamentos. Solo uno por usuario. No reemplaza el rol de sistema ni de módulo.</p>
+            <div class="bg-gray-50 rounded-lg border border-gray-200 p-4">
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                    <div><span class="font-semibold text-indigo-700">Jefe Comercial</span><p class="text-xs text-gray-500 mt-0.5">Autoridad sobre el equipo comercial.</p></div>
+                    <div><span class="font-semibold text-indigo-700">Jefe de Ingeniería</span><p class="text-xs text-gray-500 mt-0.5">Autoridad sobre el equipo de ingeniería.</p></div>
+                    <div><span class="font-semibold text-indigo-700">Jefe de Construcción</span><p class="text-xs text-gray-500 mt-0.5">Autoridad sobre el equipo de construcción.</p></div>
+                    <div><span class="font-semibold text-indigo-700">Director</span><p class="text-xs text-gray-500 mt-0.5">Visibilidad y autoridad global.</p></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- TAB: Gestión de Usuarios -->
+        <div x-show="activeTab === 'usuarios'" x-transition:enter="transition ease-out duration-200">
+            <h3 class="text-2xl font-bold text-[#123456] mb-1">Gestión de Usuarios</h3>
+            <p class="text-sm text-gray-500 mb-6">Guía rápida para configurar un usuario nuevo o actualizar uno existente.</p>
+
+            <div class="space-y-4">
+                <div class="flex gap-4 p-4 rounded-lg border border-gray-200">
+                    <div class="w-7 h-7 rounded-full bg-[#00BABB] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">1</div>
+                    <div>
+                        <p class="text-sm font-semibold text-gray-800">El usuario inicia sesión por primera vez</p>
+                        <p class="text-xs text-gray-500 mt-0.5">Se crea automáticamente con Microsoft Azure AD. Aparece en la tabla con rol USER y sin módulos asignados.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4 p-4 rounded-lg border border-gray-200">
+                    <div class="w-7 h-7 rounded-full bg-[#00BABB] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">2</div>
+                    <div>
+                        <p class="text-sm font-semibold text-gray-800">Asignar rol de sistema</p>
+                        <p class="text-xs text-gray-500 mt-0.5">En el modal de edición, Tab "General". Usar USER para operadores, MANAGER para jefes de área, ADMIN solo para el equipo de sistemas.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4 p-4 rounded-lg border border-gray-200">
+                    <div class="w-7 h-7 rounded-full bg-[#00BABB] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">3</div>
+                    <div>
+                        <p class="text-sm font-semibold text-gray-800">Asignar módulos y niveles de acceso</p>
+                        <p class="text-xs text-gray-500 mt-0.5">Tab "Módulos". Asignar solo los módulos que el usuario necesita. El módulo de inicio se actualiza automáticamente.</p>
+                    </div>
+                </div>
+                <div class="flex gap-4 p-4 rounded-lg border border-gray-200">
+                    <div class="w-7 h-7 rounded-full bg-[#00BABB] text-white flex items-center justify-center text-xs font-bold flex-shrink-0 mt-0.5">4</div>
+                    <div>
+                        <p class="text-sm font-semibold text-gray-800">Configurar opciones avanzadas (si aplica)</p>
+                        <p class="text-xs text-gray-500 mt-0.5">Tab "Avanzado": rol organizacional para jefes de área, y flags de asignación para usuarios que participan en simulaciones o levantamientos fuera de su departamento.</p>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mt-6 bg-amber-50 border border-amber-200 rounded-lg p-4">
+                <p class="text-xs font-bold text-amber-700 uppercase tracking-wide mb-1">Desactivar vs Eliminar</p>
+                <p class="text-sm text-gray-700">La plataforma usa <strong>soft delete</strong>. Desactivar un usuario oculta su acceso pero conserva todos sus registros históricos. No existe eliminación permanente desde la interfaz.</p>
+            </div>
+        </div>
+
+    </div>
+</div>

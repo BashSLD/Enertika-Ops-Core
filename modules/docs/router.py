@@ -39,6 +39,7 @@ async def get_docs_content(
         "oym": "docs/oym.html",
         "rrhh": "docs/rrhh.html",
         "vacaciones": "docs/vacaciones.html",
+        "admin": "docs/admin.html",
         # "ingenieria": "docs/ingenieria.html", # Futuro
     }
     

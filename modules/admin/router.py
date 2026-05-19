@@ -996,7 +996,7 @@ async def save_user_all(
     module_roles = {}
     for key, value in form_data.items():
         if key.startswith("modulo_") and value:
-            module_roles[key.replace("modulo_", "")] = value
+            module_roles[key.removeprefix("modulo_")] = value
 
     try:
         user = await service.save_user_all(
