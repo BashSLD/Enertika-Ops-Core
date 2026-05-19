@@ -891,7 +891,7 @@ class NotificationService:
             await self._send_email(
                 to_emails,
                 cc_emails,
-                "Solicitud de ausencia vencida pendiente",
+                f"Solicitud vencida pendiente: {solicitud['tipo_nombre']}",
                 html,
                 sender["email"],
             )
@@ -922,7 +922,7 @@ class NotificationService:
                 "base_url": settings.APP_BASE_URL,
             })
             sender = await self._get_notification_sender(conn)
-            await self._send_email({aprobador_email}, set(), f"Nueva solicitud de ausencia: {solicitud['solicitante_nombre']}", html, sender["email"])
+            await self._send_email({aprobador_email}, set(), f"Nueva solicitud de {solicitud['tipo_nombre']}: {solicitud['solicitante_nombre']}", html, sender["email"])
 
             await self._save_and_broadcast(
                 conn=conn,
@@ -1012,7 +1012,7 @@ class NotificationService:
                 "base_url": settings.APP_BASE_URL,
             })
             sender = await self._get_notification_sender(conn)
-            await self._send_email({solicitud["solicitante_email"]}, cc, f"Solicitud de ausencia no aprobada: {solicitud['tipo_nombre']}", html, sender["email"], bcc_emails=bcc)
+            await self._send_email({solicitud["solicitante_email"]}, cc, f"Solicitud de {solicitud['tipo_nombre'].lower()} no aprobada", html, sender["email"], bcc_emails=bcc)
 
             await self._save_and_broadcast(
                 conn=conn,

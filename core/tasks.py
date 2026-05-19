@@ -993,7 +993,7 @@ async def verificar_solicitudes_vencidas_periodically(interval_seconds: int = 86
                         f"{sol['solicitante_nombre']} · {sol['tipo_nombre']} · "
                         f"inicio {sol['fecha_inicio'].strftime('%d/%m/%Y')}"
                     )
-                    titulo = "Solicitud de ausencia vencida pendiente"
+                    titulo = f"Solicitud vencida pendiente: {sol['tipo_nombre']}"
 
                     destinatarios = set(rh_ids)
                     if sol["aprobador_id"]:
