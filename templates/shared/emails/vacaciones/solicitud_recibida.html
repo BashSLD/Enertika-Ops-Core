@@ -1,13 +1,13 @@
 <!DOCTYPE html>
 <html lang="es">
-<head><meta charset="UTF-8"><title>Nueva Solicitud de Ausencia</title></head>
+<head><meta charset="UTF-8"><title>Nueva Solicitud de {{ tipo_nombre }}</title></head>
 <body style="margin:0;padding:0;font-family:'Segoe UI',sans-serif;background-color:#f4f4f4;color:#333;">
 <table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f4f4f4;padding:20px 0;">
 <tr><td align="center">
   <table width="600" cellpadding="0" cellspacing="0" style="background-color:#fff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
     <tr>
       <td style="background:linear-gradient(135deg,#123456 0%,#00BABB 100%);padding:30px 40px;text-align:center;">
-        <h1 style="margin:0;color:#fff;font-size:24px;font-weight:600;">Nueva Solicitud de Ausencia</h1>
+        <h1 style="margin:0;color:#fff;font-size:24px;font-weight:600;">Nueva Solicitud de {{ tipo_nombre }}</h1>
         <p style="margin:10px 0 0;color:#E0F7F7;font-size:14px;">Requiere tu aprobación</p>
       </td>
     </tr>
@@ -15,7 +15,7 @@
       <td style="padding:40px;">
         <p style="margin:0 0 20px;font-size:16px;">Hola <strong>{{ aprobador_nombre }}</strong>,</p>
         <p style="margin:0 0 24px;color:#555;font-size:15px;line-height:1.6;">
-          <strong>{{ solicitante_nombre }}</strong> ha enviado una solicitud de ausencia que requiere tu aprobación.
+          <strong>{{ solicitante_nombre }}</strong> ha enviado una solicitud de {{ tipo_nombre | lower }} que requiere tu aprobación.
         </p>
         <table width="100%" cellpadding="0" cellspacing="0" style="background:#f9f9f9;border-left:4px solid #00BABB;border-radius:4px;margin-bottom:28px;">
           <tr><td style="padding:20px;">

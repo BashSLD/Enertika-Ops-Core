@@ -1,8 +1,8 @@
-{% extends "pdf/_base.html" %}
+{% extends "_base.html" %}
 
-{% block doc_title %}SOLICITUD DE VACACIONES / AUSENCIA{% endblock %}
+{% block doc_title %}SOLICITUD DE {{ solicitud.tipo_nombre | upper }}{% endblock %}
 {% block doc_date %}Folio: {{ folio }}{% endblock %}
-{% block footer_label %}Solicitud de Ausencia - {{ folio }}{% endblock %}
+{% block footer_label %}Solicitud de {{ solicitud.tipo_nombre }} - {{ folio }}{% endblock %}
 
 {% block extra_styles %}
 <style>
