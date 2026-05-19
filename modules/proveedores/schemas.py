@@ -1,0 +1,1 @@
+"""Schemas compartidos de proveedores."""

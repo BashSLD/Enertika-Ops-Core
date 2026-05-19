@@ -1,0 +1,1 @@
+"""Dominio compartido de proveedores."""
