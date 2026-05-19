@@ -16,6 +16,7 @@ import json
 
 import asyncpg
 import base64
+import httpx
 from .pdf_extractor import process_uploaded_pdf, process_pdf_bytes, ComprobantePDFData
 from .xml_extractor import parse_cfdi_xml, validate_xml_content, process_uploaded_xml
 from .schemas import (
@@ -1386,7 +1387,7 @@ class ComprasService:
             # Metadata
             meta = {
                 "nombre_original": original_name,
-                "content_type": getattr(file, 'content_type', 'application/octet-stream'),
+                "content_type": getattr(file, 'content_type', None) or 'application/octet-stream',
             }
             if id_comprobante:
                 meta["id_comprobante"] = str(id_comprobante)
@@ -1404,13 +1405,20 @@ class ComprasService:
                 original_name, upload_result.get('webUrl', '')
             )
 
+            parent_ref = upload_result.get('parentReference') or {}
+
             return {
-                "doc_id": str(doc_id),
+                "id_documento_attachment": str(doc_id),
                 "url_sharepoint": upload_result.get('webUrl', ''),
                 "nombre": upload_result.get('name', ''),
+                "drive_item_id": upload_result.get('id', ''),
+                "parent_drive_id": parent_ref.get('driveId'),
+                "folder_path": folder_path,
+                "tipo_contenido": meta["content_type"],
+                "tamano_bytes": upload_result.get('size', f_size),
             }
 
-        except Exception as e:
+        except (ValueError, RuntimeError, OSError, asyncpg.PostgresError, httpx.HTTPError) as e:
             logger.error("Error subiendo archivo a SharePoint: %s", e, exc_info=True)
             return None
 

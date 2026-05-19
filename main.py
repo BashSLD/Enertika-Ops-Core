@@ -12,6 +12,7 @@ from modules.proyectos import router as proyectos_router
 from starlette.middleware.sessions import SessionMiddleware
 from core.config import settings
 from modules.compras import router as compras_router
+from modules.proveedores import router as proveedores_router
 from modules.auth import router as auth_router
 from modules.admin import router as admin_router
 
@@ -66,6 +67,7 @@ app.include_router(docs_router.router)
 
 app.include_router(proyectos_router.router)
 app.include_router(compras_router.router)
+app.include_router(proveedores_router.router)
 from modules.compras.sat_router import router as sat_router
 app.include_router(sat_router)
 from modules.simulacion import router as simulacion_router

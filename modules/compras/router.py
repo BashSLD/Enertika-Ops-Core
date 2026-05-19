@@ -12,9 +12,11 @@ Endpoints:
 
 import json
 import logging
+from datetime import date
 from typing import List, Optional
 from uuid import UUID
 
+import asyncpg
 from fastapi import APIRouter, Depends, Request, Form, File, UploadFile, Query, HTTPException
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse, Response
@@ -33,6 +35,7 @@ from core.timezone import now_mx, today_mx
 
 # Module imports
 from .service import ComprasService, get_compras_service, parse_exceso_monto_error
+from modules.proveedores.service import ProveedoresService, get_proveedores_service
 from .schemas import (
     ComprobanteUpdate,
     ComprobanteBulkUpdate,
@@ -1287,20 +1290,54 @@ async def delete_xml_staging(
 # PROVEEDOR DOCUMENTOS (Gap 8)
 # ========================================
 
+def _clean_optional_text(value: Optional[str]) -> Optional[str]:
+    return (value.strip() or None) if value else None
+
+
+def _parse_optional_iso_date(value: Optional[str], label: str) -> Optional[date]:
+    if not value:
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"{label} invalida") from exc
+
+
+def _parse_periodo(value: Optional[str]) -> Optional[str]:
+    periodo = _clean_optional_text(value)
+    if not periodo:
+        return None
+    try:
+        if len(periodo) != 7:
+            raise ValueError("longitud incorrecta")
+        date.fromisoformat(f"{periodo}-01")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Periodo invalido") from exc
+    return periodo
+
+
+def _proveedor_docs_ctx(documentos: list[dict], id_proveedor: UUID) -> dict:
+    return {
+        "documentos": documentos,
+        "id_proveedor": id_proveedor,
+        "today": today_mx(),
+    }
+
+
 @router.get("/proveedores/{id_proveedor}/documentos", include_in_schema=False)
 async def get_proveedor_documentos(
     request: Request,
     id_proveedor: UUID,
     conn = Depends(get_db_connection),
+    proveedores_service: ProveedoresService = Depends(get_proveedores_service),
     _ = require_module_access("compras"),
 ):
     """Lista documentos de un proveedor (modal partial)."""
-    from .db_service import get_db_service
-    db_svc = get_db_service()
-    docs = await db_svc.get_documentos_proveedor(conn, id_proveedor)
+    docs = await proveedores_service.get_documentos_proveedor(conn, id_proveedor)
+    proveedor = await proveedores_service.get_proveedor_detalle(conn, id_proveedor)
     return templates.TemplateResponse(
         request, "compras/partials/modal_proveedor_docs.html",
-        {"documentos": docs, "id_proveedor": id_proveedor}
+        {**_proveedor_docs_ctx(docs, id_proveedor), "proveedor": proveedor}
     )
 
 
@@ -1310,46 +1347,86 @@ async def subir_documento_proveedor(
     id_proveedor: UUID,
     tipo_documento: str = Form(...),
     tipo_persona: str = Form("MORAL"),
+    fecha_documento: Optional[str] = Form(None),
     fecha_vencimiento: Optional[str] = Form(None),
+    periodo: Optional[str] = Form(None),
+    nombre_documento_personalizado: Optional[str] = Form(None),
+    notas: Optional[str] = Form(None),
     archivo: UploadFile = File(...),
     context = Depends(get_current_user_context),
     conn = Depends(get_db_connection),
-    service: ComprasService = Depends(get_compras_service),
+    compras_service: ComprasService = Depends(get_compras_service),
+    proveedores_service: ProveedoresService = Depends(get_proveedores_service),
     _ = require_module_access("compras", "editor"),
 ):
     """Sube un documento de proveedor a SharePoint y registra en BD."""
     user_id = context.get("user_db_id")
-    from datetime import date as date_type
+    fecha_doc = _parse_optional_iso_date(fecha_documento, "Fecha de documento")
+    venc = _parse_optional_iso_date(fecha_vencimiento, "Fecha de vencimiento")
+    periodo_clean = _parse_periodo(periodo)
+    nombre_personalizado = _clean_optional_text(nombre_documento_personalizado)
+    notas_clean = _clean_optional_text(notas)
+    proveedor = await proveedores_service.get_proveedor_detalle(conn, id_proveedor)
+    if not proveedor:
+        raise HTTPException(status_code=404, detail="Proveedor no encontrado")
 
-    venc = date_type.fromisoformat(fecha_vencimiento) if fecha_vencimiento else None
+    subcarpeta = proveedores_service.build_sharepoint_subcarpeta(
+        proveedor,
+        tipo_documento,
+    )
 
     try:
-        result = await service.upload_archivo_sharepoint(
+        result = await compras_service.upload_archivo_sharepoint(
             conn, archivo,
-            subcarpeta=f"proveedores/{id_proveedor}",
+            subcarpeta=subcarpeta,
             id_comprobante=None,
             origen_slug="proveedor_documento",
             user_id=user_id,
-            metadata_extra={"tipo_documento": tipo_documento}
+            metadata_extra={
+                "tipo_documento": tipo_documento,
+                "tipo_persona": tipo_persona,
+                "periodo": periodo_clean,
+                "nombre_documento_personalizado": nombre_personalizado,
+            }
         )
-    except Exception as e:
+    except (ValueError, RuntimeError, OSError) as e:
         logger.exception("Error subiendo documento a SharePoint")
-        raise HTTPException(status_code=500, detail=f"Error al subir a SharePoint: {e}")
+        raise HTTPException(status_code=500, detail=f"Error al subir a SharePoint: {e}") from e
 
     if not result or not result.get("url_sharepoint"):
         raise HTTPException(status_code=500, detail="No se pudo obtener URL de SharePoint")
 
-    from .db_service import get_db_service
-    db_svc = get_db_service()
-    await db_svc.insert_documento_proveedor(
-        conn, id_proveedor, tipo_documento, tipo_persona,
-        result["url_sharepoint"], fecha_vencimiento=venc, subido_por=user_id
-    )
+    try:
+        id_attachment = (
+            UUID(result["id_documento_attachment"])
+            if result.get("id_documento_attachment")
+            else None
+        )
+        await proveedores_service.registrar_documento_proveedor(
+            conn, id_proveedor, tipo_documento, tipo_persona,
+            result["url_sharepoint"],
+            fecha_documento=fecha_doc,
+            fecha_vencimiento=venc,
+            subido_por=user_id,
+            notas=notas_clean,
+            id_documento_attachment=id_attachment,
+            nombre_archivo=result.get("nombre"),
+            tipo_contenido=result.get("tipo_contenido"),
+            tamano_bytes=result.get("tamano_bytes"),
+            drive_item_id=result.get("drive_item_id"),
+            parent_drive_id=result.get("parent_drive_id"),
+            folder_path=result.get("folder_path"),
+            periodo=periodo_clean,
+            nombre_documento_personalizado=nombre_personalizado,
+        )
+    except asyncpg.PostgresError as exc:
+        logger.exception("Error registrando documento de proveedor")
+        raise HTTPException(status_code=500, detail="Error al registrar documento de proveedor") from exc
 
-    docs = await db_svc.get_documentos_proveedor(conn, id_proveedor)
+    docs = await proveedores_service.get_documentos_proveedor(conn, id_proveedor)
     return templates.TemplateResponse(
         request, "compras/partials/modal_proveedor_docs.html",
-        {"documentos": docs, "id_proveedor": id_proveedor}
+        {**_proveedor_docs_ctx(docs, id_proveedor), "proveedor": proveedor}
     )
 
 
@@ -1359,19 +1436,19 @@ async def eliminar_documento_proveedor(
     id_proveedor: UUID,
     doc_id: UUID,
     conn = Depends(get_db_connection),
+    proveedores_service: ProveedoresService = Depends(get_proveedores_service),
     _ = require_module_access("compras", "editor"),
 ):
     """Elimina un documento de proveedor."""
-    from .db_service import get_db_service
-    db_svc = get_db_service()
-    deleted = await db_svc.delete_documento_proveedor(conn, doc_id)
+    deleted = await proveedores_service.eliminar_documento_proveedor(conn, doc_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Documento no encontrado")
 
-    docs = await db_svc.get_documentos_proveedor(conn, id_proveedor)
+    docs = await proveedores_service.get_documentos_proveedor(conn, id_proveedor)
+    proveedor = await proveedores_service.get_proveedor_detalle(conn, id_proveedor)
     return templates.TemplateResponse(
         request, "compras/partials/modal_proveedor_docs.html",
-        {"documentos": docs, "id_proveedor": id_proveedor}
+        {**_proveedor_docs_ctx(docs, id_proveedor), "proveedor": proveedor}
     )
 
 
@@ -1480,21 +1557,19 @@ async def get_proveedores_ui(
     request: Request,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    proveedores_service: ProveedoresService = Depends(get_proveedores_service),
     _=require_module_access("compras"),
     q: str = Query(""),
     solo_activos: bool = Query(False),
     page: int = Query(1, ge=1),
 ):
     """Vista principal de proveedores (full-page o partial según HTMX)."""
-    from .db_service import get_db_service
-    db_svc = get_db_service()
-
     is_htmx = request.headers.get("hx-request")
     is_restore = request.headers.get("hx-history-restore-request")
 
     per_page = 50
-    proveedores = await db_svc.get_proveedores_lista(conn, busqueda=q, solo_activos=solo_activos, page=page, per_page=per_page)
-    total = await db_svc.count_proveedores(conn, busqueda=q, solo_activos=solo_activos)
+    proveedores = await proveedores_service.get_proveedores_lista(conn, busqueda=q, solo_activos=solo_activos, page=page, per_page=per_page)
+    total = await proveedores_service.count_proveedores(conn, busqueda=q, solo_activos=solo_activos)
     total_pages = max(1, -(-total // per_page))
 
     mod_role = context.get("module_roles", {}).get("compras", "viewer")
@@ -1518,18 +1593,16 @@ async def get_proveedores_lista(
     request: Request,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    proveedores_service: ProveedoresService = Depends(get_proveedores_service),
     _=require_module_access("compras"),
     q: str = Query(""),
     solo_activos: bool = Query(False),
     page: int = Query(1, ge=1),
 ):
     """Partial: tabla paginada de proveedores (reemplazada vía HTMX)."""
-    from .db_service import get_db_service
-    db_svc = get_db_service()
-
     per_page = 50
-    proveedores = await db_svc.get_proveedores_lista(conn, busqueda=q, solo_activos=solo_activos, page=page, per_page=per_page)
-    total = await db_svc.count_proveedores(conn, busqueda=q, solo_activos=solo_activos)
+    proveedores = await proveedores_service.get_proveedores_lista(conn, busqueda=q, solo_activos=solo_activos, page=page, per_page=per_page)
+    total = await proveedores_service.count_proveedores(conn, busqueda=q, solo_activos=solo_activos)
     total_pages = max(1, -(-total // per_page))
 
     mod_role = context.get("module_roles", {}).get("compras", "viewer")
@@ -1548,6 +1621,7 @@ async def get_proveedores_lista(
 async def check_rfc_proveedor(
     request: Request,
     conn=Depends(get_db_connection),
+    proveedores_service: ProveedoresService = Depends(get_proveedores_service),
     _=require_module_access("compras", "editor"),
     rfc: str = Query(""),
     excluir_id: str = Query(""),
@@ -1555,10 +1629,8 @@ async def check_rfc_proveedor(
     """Valida en tiempo real si un RFC ya está registrado."""
     if not rfc or len(rfc) < 12:
         return HTMLResponse("")
-    from .db_service import get_db_service
-    db_svc = get_db_service()
     excluir_uuid = UUID(excluir_id) if excluir_id else None
-    duplicado = await db_svc.check_rfc_duplicado(conn, rfc.upper().strip(), excluir_id=excluir_uuid)
+    duplicado = await proveedores_service.check_rfc_duplicado(conn, rfc.upper().strip(), excluir_id=excluir_uuid)
     if duplicado:
         return HTMLResponse(
             '<span class="text-red-600 font-medium">Este RFC ya está registrado.</span>'
@@ -1582,12 +1654,11 @@ async def get_modal_editar_proveedor(
     request: Request,
     id_proveedor: UUID,
     conn=Depends(get_db_connection),
+    proveedores_service: ProveedoresService = Depends(get_proveedores_service),
     _=require_module_access("compras", "editor"),
 ):
     """Partial: modal para editar un proveedor existente."""
-    from .db_service import get_db_service
-    db_svc = get_db_service()
-    proveedor = await db_svc.get_proveedor_detalle(conn, id_proveedor)
+    proveedor = await proveedores_service.get_proveedor_detalle(conn, id_proveedor)
     if not proveedor:
         raise HTTPException(status_code=404, detail="Proveedor no encontrado")
     return templates.TemplateResponse(
@@ -1603,24 +1674,22 @@ async def crear_proveedor(
     nombre_comercial: str = Form(""),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    proveedores_service: ProveedoresService = Depends(get_proveedores_service),
     _=require_module_access("compras", "editor"),
 ):
     """Crea un nuevo proveedor y retorna la tabla actualizada."""
-    from .db_service import get_db_service
-    db_svc = get_db_service()
-
     if not rfc or not razon_social:
         raise HTTPException(status_code=400, detail="RFC y Razón Social son obligatorios")
 
-    duplicado = await db_svc.check_rfc_duplicado(conn, rfc.upper().strip())
+    duplicado = await proveedores_service.check_rfc_duplicado(conn, rfc.upper().strip())
     if duplicado:
         raise HTTPException(status_code=400, detail=f"El RFC {rfc.upper()} ya está registrado")
 
-    await db_svc.insert_proveedor(conn, rfc, razon_social, nombre_comercial or None)
+    await proveedores_service.crear_proveedor(conn, rfc, razon_social, nombre_comercial or None)
 
     mod_role = context.get("module_roles", {}).get("compras", "viewer")
-    proveedores = await db_svc.get_proveedores_lista(conn, per_page=50)
-    total = await db_svc.count_proveedores(conn)
+    proveedores = await proveedores_service.get_proveedores_lista(conn, per_page=50)
+    total = await proveedores_service.count_proveedores(conn)
     return templates.TemplateResponse(request, "compras/partials/proveedores_tabla.html", {
         **_prov_ctx(context, mod_role),
         "proveedores": proveedores,
@@ -1641,23 +1710,21 @@ async def actualizar_proveedor(
     nombre_comercial: str = Form(""),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    proveedores_service: ProveedoresService = Depends(get_proveedores_service),
     _=require_module_access("compras", "editor"),
 ):
     """Actualiza datos de un proveedor y retorna la tabla actualizada."""
-    from .db_service import get_db_service
-    db_svc = get_db_service()
-
-    duplicado = await db_svc.check_rfc_duplicado(conn, rfc.upper().strip(), excluir_id=id_proveedor)
+    duplicado = await proveedores_service.check_rfc_duplicado(conn, rfc.upper().strip(), excluir_id=id_proveedor)
     if duplicado:
         raise HTTPException(status_code=400, detail=f"El RFC {rfc.upper()} ya está registrado en otro proveedor")
 
-    updated = await db_svc.update_proveedor(conn, id_proveedor, rfc, razon_social, nombre_comercial or None)
+    updated = await proveedores_service.actualizar_proveedor(conn, id_proveedor, rfc, razon_social, nombre_comercial or None)
     if not updated:
         raise HTTPException(status_code=404, detail="Proveedor no encontrado")
 
     mod_role = context.get("module_roles", {}).get("compras", "viewer")
-    proveedores = await db_svc.get_proveedores_lista(conn, per_page=50)
-    total = await db_svc.count_proveedores(conn)
+    proveedores = await proveedores_service.get_proveedores_lista(conn, per_page=50)
+    total = await proveedores_service.count_proveedores(conn)
     return templates.TemplateResponse(request, "compras/partials/proveedores_tabla.html", {
         **_prov_ctx(context, mod_role),
         "proveedores": proveedores,
@@ -1675,12 +1742,11 @@ async def toggle_proveedor(
     id_proveedor: UUID,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
+    proveedores_service: ProveedoresService = Depends(get_proveedores_service),
     _=require_module_access("compras", "editor"),
 ):
     """Alterna el estado activo/inactivo de un proveedor — retorna solo la fila."""
-    from .db_service import get_db_service
-    db_svc = get_db_service()
-    proveedor = await db_svc.toggle_proveedor_activo(conn, id_proveedor)
+    proveedor = await proveedores_service.toggle_proveedor_activo(conn, id_proveedor)
     if not proveedor:
         raise HTTPException(status_code=404, detail="Proveedor no encontrado")
 
