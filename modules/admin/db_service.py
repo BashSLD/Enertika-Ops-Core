@@ -123,6 +123,17 @@ class AdminDBService:
         )
         return [dict(r) for r in rows]
 
+    async def fetch_permissions_enriched_by_user(self, conn, user_id: UUID) -> List[dict]:
+        """Obtiene permisos de un usuario con nombre del módulo incluido."""
+        rows = await conn.fetch("""
+            SELECT pm.modulo_slug, pm.rol_modulo, mc.nombre as modulo_nombre
+            FROM tb_permisos_modulos pm
+            JOIN tb_cat_modulos mc ON pm.modulo_slug = mc.slug
+            WHERE pm.usuario_id = $1
+            ORDER BY mc.orden
+        """, user_id)
+        return [dict(r) for r in rows]
+
     async def delete_user_permissions(self, conn, user_id: UUID) -> None:
         """Elimina todos los permisos de modulo de un usuario."""
         await conn.execute(

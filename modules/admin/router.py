@@ -955,6 +955,66 @@ async def update_levantamiento_flag(
     })
 
 
+@router.get("/users/{user_id}/row")
+async def get_user_row(
+    request: Request,
+    user_id: UUID,
+    _context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
+):
+    """Retorna el partial HTML de una fila de usuario enriquecida."""
+    user = await service.get_user_enriched_by_id(conn, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="Usuario no encontrado")
+    return templates.TemplateResponse(request, "admin/partials/user_row.html", {"u": user})
+
+
+@router.post("/users/{user_id}/save-all")
+async def save_user_all(
+    request: Request,
+    user_id: UUID,
+    context = Depends(get_current_user_context),
+    service: AdminService = Depends(get_admin_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("admin", "admin")
+):
+    """Guarda toda la configuración de un usuario en una sola llamada. Retorna la fila actualizada."""
+    form_data = await request.form()
+
+    rol_sistema = form_data.get("rol_sistema", "USER")
+    if rol_sistema not in ("USER", "MANAGER", "ADMIN"):
+        raise HTTPException(status_code=400, detail="Rol de sistema inválido")
+
+    department_slug = form_data.get("department_slug") or None
+    modulo_preferido = form_data.get("modulo_preferido") or None
+    puede_sim = form_data.get("puede_asignarse_simulacion", "false") == "true"
+    puede_lev = form_data.get("puede_asignarse_levantamientos", "false") == "true"
+    rol_org = form_data.get("rol_organizacional", "")
+
+    module_roles = {}
+    for key, value in form_data.items():
+        if key.startswith("modulo_") and value:
+            module_roles[key.replace("modulo_", "")] = value
+
+    try:
+        user = await service.save_user_all(
+            conn, user_id,
+            rol_sistema=rol_sistema,
+            department_slug=department_slug,
+            modulo_preferido=modulo_preferido,
+            puede_asignarse_simulacion=puede_sim,
+            puede_asignarse_levantamientos=puede_lev,
+            rol_organizacional=rol_org,
+            module_roles=module_roles,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    return templates.TemplateResponse(request, "admin/partials/user_row.html", {"u": user})
+
+
 @router.post("/users/{user_id}/rol-organizacional")
 async def update_rol_organizacional(
     request: Request,

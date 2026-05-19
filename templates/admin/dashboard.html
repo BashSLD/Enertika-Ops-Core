@@ -574,11 +574,65 @@
     let currentUserId = null;
     let currentUserPref = "";
 
+    function switchModalTab(tabName) {
+        document.querySelectorAll('.modal-tab-content').forEach(el => el.classList.add('hidden'));
+        document.getElementById(`modal-tab-content-${tabName}`).classList.remove('hidden');
+        document.querySelectorAll('.modal-tab-btn').forEach(btn => {
+            btn.classList.remove('border-[#00BABB]', 'text-[#123456]');
+            btn.classList.add('border-transparent', 'text-gray-500');
+        });
+        const activeBtn = document.getElementById(`modal-tab-${tabName}`);
+        activeBtn.classList.remove('border-transparent', 'text-gray-500');
+        activeBtn.classList.add('border-[#00BABB]', 'text-[#123456]');
+    }
+
+    function updateRolSistemaCards() {
+        const checked = document.querySelector('input[name="rol_sistema"]:checked');
+        document.querySelectorAll('.rol-sistema-card').forEach(card => {
+            const input = card.querySelector('input');
+            const isChecked = input === checked;
+            card.classList.remove(
+                'border-[#00BABB]', 'bg-[#E0F7F7]',
+                'border-amber-400', 'bg-amber-50',
+                'border-purple-400', 'bg-purple-50',
+                'border-gray-200'
+            );
+            if (isChecked) {
+                if (input.value === 'USER') card.classList.add('border-[#00BABB]', 'bg-[#E0F7F7]');
+                else if (input.value === 'MANAGER') card.classList.add('border-amber-400', 'bg-amber-50');
+                else card.classList.add('border-purple-400', 'bg-purple-50');
+            } else {
+                card.classList.add('border-gray-200');
+            }
+        });
+    }
+
+    function syncPreferredModuleOptions() {
+        const prefSelect = document.getElementById('user-preferred-module');
+        const currentVal = prefSelect.value;
+        prefSelect.innerHTML = '<option value="">-- Auto --</option>';
+        document.querySelectorAll('#permissions-form select[name^="modulo_"]').forEach(sel => {
+            if (sel.value) {
+                const modSlug = sel.name.replace('modulo_', '');
+                const mod = allModules.find(m => m.slug === modSlug);
+                if (mod) {
+                    const opt = document.createElement('option');
+                    opt.value = modSlug;
+                    opt.textContent = mod.nombre;
+                    if (modSlug === currentVal) opt.selected = true;
+                    prefSelect.appendChild(opt);
+                }
+            }
+        });
+    }
+
     function openPermissionsModal(userId, userName, userPref) {
         currentUserId = userId;
         currentUserPref = userPref || "";
         document.getElementById('modal-user-name').textContent = userName;
         document.getElementById('perms-response').innerHTML = '';
+        document.getElementById('perms-response-footer').innerHTML = '';
+        switchModalTab('general');
         loadUserPermissions(userId);
         document.getElementById('permissions-modal').classList.remove('hidden');
     }
@@ -593,88 +647,53 @@
 
     function closePermissionsModal() {
         const overlay = document.getElementById('perms-loading-overlay');
-        if (overlay && !overlay.classList.contains('hidden')) {
-            return;
-        }
+        if (overlay && !overlay.classList.contains('hidden')) return;
         document.getElementById('permissions-modal').classList.add('hidden');
         currentUserId = null;
-    }
-
-    async function getErrorMessage(response, fallbackMessage) {
-        try {
-            const contentType = response.headers.get('content-type') || '';
-            if (contentType.includes('application/json')) {
-                const data = await response.json();
-                if (data && data.detail) {
-                    if (typeof data.detail === 'string') {
-                        return `${fallbackMessage}: ${data.detail}`;
-                    }
-
-                    if (Array.isArray(data.detail)) {
-                        const firstDetail = data.detail[0];
-                        if (firstDetail && typeof firstDetail === 'object') {
-                            const msg = firstDetail.msg || JSON.stringify(firstDetail);
-                            return `${fallbackMessage}: ${msg}`;
-                        }
-                        return `${fallbackMessage}: ${JSON.stringify(data.detail)}`;
-                    }
-
-                    return `${fallbackMessage}: ${JSON.stringify(data.detail)}`;
-                }
-            }
-
-            const text = await response.text();
-            if (text && text.trim()) return `${fallbackMessage}.`;
-        } catch (_) {
-            // No-op
-        }
-
-        return `${fallbackMessage}.`;
-    }
-
-    async function postForm(url, formData, fallbackMessage) {
-        const response = await fetch(url, { method: 'POST', body: formData });
-        if (!response.ok) {
-            const message = await getErrorMessage(response, fallbackMessage);
-            throw new Error(message);
-        }
-        return response;
     }
 
     async function loadUserPermissions(userId) {
         try {
             const userRow = document.getElementById(`user-${userId}`);
             const currentDeptName = userRow ? (userRow.dataset.departmentName || '') : '';
+            const rolSistema = userRow ? (userRow.dataset.rolSistema || 'USER') : 'USER';
+            const rolOrg = userRow ? (userRow.dataset.rolOrganizacional || '') : '';
 
             const deptSelect = document.getElementById('user-department');
             const foundDept = allDepartments.find(d => d.nombre === currentDeptName);
             deptSelect.value = foundDept ? foundDept.slug : '';
 
+            document.querySelectorAll('input[name="rol_sistema"]').forEach(r => { r.checked = r.value === rolSistema; });
+            updateRolSistemaCards();
+
+            document.getElementById('user-rol-organizacional').value = rolOrg;
+            document.getElementById('user-simulation-flag').checked = userRow?.dataset.simulationFlag === 'true';
+            document.getElementById('user-levantamiento-flag').checked = userRow?.dataset.levantamientoFlag === 'true';
+
             const resp = await fetch(`/admin/users/${userId}/modules`);
-            if (!resp.ok) {
-                throw new Error('No fue posible cargar módulos del usuario');
-            }
+            if (!resp.ok) throw new Error('No fue posible cargar módulos del usuario');
             const permisos = await resp.json();
 
             const tbody = document.getElementById('modules-list');
             tbody.innerHTML = '';
 
-            const prefSelect = document.getElementById('user-preferred-module');
-            prefSelect.innerHTML = '<option value="">-- Auto --</option>';
-
             allModules.forEach(mod => {
                 const p = permisos.find(x => x.modulo_slug === mod.slug);
                 const rol = p ? p.rol_modulo : '';
-
                 const tr = document.createElement('tr');
-                tr.className = 'border-b';
+                tr.className = 'border-b border-gray-100';
                 tr.innerHTML = `
-                    <td class="p-2 flex items-center gap-2">
-                        <i class="${mod.icono || 'bi-box'} text-lg text-[#00BABB]"></i> ${mod.nombre}
+                    <td class="px-3 py-2.5">
+                        <div class="flex items-center gap-2">
+                            <i class="${mod.icono || 'bi-box'} text-base text-[#00BABB]"></i>
+                            <span class="text-sm">${mod.nombre}</span>
+                        </div>
                     </td>
-                    <td class="p-2">
-                        <select name="modulo_${mod.slug}" class="w-full rounded border-gray-300 text-sm">
-                            <option value="">Sin Acceso</option>
+                    <td class="px-3 py-2.5">
+                        <select name="modulo_${mod.slug}"
+                            class="w-full rounded-lg border-gray-300 text-sm focus:ring-[#00BABB] focus:border-[#00BABB]"
+                            onchange="syncPreferredModuleOptions()">
+                            <option value="">Sin acceso</option>
                             <option value="viewer" ${rol === 'viewer' ? 'selected' : ''}>Viewer</option>
                             <option value="editor" ${rol === 'editor' ? 'selected' : ''}>Editor</option>
                             <option value="admin" ${rol === 'admin' ? 'selected' : ''}>Admin</option>
@@ -682,91 +701,63 @@
                     </td>
                 `;
                 tbody.appendChild(tr);
-
-                if (rol) {
-                    const opt = document.createElement('option');
-                    opt.value = mod.slug;
-                    opt.textContent = mod.nombre;
-                    prefSelect.appendChild(opt);
-                }
             });
 
-            // Restore saved preference
-            if (currentUserPref) {
-                prefSelect.value = currentUserPref;
-            }
-
-            // Cargar flag de simulación
-            if (userRow && userRow.dataset.simulationFlag) {
-                document.getElementById('user-simulation-flag').checked = userRow.dataset.simulationFlag === 'true';
-            } else {
-                document.getElementById('user-simulation-flag').checked = false;
-            }
-
-            // Cargar flag de levantamientos
-            if (userRow && userRow.dataset.levantamientoFlag) {
-                document.getElementById('user-levantamiento-flag').checked = userRow.dataset.levantamientoFlag === 'true';
-            } else {
-                document.getElementById('user-levantamiento-flag').checked = false;
-            }
-
-            // Cargar rol organizacional
-            const rolOrg = userRow ? (userRow.dataset.rolOrganizacional || '') : '';
-            document.getElementById('user-rol-organizacional').value = rolOrg;
+            syncPreferredModuleOptions();
+            if (currentUserPref) document.getElementById('user-preferred-module').value = currentUserPref;
 
         } catch (e) {
             console.error(e);
-            document.getElementById('perms-response').innerHTML = '<div class="text-red-500">Error cargando datos</div>';
+            document.getElementById('perms-response').innerHTML = '<div class="text-red-500 text-sm">Error al cargar datos del usuario.</div>';
         }
     }
 
     async function savePermissions() {
         if (!currentUserId) return;
 
-        // Mostrar overlay de carga
         const overlay = document.getElementById('perms-loading-overlay');
         overlay.classList.remove('hidden');
-
-        const msgDiv = document.getElementById('perms-response');
-        msgDiv.innerHTML = '';
+        document.getElementById('perms-response-footer').innerHTML = '';
 
         try {
-            const deptSlug = document.getElementById('user-department').value;
             const fd = new FormData();
-            fd.append('department_slug', deptSlug);
-            await postForm(`/admin/users/${currentUserId}/department`, fd, 'No se pudo guardar el departamento');
+            const rolRadio = document.querySelector('input[name="rol_sistema"]:checked');
+            fd.append('rol_sistema', rolRadio ? rolRadio.value : 'USER');
+            fd.append('department_slug', document.getElementById('user-department').value || '');
+            fd.append('modulo_preferido', document.getElementById('user-preferred-module').value || '');
+            fd.append('puede_asignarse_simulacion', document.getElementById('user-simulation-flag').checked ? 'true' : 'false');
+            fd.append('puede_asignarse_levantamientos', document.getElementById('user-levantamiento-flag').checked ? 'true' : 'false');
+            fd.append('rol_organizacional', document.getElementById('user-rol-organizacional').value || '');
+            document.querySelectorAll('#permissions-form select[name^="modulo_"]').forEach(sel => {
+                fd.append(sel.name, sel.value);
+            });
 
-            const form = document.getElementById('permissions-form');
-            await postForm(`/admin/users/${currentUserId}/modules`, new FormData(form), 'No se pudieron guardar los roles de módulos');
+            const response = await fetch(`/admin/users/${currentUserId}/save-all`, { method: 'POST', body: fd });
+            if (!response.ok) {
+                let msg = 'No se pudieron guardar los cambios';
+                try {
+                    const data = await response.json();
+                    if (data.detail) msg = typeof data.detail === 'string' ? data.detail : JSON.stringify(data.detail);
+                } catch (_) {}
+                throw new Error(msg);
+            }
 
-            const pref = document.getElementById('user-preferred-module').value;
-            const fdPref = new FormData();
-            fdPref.append('modulo_slug', pref);
-            await postForm(`/admin/users/${currentUserId}/preferred-module`, fdPref, 'No se pudo guardar el módulo de inicio');
+            const html = await response.text();
+            const rowEl = document.getElementById(`user-${currentUserId}`);
+            if (rowEl) rowEl.outerHTML = html;
 
-            // Guardar flag de simulación
-            const simFlag = document.getElementById('user-simulation-flag').checked;
-            const fdSim = new FormData();
-            fdSim.append('puede_asignarse_simulacion', simFlag ? 'true' : 'false');
-            await postForm(`/admin/users/${currentUserId}/simulation-flag`, fdSim, 'No se pudo guardar el permiso de simulación');
+            allUserRows = Array.from(document.getElementById('users-tbody').querySelectorAll('tr'));
+            const searchTerm = document.getElementById('user-search').value.toLowerCase();
+            filteredRows = searchTerm
+                ? allUserRows.filter(r => r.textContent.toLowerCase().includes(searchTerm))
+                : [...allUserRows];
+            updatePagination();
 
-            // Guardar flag de levantamientos
-            const levFlag = document.getElementById('user-levantamiento-flag').checked;
-            const fdLev = new FormData();
-            fdLev.append('puede_asignarse_levantamientos', levFlag ? 'true' : 'false');
-            await postForm(`/admin/users/${currentUserId}/levantamiento-flag`, fdLev, 'No se pudo guardar el permiso de levantamientos');
-
-            // Guardar rol organizacional
-            const rolOrg = document.getElementById('user-rol-organizacional').value;
-            const fdRol = new FormData();
-            fdRol.append('rol_organizacional', rolOrg);
-            await postForm(`/admin/users/${currentUserId}/rol-organizacional`, fdRol, 'No se pudo guardar el rol organizacional');
-
-            // Mostrar éxito y recargar
-            setTimeout(() => location.reload(), 500);
+            closePermissionsModal();
 
         } catch (e) {
-            msgDiv.innerHTML = `<div class="text-red-600 font-semibold">${e.message || 'Error al guardar cambios.'}</div>`;
+            document.getElementById('perms-response-footer').innerHTML =
+                `<span class="text-red-600 text-sm">${e.message || 'Error al guardar cambios.'}</span>`;
         } finally {
             overlay.classList.add('hidden');
         }
@@ -774,7 +765,7 @@
 
     // --- BÚSQUEDA Y PAGINACIÓN DE USUARIOS ---
     let currentPage = 1;
-    const itemsPerPage = 10;
+    const itemsPerPage = 50;
     let allUserRows = [];
     let filteredRows = [];
 
@@ -875,112 +866,165 @@
 
 <div id="permissions-modal"
     class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
-    <div class="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto relative">
+    <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full max-h-[90dvh] flex flex-col relative">
+
         <!-- Overlay de carga -->
         <div id="perms-loading-overlay"
-            class="hidden absolute inset-0 bg-white bg-opacity-90 z-10 flex flex-col items-center justify-center rounded-lg">
-            <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-[#00BABB] mb-4"></div>
-            <span class="text-[#123456] font-bold text-lg">Guardando cambios...</span>
-            <span class="text-gray-500 text-sm mt-1">Por favor espera</span>
+            class="hidden absolute inset-0 bg-white bg-opacity-90 z-10 flex flex-col items-center justify-center rounded-xl">
+            <div class="animate-spin rounded-full h-10 w-10 border-b-2 border-[#00BABB] mb-3"></div>
+            <span class="text-[#123456] font-bold">Guardando cambios...</span>
         </div>
-        <div class="p-6">
-            <div class="flex justify-between items-center mb-4 border-b pb-2">
-                <h3 class="text-xl font-bold text-[#123456]">Permisos: <span id="modal-user-name"
-                        class="text-[#00BABB]"></span></h3>
-                <button onclick="closePermissionsModal()" class="text-gray-400 hover:text-gray-600">✕</button>
+
+        <!-- Header -->
+        <div class="flex items-center justify-between px-6 py-4 border-b flex-shrink-0">
+            <div>
+                <h3 class="text-base font-bold text-[#123456]">Editar usuario</h3>
+                <p id="modal-user-name" class="text-sm text-[#00BABB] font-medium"></p>
             </div>
+            <button onclick="closePermissionsModal()"
+                class="text-gray-400 hover:text-gray-600 p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
 
-            <div id="perms-response" class="mb-4"></div>
+        <!-- Tabs -->
+        <div class="flex border-b px-6 flex-shrink-0">
+            <button onclick="switchModalTab('general')" id="modal-tab-general"
+                class="modal-tab-btn px-4 py-3 text-sm font-medium border-b-2 border-[#00BABB] text-[#123456] -mb-px transition-colors">
+                General
+            </button>
+            <button onclick="switchModalTab('modulos')" id="modal-tab-modulos"
+                class="modal-tab-btn px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 -mb-px transition-colors">
+                Módulos
+            </button>
+            <button onclick="switchModalTab('avanzado')" id="modal-tab-avanzado"
+                class="modal-tab-btn px-4 py-3 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700 -mb-px transition-colors">
+                Avanzado
+            </button>
+        </div>
 
-            <form id="permissions-form" class="space-y-6">
-                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- Contenido scrollable -->
+        <form id="permissions-form" class="flex-1 overflow-y-auto min-h-0">
+
+            <div id="perms-response" class="px-6 pt-3"></div>
+
+            <!-- Tab: General -->
+            <div id="modal-tab-content-general" class="modal-tab-content px-6 py-5 space-y-5">
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Rol de sistema</label>
+                    <div class="flex gap-2">
+                        <label class="rol-sistema-card flex-1 flex items-center justify-center py-2.5 rounded-lg border-2 border-gray-200 cursor-pointer transition-colors">
+                            <input type="radio" name="rol_sistema" value="USER" class="sr-only" onchange="updateRolSistemaCards()">
+                            <span class="text-sm font-semibold text-gray-700">User</span>
+                        </label>
+                        <label class="rol-sistema-card flex-1 flex items-center justify-center py-2.5 rounded-lg border-2 border-gray-200 cursor-pointer transition-colors">
+                            <input type="radio" name="rol_sistema" value="MANAGER" class="sr-only" onchange="updateRolSistemaCards()">
+                            <span class="text-sm font-semibold text-amber-700">Manager</span>
+                        </label>
+                        <label class="rol-sistema-card flex-1 flex items-center justify-center py-2.5 rounded-lg border-2 border-gray-200 cursor-pointer transition-colors">
+                            <input type="radio" name="rol_sistema" value="ADMIN" class="sr-only" onchange="updateRolSistemaCards()">
+                            <span class="text-sm font-semibold text-purple-700">Admin</span>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
                     <div>
-                        <label class="block text-sm font-bold text-gray-700">Departamento</label>
-                        <select id="user-department" class="w-full rounded-lg border-gray-300">
-                            <option value="">-- Seleccionar --</option>
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Departamento</label>
+                        <select id="user-department" class="w-full rounded-lg border-gray-300 text-sm focus:ring-[#00BABB] focus:border-[#00BABB]">
+                            <option value="">-- Sin departamento --</option>
                             {% for d in departments %}
                             <option value="{{ d.slug }}">{{ d.nombre }}</option>
                             {% endfor %}
                         </select>
                     </div>
-
                     <div>
-                        <label class="block text-sm font-bold text-gray-700">Módulo Inicio</label>
-                        <select id="user-preferred-module" class="w-full rounded-lg border-gray-300"></select>
-                    </div>
-                </div>
-
-                <section class="rounded-xl border border-slate-200 bg-slate-50/70 p-4 md:p-5 space-y-4">
-                    <div>
-                        <h4 class="text-sm font-bold text-[#123456]">Responsabilidades del usuario</h4>
-                        <p class="text-xs text-slate-600 mt-1">Define la jerarquía organizacional y los permisos de asignación operativa.</p>
-                    </div>
-
-                    <div class="rounded-lg border border-slate-200 bg-white p-4 space-y-2">
-                        <label for="user-rol-organizacional" class="block text-sm font-semibold text-slate-800">Rol organizacional</label>
-                        <p class="text-xs text-slate-600">Define autoridad transversal (solo uno por usuario).</p>
-                        <select id="user-rol-organizacional" class="w-full rounded-lg border-gray-300 text-sm">
-                            <option value="">Ninguno</option>
-                            <option value="jefe_comercial">Jefe Comercial</option>
-                            <option value="jefe_ingenieria">Jefe de Ingeniería</option>
-                            <option value="jefe_construccion">Jefe de Construcción</option>
-                            <option value="director">Director</option>
+                        <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Módulo de inicio</label>
+                        <select id="user-preferred-module" class="w-full rounded-lg border-gray-300 text-sm focus:ring-[#00BABB] focus:border-[#00BABB]">
+                            <option value="">-- Auto --</option>
                         </select>
                     </div>
+                </div>
+            </div>
 
-                    <div class="rounded-lg border border-slate-200 bg-white p-4 space-y-3">
-                        <div>
-                            <h5 class="text-sm font-semibold text-slate-800">Permisos de asignación</h5>
-                            <p class="text-xs text-slate-600">Habilita asignación fuera de su departamento.</p>
-                        </div>
+            <!-- Tab: Módulos -->
+            <div id="modal-tab-content-modulos" class="modal-tab-content hidden px-6 py-5">
+                <p class="text-xs text-gray-500 mb-3">El módulo de inicio se actualiza al cambiar los accesos.</p>
+                <table class="w-full text-sm">
+                    <thead>
+                        <tr class="bg-gray-50">
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase rounded-l-lg">Módulo</th>
+                            <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase rounded-r-lg">Nivel de acceso</th>
+                        </tr>
+                    </thead>
+                    <tbody id="modules-list" class="divide-y divide-gray-100"></tbody>
+                </table>
+            </div>
 
-                        <label for="user-simulation-flag" class="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 cursor-pointer hover:bg-slate-100 transition-colors">
-                            <div>
-                                <span class="text-sm font-semibold text-slate-800 block">Puede asignarse a Simulación</span>
-                                <span class="text-xs text-slate-600">Permite ser responsable de simulaciones fuera del departamento de Simulación.</span>
-                            </div>
-                            <span class="relative inline-flex h-6 w-11 shrink-0 items-center">
-                                <input type="checkbox" id="user-simulation-flag" class="peer sr-only">
-                                <span class="absolute inset-0 rounded-full bg-slate-300 transition-colors peer-checked:bg-[#00BABB]"></span>
-                                <span class="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"></span>
-                            </span>
-                        </label>
-
-                        <label for="user-levantamiento-flag" class="flex items-start justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-3 py-3 cursor-pointer hover:bg-slate-100 transition-colors">
-                            <div>
-                                <span class="text-sm font-semibold text-slate-800 block">Puede asignarse a Levantamientos</span>
-                                <span class="text-xs text-slate-600">Permite ser asignado como ingeniero o acompa&ntilde;ante en levantamientos de sitio.</span>
-                            </div>
-                            <span class="relative inline-flex h-6 w-11 shrink-0 items-center">
-                                <input type="checkbox" id="user-levantamiento-flag" class="peer sr-only">
-                                <span class="absolute inset-0 rounded-full bg-slate-300 transition-colors peer-checked:bg-[#00BABB]"></span>
-                                <span class="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"></span>
-                            </span>
-                        </label>
-                    </div>
-                </section>
-
+            <!-- Tab: Avanzado -->
+            <div id="modal-tab-content-avanzado" class="modal-tab-content hidden px-6 py-5 space-y-4">
                 <div>
-                    <label class="block text-sm font-bold text-gray-700 mb-2">Asignación de módulos</label>
-                    <table class="w-full text-sm border">
-                        <thead class="bg-gray-100">
-                            <tr>
-                                <th class="p-2 text-left">Módulo</th>
-                                <th class="p-2 text-left">Rol en Módulo</th>
-                            </tr>
-                        </thead>
-                        <tbody id="modules-list"></tbody>
-                    </table>
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Rol organizacional</label>
+                    <p class="text-xs text-gray-500 mb-2">Autoridad transversal entre departamentos (uno por usuario).</p>
+                    <select id="user-rol-organizacional" class="w-full rounded-lg border-gray-300 text-sm focus:ring-[#00BABB] focus:border-[#00BABB]">
+                        <option value="">Ninguno</option>
+                        <option value="jefe_comercial">Jefe Comercial</option>
+                        <option value="jefe_ingenieria">Jefe de Ingeniería</option>
+                        <option value="jefe_construccion">Jefe de Construcción</option>
+                        <option value="director">Director</option>
+                    </select>
                 </div>
 
-                <div class="flex justify-end gap-3 pt-4">
-                    <button type="button" onclick="closePermissionsModal()"
-                        class="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancelar</button>
-                    <button type="button" onclick="savePermissions()"
-                        class="px-4 py-2 bg-[#00BABB] text-white rounded font-bold hover:bg-[#009999]">Guardar</button>
+                <div class="space-y-2">
+                    <label class="block text-xs font-bold text-gray-500 uppercase tracking-wide">Permisos de asignación</label>
+
+                    <label for="user-simulation-flag"
+                        class="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors">
+                        <div>
+                            <span class="text-sm font-semibold text-slate-800 block">Simulación</span>
+                            <span class="text-xs text-slate-500">Puede ser responsable fuera de su departamento.</span>
+                        </div>
+                        <span class="relative inline-flex h-6 w-11 shrink-0 items-center">
+                            <input type="checkbox" id="user-simulation-flag" class="peer sr-only">
+                            <span class="absolute inset-0 rounded-full bg-slate-300 transition-colors peer-checked:bg-[#00BABB]"></span>
+                            <span class="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"></span>
+                        </span>
+                    </label>
+
+                    <label for="user-levantamiento-flag"
+                        class="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors">
+                        <div>
+                            <span class="text-sm font-semibold text-slate-800 block">Levantamientos</span>
+                            <span class="text-xs text-slate-500">Puede ser asignado como ingeniero de campo.</span>
+                        </div>
+                        <span class="relative inline-flex h-6 w-11 shrink-0 items-center">
+                            <input type="checkbox" id="user-levantamiento-flag" class="peer sr-only">
+                            <span class="absolute inset-0 rounded-full bg-slate-300 transition-colors peer-checked:bg-[#00BABB]"></span>
+                            <span class="absolute left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform peer-checked:translate-x-5"></span>
+                        </span>
+                    </label>
                 </div>
-            </form>
+            </div>
+        </form>
+
+        <!-- Footer -->
+        <div class="flex items-center justify-between px-6 py-4 border-t bg-gray-50 rounded-b-xl flex-shrink-0">
+            <div id="perms-response-footer" class="flex-1 mr-4 min-w-0"></div>
+            <div class="flex gap-3 flex-shrink-0">
+                <button type="button" onclick="closePermissionsModal()"
+                    class="px-4 py-2 border border-gray-300 rounded-lg text-sm text-gray-600 hover:bg-gray-100 transition-colors">
+                    Cancelar
+                </button>
+                <button type="button" onclick="savePermissions()"
+                    class="px-5 py-2 bg-[#00BABB] text-white rounded-lg text-sm font-bold hover:bg-[#009999] transition-colors shadow-sm">
+                    Guardar cambios
+                </button>
+            </div>
         </div>
+
     </div>
 </div>
 

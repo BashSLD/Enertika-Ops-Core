@@ -2,7 +2,8 @@
     data-simulation-flag="{{ u.puede_asignarse_simulacion|default(false)|lower }}"
     data-levantamiento-flag="{{ u.puede_asignarse_levantamientos|default(false)|lower }}"
     data-rol-organizacional="{{ u.rol_organizacional or '' }}"
-    data-department-name="{{ u.department or '' }}">
+    data-department-name="{{ u.department or '' }}"
+    data-rol-sistema="{{ u.rol_sistema }}">
     <td
         class="px-6 py-4 whitespace-nowrap font-medium {% if u.is_active is false %}text-gray-500{% else %}text-gray-900{% endif %}">
         {{ u.nombre }}
@@ -49,19 +50,10 @@
 
     <!-- Rol Sistema -->
     <td class="px-6 py-4 whitespace-nowrap">
-        {% if u.is_active is not false %}
-        <form hx-post="/admin/users/role" hx-swap="outerHTML">
-            <input type="hidden" name="user_id" value="{{ u.id_usuario }}">
-            <select name="role" onchange="htmx.trigger(this.form, 'submit')"
-                class="text-sm border-gray-300 rounded focus:ring-blue-500 focus:border-blue-500">
-                <option value="USER" {% if u.rol_sistema=='USER' %}selected{% endif %}>User</option>
-                <option value="MANAGER" {% if u.rol_sistema=='MANAGER' %}selected{% endif %}>Manager</option>
-                <option value="ADMIN" {% if u.rol_sistema=='ADMIN' %}selected{% endif %}>Admin</option>
-            </select>
-        </form>
-        {% else %}
-        <span>{{ u.rol_sistema }}</span>
-        {% endif %}
+        {% set rol_colors = {'ADMIN': 'bg-purple-100 text-purple-800', 'MANAGER': 'bg-amber-100 text-amber-800', 'USER': 'bg-gray-100 text-gray-700'} %}
+        <span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold {{ rol_colors.get(u.rol_sistema, 'bg-gray-100 text-gray-700') }}">
+            {{ u.rol_sistema }}
+        </span>
     </td>
 
     <!-- Acciones -->

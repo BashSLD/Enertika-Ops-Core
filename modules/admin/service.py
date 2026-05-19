@@ -563,6 +563,54 @@ class AdminService:
         await self.db.update_user_rol_organizacional(conn, user_id, rol)
         logger.info(f"Rol organizacional actualizado para usuario {user_id}: '{rol or 'ninguno'}'")
 
+    async def get_user_enriched_by_id(self, conn, user_id: UUID) -> Optional[Dict]:
+        """Obtiene un usuario enriquecido con módulos asignados y nombre de módulo preferido."""
+        user = await self.db.fetch_user_by_id(conn, user_id)
+        if not user:
+            return None
+        permissions = await self.db.fetch_permissions_enriched_by_user(conn, user_id)
+        user['user_modules'] = permissions
+        if user.get('modulo_preferido'):
+            nombres = await self.db.fetch_modulos_by_slugs(conn, [user['modulo_preferido']])
+            user['modulo_preferido_nombre'] = nombres.get(user['modulo_preferido'])
+        else:
+            user['modulo_preferido_nombre'] = None
+        return user
+
+    async def save_user_all(
+        self, conn, user_id: UUID,
+        rol_sistema: str,
+        department_slug: Optional[str],
+        modulo_preferido: Optional[str],
+        puede_asignarse_simulacion: bool,
+        puede_asignarse_levantamientos: bool,
+        rol_organizacional: str,
+        module_roles: Dict[str, str],
+    ) -> Dict:
+        """Guarda toda la configuración de un usuario en una sola operación atómica."""
+        if rol_organizacional not in ROLES_ORGANIZACIONALES_VALIDOS:
+            raise ValueError(f"Rol organizacional inválido: {rol_organizacional}")
+
+        dept_nombre = None
+        if department_slug:
+            dept_nombre = await self.db.fetch_department_name_by_slug(conn, department_slug)
+            if not dept_nombre:
+                raise ValueError("Departamento no encontrado")
+
+        async with conn.transaction():
+            await self.db.update_user_role(conn, user_id, rol_sistema)
+            await self.db.update_user_department(conn, user_id, dept_nombre)
+            await self.db.delete_user_permissions(conn, user_id)
+            for slug, rol in module_roles.items():
+                await self.db.insert_user_permission(conn, user_id, slug, rol)
+            await self.db.update_user_preferred_module(conn, user_id, modulo_preferido or None)
+            await self.db.update_user_simulation_flag(conn, user_id, puede_asignarse_simulacion)
+            await self.db.update_user_levantamiento_flag(conn, user_id, puede_asignarse_levantamientos)
+            await self.db.update_user_rol_organizacional(conn, user_id, rol_organizacional)
+
+        logger.info("Configuracion completa guardada para usuario %s", user_id)
+        return await self.get_user_enriched_by_id(conn, user_id)
+
     async def deactivate_user(self, conn, user_id: UUID) -> Dict:
         """
         Desactiva un usuario (soft delete).
