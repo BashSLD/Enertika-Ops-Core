@@ -54,6 +54,20 @@
                 <div class="hidden rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-700" data-cfe-success>
                     Excel generado correctamente.
                 </div>
+                <div id="cfe-progress" class="hidden rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <div class="flex items-center gap-3 mb-2">
+                        <svg class="animate-spin h-5 w-5 {% if accent == 'blue' %}text-blue-600{% else %}text-indigo-600{% endif %}"
+                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        <span class="text-sm text-gray-600">Procesando recibos CFE...</span>
+                    </div>
+                    <div class="w-full bg-gray-200 rounded-full h-2 overflow-hidden">
+                        <div class="{% if accent == 'blue' %}bg-blue-500{% else %}bg-indigo-500{% endif %} h-full rounded-full animate-pulse"
+                             style="width: 100%"></div>
+                    </div>
+                </div>
             </div>
 
             <div class="bg-gray-50 px-6 py-3 flex items-center justify-end gap-3 rounded-b-xl">
@@ -85,6 +99,7 @@
         const submitButton = modal.querySelector('[data-cfe-submit]');
         const errorBox = modal.querySelector('[data-cfe-error]');
         const successBox = modal.querySelector('[data-cfe-success]');
+        const progressBox = modal.querySelector('#cfe-progress');
 
         function closeModal() {
             modal.remove();
@@ -223,9 +238,10 @@
                 return;
             }
 
-            submitButton.disabled = true;
-            submitButton.textContent = 'Generando...';
             syncInputFiles();
+            submitButton.disabled = true;
+            submitButton.classList.add('hidden');
+            progressBox.classList.remove('hidden');
 
             try {
                 const response = await fetch(form.action, {
@@ -252,7 +268,8 @@
                 setError('No se pudo conectar con el servidor para generar el Excel.');
             } finally {
                 submitButton.disabled = storedFiles.length === 0;
-                submitButton.textContent = 'Generar Excel';
+                submitButton.classList.remove('hidden');
+                progressBox.classList.add('hidden');
             }
         });
     })();
