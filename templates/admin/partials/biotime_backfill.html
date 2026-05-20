@@ -19,7 +19,7 @@
       this.fechaInicio = `${hoy.getFullYear()}-01-01`;
       this.$el.addEventListener('htmx:afterSwap', () => {
         if (!this.procesando) return;
-        const sel = `#backfill-resultados [data-chunk-index="${this.currentChunk}"]`;
+        const sel = `#backfill-resultados [data-chunk-index='${this.currentChunk}']`;
         const lastEl = document.querySelector(sel);
         const isError = lastEl && lastEl.hasAttribute('data-has-error');
         if (isError) { this.hayError = true; this.procesando = false; return; }

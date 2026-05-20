@@ -280,6 +280,7 @@ class AdminService:
         resolved_url = (base_url or "").strip().rstrip("/") or await ConfigService.get_global_config(
             conn, BIOTIME_CONFIG_KEYS["base_url"], "", str
         )
+        resolved_url = "".join((resolved_url or "").split()).rstrip("/")
         resolved_user = (username or "").strip() or await ConfigService.get_global_config(
             conn, BIOTIME_CONFIG_KEYS["username"], "", str
         )
@@ -302,7 +303,7 @@ class AdminService:
         timeout_seconds: int,
         recalc_days: int,
     ) -> None:
-        base_url = (base_url or "").strip().rstrip("/")
+        base_url = "".join((base_url or "").split()).rstrip("/")
         username = (username or "").strip()
         resolved_password = (password or "").strip() or await ConfigService.get_global_config(
             conn, BIOTIME_CONFIG_KEYS["password"], "", str

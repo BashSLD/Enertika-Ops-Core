@@ -115,3 +115,15 @@ def test_get_employee_map_does_not_fallback_to_employee_number():
 
     assert "tb_biotime_empleado_map" in conn.query
     assert "numero_empleado" not in conn.query
+
+
+def test_biotime_client_url_sanitization():
+    from modules.asistencia.biotime_client import BioTimeClient
+
+    # Test that spaces inside the base_url are completely removed
+    client = BioTimeClient(
+        base_url=" http:// 201.158.1.231:8082/ ",
+        username="admin",
+        password="password",
+    )
+    assert client.base_url == "http://201.158.1.231:8082"

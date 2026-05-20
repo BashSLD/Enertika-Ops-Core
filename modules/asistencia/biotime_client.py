@@ -18,7 +18,7 @@ _EMPLOYEES_URL = "/personnel/employee/table/"
 
 class BioTimeClient:
     def __init__(self, base_url: str, username: str, password: str, timeout_seconds: int = 30):
-        base = (base_url or "").strip().rstrip("/")
+        base = "".join((base_url or "").split()).rstrip("/")
         user = (username or "").strip()
         pwd = password or ""
         if not base:
