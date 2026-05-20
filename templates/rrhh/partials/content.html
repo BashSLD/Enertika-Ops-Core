@@ -1,6 +1,8 @@
 {% set current_tab = initial_tab | default('asistencia') %}
 {% set current_endpoint = initial_endpoint | default('/rrhh/asistencia') %}
-<div class="animate-fade-in-down px-4 pb-8" x-data="{ tab: '{{ current_tab }}' }">
+<div class="animate-fade-in-down px-4 pb-8"
+  x-data="{ tab: '{{ current_tab }}' }"
+  @htmx:before-request="if ($event.detail.target && $event.detail.target.id === 'rrhh-content') $dispatch('rrhh-close-empleado-modal')">
   {% set rrhh_role = (context.module_roles or {}).get('rrhh', '') %}
   {% macro rrhh_tab_icon(icon) -%}
     {% if icon == 'hoy' %}

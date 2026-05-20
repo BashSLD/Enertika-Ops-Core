@@ -39,7 +39,6 @@
               hx-get="/rrhh/empleados/{{ emp.id_usuario }}/editar"
               hx-target="#empleado-modal-content"
               hx-swap="innerHTML"
-              @click="$dispatch('open-empleado-modal')"
               class="text-[#00BABB] hover:text-[#009A9B] text-xs font-medium transition-colors">
               Editar
             </button>
@@ -70,14 +69,19 @@
 
   <!-- Modal editar empleado -->
   <div id="empleado-modal"
-    x-data="{ open: false, saving: false }"
+    hx-history="false"
+    x-data="{ open: false, saving: false, close() { this.open = false; this.saving = false } }"
     @open-empleado-modal.window="open = true"
+    @rrhh-close-empleado-modal.window="close()"
+    @htmx:after-swap.window="if ($event.detail.target && $event.detail.target.id === 'empleado-modal-content') open = true"
+    @keydown.escape.window="if (open) close()"
+    @click.self="close()"
     x-show="open" x-cloak
     class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4">
     <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90dvh] flex flex-col">
       <div class="px-6 pt-5 pb-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
         <h3 class="text-base font-semibold text-gray-900">Editar datos de empleado</h3>
-        <button @click="open = false" class="text-gray-400 hover:text-gray-600 transition-colors">
+        <button type="button" @click="close()" class="text-gray-400 hover:text-gray-600 transition-colors">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
           </svg>
