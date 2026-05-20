@@ -16,6 +16,7 @@ from .constants import ROLES_ORGANIZACIONALES_VALIDOS
 from core.config_service import ConfigService
 from core.microsoft import MicrosoftAuth
 from modules.asistencia.constants import BIOTIME_CONFIG_KEYS
+from .permission_utils import validate_module_roles
 
 logger = logging.getLogger("AdminModule")
 
@@ -494,6 +495,7 @@ class AdminService:
             user_id: ID del usuario
             module_roles: Dict con módulo_slug: rol
         """
+        validate_module_roles(module_roles)
         await self.db.delete_user_permissions(conn, user_id)
 
         for module_slug, rol in module_roles.items():
@@ -591,6 +593,7 @@ class AdminService:
         """Guarda toda la configuración de un usuario en una sola operación atómica."""
         if rol_organizacional not in ROLES_ORGANIZACIONALES_VALIDOS:
             raise ValueError(f"Rol organizacional inválido: {rol_organizacional}")
+        validate_module_roles(module_roles)
 
         async with conn.transaction():
             if department_slug:

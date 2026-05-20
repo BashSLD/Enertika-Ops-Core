@@ -8,3 +8,5 @@ ROLES_ORGANIZACIONALES_VALIDOS = {
     "jefe_construccion",
     "director",
 }
+
+ROLES_MODULO_VALIDOS = {"viewer", "editor", "admin"}

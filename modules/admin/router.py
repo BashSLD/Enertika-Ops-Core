@@ -12,6 +12,7 @@ from core.timezone import now_mx
 from core.config import settings
 from core.jinja_filters import register_timezone_filters
 from .service import AdminService, get_admin_service
+from .permission_utils import extract_module_roles
 from core.tipo_cambio.service import TipoCambioService
 import asyncpg
 import httpx
@@ -31,6 +32,7 @@ router = APIRouter(
 templates = Jinja2Templates(directory="templates")
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
 register_timezone_filters(templates.env)
+
 
 # --- CONFIG EMAIL ENDPOINTS ---
 
@@ -878,15 +880,12 @@ async def update_user_modules(
     """Actualiza los modulos y roles asignados a un usuario."""
     form_data = await request.form()
     
-    # Extraer módulos del form data
-    module_roles = {}
-    for key, value in form_data.items():
-        if key.startswith("modulo_"):
-            module_slug = key.replace("modulo_", "")
-            if value:  # Solo si hay un rol seleccionado
-                module_roles[module_slug] = value
-    
-    await service.update_user_modules(conn, user_id, module_roles)
+    module_roles = extract_module_roles(form_data)
+
+    try:
+        await service.update_user_modules(conn, user_id, module_roles)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     
     return templates.TemplateResponse(request, "admin/partials/messages/success.html", {"title": "Guardado", "message": "Permisos actualizados"
     })
@@ -993,10 +992,7 @@ async def save_user_all(
     puede_lev = form_data.get("puede_asignarse_levantamientos", "false") == "true"
     rol_org = form_data.get("rol_organizacional", "")
 
-    module_roles = {}
-    for key, value in form_data.items():
-        if key.startswith("modulo_") and value:
-            module_roles[key.removeprefix("modulo_")] = value
+    module_roles = extract_module_roles(form_data)
 
     try:
         user = await service.save_user_all(
