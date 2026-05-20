@@ -1,7 +1,7 @@
 {% set current_tab = initial_tab | default('vacaciones') %}
 {% set current_endpoint = initial_endpoint | default('/vacaciones/balance') %}
 <div class="animate-fade-in-down px-4 pb-8"
-     x-data="{ tab: '{{ current_tab }}', modalSolicitud: false }"
+     x-data="{ tab: new URLSearchParams(location.search).get('tab') || '{{ current_tab }}', modalSolicitud: false }"
      @abrir-modal-solicitud.window="modalSolicitud = true"
      @cerrar-modal-solicitud.window="modalSolicitud = false; $refs.modalBody.innerHTML = ''"
      @htmx:after-swap.window="if($event.detail.target.id === 'tab-content' && modalSolicitud && $event.detail.xhr.getResponseHeader('HX-Reswap') !== 'none') { modalSolicitud = false; tab = 'solicitudes'; $refs.modalBody.innerHTML = ''; }">
@@ -29,7 +29,7 @@
 
   {% include "perfil/partials/tabs.html" %}
 
-  <div id="tab-content" hx-get="{{ current_endpoint }}" hx-trigger="load" hx-swap="innerHTML">
+  <div id="tab-content" hx-get="{{ current_endpoint }}" hx-trigger="load[!this.children.length]" hx-swap="innerHTML">
   </div>
 
   <!-- Modal nueva solicitud -->
