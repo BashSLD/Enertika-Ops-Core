@@ -87,6 +87,7 @@
               hx-get="/vacaciones/solicitudes/{{ s.id }}?origen=solicitudes"
               hx-target="#tab-content"
               hx-swap="innerHTML"
+              hx-push-url="/perfil/ui?tab=solicitudes&solicitud_id={{ s.id }}&origen=solicitudes"
               class="text-xs text-[#00BABB] hover:underline">Ver</button>
             {% if s.estado in ['aprobado', 'pendiente'] and not s.firma_solicitante_pendiente %}
             <a href="/vacaciones/solicitudes/{{ s.id }}/pdf" target="_blank"
@@ -97,6 +98,8 @@
               hx-get="/perfil/firma?solicitud_pendiente_id={{ s.id }}"
               hx-target="#tab-content"
               hx-swap="innerHTML"
+              hx-push-url="/perfil/ui?tab=firma&solicitud_pendiente_id={{ s.id }}"
+              @click="tab = 'firma'"
               class="text-xs text-sky-600 hover:underline">Firmar</button>
             {% endif %}
             {% if s.estado == 'pendiente' %}

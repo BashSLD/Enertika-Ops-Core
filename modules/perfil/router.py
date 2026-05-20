@@ -21,6 +21,13 @@ from modules.vacaciones import service as vac_service
 router = APIRouter(prefix="/perfil", tags=["perfil"])
 templates = Jinja2Templates(directory="templates")
 
+PERFIL_TAB_ENDPOINTS = {
+    "vacaciones": "/vacaciones/balance",
+    "solicitudes": "/vacaciones/solicitudes",
+    "aprobaciones": "/vacaciones/aprobaciones",
+    "equipo": "/vacaciones/equipo",
+    "firma": "/perfil/firma",
+}
 
 
 def _legacy_redirect(path: str) -> RedirectResponse:
@@ -38,9 +45,40 @@ def _context_con_perfil(context: dict, perfil: dict | None) -> dict:
     }
 
 
+def _resolve_initial_tab(
+    tab: str | None,
+    *,
+    es_jefe_o_aprobador: bool,
+    solicitud_id: UUID | None,
+    origen: str,
+    equipo_uid: UUID | None,
+    solicitud_pendiente_id: UUID | None,
+) -> tuple[str, str]:
+    if solicitud_id:
+        origen = origen if origen in {"solicitudes", "aprobaciones"} else "solicitudes"
+        initial_tab = "aprobaciones" if origen == "aprobaciones" else "solicitudes"
+        return initial_tab, f"/vacaciones/solicitudes/{solicitud_id}?origen={origen}"
+
+    if equipo_uid and es_jefe_o_aprobador:
+        return "equipo", f"/vacaciones/equipo/{equipo_uid}"
+
+    if solicitud_pendiente_id:
+        return "firma", f"/perfil/firma?solicitud_pendiente_id={solicitud_pendiente_id}"
+
+    initial_tab = tab if tab in PERFIL_TAB_ENDPOINTS else "vacaciones"
+    if initial_tab in {"aprobaciones", "equipo"} and not es_jefe_o_aprobador:
+        initial_tab = "vacaciones"
+    return initial_tab, PERFIL_TAB_ENDPOINTS[initial_tab]
+
+
 @router.get("/ui")
 async def perfil_ui(
     request: Request,
+    tab: str | None = None,
+    solicitud_id: UUID | None = None,
+    origen: str = "solicitudes",
+    equipo_uid: UUID | None = None,
+    solicitud_pendiente_id: UUID | None = None,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
@@ -60,6 +98,15 @@ async def perfil_ui(
         pendientes_aprobacion = await vac_db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
     else:
         pendientes_aprobacion = []
+    es_jefe_o_aprobador = es_jefe or es_rrhh_viewer
+    initial_tab, initial_endpoint = _resolve_initial_tab(
+        tab,
+        es_jefe_o_aprobador=es_jefe_o_aprobador,
+        solicitud_id=solicitud_id,
+        origen=origen,
+        equipo_uid=equipo_uid,
+        solicitud_pendiente_id=solicitud_pendiente_id,
+    )
 
     ctx = {
         "perfil": perfil or {},
@@ -67,8 +114,10 @@ async def perfil_ui(
         "solicitudes": solicitudes,
         "tipos": tipos,
         "firma": firma,
-        "es_jefe_o_aprobador": es_jefe or es_rrhh_viewer,
+        "es_jefe_o_aprobador": es_jefe_o_aprobador,
         "pendientes_aprobaciones_count": len(pendientes_aprobacion),
+        "initial_tab": initial_tab,
+        "initial_endpoint": initial_endpoint,
         "context": context_perfil,
         "user_name": context_perfil.get("user_name"),
         "role": context_perfil.get("role"),

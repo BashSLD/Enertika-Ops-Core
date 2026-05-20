@@ -9,18 +9,22 @@
 {% if origen == 'aprobaciones' %}
   {% set volver_url = '/vacaciones/aprobaciones' %}
   {% set volver_target = '#tab-content' %}
+  {% set volver_history_url = '/perfil/ui?tab=aprobaciones' %}
   {% set volver_label = 'Volver a aprobaciones' %}
 {% elif origen == 'rrhh_aprobaciones' %}
   {% set volver_url = '/rrhh/aprobaciones' %}
   {% set volver_target = '#rrhh-content' %}
+  {% set volver_history_url = '/rrhh/ui?tab=aprobaciones' %}
   {% set volver_label = 'Volver a aprobaciones' %}
 {% elif origen == 'rrhh_solicitudes' %}
   {% set volver_url = '/rrhh/solicitudes' %}
   {% set volver_target = '#rrhh-content' %}
+  {% set volver_history_url = '/rrhh/ui?tab=solicitudes' %}
   {% set volver_label = 'Volver a solicitudes' %}
 {% else %}
   {% set volver_url = '/vacaciones/solicitudes' %}
   {% set volver_target = '#tab-content' %}
+  {% set volver_history_url = '/perfil/ui?tab=solicitudes' %}
   {% set volver_label = 'Volver a solicitudes' %}
 {% endif %}
 {% set aprobar_url = '/rrhh/solicitudes/' ~ solicitud.id ~ '/aprobar' if es_contexto_rrhh else '/vacaciones/solicitudes/' ~ solicitud.id ~ '/aprobar' %}
@@ -33,6 +37,7 @@
       hx-get="{{ volver_url }}"
       hx-target="{{ volver_target }}"
       hx-swap="innerHTML"
+      hx-push-url="{{ volver_history_url }}"
       class="inline-flex items-center rounded-lg border border-gray-200 px-3 py-1.5 text-sm font-medium text-gray-600 hover:bg-gray-50 hover:text-gray-800 transition-colors">
       ← Volver
     </button>
@@ -128,6 +133,8 @@
       hx-get="/perfil/firma?solicitud_pendiente_id={{ solicitud.id }}"
       hx-target="#tab-content"
       hx-swap="innerHTML"
+      hx-push-url="/perfil/ui?tab=firma&solicitud_pendiente_id={{ solicitud.id }}"
+      @click="tab = 'firma'"
       class="inline-flex items-center gap-1.5 text-xs font-semibold px-3 py-2 bg-sky-600 hover:bg-sky-700 text-white rounded-lg transition-colors">
       Registrar firma
     </button>
@@ -136,6 +143,7 @@
     {% if not es_contexto_rrhh and not solicitud.es_migracion and es_dueno and solicitud.estado == 'pendiente' %}
     <button
       hx-post="/vacaciones/solicitudes/{{ solicitud.id }}/cancelar"
+      hx-replace-url="/perfil/ui?tab=solicitudes"
       hx-target="#tab-content"
       hx-swap="innerHTML"
       hx-confirm="¿Cancelar esta solicitud?"
@@ -150,6 +158,7 @@
       hx-post="{{ aprobar_url }}"
       hx-target="{{ volver_target }}"
       hx-swap="innerHTML"
+      hx-replace-url="{{ volver_history_url }}"
       hx-confirm="¿Aprobar y firmar esta solicitud?"
       hx-on::before-request="aprobando = true"
       hx-on::after-request="aprobando = false"
@@ -180,6 +189,7 @@
         <form hx-post="{{ rechazar_url }}"
               hx-target="{{ volver_target }}"
               hx-swap="innerHTML"
+              hx-replace-url="{{ volver_history_url }}"
               @htmx:after-request="open = false">
           <label class="block text-sm text-gray-700 mb-1.5">Motivo del rechazo *</label>
           <textarea name="motivo" x-model="motivo" rows="3" required placeholder="Explica el motivo..."

@@ -13,7 +13,7 @@
         </svg>
       </span>
       <div>
-        <h2 class="text-sm font-semibold text-gray-700">Mi Team</h2>
+        <h2 class="text-sm font-semibold text-gray-700">Mi equipo</h2>
         <p class="text-xs text-gray-400">Vacaciones aprobadas y horas extra por validar.</p>
       </div>
     </div>
@@ -36,7 +36,7 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 2.75v3M16 2.75v3M4.75 9.25h14.5M6.75 4.75h10.5a2 2 0 0 1 2 2v10.5a2 2 0 0 1-2 2H6.75a2 2 0 0 1-2-2V6.75a2 2 0 0 1 2-2Z"/>
             </svg>
           </span>
-          <h3 class="text-sm font-semibold text-gray-800">Vacaciones de Mi Team</h3>
+          <h3 class="text-sm font-semibold text-gray-800">Vacaciones de Mi equipo</h3>
         </div>
         <p class="text-xs text-gray-400">Hoy y próximas vacaciones aprobadas.</p>
       </div>
@@ -67,7 +67,7 @@
           {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-400">Nadie de Mi Team está de vacaciones hoy.</p>
+        <p class="text-sm text-gray-400">Nadie de Mi equipo está de vacaciones hoy.</p>
         {% endif %}
       </div>
 
@@ -334,12 +334,12 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15.75 7.75a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.75 20.25a7.25 7.25 0 0 1 14.5 0"/>
         </svg>
       </span>
-      <h3 class="text-sm font-semibold text-gray-700">Personas de Mi Team</h3>
+      <h3 class="text-sm font-semibold text-gray-700">Personas de Mi equipo</h3>
     </div>
 
     {% if not equipo %}
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 px-5 py-10 text-center text-sm text-gray-400">
-      No hay personas en Mi Team actualmente.
+      No hay personas en Mi equipo actualmente.
     </div>
     {% else %}
     {% for item in equipo %}
@@ -353,6 +353,7 @@
           hx-get="/vacaciones/equipo/{{ item.usuario.id_usuario }}"
           hx-target="#tab-content"
           hx-swap="innerHTML"
+          hx-push-url="/perfil/ui?tab=equipo&equipo_uid={{ item.usuario.id_usuario }}"
           class="text-xs text-[#00BABB] hover:underline font-medium">
           Ver detalle
         </button>

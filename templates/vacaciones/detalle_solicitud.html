@@ -21,51 +21,7 @@
   </div>
   {% endif %}
 
-  <div class="mb-6 flex gap-1 overflow-x-auto border-b border-gray-200">
-    <button @click="tab = 'vacaciones'; htmx.ajax('GET', '/vacaciones/balance', {target: '#tab-content', swap: 'innerHTML'})"
-      :class="tab === 'vacaciones' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
-      class="inline-flex items-center gap-2 whitespace-nowrap px-4 py-2.5 text-sm transition-colors">
-      <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 2.75v3M16 2.75v3M4.75 9.25h14.5M6.75 4.75h10.5a2 2 0 0 1 2 2v10.5a2 2 0 0 1-2 2H6.75a2 2 0 0 1-2-2V6.75a2 2 0 0 1 2-2Z"/>
-      </svg>
-      Mis Vacaciones
-    </button>
-    <button @click="tab = 'solicitudes'; htmx.ajax('GET', '/vacaciones/solicitudes', {target: '#tab-content', swap: 'innerHTML'})"
-      :class="tab === 'solicitudes' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
-      class="inline-flex items-center gap-2 whitespace-nowrap px-4 py-2.5 text-sm transition-colors">
-      <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M9 7.75h6M9 11.75h6M9 15.75h3M6.75 3.75h10.5a2 2 0 0 1 2 2v12.5a2 2 0 0 1-2 2H6.75a2 2 0 0 1-2-2V5.75a2 2 0 0 1 2-2Z"/>
-      </svg>
-      Solicitudes
-    </button>
-    {% if es_jefe_o_aprobador %}
-    <button @click="tab = 'aprobaciones'; htmx.ajax('GET', '/vacaciones/aprobaciones', {target: '#tab-content', swap: 'innerHTML'})"
-      :class="tab === 'aprobaciones' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
-      class="inline-flex items-center gap-2 whitespace-nowrap px-4 py-2.5 text-sm transition-colors">
-      <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="m8.75 12.5 2.25 2.25 4.25-5M12 3.75l6.25 2.75v4.9c0 3.85-2.57 7.35-6.25 8.43-3.68-1.08-6.25-4.58-6.25-8.43V6.5L12 3.75Z"/>
-      </svg>
-      Aprobaciones
-      <span id="perfil-aprobaciones-badge" class="ml-1.5 rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-bold text-white {% if not pendientes_aprobaciones_count %}hidden{% endif %}">{{ pendientes_aprobaciones_count or "" }}</span>
-    </button>
-    <button @click="tab = 'equipo'; htmx.ajax('GET', '/vacaciones/equipo', {target: '#tab-content', swap: 'innerHTML'})"
-      :class="tab === 'equipo' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
-      class="inline-flex items-center gap-2 whitespace-nowrap px-4 py-2.5 text-sm transition-colors">
-      <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M16.25 18.75v-1.1a3.4 3.4 0 0 0-3.4-3.4h-4.2a3.4 3.4 0 0 0-3.4 3.4v1.1M13.75 7.75a3 3 0 1 1-6 0 3 3 0 0 1 6 0ZM18.75 18.75v-1.05a3 3 0 0 0-2.25-2.9M16.75 4.95a3 3 0 0 1 0 5.6"/>
-      </svg>
-      Mi Team
-    </button>
-    {% endif %}
-    <button @click="tab = 'firma'; htmx.ajax('GET', '/perfil/firma', {target: '#tab-content', swap: 'innerHTML'})"
-      :class="tab === 'firma' ? 'border-b-2 border-[#00BABB] text-[#00BABB] font-semibold' : 'text-gray-500 hover:text-gray-700'"
-      class="inline-flex items-center gap-2 whitespace-nowrap px-4 py-2.5 text-sm transition-colors">
-      <svg class="h-4 w-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M16.75 4.75 19.25 7.25 9.25 17.25l-3.5.75.75-3.5 10.25-9.75ZM4.75 20.25h14.5"/>
-      </svg>
-      Mi Firma
-    </button>
-  </div>
+  {% include "perfil/partials/tabs.html" %}
 
   <div id="tab-content">
     {% include "vacaciones/partials/detalle_solicitud.html" %}

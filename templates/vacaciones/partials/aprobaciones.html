@@ -52,6 +52,7 @@
           hx-get="/vacaciones/solicitudes/{{ s.id }}?origen=aprobaciones"
           hx-target="#tab-content"
           hx-swap="innerHTML"
+          hx-push-url="/perfil/ui?tab=aprobaciones&solicitud_id={{ s.id }}&origen=aprobaciones"
           class="inline-flex items-center rounded-lg border border-[#00BABB]/30 bg-[#00BABB]/10 px-3 py-1.5 text-xs font-semibold text-[#007A7B] hover:bg-[#00BABB]/20 transition-colors">
           Ver
         </button>
