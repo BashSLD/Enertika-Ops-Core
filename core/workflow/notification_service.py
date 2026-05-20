@@ -922,7 +922,13 @@ class NotificationService:
                 "base_url": settings.APP_BASE_URL,
             })
             sender = await self._get_notification_sender(conn)
-            await self._send_email({aprobador_email}, set(), f"Nueva solicitud de {solicitud['tipo_nombre']}: {solicitud['solicitante_nombre']}", html, sender["email"])
+            await self._send_email(
+                {aprobador_email},
+                set(),
+                f"Nueva Solicitud de {solicitud['tipo_nombre']} - {solicitud['solicitante_nombre']}",
+                html,
+                sender["email"],
+            )
 
             await self._save_and_broadcast(
                 conn=conn,
@@ -972,7 +978,7 @@ class NotificationService:
             await self._send_email(
                 {solicitud["solicitante_email"]},
                 cc,
-                f"Solicitud aprobada: {solicitud['tipo_nombre']}",
+                f"Solicitud aprobada: {solicitud['tipo_nombre']} - {solicitud['solicitante_nombre']}",
                 html,
                 sender["email"],
                 attachments_files=attachments,
