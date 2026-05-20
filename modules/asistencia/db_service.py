@@ -510,6 +510,9 @@ async def upsert_asistencia_diaria_batch(conn, rows: list[dict]) -> None:
     )
 
 
+_MAX_EXPORT_ROWS = 50_000
+
+
 async def get_reporte_asistencia(
     conn,
     *,
@@ -517,11 +520,15 @@ async def get_reporte_asistencia(
     fecha_fin: date,
     usuario_ids: list[UUID] | None = None,
     sucursal_ids: list[UUID] | None = None,
-    estado: str | None = None,
+    estados: list[str] | None = None,
     solo_horas_extra: bool = False,
+    limit: int | None = None,
+    offset: int = 0,
 ) -> list[dict]:
     uids = usuario_ids or []
     sids = sucursal_ids or []
+    ests = estados or []
+    lim = limit if limit is not None else _MAX_EXPORT_ROWS
     rows = await conn.fetch(
         """
         SELECT
@@ -550,16 +557,19 @@ async def get_reporte_asistencia(
           AND ad.fecha_laboral <= $2
           AND (cardinality($3::uuid[]) = 0 OR ad.usuario_id = ANY($3))
           AND (cardinality($4::uuid[]) = 0 OR ad.sucursal_id = ANY($4))
-          AND ($5::text IS NULL OR ad.estado = $5)
+          AND (cardinality($5::text[]) = 0 OR ad.estado = ANY($5))
           AND ($6::bool = false OR ad.minutos_extra > 0)
         ORDER BY ad.fecha_laboral DESC, u.nombre
+        LIMIT $7 OFFSET $8
         """,
         fecha_inicio,
         fecha_fin,
         uids,
         sids,
-        estado,
+        ests,
         solo_horas_extra,
+        lim,
+        offset,
     )
     return [dict(row) for row in rows]
 

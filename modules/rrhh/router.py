@@ -364,7 +364,7 @@ async def reporte_asistencia_excel(
     fecha_fin: date,
     usuario_id: List[str] = Query(default=[]),
     sucursal_id: List[str] = Query(default=[]),
-    estado: Optional[str] = None,
+    estado: List[str] = Query(default=[]),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
@@ -379,7 +379,8 @@ async def reporte_asistencia_excel(
             fecha_fin=fecha_fin,
             usuario_ids=uids or None,
             sucursal_ids=sids or None,
-            estado=estado or None,
+            estados=estado or None,
+            limit=None,
         )
         unmapped = await asistencia_db.get_unmapped_biotime_checks_summary(
             conn,
@@ -516,6 +517,7 @@ async def reporte_horas_extra_excel(
             usuario_ids=uids or None,
             sucursal_ids=sids or None,
             solo_horas_extra=True,
+            limit=None,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -1240,14 +1242,18 @@ async def festivo_eliminar(
 # Asistencia (vista HTML)
 # ─────────────────────────────────────────────
 
+_ASISTENCIA_PER_PAGE = 100
+
+
 @router.get("/asistencia")
 async def asistencia_panel(
     request: Request,
     fecha_inicio: Optional[date] = None,
     fecha_fin: Optional[date] = None,
-    usuario_id: Optional[str] = None,
+    usuario_id: List[str] = Query(default=[]),
     sucursal_id: Optional[str] = None,
-    estado: Optional[str] = None,
+    estado: List[str] = Query(default=[]),
+    page: int = 0,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
@@ -1255,22 +1261,28 @@ async def asistencia_panel(
     hoy = today_mx()
     fi = fecha_inicio or hoy
     ff = fecha_fin or hoy
+    page = max(0, page)
 
     rows = []
     unmapped = []
     error = None
+    tiene_siguiente = False
     try:
-        uid = _parse_optional_uuid(usuario_id, "usuario_id")
+        uids = _parse_uuid_list(usuario_id, "usuario_id")
         sid = _parse_optional_uuid(sucursal_id, "sucursal_id")
         service.validar_rango_reportes(fi, ff)
         raw = await asistencia_db.get_reporte_asistencia(
             conn,
             fecha_inicio=fi,
             fecha_fin=ff,
-            usuario_ids=[uid] if uid else None,
+            usuario_ids=uids or None,
             sucursal_ids=[sid] if sid else None,
-            estado=estado or None,
+            estados=estado or None,
+            limit=_ASISTENCIA_PER_PAGE + 1,
+            offset=page * _ASISTENCIA_PER_PAGE,
         )
+        tiene_siguiente = len(raw) > _ASISTENCIA_PER_PAGE
+        raw = raw[:_ASISTENCIA_PER_PAGE]
         unmapped = await asistencia_db.get_unmapped_biotime_checks_summary(
             conn,
             fecha_inicio=fi,
@@ -1299,15 +1311,18 @@ async def asistencia_panel(
             "rows": rows,
             "fecha_inicio": fi,
             "fecha_fin": ff,
-            "usuario_id_filtro": usuario_id or "",
+            "usuario_ids_filtro": usuario_id,
             "sucursal_id_filtro": sucursal_id or "",
-            "estado_filtro": estado or "",
-            "usuarios": usuarios,
+            "estados_filtro": estado,
+            "usuarios_list": [{"id": str(u["id_usuario"]), "nombre": u["nombre"]} for u in usuarios],
             "sucursales": sucursales,
             "estados_asistencia": sorted(ASISTENCIA_ESTADOS),
             "estados_asistencia_labels": ASISTENCIA_ESTADO_LABELS,
             "checadas_sin_mapear": unmapped,
             "error": error,
+            "page": page,
+            "tiene_anterior": page > 0,
+            "tiene_siguiente": tiene_siguiente,
         },
     )
 

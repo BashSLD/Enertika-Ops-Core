@@ -1,4 +1,4 @@
-{% macro filtro_multi(field_name, opciones_json, placeholder="Todos") %}
+{% macro filtro_multi(field_name, opciones_json, placeholder="Todos", seleccionados_json="[]") %}
 <div
   x-data="{
     opciones: [],
@@ -15,9 +15,13 @@
       i >= 0 ? this.seleccionados.splice(i, 1) : this.seleccionados.push(id);
     },
     nombre(id) { return (this.opciones.find(o => o.id === id) || {}).nombre || ''; },
-    init() { this.opciones = JSON.parse(this.$el.dataset.opciones || '[]'); }
+    init() {
+      this.opciones = JSON.parse(this.$el.dataset.opciones || '[]');
+      this.seleccionados = JSON.parse(this.$el.dataset.seleccionados || '[]');
+    }
   }"
   data-opciones='{{ opciones_json }}'
+  data-seleccionados='{{ seleccionados_json }}'
   class="relative"
   @click.outside="abierto = false"
   @keydown.escape="abierto = false"

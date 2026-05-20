@@ -1,5 +1,15 @@
+{% from "rrhh/partials/reportes.html" import filtro_multi %}
+{%- set ns_e = namespace(items=[]) -%}
+{%- for e in estados_asistencia -%}
+  {%- set ns_e.items = ns_e.items + [{"id": e, "nombre": estados_asistencia_labels.get(e, e)}] -%}
+{%- endfor -%}
+{%- set ns_p = namespace(q="fecha_inicio=" ~ fecha_inicio ~ "&fecha_fin=" ~ fecha_fin) -%}
+{%- for uid in usuario_ids_filtro -%}{%- set ns_p.q = ns_p.q ~ "&usuario_id=" ~ uid -%}{%- endfor -%}
+{%- if sucursal_id_filtro -%}{%- set ns_p.q = ns_p.q ~ "&sucursal_id=" ~ sucursal_id_filtro -%}{%- endif -%}
+{%- for e in estados_filtro -%}{%- set ns_p.q = ns_p.q ~ "&estado=" ~ e -%}{%- endfor -%}
+
 <div class="space-y-3"
-     x-data="{ showFiltros: {{ 'true' if (usuario_id_filtro or sucursal_id_filtro or estado_filtro) else 'false' }} }">
+     x-data="{ showFiltros: {{ 'true' if (usuario_ids_filtro or sucursal_id_filtro or estados_filtro) else 'false' }} }">
 
   <div class="flex items-center justify-between gap-3">
     <div>
@@ -13,7 +23,8 @@
                         .then(r => r.json())
                         .then(() => {
                           syncing = false;
-                          htmx.ajax('GET', '/rrhh/asistencia?fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}{% if usuario_id_filtro %}&usuario_id={{ usuario_id_filtro }}{% endif %}{% if sucursal_id_filtro %}&sucursal_id={{ sucursal_id_filtro }}{% endif %}{% if estado_filtro %}&estado={{ estado_filtro }}{% endif %}', { target: '#rrhh-content', swap: 'innerHTML' });
+                          const params = new URLSearchParams(new FormData(document.getElementById('filtros-asistencia'))).toString();
+                          htmx.ajax('GET', '/rrhh/asistencia?' + params, { target: '#rrhh-content', swap: 'innerHTML' });
                         })
                         .catch(() => { syncing = false })"
               :disabled="syncing"
@@ -28,7 +39,7 @@
         </svg>
       </button>
       {% if not error %}
-      <a href="/rrhh/reportes/asistencia.xlsx?fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}{% if usuario_id_filtro %}&usuario_id={{ usuario_id_filtro }}{% endif %}{% if sucursal_id_filtro %}&sucursal_id={{ sucursal_id_filtro }}{% endif %}{% if estado_filtro %}&estado={{ estado_filtro }}{% endif %}"
+      <a href="/rrhh/reportes/asistencia.xlsx?{{ ns_p.q }}"
          title="Exportar Excel"
          class="flex items-center justify-center w-9 h-9 rounded-lg border border-gray-200 bg-white hover:bg-gray-50 text-gray-500 hover:text-gray-700 transition-colors">
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -43,7 +54,7 @@
         <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2a1 1 0 01-.293.707L13 13.414V19a1 1 0 01-.553.894l-4 2A1 1 0 017 21v-7.586L3.293 6.707A1 1 0 013 6V4z"/>
         </svg>
-        {% if usuario_id_filtro or sucursal_id_filtro or estado_filtro %}
+        {% if usuario_ids_filtro or sucursal_id_filtro or estados_filtro %}
         <span class="absolute top-1 right-1 w-2 h-2 rounded-full bg-[#00BABB]"></span>
         {% endif %}
       </button>
@@ -54,7 +65,7 @@
        x-transition:enter-start="opacity-0 -translate-y-1" x-transition:enter-end="opacity-100 translate-y-0"
        x-transition:leave="transition ease-in duration-100"
        x-transition:leave-start="opacity-100 translate-y-0" x-transition:leave-end="opacity-0 -translate-y-1">
-    <form hx-get="/rrhh/asistencia" hx-target="#rrhh-content" hx-swap="innerHTML"
+    <form id="filtros-asistencia" hx-get="/rrhh/asistencia" hx-target="#rrhh-content" hx-swap="innerHTML"
           class="bg-white rounded-xl border border-gray-100 shadow-sm p-3">
       <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 items-end">
         <div>
@@ -67,16 +78,12 @@
           <input type="date" name="fecha_fin" value="{{ fecha_fin }}"
                  class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
         </div>
+
         <div>
           <label class="block text-xs font-medium text-gray-500 mb-1">Empleado</label>
-          <select name="usuario_id"
-                  class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
-            <option value="">Todos</option>
-            {% for u in usuarios %}
-            <option value="{{ u.id_usuario }}" {% if usuario_id_filtro == u.id_usuario|string %}selected{% endif %}>{{ u.nombre }}</option>
-            {% endfor %}
-          </select>
+          {{ filtro_multi("usuario_id", usuarios_list | tojson, "Todos", usuario_ids_filtro | tojson) }}
         </div>
+
         <div>
           <label class="block text-xs font-medium text-gray-500 mb-1">Sucursal</label>
           <select name="sucursal_id"
@@ -87,16 +94,12 @@
             {% endfor %}
           </select>
         </div>
+
         <div>
           <label class="block text-xs font-medium text-gray-500 mb-1">Estado</label>
-          <select name="estado"
-                  class="w-full border border-gray-200 rounded-lg px-2 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
-            <option value="">Todos</option>
-            {% for e in estados_asistencia %}
-            <option value="{{ e }}" {% if estado_filtro == e %}selected{% endif %}>{{ estados_asistencia_labels.get(e, e.replace('_', ' ')) }}</option>
-            {% endfor %}
-          </select>
+          {{ filtro_multi("estado", ns_e.items | tojson, "Todos", estados_filtro | tojson) }}
         </div>
+
         <button type="submit"
                 class="bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-1.5 px-4 rounded-lg transition-colors">
           Buscar
@@ -198,8 +201,21 @@
         </tbody>
       </table>
     </div>
-    <div class="px-4 py-3 border-t border-gray-100 text-xs text-gray-400 flex items-center justify-between">
+    <div class="px-4 py-3 border-t border-gray-100 text-xs text-gray-400 flex items-center justify-between gap-4">
       <span>{{ rows | length }} registro(s)</span>
+      <div class="flex items-center gap-3">
+        {% if tiene_anterior %}
+        <a hx-get="/rrhh/asistencia?{{ ns_p.q }}&page={{ page - 1 }}"
+           hx-target="#rrhh-content" hx-swap="innerHTML"
+           class="cursor-pointer hover:text-gray-600 transition-colors">← Anterior</a>
+        {% endif %}
+        <span>Pág. {{ page + 1 }}</span>
+        {% if tiene_siguiente %}
+        <a hx-get="/rrhh/asistencia?{{ ns_p.q }}&page={{ page + 1 }}"
+           hx-target="#rrhh-content" hx-swap="innerHTML"
+           class="cursor-pointer hover:text-gray-600 transition-colors">Siguiente →</a>
+        {% endif %}
+      </div>
       <span>{{ fecha_inicio }} — {{ fecha_fin }}</span>
     </div>
     {% else %}
