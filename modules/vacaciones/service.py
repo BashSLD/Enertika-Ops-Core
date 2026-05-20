@@ -518,6 +518,7 @@ async def get_equipo_dashboard(conn, user_id: UUID, user_ctx: dict) -> dict:
             "vacaciones_actuales": [],
             "vacaciones_proximas": [],
             "horas_extra_pendientes": [],
+            "horas_extra_pendientes_json": [],
             "hoy": hoy,
         }
 
@@ -542,12 +543,20 @@ async def get_equipo_dashboard(conn, user_id: UUID, user_ctx: dict) -> dict:
     )
     for row in horas_extra:
         row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
+    horas_extra_json = [
+        {
+            "id": str(row["id"]),
+            "minutos_extra": int(row.get("minutos_extra") or 0),
+        }
+        for row in horas_extra
+    ]
 
     return {
         "equipo": equipo,
         "vacaciones_actuales": vacaciones_actuales,
         "vacaciones_proximas": vacaciones_proximas,
         "horas_extra_pendientes": horas_extra,
+        "horas_extra_pendientes_json": horas_extra_json,
         "hoy": hoy,
     }
 
