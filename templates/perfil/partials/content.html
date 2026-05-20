@@ -1,5 +1,5 @@
-{% set current_tab = initial_tab | default('vacaciones') %}
-{% set current_endpoint = initial_endpoint | default('/vacaciones/balance') %}
+{% set current_tab = initial_tab | default('asistencia') %}
+{% set current_endpoint = initial_endpoint | default('/perfil/asistencia') %}
 <div class="animate-fade-in-down px-4 pb-8"
      x-data="{ tab: new URLSearchParams(location.search).get('tab') || '{{ current_tab }}', modalSolicitud: false }"
      @abrir-modal-solicitud.window="modalSolicitud = true"

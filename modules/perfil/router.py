@@ -4,13 +4,17 @@ import base64
 import binascii
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from datetime import timedelta
+
+from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from core.database import get_db_connection
 from core.permissions import user_has_module_access
 from core.security import get_current_user_context
+from core.timezone import fmt_time_mx, today_mx
+from modules.asistencia.constants import ASISTENCIA_ESTADO_LABELS
 from modules.perfil import db_service as perfil_db
 from modules.perfil import service as perfil_service
 from modules.shared import signatures_db_service as signatures_db
@@ -22,12 +26,38 @@ router = APIRouter(prefix="/perfil", tags=["perfil"])
 templates = Jinja2Templates(directory="templates")
 
 PERFIL_TAB_ENDPOINTS = {
+    "asistencia": "/perfil/asistencia",
     "vacaciones": "/vacaciones/balance",
     "solicitudes": "/vacaciones/solicitudes",
     "aprobaciones": "/vacaciones/aprobaciones",
     "equipo": "/vacaciones/equipo",
     "firma": "/perfil/firma",
 }
+
+_DIAS_SEMANA = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+_ASISTENCIA_DIAS_VENTANA = 90
+
+
+def _fmt_minutos(minutos: int | None) -> str:
+    if not minutos:
+        return "0 min"
+    h, m = divmod(int(minutos), 60)
+    if h and m:
+        return f"{h}h {m}min"
+    return f"{h}h" if h else f"{m}min"
+
+
+def _preparar_asistencia_rows(rows: list[dict]) -> list[dict]:
+    for row in rows:
+        row["dia_semana"] = _DIAS_SEMANA[row["fecha_laboral"].weekday()]
+        row["entrada_fmt"] = fmt_time_mx(row.get("primera_entrada"))
+        row["salida_fmt"] = fmt_time_mx(row.get("ultima_salida"))
+        row["trabajado_fmt"] = _fmt_minutos(row.get("minutos_trabajados"))
+        row["extra_fmt"] = _fmt_minutos(row.get("minutos_extra"))
+        row["estado_label"] = ASISTENCIA_ESTADO_LABELS.get(
+            row.get("estado", ""), row.get("estado", "")
+        )
+    return rows
 
 
 def _legacy_redirect(path: str) -> RedirectResponse:
@@ -66,9 +96,9 @@ def _resolve_initial_tab(
     if solicitud_pendiente_id:
         return "firma", f"/perfil/firma?solicitud_pendiente_id={solicitud_pendiente_id}"
 
-    initial_tab = tab if tab in PERFIL_TAB_ENDPOINTS else "vacaciones"
+    initial_tab = tab if tab in PERFIL_TAB_ENDPOINTS else "asistencia"
     if initial_tab in {"aprobaciones", "equipo"} and not es_jefe_o_aprobador:
-        initial_tab = "vacaciones"
+        initial_tab = "asistencia"
     return initial_tab, PERFIL_TAB_ENDPOINTS[initial_tab]
 
 
@@ -218,6 +248,45 @@ async def guardar_firma_dibujada(
             "toast_msg": "Firma guardada correctamente.",
             "toast_type": "success",
         },
+    )
+
+
+async def _fetch_asistencia(conn, usuario_id: UUID, offset: int) -> tuple[list[dict], bool]:
+    hoy = today_mx()
+    desde = hoy - timedelta(days=_ASISTENCIA_DIAS_VENTANA)
+    rows = await perfil_db.get_mi_asistencia(conn, usuario_id, desde, hoy, limit=15, offset=offset)
+    tiene_mas = len(rows) > 15
+    return _preparar_asistencia_rows(rows[:15]), tiene_mas
+
+
+@router.get("/asistencia")
+async def mi_asistencia(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+):
+    usuario_id = UUID(str(context["user_db_id"]))
+    rows, tiene_mas = await _fetch_asistencia(conn, usuario_id, offset=0)
+    return templates.TemplateResponse(
+        request,
+        "perfil/partials/tab_asistencia.html",
+        {"asistencia": rows, "tiene_mas": tiene_mas, "offset": 0, "context": context},
+    )
+
+
+@router.get("/asistencia/mas")
+async def mi_asistencia_mas(
+    request: Request,
+    offset: int = Query(default=15, ge=1),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+):
+    usuario_id = UUID(str(context["user_db_id"]))
+    rows, tiene_mas = await _fetch_asistencia(conn, usuario_id, offset=offset)
+    return templates.TemplateResponse(
+        request,
+        "perfil/partials/tab_asistencia_rows.html",
+        {"asistencia": rows, "tiene_mas": tiene_mas, "offset": offset, "context": context},
     )
 
 

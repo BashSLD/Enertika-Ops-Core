@@ -1,0 +1,84 @@
+{% for row in asistencia %}
+{% set estado = row.estado or 'sin_registro' %}
+<div id="he-row-mi-{{ row.id }}"
+     class="px-5 py-3 flex flex-col sm:flex-row sm:items-center gap-2 {% if row.minutos_extra and row.horas_extra_estado == 'solicitado' %}bg-blue-50/40{% endif %}">
+
+  <!-- Fecha + estado -->
+  <div class="min-w-0 flex-1">
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="text-sm font-semibold text-gray-800">
+        {{ row.dia_semana }} {{ row.fecha_laboral.strftime('%d/%m/%Y') }}
+      </span>
+      {% if estado == 'asistencia' %}
+        <span class="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">{{ row.estado_label }}</span>
+      {% elif estado == 'en_curso' %}
+        <span class="px-2 py-0.5 rounded-full bg-sky-100 text-sky-700 text-xs font-medium">{{ row.estado_label }}</span>
+      {% elif estado in ('falta', 'sin_registro', 'incompleto') %}
+        <span class="px-2 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-medium">{{ row.estado_label }}</span>
+      {% elif estado in ('vacaciones', 'checada_en_vacaciones') %}
+        <span class="px-2 py-0.5 rounded-full bg-[#00BABB]/15 text-[#007C7D] text-xs font-medium">{{ row.estado_label }}</span>
+      {% elif estado in ('descanso', 'feriado') %}
+        <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">{{ row.estado_label }}</span>
+      {% else %}
+        <span class="px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 text-xs font-medium">{{ row.estado_label }}</span>
+      {% endif %}
+    </div>
+
+    {% if row.entrada_fmt %}
+    <p class="text-xs text-gray-500 mt-0.5">
+      {{ row.entrada_fmt }} → {{ row.salida_fmt or '...' }}
+      {% if row.minutos_trabajados %}&middot; {{ row.trabajado_fmt }}{% endif %}
+    </p>
+    {% endif %}
+  </div>
+
+  <!-- Horas extra + accion -->
+  {% if row.minutos_extra and row.minutos_extra > 0 %}
+  <div class="flex flex-wrap items-center gap-2 flex-shrink-0">
+    <span class="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+      +{{ row.extra_fmt }} extra
+    </span>
+
+    {% if row.horas_extra_estado == 'pendiente' %}
+    <button disabled
+            title="Próximamente podrás enviar la solicitud directamente"
+            class="px-3 py-1 rounded-lg text-xs font-medium text-white bg-gray-300 cursor-not-allowed opacity-60">
+      Solicitar aprobación
+    </button>
+
+    {% elif row.horas_extra_estado == 'solicitado' %}
+    <span class="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
+      Solicitada
+    </span>
+    {% if row.motivo_solicitud %}
+    <span class="text-xs text-gray-500 italic">"{{ row.motivo_solicitud }}"</span>
+    {% endif %}
+
+    {% elif row.horas_extra_estado == 'aprobado' %}
+    <span class="px-2.5 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
+      Aprobada
+    </span>
+
+    {% elif row.horas_extra_estado == 'omitido' %}
+    <span class="px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-400 text-xs font-medium">
+      Descartada
+    </span>
+    {% endif %}
+  </div>
+  {% endif %}
+
+</div>
+{% endfor %}
+
+{% if tiene_mas %}
+<div id="ver-mas-asistencia">
+  <button
+    hx-get="/perfil/asistencia/mas?offset={{ offset + 15 }}"
+    hx-target="#ver-mas-asistencia"
+    hx-swap="outerHTML"
+    hx-indicator="#ver-mas-asistencia"
+    class="w-full py-3 text-xs font-medium text-[#007C7D] hover:bg-gray-50 transition-colors">
+    Ver más días
+  </button>
+</div>
+{% endif %}
