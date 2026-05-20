@@ -1454,11 +1454,13 @@ class ComprasService:
         facturas_data: List[dict],
         comprobante_ids: List[UUID],
         user_id: UUID,
+        forzar_excepcion: bool = False,
+        motivo_excepcion: Optional[str] = None,
     ) -> dict:
         """Vincula N facturas XML a M comprobantes mediante distribucion greedy.
 
         Requiere que todas las facturas sean del mismo RFC.
-        Tolerancia de suma: $2.00.
+        Diferencias mayores a la tolerancia normal requieren motivo de excepcion.
         """
         from .db_service import get_db_service
         db_svc = get_db_service()
@@ -1482,20 +1484,34 @@ class ComprasService:
             nombres = ', '.join(c.get('beneficiario_orig', '?') for c in invalidos)
             raise ValueError(f"Comprobantes no disponibles para match: {nombres}")
 
-        tolerancia_grupo = Decimal("2.00")
-        sum_facturas = sum(Decimal(str(f.get('total', 0))) for f in facturas_data)
-        sum_pagos = sum(Decimal(str(c['monto'])) for c in comprobantes)
+        def saldo_disponible(comprobante: dict) -> Decimal:
+            monto = Decimal(str(comprobante['monto']))
+            monto_facturado = Decimal(str(comprobante.get('monto_facturado') or 0))
+            return monto - monto_facturado
 
-        if abs(sum_facturas - sum_pagos) > tolerancia_grupo:
+        tolerancia_grupo = MATCH_TOLERANCIA
+        sum_facturas = sum(Decimal(str(f.get('total', 0))) for f in facturas_data)
+        sum_pagos = sum(saldo_disponible(c) for c in comprobantes)
+        diferencia_grupo = abs(sum_facturas - sum_pagos)
+        requiere_excepcion = diferencia_grupo > tolerancia_grupo
+
+        motivo_limpio = (motivo_excepcion or "").strip()
+        if requiere_excepcion and not forzar_excepcion:
             raise ValueError(
-                f"Diferencia de montos supera $2.00: facturas ${sum_facturas:,.2f} "
-                f"vs pagos ${sum_pagos:,.2f} (diferencia: ${abs(sum_facturas - sum_pagos):,.2f})"
+                f"La diferencia de montos supera ${tolerancia_grupo:,.2f}: "
+                f"facturas ${sum_facturas:,.2f} vs pagos ${sum_pagos:,.2f} "
+                f"(diferencia: ${diferencia_grupo:,.2f}). Captura un motivo de excepcion."
             )
+        if requiere_excepcion and not motivo_limpio:
+            raise ValueError("Captura el motivo de excepcion para vincular fuera de tolerancia")
 
         facturas_sorted = sorted(facturas_data, key=lambda f: Decimal(str(f.get('total', 0))), reverse=True)
-        pagos_sorted = sorted(comprobantes, key=lambda c: Decimal(str(c['monto'])), reverse=True)
+        pagos_sorted = sorted(comprobantes, key=saldo_disponible, reverse=True)
 
-        pago_balances = {str(c['id_comprobante']): Decimal(str(c['monto'])) for c in pagos_sorted}
+        pago_balances = {
+            str(c['id_comprobante']): saldo_disponible(c)
+            for c in pagos_sorted
+        }
 
         assignments = []
         cero = Decimal("0.005")
@@ -1514,12 +1530,18 @@ class ComprasService:
                 assignments.append({
                     'factura': factura,
                     'id_comprobante': UUID(comp_id),
+                    'uuid_factura': factura.get('uuid', ''),
+                    'monto_factura': total_factura,
                     'monto_aplicado': aplicar,
                     'is_full': is_full,
                 })
                 pago_balances[comp_id] -= aplicar
                 remaining -= aplicar
 
+        comprobantes_con_asignacion = list(dict.fromkeys(
+            assign['id_comprobante'] for assign in assignments
+        ))
+        resultados_match = []
         for assign in assignments:
             factura_data = dict(assign['factura'])
             if not assign['is_full']:
@@ -1527,16 +1549,74 @@ class ComprasService:
             else:
                 factura_data.pop('monto_aplicado', None)
 
-            await self.confirmar_match_xml(
+            resultado_match = await self.confirmar_match_xml(
                 conn, factura_data, assign['id_comprobante'], user_id,
                 guardar_relacion=True, forzar_match=True,
             )
+            resultados_match.append(resultado_match)
+
+        comprobantes_cerrados = []
+        for id_comprobante in comprobantes_con_asignacion:
+            comprobante_actual = await db_svc.get_comprobante_by_id(conn, id_comprobante)
+            if not comprobante_actual:
+                continue
+
+            monto_pago = Decimal(str(comprobante_actual.get('monto') or 0))
+            monto_facturado = Decimal(str(comprobante_actual.get('monto_facturado') or 0))
+            diferencia_comprobante = monto_pago - monto_facturado
+            debe_cerrar_por_tolerancia = abs(diferencia_comprobante) <= tolerancia_grupo
+            debe_cerrar_por_excepcion = requiere_excepcion and forzar_excepcion
+
+            if comprobante_actual.get('estatus') not in ('PARCIALMENTE_FACTURADO', 'FACTURADO'):
+                continue
+            if abs(diferencia_comprobante) <= cero:
+                continue
+            if not debe_cerrar_por_tolerancia and not debe_cerrar_por_excepcion:
+                continue
+
+            if debe_cerrar_por_excepcion:
+                motivo = (
+                    f"Excepcion match grupal XML: {motivo_limpio}. "
+                    f"Diferencia: ${diferencia_comprobante:,.2f}."
+                )
+            else:
+                motivo = (
+                    "Cerrado automaticamente por match grupal XML. "
+                    f"Diferencia dentro de tolerancia: ${diferencia_comprobante:,.2f}."
+                )
+
+            cierre = await db_svc.cerrar_remanente_automatico(
+                conn, id_comprobante, motivo, user_id
+            )
+            if cierre and cierre.get('cerrado'):
+                comprobantes_cerrados.append({
+                    'id_comprobante': str(id_comprobante),
+                    'monto_remanente': float(cierre.get('monto_remanente') or 0),
+                    'motivo': motivo,
+                })
+
+        asignaciones_result = [
+            {
+                'uuid_factura': assign['uuid_factura'],
+                'id_comprobante': str(assign['id_comprobante']),
+                'monto_factura': float(assign['monto_factura']),
+                'monto_aplicado': float(assign['monto_aplicado']),
+            }
+            for assign in assignments
+        ]
 
         return {
             'total_facturas': len(facturas_data),
             'total_comprobantes': len(comprobante_ids),
             'sum_facturas': float(sum_facturas),
             'sum_pagos': float(sum_pagos),
+            'diferencia': float(diferencia_grupo),
+            'tolerancia': float(tolerancia_grupo),
+            'requiere_excepcion': requiere_excepcion,
+            'motivo_excepcion': motivo_limpio if forzar_excepcion else '',
+            'asignaciones': asignaciones_result,
+            'matches': resultados_match,
+            'comprobantes_cerrados': comprobantes_cerrados,
         }
 
 

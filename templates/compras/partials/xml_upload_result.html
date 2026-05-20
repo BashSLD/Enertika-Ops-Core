@@ -491,7 +491,8 @@
             </p>
         </div>
         <button type="button"
-                onclick="abrirModalGrupo({{ rfc | tojson }})"
+                data-rfc="{{ rfc }}"
+                onclick="abrirModalGrupo(this.dataset.rfc)"
                 class="shrink-0 px-3 py-1.5 text-xs font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors">
             Vincular como grupo
         </button>
@@ -521,107 +522,166 @@
         <div class="flex items-center justify-between px-6 py-4 border-b">
           <div>
             <h3 class="font-semibold text-gray-900" x-text="nombre"></h3>
-            <p class="text-xs text-gray-500 mt-0.5">RFC <span x-text="rfc"></span> · <span x-text="facturas.length"></span> facturas · $<span x-text="sumFacturas.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})"></span></p>
+            <p class="text-xs text-gray-500 mt-0.5">RFC <span x-text="rfc"></span> · <span x-text="facturas.length"></span> facturas · <span x-text="formatoMoneda(sumFacturas)"></span></p>
           </div>
-          <button @click="cerrar()" class="text-gray-400 hover:text-gray-600 p-1">
+          <button @click="exito ? finalizar() : cerrar()" class="text-gray-400 hover:text-gray-600 p-1">
             <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
           </button>
         </div>
 
         <!-- Body -->
-        <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4 space-y-4">
+        <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+          <div x-show="!exito" class="space-y-4">
 
-          <!-- Facturas del grupo -->
-          <div>
-            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Facturas a vincular</p>
-            <div class="space-y-1">
-              <template x-for="f in facturas" :key="f.uuid">
-                <div class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
-                  <div class="min-w-0">
-                    <span class="font-mono text-xs text-gray-400" x-text="f.uuid.substring(0,8) + '...'"></span>
-                    <span class="ml-2 text-gray-700 text-xs" x-text="f.fecha ? f.fecha.substring(0,10) : ''"></span>
+            <!-- Facturas del grupo -->
+            <div>
+              <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Facturas a vincular</p>
+              <div class="space-y-1">
+                <template x-for="f in facturas" :key="f.uuid">
+                  <div class="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm">
+                    <div class="min-w-0">
+                      <span class="font-mono text-xs text-gray-400" x-text="f.uuid.substring(0,8) + '...'"></span>
+                      <span class="ml-2 text-gray-700 text-xs" x-text="f.fecha ? f.fecha.substring(0,10) : ''"></span>
+                    </div>
+                    <span class="font-semibold text-gray-900 text-sm shrink-0 ml-3"
+                          x-text="formatoMoneda(f.total) + ' ' + f.moneda"></span>
                   </div>
-                  <span class="font-semibold text-gray-900 text-sm shrink-0 ml-3"
-                        x-text="'$' + parseFloat(f.total||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2}) + ' ' + f.moneda"></span>
-                </div>
-              </template>
-            </div>
-          </div>
-
-          <hr class="border-gray-100">
-
-          <!-- Busqueda de comprobantes -->
-          <div>
-            <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Seleccionar comprobantes de pago</p>
-            <div class="flex gap-2 mb-3">
-              <input type="text"
-                     x-model="searchQ"
-                     @input.debounce.400ms="cargarComprobantes(searchQ)"
-                     placeholder="Buscar por beneficiario..."
-                     class="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+                </template>
+              </div>
             </div>
 
-            <!-- Lista comprobantes -->
-            <div class="space-y-1 max-h-48 overflow-y-auto">
-              <template x-if="cargando">
-                <div class="text-center text-xs text-gray-400 py-4">Cargando...</div>
-              </template>
-              <template x-if="!cargando && comprobantes.length === 0">
-                <div class="text-center text-xs text-gray-400 py-4">Sin resultados</div>
-              </template>
-              <template x-for="c in comprobantes" :key="c.id_comprobante">
-                <label class="flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer transition-colors"
-                       :class="selectedIds.includes(c.id_comprobante) ? 'border-indigo-300 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'">
-                  <input type="checkbox"
-                         :value="c.id_comprobante"
-                         :checked="selectedIds.includes(c.id_comprobante)"
-                         @change="toggleComp(c.id_comprobante)"
-                         class="rounded border-gray-300 text-indigo-600">
+            <hr class="border-gray-100">
+
+            <!-- Busqueda de comprobantes -->
+            <div>
+              <p class="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Seleccionar comprobantes de pago</p>
+              <div class="flex gap-2 mb-3">
+                <input type="text"
+                       x-model="searchQ"
+                       @input.debounce.400ms="cargarComprobantes(searchQ)"
+                       placeholder="Buscar por beneficiario..."
+                       class="flex-1 rounded-lg border border-gray-300 px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500">
+              </div>
+
+              <!-- Lista comprobantes -->
+              <div class="space-y-1 max-h-48 overflow-y-auto">
+                <template x-if="cargando">
+                  <div class="text-center text-xs text-gray-400 py-4">Cargando...</div>
+                </template>
+                <template x-if="!cargando && comprobantes.length === 0">
+                  <div class="text-center text-xs text-gray-400 py-4">Sin resultados</div>
+                </template>
+                <template x-for="c in comprobantes" :key="c.id_comprobante">
+                  <label class="flex items-center gap-3 rounded-lg border px-3 py-2 cursor-pointer transition-colors"
+                         :class="selectedIds.includes(c.id_comprobante) ? 'border-indigo-300 bg-indigo-50' : 'border-gray-200 hover:bg-gray-50'">
+                    <input type="checkbox"
+                           :value="c.id_comprobante"
+                           :checked="selectedIds.includes(c.id_comprobante)"
+                           @change="toggleComp(c.id_comprobante)"
+                           class="rounded border-gray-300 text-indigo-600">
                   <div class="flex-1 min-w-0">
                     <p class="text-sm text-gray-800 truncate" x-text="c.beneficiario_orig"></p>
                     <p class="text-xs text-gray-500" x-text="(c.fecha_pago_str || '') + ' · ' + c.estatus"></p>
                   </div>
                   <span class="font-semibold text-gray-900 text-sm shrink-0"
-                        x-text="'$' + parseFloat(c.monto||0).toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})"></span>
+                        x-text="formatoMoneda(saldoComprobante(c))"></span>
                 </label>
               </template>
+              </div>
             </div>
+
+            <!-- Comparacion de sumas -->
+            <div x-show="selectedIds.length > 0" class="rounded-lg border px-4 py-3 text-sm"
+                 :class="estado === 'ok' ? 'border-green-200 bg-green-50' : 'border-amber-200 bg-amber-50'">
+              <div class="flex justify-between">
+                <span class="text-gray-600">Facturas:</span>
+                <span class="font-semibold" x-text="formatoMoneda(sumFacturas)"></span>
+              </div>
+              <div class="flex justify-between mt-1">
+                <span class="text-gray-600">Saldo seleccionado:</span>
+                <span class="font-semibold" x-text="formatoMoneda(sumSeleccionados)"></span>
+              </div>
+              <div class="flex justify-between mt-1 font-medium"
+                   :class="estado === 'ok' ? 'text-green-700' : 'text-amber-700'">
+                <span>Diferencia:</span>
+                <span x-text="formatoMoneda(diferencia)"></span>
+              </div>
+              <p x-show="estado === 'ok'" class="mt-2 text-xs text-green-600">La diferencia esta dentro de la tolerancia de $0.50. Puedes confirmar.</p>
+              <p x-show="estado === 'excepcion'" class="mt-2 text-xs text-amber-700">La diferencia supera $0.50. Para vincular el grupo, captura un motivo de excepcion.</p>
+              <div x-show="estado === 'excepcion'" class="mt-3">
+                <label class="block text-xs font-medium text-amber-800 mb-1">Motivo de excepcion</label>
+                <textarea x-model="motivoExcepcion" rows="2"
+                          placeholder="Ej. Diferencia aceptada por redondeo del proveedor..."
+                          class="w-full rounded-lg border border-amber-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 resize-none"></textarea>
+              </div>
+            </div>
+
+            <!-- Error -->
+            <div x-show="error" class="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700" x-text="error"></div>
           </div>
 
-          <!-- Comparacion de sumas -->
-          <div x-show="selectedIds.length > 0" class="rounded-lg border px-4 py-3 text-sm"
-               :class="estado === 'ok' ? 'border-green-200 bg-green-50' : 'border-red-200 bg-red-50'">
-            <div class="flex justify-between">
-              <span class="text-gray-600">Facturas:</span>
-              <span class="font-semibold" x-text="'$' + sumFacturas.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})"></span>
+          <!-- Resumen de exito -->
+          <div x-show="exito" class="space-y-4">
+            <div class="rounded-lg border border-green-200 bg-green-50 px-4 py-3">
+              <div class="flex items-start gap-3">
+                <svg class="h-5 w-5 text-green-600 shrink-0 mt-0.5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+                  <path fill-rule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clip-rule="evenodd" />
+                </svg>
+                <div>
+                  <p class="text-sm font-semibold text-green-800">Grupo vinculado correctamente</p>
+                  <p class="text-xs text-green-700 mt-0.5">Revisa el resumen y acepta para salir.</p>
+                </div>
+              </div>
             </div>
-            <div class="flex justify-between mt-1">
-              <span class="text-gray-600">Pagos seleccionados:</span>
-              <span class="font-semibold" x-text="'$' + sumSeleccionados.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})"></span>
-            </div>
-            <div class="flex justify-between mt-1 font-medium"
-                 :class="estado === 'ok' ? 'text-green-700' : 'text-red-700'">
-              <span>Diferencia:</span>
-              <span x-text="'$' + diferencia.toLocaleString('es-MX',{minimumFractionDigits:2,maximumFractionDigits:2})"></span>
-            </div>
-            <p x-show="estado === 'ok'" class="mt-2 text-xs text-green-600">Las sumas coinciden. Puedes confirmar.</p>
-            <p x-show="estado !== 'ok'" class="mt-2 text-xs text-red-600">La diferencia supera $2.00. Ajusta la seleccion.</p>
-          </div>
 
-          <!-- Error -->
-          <div x-show="error" class="rounded-lg bg-red-50 border border-red-200 px-3 py-2 text-sm text-red-700" x-text="error"></div>
-          <!-- Exito -->
-          <div x-show="exito" class="rounded-lg bg-green-50 border border-green-200 px-3 py-2 text-sm text-green-700">Grupo vinculado correctamente.</div>
+            <div class="rounded-lg border border-gray-200 divide-y divide-gray-100 text-sm">
+              <div class="flex justify-between px-4 py-2">
+                <span class="text-gray-600">Facturas vinculadas</span>
+                <span class="font-semibold text-gray-900" x-text="resumen.totalFacturas"></span>
+              </div>
+              <div class="flex justify-between px-4 py-2">
+                <span class="text-gray-600">Pagos usados</span>
+                <span class="font-semibold text-gray-900" x-text="resumen.totalComprobantes"></span>
+              </div>
+              <div class="flex justify-between px-4 py-2">
+                <span class="text-gray-600">Total facturas</span>
+                <span class="font-semibold text-gray-900" x-text="formatoMoneda(resumen.totalFacturasMonto)"></span>
+              </div>
+              <div class="flex justify-between px-4 py-2">
+                <span class="text-gray-600">Saldo de pagos</span>
+                <span class="font-semibold text-gray-900" x-text="formatoMoneda(resumen.totalPagosMonto)"></span>
+              </div>
+              <div class="flex justify-between px-4 py-2">
+                <span class="text-gray-600">Diferencia</span>
+                <span class="font-semibold text-gray-900" x-text="formatoMoneda(resumen.diferencia)"></span>
+              </div>
+              <div class="flex justify-between px-4 py-2">
+                <span class="text-gray-600">Pagos cerrados por tolerancia/excepcion</span>
+                <span class="font-semibold text-gray-900" x-text="resumen.pagosCerrados"></span>
+              </div>
+              <div x-show="resumen.excepcion" class="px-4 py-2">
+                <span class="text-gray-600">Motivo de excepcion:</span>
+                <span class="ml-1 font-medium text-gray-900" x-text="resumen.motivoExcepcion"></span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Footer -->
-        <div class="px-6 py-4 border-t flex justify-end gap-3">
+        <div x-show="!exito" class="px-6 py-4 border-t flex justify-end gap-3">
           <button @click="cerrar()" type="button" class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
           <button @click="confirmar()" type="button"
                   :disabled="!puedeConfirmar"
                   class="px-4 py-2 text-sm font-medium text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed">
-            <span x-show="!enviando">Confirmar grupo</span>
+            <span x-show="!enviando && estado !== 'excepcion'">Confirmar grupo</span>
+            <span x-show="!enviando && estado === 'excepcion'">Confirmar excepcion</span>
             <span x-show="enviando">Vinculando...</span>
+          </button>
+        </div>
+        <div x-show="exito" class="px-6 py-4 border-t flex justify-end">
+          <button @click="finalizar()" type="button"
+                  class="px-4 py-2 text-sm font-medium text-white bg-green-600 rounded-lg hover:bg-green-700">
+            Aceptar
           </button>
         </div>
       </div>
@@ -643,6 +703,18 @@
       error: '',
       enviando: false,
       exito: false,
+      toleranciaGrupo: 0.50,
+      motivoExcepcion: '',
+      resumen: {
+        totalFacturas: 0,
+        totalComprobantes: 0,
+        totalFacturasMonto: 0,
+        totalPagosMonto: 0,
+        diferencia: 0,
+        pagosCerrados: 0,
+        excepcion: false,
+        motivoExcepcion: '',
+      },
 
       init() {
         const data = window.__xmlGrupos?.[this.rfc] || {};
@@ -659,17 +731,19 @@
       get sumSeleccionados() {
         return this.comprobantes
           .filter(c => this.selectedIds.includes(c.id_comprobante))
-          .reduce((s, c) => s + parseFloat(c.monto || 0), 0);
+          .reduce((s, c) => s + this.saldoComprobante(c), 0);
       },
       get diferencia() {
         return Math.abs(this.sumFacturas - this.sumSeleccionados);
       },
       get estado() {
         if (this.selectedIds.length === 0) return null;
-        return this.diferencia < 2.01 ? 'ok' : 'error';
+        return this.diferencia <= this.toleranciaGrupo ? 'ok' : 'excepcion';
       },
       get puedeConfirmar() {
-        return this.estado === 'ok' && !this.enviando;
+        if (this.enviando) return false;
+        if (this.estado === 'ok') return true;
+        return this.estado === 'excepcion' && this.motivoExcepcion.trim().length > 0;
       },
 
       async cargarComprobantes(q) {
@@ -692,6 +766,32 @@
         else this.selectedIds.push(id);
       },
 
+      formatoMoneda(valor) {
+        return '$' + parseFloat(valor || 0).toLocaleString('es-MX', {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        });
+      },
+
+      saldoComprobante(comprobante) {
+        return parseFloat(comprobante.saldo_pendiente ?? comprobante.monto ?? 0);
+      },
+
+      mostrarToast(html) {
+        const tpl = document.createElement('template');
+        tpl.innerHTML = html;
+        const toastOob = tpl.content.querySelector('[hx-swap-oob]');
+        const toastContainer = document.getElementById('global-toast-container');
+        if (toastOob && toastContainer) {
+          toastContainer.insertAdjacentHTML('afterbegin', toastOob.innerHTML);
+          if (window.Alpine && toastContainer.firstElementChild) {
+            Alpine.initTree(toastContainer.firstElementChild);
+          }
+          return;
+        }
+        document.body.insertAdjacentHTML('beforeend', html);
+      },
+
       async confirmar() {
         this.enviando = true;
         this.error = '';
@@ -703,15 +803,29 @@
           const resp = await fetch('/compras/xml-confirm-match-grupo', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ facturas, comprobante_ids: this.selectedIds }),
+            body: JSON.stringify({
+              facturas,
+              comprobante_ids: this.selectedIds,
+              forzar_excepcion: this.estado === 'excepcion',
+              motivo_excepcion: this.motivoExcepcion.trim(),
+            }),
           });
+          const data = await resp.json().catch(() => ({}));
           if (resp.ok) {
-            const html = await resp.text();
-            document.body.insertAdjacentHTML('beforeend', html);
+            const resultado = data.resultado || {};
+            this.mostrarToast(data.toast_html || '');
+            this.resumen = {
+              totalFacturas: resultado.total_facturas ?? this.facturas.length,
+              totalComprobantes: resultado.total_comprobantes ?? this.selectedIds.length,
+              totalFacturasMonto: resultado.sum_facturas ?? this.sumFacturas,
+              totalPagosMonto: resultado.sum_pagos ?? this.sumSeleccionados,
+              diferencia: resultado.diferencia ?? this.diferencia,
+              pagosCerrados: (resultado.comprobantes_cerrados || []).length,
+              excepcion: !!resultado.requiere_excepcion,
+              motivoExcepcion: resultado.motivo_excepcion || this.motivoExcepcion.trim(),
+            };
             this.exito = true;
-            setTimeout(() => this.cerrar(), 1800);
           } else {
-            const data = await resp.json().catch(() => ({}));
             this.error = data.error || 'Error al vincular el grupo';
           }
         } catch {
@@ -719,6 +833,19 @@
         } finally {
           this.enviando = false;
         }
+      },
+
+      finalizar() {
+        const pendientes = parseInt(window.__xmlToConfirm || 0, 10);
+        window.__xmlToConfirm = Math.max(0, pendientes - this.facturas.length);
+        this.cerrar();
+
+        if (window.__xmlToConfirm === 0 && typeof clearXmlUploadModal === 'function') {
+          clearXmlUploadModal();
+        }
+
+        const form = document.getElementById('filtros-form');
+        if (form && window.htmx) htmx.trigger(form, 'submit');
       },
 
       cerrar() {

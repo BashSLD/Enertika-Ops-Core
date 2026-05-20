@@ -135,10 +135,8 @@ class ComprasDBService:
                  AND da.origen_slug = 'comprobante_pago'
                 ) as count_pdf,
                 (SELECT COUNT(*)
-                 FROM tb_documentos_attachments da
-                 WHERE da.activo = true
-                 AND da.metadata->>'id_comprobante' = c.id_comprobante::text
-                 AND da.origen_slug = 'factura_xml'
+                 FROM tb_comprobante_facturas cf
+                 WHERE cf.id_comprobante = c.id_comprobante
                 ) as count_xml,
                 {_SAT_CANDIDATOS_SUBQUERY}
             FROM tb_comprobantes_pago c
@@ -247,10 +245,8 @@ class ComprasDBService:
                  WHERE da.activo = true
                    AND da.metadata->>'id_comprobante' = c.id_comprobante::text
                    AND da.origen_slug = 'comprobante_pago') as count_pdf,
-                (SELECT COUNT(*) FROM tb_documentos_attachments da
-                 WHERE da.activo = true
-                   AND da.metadata->>'id_comprobante' = c.id_comprobante::text
-                   AND da.origen_slug = 'factura_xml') as count_xml,
+                (SELECT COUNT(*) FROM tb_comprobante_facturas cf
+                 WHERE cf.id_comprobante = c.id_comprobante) as count_xml,
                 {_SAT_CANDIDATOS_SUBQUERY}
             FROM tb_comprobantes_pago c
             LEFT JOIN tb_usuarios u ON c.capturado_por_id = u.id_usuario
@@ -1290,6 +1286,50 @@ class ComprasDBService:
         """, monto_remanente, motivo, user_id, id_comprobante)
         return True
 
+    async def cerrar_remanente_automatico(
+        self, conn, id_comprobante: UUID, motivo: str, user_id: UUID
+    ) -> Optional[dict]:
+        """Cierra un comprobante parcial por tolerancia o excepcion de match grupal."""
+        row = await conn.fetchrow("""
+            SELECT monto, COALESCE(monto_facturado, 0) AS monto_facturado, estatus
+            FROM tb_comprobantes_pago
+            WHERE id_comprobante = $1
+        """, id_comprobante)
+
+        if not row:
+            return None
+
+        monto_remanente = row['monto'] - row['monto_facturado']
+        puede_cerrar = (
+            row['estatus'] in ('PARCIALMENTE_FACTURADO', 'FACTURADO')
+            and abs(monto_remanente) > Decimal("0.005")
+        )
+        if not puede_cerrar:
+            return {
+                "id_comprobante": id_comprobante,
+                "estatus": row['estatus'],
+                "monto_remanente": monto_remanente,
+                "cerrado": False,
+            }
+
+        await conn.execute("""
+            UPDATE tb_comprobantes_pago
+            SET estatus = 'CERRADO',
+                monto_remanente = $1,
+                motivo_cierre = $2,
+                cerrado_por_id = $3,
+                cerrado_at = NOW(),
+                updated_at = NOW()
+            WHERE id_comprobante = $4
+        """, monto_remanente, motivo, user_id, id_comprobante)
+
+        return {
+            "id_comprobante": id_comprobante,
+            "estatus": "CERRADO",
+            "monto_remanente": monto_remanente,
+            "cerrado": True,
+        }
+
     async def reabrir_comprobante(
         self, conn, id_comprobante: UUID
     ) -> bool:
@@ -1518,7 +1558,8 @@ class ComprasDBService:
         query = """
             SELECT
                 c.id_comprobante, c.fecha_pago, c.beneficiario_orig,
-                c.monto, c.moneda, c.estatus, c.monto_facturado
+                c.monto, c.moneda, c.estatus, c.monto_facturado,
+                (c.monto - COALESCE(c.monto_facturado, 0)) AS saldo_pendiente
             FROM tb_comprobantes_pago c
             WHERE (c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')
                    OR (c.estatus = 'ANTICIPO' AND COALESCE(c.monto_facturado, 0) < c.monto - 0.50))

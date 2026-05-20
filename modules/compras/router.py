@@ -23,6 +23,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from core.validation import validate_upload_size
 import base64
+import binascii
 from io import BytesIO
 from starlette.datastructures import Headers
 
@@ -916,7 +917,7 @@ async def get_comprobantes_pendientes_json(
     return candidatos
 
 
-@router.post("/xml-confirm-match-grupo", response_class=HTMLResponse)
+@router.post("/xml-confirm-match-grupo")
 async def confirm_xml_match_grupo(
     request: Request,
     conn = Depends(get_db_connection),
@@ -931,11 +932,13 @@ async def confirm_xml_match_grupo(
 
     try:
         body = await request.json()
-    except Exception:
-        raise HTTPException(status_code=400, detail="Cuerpo JSON invalido")
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise HTTPException(status_code=400, detail="Cuerpo JSON invalido") from exc
 
     facturas_raw = body.get("facturas", [])
     comprobante_ids_raw = body.get("comprobante_ids", [])
+    forzar_excepcion = bool(body.get("forzar_excepcion", False))
+    motivo_excepcion = (body.get("motivo_excepcion") or "").strip()
 
     if not facturas_raw or not comprobante_ids_raw:
         raise HTTPException(status_code=400, detail="Datos incompletos")
@@ -948,17 +951,28 @@ async def confirm_xml_match_grupo(
     try:
         async with conn.transaction():
             resultado = await service.confirmar_match_grupo(
-                conn, facturas_raw, comprobante_ids, user_id
+                conn, facturas_raw, comprobante_ids, user_id,
+                forzar_excepcion=forzar_excepcion,
+                motivo_excepcion=motivo_excepcion,
             )
     except ValueError as e:
         return JSONResponse({"error": str(e)}, status_code=400)
 
-    # Subir XMLs a SharePoint (no critico)
-    for factura in facturas_raw:
+    facturas_by_uuid = {
+        str(factura.get('uuid', '')).upper(): factura
+        for factura in facturas_raw
+        if factura.get('uuid')
+    }
+
+    # Subir XMLs a SharePoint (no critico), con el comprobante real de cada asignacion.
+    for asignacion in resultado.get('asignaciones', []):
+        uuid_factura = asignacion.get('uuid_factura', '')
+        factura = facturas_by_uuid.get(str(uuid_factura).upper(), {})
         xml_b64 = factura.get('xml_content_b64', '')
-        uuid_factura = factura.get('uuid', '')
+        id_comprobante_raw = asignacion.get('id_comprobante')
         if xml_b64 and uuid_factura:
             try:
+                id_comprobante = UUID(str(id_comprobante_raw))
                 xml_bytes = base64.b64decode(xml_b64)
                 xml_file = UploadFile(
                     filename=f"{uuid_factura[:8]}_factura.xml",
@@ -967,21 +981,34 @@ async def confirm_xml_match_grupo(
                 )
                 now = now_mx()
                 subcarpeta = f"compras/facturas_xml/{now.strftime('%Y-%m')}"
+                metadata = {
+                    "uuid_factura": uuid_factura,
+                    "monto_aplicado": asignacion.get('monto_aplicado'),
+                    "origen_match": "grupo",
+                }
+                if motivo_excepcion:
+                    metadata["motivo_excepcion"] = motivo_excepcion
+
                 await service.upload_archivo_sharepoint(
                     conn, xml_file, subcarpeta,
-                    comprobante_ids[0], "factura_xml", user_id,
-                    metadata_extra={"uuid_factura": uuid_factura}
+                    id_comprobante, "factura_xml", user_id,
+                    metadata_extra=metadata,
                 )
-            except Exception as e:
+            except (ValueError, binascii.Error, OSError, asyncpg.PostgresError) as e:
                 logger.error("Error subiendo XML (grupo) a SharePoint: %s", e)
 
     n_f = resultado['total_facturas']
     n_p = resultado['total_comprobantes']
+    cerrados = len(resultado.get('comprobantes_cerrados', []))
+    cierre_msg = f". {cerrados} pago{'s' if cerrados != 1 else ''} cerrado{'s' if cerrados != 1 else ''} por tolerancia/excepcion" if cerrados else ""
     toast_html = templates.TemplateResponse(request, "shared/toast.html", {
-        "message": f"Grupo vinculado: {n_f} factura{'s' if n_f != 1 else ''} en {n_p} pago{'s' if n_p != 1 else ''}",
+        "message": (
+            f"Grupo vinculado: {n_f} factura{'s' if n_f != 1 else ''} "
+            f"en {n_p} pago{'s' if n_p != 1 else ''}{cierre_msg}"
+        ),
         "type": "success",
     }).body.decode("utf-8")
-    return HTMLResponse(content=toast_html)
+    return JSONResponse({"toast_html": toast_html, "resultado": resultado})
 
 
 # ========================================
