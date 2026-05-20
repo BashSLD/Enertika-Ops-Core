@@ -1489,5 +1489,39 @@ class ComprasDBService:
         """, f"%{descripcion}%")
         return float(val) if val else 0
 
+    async def get_comprobantes_by_ids(self, conn, ids: List[UUID]) -> List[dict]:
+        """Obtiene comprobantes disponibles para match por lista de IDs."""
+        rows = await conn.fetch("""
+            SELECT id_comprobante, fecha_pago, beneficiario_orig, monto, moneda, estatus, monto_facturado
+            FROM tb_comprobantes_pago
+            WHERE id_comprobante = ANY($1)
+              AND (estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')
+                   OR (estatus = 'ANTICIPO' AND COALESCE(monto_facturado, 0) < monto - 0.50))
+        """, ids)
+        return [dict(r) for r in rows]
+
+    async def buscar_comprobantes_pendientes_para_grupo(
+        self, conn, q: Optional[str], moneda: str = 'MXN', limit: int = 30
+    ) -> List[dict]:
+        """Comprobantes pendientes filtrados por moneda y texto para el panel grupo."""
+        params: list = [moneda]
+        query = """
+            SELECT
+                c.id_comprobante, c.fecha_pago, c.beneficiario_orig,
+                c.monto, c.moneda, c.estatus, c.monto_facturado
+            FROM tb_comprobantes_pago c
+            WHERE (c.estatus IN ('PENDIENTE', 'PARCIALMENTE_FACTURADO')
+                   OR (c.estatus = 'ANTICIPO' AND COALESCE(c.monto_facturado, 0) < c.monto - 0.50))
+              AND c.moneda = $1
+        """
+        if q:
+            params.append(f"%{q}%")
+            query += f" AND c.beneficiario_orig ILIKE ${len(params)}"
+        query += f" ORDER BY c.fecha_pago DESC LIMIT ${len(params) + 1}"
+        params.append(limit)
+        rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
+
 def get_db_service():
     return ComprasDBService()

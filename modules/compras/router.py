@@ -19,7 +19,7 @@ from uuid import UUID
 import asyncpg
 from fastapi import APIRouter, Depends, Request, Form, File, UploadFile, Query, HTTPException
 from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from core.validation import validate_upload_size
 import base64
@@ -135,6 +135,7 @@ def _serialize_xml_result(result):
             'candidatos': match.candidatos,
             'comprobante_id': str(match.comprobante_id) if match.comprobante_id else None,
             'xml_content_b64': match.xml_content_b64 or '',
+            'emisor_rfc': match.cfdi.emisor_rfc,
         }
         serialized['procesados'].append(item)
 
@@ -877,6 +878,94 @@ async def search_comprobantes_pendientes(
         {            "candidatos": candidatos,
         }
     )
+
+
+@router.get("/comprobantes-pendientes-json")
+async def get_comprobantes_pendientes_json(
+    request: Request,
+    q: str = Query("", min_length=0),
+    moneda: str = Query("MXN"),
+    limit: int = Query(30, ge=1, le=100),
+    conn = Depends(get_db_connection),
+    service: ComprasService = Depends(get_compras_service),
+    _ = require_module_access("compras")
+):
+    """JSON de comprobantes pendientes para el panel de vinculacion en grupo."""
+    candidatos = await service.buscar_comprobantes_para_grupo(
+        conn, q=q if q else None, moneda=moneda, limit=limit
+    )
+    for c in candidatos:
+        c['id_comprobante'] = str(c['id_comprobante'])
+        c.pop('fecha_pago', None)
+    return candidatos
+
+
+@router.post("/xml-confirm-match-grupo", response_class=HTMLResponse)
+async def confirm_xml_match_grupo(
+    request: Request,
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    service: ComprasService = Depends(get_compras_service),
+    _ = require_module_access("compras", "editor")
+):
+    """Confirma la vinculacion en grupo: N facturas XML a M comprobantes de pago."""
+    user_id = context.get("user_db_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Usuario no identificado")
+
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Cuerpo JSON invalido")
+
+    facturas_raw = body.get("facturas", [])
+    comprobante_ids_raw = body.get("comprobante_ids", [])
+
+    if not facturas_raw or not comprobante_ids_raw:
+        raise HTTPException(status_code=400, detail="Datos incompletos")
+
+    try:
+        comprobante_ids = [UUID(str(id)) for id in comprobante_ids_raw]
+    except ValueError:
+        raise HTTPException(status_code=400, detail="IDs de comprobante invalidos")
+
+    try:
+        async with conn.transaction():
+            resultado = await service.confirmar_match_grupo(
+                conn, facturas_raw, comprobante_ids, user_id
+            )
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+    # Subir XMLs a SharePoint (no critico)
+    for factura in facturas_raw:
+        xml_b64 = factura.get('xml_content_b64', '')
+        uuid_factura = factura.get('uuid', '')
+        if xml_b64 and uuid_factura:
+            try:
+                xml_bytes = base64.b64decode(xml_b64)
+                xml_file = UploadFile(
+                    filename=f"{uuid_factura[:8]}_factura.xml",
+                    file=BytesIO(xml_bytes),
+                    headers=Headers({"content-type": "application/xml"}),
+                )
+                now = now_mx()
+                subcarpeta = f"compras/facturas_xml/{now.strftime('%Y-%m')}"
+                await service.upload_archivo_sharepoint(
+                    conn, xml_file, subcarpeta,
+                    comprobante_ids[0], "factura_xml", user_id,
+                    metadata_extra={"uuid_factura": uuid_factura}
+                )
+            except Exception as e:
+                logger.error("Error subiendo XML (grupo) a SharePoint: %s", e)
+
+    n_f = resultado['total_facturas']
+    n_p = resultado['total_comprobantes']
+    toast_html = templates.TemplateResponse(request, "shared/toast.html", {
+        "message": f"Grupo vinculado: {n_f} factura{'s' if n_f != 1 else ''} en {n_p} pago{'s' if n_p != 1 else ''}",
+        "type": "success",
+    }).body.decode("utf-8")
+    return HTMLResponse(content=toast_html)
 
 
 # ========================================

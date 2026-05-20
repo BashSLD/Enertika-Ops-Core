@@ -1441,6 +1441,107 @@ class ComprasService:
         return await db_svc.delete_xml_staging(conn, uuid_factura)
 
 
+    async def buscar_comprobantes_para_grupo(
+        self, conn, q: Optional[str], moneda: str = 'MXN', limit: int = 30
+    ) -> List[dict]:
+        """Comprobantes pendientes para el panel de vinculacion en grupo."""
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+        rows = await db_svc.buscar_comprobantes_pendientes_para_grupo(conn, q, moneda, limit)
+        return self._format_candidatos(rows)
+
+    async def confirmar_match_grupo(
+        self,
+        conn,
+        facturas_data: List[dict],
+        comprobante_ids: List[UUID],
+        user_id: UUID,
+    ) -> dict:
+        """Vincula N facturas XML a M comprobantes mediante distribucion greedy.
+
+        Requiere que todas las facturas sean del mismo RFC.
+        Tolerancia de suma: $2.00.
+        """
+        from .db_service import get_db_service
+        db_svc = get_db_service()
+
+        if not facturas_data:
+            raise ValueError("No hay facturas para vincular")
+        if not comprobante_ids:
+            raise ValueError("No hay comprobantes seleccionados")
+
+        rfcs = {f.get('emisor_rfc', '') for f in facturas_data}
+        if len(rfcs) > 1:
+            raise ValueError(f"Las facturas deben ser del mismo proveedor (RFCs: {', '.join(rfcs)})")
+
+        comprobantes = await db_svc.get_comprobantes_by_ids(conn, comprobante_ids)
+        if len(comprobantes) != len(comprobante_ids):
+            raise ValueError("Uno o mas comprobantes no fueron encontrados")
+
+        validos = ('PENDIENTE', 'PARCIALMENTE_FACTURADO', 'ANTICIPO')
+        invalidos = [c for c in comprobantes if c['estatus'] not in validos]
+        if invalidos:
+            nombres = ', '.join(c.get('beneficiario_orig', '?') for c in invalidos)
+            raise ValueError(f"Comprobantes no disponibles para match: {nombres}")
+
+        tolerancia_grupo = Decimal("2.00")
+        sum_facturas = sum(Decimal(str(f.get('total', 0))) for f in facturas_data)
+        sum_pagos = sum(Decimal(str(c['monto'])) for c in comprobantes)
+
+        if abs(sum_facturas - sum_pagos) > tolerancia_grupo:
+            raise ValueError(
+                f"Diferencia de montos supera $2.00: facturas ${sum_facturas:,.2f} "
+                f"vs pagos ${sum_pagos:,.2f} (diferencia: ${abs(sum_facturas - sum_pagos):,.2f})"
+            )
+
+        facturas_sorted = sorted(facturas_data, key=lambda f: Decimal(str(f.get('total', 0))), reverse=True)
+        pagos_sorted = sorted(comprobantes, key=lambda c: Decimal(str(c['monto'])), reverse=True)
+
+        pago_balances = {str(c['id_comprobante']): Decimal(str(c['monto'])) for c in pagos_sorted}
+
+        assignments = []
+        cero = Decimal("0.005")
+
+        for factura in facturas_sorted:
+            total_factura = Decimal(str(factura.get('total', 0)))
+            remaining = total_factura
+            for comp_id in pago_balances:
+                if remaining <= cero:
+                    break
+                balance = pago_balances[comp_id]
+                if balance <= cero:
+                    continue
+                aplicar = min(remaining, balance)
+                is_full = aplicar >= total_factura - cero
+                assignments.append({
+                    'factura': factura,
+                    'id_comprobante': UUID(comp_id),
+                    'monto_aplicado': aplicar,
+                    'is_full': is_full,
+                })
+                pago_balances[comp_id] -= aplicar
+                remaining -= aplicar
+
+        for assign in assignments:
+            factura_data = dict(assign['factura'])
+            if not assign['is_full']:
+                factura_data['monto_aplicado'] = str(assign['monto_aplicado'])
+            else:
+                factura_data.pop('monto_aplicado', None)
+
+            await self.confirmar_match_xml(
+                conn, factura_data, assign['id_comprobante'], user_id,
+                guardar_relacion=True, forzar_match=True,
+            )
+
+        return {
+            'total_facturas': len(facturas_data),
+            'total_comprobantes': len(comprobante_ids),
+            'sum_facturas': float(sum_facturas),
+            'sum_pagos': float(sum_pagos),
+        }
+
+
 def get_compras_service():
     """Dependency injection para FastAPI."""
     return ComprasService()
