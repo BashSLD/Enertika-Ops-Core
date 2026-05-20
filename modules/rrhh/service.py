@@ -18,7 +18,7 @@ from core.config import settings
 from core.config_service import ConfigService
 from core.timezone import today_mx
 from modules.asistencia import db_service as asistencia_db
-from modules.asistencia.service import recalcular_asistencia
+from modules.asistencia.service import recalcular_asistencia, recalcular_asistencia_reciente_usuario
 from modules.asistencia.constants import ASISTENCIA_ESTADO_LABELS, ASISTENCIA_ESTADOS
 from modules.rrhh import db_service as rrhh_db
 from modules.vacaciones import db_service as vac_db
@@ -1560,6 +1560,9 @@ async def guardar_empleado(
     jefes_ids: list[UUID],
     updated_by: UUID,
 ) -> None:
+    existing = await vac_db.get_empleado_datos(conn, usuario_id)
+    old_sucursal_id = existing["sucursal_id"] if existing else None
+
     await vac_db.upsert_empleado_datos(
         conn,
         usuario_id=usuario_id,
@@ -1573,3 +1576,6 @@ async def guardar_empleado(
         updated_by=updated_by,
     )
     await vac_db.set_jefes(conn, usuario_id, jefes_ids)
+
+    if sucursal_id != old_sucursal_id:
+        await recalcular_asistencia_reciente_usuario(conn, usuario_id)

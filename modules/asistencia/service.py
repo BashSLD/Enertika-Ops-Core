@@ -511,6 +511,17 @@ async def recalcular_asistencia_reciente(conn, *, days: int) -> int:
     return len(targets)
 
 
+async def recalcular_asistencia_reciente_usuario(conn, usuario_id: UUID, *, days: int = 7) -> int:
+    end = today_mx()
+    start = end - timedelta(days=max(0, days - 1))
+    targets = [
+        (usuario_id, start + timedelta(days=offset))
+        for offset in range((end - start).days + 1)
+    ]
+    await recalcular_asistencia(conn, targets)
+    return len(targets)
+
+
 async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[dict]:
     targets = _dedupe_targets(targets)
     if not targets:
