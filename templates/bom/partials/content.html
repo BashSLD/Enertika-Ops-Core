@@ -209,32 +209,32 @@
         <div class="border-b border-gray-200 mb-4">
             <nav class="flex -mb-px space-x-4 flex-wrap gap-y-1">
                 <button @click="tab = 'aprobaciones'"
-                    :class="tab === 'aprobaciones' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                    :class="{'border-blue-500 text-blue-600': tab === 'aprobaciones', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'aprobaciones'}"
                     class="py-2 px-3 border-b-2 font-medium text-sm transition">
                     Aprobaciones
                 </button>
                 <button @click="tab = 'historial'"
-                    :class="tab === 'historial' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                    :class="{'border-blue-500 text-blue-600': tab === 'historial', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'historial'}"
                     class="py-2 px-3 border-b-2 font-medium text-sm transition">
                     Historial de Cambios
                 </button>
                 {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] and es_compras_editor %}
                 <button @click="tab = 'cotizaciones'"
-                    :class="tab === 'cotizaciones' ? 'border-emerald-500 text-emerald-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                    :class="{'border-emerald-500 text-emerald-600': tab === 'cotizaciones', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'cotizaciones'}"
                     class="py-2 px-3 border-b-2 font-medium text-sm transition">
                     Cotizaciones
                 </button>
                 {% endif %}
                 {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] %}
                 <button @click="tab = 'autorizaciones'"
-                    :class="tab === 'autorizaciones' ? 'border-amber-500 text-amber-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                    :class="{'border-amber-500 text-amber-600': tab === 'autorizaciones', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'autorizaciones'}"
                     class="py-2 px-3 border-b-2 font-medium text-sm transition">
                     Autorizaciones
                 </button>
                 {% endif %}
                 {% if versiones|length > 1 %}
                 <button @click="tab = 'versiones'"
-                    :class="tab === 'versiones' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'"
+                    :class="{'border-blue-500 text-blue-600': tab === 'versiones', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'versiones'}"
                     class="py-2 px-3 border-b-2 font-medium text-sm transition">
                     Versiones ({{ versiones|length }})
                 </button>

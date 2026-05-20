@@ -78,28 +78,28 @@
       <li class="shrink-0">
         <button @click="tab = 'asistencia'"
           hx-get="/rrhh/asistencia" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=asistencia"
-          :class="tab === 'asistencia' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          :class="{'active text-[#007A7B]': tab === 'asistencia', 'border-transparent hover:bg-gray-50 hover:text-gray-700': tab !== 'asistencia'}"
           class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
           {{ rrhh_tab_icon('asistencia') }}
-          <span :class="tab === 'asistencia' ? 'font-semibold' : ''">Asistencia</span>
+          <span :class="{'font-semibold': tab === 'asistencia'}">Asistencia</span>
         </button>
       </li>
       <li class="shrink-0">
         <button @click="tab = 'ausencias'"
           hx-get="/rrhh/ausencias" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=ausencias"
-          :class="tab === 'ausencias' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          :class="{'active text-[#007A7B]': tab === 'ausencias', 'border-transparent hover:bg-gray-50 hover:text-gray-700': tab !== 'ausencias'}"
           class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
           {{ rrhh_tab_icon('hoy') }}
-          <span :class="tab === 'ausencias' ? 'font-semibold' : ''">Ausencias</span>
+          <span :class="{'font-semibold': tab === 'ausencias'}">Ausencias</span>
         </button>
       </li>
       <li class="shrink-0">
         <button @click="tab = 'aprobaciones'"
           hx-get="/rrhh/aprobaciones" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=aprobaciones"
-          :class="tab === 'aprobaciones' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          :class="{'active text-[#007A7B]': tab === 'aprobaciones', 'border-transparent hover:bg-gray-50 hover:text-gray-700': tab !== 'aprobaciones'}"
           class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
           {{ rrhh_tab_icon('aprobaciones') }}
-          <span :class="tab === 'aprobaciones' ? 'font-semibold' : ''">Aprobaciones</span>
+          <span :class="{'font-semibold': tab === 'aprobaciones'}">Aprobaciones</span>
           {% if pendientes | length > 0 %}
           <span class="bg-amber-500 text-white text-xs rounded-full px-1.5 py-0.5 leading-none">{{ pendientes | length }}</span>
           {% endif %}
@@ -108,47 +108,47 @@
       <li class="shrink-0">
         <button @click="tab = 'solicitudes'"
           hx-get="/rrhh/solicitudes" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=solicitudes"
-          :class="tab === 'solicitudes' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          :class="{'active text-[#007A7B]': tab === 'solicitudes', 'border-transparent hover:bg-gray-50 hover:text-gray-700': tab !== 'solicitudes'}"
           class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
           {{ rrhh_tab_icon('solicitudes') }}
-          <span :class="tab === 'solicitudes' ? 'font-semibold' : ''">Solicitudes</span>
+          <span :class="{'font-semibold': tab === 'solicitudes'}">Solicitudes</span>
         </button>
       </li>
       <li class="shrink-0">
         <button @click="tab = 'empleados'"
           hx-get="/rrhh/empleados" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=empleados"
-          :class="tab === 'empleados' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          :class="{'active text-[#007A7B]': tab === 'empleados', 'border-transparent hover:bg-gray-50 hover:text-gray-700': tab !== 'empleados'}"
           class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
           {{ rrhh_tab_icon('empleados') }}
-          <span :class="tab === 'empleados' ? 'font-semibold' : ''">Empleados</span>
+          <span :class="{'font-semibold': tab === 'empleados'}">Empleados</span>
         </button>
       </li>
       <li class="shrink-0">
         <button @click="tab = 'reportes'"
           hx-get="/rrhh/reportes" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=reportes"
-          :class="tab === 'reportes' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          :class="{'active text-[#007A7B]': tab === 'reportes', 'border-transparent hover:bg-gray-50 hover:text-gray-700': tab !== 'reportes'}"
           class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
           {{ rrhh_tab_icon('reportes') }}
-          <span :class="tab === 'reportes' ? 'font-semibold' : ''">Reportes</span>
+          <span :class="{'font-semibold': tab === 'reportes'}">Reportes</span>
         </button>
       </li>
       <li class="shrink-0">
         <button @click="tab = 'festivos'"
           hx-get="/rrhh/festivos" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=festivos"
-          :class="tab === 'festivos' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          :class="{'active text-[#007A7B]': tab === 'festivos', 'border-transparent hover:bg-gray-50 hover:text-gray-700': tab !== 'festivos'}"
           class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
           {{ rrhh_tab_icon('festivos') }}
-          <span :class="tab === 'festivos' ? 'font-semibold' : ''">Festivos</span>
+          <span :class="{'font-semibold': tab === 'festivos'}">Festivos</span>
         </button>
       </li>
       {% if context.role == 'ADMIN' or rrhh_role == 'admin' or (context.role == 'MANAGER' and rrhh_role in ['editor', 'admin']) %}
       <li class="shrink-0">
         <button @click="tab = 'admin'"
           hx-get="/rrhh/admin" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=admin"
-          :class="tab === 'admin' ? 'active text-[#007A7B]' : 'border-transparent hover:bg-gray-50 hover:text-gray-700'"
+          :class="{'active text-[#007A7B]': tab === 'admin', 'border-transparent hover:bg-gray-50 hover:text-gray-700': tab !== 'admin'}"
           class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
           {{ rrhh_tab_icon('admin') }}
-          <span :class="tab === 'admin' ? 'font-semibold' : ''">Admin</span>
+          <span :class="{'font-semibold': tab === 'admin'}">Admin</span>
         </button>
       </li>
       {% endif %}
