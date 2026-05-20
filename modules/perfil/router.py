@@ -59,8 +59,9 @@ def _resolve_initial_tab(
         initial_tab = "aprobaciones" if origen == "aprobaciones" else "solicitudes"
         return initial_tab, f"/vacaciones/solicitudes/{solicitud_id}?origen={origen}"
 
-    if equipo_uid and es_jefe_o_aprobador:
-        return "equipo", f"/vacaciones/equipo/{equipo_uid}"
+    # equipo_uid intentionally ignored: member detail is intra-tab drill-down,
+    # not resolvable URL state — resolving it caused Back to show the member
+    # balance instead of the team list when the HTMX history cache expired.
 
     if solicitud_pendiente_id:
         return "firma", f"/perfil/firma?solicitud_pendiente_id={solicitud_pendiente_id}"
