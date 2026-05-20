@@ -151,6 +151,16 @@ router = APIRouter(
 )
 
 
+def _usuario_ctx(context: dict) -> tuple:
+    """Devuelve (current_user_id, default_usuario, filtro_usuario) según rol."""
+    user_db_id = context.get("user_db_id")
+    is_admin = context.get("role") == "ADMIN"
+    current_user_id = str(user_db_id) if user_db_id else ""
+    default_usuario = "" if is_admin else current_user_id
+    filtro_usuario = None if is_admin else user_db_id
+    return current_user_id, default_usuario, filtro_usuario
+
+
 # ========================================
 # ENDPOINT PRINCIPAL (UI)
 # ========================================
@@ -171,22 +181,24 @@ async def get_compras_ui(
     - Si es carga directa (F5/URL): retorna dashboard completo
     """
     catalogos = await service.get_catalogos(conn)
+    current_user_id, default_usuario, filtro_usuario = _usuario_ctx(context)
+    role = context.get("role")
 
     # Vista default: comprobantes abiertos
     page = 1
     per_page = 50
-    comprobantes, total = await service.get_comprobantes_default_view(conn)
+    comprobantes, total = await service.get_comprobantes_default_view(conn, user_id=filtro_usuario)
 
-    estadisticas = await service.get_estadisticas_generales(
-        conn,
-        estatus="SIN_COMPLETAR"
-    )
+    filtros_stats = {"estatus": "SIN_COMPLETAR"}
+    if filtro_usuario:
+        filtros_stats["id_usuario"] = filtro_usuario
+    estadisticas = await service.get_estadisticas_generales(conn, filtros=filtros_stats)
 
     pages = (total + per_page - 1) // per_page if total > 0 else 1
-    
+
     template_context = {
         "user_name": context.get("user_name"),
-        "role": context.get("role"),
+        "role": role,
         "module_roles": context.get("module_roles", {}),
         "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
         "comprobantes": comprobantes,
@@ -197,10 +209,14 @@ async def get_compras_ui(
         "zonas": catalogos.get("zonas", []),
         "categorias": catalogos.get("categorias", []),
         "proyectos": catalogos.get("proyectos", []),
+        "compradores": catalogos.get("compradores", []),
+        "current_user_id": current_user_id,
+        "default_usuario": default_usuario,
         "filtros": {
             "fecha_inicio": "",
             "fecha_fin": "",
-            "estatus": "SIN_COMPLETAR"
+            "estatus": "SIN_COMPLETAR",
+            "id_usuario": default_usuario,
         },
         "estadisticas": estadisticas,
         "today": today_mx(),
@@ -343,17 +359,13 @@ async def get_comprobantes_list(
         page=filtros.page,
         per_page=filtros.per_page
     )
-    
+
     pages = (total + filtros.per_page - 1) // filtros.per_page if total > 0 else 1
     catalogos = await service.get_catalogos(conn)
-    
-    # Calcular estadísticas filtradas para OOB swap
-    estadisticas = await service.get_estadisticas_generales(
-        conn,
-        filtros=filtro_dict
-    )
-    
-    # Renderizar tabla
+
+    estadisticas = await service.get_estadisticas_generales(conn, filtros=filtro_dict)
+    current_user_id, default_usuario, _ = _usuario_ctx(context)
+
     response = templates.TemplateResponse(request,
         "compras/partials/tabla_comprobantes.html",
         {
@@ -365,6 +377,9 @@ async def get_comprobantes_list(
             "zonas": catalogos.get("zonas", []),
             "categorias": catalogos.get("categorias", []),
             "proyectos": catalogos.get("proyectos", []),
+            "compradores": catalogos.get("compradores", []),
+            "current_user_id": current_user_id,
+            "default_usuario": default_usuario,
             "role": context.get("role"),
             "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
             "filtros": {
@@ -374,6 +389,7 @@ async def get_comprobantes_list(
                 "id_zona": filtros.id_zona or "",
                 "id_proyecto": str(filtros.id_proyecto) if filtros.id_proyecto else "",
                 "id_categoria": filtros.id_categoria or "",
+                "id_usuario": str(filtros.id_usuario) if filtros.id_usuario else "",
             },
             "today": today_mx(),
         }

@@ -191,7 +191,12 @@ class ComprasDBService:
             base_query += f" AND c.id_categoria = ${param_idx}"
             params.append(filtros['id_categoria'])
             param_idx += 1
-            
+
+        if filtros.get('id_usuario'):
+            base_query += f" AND c.capturado_por_id = ${param_idx}"
+            params.append(filtros['id_usuario'])
+            param_idx += 1
+
         if count_only:
             return await conn.fetchval(base_query, *params)
             
@@ -326,7 +331,7 @@ class ComprasDBService:
         zonas = await conn.fetch("SELECT id, nombre FROM tb_cat_zonas_compra WHERE activo = true ORDER BY orden, nombre")
         categorias = await conn.fetch("SELECT id, nombre FROM tb_cat_categorias_compra WHERE activo = true ORDER BY orden, nombre")
         proyectos = await conn.fetch("SELECT id_proyecto, proyecto_id_estandar as nombre FROM tb_proyectos_gate WHERE aprobacion_direccion = true ORDER BY proyecto_id_estandar")
-        compradores = await conn.fetch("SELECT id_usuario, nombre FROM tb_usuarios WHERE is_active = true AND LOWER(department) = 'compras' ORDER BY nombre")
+        compradores = await conn.fetch("SELECT id_usuario, nombre FROM tb_usuarios WHERE is_active = true ORDER BY nombre")
         
         return {
             "zonas": [dict(r) for r in zonas],
@@ -381,6 +386,11 @@ class ComprasDBService:
         if filtros.get('id_categoria'):
             base_query += f" AND id_categoria = ${param_idx}"
             params.append(filtros['id_categoria'])
+            param_idx += 1
+
+        if filtros.get('id_usuario'):
+            base_query += f" AND capturado_por_id = ${param_idx}"
+            params.append(filtros['id_usuario'])
             param_idx += 1
 
         row = await conn.fetchrow(base_query, *params)

@@ -1,6 +1,6 @@
 {% set vista_anticipo = filtros is defined and filtros.estatus == 'ANTICIPO' %}
 {% set filtros_excel = filtros if filtros is defined else {} %}
-{% set export_excel_url = "/compras/export-excel?estatus=" ~ (filtros_excel.estatus|default("SIN_COMPLETAR", true)) ~ "&fecha_inicio=" ~ (filtros_excel.fecha_inicio|default("", true)) ~ "&fecha_fin=" ~ (filtros_excel.fecha_fin|default("", true)) ~ "&id_zona=" ~ (filtros_excel.id_zona|default("", true)) ~ "&id_proyecto=" ~ (filtros_excel.id_proyecto|default("", true)) ~ "&id_categoria=" ~ (filtros_excel.id_categoria|default("", true)) %}
+{% set export_excel_url = "/compras/export-excel?estatus=" ~ (filtros_excel.estatus|default("SIN_COMPLETAR", true)) ~ "&fecha_inicio=" ~ (filtros_excel.fecha_inicio|default("", true)) ~ "&fecha_fin=" ~ (filtros_excel.fecha_fin|default("", true)) ~ "&id_zona=" ~ (filtros_excel.id_zona|default("", true)) ~ "&id_proyecto=" ~ (filtros_excel.id_proyecto|default("", true)) ~ "&id_categoria=" ~ (filtros_excel.id_categoria|default("", true)) ~ "&id_usuario=" ~ (filtros_excel.id_usuario|default("", true)) %}
 <div class="bg-white rounded-lg shadow overflow-hidden">
     <!-- Contador de resultados -->
     <div class="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex justify-between items-center gap-2"
@@ -15,11 +15,14 @@
                 const zona = form.querySelector('select[name=id_zona]');
                 const categoria = form.querySelector('select[name=id_categoria]');
                 const estatus = form.querySelector('select[name=estatus]');
+                const usuario = form.querySelector('select[name=id_usuario]');
+                const defaultUsuario = form.dataset.defaultUsuario || '';
                 if (fechaInicio && fechaInicio.value) count += 1;
                 if (fechaFin && fechaFin.value) count += 1;
                 if (zona && zona.value) count += 1;
                 if (categoria && categoria.value) count += 1;
                 if (estatus && estatus.value && estatus.value !== 'SIN_COMPLETAR') count += 1;
+                if (usuario && usuario.value !== defaultUsuario) count += 1;
                 return count;
             }
         }" @keydown.escape.window="showFilters = false">
@@ -34,7 +37,8 @@
             {% endif %}
 
             <form id="filtros-form" hx-get="/compras/comprobantes" hx-target="#tabla-comprobantes" hx-swap="innerHTML"
-                hx-trigger="submit, change delay:500ms, reloadComprobantes from:body" class="relative" @click.outside="showFilters = false">
+                hx-trigger="submit, change delay:500ms, reloadComprobantes from:body" class="relative" @click.outside="showFilters = false"
+                data-default-usuario="{{ default_usuario }}">
                 <button type="button" @click="showFilters = !showFilters"
                     class="inline-flex items-center gap-2 px-2.5 py-1 rounded-lg border border-gray-300 bg-white hover:bg-gray-50 text-xs font-semibold text-gray-700 transition-colors">
                     <svg class="w-4 h-4 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -59,7 +63,7 @@
                     x-transition:leave-start="opacity-100 translate-y-0"
                     x-transition:leave-end="opacity-0 -translate-y-1"
                     class="fixed left-4 right-4 top-20 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 z-40 md:absolute md:left-auto md:right-0 md:top-full md:mt-2 md:w-[42rem] md:max-w-[85vw]">
-                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 items-end">
                         <div>
                             <label class="block text-xs font-medium text-gray-600 mb-1">Fecha Inicio</label>
                             <input type="date" name="fecha_inicio" value="{{ filtros.fecha_inicio }}" autocomplete="off"
@@ -100,6 +104,19 @@
                                 <option value="">Todas</option>
                                 {% for cat in categorias %}
                                 <option value="{{ cat.id }}" {% if filtros.id_categoria==cat.id %}selected{% endif %}>{{ cat.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-medium text-gray-600 mb-1">Comprador</label>
+                            <select name="id_usuario" autocomplete="off"
+                                class="w-full px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                                <option value="" {% if not filtros.id_usuario %}selected{% endif %}>Todos</option>
+                                {% for c in compradores %}
+                                <option value="{{ c.id_usuario }}"
+                                    {% if filtros.id_usuario == c.id_usuario|string %}selected{% endif %}>
+                                    {{ c.nombre }}{% if c.id_usuario|string == current_user_id %} (yo){% endif %}
+                                </option>
                                 {% endfor %}
                             </select>
                         </div>

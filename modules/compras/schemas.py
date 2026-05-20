@@ -225,6 +225,7 @@ class ComprobanteFilter(BaseModel):
     id_zona: Optional[int] = None
     id_proyecto: Optional[UUID] = None
     id_categoria: Optional[int] = None
+    id_usuario: Optional[UUID] = None
     page: int = Field(default=1, ge=1)
     per_page: int = Field(default=50, ge=1, le=500)
 
@@ -250,7 +251,7 @@ class ComprobanteFilter(BaseModel):
             return None
         return v
 
-    @field_validator('id_proyecto', mode='before')
+    @field_validator('id_proyecto', 'id_usuario', mode='before')
     @classmethod
     def validate_uuid_empty(cls, v):
         if not v or v == "":

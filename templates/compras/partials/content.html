@@ -22,7 +22,7 @@
 <div class="animate-fade-in-down px-4">
     {% set can_edit = (role == 'ADMIN') or (current_module_role in ['editor', 'admin']) %}
     {% set filtros_excel = filtros if filtros is defined else {} %}
-    {% set export_excel_url = "/compras/export-excel?estatus=" ~ (filtros_excel.estatus|default("SIN_COMPLETAR", true)) ~ "&fecha_inicio=" ~ (filtros_excel.fecha_inicio|default("", true)) ~ "&fecha_fin=" ~ (filtros_excel.fecha_fin|default("", true)) ~ "&id_zona=" ~ (filtros_excel.id_zona|default("", true)) ~ "&id_proyecto=" ~ (filtros_excel.id_proyecto|default("", true)) ~ "&id_categoria=" ~ (filtros_excel.id_categoria|default("", true)) %}
+    {% set export_excel_url = "/compras/export-excel?estatus=" ~ (filtros_excel.estatus|default("SIN_COMPLETAR", true)) ~ "&fecha_inicio=" ~ (filtros_excel.fecha_inicio|default("", true)) ~ "&fecha_fin=" ~ (filtros_excel.fecha_fin|default("", true)) ~ "&id_zona=" ~ (filtros_excel.id_zona|default("", true)) ~ "&id_proyecto=" ~ (filtros_excel.id_proyecto|default("", true)) ~ "&id_categoria=" ~ (filtros_excel.id_categoria|default("", true)) ~ "&id_usuario=" ~ (filtros_excel.id_usuario|default("", true)) %}
     <!-- MOVIL: template de acciones para el header (poblado via JS) -->
     <div id="mobile-actions-template" style="display:none">
         {% if can_edit %}
@@ -398,6 +398,8 @@
         form.querySelector('select[name="estatus"]').value = 'SIN_COMPLETAR';
         form.querySelector('select[name="id_zona"]').value = '';
         form.querySelector('select[name="id_categoria"]').value = '';
+        const usuarioSelect = form.querySelector('select[name="id_usuario"]');
+        if (usuarioSelect) usuarioSelect.value = form.dataset.defaultUsuario || '';
 
         // Trigger HTMX request
         htmx.trigger(form, 'submit');

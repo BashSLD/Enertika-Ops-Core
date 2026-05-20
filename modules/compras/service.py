@@ -236,14 +236,12 @@ class ComprasService:
         
         return comprobantes, total
     
-    async def get_comprobantes_default_view(self, conn) -> Tuple[List[dict], int]:
-        """
-        Vista default: comprobantes abiertos (sin filtro de fecha).
-        """
-        return await self.get_comprobantes(
-            conn,
-            filtros={"estatus": "SIN_COMPLETAR"}
-        )
+    async def get_comprobantes_default_view(self, conn, user_id=None) -> Tuple[List[dict], int]:
+        """Vista default: comprobantes abiertos. Si user_id se provee, filtra por ese usuario."""
+        filtros = {"estatus": "SIN_COMPLETAR"}
+        if user_id:
+            filtros["id_usuario"] = user_id
+        return await self.get_comprobantes(conn, filtros=filtros)
     
     async def get_comprobante_by_id(self, conn, id_comprobante: UUID) -> Optional[dict]:
         """
