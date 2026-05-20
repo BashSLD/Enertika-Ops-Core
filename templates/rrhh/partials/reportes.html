@@ -28,17 +28,22 @@
 
   <div
     @click="abierto = !abierto"
-    class="w-full min-h-[2.25rem] cursor-pointer rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm flex flex-wrap gap-1 items-center"
+    class="w-full min-h-[2.25rem] cursor-pointer rounded-lg border border-gray-200 bg-white px-2 py-1 text-sm flex items-center gap-1"
   >
-    <template x-if="seleccionados.length === 0">
-      <span class="select-none text-sm text-gray-400">{{ placeholder }}</span>
-    </template>
-    <template x-for="id in seleccionados" :key="'chip-' + id">
-      <span class="inline-flex items-center gap-1 rounded bg-[#00BABB]/10 px-1.5 py-0.5 text-xs text-[#008a8b]">
-        <span x-text="nombre(id)"></span>
-        <button type="button" @click.stop="toggle(id)" class="leading-none hover:text-red-500">&times;</button>
-      </span>
-    </template>
+    <div class="flex flex-wrap gap-1 items-center flex-1 min-w-0">
+      <template x-if="seleccionados.length === 0">
+        <span class="select-none text-sm text-gray-400">{{ placeholder }}</span>
+      </template>
+      <template x-for="id in seleccionados" :key="'chip-' + id">
+        <span class="inline-flex items-center gap-1 rounded bg-[#00BABB]/10 px-1.5 py-0.5 text-xs text-[#008a8b]">
+          <span x-text="nombre(id)"></span>
+          <button type="button" @click.stop="toggle(id)" class="leading-none hover:text-red-500">&times;</button>
+        </span>
+      </template>
+    </div>
+    <svg class="h-4 w-4 flex-shrink-0 text-gray-400 transition-transform ml-1" :class="abierto ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+    </svg>
   </div>
 
   <div
@@ -115,7 +120,7 @@
     </button>
     <div x-show="open" x-transition>
       <form method="get" class="px-4 pb-4 pt-1 border-t border-gray-100 space-y-3">
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
           <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Fecha inicio</label>
             <input type="date" name="fecha_inicio" value="{{ fecha_inicio }}" required
@@ -134,7 +139,7 @@
             <label class="block text-xs font-medium text-gray-600 mb-1">Sucursal</label>
             {{ filtro_multi("sucursal_id", ns_s.items | tojson, "Todas") }}
           </div>
-          <div class="sm:col-span-2 lg:col-span-4">
+          <div>
             <label class="block text-xs font-medium text-gray-600 mb-1">Estado de asistencia</label>
             <select name="estado" class="w-full rounded-lg border-gray-200 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
               <option value="">Todos</option>

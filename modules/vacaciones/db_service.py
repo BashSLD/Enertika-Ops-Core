@@ -466,10 +466,12 @@ async def get_all_empleados_con_datos(
         SELECT u.id_usuario, u.nombre, u.email, u.department,
                e.numero_empleado, e.fecha_contratacion, e.puesto, e.departamento,
                e.id_aprobador_vacaciones, e.dias_vacaciones_ajuste,
-               a.nombre AS aprobador_nombre
+               a.nombre AS aprobador_nombre,
+               s.nombre AS sucursal_nombre
         FROM tb_usuarios u
         LEFT JOIN tb_empleados_datos e ON e.usuario_id = u.id_usuario
         LEFT JOIN tb_usuarios a ON a.id_usuario = e.id_aprobador_vacaciones
+        LEFT JOIN tb_cat_sucursales s ON s.id = e.sucursal_id
         WHERE {where}
         ORDER BY u.nombre
         LIMIT $1 OFFSET $2

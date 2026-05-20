@@ -14,15 +14,21 @@
           <th class="text-left px-4 py-3">Empleado</th>
           <th class="text-left px-4 py-3 hidden sm:table-cell">No. Empleado</th>
           <th class="text-left px-4 py-3 hidden md:table-cell">Contratación</th>
+          <th class="text-left px-4 py-3 hidden md:table-cell">Sucursal</th>
           <th class="text-left px-4 py-3 hidden lg:table-cell">Aprobador</th>
-          <th class="px-4 py-3 w-16"></th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-50">
         {% for emp in empleados %}
         <tr class="hover:bg-gray-50 transition-colors">
           <td class="px-4 py-3">
-            <p class="font-medium text-gray-800 truncate max-w-[180px]">{{ emp.nombre }}</p>
+            <button
+              hx-get="/rrhh/empleados/{{ emp.id_usuario }}/editar"
+              hx-target="#empleado-modal-content"
+              hx-swap="innerHTML"
+              class="font-medium text-gray-800 hover:text-[#00BABB] truncate max-w-[180px] transition-colors text-left block">
+              {{ emp.nombre }}
+            </button>
             <p class="text-xs text-gray-400">{{ emp.email or '—' }}</p>
           </td>
           <td class="px-4 py-3 hidden sm:table-cell text-gray-600">
@@ -31,17 +37,11 @@
           <td class="px-4 py-3 hidden md:table-cell text-gray-600">
             {{ emp.fecha_contratacion.strftime('%d/%m/%Y') if emp.fecha_contratacion else '—' }}
           </td>
+          <td class="px-4 py-3 hidden md:table-cell text-gray-600 text-xs">
+            {{ emp.sucursal_nombre or '—' }}
+          </td>
           <td class="px-4 py-3 hidden lg:table-cell text-gray-600 text-xs">
             {{ emp.aprobador_nombre or '—' }}
-          </td>
-          <td class="px-4 py-3 text-right">
-            <button
-              hx-get="/rrhh/empleados/{{ emp.id_usuario }}/editar"
-              hx-target="#empleado-modal-content"
-              hx-swap="innerHTML"
-              class="text-[#00BABB] hover:text-[#009A9B] text-xs font-medium transition-colors">
-              Editar
-            </button>
           </td>
         </tr>
         {% endfor %}
