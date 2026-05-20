@@ -285,21 +285,72 @@ async def descargar_pdf(
 # Aprobaciones
 # ─────────────────────────────────────────────
 
+_HISTORIAL_PAGE_SIZE = 10
+
+
+async def _get_historial_pagina(conn, usuario_id: UUID, es_rrhh: bool, pagina: int) -> tuple[list, bool]:
+    offset = (pagina - 1) * _HISTORIAL_PAGE_SIZE
+    fetch = _HISTORIAL_PAGE_SIZE + 1
+    rows = await db.get_historial_aprobaciones(
+        conn,
+        limit=fetch,
+        offset=offset,
+        aprobador_id=None if es_rrhh else usuario_id,
+    )
+    tiene_siguiente = len(rows) > _HISTORIAL_PAGE_SIZE
+    return rows[:_HISTORIAL_PAGE_SIZE], tiene_siguiente
+
+
+async def _render_aprobaciones(request: Request, conn, context: dict, **extra):
+    usuario_id = UUID(str(context["user_db_id"]))
+    es_rrhh = user_has_module_access("rrhh", context, "editor")
+    if es_rrhh:
+        pendientes = await db.get_todas_solicitudes_pendientes(conn)
+    else:
+        pendientes = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
+    historial, tiene_siguiente = await _get_historial_pagina(conn, usuario_id, es_rrhh, 1)
+    return templates.TemplateResponse(
+        request,
+        "vacaciones/partials/aprobaciones.html",
+        {
+            "pendientes": pendientes,
+            "historial": historial,
+            "historial_pagina": 1,
+            "historial_tiene_siguiente": tiene_siguiente,
+            "context": context,
+            **extra,
+        },
+    )
+
+
 @router.get("/aprobaciones")
 async def mis_aprobaciones(
     request: Request,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
+    return await _render_aprobaciones(request, conn, context)
+
+
+@router.get("/aprobaciones/historial")
+async def historial_aprobaciones_pagina(
+    request: Request,
+    pagina: int = Query(1, ge=1),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+):
     usuario_id = UUID(str(context["user_db_id"]))
-    if user_has_module_access("rrhh", context, "editor"):
-        pendientes = await db.get_todas_solicitudes_pendientes(conn)
-    else:
-        pendientes = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
+    es_rrhh = user_has_module_access("rrhh", context, "editor")
+    historial, tiene_siguiente = await _get_historial_pagina(conn, usuario_id, es_rrhh, pagina)
     return templates.TemplateResponse(
         request,
-        "vacaciones/partials/aprobaciones.html",
-        {"pendientes": pendientes, "context": context},
+        "vacaciones/partials/historial_aprobaciones.html",
+        {
+            "historial": historial,
+            "historial_pagina": pagina,
+            "historial_tiene_siguiente": tiene_siguiente,
+            "context": context,
+        },
     )
 
 
@@ -315,20 +366,10 @@ async def aprobar_solicitud(
         aprobada = await service.aprobar_solicitud(conn, solicitud_id, usuario_id, context)
     except ValueError as exc:
         return toast_error(request, str(exc), status_code=200)
-
-    if user_has_module_access("rrhh", context, "editor"):
-        pendientes = await db.get_todas_solicitudes_pendientes(conn)
-    else:
-        pendientes = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
-    return templates.TemplateResponse(
-        request,
-        "vacaciones/partials/aprobaciones.html",
-        {
-            "pendientes": pendientes,
-            "context": context,
-            "toast_msg": f"Solicitud de {aprobada['solicitante_nombre']} aprobada.",
-            "toast_type": "success",
-        },
+    return await _render_aprobaciones(
+        request, conn, context,
+        toast_msg=f"Solicitud de {aprobada['solicitante_nombre']} aprobada.",
+        toast_type="success",
     )
 
 
@@ -345,20 +386,10 @@ async def rechazar_solicitud(
         await service.rechazar_solicitud(conn, solicitud_id, usuario_id, motivo, context)
     except ValueError as exc:
         return toast_error(request, str(exc), status_code=200)
-
-    if user_has_module_access("rrhh", context, "editor"):
-        pendientes = await db.get_todas_solicitudes_pendientes(conn)
-    else:
-        pendientes = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
-    return templates.TemplateResponse(
-        request,
-        "vacaciones/partials/aprobaciones.html",
-        {
-            "pendientes": pendientes,
-            "context": context,
-            "toast_msg": "Solicitud rechazada.",
-            "toast_type": "success",
-        },
+    return await _render_aprobaciones(
+        request, conn, context,
+        toast_msg="Solicitud rechazada.",
+        toast_type="success",
     )
 
 

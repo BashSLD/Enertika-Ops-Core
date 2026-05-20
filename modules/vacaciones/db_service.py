@@ -780,6 +780,52 @@ async def get_todas_solicitudes_pendientes(conn) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+async def get_historial_aprobaciones(
+    conn, limit: int = 10, offset: int = 0, aprobador_id: Optional[UUID] = None
+) -> list[dict]:
+    if aprobador_id is None:
+        rows = await conn.fetch(
+            """
+            SELECT sa.id, sa.usuario_id, sa.tipo_ausencia_id, sa.fecha_inicio, sa.fecha_fin,
+                   sa.dias_solicitados, sa.estado, sa.motivo_rechazo,
+                   sa.fecha_solicitud, sa.fecha_resolucion,
+                   ta.nombre AS tipo_nombre,
+                   u.nombre AS solicitante_nombre
+            FROM tb_solicitudes_ausencia sa
+            JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
+            JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
+            WHERE sa.estado IN ('aprobado', 'rechazado')
+            ORDER BY sa.fecha_resolucion DESC NULLS LAST
+            LIMIT $1 OFFSET $2
+            """,
+            limit,
+            offset,
+        )
+    else:
+        rows = await conn.fetch(
+            """
+            SELECT sa.id, sa.usuario_id, sa.tipo_ausencia_id, sa.fecha_inicio, sa.fecha_fin,
+                   sa.dias_solicitados, sa.estado, sa.motivo_rechazo,
+                   sa.fecha_solicitud, sa.fecha_resolucion,
+                   ta.nombre AS tipo_nombre,
+                   u.nombre AS solicitante_nombre
+            FROM tb_solicitudes_ausencia sa
+            JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
+            JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
+            LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = sa.usuario_id
+            LEFT JOIN tb_empleados_jefes ej ON ej.empleado_id = sa.usuario_id AND ej.jefe_id = $1
+            WHERE sa.estado IN ('aprobado', 'rechazado')
+              AND (ed.id_aprobador_vacaciones = $1 OR ej.jefe_id IS NOT NULL)
+            ORDER BY sa.fecha_resolucion DESC NULLS LAST
+            LIMIT $2 OFFSET $3
+            """,
+            aprobador_id,
+            limit,
+            offset,
+        )
+    return [dict(r) for r in rows]
+
+
 async def get_todas_solicitudes(conn, estado: Optional[str] = None, limit: int = 30) -> list[dict]:
     base = """
         SELECT sa.id, sa.usuario_id, sa.tipo_ausencia_id, sa.fecha_inicio, sa.fecha_fin,
