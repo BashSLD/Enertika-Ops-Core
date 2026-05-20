@@ -1,7 +1,9 @@
 <!-- Tab Buzones de Notificaciones -->
 <div id="content-buzones" class="tab-content hidden">
-    <div class="bg-white rounded-lg shadow-md p-6">
-        <div class="flex justify-between items-center mb-6">
+
+    <!-- Encabezado + botón nuevo buzón -->
+    <div class="bg-white rounded-lg shadow-sm border border-gray-100 p-5 mb-4">
+        <div class="flex justify-between items-center">
             <div>
                 <h2 class="text-xl font-semibold text-gray-800">Buzones de Notificaciones</h2>
                 <p class="text-sm text-gray-600 mt-1">
@@ -28,194 +30,267 @@
     <!-- Modal Container para Buzones -->
     <div id="config-correos-modal"></div>
 
-    <!-- Configuración Comercial -->
-    <div class="bg-white rounded-lg shadow-md p-6 mt-6">
-        <div class="mb-4">
-            <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-green-600" fill="none" viewBox="0 0 24 24"
-                    stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.234 9.168-3v14c-1.543-1.766-5.067-3-9.168-3H7a3.988 3.988 0 01-1.564-.317z" />
-                </svg>
-                Configuración Comercial
-            </h2>
-            <p class="text-sm text-gray-600 mt-1">Correos que reciben el popup de recordatorio al crear oportunidad</p>
-        </div>
-        <form hx-post="/admin/config/comercial" hx-target="#buzones-msg-comercial" hx-swap="innerHTML">
-            <div class="bg-green-50 p-4 rounded-lg border border-green-200">
-                <label class="block text-sm font-bold text-gray-700 mb-1">Usuarios Objetivo Popup (Emails)</label>
-                <textarea name="comercial_popup_targets" rows="2" placeholder="email1@enertika.com, email2@enertika.com"
-                    class="w-full rounded-lg border-gray-300 focus:ring-green-500 focus:border-green-500 text-sm">{{ config_global.comercial_popup_targets }}</textarea>
-                <p class="text-xs text-gray-500 mt-1">Lista de correos separados por comas. Si está vacío, el popup no
-                    se mostrará a nadie.</p>
-            </div>
-            <div class="flex justify-between items-center mt-4">
-                <div id="buzones-msg-comercial"></div>
-                <button type="submit"
-                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
-                    Guardar
+    <div class="space-y-3">
+
+        <!-- ── Configuración Comercial ─────────────────────────── -->
+        <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
+            <div class="px-5 py-3 border-b border-gray-100">
+                <button type="button" @click="open = !open" :aria-expanded="open.toString()"
+                    class="flex w-full items-center gap-3 text-left">
+                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-green-50 text-green-600 flex-shrink-0">
+                        <svg class="h-4 w-4 transition-transform duration-200" :class="open ? 'rotate-90' : ''"
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </span>
+                    <span class="flex-1 min-w-0">
+                        <span class="block text-sm font-semibold text-gray-800">Configuración Comercial</span>
+                        <span class="block text-xs text-gray-400">Correos que reciben el popup de recordatorio al crear oportunidad</span>
+                    </span>
                 </button>
             </div>
-        </form>
-    </div>
-
-    <!-- Reporte Semanal de Actividad -->
-    <div class="bg-white rounded-lg shadow-md p-6 mt-6">
-        <div class="mb-4">
-            <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                <svg xmlns="http://www.w3.org/2000/svg" class="w-5 h-5 text-teal-600" fill="none" viewBox="0 0 24 24"
-                    stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-                </svg>
-                Reporte Semanal de Actividad
-            </h2>
-            <p class="text-sm text-gray-600 mt-1">Destinatarios del reporte automático enviado cada viernes</p>
-        </div>
-        <form hx-post="/admin/config/reporte-semanal" hx-target="#buzones-msg-semanal" hx-swap="innerHTML">
-            <div class="bg-teal-50 p-4 rounded-lg border border-teal-200">
-                <label class="block text-sm font-bold text-gray-700 mb-1">Destinatarios del Reporte (Emails)</label>
-                <input type="text" name="reporte_semanal_destinatarios"
-                    value="{{ config_global.reporte_semanal_destinatarios }}"
-                    placeholder="gerente@enertika.mx; director@enertika.mx"
-                    class="w-full rounded-lg border-gray-300 focus:ring-teal-500 focus:border-teal-500 text-sm">
-                <p class="text-xs text-gray-500 mt-1">Emails separados por punto y coma (<code>;</code>). Se envía
-                    automaticamente cada viernes a las 3pm via GitHub Actions.</p>
-            </div>
-            <div class="flex justify-between items-center mt-4">
-                <div id="buzones-msg-semanal"></div>
-                <button type="submit"
-                    class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
-                    Guardar
-                </button>
-            </div>
-        </form>
-    </div>
-
-    <!-- Reporte de Desarrollo CEO -->
-    <div class="bg-white rounded-lg shadow-md p-6 mt-6">
-        <div class="mb-4">
-            <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                <svg class="w-5 h-5 text-indigo-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Reporte de Desarrollo CEO
-            </h2>
-            <p class="text-sm text-gray-600 mt-1">
-                Cada viernes a las 6:00 pm se envía automaticamente un reporte con el resumen de desarrollo de la semana
-                (nuevas funcionalidades, correcciones, modulos tocados) con un PDF adjunto detallado.
-            </p>
-        </div>
-
-        <!-- Envio automatico toggle -->
-        <div class="flex items-center justify-between mb-5 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
-            <div>
-                <p class="text-sm font-medium text-gray-700">Envio automatico semanal</p>
-                <p class="text-xs text-gray-400 mt-0.5">Cron: viernes 6pm — puede desactivarse sin reiniciar el servidor</p>
-            </div>
-            {% set reporte_ceo_activo = config_global.reporte_ceo_activo %}
-            {% include "admin/partials/reporte_ceo_toggle.html" %}
-        </div>
-
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
-
-            <!-- Columna izquierda: email -->
-            <form hx-post="/admin/config/reporte-desarrollo-ceo" hx-target="#buzones-msg-ceo" hx-swap="innerHTML">
-                <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-200 h-full flex flex-col justify-between">
-                    <div>
-                        <label class="block text-sm font-bold text-gray-700 mb-1">Emails destinatarios</label>
-                        <input type="text" name="reporte_desarrollo_ceo_email"
-                            value="{{ config_global.reporte_desarrollo_ceo_email }}"
-                            placeholder="ceo@enertika.mx, direccion@enertika.mx"
-                            class="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500 text-sm">
-                        <p class="text-xs text-gray-500 mt-2">Captura uno o varios correos separados por coma o punto y coma. Si esta vacio no se envía el reporte automatico los viernes.</p>
+            <div x-show="open" x-cloak x-transition class="p-5">
+                <form hx-post="/admin/config/comercial" hx-target="#buzones-msg-comercial" hx-swap="innerHTML">
+                    <div class="bg-green-50 p-4 rounded-lg border border-green-200">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Usuarios Objetivo Popup (Emails)</label>
+                        <textarea name="comercial_popup_targets" rows="2" placeholder="email1@enertika.com, email2@enertika.com"
+                            class="w-full rounded-lg border-gray-300 focus:ring-green-500 focus:border-green-500 text-sm">{{ config_global.comercial_popup_targets }}</textarea>
+                        <p class="text-xs text-gray-500 mt-1">Lista de correos separados por comas. Si está vacío, el popup no
+                            se mostrará a nadie.</p>
                     </div>
                     <div class="flex justify-between items-center mt-4">
-                        <div id="buzones-msg-ceo"></div>
+                        <div id="buzones-msg-comercial"></div>
                         <button type="submit"
-                            class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow transition-colors text-sm">
+                            class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
                             Guardar
                         </button>
                     </div>
-                </div>
-            </form>
-
-            <!-- Columna derecha: envío manual -->
-            <form hx-post="/admin/reportes/enviar-desarrollo-ceo"
-                  hx-target="#ceo-envio-feedback"
-                  hx-swap="innerHTML"
-                  hx-indicator="#ceo-envio-spinner">
-                <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 h-full flex flex-col justify-between">
-                    <div>
-                        <p class="text-sm font-bold text-gray-700 mb-3">Enviar reporte ahora</p>
-                        <div class="grid grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">Desde</label>
-                                <input type="date" name="fecha_desde"
-                                    class="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                                    required>
-                            </div>
-                            <div>
-                                <label class="block text-xs font-medium text-gray-600 mb-1">Hasta</label>
-                                <input type="date" name="fecha_hasta"
-                                    class="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
-                                    required>
-                            </div>
-                        </div>
-                    </div>
-                    <div class="mt-4">
-                        <div id="ceo-envio-feedback" class="mb-2"></div>
-                        <div class="flex items-center gap-3">
-                            <button type="submit"
-                                class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow transition-colors text-sm">
-                                Enviar
-                            </button>
-                            <span id="ceo-envio-spinner" class="htmx-indicator text-sm text-gray-500">Enviando...</span>
-                        </div>
-                    </div>
-                </div>
-            </form>
-
-        </div>
-    </div>
-
-    <!-- Visita a Obra — destinatarios del email con PDF -->
-    <div class="bg-white rounded-lg shadow-md p-6 mt-6">
-        <div class="mb-4">
-            <h2 class="text-lg font-semibold text-gray-800 flex items-center gap-2">
-                <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                        d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-                Visita a Obra — Envio de Reporte
-            </h2>
-            <p class="text-sm text-gray-600 mt-1">
-                Al generar un reporte de visita a obra, se envía automáticamente un correo con el PDF y las fotografías
-                adjuntas.
-                El remitente es el usuario que genera el reporte.
-            </p>
-        </div>
-        <form hx-post="/admin/config/visita-obra" hx-target="#buzones-msg-visita" hx-swap="innerHTML">
-            <div class="bg-[#e6fafa] p-4 rounded-lg border border-[#00BABB]/30">
-                <label class="block text-sm font-bold text-gray-700 mb-1">Destinatarios del reporte (Emails)</label>
-                <input type="text" name="visita_obra_destinatarios"
-                    value="{{ config_global.visita_obra_destinatarios }}"
-                    placeholder="construccion@enertika.mx; gerencia@enertika.mx"
-                    class="w-full rounded-lg border-gray-300 focus:ring-[#00BABB] focus:border-[#00BABB] text-sm">
-                <p class="text-xs text-gray-500 mt-1">
-                    Emails separados por punto y coma (<code>;</code>).
-                    Si está vacío, no se envía correo al generar el PDF.
-                </p>
+                </form>
             </div>
-            <div class="flex justify-between items-center mt-4">
-                <div id="buzones-msg-visita"></div>
-                <button type="submit"
-                    class="bg-[#00BABB] hover:bg-[#009a9b] text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
-                    Guardar
+        </section>
+
+        <!-- ── Reporte Semanal de Actividad ────────────────────── -->
+        <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
+            <div class="px-5 py-3 border-b border-gray-100">
+                <button type="button" @click="open = !open" :aria-expanded="open.toString()"
+                    class="flex w-full items-center gap-3 text-left">
+                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-50 text-teal-600 flex-shrink-0">
+                        <svg class="h-4 w-4 transition-transform duration-200" :class="open ? 'rotate-90' : ''"
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </span>
+                    <span class="flex-1 min-w-0">
+                        <span class="block text-sm font-semibold text-gray-800">Reporte Semanal de Actividad</span>
+                        <span class="block text-xs text-gray-400">Destinatarios del reporte automático enviado cada viernes</span>
+                    </span>
                 </button>
             </div>
-        </form>
+            <div x-show="open" x-cloak x-transition class="p-5">
+                <form hx-post="/admin/config/reporte-semanal" hx-target="#buzones-msg-semanal" hx-swap="innerHTML">
+                    <div class="bg-teal-50 p-4 rounded-lg border border-teal-200">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Destinatarios del Reporte (Emails)</label>
+                        <input type="text" name="reporte_semanal_destinatarios"
+                            value="{{ config_global.reporte_semanal_destinatarios }}"
+                            placeholder="gerente@enertika.mx; director@enertika.mx"
+                            class="w-full rounded-lg border-gray-300 focus:ring-teal-500 focus:border-teal-500 text-sm">
+                        <p class="text-xs text-gray-500 mt-1">Emails separados por punto y coma (<code>;</code>). Se envía
+                            automaticamente cada viernes a las 3pm via GitHub Actions.</p>
+                    </div>
+                    <div class="flex justify-between items-center mt-4">
+                        <div id="buzones-msg-semanal"></div>
+                        <button type="submit"
+                            class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
+                            Guardar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- ── Reporte de Desarrollo CEO ────────────────────────── -->
+        <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
+            <div class="px-5 py-3 border-b border-gray-100">
+                <button type="button" @click="open = !open" :aria-expanded="open.toString()"
+                    class="flex w-full items-center gap-3 text-left">
+                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-indigo-600 flex-shrink-0">
+                        <svg class="h-4 w-4 transition-transform duration-200" :class="open ? 'rotate-90' : ''"
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </span>
+                    <span class="flex-1 min-w-0">
+                        <span class="block text-sm font-semibold text-gray-800">Reporte de Desarrollo CEO</span>
+                        <span class="block text-xs text-gray-400">Reporte semanal de funcionalidades — cada viernes 6:00 pm</span>
+                    </span>
+                </button>
+            </div>
+            <div x-show="open" x-cloak x-transition class="p-5 space-y-4">
+                <p class="text-sm text-gray-600">
+                    Cada viernes a las 6:00 pm se envía automáticamente un reporte con el resumen de desarrollo de la semana
+                    (nuevas funcionalidades, correcciones, módulos tocados) con un PDF adjunto detallado.
+                </p>
+
+                <!-- Envio automatico toggle -->
+                <div class="flex items-center justify-between bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+                    <div>
+                        <p class="text-sm font-medium text-gray-700">Envio automático semanal</p>
+                        <p class="text-xs text-gray-400 mt-0.5">Cron: viernes 6pm — puede desactivarse sin reiniciar el servidor</p>
+                    </div>
+                    {% set reporte_ceo_activo = config_global.reporte_ceo_activo %}
+                    {% include "admin/partials/reporte_ceo_toggle.html" %}
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Columna izquierda: email -->
+                    <form hx-post="/admin/config/reporte-desarrollo-ceo" hx-target="#buzones-msg-ceo" hx-swap="innerHTML">
+                        <div class="bg-indigo-50 p-4 rounded-lg border border-indigo-200 h-full flex flex-col justify-between">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">Emails destinatarios</label>
+                                <input type="text" name="reporte_desarrollo_ceo_email"
+                                    value="{{ config_global.reporte_desarrollo_ceo_email }}"
+                                    placeholder="ceo@enertika.mx, direccion@enertika.mx"
+                                    class="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500 text-sm">
+                                <p class="text-xs text-gray-500 mt-2">Captura uno o varios correos separados por coma o punto y coma. Si está vacío no se envía el reporte automático los viernes.</p>
+                            </div>
+                            <div class="flex justify-between items-center mt-4">
+                                <div id="buzones-msg-ceo"></div>
+                                <button type="submit"
+                                    class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow transition-colors text-sm">
+                                    Guardar
+                                </button>
+                            </div>
+                        </div>
+                    </form>
+
+                    <!-- Columna derecha: envío manual -->
+                    <form hx-post="/admin/reportes/enviar-desarrollo-ceo"
+                          hx-target="#ceo-envio-feedback"
+                          hx-swap="innerHTML"
+                          hx-indicator="#ceo-envio-spinner">
+                        <div class="bg-gray-50 p-4 rounded-lg border border-gray-200 h-full flex flex-col justify-between">
+                            <div>
+                                <p class="text-sm font-bold text-gray-700 mb-3">Enviar reporte ahora</p>
+                                <div class="grid grid-cols-2 gap-3">
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 mb-1">Desde</label>
+                                        <input type="date" name="fecha_desde"
+                                            class="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                                            required>
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-medium text-gray-600 mb-1">Hasta</label>
+                                        <input type="date" name="fecha_hasta"
+                                            class="w-full rounded-lg border-gray-300 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                                            required>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mt-4">
+                                <div id="ceo-envio-feedback" class="mb-2"></div>
+                                <div class="flex items-center gap-3">
+                                    <button type="submit"
+                                        class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg shadow transition-colors text-sm">
+                                        Enviar
+                                    </button>
+                                    <span id="ceo-envio-spinner" class="htmx-indicator text-sm text-gray-500">Enviando...</span>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </section>
+
+        <!-- ── Visita a Obra — Envio de Reporte ─────────────────── -->
+        <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
+            <div class="px-5 py-3 border-b border-gray-100">
+                <button type="button" @click="open = !open" :aria-expanded="open.toString()"
+                    class="flex w-full items-center gap-3 text-left">
+                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-[#e6fafa] text-[#00BABB] flex-shrink-0">
+                        <svg class="h-4 w-4 transition-transform duration-200" :class="open ? 'rotate-90' : ''"
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </span>
+                    <span class="flex-1 min-w-0">
+                        <span class="block text-sm font-semibold text-gray-800">Visita a Obra — Envio de Reporte</span>
+                        <span class="block text-xs text-gray-400">Destinatarios del correo con PDF al generar un reporte de visita</span>
+                    </span>
+                </button>
+            </div>
+            <div x-show="open" x-cloak x-transition class="p-5">
+                <p class="text-sm text-gray-600 mb-4">
+                    Al generar un reporte de visita a obra, se envía automáticamente un correo con el PDF y las fotografías
+                    adjuntas. El remitente es el usuario que genera el reporte.
+                </p>
+                <form hx-post="/admin/config/visita-obra" hx-target="#buzones-msg-visita" hx-swap="innerHTML">
+                    <div class="bg-[#e6fafa] p-4 rounded-lg border border-[#00BABB]/30">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Destinatarios del reporte (Emails)</label>
+                        <input type="text" name="visita_obra_destinatarios"
+                            value="{{ config_global.visita_obra_destinatarios }}"
+                            placeholder="construccion@enertika.mx; gerencia@enertika.mx"
+                            class="w-full rounded-lg border-gray-300 focus:ring-[#00BABB] focus:border-[#00BABB] text-sm">
+                        <p class="text-xs text-gray-500 mt-1">
+                            Emails separados por punto y coma (<code>;</code>).
+                            Si está vacío, no se envía correo al generar el PDF.
+                        </p>
+                    </div>
+                    <div class="flex justify-between items-center mt-4">
+                        <div id="buzones-msg-visita"></div>
+                        <button type="submit"
+                            class="bg-[#00BABB] hover:bg-[#009a9b] text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
+                            Guardar
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </section>
+
+        <!-- ── Notificaciones de Vacaciones — CCO ──────────────── -->
+        <section x-data="{ open: false }" class="bg-white border border-gray-100 rounded-lg shadow-sm overflow-hidden">
+            <div class="px-5 py-3 border-b border-gray-100">
+                <button type="button" @click="open = !open" :aria-expanded="open.toString()"
+                    class="flex w-full items-center gap-3 text-left">
+                    <span class="flex h-7 w-7 items-center justify-center rounded-lg bg-teal-50 text-teal-600 flex-shrink-0">
+                        <svg class="h-4 w-4 transition-transform duration-200" :class="open ? 'rotate-90' : ''"
+                            fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                        </svg>
+                    </span>
+                    <span class="flex-1 min-w-0">
+                        <span class="block text-sm font-semibold text-gray-800">Notificaciones de Vacaciones — CCO</span>
+                        <span class="block text-xs text-gray-400">Copia oculta al aprobar o rechazar solicitudes de vacaciones</span>
+                    </span>
+                </button>
+            </div>
+            <div x-show="open" x-cloak x-transition class="p-5">
+                <p class="text-xs text-gray-500 mb-3">
+                    Correos que reciben <strong>copia oculta (CCO)</strong> cuando se aprueba o rechaza una solicitud de vacaciones.
+                    Separa múltiples correos con coma. Los correos del módulo RRHH (editor/admin) siempre reciben CC visible.
+                </p>
+                <div id="vacaciones-notif-fields">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">Correos CCO</label>
+                        <input type="text" name="vacaciones_cco_emails"
+                            value="{{ config_global.vacaciones_cco_emails }}"
+                            placeholder="gerencia@empresa.mx, direccion@empresa.mx"
+                            class="w-full rounded-lg border-gray-300 bg-gray-50 px-3 py-2 text-sm focus:ring-teal-500 focus:border-teal-500">
+                    </div>
+                    <div class="flex justify-end mt-3">
+                        <button type="button"
+                            hx-post="/admin/config/vacaciones-notificaciones"
+                            hx-include="#vacaciones-notif-fields"
+                            hx-target="#global-toast-container"
+                            hx-swap="afterbegin"
+                            class="bg-teal-600 hover:bg-teal-700 text-white font-bold py-2 px-5 rounded-lg shadow transition-colors text-sm">
+                            Guardar CCO
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
     </div>
 
 </div>{# fin #content-buzones #}
