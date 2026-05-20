@@ -1,0 +1,8 @@
+<div id="he-row-{{ asistencia_id }}" hx-swap-oob="outerHTML:#he-row-{{ asistencia_id }}"></div>
+<span id="he-pending-badge" hx-swap-oob="outerHTML:#he-pending-badge"
+      class="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 font-semibold">
+  {{ new_count }} horas extra pendientes
+</span>
+{% with type="success", title="Descartado", message=mensaje %}
+{% include "shared/toast.html" %}
+{% endwith %}

@@ -612,6 +612,8 @@ async def get_horas_extra_equipo(
     usuario_ids: list[UUID],
     fecha_inicio: date,
     fecha_fin: date,
+    *,
+    estados: tuple[str, ...] = ("pendiente", "solicitado"),
 ) -> list[dict]:
     if not usuario_ids:
         return []
@@ -627,6 +629,8 @@ async def get_horas_extra_equipo(
             ad.minutos_programados,
             ad.minutos_extra,
             ad.estado,
+            ad.horas_extra_estado,
+            ad.motivo_solicitud,
             ad.observaciones,
             u.nombre AS empleado_nombre,
             u.email AS empleado_email,
@@ -638,12 +642,13 @@ async def get_horas_extra_equipo(
           AND ad.fecha_laboral >= $2
           AND ad.fecha_laboral <= $3
           AND ad.minutos_extra > 0
-          AND ad.horas_extra_estado = 'pendiente'
-        ORDER BY ad.fecha_laboral DESC, u.nombre
+          AND ad.horas_extra_estado = ANY($4::text[])
+        ORDER BY ad.horas_extra_estado DESC, ad.fecha_laboral DESC, u.nombre
         """,
         usuario_ids,
         fecha_inicio,
         fecha_fin,
+        list(estados),
     )
     return [dict(row) for row in rows]
 
@@ -749,8 +754,87 @@ async def count_horas_extra_pendientes(conn, usuario_ids: list[UUID]) -> int:
         SELECT COUNT(*)
         FROM tb_asistencia_diaria
         WHERE usuario_id = ANY($1::uuid[])
-          AND horas_extra_estado = 'pendiente'
+          AND horas_extra_estado IN ('pendiente', 'solicitado')
           AND minutos_extra > 0
         """,
         usuario_ids,
     ) or 0
+
+
+async def omitir_horas_extra(conn, asistencia_id: UUID) -> None:
+    await conn.execute(
+        """
+        UPDATE tb_asistencia_diaria
+        SET horas_extra_estado = 'omitido'
+        WHERE id = $1
+        """,
+        asistencia_id,
+    )
+
+
+async def recuperar_horas_extra(conn, asistencia_id: UUID) -> None:
+    await conn.execute(
+        """
+        UPDATE tb_asistencia_diaria
+        SET horas_extra_estado = 'pendiente'
+        WHERE id = $1
+          AND horas_extra_estado = 'omitido'
+        """,
+        asistencia_id,
+    )
+
+
+async def solicitar_aprobacion_horas_extra(
+    conn, asistencia_id: UUID, usuario_id: UUID, motivo: str
+) -> None:
+    await conn.execute(
+        """
+        UPDATE tb_asistencia_diaria
+        SET horas_extra_estado = 'solicitado',
+            motivo_solicitud = $3
+        WHERE id = $1
+          AND usuario_id = $2
+          AND horas_extra_estado = 'pendiente'
+        """,
+        asistencia_id,
+        usuario_id,
+        motivo,
+    )
+
+
+async def get_horas_extra_omitidas_equipo(
+    conn,
+    usuario_ids: list[UUID],
+    fecha_inicio: date,
+    fecha_fin: date,
+) -> list[dict]:
+    if not usuario_ids:
+        return []
+    rows = await conn.fetch(
+        """
+        SELECT
+            ad.id,
+            ad.usuario_id,
+            ad.fecha_laboral,
+            ad.primera_entrada,
+            ad.ultima_salida,
+            ad.minutos_extra,
+            ad.motivo_solicitud,
+            u.nombre AS empleado_nombre,
+            s.nombre AS sucursal_nombre
+        FROM tb_asistencia_diaria ad
+        JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
+        LEFT JOIN tb_cat_sucursales s ON s.id = ad.sucursal_id
+        WHERE ad.usuario_id = ANY($1::uuid[])
+          AND ad.fecha_laboral >= $2
+          AND ad.fecha_laboral <= $3
+          AND ad.minutos_extra > 0
+          AND ad.horas_extra_estado = 'omitido'
+        ORDER BY ad.fecha_laboral DESC, u.nombre
+        """,
+        usuario_ids,
+        fecha_inicio,
+        fecha_fin,
+    )
+    return [dict(row) for row in rows]
+

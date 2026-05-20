@@ -8,7 +8,7 @@ from uuid import UUID
 
 from core.config_service import ConfigService
 from core.permissions import user_has_module_access
-from core.timezone import today_mx
+from core.timezone import fmt_time_mx, today_mx
 from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.service import recalcular_asistencia
 from modules.shared import signatures_db_service as signatures_db
@@ -541,21 +541,40 @@ async def get_equipo_dashboard(conn, user_id: UUID, user_ctx: dict) -> dict:
         hoy - timedelta(days=30),
         hoy,
     )
+    horas_extra_json = []
+    grupos_map: dict[str, dict] = {}
     for row in horas_extra:
         row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
-    horas_extra_json = [
-        {
+        row["entrada_fmt"] = fmt_time_mx(row.get("primera_entrada"))
+        row["salida_fmt"] = fmt_time_mx(row.get("ultima_salida"))
+        horas_extra_json.append({
             "id": str(row["id"]),
+            "usuario_id": str(row["usuario_id"]),
+            "empleado_nombre": row["empleado_nombre"],
             "minutos_extra": int(row.get("minutos_extra") or 0),
-        }
-        for row in horas_extra
-    ]
+            "horas_extra_estado": row.get("horas_extra_estado", "pendiente"),
+            "motivo_solicitud": row.get("motivo_solicitud"),
+            "entrada_fmt": row["entrada_fmt"],
+            "salida_fmt": row["salida_fmt"],
+        })
+        uid = str(row["usuario_id"])
+        if uid not in grupos_map:
+            grupos_map[uid] = {
+                "usuario_id": uid,
+                "empleado_nombre": row["empleado_nombre"],
+                "rows": [],
+                "tiene_solicitado": False,
+            }
+        grupos_map[uid]["rows"].append(row)
+        if row.get("horas_extra_estado") == "solicitado":
+            grupos_map[uid]["tiene_solicitado"] = True
 
     return {
         "equipo": equipo,
         "vacaciones_actuales": vacaciones_actuales,
         "vacaciones_proximas": vacaciones_proximas,
         "horas_extra_pendientes": horas_extra,
+        "horas_extra_grupos": list(grupos_map.values()),
         "horas_extra_pendientes_json": horas_extra_json,
         "hoy": hoy,
     }

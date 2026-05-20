@@ -32,3 +32,7 @@ class BulkAprobacionIn(BaseModel):
     asistencia_ids: list[UUID]
     minutos_aprobados: int
     comentario: str
+
+
+class SolicitudHorasExtraIn(BaseModel):
+    motivo: str

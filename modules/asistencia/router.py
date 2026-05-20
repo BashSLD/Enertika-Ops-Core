@@ -17,11 +17,14 @@ from core.security import get_current_user_context
 from core.workflow.notification_service import NotificationService
 from modules.asistencia import db_service as db
 from modules.asistencia.constants import ASISTENCIA_ESTADOS
-from modules.asistencia.schemas import AprobacionHorasExtraIn, BulkAprobacionIn
+from modules.asistencia.schemas import AprobacionHorasExtraIn, BulkAprobacionIn, SolicitudHorasExtraIn
 from modules.asistencia.service import (
     aprobar_horas_extra_svc,
     bulk_aprobar_horas_extra_svc,
     get_equipo_ids,
+    omitir_horas_extra_svc,
+    recuperar_horas_extra_svc,
+    solicitar_aprobacion_svc,
     sync_biotime_once,
 )
 from modules.shared.utils import toast_error
@@ -176,6 +179,107 @@ async def aprobar_horas_extra(
             "asistencia_id": str(asistencia_id),
             "new_count": new_count,
             "mensaje": f"Horas extra aprobadas para {result['empleado_nombre']}",
+        },
+        headers={"HX-Reswap": "none"},
+    )
+
+
+@router.post("/api/horas-extra/{asistencia_id}/omitir")
+async def omitir_horas_extra(
+    request: Request,
+    asistencia_id: UUID,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("vacaciones", "editor"),
+):
+    aprobador_id = UUID(str(context["user_db_id"]))
+    equipo = await get_equipo_ids(conn, aprobador_id, context)
+
+    try:
+        result = await omitir_horas_extra_svc(
+            conn, asistencia_id=asistencia_id, equipo_ids=equipo
+        )
+    except ValueError as exc:
+        return toast_error(request, str(exc))
+    except asyncpg.PostgresError as exc:
+        logger.error("Error BD omitiendo horas extra: %s", exc)
+        return toast_error(request, "Error al descartar el registro", status_code=500)
+
+    new_count = await db.count_horas_extra_pendientes(conn, equipo)
+    return templates.TemplateResponse(
+        request,
+        "asistencia/partials/omitir_success.html",
+        {
+            "asistencia_id": str(asistencia_id),
+            "new_count": new_count,
+            "mensaje": f"Registro descartado — {result['empleado_nombre']}",
+        },
+        headers={"HX-Reswap": "none"},
+    )
+
+
+@router.post("/api/horas-extra/{asistencia_id}/recuperar")
+async def recuperar_horas_extra(
+    request: Request,
+    asistencia_id: UUID,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("vacaciones", "editor"),
+):
+    aprobador_id = UUID(str(context["user_db_id"]))
+    equipo = await get_equipo_ids(conn, aprobador_id, context)
+
+    try:
+        await recuperar_horas_extra_svc(
+            conn, asistencia_id=asistencia_id, equipo_ids=equipo
+        )
+    except ValueError as exc:
+        return toast_error(request, str(exc))
+    except asyncpg.PostgresError as exc:
+        logger.error("Error BD recuperando horas extra: %s", exc)
+        return toast_error(request, "Error al recuperar el registro", status_code=500)
+
+    new_count = await db.count_horas_extra_pendientes(conn, equipo)
+    return templates.TemplateResponse(
+        request,
+        "asistencia/partials/recuperar_success.html",
+        {
+            "asistencia_id": str(asistencia_id),
+            "new_count": new_count,
+        },
+        headers={"HX-Reswap": "none"},
+    )
+
+
+@router.post("/api/horas-extra/{asistencia_id}/solicitar")
+async def solicitar_aprobacion_horas_extra(
+    request: Request,
+    asistencia_id: UUID,
+    payload: SolicitudHorasExtraIn,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+):
+    usuario_id = UUID(str(context["user_db_id"]))
+
+    try:
+        await solicitar_aprobacion_svc(
+            conn,
+            asistencia_id=asistencia_id,
+            usuario_id=usuario_id,
+            motivo=payload.motivo,
+        )
+    except ValueError as exc:
+        return toast_error(request, str(exc))
+    except asyncpg.PostgresError as exc:
+        logger.error("Error BD solicitando aprobacion horas extra: %s", exc)
+        return toast_error(request, "Error al enviar la solicitud", status_code=500)
+
+    return templates.TemplateResponse(
+        request,
+        "asistencia/partials/solicitar_success.html",
+        {
+            "asistencia_id": str(asistencia_id),
+            "mensaje": "Solicitud enviada al responsable.",
         },
         headers={"HX-Reswap": "none"},
     )

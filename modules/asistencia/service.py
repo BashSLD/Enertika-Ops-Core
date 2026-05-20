@@ -60,8 +60,8 @@ async def aprobar_horas_extra_svc(
     row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
     if not row:
         raise ValueError("Registro no encontrado")
-    if row["horas_extra_estado"] != "pendiente":
-        raise ValueError("Este registro ya fue aprobado")
+    if row["horas_extra_estado"] not in ("pendiente", "solicitado"):
+        raise ValueError("Este registro ya fue procesado")
     if row["usuario_id"] not in equipo_ids:
         raise ValueError("El empleado no pertenece a tu equipo")
     validate_aprobacion(minutos_aprobados, row["minutos_extra"], comentario)
@@ -106,9 +106,9 @@ async def bulk_aprobar_horas_extra_svc(
         raise ValueError("El empleado no pertenece a tu equipo")
 
     for row in rows:
-        if row["horas_extra_estado"] != "pendiente":
+        if row["horas_extra_estado"] not in ("pendiente", "solicitado"):
             fecha = row["fecha_laboral"].strftime("%d/%m/%Y")
-            raise ValueError(f"El registro del {fecha} ya fue aprobado")
+            raise ValueError(f"El registro del {fecha} ya fue procesado")
         validate_aprobacion(minutos_aprobados, row["minutos_extra"], comentario)
 
     await db.bulk_aprobar_horas_extra(
@@ -623,6 +623,60 @@ def _find_vacacion_id(vacaciones: list[dict], usuario_id: UUID, fecha_laboral: d
         if row["usuario_id"] == usuario_id and row["fecha_inicio"] <= fecha_laboral <= row["fecha_fin"]:
             return row["id"]
     return None
+
+
+async def omitir_horas_extra_svc(
+    conn,
+    *,
+    asistencia_id: UUID,
+    equipo_ids: list[UUID],
+) -> dict:
+    row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
+    if not row:
+        raise ValueError("Registro no encontrado")
+    if row["horas_extra_estado"] not in ("pendiente", "solicitado"):
+        raise ValueError("Solo se pueden descartar registros pendientes o solicitados")
+    if row["usuario_id"] not in equipo_ids:
+        raise ValueError("El empleado no pertenece a tu equipo")
+    await db.omitir_horas_extra(conn, asistencia_id)
+    return {"empleado_nombre": row["empleado_nombre"]}
+
+
+async def recuperar_horas_extra_svc(
+    conn,
+    *,
+    asistencia_id: UUID,
+    equipo_ids: list[UUID],
+) -> dict:
+    row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
+    if not row:
+        raise ValueError("Registro no encontrado")
+    if row["horas_extra_estado"] != "omitido":
+        raise ValueError("El registro no está descartado")
+    if row["usuario_id"] not in equipo_ids:
+        raise ValueError("El empleado no pertenece a tu equipo")
+    await db.recuperar_horas_extra(conn, asistencia_id)
+    return {"empleado_nombre": row["empleado_nombre"]}
+
+
+async def solicitar_aprobacion_svc(
+    conn,
+    *,
+    asistencia_id: UUID,
+    usuario_id: UUID,
+    motivo: str,
+) -> dict:
+    row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
+    if not row:
+        raise ValueError("Registro no encontrado")
+    if row["usuario_id"] != usuario_id:
+        raise ValueError("No tienes permiso para este registro")
+    if row["horas_extra_estado"] != "pendiente":
+        raise ValueError("Solo puedes solicitar aprobacion de registros pendientes")
+    if not motivo or not motivo.strip():
+        raise ValueError("El motivo es obligatorio")
+    await db.solicitar_aprobacion_horas_extra(conn, asistencia_id, usuario_id, motivo.strip())
+    return {"fecha_laboral": row["fecha_laboral"]}
 
 
 async def sync_biotime_periodically() -> None:

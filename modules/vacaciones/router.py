@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
@@ -10,8 +10,11 @@ from fastapi.templating import Jinja2Templates
 from core.database import get_db_connection
 from core.permissions import user_has_module_access
 from core.security import get_current_user_context
+from core.timezone import fmt_time_mx, today_mx
+from modules.asistencia import db_service as asistencia_db
+from modules.asistencia.service import get_equipo_ids
 from modules.shared import signatures_db_service as signatures_db
-from modules.shared.utils import is_htmx, toast_error
+from modules.shared.utils import format_minutes, is_htmx, toast_error
 from modules.vacaciones import db_service as db
 from modules.vacaciones import service
 from modules.vacaciones.logic import contar_dias_habiles, siguiente_dia_habil
@@ -409,6 +412,29 @@ async def mi_equipo(
         request,
         "vacaciones/partials/equipo.html",
         {**equipo_ctx, "context": context},
+    )
+
+
+@router.get("/equipo/horas-extra-omitidas")
+async def horas_extra_omitidas(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+):
+    usuario_id = UUID(str(context["user_db_id"]))
+    equipo = await get_equipo_ids(conn, usuario_id, context)
+    hoy = today_mx()
+    rows = await asistencia_db.get_horas_extra_omitidas_equipo(
+        conn, equipo, hoy - timedelta(days=30), hoy
+    )
+    for row in rows:
+        row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
+        row["entrada_fmt"] = fmt_time_mx(row.get("primera_entrada"))
+        row["salida_fmt"] = fmt_time_mx(row.get("ultima_salida"))
+    return templates.TemplateResponse(
+        request,
+        "vacaciones/partials/horas_extra_omitidas.html",
+        {"omitidas": rows, "context": context},
     )
 
 
