@@ -899,9 +899,9 @@
             const popup = window.open('/auth/login', 'LoginPopup', 'width=500,height=600,left=200,top=200');
 
             const timer = setInterval(() => {
-                fetch(window.location.pathname, { method: 'HEAD' })
+                fetch('/auth/session')
                     .then(res => {
-                        if (res.ok && !res.redirected) {
+                        if (res.ok) {
                             clearInterval(timer);
                             if (popup) popup.close();
                             htmx.ajax('GET', window.location.pathname, { target: '#main-content', swap: 'innerHTML' });
@@ -916,19 +916,23 @@
             }, 1000);
         }
 
-        // === INTERCEPTOR DE ERRORES 401 ===
+        // === INTERCEPTOR DE ERRORES HTMX ===
         document.body.addEventListener('htmx:responseError', function (evt) {
             if (evt.detail.xhr.status === 401) {
                 evt.preventDefault();
                 evt.stopPropagation();
                 document.getElementById('session-modal').classList.remove('hidden');
+            } else if (evt.detail.target.id === 'sat-global-banner' && evt.detail.xhr.status === 404) {
+                // Si el banner de descarga SAT retorna 404 (por no estar desplegado o inactivo),
+                // lo removemos del DOM para detener el polling de 15s y evitar spam en consola.
+                evt.detail.target.remove();
             }
         });
 
         // === HEARTBEAT ===
         setInterval(() => {
-            fetch(window.location.pathname, { method: 'HEAD' }).then(res => {
-                if (res.redirected || res.status === 401 || res.status === 403) {
+            fetch('/auth/session').then(res => {
+                if (res.status === 401 || res.status === 403) {
                     document.getElementById('session-modal').classList.remove('hidden');
                 }
             }).catch(() => { });
