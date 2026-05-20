@@ -590,9 +590,12 @@ async def get_unmapped_biotime_checks_summary(
             MIN(c.check_time) AS primera_checada,
             MAX(c.check_time) AS ultima_checada
         FROM tb_biotime_checks c
+        LEFT JOIN tb_biotime_empleado_map m ON m.biotime_emp_code = c.biotime_emp_code
+        LEFT JOIN tb_usuarios u ON u.id_usuario = m.usuario_id AND u.is_active = false
         WHERE c.usuario_id IS NULL
           AND (c.check_time AT TIME ZONE 'America/Mexico_City')::date >= $1
           AND (c.check_time AT TIME ZONE 'America/Mexico_City')::date <= $2
+          AND u.id_usuario IS NULL
         GROUP BY c.biotime_emp_code
         ORDER BY ultima_checada DESC
         LIMIT $3
