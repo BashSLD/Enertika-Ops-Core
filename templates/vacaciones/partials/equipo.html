@@ -115,6 +115,9 @@
       init() {
         this.rows = JSON.parse(this.$el.dataset.rows || '[]');
         this.rows = this.rows.map(r => ({...r, id: String(r.id)}));
+        this.$watch('selected', () => {
+          if (this.bulkMinutos > this.bulkMaxMinutos) this.bulkMinutos = this.bulkMaxMinutos;
+        });
       },
       toggle(id) {
         const idx = this.selected.indexOf(id);
@@ -127,6 +130,10 @@
       get bulkMaxMinutos() {
         const mins = this.selectedRows.map(r => r.minutos_extra);
         return mins.length ? Math.min(...mins) : 480;
+      },
+      get bulkEmpleadosCount() {
+        const ids = new Set(this.selectedRows.map(r => r.usuario_id));
+        return ids.size;
       },
       openAprobar(id, nombre, fecha, maxMin, motivo) {
         this.modalId = id;
@@ -185,7 +192,10 @@
           <span x-text="selected.length"></span> registro(s) seleccionado(s) &mdash;
           máximo <span x-text="(bulkMaxMinutos / 60).toFixed(1)"></span> h para aprobar
         </p>
-        <div class="flex flex-col sm:flex-row gap-2">
+        <p x-show="bulkEmpleadosCount > 1" class="text-xs text-red-600 font-semibold mb-2">
+          Solo puedes aprobar registros de un mismo empleado a la vez.
+        </p>
+        <div class="flex flex-col sm:flex-row gap-2" x-show="bulkEmpleadosCount === 1">
           <div>
             <label class="block text-xs text-gray-600 mb-1">Minutos a aprobar</label>
             <input type="number" x-model.number="bulkMinutos"
@@ -215,7 +225,7 @@
               if (selected.length > 0 && !document.getElementById('he-row-' + selected[0])) onBulkDone();
             });
           "
-          :disabled="!bulkComentario.trim() || bulkMinutos < 30"
+          :disabled="bulkEmpleadosCount > 1 || !bulkComentario.trim() || bulkMinutos < 30"
           class="px-3 py-1.5 rounded-lg text-xs font-medium text-white bg-amber-600 hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed">
           Aprobar seleccionados
         </button>
