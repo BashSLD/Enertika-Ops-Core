@@ -1225,6 +1225,7 @@ async def get_reporte_vacaciones(
     fecha_fin: date,
     usuario_ids: list[UUID] | None = None,
     estado: str | None = None,
+    incluir_dados_de_baja: bool = False,
 ) -> list[dict]:
     return await rrhh_db.get_reporte_vacaciones(
         conn,
@@ -1232,6 +1233,7 @@ async def get_reporte_vacaciones(
         fecha_fin=fecha_fin,
         usuario_ids=usuario_ids,
         estado=estado,
+        incluir_dados_de_baja=incluir_dados_de_baja,
     )
 
 
@@ -1239,10 +1241,16 @@ async def build_empleados_vacaciones_export(
     conn,
     sucursal_ids: list[UUID] | None = None,
     usuario_ids: list[UUID] | None = None,
+    incluir_dados_de_baja: bool = False,
 ) -> tuple[list[str], list[list], str]:
     hoy = today_mx()
     empleados = await vac_db.get_all_empleados_con_datos(
-        conn, limit=10000, offset=0, sucursal_ids=sucursal_ids, usuario_ids=usuario_ids
+        conn,
+        limit=10000,
+        offset=0,
+        sucursal_ids=sucursal_ids,
+        usuario_ids=usuario_ids,
+        incluir_dados_de_baja=incluir_dados_de_baja,
     )
     catalogo = await vac_db.get_catalogo_dias(conn)
     meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)

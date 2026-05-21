@@ -334,6 +334,7 @@ async def empleados_exportar_excel(
     _=require_module_access("rrhh", "viewer"),
     sucursal_id: List[str] = Query(default=[]),
     usuario_id: List[str] = Query(default=[]),
+    incluir_dados_de_baja: bool = False,
 ):
     sids = _parse_uuid_list(sucursal_id, "sucursal_id")
     uids = _parse_uuid_list(usuario_id, "usuario_id")
@@ -341,6 +342,7 @@ async def empleados_exportar_excel(
         conn,
         sucursal_ids=sids or None,
         usuario_ids=uids or None,
+        incluir_dados_de_baja=incluir_dados_de_baja,
     )
     workbook = _build_workbook("Vacaciones", headers, rows)
     return _excel_response(workbook, filename)
@@ -365,6 +367,7 @@ async def reporte_asistencia_excel(
     usuario_id: List[str] = Query(default=[]),
     sucursal_id: List[str] = Query(default=[]),
     estado: List[str] = Query(default=[]),
+    incluir_dados_de_baja: bool = False,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
@@ -380,6 +383,7 @@ async def reporte_asistencia_excel(
             usuario_ids=uids or None,
             sucursal_ids=sids or None,
             estados=estado or None,
+            incluir_dados_de_baja=incluir_dados_de_baja,
             limit=None,
         )
         unmapped = await asistencia_db.get_unmapped_biotime_checks_summary(
@@ -438,6 +442,7 @@ async def reporte_vacaciones_excel(
     fecha_fin: date,
     usuario_id: List[str] = Query(default=[]),
     estado: Optional[str] = None,
+    incluir_dados_de_baja: bool = False,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
@@ -451,6 +456,7 @@ async def reporte_vacaciones_excel(
             fecha_fin=fecha_fin,
             usuario_ids=uids or None,
             estado=estado or None,
+            incluir_dados_de_baja=incluir_dados_de_baja,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -502,6 +508,7 @@ async def reporte_horas_extra_excel(
     fecha_fin: date,
     usuario_id: List[str] = Query(default=[]),
     sucursal_id: List[str] = Query(default=[]),
+    incluir_dados_de_baja: bool = False,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
@@ -517,6 +524,7 @@ async def reporte_horas_extra_excel(
             usuario_ids=uids or None,
             sucursal_ids=sids or None,
             solo_horas_extra=True,
+            incluir_dados_de_baja=incluir_dados_de_baja,
             limit=None,
         )
     except ValueError as exc:

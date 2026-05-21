@@ -522,6 +522,7 @@ async def get_reporte_asistencia(
     sucursal_ids: list[UUID] | None = None,
     estados: list[str] | None = None,
     solo_horas_extra: bool = False,
+    incluir_dados_de_baja: bool = False,
     limit: int | None = None,
     offset: int = 0,
 ) -> list[dict]:
@@ -559,8 +560,9 @@ async def get_reporte_asistencia(
           AND (cardinality($4::uuid[]) = 0 OR ad.sucursal_id = ANY($4))
           AND (cardinality($5::text[]) = 0 OR ad.estado = ANY($5))
           AND ($6::bool = false OR ad.minutos_extra > 0)
+          AND ($7::bool = true OR u.is_active = true)
         ORDER BY ad.fecha_laboral DESC, u.nombre
-        LIMIT $7 OFFSET $8
+        LIMIT $8 OFFSET $9
         """,
         fecha_inicio,
         fecha_fin,
@@ -568,6 +570,7 @@ async def get_reporte_asistencia(
         sids,
         ests,
         solo_horas_extra,
+        incluir_dados_de_baja,
         lim,
         offset,
     )

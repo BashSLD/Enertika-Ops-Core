@@ -259,6 +259,7 @@ async def get_reporte_vacaciones(
     fecha_fin: date,
     usuario_ids: list[UUID] | None = None,
     estado: str | None = None,
+    incluir_dados_de_baja: bool = False,
 ) -> list[dict]:
     uids = usuario_ids or []
     rows = await conn.fetch(
@@ -290,11 +291,13 @@ async def get_reporte_vacaciones(
           AND sa.fecha_fin >= $1
           AND (cardinality($3::uuid[]) = 0 OR sa.usuario_id = ANY($3))
           AND ($4::text IS NULL OR sa.estado = $4)
+          AND ($5::bool = true OR u.is_active = true)
         ORDER BY sa.fecha_inicio DESC, u.nombre
         """,
         fecha_inicio,
         fecha_fin,
         uids,
         estado,
+        incluir_dados_de_baja,
     )
     return [dict(row) for row in rows]

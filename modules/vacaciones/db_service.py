@@ -453,9 +453,10 @@ async def get_all_empleados_con_datos(
     offset: int = 0,
     sucursal_ids: list | None = None,
     usuario_ids: list | None = None,
+    incluir_dados_de_baja: bool = False,
 ) -> list[dict]:
-    conditions = ["u.is_active = true"]
-    params: list = [limit, offset]
+    conditions = ["($3::bool = true OR u.is_active = true)"]
+    params: list = [limit, offset, incluir_dados_de_baja]
     if sucursal_ids:
         params.append(sucursal_ids)
         conditions.append(f"e.sucursal_id = ANY(${len(params)}::uuid[])")
