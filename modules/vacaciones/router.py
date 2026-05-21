@@ -290,6 +290,37 @@ async def descargar_pdf(
 _HISTORIAL_PAGE_SIZE = 10
 
 
+def _build_horas_extra_grupos(rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    grupos_map: dict[str, dict] = {}
+    json_rows: list[dict] = []
+    for row in rows:
+        row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
+        row["entrada_fmt"] = fmt_time_mx(row.pop("primera_entrada", None))
+        row["salida_fmt"] = fmt_time_mx(row.pop("ultima_salida", None))
+        json_rows.append({
+            "id": str(row["id"]),
+            "usuario_id": str(row["usuario_id"]),
+            "empleado_nombre": row["empleado_nombre"],
+            "minutos_extra": int(row.get("minutos_extra") or 0),
+            "horas_extra_estado": row.get("horas_extra_estado", "pendiente"),
+            "motivo_solicitud": row.get("motivo_solicitud"),
+            "entrada_fmt": row["entrada_fmt"],
+            "salida_fmt": row["salida_fmt"],
+        })
+        uid = str(row["usuario_id"])
+        if uid not in grupos_map:
+            grupos_map[uid] = {
+                "usuario_id": uid,
+                "empleado_nombre": row["empleado_nombre"],
+                "rows": [],
+                "tiene_solicitado": False,
+            }
+        grupos_map[uid]["rows"].append(row)
+        if row.get("horas_extra_estado") == "solicitado":
+            grupos_map[uid]["tiene_solicitado"] = True
+    return list(grupos_map.values()), json_rows
+
+
 def _enrich_horas_extra_rows(rows: list[dict]) -> list[dict]:
     for row in rows:
         row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
@@ -320,18 +351,21 @@ async def _render_aprobaciones(request: Request, conn, context: dict, **extra):
     es_rrhh = user_has_module_access("rrhh", context, "editor")
     hoy = today_mx()
     fecha_inicio = hoy - timedelta(days=30)
+    horas_extra_grupos: list[dict] = []
+    horas_extra_json: list[dict] = []
     if es_rrhh:
         pendientes = await db.get_todas_solicitudes_pendientes(conn)
         horas_extra_rows = await asistencia_db.get_horas_extra_todas(
             conn, fecha_inicio, hoy, estados=("solicitado",)
         )
+        _enrich_horas_extra_rows(horas_extra_rows)
     else:
         pendientes = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
         equipo_ids = await db.get_empleados_donde_soy_jefe(conn, usuario_id)
         horas_extra_rows = await asistencia_db.get_horas_extra_equipo(
-            conn, equipo_ids, fecha_inicio, hoy, estados=("solicitado",)
+            conn, equipo_ids, fecha_inicio, hoy
         )
-    _enrich_horas_extra_rows(horas_extra_rows)
+        horas_extra_grupos, horas_extra_json = _build_horas_extra_grupos(horas_extra_rows)
     historial, tiene_siguiente = await _get_historial_pagina(conn, usuario_id, es_rrhh, 1)
     return templates.TemplateResponse(
         request,
@@ -339,6 +373,8 @@ async def _render_aprobaciones(request: Request, conn, context: dict, **extra):
         {
             "pendientes": pendientes,
             "horas_extra_pendientes": horas_extra_rows,
+            "horas_extra_grupos": horas_extra_grupos,
+            "horas_extra_pendientes_json": horas_extra_json,
             "historial": historial,
             "historial_pagina": 1,
             "historial_tiene_siguiente": tiene_siguiente,
