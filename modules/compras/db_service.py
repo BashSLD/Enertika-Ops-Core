@@ -327,7 +327,17 @@ class ComprasDBService:
         zonas = await conn.fetch("SELECT id, nombre FROM tb_cat_zonas_compra WHERE activo = true ORDER BY orden, nombre")
         categorias = await conn.fetch("SELECT id, nombre FROM tb_cat_categorias_compra WHERE activo = true ORDER BY orden, nombre")
         proyectos = await conn.fetch("SELECT id_proyecto, proyecto_id_estandar as nombre FROM tb_proyectos_gate WHERE aprobacion_direccion = true ORDER BY proyecto_id_estandar")
-        compradores = await conn.fetch("SELECT id_usuario, nombre FROM tb_usuarios WHERE is_active = true ORDER BY nombre")
+        compradores = await conn.fetch("""
+            SELECT u.id_usuario, u.nombre
+            FROM tb_usuarios u
+            WHERE u.is_active = true
+              AND EXISTS (
+                  SELECT 1
+                  FROM tb_comprobantes_pago c
+                  WHERE c.capturado_por_id = u.id_usuario
+              )
+            ORDER BY u.nombre
+        """)
         
         return {
             "zonas": [dict(r) for r in zonas],
