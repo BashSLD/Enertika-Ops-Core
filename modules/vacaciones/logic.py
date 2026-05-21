@@ -64,10 +64,13 @@ def calcular_periodos(
 def calcular_balance(
     periodos: list[dict],
     consumos: list[dict],
+    prorrogas: list[dict] | None = None,
 ) -> list[dict]:
     """
     Devuelve los períodos enriquecidos con saldo, alertas y bandera de expirado.
     consumos: [{num_periodo, dias_consumidos}]
+    prorrogas: [{num_periodo, fecha_aniversario_periodo, fecha_expiracion_prorroga, dias_prorrogados}]
+    Con prorrogas=None el comportamiento es idéntico al original.
     """
     from core.timezone import today_mx
 
@@ -77,13 +80,25 @@ def calcular_balance(
         n = c["num_periodo"]
         consumo_por_periodo[n] = consumo_por_periodo.get(n, 0) + c["dias_consumidos"]
 
+    prorroga_por_periodo: dict[tuple, dict] = {}
+    if prorrogas:
+        for pr in prorrogas:
+            if pr["fecha_expiracion_prorroga"] >= hoy:
+                key = (pr["num_periodo"], pr["fecha_aniversario_periodo"])
+                prorroga_por_periodo[key] = pr
+
     resultado: list[dict] = []
     for p in periodos:
         n = p["num_periodo"]
         usados = consumo_por_periodo.get(n, 0)
         restantes = p["dias_otorgados"] - usados
-        fecha_exp = p["fecha_expiracion"]
-        dias_para_exp = (fecha_exp - hoy).days if not p["es_proximo"] else None
+
+        prorroga = prorroga_por_periodo.get((n, p["fecha_aniversario"]))
+        tiene_prorroga = prorroga is not None
+        fecha_exp_original = p["fecha_expiracion"]
+        fecha_exp_efectiva = prorroga["fecha_expiracion_prorroga"] if prorroga else fecha_exp_original
+
+        dias_para_exp = (fecha_exp_efectiva - hoy).days if not p["es_proximo"] else None
         expirado = (dias_para_exp is not None and dias_para_exp < 0)
         alerta = (
             not p["es_proximo"]
@@ -99,6 +114,11 @@ def calcular_balance(
             "dias_para_expiracion": dias_para_exp,
             "expirado": expirado,
             "alerta": alerta,
+            "tiene_prorroga": tiene_prorroga,
+            "fecha_expiracion_original": fecha_exp_original,
+            "fecha_expiracion_efectiva": fecha_exp_efectiva,
+            "dias_prorrogados": prorroga["dias_prorrogados"] if prorroga else None,
+            "dias_restantes_prorrogados": min(restantes, prorroga["dias_prorrogados"]) if prorroga else None,
         })
     return resultado
 
@@ -115,10 +135,16 @@ def asignar_consumo_fifo(
     from core.timezone import today_mx
 
     hoy = today_mx()
-    # Solo períodos disponibles (no futuros, no expirados, con saldo > 0), ordenados por expiración
+    # Solo períodos disponibles (no futuros, no expirados, con saldo > 0), ordenados por expiración efectiva
+    def _limite_fifo(p: dict) -> int:
+        return p["dias_restantes_prorrogados"] if p.get("tiene_prorroga") else p["dias_restantes"]
+
     disponibles = sorted(
-        [p for p in periodos_con_saldo if not p.get("es_proximo") and not p.get("expirado") and p["dias_restantes"] > 0],
-        key=lambda p: p["fecha_expiracion"],
+        [
+            p for p in periodos_con_saldo
+            if not p.get("es_proximo") and not p.get("expirado") and _limite_fifo(p) > 0
+        ],
+        key=lambda p: p.get("fecha_expiracion_efectiva", p["fecha_expiracion"]),
     )
     resultado: list[dict] = []
     pendiente = dias_solicitados
@@ -126,7 +152,7 @@ def asignar_consumo_fifo(
     for p in disponibles:
         if pendiente <= 0:
             break
-        tomar = min(pendiente, p["dias_restantes"])
+        tomar = min(pendiente, _limite_fifo(p))
         resultado.append({
             "num_periodo": p["num_periodo"],
             "dias_consumir": tomar,
@@ -135,9 +161,10 @@ def asignar_consumo_fifo(
         pendiente -= tomar
 
     if pendiente > 0:
-        # Adelanto: usar el período más reciente (incluye futuros próximos)
+        # Adelanto: usar el período más reciente (incluye futuros próximos).
+        # Los períodos prorrogados no admiten adelanto — ya tienen un tope fijo.
         candidatos = sorted(
-            [p for p in periodos_con_saldo if not p.get("expirado")],
+            [p for p in periodos_con_saldo if not p.get("expirado") and not p.get("tiene_prorroga")],
             key=lambda p: p["num_periodo"],
             reverse=True,
         )
