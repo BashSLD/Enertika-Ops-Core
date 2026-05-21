@@ -35,7 +35,12 @@ def sanitize_input_string(text: str) -> str:
 
 def format_minutes(value) -> str:
     total = int(value or 0)
-    return f"{total // 60}:{total % 60:02d}"
+    h, m = divmod(total, 60)
+    if h and m:
+        return f"{h}h {m:02d}m"
+    if h:
+        return f"{h}h"
+    return f"{m}m"
 
 
 def is_htmx(request: Request) -> bool:

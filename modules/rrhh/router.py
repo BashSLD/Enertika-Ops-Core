@@ -1419,8 +1419,8 @@ async def asistencia_panel(
                 **row,
                 "entrada_fmt": ensure_mx(row["primera_entrada"]).strftime("%H:%M") if row.get("primera_entrada") else "",
                 "salida_fmt": ensure_mx(row["ultima_salida"]).strftime("%H:%M") if row.get("ultima_salida") else "",
-                "horas_fmt": f"{(row.get('minutos_trabajados') or 0) // 60}:{(row.get('minutos_trabajados') or 0) % 60:02d}",
-                "extra_fmt": f"{(row.get('minutos_extra') or 0) // 60}:{(row.get('minutos_extra') or 0) % 60:02d}",
+                "horas_fmt": format_minutes(row.get("minutos_trabajados") or 0),
+                "extra_fmt": format_minutes(row.get("minutos_extra") or 0),
                 "estado_label": _format_estado_asistencia(row.get("estado")),
             }
             for row in raw

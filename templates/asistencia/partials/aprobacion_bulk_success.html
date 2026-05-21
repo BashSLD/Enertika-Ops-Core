@@ -1,5 +1,6 @@
 {% for aid in asistencia_ids %}
 <div id="he-row-{{ aid }}" hx-swap-oob="outerHTML:#he-row-{{ aid }}"></div>
+<div id="rrhh-he-row-{{ aid }}" hx-swap-oob="outerHTML:#rrhh-he-row-{{ aid }}"></div>
 {% endfor %}
 <span id="he-pending-badge" hx-swap-oob="outerHTML:#he-pending-badge"
       class="px-2.5 py-1 rounded-full bg-amber-100 text-amber-700 font-semibold">

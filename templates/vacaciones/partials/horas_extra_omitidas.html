@@ -9,8 +9,8 @@
       <p class="text-xs text-gray-400">
         {{ row.fecha_laboral.strftime('%d/%m/%Y') }}
         {% if row.entrada_fmt %}&middot; {{ row.entrada_fmt }} → {{ row.salida_fmt or '...' }}{% endif %}
-        &middot; +{{ row.extra_fmt }}
       </p>
+      <span class="px-2 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">+{{ row.extra_fmt }}</span>
       {% if row.motivo_solicitud %}
       <p class="text-xs text-gray-400 italic">"{{ row.motivo_solicitud }}"</p>
       {% endif %}
