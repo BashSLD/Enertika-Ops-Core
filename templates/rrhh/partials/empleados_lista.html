@@ -11,16 +11,20 @@
     <table class="w-full text-sm">
       <thead class="bg-gray-50 text-xs text-gray-500 uppercase tracking-wide">
         <tr>
-          <th class="text-left px-4 py-3">Empleado</th>
-          <th class="text-left px-4 py-3 hidden sm:table-cell">No. Empleado</th>
+          <th class="text-left px-4 py-3 hidden sm:table-cell w-28">No. Empleado</th>
+          <th class="text-left px-4 py-3">Nombre</th>
           <th class="text-left px-4 py-3 hidden md:table-cell">Contratación</th>
           <th class="text-left px-4 py-3 hidden md:table-cell">Sucursal</th>
           <th class="text-left px-4 py-3 hidden lg:table-cell">Aprobador</th>
+          <th class="text-left px-4 py-3 hidden lg:table-cell">Vacaciones</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-gray-50">
         {% for emp in empleados %}
         <tr class="hover:bg-gray-50 transition-colors">
+          <td class="px-4 py-3 hidden sm:table-cell text-gray-600 w-28 whitespace-nowrap">
+            {{ emp.numero_empleado or '—' }}
+          </td>
           <td class="px-4 py-3">
             <button
               hx-get="/rrhh/empleados/{{ emp.id_usuario }}/editar"
@@ -31,9 +35,6 @@
             </button>
             <p class="text-xs text-gray-400">{{ emp.email or '—' }}</p>
           </td>
-          <td class="px-4 py-3 hidden sm:table-cell text-gray-600">
-            {{ emp.numero_empleado or '—' }}
-          </td>
           <td class="px-4 py-3 hidden md:table-cell text-gray-600">
             {{ emp.fecha_contratacion.strftime('%d/%m/%Y') if emp.fecha_contratacion else '—' }}
           </td>
@@ -42,6 +43,21 @@
           </td>
           <td class="px-4 py-3 hidden lg:table-cell text-gray-600 text-xs">
             {{ emp.aprobador_nombre or '—' }}
+          </td>
+          <td class="px-4 py-3 hidden lg:table-cell">
+            {% set b = balances.get(emp.id_usuario) %}
+            {% if b %}
+              <span class="font-semibold text-gray-800 text-sm">{{ b.total_disponible }} días</span>
+              {% if b.periodos %}
+                {% for p in b.periodos if p.alerta and not p.es_proximo and not p.expirado %}
+                <p class="text-xs mt-0.5 {{ 'text-red-500' if p.dias_para_expiracion < 30 else 'text-amber-500' }}">
+                  Período {{ p.periodo }}: {{ p.dias_restantes }} días · vence {{ p.fecha_expiracion.strftime('%d/%m/%Y') }}
+                </p>
+                {% endfor %}
+              {% endif %}
+            {% else %}
+              <span class="text-xs text-gray-400">—</span>
+            {% endif %}
           </td>
         </tr>
         {% endfor %}
