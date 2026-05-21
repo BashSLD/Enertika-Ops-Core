@@ -225,7 +225,7 @@
     {% for grupo in horas_extra_grupos %}
     <div class="border-b border-gray-100 last:border-b-0">
       <button
-        @click="gruposAbiertos['{{ grupo.usuario_id }}'] = gruposAbiertos['{{ grupo.usuario_id }}'] !== false"
+        @click="gruposAbiertos['{{ grupo.usuario_id }}'] = !gruposAbiertos['{{ grupo.usuario_id }}']"
         class="w-full px-5 py-2.5 flex items-center justify-between hover:bg-gray-50 transition-colors text-left">
         <div class="flex items-center gap-2">
           <span class="text-sm font-semibold text-gray-800">{{ grupo.empleado_nombre }}</span>
@@ -235,13 +235,13 @@
           {% endif %}
         </div>
         <svg class="h-4 w-4 text-gray-400 transition-transform"
-             :class="{'rotate-180': gruposAbiertos['{{ grupo.usuario_id }}'] !== false}"
+             :class="{'rotate-180': gruposAbiertos['{{ grupo.usuario_id }}'] === true}"
              fill="none" viewBox="0 0 24 24" stroke="currentColor">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
         </svg>
       </button>
 
-      <div x-show="gruposAbiertos['{{ grupo.usuario_id }}'] !== false" x-transition>
+      <div x-show="gruposAbiertos['{{ grupo.usuario_id }}'] === true" x-transition>
         {% for row in grupo.rows %}
         <div id="he-row-{{ row.id }}"
              class="px-5 py-3 flex flex-col sm:flex-row sm:items-start gap-3 border-t border-gray-50
@@ -275,18 +275,18 @@
 
           <div class="flex items-center gap-2 flex-shrink-0">
             <button
+              @click="openAprobar('{{ row.id }}', '{{ row.empleado_nombre | replace("'", "\\'") }}', '{{ row.fecha_laboral.strftime('%d/%m/%Y') }}', {{ row.minutos_extra }}, '{{ (row.motivo_solicitud or '') | replace("'", "\\'") }}')"
+              class="px-3 py-1 rounded-lg text-xs font-medium text-white bg-blue-600 hover:bg-blue-700">
+              Aprobar
+            </button>
+            <button
               @click="omitirRow('{{ row.id }}')"
               title="Descartar este registro"
-              class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-gray-500 border border-gray-200 hover:text-red-600 hover:border-red-200 hover:bg-red-50 transition-colors flex items-center gap-1.5">
+              class="px-2.5 py-1.5 rounded-lg text-xs font-medium text-white bg-red-500 hover:bg-red-600 transition-colors flex items-center gap-1.5">
               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
               </svg>
               Eliminar
-            </button>
-            <button
-              @click="openAprobar('{{ row.id }}', '{{ row.empleado_nombre | replace("'", "\\'") }}', '{{ row.fecha_laboral.strftime('%d/%m/%Y') }}', {{ row.minutos_extra }}, '{{ (row.motivo_solicitud or '') | replace("'", "\\'") }}')"
-              class="px-3 py-1 rounded-lg text-xs font-medium text-white bg-blue-600 hover:bg-blue-700">
-              Aprobar
             </button>
           </div>
         </div>
@@ -319,7 +319,7 @@
           </div>
           <div x-show="modalMotivo" class="rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm">
             <p class="text-xs font-semibold text-blue-700 mb-0.5">Motivo del empleado</p>
-            <p class="text-xs text-blue-800 italic" x-text="'\"' + modalMotivo + '\"'"></p>
+            <p class="text-xs text-blue-800 italic">"<span x-text="modalMotivo"></span>"</p>
           </div>
           <div>
             <label class="block text-xs font-semibold text-gray-700 mb-1">
@@ -405,48 +405,38 @@
     </div>
     {% else %}
     {% for item in equipo %}
-    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden" x-data="{ open: false }">
-      <div @click="open = !open" class="px-5 py-3 flex items-center justify-between cursor-pointer hover:bg-gray-50 transition-colors"
-           :class="open ? 'border-b border-gray-100' : ''">
+    <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+      <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
         <div>
           <p class="text-sm font-semibold text-gray-800">{{ item.usuario.nombre }}</p>
           <p class="text-xs text-gray-400">{{ item.usuario.email }}</p>
         </div>
-        <div class="flex items-center gap-3">
-          <button
-            hx-get="/vacaciones/equipo/{{ item.usuario.id_usuario }}"
-            hx-target="#tab-content"
-            hx-swap="innerHTML"
-            hx-push-url="/perfil/ui?tab=equipo&equipo_uid={{ item.usuario.id_usuario }}"
-            @click.stop
-            class="text-xs text-[#00BABB] hover:underline font-medium">
-            Ver detalle
-          </button>
-          <svg class="h-4 w-4 text-gray-400 flex-shrink-0 transition-transform" :class="{'rotate-180': open}"
-               fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
-          </svg>
-        </div>
+        <button
+          hx-get="/vacaciones/equipo/{{ item.usuario.id_usuario }}"
+          hx-target="#tab-content"
+          hx-swap="innerHTML"
+          hx-push-url="/perfil/ui?tab=equipo&equipo_uid={{ item.usuario.id_usuario }}"
+          class="text-xs text-[#00BABB] hover:underline font-medium">
+          Ver detalle
+        </button>
       </div>
-      <div x-show="open" x-transition>
-        {% if item.balance.periodos %}
-        <div class="px-5 py-3 flex items-center justify-between text-sm">
-          <span class="text-gray-500">Días disponibles</span>
-          <span class="font-bold text-gray-900">{{ item.balance.total_disponible }}</span>
-        </div>
-        {% if item.balance.periodos | selectattr('alerta') | list %}
-        <div class="px-5 pb-3">
-          {% for p in item.balance.periodos if p.alerta and not p.es_proximo %}
-          <p class="text-xs {{ 'text-red-500' if p.dias_para_expiracion < 30 else 'text-amber-500' }}">
-            Período {{ p.periodo }}: {{ p.dias_restantes }} días expiran el {{ p.fecha_expiracion.strftime('%d/%m/%Y') }}
-          </p>
-          {% endfor %}
-        </div>
-        {% endif %}
-        {% else %}
-        <div class="px-5 py-3 text-xs text-gray-400">Sin datos laborales registrados.</div>
-        {% endif %}
+      {% if item.balance.periodos %}
+      <div class="px-5 py-3 flex items-center justify-between text-sm">
+        <span class="text-gray-500">Días disponibles</span>
+        <span class="font-bold text-gray-900">{{ item.balance.total_disponible }}</span>
       </div>
+      {% if item.balance.periodos | selectattr('alerta') | list %}
+      <div class="px-5 pb-3">
+        {% for p in item.balance.periodos if p.alerta and not p.es_proximo %}
+        <p class="text-xs {{ 'text-red-500' if p.dias_para_expiracion < 30 else 'text-amber-500' }}">
+          Período {{ p.periodo }}: {{ p.dias_restantes }} días expiran el {{ p.fecha_expiracion.strftime('%d/%m/%Y') }}
+        </p>
+        {% endfor %}
+      </div>
+      {% endif %}
+      {% else %}
+      <div class="px-5 py-3 text-xs text-gray-400">Sin datos laborales registrados.</div>
+      {% endif %}
     </div>
     {% endfor %}
     {% endif %}
