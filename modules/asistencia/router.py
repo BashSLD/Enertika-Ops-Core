@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
 import logging
 from datetime import date
 from uuid import UUID
 
 import asyncpg
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -17,7 +18,7 @@ from core.security import get_current_user_context
 from core.workflow.notification_service import NotificationService
 from modules.asistencia import db_service as db
 from modules.asistencia.constants import ASISTENCIA_ESTADOS
-from modules.asistencia.schemas import AprobacionHorasExtraIn, BulkAprobacionIn, SolicitudHorasExtraIn
+from modules.asistencia.schemas import SolicitudHorasExtraIn
 from modules.asistencia.service import (
     aprobar_horas_extra_svc,
     bulk_aprobar_horas_extra_svc,
@@ -27,7 +28,7 @@ from modules.asistencia.service import (
     solicitar_aprobacion_svc,
     sync_biotime_once,
 )
-from modules.shared.utils import toast_error
+from modules.shared.utils import format_minutes, toast_error
 
 logger = logging.getLogger("asistencia.router")
 router = APIRouter(prefix="/asistencia", tags=["asistencia"])
@@ -80,21 +81,24 @@ async def ejecutar_sync_biotime(
 @router.post("/api/horas-extra/aprobar-bulk")
 async def aprobar_horas_extra_bulk(
     request: Request,
-    payload: BulkAprobacionIn,
+    asistencia_ids: str = Form(...),
+    minutos_aprobados: int = Form(...),
+    comentario: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("vacaciones", "editor"),
 ):
+    ids = [UUID(x) for x in json.loads(asistencia_ids)]
     aprobador_id = UUID(str(context["user_db_id"]))
     equipo = await get_equipo_ids(conn, aprobador_id, context)
 
     try:
         result = await bulk_aprobar_horas_extra_svc(
             conn,
-            asistencia_ids=payload.asistencia_ids,
+            asistencia_ids=ids,
             aprobador_id=aprobador_id,
-            minutos_aprobados=payload.minutos_aprobados,
-            comentario=payload.comentario,
+            minutos_aprobados=minutos_aprobados,
+            comentario=comentario,
             equipo_ids=equipo,
         )
     except ValueError as exc:
@@ -118,10 +122,10 @@ async def aprobar_horas_extra_bulk(
         request,
         "asistencia/partials/aprobacion_bulk_success.html",
         {
-            "asistencia_ids": [str(aid) for aid in payload.asistencia_ids],
+            "asistencia_ids": [str(aid) for aid in ids],
             "new_count": new_count,
             "mensaje": (
-                f"{len(payload.asistencia_ids)} registros aprobados "
+                f"{len(ids)} registros aprobados "
                 f"para {result['empleado_nombre']}"
             ),
         },
@@ -133,7 +137,8 @@ async def aprobar_horas_extra_bulk(
 async def aprobar_horas_extra(
     request: Request,
     asistencia_id: UUID,
-    payload: AprobacionHorasExtraIn,
+    minutos_aprobados: int = Form(...),
+    comentario: str = Form(...),
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("vacaciones", "editor"),
@@ -146,8 +151,8 @@ async def aprobar_horas_extra(
             conn,
             asistencia_id=asistencia_id,
             aprobador_id=aprobador_id,
-            minutos_aprobados=payload.minutos_aprobados,
-            comentario=payload.comentario,
+            minutos_aprobados=minutos_aprobados,
+            comentario=comentario,
             equipo_ids=equipo,
         )
     except ValueError as exc:
@@ -262,7 +267,7 @@ async def solicitar_aprobacion_horas_extra(
     usuario_id = UUID(str(context["user_db_id"]))
 
     try:
-        await solicitar_aprobacion_svc(
+        result = await solicitar_aprobacion_svc(
             conn,
             asistencia_id=asistencia_id,
             usuario_id=usuario_id,
@@ -273,6 +278,23 @@ async def solicitar_aprobacion_horas_extra(
     except asyncpg.PostgresError as exc:
         logger.error("Error BD solicitando aprobacion horas extra: %s", exc)
         return toast_error(request, "Error al enviar la solicitud", status_code=500)
+
+    jefes = await db.get_jefes_del_empleado(conn, usuario_id)
+    tiene_director = any(j["rol_organizacional"] == "director" for j in jefes)
+    svc_notif = NotificationService()
+    if tiene_director:
+        destinatarios = await svc_notif._get_rh_emails_cc(conn)
+    else:
+        destinatarios = {j["email"] for j in jefes if j.get("email")}
+    await svc_notif.notify_horas_extra_solicitud(
+        conn,
+        empleado_nombre=context["user_name"],
+        fecha_laboral=result["fecha_laboral"],
+        extra_fmt=format_minutes(result["minutos_extra"]),
+        motivo=payload.motivo,
+        destinatarios=destinatarios,
+        via_rh=tiene_director,
+    )
 
     return templates.TemplateResponse(
         request,

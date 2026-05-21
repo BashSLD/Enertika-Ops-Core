@@ -34,36 +34,57 @@
 
   <!-- Horas extra + accion -->
   {% if row.minutos_extra and row.minutos_extra > 0 %}
-  <div class="flex flex-wrap items-center gap-2 flex-shrink-0">
-    <span class="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
-      +{{ row.extra_fmt }} extra
-    </span>
+  <div x-data="{ f: false }" class="flex flex-col gap-1.5 flex-shrink-0">
 
     {% if row.horas_extra_estado == 'pendiente' %}
-    <button disabled
-            title="Próximamente podrás enviar la solicitud directamente"
-            class="px-3 py-1 rounded-lg text-xs font-medium text-white bg-gray-300 cursor-not-allowed opacity-60">
-      Solicitar aprobación
-    </button>
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+        +{{ row.extra_fmt }} extra
+      </span>
+      <button x-show="!f" @click="f = true"
+              class="px-3 py-1 rounded-lg text-xs font-medium text-white bg-[#00BABB] hover:bg-[#009899] transition-colors">
+        Solicitar aprobación
+      </button>
+    </div>
+    <form x-show="f" x-cloak
+          hx-post="/asistencia/api/horas-extra/{{ row.id }}/solicitar"
+          hx-ext="json-enc"
+          hx-target="#he-row-mi-{{ row.id }}"
+          hx-swap="outerHTML"
+          class="flex flex-col gap-1.5 w-full sm:w-72">
+      <textarea name="motivo" rows="2" required
+                placeholder="Motivo de las horas extra..."
+                class="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 resize-none focus:outline-none focus:ring-1 focus:ring-[#00BABB]"></textarea>
+      <div class="flex gap-1.5 justify-end">
+        <button type="button" @click="f = false"
+                class="px-3 py-1 rounded-lg text-xs font-medium text-gray-600 bg-gray-100 hover:bg-gray-200">
+          Cancelar
+        </button>
+        <button type="submit"
+                class="px-3 py-1 rounded-lg text-xs font-medium text-white bg-[#00BABB] hover:bg-[#009899]">
+          Enviar
+        </button>
+      </div>
+    </form>
 
-    {% elif row.horas_extra_estado == 'solicitado' %}
-    <span class="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">
-      Solicitada
-    </span>
-    {% if row.motivo_solicitud %}
-    <span class="text-xs text-gray-500 italic">"{{ row.motivo_solicitud }}"</span>
+    {% else %}
+    <div class="flex flex-wrap items-center gap-2">
+      <span class="px-2.5 py-0.5 rounded-full bg-amber-100 text-amber-700 text-xs font-semibold">
+        +{{ row.extra_fmt }} extra
+      </span>
+      {% if row.horas_extra_estado == 'solicitado' %}
+      <span class="px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-700 text-xs font-semibold">Solicitada</span>
+      {% if row.motivo_solicitud %}
+      <span class="text-xs text-gray-500 italic">"{{ row.motivo_solicitud }}"</span>
+      {% endif %}
+      {% elif row.horas_extra_estado == 'aprobado' %}
+      <span class="px-2.5 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold">Aprobada</span>
+      {% elif row.horas_extra_estado == 'omitido' %}
+      <span class="px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-400 text-xs font-medium">Descartada</span>
+      {% endif %}
+    </div>
     {% endif %}
 
-    {% elif row.horas_extra_estado == 'aprobado' %}
-    <span class="px-2.5 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-semibold">
-      Aprobada
-    </span>
-
-    {% elif row.horas_extra_estado == 'omitido' %}
-    <span class="px-2.5 py-0.5 rounded-full bg-gray-100 text-gray-400 text-xs font-medium">
-      Descartada
-    </span>
-    {% endif %}
   </div>
   {% endif %}
 

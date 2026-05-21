@@ -676,7 +676,7 @@ async def solicitar_aprobacion_svc(
     if not motivo or not motivo.strip():
         raise ValueError("El motivo es obligatorio")
     await db.solicitar_aprobacion_horas_extra(conn, asistencia_id, usuario_id, motivo.strip())
-    return {"fecha_laboral": row["fecha_laboral"]}
+    return {"fecha_laboral": row["fecha_laboral"], "minutos_extra": row["minutos_extra"]}
 
 
 async def sync_biotime_periodically() -> None:

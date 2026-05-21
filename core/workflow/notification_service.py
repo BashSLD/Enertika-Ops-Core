@@ -535,6 +535,62 @@ class NotificationService:
         except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as exc:
             logger.error("[NOTIFY] Error inesperado en APROBACION_HORAS_EXTRA: %s", exc, exc_info=True)
 
+    async def notify_horas_extra_solicitud(
+        self,
+        conn,
+        *,
+        empleado_nombre: str,
+        fecha_laboral,
+        extra_fmt: str,
+        motivo: str,
+        destinatarios: set[str],
+        via_rh: bool = False,
+    ) -> None:
+        try:
+            if not destinatarios:
+                logger.info("[NOTIFY] SOLICITUD_HE sin destinatarios — omitiendo")
+                return
+
+            fecha_str = fecha_laboral.strftime("%d/%m/%Y")
+            if via_rh:
+                url_aprobacion = f"{settings.APP_BASE_URL}/rrhh?tab=aprobaciones"
+                label_boton = "Revisar en RRHH"
+            else:
+                url_aprobacion = f"{settings.APP_BASE_URL}/perfil/ui?tab=equipo"
+                label_boton = "Revisar en Mi Equipo"
+            html = self._render_template(
+                "shared/emails/vacaciones/horas_extra_solicitud.html",
+                {
+                    "empleado_nombre": empleado_nombre,
+                    "fecha": fecha_str,
+                    "extra_fmt": extra_fmt,
+                    "motivo": motivo,
+                    "url_aprobacion": url_aprobacion,
+                    "label_boton": label_boton,
+                },
+            )
+            subject = f"Solicitud de horas extra: {empleado_nombre}"
+            sender_config = await self._get_notification_sender(conn, "DEFAULT")
+            await self._send_email(destinatarios, set(), subject, html, sender_config["email"])
+
+            for email in destinatarios:
+                await self._save_and_broadcast(
+                    conn=conn,
+                    recipient_email=email,
+                    tipo="ASIGNACION",
+                    titulo=f"Solicitud de horas extra — {empleado_nombre}",
+                    mensaje=f"{fecha_str} · {extra_fmt}",
+                    id_oportunidad=None,
+                    modulo_origen="asistencia",
+                )
+
+        except asyncpg.PostgresError as exc:
+            logger.error("[NOTIFY] Error BD en SOLICITUD_HORAS_EXTRA: %s", exc, exc_info=True)
+        except httpx.HTTPError as exc:
+            logger.error("[NOTIFY] Error red en SOLICITUD_HORAS_EXTRA: %s", exc, exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as exc:
+            logger.error("[NOTIFY] Error inesperado en SOLICITUD_HORAS_EXTRA: %s", exc, exc_info=True)
+
     # ===== MÉTODOS PRIVADOS =====
 
     async def _get_opportunity(self, conn, id_oportunidad: UUID) -> dict:

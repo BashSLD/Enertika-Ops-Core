@@ -846,6 +846,19 @@ async def solicitar_aprobacion_horas_extra(
     )
 
 
+async def get_jefes_del_empleado(conn, usuario_id: UUID) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT u.id_usuario, u.nombre, u.email, u.rol_organizacional
+        FROM tb_empleados_jefes ej
+        JOIN tb_usuarios u ON u.id_usuario = ej.jefe_id
+        WHERE ej.empleado_id = $1 AND u.is_active = TRUE
+        """,
+        usuario_id,
+    )
+    return [dict(r) for r in rows]
+
+
 async def get_horas_extra_omitidas_equipo(
     conn,
     usuario_ids: list[UUID],
