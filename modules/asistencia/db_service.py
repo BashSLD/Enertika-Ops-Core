@@ -656,6 +656,47 @@ async def get_horas_extra_equipo(
     return [dict(row) for row in rows]
 
 
+async def get_horas_extra_todas(
+    conn,
+    fecha_inicio: date,
+    fecha_fin: date,
+    *,
+    estados: tuple[str, ...] = ("pendiente", "solicitado"),
+) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT
+            ad.id,
+            ad.usuario_id,
+            ad.fecha_laboral,
+            ad.primera_entrada,
+            ad.ultima_salida,
+            ad.minutos_trabajados,
+            ad.minutos_programados,
+            ad.minutos_extra,
+            ad.estado,
+            ad.horas_extra_estado,
+            ad.motivo_solicitud,
+            ad.observaciones,
+            u.nombre AS empleado_nombre,
+            u.email AS empleado_email,
+            s.nombre AS sucursal_nombre
+        FROM tb_asistencia_diaria ad
+        JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
+        LEFT JOIN tb_cat_sucursales s ON s.id = ad.sucursal_id
+        WHERE ad.fecha_laboral >= $1
+          AND ad.fecha_laboral <= $2
+          AND ad.minutos_extra > 0
+          AND ad.horas_extra_estado = ANY($3::text[])
+        ORDER BY ad.horas_extra_estado DESC, ad.fecha_laboral DESC, u.nombre
+        """,
+        fecha_inicio,
+        fecha_fin,
+        list(estados),
+    )
+    return [dict(row) for row in rows]
+
+
 async def get_asistencia_para_aprobar(conn, asistencia_id: UUID) -> dict | None:
     row = await conn.fetchrow(
         """

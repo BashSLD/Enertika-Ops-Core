@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from io import BytesIO
 from typing import List, Optional
 from uuid import UUID
@@ -22,7 +22,7 @@ from modules.rrhh import service
 from modules.shared.utils import format_minutes, is_htmx, toast_error, toast_success
 from modules.vacaciones import db_service as vac_db
 from modules.vacaciones import service as vac_service
-from core.timezone import today_mx
+from core.timezone import fmt_time_mx, today_mx
 
 logger = logging.getLogger("rrhh.router")
 router = APIRouter(prefix="/rrhh", tags=["rrhh"])
@@ -271,7 +271,7 @@ async def ausencias_panel(
 ):
     hoy = today_mx()
     fi = fecha_inicio or hoy
-    ff = fecha_fin or hoy
+    ff = fecha_fin or (hoy + timedelta(days=90))
     if ff < fi:
         ff = fi
     ausencias = await vac_db.get_ausencias_activas(conn, fi, ff, tipo_slug=tipo or None)
@@ -300,10 +300,44 @@ async def aprobaciones_pendientes(
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
 ):
+    hoy = today_mx()
     pendientes = await vac_db.get_todas_solicitudes_pendientes(conn)
+    horas_extra = await asistencia_db.get_horas_extra_todas(conn, hoy - timedelta(days=30), hoy)
+    grupos_map: dict[str, dict] = {}
+    horas_extra_json = []
+    for row in horas_extra:
+        row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
+        row["entrada_fmt"] = fmt_time_mx(row.get("primera_entrada"))
+        row["salida_fmt"] = fmt_time_mx(row.get("ultima_salida"))
+        horas_extra_json.append({
+            "id": str(row["id"]),
+            "usuario_id": str(row["usuario_id"]),
+            "empleado_nombre": row["empleado_nombre"],
+            "minutos_extra": int(row.get("minutos_extra") or 0),
+            "horas_extra_estado": row.get("horas_extra_estado", "pendiente"),
+            "motivo_solicitud": row.get("motivo_solicitud"),
+            "entrada_fmt": row["entrada_fmt"],
+            "salida_fmt": row["salida_fmt"],
+        })
+        uid = str(row["usuario_id"])
+        if uid not in grupos_map:
+            grupos_map[uid] = {
+                "usuario_id": uid,
+                "empleado_nombre": row["empleado_nombre"],
+                "rows": [],
+                "tiene_solicitado": False,
+            }
+        grupos_map[uid]["rows"].append(row)
+        if row.get("horas_extra_estado") == "solicitado":
+            grupos_map[uid]["tiene_solicitado"] = True
     return templates.TemplateResponse(
         request, "rrhh/partials/aprobaciones_pendientes.html",
-        {"pendientes": pendientes, "context": context},
+        {
+            "pendientes": pendientes,
+            "horas_extra_grupos": list(grupos_map.values()),
+            "horas_extra_json": horas_extra_json,
+            "context": context,
+        },
     )
 
 
@@ -321,9 +355,11 @@ async def empleados_lista(
 ):
     empleados = await vac_db.get_all_empleados_con_datos(conn, limit=50, offset=offset)
     total = await vac_db.count_empleados(conn)
+    ids = [emp["id_usuario"] for emp in empleados]
+    balances = await vac_service.get_balances_por_ids(conn, ids)
     return templates.TemplateResponse(
         request, "rrhh/partials/empleados_lista.html",
-        {"empleados": empleados, "total": total, "offset": offset},
+        {"empleados": empleados, "total": total, "offset": offset, "balances": balances},
     )
 
 
