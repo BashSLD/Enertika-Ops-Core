@@ -414,6 +414,7 @@
       No hay personas en Mi equipo actualmente.
     </div>
     {% else %}
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
     {% for item in equipo %}
     <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
       <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
@@ -449,6 +450,7 @@
       {% endif %}
     </div>
     {% endfor %}
+    </div>
     {% endif %}
   </section>
 </div>
