@@ -967,7 +967,6 @@ async def get_vacaciones_aprobadas_equipo(
     conn,
     usuario_ids: list[UUID],
     fecha_inicio: date,
-    fecha_fin: date,
 ) -> list[dict]:
     if not usuario_ids:
         return []
@@ -989,13 +988,11 @@ async def get_vacaciones_aprobadas_equipo(
           AND sa.estado = 'aprobado'
           AND ta.slug = 'vacaciones'
           AND COALESCE(sa.es_migracion, false) = false
-          AND sa.fecha_inicio <= $3
           AND sa.fecha_fin >= $2
         ORDER BY sa.fecha_inicio, u.nombre
         """,
         usuario_ids,
         fecha_inicio,
-        fecha_fin,
     )
     return [dict(r) for r in rows]
 

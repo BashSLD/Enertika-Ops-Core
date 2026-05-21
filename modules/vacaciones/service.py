@@ -427,6 +427,42 @@ async def _get_detalle_periodos_pdf(conn, solicitud: dict) -> list[dict]:
 
 
 # ─────────────────────────────────────────────
+# Balance batch (para listados de empleados)
+# ─────────────────────────────────────────────
+
+async def get_balances_por_ids(conn, ids: list[UUID]) -> dict:
+    if not ids:
+        return {}
+    hoy = today_mx()
+    catalogo = await db.get_catalogo_dias(conn)
+    meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
+    empleados = await db.get_empleados_balance_base(conn, ids)
+    consumos_por_usuario = await db.get_consumos_bulk(conn, [emp["id_usuario"] for emp in empleados])
+
+    resultado = {}
+    for emp in empleados:
+        uid = emp["id_usuario"]
+        if not emp.get("fecha_contratacion"):
+            resultado[uid] = {"periodos": None, "total_disponible": 0}
+        else:
+            periodos = calcular_periodos(
+                emp["fecha_contratacion"],
+                hoy,
+                catalogo,
+                ajuste_dias=emp.get("dias_vacaciones_ajuste") or 0,
+                meses_expiracion=meses_exp,
+            )
+            periodos_balance = calcular_balance(periodos, consumos_por_usuario.get(uid, []))
+            total_disponible = sum(
+                max(p["dias_restantes"], 0)
+                for p in periodos_balance
+                if not p.get("es_proximo") and not p.get("expirado")
+            )
+            resultado[uid] = {"periodos": periodos_balance, "total_disponible": total_disponible}
+    return resultado
+
+
+# ─────────────────────────────────────────────
 # Vista equipo
 # ─────────────────────────────────────────────
 
@@ -435,10 +471,6 @@ async def get_equipo_balances(conn, user_id: UUID, user_ctx: dict) -> list[dict]
     ids_jefe = await db.get_empleados_donde_soy_jefe(conn, user_id)
     ids_aprobador = await db.get_empleados_donde_soy_aprobador(conn, user_id)
     all_ids = list({*ids_jefe, *ids_aprobador})
-
-    if user_has_module_access("rrhh", user_ctx, "editor"):
-        rows = await db.get_all_empleados_con_datos(conn, limit=500, offset=0)
-        all_ids = [r["id_usuario"] for r in rows]
 
     if not all_ids:
         return []
@@ -526,7 +558,6 @@ async def get_equipo_dashboard(conn, user_id: UUID, user_ctx: dict) -> dict:
         conn,
         usuario_ids,
         hoy,
-        hoy + timedelta(days=60),
     )
     vacaciones_actuales = [
         row for row in vacaciones if row["fecha_inicio"] <= hoy <= row["fecha_fin"]

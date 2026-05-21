@@ -12,7 +12,6 @@ from core.permissions import user_has_module_access
 from core.security import get_current_user_context
 from core.timezone import fmt_time_mx, today_mx
 from modules.asistencia import db_service as asistencia_db
-from modules.asistencia.service import get_equipo_ids
 from modules.shared import signatures_db_service as signatures_db
 from modules.shared.utils import format_minutes, is_htmx, toast_error
 from modules.vacaciones import db_service as db
@@ -422,7 +421,9 @@ async def horas_extra_omitidas(
     context=Depends(get_current_user_context),
 ):
     usuario_id = UUID(str(context["user_db_id"]))
-    equipo = await get_equipo_ids(conn, usuario_id, context)
+    ids_jefe = await db.get_empleados_donde_soy_jefe(conn, usuario_id)
+    ids_aprobador = await db.get_empleados_donde_soy_aprobador(conn, usuario_id)
+    equipo = list({*ids_jefe, *ids_aprobador})
     hoy = today_mx()
     rows = await asistencia_db.get_horas_extra_omitidas_equipo(
         conn, equipo, hoy - timedelta(days=30), hoy
