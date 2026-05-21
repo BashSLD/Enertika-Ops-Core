@@ -123,15 +123,9 @@ async def perfil_ui(
     firma = await signatures_db.get_firma_usuario(conn, usuario_id)
     es_jefe = await vac_service.es_jefe_o_aprobador_de_alguien(conn, usuario_id)
     es_rrhh_viewer = user_has_module_access("rrhh", context_perfil, "viewer")
-    es_rrhh_editor = user_has_module_access("rrhh", context_perfil, "editor")
     hoy = today_mx()
     fecha_inicio = hoy - timedelta(days=30)
-    if es_rrhh_editor:
-        pendientes_aprobacion = await vac_db.get_todas_solicitudes_pendientes(conn)
-        he_solicitadas = await asistencia_db.get_horas_extra_todas(
-            conn, fecha_inicio, hoy, estados=("solicitado",)
-        )
-    elif es_jefe:
+    if es_jefe:
         pendientes_aprobacion = await vac_db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
         equipo_ids = await vac_db.get_empleados_donde_soy_jefe(conn, usuario_id)
         he_solicitadas = await asistencia_db.get_horas_extra_equipo(
