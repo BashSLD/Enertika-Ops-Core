@@ -293,8 +293,8 @@ _HISTORIAL_PAGE_SIZE = 10
 def _enrich_horas_extra_rows(rows: list[dict]) -> list[dict]:
     for row in rows:
         row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
-        row["entrada_fmt"] = fmt_time_mx(row.get("primera_entrada"))
-        row["salida_fmt"] = fmt_time_mx(row.get("ultima_salida"))
+        row["entrada_fmt"] = fmt_time_mx(row.pop("primera_entrada", None))
+        row["salida_fmt"] = fmt_time_mx(row.pop("ultima_salida", None))
         row["id"] = str(row["id"])
         row["usuario_id"] = str(row["usuario_id"])
         if row.get("fecha_laboral"):
