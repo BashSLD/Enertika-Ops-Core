@@ -290,6 +290,18 @@ async def descargar_pdf(
 _HISTORIAL_PAGE_SIZE = 10
 
 
+def _enrich_horas_extra_rows(rows: list[dict]) -> list[dict]:
+    for row in rows:
+        row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
+        row["entrada_fmt"] = fmt_time_mx(row.get("primera_entrada"))
+        row["salida_fmt"] = fmt_time_mx(row.get("ultima_salida"))
+        row["id"] = str(row["id"])
+        row["usuario_id"] = str(row["usuario_id"])
+        if row.get("fecha_laboral"):
+            row["fecha_laboral"] = row["fecha_laboral"].isoformat()
+    return rows
+
+
 async def _get_historial_pagina(conn, usuario_id: UUID, es_rrhh: bool, pagina: int) -> tuple[list, bool]:
     offset = (pagina - 1) * _HISTORIAL_PAGE_SIZE
     fetch = _HISTORIAL_PAGE_SIZE + 1
@@ -306,16 +318,27 @@ async def _get_historial_pagina(conn, usuario_id: UUID, es_rrhh: bool, pagina: i
 async def _render_aprobaciones(request: Request, conn, context: dict, **extra):
     usuario_id = UUID(str(context["user_db_id"]))
     es_rrhh = user_has_module_access("rrhh", context, "editor")
+    hoy = today_mx()
+    fecha_inicio = hoy - timedelta(days=30)
     if es_rrhh:
         pendientes = await db.get_todas_solicitudes_pendientes(conn)
+        horas_extra_rows = await asistencia_db.get_horas_extra_todas(
+            conn, fecha_inicio, hoy, estados=("solicitado",)
+        )
     else:
         pendientes = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
+        equipo_ids = await db.get_empleados_donde_soy_jefe(conn, usuario_id)
+        horas_extra_rows = await asistencia_db.get_horas_extra_equipo(
+            conn, equipo_ids, fecha_inicio, hoy, estados=("solicitado",)
+        )
+    _enrich_horas_extra_rows(horas_extra_rows)
     historial, tiene_siguiente = await _get_historial_pagina(conn, usuario_id, es_rrhh, 1)
     return templates.TemplateResponse(
         request,
         "vacaciones/partials/aprobaciones.html",
         {
             "pendientes": pendientes,
+            "horas_extra_pendientes": horas_extra_rows,
             "historial": historial,
             "historial_pagina": 1,
             "historial_tiene_siguiente": tiene_siguiente,
