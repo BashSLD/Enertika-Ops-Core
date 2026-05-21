@@ -3,9 +3,11 @@ from datetime import date
 import pytest
 from dateutil.relativedelta import relativedelta
 
-from modules.vacaciones.logic import asignar_consumo_fifo, calcular_balance
+from modules.vacaciones.logic import asignar_consumo_fifo, calcular_balance, calcular_progreso, calcular_semestre_liberado
 
 HOY = date(2026, 5, 21)
+
+CATALOGO_BASE = [{"antiguedad_anios": 1, "antiguedad_anios_fin": None, "dias_enertika": 12}]
 
 
 def _periodo(num, fecha_aniversario, fecha_expiracion, dias_otorgados, es_proximo=False):
@@ -144,3 +146,72 @@ class TestFifoConProrrogas:
         )
         resultado = asignar_consumo_fifo([p1], 10)
         assert resultado[0]["dias_consumir"] == 4  # no puede tomar más de 4
+
+
+# ─────────────────────────────────────────────
+# calcular_semestre_liberado
+# ─────────────────────────────────────────────
+
+class TestCalcularSemestreLiberado:
+    def test_antes_del_semestre_no_libera(self):
+        resultado = calcular_semestre_liberado(date(2026, 1, 1), HOY, CATALOGO_BASE)
+        assert resultado["semestre_activo"] is False
+        assert resultado["dias_liberados"] == 0
+
+    def test_despues_del_semestre_libera_dias(self):
+        resultado = calcular_semestre_liberado(date(2025, 8, 1), HOY, CATALOGO_BASE)
+        assert resultado["semestre_activo"] is True
+        assert resultado["dias_liberados"] == 6  # floor(12 * 50/100)
+
+    def test_exactamente_en_fecha_semestre_activa(self):
+        resultado = calcular_semestre_liberado(date(2025, 11, 21), HOY, CATALOGO_BASE)
+        assert resultado["semestre_activo"] is True
+        assert resultado["dias_liberados"] == 6
+
+    def test_porcentaje_liberacion_custom(self):
+        resultado = calcular_semestre_liberado(date(2025, 8, 1), HOY, CATALOGO_BASE, porcentaje_liberacion=75)
+        assert resultado["dias_liberados"] == 9  # floor(12 * 75/100)
+
+    def test_estructura_respuesta(self):
+        resultado = calcular_semestre_liberado(date(2025, 8, 1), HOY, CATALOGO_BASE)
+        assert set(resultado.keys()) == {
+            "fecha_semestre", "dias_liberados", "semestre_activo",
+            "dias_proximo_periodo", "meses_semestre", "semestre_pct",
+        }
+
+
+# ─────────────────────────────────────────────
+# calcular_progreso — regresión
+# ─────────────────────────────────────────────
+
+class TestCalcularProgreso:
+    def test_primer_año_mitad(self):
+        resultado = calcular_progreso(date(2025, 11, 21), HOY, CATALOGO_BASE)
+        assert resultado["numero_periodo_actual"] == 1
+        assert resultado["dias_transcurridos"] == 181
+        assert resultado["dias_proximo_periodo"] == 12
+        assert resultado["porcentaje"] < 100.0
+        assert resultado["fecha_ultimo_aniversario"] == date(2025, 11, 21)
+        assert resultado["fecha_proximo_aniversario"] == date(2026, 11, 21)
+
+    def test_exactamente_en_aniversario(self):
+        resultado = calcular_progreso(date(2025, 5, 21), HOY, CATALOGO_BASE)
+        assert resultado["numero_periodo_actual"] == 2
+        assert resultado["dias_transcurridos"] == 0
+        assert resultado["dias_proporcionales"] == 0.0
+        assert resultado["porcentaje"] == 0.0
+        assert resultado["fecha_ultimo_aniversario"] == date(2026, 5, 21)
+
+    def test_porcentaje_no_supera_100(self):
+        for fc in [date(2025, 1, 1), date(2024, 6, 15), date(2023, 5, 21)]:
+            resultado = calcular_progreso(fc, HOY, CATALOGO_BASE)
+            assert resultado["porcentaje"] <= 100.0
+
+    def test_estructura_respuesta(self):
+        resultado = calcular_progreso(date(2025, 11, 21), HOY, CATALOGO_BASE)
+        assert set(resultado.keys()) == {
+            "dias_transcurridos", "dias_totales_anio", "dias_proximo_periodo",
+            "dias_proporcionales", "porcentaje",
+            "fecha_ultimo_aniversario", "fecha_proximo_aniversario",
+            "numero_periodo_actual",
+        }
