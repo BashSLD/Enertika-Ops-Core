@@ -116,3 +116,10 @@
      hx-swap="outerHTML">
   <div class="mt-4 h-12 bg-gray-50 rounded-xl animate-pulse"></div>
 </div>
+
+<div id="prorrogas-empleado-{{ usuario.id_usuario }}"
+     hx-get="/rrhh/empleados/{{ usuario.id_usuario }}/prorrogas"
+     hx-trigger="load"
+     hx-swap="outerHTML">
+  <div class="mt-4 h-12 bg-gray-50 rounded-xl animate-pulse"></div>
+</div>

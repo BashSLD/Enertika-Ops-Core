@@ -1,0 +1,170 @@
+<div id="prorrogas-empleado-{{ usuario.id_usuario }}" class="mt-5 space-y-4">
+  {% if toast_msg %}
+  {% with type=toast_type, title="Aviso", message=toast_msg %}
+  {% include "shared/toast.html" %}
+  {% endwith %}
+  {% endif %}
+
+  <div class="rounded-2xl border border-gray-100 bg-white shadow-sm" x-data="{ open: false }">
+    <button type="button" @click="open = !open"
+      class="w-full px-4 py-3 flex items-center justify-between text-left">
+      <span>
+        <span class="block text-sm font-semibold text-gray-800">Otorgar prórroga de vacaciones</span>
+        <span class="block text-xs text-gray-400">
+          {% if periodos_vencidos %}
+            {{ periodos_vencidos | length }} período{{ 's' if periodos_vencidos | length != 1 else '' }} vencido{{ 's' if periodos_vencidos | length != 1 else '' }} con saldo
+          {% else %}
+            Sin períodos vencidos con saldo
+          {% endif %}
+        </span>
+      </span>
+      <span class="text-xs text-gray-400" x-text="open ? 'Cerrar' : 'Ver'"></span>
+    </button>
+
+    <div x-show="open" x-cloak class="border-t border-gray-100 p-4 space-y-3">
+      {% if periodos_vencidos %}
+        {% for p in periodos_vencidos %}
+        <div class="rounded-xl border border-gray-100 p-3" x-data="{ form_open: false, saving: false }">
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2">
+                <p class="text-sm font-semibold text-gray-800">Período {{ p.num_periodo }}</p>
+                {% if p.ya_tiene_prorroga_activa %}
+                <span class="rounded-full bg-teal-50 px-2 py-0.5 text-[11px] font-semibold text-teal-700">Prórroga activa</span>
+                {% endif %}
+              </div>
+              <p class="text-xs text-gray-400 mt-0.5">
+                Venció {{ p.fecha_expiracion.strftime('%d/%m/%Y') }} ·
+                {{ p.dias_restantes }} día{{ 's' if p.dias_restantes != 1 else '' }} disponible{{ 's' if p.dias_restantes != 1 else '' }}
+              </p>
+            </div>
+            {% if not p.ya_tiene_prorroga_activa %}
+            <button type="button" @click="form_open = !form_open"
+              class="shrink-0 text-xs font-semibold text-[#007A7B] hover:text-[#00BABB] transition-colors"
+              x-text="form_open ? 'Cancelar' : 'Otorgar'">
+            </button>
+            {% endif %}
+          </div>
+
+          {% if not p.ya_tiene_prorroga_activa %}
+          <form x-show="form_open" x-cloak
+            hx-post="/rrhh/empleados/{{ usuario.id_usuario }}/prorrogas"
+            hx-target="#prorrogas-empleado-{{ usuario.id_usuario }}"
+            hx-swap="outerHTML"
+            @htmx:before-request="saving = true"
+            @htmx:after-request="saving = false"
+            class="mt-3 space-y-3">
+            <input type="hidden" name="num_periodo" value="{{ p.num_periodo }}">
+            <input type="hidden" name="fecha_aniversario_periodo" value="{{ p.fecha_aniversario.strftime('%Y-%m-%d') }}">
+
+            <div class="grid grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Días a prorrogar</label>
+                <input type="number" name="dias_prorrogados"
+                  min="1" max="{{ p.dias_restantes }}" required
+                  placeholder="Máx. {{ p.dias_restantes }}"
+                  class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-gray-600 mb-1">Nueva fecha límite</label>
+                <input type="date" name="fecha_expiracion_prorroga" required
+                  class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-xs font-medium text-gray-600 mb-1">Motivo</label>
+              <textarea name="motivo" rows="2" required
+                placeholder="Justificación de la prórroga"
+                class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#00BABB]/30 resize-none"></textarea>
+            </div>
+
+            <button type="submit" :disabled="saving"
+              x-text="saving ? 'Guardando...' : 'Otorgar prórroga'"
+              class="w-full bg-[#00BABB] hover:bg-[#009A9B] text-white text-sm font-semibold py-2 rounded-xl transition-colors">
+            </button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+      {% else %}
+        <p class="text-sm text-gray-400 text-center py-2">Sin períodos vencidos con saldo disponible</p>
+      {% endif %}
+    </div>
+  </div>
+
+  {% if prorrogas %}
+  <div class="rounded-2xl border border-gray-100 bg-white shadow-sm" x-data="{ open: false }">
+    <button type="button" @click="open = !open"
+      class="w-full px-4 py-3 flex items-center justify-between text-left">
+      <span>
+        <span class="block text-sm font-semibold text-gray-800">Historial de prórrogas</span>
+        <span class="block text-xs text-gray-400">{{ prorrogas | length }} registro{{ 's' if prorrogas | length != 1 else '' }}</span>
+      </span>
+      <span class="text-xs text-gray-400" x-text="open ? 'Ocultar' : 'Ver'"></span>
+    </button>
+
+    <div x-show="open" x-cloak class="border-t border-gray-100 p-4 space-y-3">
+      {% for pr in prorrogas %}
+      <div class="rounded-xl border p-3 space-y-2
+        {% if pr.estado == 'activa' %}border-teal-100 bg-teal-50/30{% else %}border-gray-100 bg-gray-50{% endif %}"
+        x-data="{ cancelar: false, saving: false }">
+
+        <div class="flex items-start justify-between gap-2">
+          <div class="min-w-0 flex-1">
+            <div class="flex flex-wrap items-center gap-2">
+              <p class="text-sm font-semibold text-gray-800">Período {{ pr.num_periodo }}</p>
+              {% if pr.estado == 'activa' %}
+              <span class="rounded-full bg-teal-100 px-2 py-0.5 text-[11px] font-semibold text-teal-700">Activa</span>
+              {% else %}
+              <span class="rounded-full bg-gray-200 px-2 py-0.5 text-[11px] font-semibold text-gray-500">Cancelada</span>
+              {% endif %}
+            </div>
+            <p class="text-xs text-gray-500 mt-0.5">
+              {{ pr.dias_prorrogados }} día{{ 's' if pr.dias_prorrogados != 1 else '' }} ·
+              Vence {{ pr.fecha_expiracion_prorroga.strftime('%d/%m/%Y') }}
+            </p>
+            <p class="text-xs text-gray-400 mt-1 line-clamp-2">{{ pr.motivo }}</p>
+            <p class="text-xs text-gray-400">Otorgada por {{ pr.created_by_nombre }} el {{ pr.created_at.strftime('%d/%m/%Y') }}</p>
+          </div>
+          {% if pr.estado == 'activa' %}
+          <button type="button" @click="cancelar = !cancelar"
+            class="shrink-0 text-xs font-semibold text-red-500 hover:text-red-600 transition-colors"
+            x-text="cancelar ? 'Cerrar' : 'Cancelar'">
+          </button>
+          {% endif %}
+        </div>
+
+        {% if pr.estado == 'cancelada' and pr.motivo_cancelacion %}
+        <p class="text-xs text-gray-400 rounded-lg bg-gray-100 px-3 py-1.5">
+          Cancelada: {{ pr.motivo_cancelacion }}
+        </p>
+        {% endif %}
+
+        {% if pr.estado == 'activa' %}
+        <form x-show="cancelar" x-cloak
+          hx-post="/rrhh/prorrogas/{{ pr.id }}/cancelar"
+          hx-target="#prorrogas-empleado-{{ usuario.id_usuario }}"
+          hx-swap="outerHTML"
+          @htmx:before-request="saving = true"
+          @htmx:after-request="saving = false"
+          class="space-y-2 pt-2 border-t border-teal-100">
+          <input type="hidden" name="usuario_id" value="{{ usuario.id_usuario }}">
+          <div>
+            <label class="block text-xs font-medium text-gray-600 mb-1">Motivo de cancelación</label>
+            <textarea name="motivo_cancelacion" rows="2" required
+              placeholder="Razón por la que se cancela la prórroga"
+              class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-300/30 resize-none"></textarea>
+          </div>
+          <button type="submit" :disabled="saving"
+            x-text="saving ? 'Cancelando...' : 'Confirmar cancelación'"
+            class="w-full bg-red-500 hover:bg-red-600 text-white text-sm font-semibold py-2 rounded-xl transition-colors">
+          </button>
+        </form>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+</div>
