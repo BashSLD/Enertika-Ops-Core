@@ -204,9 +204,7 @@ async def detalle_solicitud(
 
     es_jefe = await service.es_jefe_o_aprobador_de_alguien(conn, usuario_id)
     es_rrhh_viewer = user_has_module_access("rrhh", context, "viewer")
-    if user_has_module_access("rrhh", context, "editor"):
-        pendientes_aprobacion = await db.get_todas_solicitudes_pendientes(conn)
-    elif es_jefe:
+    if es_jefe:
         pendientes_aprobacion = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
     else:
         pendientes_aprobacion = []
@@ -321,26 +319,15 @@ def _build_horas_extra_grupos(rows: list[dict]) -> tuple[list[dict], list[dict]]
     return list(grupos_map.values()), json_rows
 
 
-def _enrich_horas_extra_rows(rows: list[dict]) -> list[dict]:
-    for row in rows:
-        row["extra_fmt"] = format_minutes(row.get("minutos_extra") or 0)
-        row["entrada_fmt"] = fmt_time_mx(row.pop("primera_entrada", None))
-        row["salida_fmt"] = fmt_time_mx(row.pop("ultima_salida", None))
-        row["id"] = str(row["id"])
-        row["usuario_id"] = str(row["usuario_id"])
-        if row.get("fecha_laboral"):
-            row["fecha_laboral"] = row["fecha_laboral"].isoformat()
-    return rows
 
-
-async def _get_historial_pagina(conn, usuario_id: UUID, es_rrhh: bool, pagina: int) -> tuple[list, bool]:
+async def _get_historial_pagina(conn, usuario_id: UUID, pagina: int) -> tuple[list, bool]:
     offset = (pagina - 1) * _HISTORIAL_PAGE_SIZE
     fetch = _HISTORIAL_PAGE_SIZE + 1
     rows = await db.get_historial_aprobaciones(
         conn,
         limit=fetch,
         offset=offset,
-        aprobador_id=None if es_rrhh else usuario_id,
+        aprobador_id=usuario_id,
     )
     tiene_siguiente = len(rows) > _HISTORIAL_PAGE_SIZE
     return rows[:_HISTORIAL_PAGE_SIZE], tiene_siguiente
@@ -348,25 +335,15 @@ async def _get_historial_pagina(conn, usuario_id: UUID, es_rrhh: bool, pagina: i
 
 async def _render_aprobaciones(request: Request, conn, context: dict, **extra):
     usuario_id = UUID(str(context["user_db_id"]))
-    es_rrhh = user_has_module_access("rrhh", context, "editor")
     hoy = today_mx()
     fecha_inicio = hoy - timedelta(days=30)
-    horas_extra_grupos: list[dict] = []
-    horas_extra_json: list[dict] = []
-    if es_rrhh:
-        pendientes = await db.get_todas_solicitudes_pendientes(conn)
-        horas_extra_rows = await asistencia_db.get_horas_extra_todas(
-            conn, fecha_inicio, hoy, estados=("solicitado",)
-        )
-        _enrich_horas_extra_rows(horas_extra_rows)
-    else:
-        pendientes = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
-        equipo_ids = await db.get_empleados_donde_soy_jefe(conn, usuario_id)
-        horas_extra_rows = await asistencia_db.get_horas_extra_equipo(
-            conn, equipo_ids, fecha_inicio, hoy
-        )
-        horas_extra_grupos, horas_extra_json = _build_horas_extra_grupos(horas_extra_rows)
-    historial, tiene_siguiente = await _get_historial_pagina(conn, usuario_id, es_rrhh, 1)
+    pendientes = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
+    equipo_ids = await db.get_empleados_donde_soy_jefe(conn, usuario_id)
+    horas_extra_rows = await asistencia_db.get_horas_extra_equipo(
+        conn, equipo_ids, fecha_inicio, hoy
+    )
+    horas_extra_grupos, horas_extra_json = _build_horas_extra_grupos(horas_extra_rows)
+    historial, tiene_siguiente = await _get_historial_pagina(conn, usuario_id, 1)
     return templates.TemplateResponse(
         request,
         "vacaciones/partials/aprobaciones.html",
@@ -401,8 +378,7 @@ async def historial_aprobaciones_pagina(
     context=Depends(get_current_user_context),
 ):
     usuario_id = UUID(str(context["user_db_id"]))
-    es_rrhh = user_has_module_access("rrhh", context, "editor")
-    historial, tiene_siguiente = await _get_historial_pagina(conn, usuario_id, es_rrhh, pagina)
+    historial, tiene_siguiente = await _get_historial_pagina(conn, usuario_id, pagina)
     return templates.TemplateResponse(
         request,
         "vacaciones/partials/historial_aprobaciones.html",
