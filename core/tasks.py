@@ -842,6 +842,7 @@ async def verificar_periodos_por_expirar_periodically(interval_seconds: int = 86
             from modules.vacaciones.logic import calcular_periodos, calcular_balance
             from modules.vacaciones.db_service import (
                 get_consumos_bulk,
+                get_prorrogas_activas_bulk,
                 try_register_worker_notification,
             )
             from core.notifications.service import get_notifications_service
@@ -861,9 +862,9 @@ async def verificar_periodos_por_expirar_periodically(interval_seconds: int = 86
 
                 empleados = await tasks_db.get_active_employees_with_vacation_data(conn)
 
-                consumos_por_usuario = await get_consumos_bulk(
-                    conn, [emp["id_usuario"] for emp in empleados]
-                )
+                ids_empleados = [emp["id_usuario"] for emp in empleados]
+                consumos_por_usuario = await get_consumos_bulk(conn, ids_empleados)
+                prorrogas_por_usuario = await get_prorrogas_activas_bulk(conn, ids_empleados)
 
                 for emp in empleados:
                     try:
@@ -875,7 +876,9 @@ async def verificar_periodos_por_expirar_periodically(interval_seconds: int = 86
                             meses_expiracion=meses_exp,
                         )
                         balance = calcular_balance(
-                            periodos, consumos_por_usuario.get(emp["id_usuario"], [])
+                            periodos,
+                            consumos_por_usuario.get(emp["id_usuario"], []),
+                            prorrogas=prorrogas_por_usuario.get(emp["id_usuario"], []),
                         )
 
                         for periodo in balance:
@@ -897,7 +900,7 @@ async def verificar_periodos_por_expirar_periodically(interval_seconds: int = 86
                                 tipo="PERIODO_POR_EXPIRAR",
                                 usuario_id=emp["id_usuario"],
                                 num_periodo=periodo["num_periodo"],
-                                fecha_objetivo=periodo["fecha_expiracion"],
+                                fecha_objetivo=periodo.get("fecha_expiracion_efectiva", periodo["fecha_expiracion"]),
                                 metadata={
                                     "dias_para_expiracion": dias_exp,
                                     "dias_restantes": periodo["dias_restantes"],

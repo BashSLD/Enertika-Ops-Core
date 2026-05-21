@@ -5,6 +5,8 @@ import json
 from typing import Any, Optional
 from uuid import UUID
 
+from core.timezone import today_mx
+
 
 # ─────────────────────────────────────────────
 # Catálogos
@@ -1247,3 +1249,118 @@ async def get_jefes_con_nombre(conn, usuario_id: UUID) -> list[dict]:
         usuario_id,
     )
     return [dict(r) for r in rows]
+
+
+# ─────────────────────────────────────────────
+# Prórrogas de vacaciones
+# ─────────────────────────────────────────────
+
+async def get_prorrogas_activas_usuario(conn, usuario_id: UUID) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT id, usuario_id, num_periodo, fecha_aniversario_periodo,
+               fecha_expiracion_original, fecha_expiracion_prorroga,
+               dias_prorrogados, motivo, estado, created_by, created_at
+        FROM tb_vacaciones_prorrogas
+        WHERE usuario_id = $1
+          AND estado = 'activa'
+          AND fecha_expiracion_prorroga >= $2
+        ORDER BY num_periodo
+        """,
+        usuario_id, today_mx(),
+    )
+    return [dict(r) for r in rows]
+
+
+async def get_prorrogas_activas_bulk(conn, usuario_ids: list[UUID]) -> dict[UUID, list[dict]]:
+    if not usuario_ids:
+        return {}
+    rows = await conn.fetch(
+        """
+        SELECT id, usuario_id, num_periodo, fecha_aniversario_periodo,
+               fecha_expiracion_original, fecha_expiracion_prorroga,
+               dias_prorrogados, motivo, estado, created_by, created_at
+        FROM tb_vacaciones_prorrogas
+        WHERE usuario_id = ANY($1::uuid[])
+          AND estado = 'activa'
+          AND fecha_expiracion_prorroga >= $2
+        ORDER BY usuario_id, num_periodo
+        """,
+        usuario_ids, today_mx(),
+    )
+    result: dict[UUID, list[dict]] = {}
+    for row in rows:
+        uid = row["usuario_id"]
+        result.setdefault(uid, []).append(dict(row))
+    return result
+
+
+async def get_prorrogas_usuario(conn, usuario_id: UUID) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT p.id, p.num_periodo, p.fecha_aniversario_periodo,
+               p.fecha_expiracion_original, p.fecha_expiracion_prorroga,
+               p.dias_prorrogados, p.motivo, p.estado,
+               p.created_at, p.cancelled_at, p.motivo_cancelacion,
+               cb.nombre AS created_by_nombre,
+               ca.nombre AS cancelled_by_nombre
+        FROM tb_vacaciones_prorrogas p
+        JOIN tb_usuarios cb ON cb.id_usuario = p.created_by
+        LEFT JOIN tb_usuarios ca ON ca.id_usuario = p.cancelled_by
+        WHERE p.usuario_id = $1
+        ORDER BY p.created_at DESC
+        """,
+        usuario_id,
+    )
+    return [dict(r) for r in rows]
+
+
+async def create_prorroga(
+    conn,
+    usuario_id: UUID,
+    num_periodo: int,
+    fecha_aniversario_periodo: date,
+    fecha_expiracion_original: date,
+    fecha_expiracion_prorroga: date,
+    dias_prorrogados: int,
+    motivo: str,
+    created_by: UUID,
+) -> dict:
+    row = await conn.fetchrow(
+        """
+        INSERT INTO tb_vacaciones_prorrogas
+            (usuario_id, num_periodo, fecha_aniversario_periodo,
+             fecha_expiracion_original, fecha_expiracion_prorroga,
+             dias_prorrogados, motivo, created_by)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        RETURNING id, usuario_id, num_periodo, fecha_aniversario_periodo,
+                  fecha_expiracion_original, fecha_expiracion_prorroga,
+                  dias_prorrogados, motivo, estado, created_at
+        """,
+        usuario_id, num_periodo, fecha_aniversario_periodo,
+        fecha_expiracion_original, fecha_expiracion_prorroga,
+        dias_prorrogados, motivo, created_by,
+    )
+    return dict(row)
+
+
+async def cancel_prorroga(
+    conn,
+    prorroga_id: UUID,
+    cancelled_by: UUID,
+    motivo_cancelacion: str,
+) -> Optional[dict]:
+    row = await conn.fetchrow(
+        """
+        UPDATE tb_vacaciones_prorrogas
+        SET estado            = 'cancelada',
+            cancelled_by      = $2,
+            cancelled_at      = now(),
+            motivo_cancelacion = $3
+        WHERE id = $1
+          AND estado = 'activa'
+        RETURNING id, usuario_id, num_periodo, estado
+        """,
+        prorroga_id, cancelled_by, motivo_cancelacion,
+    )
+    return dict(row) if row else None

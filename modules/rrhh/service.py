@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncpg
 import base64
 import binascii
 import json
@@ -65,6 +66,7 @@ async def get_empleado_edit_ctx(conn, usuario_id: UUID) -> dict:
     usuario = await rrhh_db.get_usuario_simple_by_id(conn, usuario_id)
     jefes = await vac_db.get_jefes_con_nombre(conn, usuario_id)
     usuarios = await vac_db.get_usuarios_activos_simples(conn)
+    prorrogas = await vac_db.get_prorrogas_usuario(conn, usuario_id)
     jefes_ids = {j["id_usuario"] for j in jefes}
     return {
         "empleado": empleado,
@@ -73,6 +75,7 @@ async def get_empleado_edit_ctx(conn, usuario_id: UUID) -> dict:
         "jefes_ids": jefes_ids,
         "usuarios": usuarios,
         "sucursales": await asistencia_db.get_sucursales(conn),
+        "prorrogas": prorrogas,
     }
 
 
@@ -1245,6 +1248,7 @@ async def build_empleados_vacaciones_export(
     meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
     ids_para_bulk = [emp["id_usuario"] for emp in empleados]
     consumos_bulk = await vac_db.get_consumos_bulk(conn, ids_para_bulk)
+    prorrogas_bulk = await vac_db.get_prorrogas_activas_bulk(conn, ids_para_bulk)
 
     headers = [
         "Empleado", "Email", "No. empleado", "Departamento", "Fecha contratacion",
@@ -1273,7 +1277,7 @@ async def build_empleados_vacaciones_export(
             ajuste_dias=emp.get("dias_vacaciones_ajuste") or 0,
             meses_expiracion=meses_exp,
         )
-        balance = calcular_balance(periodos, consumos_bulk.get(uid, []))
+        balance = calcular_balance(periodos, consumos_bulk.get(uid, []), prorrogas=prorrogas_bulk.get(uid, []))
         activos = [periodo for periodo in balance if not periodo.get("es_proximo")]
         if not activos:
             rows.append(base_row + ["", "", "", "", "", "", emp.get("aprobador_nombre")])
@@ -1579,3 +1583,134 @@ async def guardar_empleado(
 
     if sucursal_id != old_sucursal_id:
         await recalcular_asistencia_reciente_usuario(conn, usuario_id)
+
+
+# ─────────────────────────────────────────────
+# Prórrogas de vacaciones
+# ─────────────────────────────────────────────
+
+async def get_prorrogas_empleado_ctx(conn, usuario_id: UUID) -> dict:
+    usuario = await rrhh_db.get_usuario_simple_by_id(conn, usuario_id)
+    empleado = await vac_db.get_empleado_datos(conn, usuario_id)
+    prorrogas = await vac_db.get_prorrogas_usuario(conn, usuario_id)
+
+    periodos_vencidos: list[dict] = []
+    if empleado and empleado.get("fecha_contratacion"):
+        hoy = today_mx()
+        catalogo = await vac_db.get_catalogo_dias(conn)
+        meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
+        periodos = calcular_periodos(
+            empleado["fecha_contratacion"],
+            hoy,
+            catalogo,
+            ajuste_dias=empleado.get("dias_vacaciones_ajuste") or 0,
+            meses_expiracion=meses_exp,
+        )
+        consumos = await vac_db.get_consumos_usuario(conn, usuario_id)
+        balance = calcular_balance(periodos, consumos)
+        prorrogas_activas = await vac_db.get_prorrogas_activas_usuario(conn, usuario_id)
+        con_prorroga_activa = {
+            (p["num_periodo"], p["fecha_aniversario_periodo"])
+            for p in prorrogas_activas
+        }
+        periodos_vencidos = [
+            {
+                **p,
+                "ya_tiene_prorroga_activa": (p["num_periodo"], p["fecha_aniversario"]) in con_prorroga_activa,
+            }
+            for p in balance
+            if p.get("expirado") and p["dias_restantes"] > 0
+        ]
+
+    return {
+        "usuario": usuario or {},
+        "empleado": empleado,
+        "periodos_vencidos": periodos_vencidos,
+        "prorrogas": prorrogas,
+    }
+
+
+async def crear_prorroga_vacaciones(
+    conn,
+    usuario_id: UUID,
+    num_periodo: int,
+    fecha_aniversario_periodo: date,
+    dias_prorrogados: int,
+    fecha_expiracion_prorroga: date,
+    motivo: str,
+    created_by: UUID,
+) -> dict:
+    empleado = await vac_db.get_empleado_datos(conn, usuario_id)
+    if not empleado or not empleado.get("fecha_contratacion"):
+        raise ValueError("El empleado no existe o no tiene fecha de contratación")
+
+    hoy = today_mx()
+    catalogo = await vac_db.get_catalogo_dias(conn)
+    meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
+    periodos = calcular_periodos(
+        empleado["fecha_contratacion"],
+        hoy,
+        catalogo,
+        ajuste_dias=empleado.get("dias_vacaciones_ajuste") or 0,
+        meses_expiracion=meses_exp,
+    )
+    consumos = await vac_db.get_consumos_usuario(conn, usuario_id)
+    balance = calcular_balance(periodos, consumos)
+
+    periodo = next(
+        (p for p in balance
+         if p["num_periodo"] == num_periodo
+         and p["fecha_aniversario"] == fecha_aniversario_periodo),
+        None,
+    )
+    if not periodo:
+        raise ValueError("El período no existe")
+    if not periodo.get("expirado"):
+        raise ValueError("Solo se pueden prorrogar períodos vencidos")
+    if periodo["dias_restantes"] <= 0:
+        raise ValueError("El período no tiene saldo disponible para prorrogar")
+    if dias_prorrogados <= 0:
+        raise ValueError("Los días prorrogados deben ser mayores a cero")
+    if dias_prorrogados > periodo["dias_restantes"]:
+        raise ValueError(
+            f"Los días prorrogados ({dias_prorrogados}) no pueden exceder "
+            f"el saldo vencido ({periodo['dias_restantes']})"
+        )
+    if fecha_expiracion_prorroga <= hoy:
+        raise ValueError("La fecha límite de la prórroga debe ser futura")
+    if fecha_expiracion_prorroga <= periodo["fecha_expiracion"]:
+        raise ValueError("La fecha límite debe ser posterior a la expiración original del período")
+
+    motivo = (motivo or "").strip()
+    if not motivo:
+        raise ValueError("El motivo es obligatorio")
+
+    try:
+        return await vac_db.create_prorroga(
+            conn,
+            usuario_id=usuario_id,
+            num_periodo=num_periodo,
+            fecha_aniversario_periodo=fecha_aniversario_periodo,
+            fecha_expiracion_original=periodo["fecha_expiracion"],
+            fecha_expiracion_prorroga=fecha_expiracion_prorroga,
+            dias_prorrogados=dias_prorrogados,
+            motivo=motivo,
+            created_by=created_by,
+        )
+    except asyncpg.UniqueViolationError as exc:
+        raise ValueError("Ya existe una prórroga activa para este período") from exc
+
+
+async def cancelar_prorroga_vacaciones(
+    conn,
+    prorroga_id: UUID,
+    motivo_cancelacion: str,
+    cancelled_by: UUID,
+) -> dict:
+    motivo_cancelacion = (motivo_cancelacion or "").strip()
+    if not motivo_cancelacion:
+        raise ValueError("El motivo de cancelación es obligatorio")
+    result = await vac_db.cancel_prorroga(conn, prorroga_id, cancelled_by, motivo_cancelacion)
+    if not result:
+        raise ValueError("Prórroga no encontrada o ya cancelada")
+    return result

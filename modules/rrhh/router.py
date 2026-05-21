@@ -613,6 +613,88 @@ async def empleado_guardar(
 
 
 # ─────────────────────────────────────────────
+# Prórrogas de vacaciones
+# ─────────────────────────────────────────────
+
+@router.get("/empleados/{usuario_id}/prorrogas")
+async def empleado_prorrogas(
+    request: Request,
+    usuario_id: UUID,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
+):
+    ctx = await service.get_prorrogas_empleado_ctx(conn, usuario_id)
+    ctx["context"] = context
+    return templates.TemplateResponse(request, "rrhh/partials/prorrogas_vacaciones.html", ctx)
+
+
+@router.post("/empleados/{usuario_id}/prorrogas")
+async def empleado_prorrogas_crear(
+    request: Request,
+    usuario_id: UUID,
+    num_periodo: int = Form(...),
+    fecha_aniversario_periodo: date = Form(...),
+    dias_prorrogados: int = Form(...),
+    fecha_expiracion_prorroga: date = Form(...),
+    motivo: str = Form(...),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
+):
+    try:
+        await service.crear_prorroga_vacaciones(
+            conn,
+            usuario_id=usuario_id,
+            num_periodo=num_periodo,
+            fecha_aniversario_periodo=fecha_aniversario_periodo,
+            dias_prorrogados=dias_prorrogados,
+            fecha_expiracion_prorroga=fecha_expiracion_prorroga,
+            motivo=motivo,
+            created_by=UUID(str(context["user_db_id"])),
+        )
+    except ValueError as e:
+        return toast_error(request, str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error DB al crear prorroga usuario_id=%s", usuario_id)
+        return toast_error(request, "Error al guardar la prórroga")
+    ctx = await service.get_prorrogas_empleado_ctx(conn, usuario_id)
+    ctx["context"] = context
+    ctx["toast_type"] = "success"
+    ctx["toast_msg"] = "Prórroga otorgada correctamente"
+    return templates.TemplateResponse(request, "rrhh/partials/prorrogas_vacaciones.html", ctx)
+
+
+@router.post("/prorrogas/{prorroga_id}/cancelar")
+async def prorroga_cancelar(
+    request: Request,
+    prorroga_id: UUID,
+    usuario_id: UUID = Form(...),
+    motivo_cancelacion: str = Form(...),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "editor"),
+):
+    try:
+        await service.cancelar_prorroga_vacaciones(
+            conn,
+            prorroga_id=prorroga_id,
+            motivo_cancelacion=motivo_cancelacion,
+            cancelled_by=UUID(str(context["user_db_id"])),
+        )
+    except ValueError as e:
+        return toast_error(request, str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error DB al cancelar prorroga prorroga_id=%s", prorroga_id)
+        return toast_error(request, "Error al cancelar la prórroga")
+    ctx = await service.get_prorrogas_empleado_ctx(conn, usuario_id)
+    ctx["context"] = context
+    ctx["toast_type"] = "success"
+    ctx["toast_msg"] = "Prórroga cancelada"
+    return templates.TemplateResponse(request, "rrhh/partials/prorrogas_vacaciones.html", ctx)
+
+
+# ─────────────────────────────────────────────
 # Admin RRHH
 # ─────────────────────────────────────────────
 
