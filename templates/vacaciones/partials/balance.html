@@ -106,12 +106,20 @@
           <td class="px-4 py-3 text-right text-gray-700">{{ p.dias_otorgados }}</td>
           <td class="px-4 py-3 text-right text-gray-500">{{ p.dias_usados }}</td>
           <td class="px-4 py-3 text-right font-semibold {{ 'text-red-600' if p.dias_restantes < 0 else 'text-gray-900' }}">
-            {{ p.dias_restantes }}
+            {% if p.tiene_prorroga %}{{ p.dias_restantes_prorrogados }}{% else %}{{ p.dias_restantes }}{% endif %}
           </td>
           <td class="px-4 py-3 text-gray-500 text-xs">
             {% if not p.es_proximo %}
               {% if p.expirado %}
                 <span class="text-red-500 font-semibold">Expirado</span>
+              {% elif p.tiene_prorroga %}
+                <span class="text-teal-600 font-semibold block">Prórroga hasta {{ p.fecha_expiracion_efectiva.strftime('%d/%m/%Y') }}</span>
+                <span class="text-gray-400 block mt-0.5">Orig. {{ p.fecha_expiracion_original.strftime('%d/%m/%Y') }}</span>
+                {% if p.alerta %}
+                  <span class="{{ 'text-red-500' if p.dias_para_expiracion < 30 else 'text-amber-500' }} font-semibold block mt-0.5">
+                    ({{ p.dias_para_expiracion }}d)
+                  </span>
+                {% endif %}
               {% elif p.dias_para_expiracion is not none %}
                 {{ p.fecha_expiracion.strftime('%d/%m/%Y') }}
                 {% if p.alerta %}
@@ -155,8 +163,8 @@
     <path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd"/>
   </svg>
   <div class="text-sm">
-    <p class="font-semibold">Período {{ p.periodo }}: {{ p.dias_restantes }} días restantes</p>
-    <p>Expiran el {{ p.fecha_expiracion.strftime('%d/%m/%Y') }} (en {{ p.dias_para_expiracion }} días). ¡Úsalos antes de que venzan!</p>
+    <p class="font-semibold">Período {{ p.periodo }}: {{ p.dias_restantes_prorrogados if p.tiene_prorroga else p.dias_restantes }} días restantes</p>
+    <p>{% if p.tiene_prorroga %}Prórroga vence{% else %}Expiran{% endif %} el {{ p.fecha_expiracion_efectiva.strftime('%d/%m/%Y') }} (en {{ p.dias_para_expiracion }} días). ¡Úsalos antes de que venzan!</p>
   </div>
 </div>
 {% endfor %}
