@@ -42,7 +42,6 @@
          hx-get="/compras/xml-staging/pendientes"
          hx-target="#xml-staging-modal-container"
          hx-swap="innerHTML"
-         hx-on::after-request="document.getElementById('xml-staging-modal') && document.getElementById('xml-staging-modal').classList.remove('hidden')"
          title="Ver XMLs pendientes de vincular">
         <p class="text-xs text-gray-500 uppercase flex items-center gap-1">
             XMLs sin confirmar
