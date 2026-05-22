@@ -404,12 +404,14 @@ async def reporte_asistencia_excel(
     sucursal_id: List[str] = Query(default=[]),
     estado: List[str] = Query(default=[]),
     incluir_dados_de_baja: bool = False,
+    incluir_descanso: bool = False,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
 ):
     uids = _parse_uuid_list(usuario_id, "usuario_id")
     sids = _parse_uuid_list(sucursal_id, "sucursal_id")
+    estados_clean = [e for e in estado if e]
     try:
         service.validar_rango_reportes(fecha_inicio, fecha_fin)
         rows = await asistencia_db.get_reporte_asistencia(
@@ -418,8 +420,9 @@ async def reporte_asistencia_excel(
             fecha_fin=fecha_fin,
             usuario_ids=uids or None,
             sucursal_ids=sids or None,
-            estados=estado or None,
+            estados=estados_clean or None,
             incluir_dados_de_baja=incluir_dados_de_baja,
+            incluir_descanso=incluir_descanso,
             limit=None,
         )
         unmapped = await asistencia_db.get_unmapped_biotime_checks_summary(
@@ -538,6 +541,61 @@ async def reporte_vacaciones_excel(
     return _excel_response(workbook, filename)
 
 
+@router.get("/reportes/vacaciones-aprobadas.xlsx")
+async def reporte_vacaciones_aprobadas_excel(
+    usuario_id: List[str] = Query(default=[]),
+    incluir_dados_de_baja: bool = False,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_module_access("rrhh", "viewer"),
+):
+    uids = _parse_uuid_list(usuario_id, "usuario_id")
+    try:
+        rows = await service.get_vacaciones_aprobadas(
+            conn,
+            fecha_desde=today_mx(),
+            usuario_ids=uids or None,
+            incluir_dados_de_baja=incluir_dados_de_baja,
+        )
+    except asyncpg.PostgresError as exc:
+        logger.exception("Error de BD generando reporte de vacaciones aprobadas")
+        raise HTTPException(status_code=500, detail="No se pudo generar el reporte") from exc
+
+    workbook = _build_workbook(
+        "Vacaciones aprobadas",
+        [
+            "Empleado",
+            "Email",
+            "No. empleado",
+            "Departamento",
+            "Inicio",
+            "Fin",
+            "Dias",
+            "Fecha a presentarse",
+            "Fecha solicitud",
+            "Aprobado por",
+        ],
+        [
+            [
+                row.get("empleado_nombre") or "",
+                row.get("empleado_email") or "",
+                row.get("numero_empleado") or "",
+                row.get("departamento") or "",
+                _format_date(row.get("fecha_inicio")),
+                _format_date(row.get("fecha_fin")),
+                row.get("dias_solicitados") or 0,
+                _format_date(row.get("fecha_presentarse")),
+                _format_datetime(row.get("fecha_solicitud")),
+                row.get("aprobado_por_nombre") or "",
+            ]
+            for row in rows
+        ],
+    )
+    hoy = today_mx()
+    filename = f"vacaciones_aprobadas_{hoy:%Y%m%d}.xlsx"
+    return _excel_response(workbook, filename)
+
+
 @router.get("/reportes/horas-extra.xlsx")
 async def reporte_horas_extra_excel(
     fecha_inicio: date,
@@ -578,10 +636,11 @@ async def reporte_horas_extra_excel(
             "Primera entrada",
             "Ultima salida",
             "Horas trabajadas",
-            "Horas programadas",
+            "Horas del Turno",
             "Horas extra",
             "Estado",
             "Observaciones",
+            "Motivo solicitud",
             "Estado aprobacion",
             "Horas aprobadas",
             "Comentario aprobacion",
@@ -598,6 +657,7 @@ async def reporte_horas_extra_excel(
                 format_minutes(row.get("minutos_extra")),
                 _format_estado_asistencia(row.get("estado")),
                 row.get("observaciones") or "",
+                row.get("motivo_solicitud") or "—",
                 "Aprobado" if row.get("horas_extra_estado") == "aprobado" else "Pendiente",
                 format_minutes(row.get("minutos_aprobados")) if row.get("minutos_aprobados") else "—",
                 row.get("aprobacion_comentario") or "—",

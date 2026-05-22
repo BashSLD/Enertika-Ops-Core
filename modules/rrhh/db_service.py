@@ -301,3 +301,48 @@ async def get_reporte_vacaciones(
         incluir_dados_de_baja,
     )
     return [dict(row) for row in rows]
+
+
+async def get_vacaciones_aprobadas(
+    conn,
+    *,
+    fecha_desde: date,
+    usuario_ids: list[UUID] | None = None,
+    incluir_dados_de_baja: bool = False,
+) -> list[dict]:
+    uids = usuario_ids or []
+    rows = await conn.fetch(
+        """
+        SELECT
+            sa.id,
+            sa.fecha_inicio,
+            sa.fecha_fin,
+            sa.fecha_presentarse,
+            sa.dias_solicitados,
+            sa.fecha_solicitud,
+            sa.fecha_resolucion,
+            u.id_usuario,
+            u.nombre AS empleado_nombre,
+            u.email AS empleado_email,
+            ed.numero_empleado,
+            COALESCE(ed.departamento, u.department) AS departamento,
+            aprobador.nombre AS aprobado_por_nombre
+        FROM tb_solicitudes_ausencia sa
+        JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
+        JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
+        LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = u.id_usuario
+        LEFT JOIN tb_usuarios aprobador ON aprobador.id_usuario = sa.aprobado_por
+        WHERE ta.slug = 'vacaciones'
+          AND sa.estado = 'aprobado'
+          AND sa.fecha_fin >= $1
+          AND COALESCE(sa.es_migracion, false) = false
+          AND (cardinality($2::uuid[]) = 0 OR sa.usuario_id = ANY($2))
+          AND ($3::bool = true OR u.is_active = true)
+        ORDER BY sa.fecha_inicio, u.nombre
+        LIMIT 50000
+        """,
+        fecha_desde,
+        uids,
+        incluir_dados_de_baja,
+    )
+    return [dict(row) for row in rows]

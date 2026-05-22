@@ -523,6 +523,7 @@ async def get_reporte_asistencia(
     estados: list[str] | None = None,
     solo_horas_extra: bool = False,
     incluir_dados_de_baja: bool = False,
+    incluir_descanso: bool = False,
     limit: int | None = None,
     offset: int = 0,
 ) -> list[dict]:
@@ -544,6 +545,7 @@ async def get_reporte_asistencia(
             ad.tiene_vacaciones,
             ad.observaciones,
             ad.horas_extra_estado,
+            ad.motivo_solicitud,
             u.id_usuario,
             u.nombre AS empleado_nombre,
             u.email AS empleado_email,
@@ -561,8 +563,9 @@ async def get_reporte_asistencia(
           AND (cardinality($5::text[]) = 0 OR ad.estado = ANY($5))
           AND ($6::bool = false OR ad.minutos_extra > 0)
           AND ($7::bool = true OR u.is_active = true)
+          AND ($8::bool = true OR NOT (ad.estado = 'descanso' AND ad.primera_entrada IS NULL))
         ORDER BY ad.fecha_laboral DESC, u.nombre
-        LIMIT $8 OFFSET $9
+        LIMIT $9 OFFSET $10
         """,
         fecha_inicio,
         fecha_fin,
@@ -571,6 +574,7 @@ async def get_reporte_asistencia(
         ests,
         solo_horas_extra,
         incluir_dados_de_baja,
+        incluir_descanso,
         lim,
         offset,
     )

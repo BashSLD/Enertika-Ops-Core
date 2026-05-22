@@ -154,11 +154,18 @@
           </div>
         </div>
         <div class="flex flex-wrap items-center justify-between gap-3">
-          <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
-            <input type="checkbox" name="incluir_dados_de_baja" value="true"
-              class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
-            Incluir usuarios dados de baja
-          </label>
+          <div class="flex flex-wrap gap-4">
+            <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+              <input type="checkbox" name="incluir_dados_de_baja" value="true"
+                class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
+              Incluir usuarios dados de baja
+            </label>
+            <label class="flex items-center gap-2 text-sm text-gray-600 cursor-pointer select-none">
+              <input type="checkbox" name="incluir_descanso" value="true"
+                class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
+              Incluir días de descanso
+            </label>
+          </div>
           <div class="flex flex-wrap gap-2">
             <button type="submit" formaction="/rrhh/reportes/asistencia.xlsx"
               class="rounded-lg bg-[#123456] px-4 py-2 text-sm font-medium text-white hover:bg-[#0e2a45] transition-colors">
@@ -221,10 +228,16 @@
               class="rounded border-gray-300 text-[#00BABB] focus:ring-[#00BABB]">
             Incluir usuarios dados de baja
           </label>
-          <button type="submit" formaction="/rrhh/reportes/vacaciones.xlsx"
-            class="rounded-lg bg-[#123456] px-4 py-2 text-sm font-medium text-white hover:bg-[#0e2a45] transition-colors">
-            Descargar vacaciones
-          </button>
+          <div class="flex flex-wrap gap-2">
+            <button type="submit" formaction="/rrhh/reportes/vacaciones.xlsx"
+              class="rounded-lg bg-[#123456] px-4 py-2 text-sm font-medium text-white hover:bg-[#0e2a45] transition-colors">
+              Descargar vacaciones
+            </button>
+            <button type="submit" formaction="/rrhh/reportes/vacaciones-aprobadas.xlsx"
+              class="rounded-lg bg-[#00BABB] px-4 py-2 text-sm font-medium text-white hover:bg-[#009999] transition-colors">
+              Aprobadas vigentes
+            </button>
+          </div>
         </div>
       </form>
     </div>

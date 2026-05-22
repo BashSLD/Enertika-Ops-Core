@@ -1237,6 +1237,21 @@ async def get_reporte_vacaciones(
     )
 
 
+async def get_vacaciones_aprobadas(
+    conn,
+    *,
+    fecha_desde: date,
+    usuario_ids: list[UUID] | None = None,
+    incluir_dados_de_baja: bool = False,
+) -> list[dict]:
+    return await rrhh_db.get_vacaciones_aprobadas(
+        conn,
+        fecha_desde=fecha_desde,
+        usuario_ids=usuario_ids,
+        incluir_dados_de_baja=incluir_dados_de_baja,
+    )
+
+
 async def build_empleados_vacaciones_export(
     conn,
     sucursal_ids: list[UUID] | None = None,
