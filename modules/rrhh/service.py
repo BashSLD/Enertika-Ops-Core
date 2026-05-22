@@ -786,12 +786,14 @@ async def limpiar_migracion_empleado(conn, usuario_id: UUID) -> int:
 async def get_admin_ctx(conn, anio: int | None = None) -> dict:
     anio = anio or today_mx().year
     meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
+    he_minimo = await ConfigService.get_global_config(conn, "ASISTENCIA_HE_MINIMO_MINUTOS", 30, int)
     horarios_rows = await rrhh_db.get_horarios_sucursal_admin(conn)
     return {
         "anio": anio,
         "tipos": await vac_db.get_tipos_ausencia_admin(conn),
         "dias_vacaciones": await vac_db.get_catalogo_dias_admin(conn),
         "vacaciones_meses_expiracion": meses_exp,
+        "he_minimo_minutos": he_minimo,
         "sucursales": await rrhh_db.get_sucursales_admin(conn),
         "dias_semana": DIAS_SEMANA,
         "horarios_sucursal": _build_horarios_admin(horarios_rows),
@@ -1196,6 +1198,12 @@ async def guardar_config_vacaciones(conn, *, meses_expiracion: int) -> None:
     if meses_expiracion < 1 or meses_expiracion > 120:
         raise ValueError("Los meses de expiracion deben estar entre 1 y 120")
     await rrhh_db.upsert_vacaciones_meses_expiracion(conn, meses_expiracion)
+
+
+async def guardar_config_asistencia(conn, *, he_minimo_minutos: int) -> None:
+    if he_minimo_minutos < 1 or he_minimo_minutos > 480:
+        raise ValueError("El umbral de horas extra debe estar entre 1 y 480 minutos")
+    await rrhh_db.upsert_he_minimo_minutos(conn, he_minimo_minutos)
 
 
 async def get_reportes_ctx(conn) -> dict:

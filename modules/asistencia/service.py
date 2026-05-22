@@ -531,6 +531,10 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
     fecha_inicio = min(target[1] for target in targets)
     fecha_fin = max(target[1] for target in targets)
 
+    min_minutos_he = await ConfigService.get_global_config(
+        conn, "ASISTENCIA_HE_MINIMO_MINUTOS", 30, int
+    )
+
     context_rows = await db.get_attendance_contexts(conn, usuario_ids)
     schedule_by_user_day, sucursal_by_user = _build_context_maps(context_rows)
     vacaciones = await db.get_vacaciones_aprobadas(
@@ -568,6 +572,7 @@ async def recalcular_asistencia(conn, targets: list[tuple[UUID, date]]) -> list[
             es_feriado=fecha_laboral in festivos,
             fecha_laboral=fecha_laboral,
             now=calculated_at,
+            min_minutos_he=min_minutos_he,
         )
         rows_to_save.append({
             "usuario_id": usuario_id,

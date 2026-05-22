@@ -1292,6 +1292,26 @@ async def admin_guardar_config(
     return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
 
 
+@router.post("/admin/config-asistencia")
+async def admin_guardar_config_asistencia(
+    request: Request,
+    he_minimo_minutos: int = Form(...),
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    _=require_manager_access("rrhh", "editor"),
+):
+    try:
+        await service.guardar_config_asistencia(conn, he_minimo_minutos=he_minimo_minutos)
+    except ValueError as exc:
+        return toast_error(request, str(exc))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD guardando config asistencia")
+        return toast_error(request, "No se pudo guardar la configuracion")
+    ctx = await service.get_admin_ctx(conn)
+    ctx.update({"context": context, "toast_type": "success", "toast_msg": "Configuración guardada"})
+    return templates.TemplateResponse(request, "rrhh/partials/admin.html", ctx)
+
+
 # ─────────────────────────────────────────────
 # Festivos
 # ─────────────────────────────────────────────

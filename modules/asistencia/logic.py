@@ -73,6 +73,7 @@ def calcular_resumen_dia(
     es_feriado: bool,
     fecha_laboral: date | None = None,
     now: datetime | None = None,
+    min_minutos_he: int = 0,
 ) -> dict:
     checks_ordenados = sorted(checks, key=lambda c: ensure_mx(c.check_time))
     observaciones: list[str] = []
@@ -145,6 +146,7 @@ def calcular_resumen_dia(
         schedule=schedule,
         es_feriado=es_feriado,
         tiene_vacaciones=tiene_vacaciones,
+        min_minutos_he=min_minutos_he,
     )
 
     return {
@@ -186,11 +188,14 @@ def _calcular_extra(
     schedule: ScheduleConfig | None,
     es_feriado: bool,
     tiene_vacaciones: bool,
+    min_minutos_he: int = 0,
 ) -> int:
     if minutos_trabajados <= 0 or tiene_vacaciones:
         return 0
     if es_feriado or (schedule and not schedule.es_laboral):
-        return minutos_trabajados
-    if not schedule:
+        exceso = minutos_trabajados
+    elif not schedule:
         return 0
-    return max(0, minutos_trabajados - minutos_programados - schedule.tolerancia_extra_min)
+    else:
+        exceso = max(0, minutos_trabajados - minutos_programados - schedule.tolerancia_extra_min)
+    return exceso if exceso >= min_minutos_he else 0

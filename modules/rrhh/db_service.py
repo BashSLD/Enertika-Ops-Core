@@ -26,6 +26,20 @@ async def upsert_vacaciones_meses_expiracion(conn, meses_expiracion: int) -> Non
     )
 
 
+async def upsert_he_minimo_minutos(conn, minutos: int) -> None:
+    await conn.execute(
+        """
+        INSERT INTO tb_configuracion_global (clave, valor, tipo_dato, descripcion)
+        VALUES (
+            'ASISTENCIA_HE_MINIMO_MINUTOS', $1::text, 'int',
+            'Minutos minimos de exceso sobre el horario programado para contabilizar como horas extra'
+        )
+        ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
+        """,
+        str(minutos),
+    )
+
+
 async def get_horarios_sucursal_admin(conn) -> list[dict]:
     rows = await conn.fetch(
         """
