@@ -207,6 +207,57 @@ def _append_unmapped_biotime_sheet(workbook, rows: list[dict]) -> None:
     _autofit_columns(worksheet)
 
 
+_ASISTENCIA_HEADERS = [
+    "Fecha",
+    "Empleado",
+    "Email",
+    "Sucursal",
+    "Departamento",
+    "Primera entrada",
+    "Ultima salida",
+    "Horas trabajadas",
+    "Horas a cubrir",
+    "Horas extra",
+    "Estado",
+    "Vacaciones",
+    "Observaciones",
+]
+
+
+def _asistencia_row_values(row: dict) -> list:
+    return [
+        _format_date(row.get("fecha_laboral")),
+        row.get("empleado_nombre") or "",
+        row.get("empleado_email") or "",
+        row.get("sucursal_nombre") or "",
+        row.get("departamento") or "",
+        _format_datetime(row.get("primera_entrada")),
+        _format_datetime(row.get("ultima_salida")),
+        format_minutes(row.get("minutos_trabajados")),
+        format_minutes(row.get("minutos_programados")),
+        format_minutes(row.get("minutos_extra")),
+        _format_estado_asistencia(row.get("estado")),
+        "Si" if row.get("tiene_vacaciones") else "No",
+        row.get("observaciones") or "",
+    ]
+
+
+def _append_por_empleado_sheet(workbook, rows: list[dict]) -> None:
+    worksheet = workbook.create_sheet("Por empleado")
+    _style_sheet(worksheet, _ASISTENCIA_HEADERS)
+    for row in sorted(rows, key=lambda r: (r.get("empleado_nombre") or "", r.get("fecha_laboral") or "")):
+        worksheet.append(_asistencia_row_values(row))
+    _autofit_columns(worksheet)
+
+
+def _append_por_departamento_sheet(workbook, rows: list[dict]) -> None:
+    worksheet = workbook.create_sheet("Por departamento")
+    _style_sheet(worksheet, _ASISTENCIA_HEADERS)
+    for row in sorted(rows, key=lambda r: (r.get("departamento") or "Sin departamento", r.get("empleado_nombre") or "", r.get("fecha_laboral") or "")):
+        worksheet.append(_asistencia_row_values(row))
+    _autofit_columns(worksheet)
+
+
 # ─────────────────────────────────────────────
 # Dashboard principal
 # ─────────────────────────────────────────────
@@ -438,39 +489,12 @@ async def reporte_asistencia_excel(
 
     workbook = _build_workbook(
         "Asistencia",
-        [
-            "Fecha",
-            "Empleado",
-            "Email",
-            "Sucursal",
-            "Primera entrada",
-            "Ultima salida",
-            "Horas trabajadas",
-            "Horas programadas",
-            "Horas extra",
-            "Estado",
-            "Vacaciones",
-            "Observaciones",
-        ],
-        [
-            [
-                _format_date(row["fecha_laboral"]),
-                row.get("empleado_nombre") or "",
-                row.get("empleado_email") or "",
-                row.get("sucursal_nombre") or "",
-                _format_datetime(row.get("primera_entrada")),
-                _format_datetime(row.get("ultima_salida")),
-                format_minutes(row.get("minutos_trabajados")),
-                format_minutes(row.get("minutos_programados")),
-                format_minutes(row.get("minutos_extra")),
-                _format_estado_asistencia(row.get("estado")),
-                "Si" if row.get("tiene_vacaciones") else "No",
-                row.get("observaciones") or "",
-            ]
-            for row in rows
-        ],
+        _ASISTENCIA_HEADERS,
+        [_asistencia_row_values(row) for row in rows],
     )
     _append_unmapped_biotime_sheet(workbook, unmapped)
+    _append_por_empleado_sheet(workbook, rows)
+    _append_por_departamento_sheet(workbook, rows)
     filename = f"reporte_asistencia_{fecha_inicio:%Y%m%d}_{fecha_fin:%Y%m%d}.xlsx"
     return _excel_response(workbook, filename)
 
@@ -636,7 +660,7 @@ async def reporte_horas_extra_excel(
             "Primera entrada",
             "Ultima salida",
             "Horas trabajadas",
-            "Horas del Turno",
+            "Horas a cubrir",
             "Horas extra",
             "Estado",
             "Observaciones",

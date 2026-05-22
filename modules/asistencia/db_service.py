@@ -550,11 +550,13 @@ async def get_reporte_asistencia(
             u.nombre AS empleado_nombre,
             u.email AS empleado_email,
             s.nombre AS sucursal_nombre,
+            ed.departamento,
             hea.minutos_aprobados,
             hea.comentario AS aprobacion_comentario
         FROM tb_asistencia_diaria ad
         JOIN tb_usuarios u ON u.id_usuario = ad.usuario_id
         LEFT JOIN tb_cat_sucursales s ON s.id = ad.sucursal_id
+        LEFT JOIN tb_empleados_datos ed ON ed.usuario_id = ad.usuario_id
         LEFT JOIN tb_horas_extra_aprobaciones hea ON hea.asistencia_id = ad.id
         WHERE ad.fecha_laboral >= $1
           AND ad.fecha_laboral <= $2
