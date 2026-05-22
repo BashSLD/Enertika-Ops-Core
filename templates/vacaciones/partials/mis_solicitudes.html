@@ -4,12 +4,6 @@
 {% endwith %}
 {% endif %}
 
-{% if balance is defined %}
-{% with toast_msg="" %}
-{% include "vacaciones/partials/balance.html" %}
-{% endwith %}
-{% endif %}
-
 <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden mt-4">
   <div class="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
     <div class="flex items-center gap-2">
@@ -25,7 +19,7 @@
       hx-target="#modal-solicitud-body"
       hx-swap="innerHTML"
       @click="$dispatch('abrir-modal-solicitud')"
-      class="inline-flex items-center gap-1.5 rounded-lg bg-[#00BABB] px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#009A9B]">
+      class="inline-flex items-center gap-1.5 rounded-lg bg-[#00BABB] px-5 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors hover:bg-[#009A9B]">
       + Nueva
     </button>
   </div>

@@ -12,6 +12,7 @@
        fechaPresentarseCalculada: '',
        saldoDisponible: 0,
        tipos: [],
+       enviando: false,
        _calcularCtrl: null,
        init() {
          this.tipos = JSON.parse(this.$el.dataset.tipos || '[]');
@@ -65,6 +66,9 @@
         hx-target="#tab-content"
         hx-swap="innerHTML"
         hx-disabled-elt="find button[type='submit']"
+        @submit="enviando = true"
+        @htmx:response-error="enviando = false"
+        @htmx:send-error="enviando = false"
         class="space-y-4">
 
     <!-- Tipo -->
@@ -72,7 +76,7 @@
       <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de solicitud *</label>
       <select name="tipo_ausencia_id" required
               @change="const t = tipos.find(x => x.id == $event.target.value); tipoSlug = t ? t.slug : ''; afectaSaldo = t ? t.afecta_saldo : false"
-              class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
+              class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
         <option value="">Selecciona un tipo...</option>
         {% for t in tipos %}
         <option value="{{ t.id }}">{{ t.nombre }}</option>
@@ -87,14 +91,14 @@
         <input type="date" name="fecha_inicio" required
                x-model="fechaInicio"
                @change="calcularDias()"
-               class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
       </div>
       <div>
         <label class="block text-sm font-medium text-gray-700 mb-1">Fecha fin *</label>
         <input type="date" name="fecha_fin" required
                x-model="fechaFin"
                @change="calcularDias()"
-               class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+               class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
       </div>
     </div>
 
@@ -121,7 +125,7 @@
       <label class="block text-sm font-medium text-gray-700 mb-1">Fecha de regreso</label>
       <input type="date" name="fecha_presentarse"
              x-model="fechaPresentarse"
-             class="w-full rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB]">
+             class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none">
       <template x-if="discrepanciaFecha">
         <p class="text-amber-600 text-xs mt-1 font-medium">
           El siguiente día hábil sugerido es <span x-text="formatFecha(fechaPresentarseCalculada)"></span>. Puedes mantener tu selección si es correcto.
@@ -133,7 +137,7 @@
     <div>
       <label class="block text-sm font-medium text-gray-700 mb-1">Observaciones</label>
       <textarea name="observaciones" rows="2" placeholder="Opcional..."
-                class="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none resize-none"></textarea>
+                class="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent outline-none resize-none"></textarea>
     </div>
 
     <!-- Acciones -->
@@ -144,10 +148,11 @@
         Cancelar
       </button>
       <button type="submit"
-              :disabled="sinDiasHabiles"
-              :class="sinDiasHabiles ? 'bg-gray-300 cursor-not-allowed hover:bg-gray-300' : 'bg-[#00BABB] hover:bg-[#009A9B]'"
+              :disabled="sinDiasHabiles || enviando"
+              :class="(sinDiasHabiles || enviando) ? 'bg-gray-300 cursor-not-allowed hover:bg-gray-300' : 'bg-[#00BABB] hover:bg-[#009A9B]'"
               class="flex-1 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors">
-        Enviar solicitud
+        <span x-show="!enviando">Enviar solicitud</span>
+        <span x-show="enviando">Enviando...</span>
       </button>
     </div>
   </form>

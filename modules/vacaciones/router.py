@@ -144,13 +144,11 @@ async def crear_solicitud(
         )
 
     solicitudes = await db.get_solicitudes_usuario(conn, usuario_id)
-    balance = await service.get_balance_usuario(conn, usuario_id)
     return templates.TemplateResponse(
         request,
         "vacaciones/partials/mis_solicitudes.html",
         {
             "solicitudes": solicitudes,
-            "balance": balance,
             "context": context,
             "toast_msg": f"Solicitud enviada ({result['dias']} días hábiles). El aprobador será notificado.",
             "toast_type": "success",
@@ -240,13 +238,11 @@ async def cancelar_solicitud(
         return toast_error(request, str(exc), status_code=200)
 
     solicitudes = await db.get_solicitudes_usuario(conn, usuario_id)
-    balance = await service.get_balance_usuario(conn, usuario_id)
     return templates.TemplateResponse(
         request,
         "vacaciones/partials/mis_solicitudes.html",
         {
             "solicitudes": solicitudes,
-            "balance": balance,
             "context": context,
             "toast_msg": "Solicitud cancelada. Los días han sido liberados.",
             "toast_type": "success",
