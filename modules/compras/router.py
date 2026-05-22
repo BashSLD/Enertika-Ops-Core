@@ -104,24 +104,10 @@ def _serialize_xml_result(result):
     Returns:
         dict con claves 'procesados', 'duplicados', 'errores' como listas de dicts.
     """
-    from decimal import Decimal
-
     def _serialize_cfdi(cfdi):
-        """Convierte CfdiData Pydantic a dict plano."""
-        d = cfdi.model_dump() if hasattr(cfdi, 'model_dump') else dict(cfdi)
-        # Convertir enums a string
-        if 'tipo_factura' in d and hasattr(d['tipo_factura'], 'value'):
-            d['tipo_factura'] = d['tipo_factura'].value
-        # Convertir Decimal a float/str
-        for key in ('total', 'subtotal'):
-            if key in d and isinstance(d[key], Decimal):
-                d[key] = float(d[key])
-        # Convertir conceptos Decimal
-        for c in d.get('conceptos', []):
-            for k in ('cantidad', 'valor_unitario', 'importe'):
-                if k in c and isinstance(c[k], Decimal):
-                    c[k] = float(c[k])
-        return d
+        if hasattr(cfdi, 'model_dump'):
+            return cfdi.model_dump(mode='json')
+        return dict(cfdi)
 
     serialized = {
         'procesados': [],
