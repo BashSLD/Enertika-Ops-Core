@@ -31,6 +31,7 @@ Pillow>=10.0,<12.0
 
 # Seguridad
 defusedxml>=0.7,<1.0
+sentry-sdk[fastapi]>=2.0,<3.0
 
 # Testing
 pytest>=7.0,<9.0

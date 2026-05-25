@@ -7,6 +7,11 @@ import logging
 import signal
 from logging.handlers import RotatingFileHandler
 
+import sentry_sdk
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
+
+from core.config import settings
 from core.database import connect_to_db, close_db_connection
 from core.tasks import (
     cleanup_temp_uploads_periodically,
@@ -35,6 +40,16 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger("worker")
+
+if settings.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        integrations=[FastApiIntegration(), StarletteIntegration()],
+        traces_sample_rate=0.05,
+        send_default_pii=False,
+        enable_logs=True,
+        environment="production" if not settings.DEBUG_MODE else "development",
+    )
 
 
 async def main():

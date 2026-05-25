@@ -85,4 +85,7 @@ class Settings(BaseSettings):
     # --- Redis (caché compartida entre workers Gunicorn) ---
     REDIS_URL: str = os.getenv("REDIS_URL", "")
 
+    # --- Sentry (error monitoring) ---
+    SENTRY_DSN: str = os.getenv("SENTRY_DSN", "")
+
 settings = Settings()

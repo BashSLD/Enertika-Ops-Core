@@ -2,23 +2,25 @@
 
 import asyncio
 import contextlib
+import logging
+from logging.handlers import RotatingFileHandler
+
+import sentry_sdk
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from modules.comercial import router as comercial_router
-from core.database import connect_to_db, close_db_connection, get_db_connection
-from modules.proyectos import router as proyectos_router
-
+from sentry_sdk.integrations.fastapi import FastApiIntegration
+from sentry_sdk.integrations.starlette import StarletteIntegration
 from starlette.middleware.sessions import SessionMiddleware
-from core.config import settings
-from modules.compras import router as compras_router
-from modules.proveedores import router as proveedores_router
-from modules.auth import router as auth_router
-from modules.admin import router as admin_router
 
-# Inicialización de la app
-import logging
-from logging.handlers import RotatingFileHandler
+from core.config import settings
+from core.database import connect_to_db, close_db_connection, get_db_connection
+from modules.admin import router as admin_router
+from modules.auth import router as auth_router
+from modules.comercial import router as comercial_router
+from modules.compras import router as compras_router
+from modules.proyectos import router as proyectos_router
+from modules.proveedores import router as proveedores_router
 
 # Configurar Logging Global
 logging.basicConfig(
@@ -30,6 +32,16 @@ logging.basicConfig(
     ]
 )
 logger = logging.getLogger("Main")
+
+if settings.SENTRY_DSN:
+    sentry_sdk.init(
+        dsn=settings.SENTRY_DSN,
+        integrations=[FastApiIntegration(), StarletteIntegration()],
+        traces_sample_rate=0.05,
+        send_default_pii=False,
+        enable_logs=True,
+        environment="production" if not settings.DEBUG_MODE else "development",
+    )
 
 app = FastAPI(title="Enertika Core Ops",on_startup=[connect_to_db],on_shutdown=[close_db_connection])
 
