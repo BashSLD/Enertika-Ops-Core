@@ -132,7 +132,22 @@ class TransferDBService:
             params.append(area_filter)
             query += f" AND p.area_actual = ${len(params)}"
 
-        if status_filter:
+        if status_filter == "EN_TRANSITO":
+            query += """ AND EXISTS (
+                SELECT 1 FROM tb_traspasos_proyecto tp2
+                WHERE tp2.id_proyecto = p.id_proyecto
+                  AND tp2.status = 'ENVIADO'
+            )"""
+        elif status_filter == "EN_AREA":
+            query += """ AND NOT EXISTS (
+                SELECT 1 FROM tb_traspasos_proyecto tp2
+                WHERE tp2.id_proyecto = p.id_proyecto
+                  AND tp2.status = 'ENVIADO'
+            ) AND EXISTS (
+                SELECT 1 FROM tb_traspasos_proyecto tp2
+                WHERE tp2.id_proyecto = p.id_proyecto
+            )"""
+        elif status_filter:
             params.append(status_filter)
             query += f""" AND EXISTS (
                 SELECT 1 FROM tb_traspasos_proyecto tp2
