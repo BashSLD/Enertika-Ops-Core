@@ -227,7 +227,7 @@ class BomDBService:
         """Obtiene varios items por lista de IDs. Solo items activos."""
         rows = await conn.fetch("""
             SELECT i.id_item, i.descripcion, i.cantidad, i.moneda,
-                   i.estatus_compra, i.activo
+                   i.estatus_compra, i.activo, i.precio_unitario, i.origen_precio
             FROM tb_bom_items i
             WHERE i.id_item = ANY($1::uuid[]) AND i.activo = TRUE
         """, item_ids)
@@ -300,14 +300,14 @@ class BomDBService:
                                       id_proveedor, tipo_entrega,
                                       fecha_estimada_entrega, comentarios, orden,
                                       precio_unitario, origen_precio, id_material_ref,
-                                      tipo_partida, estatus_compra, id_item_origen,
+                                      tipo_partida, moneda, estatus_compra, id_item_origen,
                                       bloqueado)
             SELECT $2, id_categoria, descripcion,
                    cantidad, unidad_medida, fecha_requerida,
                    id_proveedor, tipo_entrega,
                    fecha_estimada_entrega, comentarios, orden,
                    precio_unitario, origen_precio, id_material_ref,
-                   tipo_partida, estatus_compra, id_item,
+                   tipo_partida, moneda, estatus_compra, id_item,
                    (estatus_compra IN ('PAGADO', 'FACTURADO'))
             FROM tb_bom_items
             WHERE id_bom = $1 AND activo = TRUE
@@ -446,16 +446,31 @@ class BomDBService:
         return [dict(r) for r in rows]
 
     async def get_usuarios_por_area(self, conn, module_slug: str, solo_jefes: bool = False) -> List[dict]:
-        """Lista usuarios con acceso a un modulo (editor+)."""
-        filtro_jefes = "AND u.puede_ser_jefe_area = TRUE" if solo_jefes else ""
-        rows = await conn.fetch(f"""
+        """Lista usuarios activos por modulo; jefes salen de rol_organizacional."""
+        if solo_jefes:
+            rol_org_por_modulo = {
+                "ingenieria": "jefe_ingenieria",
+                "construccion": "jefe_construccion",
+            }
+            rol_org = rol_org_por_modulo.get(module_slug)
+            if not rol_org:
+                return []
+            rows = await conn.fetch("""
+                SELECT id_usuario, nombre, email, rol_organizacional
+                FROM tb_usuarios
+                WHERE rol_organizacional = $1
+                  AND is_active = TRUE
+                ORDER BY nombre ASC
+            """, rol_org)
+            return [dict(r) for r in rows]
+
+        rows = await conn.fetch("""
             SELECT u.id_usuario, u.nombre, u.email, pm.rol_modulo
             FROM tb_usuarios u
             JOIN tb_permisos_modulos pm ON pm.usuario_id = u.id_usuario
             WHERE pm.modulo_slug = $1
               AND pm.rol_modulo IN ('editor', 'admin')
               AND u.is_active = TRUE
-              {filtro_jefes}
             ORDER BY u.nombre ASC
         """, module_slug)
         return [dict(r) for r in rows]
@@ -517,6 +532,78 @@ class BomDBService:
             WHERE p.id_proyecto = $1
         """, id_proyecto)
         return dict(row) if row else None
+
+    async def get_usuario_activo_por_rol_org(
+        self, conn, rol_organizacional: str
+    ) -> Optional[dict]:
+        """Obtiene el usuario activo con un rol organizacional."""
+        rows = await conn.fetch("""
+            SELECT id_usuario, nombre, email, rol_organizacional
+            FROM tb_usuarios
+            WHERE rol_organizacional = $1
+              AND is_active = TRUE
+            ORDER BY nombre ASC
+        """, rol_organizacional)
+        if len(rows) > 1:
+            logger.warning(
+                "Multiples usuarios activos con rol_organizacional='%s': %s — usando primero",
+                rol_organizacional, [r['nombre'] for r in rows]
+            )
+        return dict(rows[0]) if rows else None
+
+    async def get_asignacion_proyecto(
+        self, conn, id_proyecto: UUID, rol_proyecto: str, area: str
+    ) -> Optional[dict]:
+        """Obtiene una asignacion activa del equipo del proyecto."""
+        row = await conn.fetchrow("""
+            SELECT pu.id_usuario, pu.rol_proyecto, pu.area, u.nombre, u.email
+            FROM tb_proyecto_usuarios pu
+            JOIN tb_usuarios u ON u.id_usuario = pu.id_usuario
+            WHERE pu.id_proyecto = $1
+              AND pu.rol_proyecto = $2
+              AND pu.area = $3
+              AND pu.activo = TRUE
+              AND u.is_active = TRUE
+            LIMIT 1
+        """, id_proyecto, rol_proyecto, area)
+        return dict(row) if row else None
+
+    async def usuario_tiene_rol_org(
+        self, conn, user_id: UUID, rol_organizacional: str
+    ) -> bool:
+        exists = await conn.fetchval("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM tb_usuarios
+                WHERE id_usuario = $1
+                  AND rol_organizacional = $2
+                  AND is_active = TRUE
+            )
+        """, user_id, rol_organizacional)
+        return bool(exists)
+
+    async def usuario_tiene_asignacion_proyecto(
+        self,
+        conn,
+        id_proyecto: UUID,
+        user_id: UUID,
+        rol_proyecto: str,
+        area: str,
+    ) -> bool:
+        exists = await conn.fetchval("""
+            SELECT EXISTS (
+                SELECT 1
+                FROM tb_proyecto_usuarios pu
+                JOIN tb_usuarios u ON u.id_usuario = pu.id_usuario
+                WHERE pu.id_proyecto = $1
+                  AND pu.id_usuario = $2
+                  AND pu.rol_proyecto = $3
+                  AND pu.area = $4
+                  AND pu.activo = TRUE
+                  AND u.is_active = TRUE
+            )
+        """, id_proyecto, user_id, rol_proyecto, area)
+        return bool(exists)
 
     # ─── GRUPOS BOM ─────────────────────────────────────────
 

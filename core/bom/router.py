@@ -117,7 +117,7 @@ async def bom_ui(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras"]),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
 ):
     """Vista principal del BOM de un proyecto."""
     bom = await service.get_bom_proyecto(conn, id_proyecto)
@@ -127,12 +127,13 @@ async def bom_ui(
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
     # Si el usuario solo tiene acceso por compras (no ingenieria), validar que el BOM este aprobado
-    is_compras_only = (
+    module_roles = context.get("module_roles", {})
+    is_downstream_only = (
         context.get("role") != "ADMIN"
-        and not context.get("module_roles", {}).get("ingenieria")
-        and context.get("module_roles", {}).get("compras")
+        and not module_roles.get("ingenieria")
+        and (module_roles.get("compras") or module_roles.get("finanzas"))
     )
-    if is_compras_only:
+    if is_downstream_only:
         if not bom or bom['estatus'] not in [
             'APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'
         ]:
@@ -149,6 +150,10 @@ async def bom_ui(
 
     es_aprobador_final = False
     es_rol_bom = False
+    user_id_ctx = context.get("user_db_id")
+    puede_gestionar_bom_ingenieria = await service.puede_crear_o_retomar_bom(
+        conn, id_proyecto, user_id_ctx
+    )
 
     if bom:
         items = await service.get_items(conn, bom['id_bom'])
@@ -157,7 +162,6 @@ async def bom_ui(
         if bom['estatus'] == 'BORRADOR':
             ultimo_rechazo = await service.get_ultimo_rechazo(conn, bom['id_bom'])
         aprobador_final_id = await service.get_aprobador_final_id(conn)
-        user_id_ctx = context.get("user_db_id")
         if aprobador_final_id and str(user_id_ctx) == str(aprobador_final_id):
             es_aprobador_final = True
         es_rol_bom = await service.es_bom_role(conn, bom, user_id_ctx)
@@ -173,9 +177,10 @@ async def bom_ui(
         ultimo_rechazo=ultimo_rechazo,
         es_aprobador_final=es_aprobador_final,
         es_rol_bom=es_rol_bom,
+        puede_gestionar_bom_ingenieria=puede_gestionar_bom_ingenieria,
     )
 
-    is_htmx = request.headers.get("hx-request")
+    is_htmx = request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request")
     template = "bom/partials/content.html" if is_htmx else "bom/dashboard.html"
     return templates.TemplateResponse(request, template, ctx)
 
@@ -191,22 +196,16 @@ async def crear_bom(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria", "editor"),
+    _=require_module_access("ingenieria"),
 ):
     """Crea un nuevo BOM para el proyecto."""
     form = await request.form()
     user_id = context.get("user_db_id")
-    responsable_ing = form.get("responsable_ing")
-    jefe_construccion = form.get("jefe_construccion")
-    coordinador_obra = form.get("coordinador_obra")
     notas = form.get("notas", "").strip() or None
 
     try:
         bom = await service.crear_bom(
             conn, id_proyecto, user_id,
-            responsable_ing=UUID(responsable_ing) if responsable_ing else None,
-            jefe_construccion=UUID(jefe_construccion) if jefe_construccion else None,
-            coordinador_obra=UUID(coordinador_obra) if coordinador_obra else None,
             notas=notas
         )
 
@@ -237,15 +236,22 @@ async def get_items(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras"]),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
 ):
     """Tabla de items del BOM (partial HTMX)."""
     bom = await service.get_bom_proyecto(conn, id_proyecto)
     items = []
     if bom:
         items = await service.get_items(conn, bom['id_bom'])
+    puede_gestionar_bom_ingenieria = await service.puede_crear_o_retomar_bom(
+        conn, id_proyecto, context.get("user_db_id")
+    )
 
-    ctx = _build_bom_context(request, context, bom, items=items)
+    ctx = _build_bom_context(
+        request, context, bom,
+        items=items,
+        puede_gestionar_bom_ingenieria=puede_gestionar_bom_ingenieria,
+    )
     return templates.TemplateResponse(request, "bom/partials/tabla_items.html", ctx)
 
 
@@ -306,7 +312,10 @@ async def agregar_item(
 
         ctx = _build_bom_context(
             request, context, bom,
-            items=items, estadisticas=estadisticas
+            items=items, estadisticas=estadisticas,
+            puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
+                conn, bom['id_proyecto'], user_id
+            ),
         )
         return templates.TemplateResponse(request, "bom/partials/tabla_items.html", ctx)
 
@@ -328,12 +337,17 @@ async def editar_item(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria"),
+    _=require_any_module_access(["ingenieria", "construccion", "compras"]),
 ):
     """Edita un item del BOM."""
     form = await request.form()
     user_id = context.get("user_db_id")
     area_editor = _get_area_editor(context)
+
+    if area_editor == "viewer":
+        return templates.TemplateResponse(request, "shared/toast.html",
+            {"message": "Sin permisos para editar items del BOM", "type": "error"},
+            status_code=403)
 
     # Construir campos desde el form
     campos = {}
@@ -381,7 +395,13 @@ async def editar_item(
         item['grupos'] = await service.db.get_grupos_por_item(conn, id_item)
         bom = await service.get_bom(conn, item['id_bom'])
 
-        ctx = _build_bom_context(request, context, bom, item=item)
+        ctx = _build_bom_context(
+            request, context, bom,
+            item=item,
+            puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
+                conn, bom['id_proyecto'], user_id
+            ),
+        )
         return templates.TemplateResponse(request, "bom/partials/row_item.html", ctx)
 
     except ValueError as e:
@@ -423,7 +443,10 @@ async def eliminar_item(
 
         ctx = _build_bom_context(
             request, context, bom,
-            items=items, estadisticas=estadisticas
+            items=items, estadisticas=estadisticas,
+            puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
+                conn, bom['id_proyecto'], user_id
+            ),
         )
         return templates.TemplateResponse(request, "bom/partials/tabla_items.html", ctx)
 
@@ -459,7 +482,10 @@ async def restaurar_item(
 
         ctx = _build_bom_context(
             request, context, bom,
-            items=items, estadisticas=estadisticas
+            items=items, estadisticas=estadisticas,
+            puede_gestionar_bom_ingenieria=await service.puede_crear_o_retomar_bom(
+                conn, bom['id_proyecto'], user_id
+            ),
         )
         return templates.TemplateResponse(request, "bom/partials/tabla_items.html", ctx)
     except ValueError as e:
@@ -532,14 +558,11 @@ async def enviar_revision(
     _=require_module_access("ingenieria", "editor"),
 ):
     """Envia BOM a revision de responsable de ingenieria."""
-    form = await request.form()
     user_id = context.get("user_db_id")
-    responsable_ing = form.get("responsable_ing")
 
     try:
         bom = await service.enviar_revision_ing(
-            conn, id_bom, user_id,
-            responsable_ing=UUID(responsable_ing) if responsable_ing else None
+            conn, id_bom, user_id
         )
 
         return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM enviado a revision de ingenieria",
@@ -634,14 +657,11 @@ async def enviar_const(
     _=require_manager_access("ingenieria"),
 ):
     """Envia BOM aprobado por ing a revision de construccion."""
-    form = await request.form()
     user_id = context.get("user_db_id")
-    coordinador_obra = form.get("coordinador_obra")
 
     try:
         bom = await service.enviar_revision_const(
-            conn, id_bom, user_id,
-            coordinador_obra=UUID(coordinador_obra) if coordinador_obra else None
+            conn, id_bom, user_id
         )
 
         return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM enviado a revision de construccion",
@@ -838,7 +858,7 @@ async def get_historial(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras"]),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
 ):
     """Historial de cambios del BOM."""
     historial = await service.get_historial(conn, id_bom)
@@ -856,7 +876,7 @@ async def get_aprobaciones(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras"]),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
 ):
     """Timeline de aprobaciones del BOM."""
     aprobaciones = await service.get_aprobaciones(conn, id_bom)
@@ -1048,7 +1068,7 @@ async def aprobar_obra(
     user_id = context.get("user_db_id")
     comentarios = form.get("comentarios", "").strip() or None
     try:
-        bom = await service.aprobar_obra(conn, id_bom, user_id, comentarios)
+        bom = await service.aprobar_revision_obra(conn, id_bom, user_id, comentarios)
         return templates.TemplateResponse(request, "shared/toast.html", {"message": "BOM aprobado por Obra y enviado a Construccion",
             "type": "success",
             "redirect_url": f"/bom/{bom['id_proyecto']}/ui",
@@ -1656,7 +1676,7 @@ async def get_autorizaciones_tab(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras"]),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
 ):
     bom = await service.db.get_bom_by_id(conn, id_bom)  # autorizaciones tab
     if not bom:
@@ -1676,7 +1696,7 @@ async def aprobar_autorizacion_obra(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria"),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
 ):
     user_id = context.get("user_db_id")
     user_role = context.get("role")
@@ -1703,7 +1723,7 @@ async def aprobar_autorizacion_direccion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria"),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
 ):
     user_id = context.get("user_db_id")
     user_role = context.get("role")
@@ -1731,11 +1751,13 @@ async def aprobar_autorizacion_finanzas(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria"),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
 ):
     user_id = context.get("user_db_id")
     user_role = context.get("role")
     finanzas_role = context.get("module_roles", {}).get("finanzas")
+    if user_role != "ADMIN" and finanzas_role not in ("editor", "admin"):
+        raise HTTPException(status_code=403, detail="Requiere rol editor o admin en Finanzas")
     try:
         aut = await service.aprobar_finanzas(conn, autorizacion_id, user_id, nota, user_role, finanzas_role)
     except ValueError as e:
@@ -1759,7 +1781,7 @@ async def rechazar_autorizacion(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria"),
+    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
 ):
     user_id = context.get("user_db_id")
     user_role = context.get("role")

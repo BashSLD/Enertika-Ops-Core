@@ -12,7 +12,8 @@
     evento       - str: ENVIADO_REVISION_ING | APROBADO_ING | RECHAZADO_ING |
                         ENVIADO_REVISION_OBRA | RECHAZADO_OBRA |
                         ENVIADO_REVISION_CONST | APROBADO_CONST | RECHAZADO_CONST |
-                        ENVIADO_REVISION_FINAL | APROBADO_FINAL | RECHAZADO_FINAL
+                        ENVIADO_REVISION_FINAL | APROBADO_FINAL | RECHAZADO_FINAL |
+                        FALTA_COORDINADOR_OBRA
     por_nombre   - str: nombre del usuario que ejecuto la accion
     comentarios  - str|None: comentarios opcionales
     app_url      - str: URL directa al BOM
@@ -30,6 +31,7 @@
     'ENVIADO_REVISION_FINAL': {'titulo': 'Aprobacion final requerida', 'sub': 'Aprobador Final', 'color': '#7C3AED', 'color_end': '#8B5CF6', 'msg': 'El BOM requiere tu aprobacion final. Por favor revisa y aprueba o rechaza.', 'accion': true},
     'APROBADO_FINAL':         {'titulo': 'BOM Aprobado Definitivamente', 'sub': 'Flujo completado', 'color': '#059669', 'color_end': '#10B981', 'msg': 'El BOM fue aprobado de forma definitiva. El flujo de aprobacion ha concluido.', 'accion': false},
     'RECHAZADO_FINAL':        {'titulo': 'Devuelto por Aprobador Final', 'sub': 'Requiere revision', 'color': '#DC2626', 'color_end': '#EF4444', 'msg': 'El BOM fue rechazado por el aprobador final y requiere revision.', 'accion': false},
+    'FALTA_COORDINADOR_OBRA': {'titulo': 'Asignar coordinador de obra', 'sub': 'Accion requerida', 'color': '#D97706', 'color_end': '#F59E0B', 'msg': 'El BOM fue creado sin coordinador de obra asignado en el proyecto. Asigna el coordinador desde la seccion Proyectos antes de continuar el flujo.', 'accion': true},
 } %}
 {% set cfg = evento_config.get(evento, {'titulo': 'Actualizacion BOM', 'sub': '', 'color': '#123456', 'color_end': '#00BABB', 'msg': 'Hubo un cambio de estado en el BOM.', 'accion': false}) %}
 

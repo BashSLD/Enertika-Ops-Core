@@ -164,7 +164,8 @@
                 </svg>
             </button>
             {# Boton eliminar — permitido en todos los estados menos CANCELADO y APROBADO_FINAL para ing y construccion #}
-            {% if bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and area_editor in ['ingenieria', 'construccion'] %}
+            {% set puede_eliminar_item = area_editor == 'construccion' or (area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria|default(false)) %}
+            {% if bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and puede_eliminar_item %}
             <button hx-delete="/bom/items/{{ item.id_item }}" hx-target="#tabla-bom-items" hx-swap="innerHTML"
                 hx-confirm="Eliminar este item del BOM?"
                 class="p-1 rounded hover:bg-red-100 transition text-gray-400 hover:text-red-600" title="Eliminar">

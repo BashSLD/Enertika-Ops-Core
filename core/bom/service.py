@@ -59,6 +59,30 @@ class BomService:
     def __init__(self):
         self.db = BomDBService()
 
+    async def puede_crear_o_retomar_bom(
+        self, conn, id_proyecto: UUID, user_id: Optional[UUID]
+    ) -> bool:
+        """Permite BOM solo a jefe de Ingenieria o ingeniero asignado al proyecto."""
+        if not user_id:
+            return False
+        if await self.db.usuario_tiene_rol_org(conn, user_id, "jefe_ingenieria"):
+            return True
+        return await self.db.usuario_tiene_asignacion_proyecto(
+            conn, id_proyecto, user_id, "ingeniero_asignado", "INGENIERIA"
+        )
+
+    async def _validar_retomar_bom_ingenieria(
+        self, conn, id_proyecto: UUID, user_id: UUID
+    ) -> None:
+        if not await self.puede_crear_o_retomar_bom(conn, id_proyecto, user_id):
+            raise ValueError(
+                "Solo el jefe de Ingenieria o el ingeniero asignado pueden crear o retomar el BOM"
+            )
+
+    async def _validar_jefe_ingenieria(self, conn, user_id: UUID) -> None:
+        if not await self.db.usuario_tiene_rol_org(conn, user_id, "jefe_ingenieria"):
+            raise ValueError("Solo el jefe de Ingenieria puede ejecutar esta accion")
+
     # ─── CREAR BOM ──────────────────────────────────────────
 
     async def crear_bom(
@@ -68,11 +92,35 @@ class BomService:
         coordinador_obra: Optional[UUID] = None,
         notas: Optional[str] = None
     ) -> dict:
-        """Crea un nuevo BOM. Valida que no exista otro en BORRADOR."""
+        """Crea un nuevo BOM resolviendo responsables desde reglas del proyecto."""
         # Verificar proyecto existe
         proyecto = await self.db.get_proyecto_info(conn, id_proyecto)
         if not proyecto:
             raise ValueError("Proyecto no encontrado")
+
+        await self._validar_retomar_bom_ingenieria(conn, id_proyecto, elaborado_por)
+
+        responsable = await self.db.get_usuario_activo_por_rol_org(
+            conn, "jefe_ingenieria"
+        )
+        if not responsable:
+            raise ValueError("No hay jefe de Ingenieria activo configurado")
+
+        jefe_const = await self.db.get_usuario_activo_por_rol_org(
+            conn, "jefe_construccion"
+        )
+        if not jefe_const:
+            raise ValueError("No hay jefe de Construccion activo configurado")
+
+        ingeniero = await self.db.get_asignacion_proyecto(
+            conn, id_proyecto, "ingeniero_asignado", "INGENIERIA"
+        )
+        if not ingeniero:
+            raise ValueError("Asigna un Ingeniero Asignado al proyecto antes de crear el BOM")
+
+        coordinador = await self.db.get_asignacion_proyecto(
+            conn, id_proyecto, "coordinador_obra", "CONSTRUCCION"
+        )
 
         # Verificar no hay BOM en BORRADOR
         borrador = await self.db.get_bom_borrador_by_proyecto(conn, id_proyecto)
@@ -88,9 +136,9 @@ class BomService:
 
         bom = await self.db.crear_bom(
             conn, id_proyecto, elaborado_por,
-            responsable_ing=responsable_ing,
-            jefe_construccion=jefe_construccion,
-            coordinador_obra=coordinador_obra,
+            responsable_ing=responsable["id_usuario"],
+            jefe_construccion=jefe_const["id_usuario"],
+            coordinador_obra=coordinador["id_usuario"] if coordinador else None,
             notas=notas,
             version=nueva_version
         )
@@ -106,7 +154,21 @@ class BomService:
             id_proyecto, nueva_version, elaborado_por
         )
 
-        return await self.db.get_bom_by_id(conn, bom['id_bom'])
+        bom_creado = await self.db.get_bom_by_id(conn, bom['id_bom'])
+        if not coordinador:
+            await self._notify_bom(
+                conn,
+                bom_creado,
+                jefe_const["id_usuario"],
+                "FALTA_COORDINADOR_OBRA",
+                por_user_id=elaborado_por,
+                comentarios=(
+                    "El BOM se creo sin coordinador de obra. "
+                    "Asigna el coordinador desde Proyectos."
+                ),
+            )
+
+        return bom_creado
 
     # ─── OBTENER BOM ────────────────────────────────────────
 
@@ -141,6 +203,9 @@ class BomService:
         estatus = EstatusBOM(bom['estatus'])
         if estatus in ESTATUS_BLOQUEADOS:
             raise ValueError(f"El BOM esta en estado {estatus} y no permite modificaciones")
+
+        if area_editor == 'ingenieria':
+            await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
 
         es_rol_bom = await self.es_bom_role(conn, bom, user_id)
         if not es_rol_bom:
@@ -196,6 +261,9 @@ class BomService:
 
         bom_estatus = EstatusBOM(item['bom_estatus'])
         es_catalogo = item.get('origen_precio') == 'CATALOGO'
+
+        if area_editor == 'ingenieria':
+            await self._validar_retomar_bom_ingenieria(conn, item['id_proyecto'], user_id)
 
         # Campos protegidos: items de catalogo no permiten cambiar descripcion,
         # precio, unidad ni origen para preservar integridad del analisis de costos
@@ -280,6 +348,9 @@ class BomService:
         estatus = EstatusBOM(bom['estatus'])
         if estatus in ESTATUS_BLOQUEADOS:
             raise ValueError(f"El BOM esta en estado {estatus} y no permite modificaciones")
+
+        if area_editor == 'ingenieria':
+            await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
 
         es_rol_bom = await self.es_bom_role(conn, bom, user_id)
         if not es_rol_bom:
@@ -381,11 +452,14 @@ class BomService:
     # ─── WORKFLOW DE APROBACION ──────────────────────────────
 
     async def enviar_revision_ing(
-        self, conn, id_bom: UUID, user_id: UUID,
-        responsable_ing: Optional[UUID] = None
+        self, conn, id_bom: UUID, user_id: UUID
     ) -> dict:
         """Envia BOM a revision de responsable de ingenieria."""
         bom = await self.get_bom(conn, id_bom)
+        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
+
+        if not bom.get('responsable_ing'):
+            raise ValueError("El BOM no tiene responsable de Ingenieria asignado. Configura el jefe de Ingenieria antes de enviar.")
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.BORRADOR:
             raise ValueError("Solo se puede enviar a revision desde BORRADOR")
@@ -398,8 +472,6 @@ class BomService:
         update_kwargs = {
             'fecha_envio_ing': now_mx()
         }
-        if responsable_ing:
-            update_kwargs['responsable_ing'] = responsable_ing
 
         updated = await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.EN_REVISION_ING, **update_kwargs
@@ -422,6 +494,7 @@ class BomService:
     ) -> dict:
         """Aprueba BOM por responsable de ingenieria."""
         bom = await self.get_bom(conn, id_bom)
+        await self._validar_jefe_ingenieria(conn, user_id)
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_ING:
             raise ValueError("El BOM debe estar EN_REVISION_ING para aprobar")
@@ -451,6 +524,7 @@ class BomService:
             raise ValueError("El motivo del rechazo es obligatorio")
 
         bom = await self.get_bom(conn, id_bom)
+        await self._validar_jefe_ingenieria(conn, user_id)
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.EN_REVISION_ING:
             raise ValueError("El BOM debe estar EN_REVISION_ING para rechazar")
@@ -474,10 +548,10 @@ class BomService:
 
     async def enviar_revision_const(
         self, conn, id_bom: UUID, user_id: UUID,
-        coordinador_obra: Optional[UUID] = None
     ) -> dict:
         """Envia BOM aprobado por ing a revision de construccion."""
         bom = await self.get_bom(conn, id_bom)
+        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_ING:
             raise ValueError("El BOM debe estar APROBADO_ING para enviar a construccion")
@@ -485,8 +559,6 @@ class BomService:
         update_kwargs = {
             'fecha_envio_const': now_mx()
         }
-        if coordinador_obra:
-            update_kwargs['coordinador_obra'] = coordinador_obra
 
         await self.db.update_bom_estatus(
             conn, id_bom, EstatusBOM.EN_REVISION_CONST, **update_kwargs
@@ -561,6 +633,7 @@ class BomService:
     ) -> dict:
         """Envia BOM aprobado por ing a revision del coordinador de obra."""
         bom = await self.get_bom(conn, id_bom)
+        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_ING:
             raise ValueError("El BOM debe estar APROBADO_ING para enviar a obra")
@@ -579,7 +652,7 @@ class BomService:
                                'ENVIADO_REVISION_OBRA', por_user_id=user_id)
         return bom_updated
 
-    async def aprobar_obra(
+    async def aprobar_revision_obra(
         self, conn, id_bom: UUID, user_id: UUID,
         comentarios: Optional[str] = None
     ) -> dict:
@@ -638,6 +711,7 @@ class BomService:
     ) -> dict:
         """Devuelve BOM de APROBADO_ING a BORRADOR para corregir tras rechazo de construccion."""
         bom = await self.get_bom(conn, id_bom)
+        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_ING:
             raise ValueError("Solo se puede devolver a borrador desde APROBADO_ING")
@@ -664,6 +738,7 @@ class BomService:
     ) -> dict:
         """Cancela un BOM en BORRADOR."""
         bom = await self.get_bom(conn, id_bom)
+        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
 
         if EstatusBOM(bom['estatus']) != EstatusBOM.BORRADOR:
             raise ValueError("Solo se puede cancelar un BOM en BORRADOR")
@@ -691,9 +766,11 @@ class BomService:
         Crea nueva version copiando items y pone en BORRADOR.
         """
         bom = await self.get_bom(conn, id_bom)
+        await self._validar_retomar_bom_ingenieria(conn, bom['id_proyecto'], user_id)
 
-        if EstatusBOM(bom['estatus']) != EstatusBOM.APROBADO_CONST:
-            raise ValueError("Solo se puede solicitar modificacion de un BOM APROBADO_CONST")
+        ESTATUS_MODIFICABLE = {EstatusBOM.APROBADO_CONST, EstatusBOM.APROBADO_FINAL}
+        if EstatusBOM(bom['estatus']) not in ESTATUS_MODIFICABLE:
+            raise ValueError("Solo se puede solicitar modificacion de un BOM APROBADO_CONST o APROBADO_FINAL")
 
         # Registrar solicitud en version actual
         await self.db.registrar_aprobacion(
@@ -701,12 +778,18 @@ class BomService:
             bom['version'], user_id, comentarios=comentarios
         )
 
-        # Crear nueva version
+        # Crear nueva version — re-resolver responsables frescos con fallback al BOM anterior
         nueva_version = bom['version'] + 1
+        responsable = await self.db.get_usuario_activo_por_rol_org(conn, "jefe_ingenieria")
+        jefe_const = await self.db.get_usuario_activo_por_rol_org(conn, "jefe_construccion")
+        coordinador = await self.db.get_asignacion_proyecto(
+            conn, bom['id_proyecto'], "coordinador_obra", "CONSTRUCCION"
+        )
         nuevo_bom = await self.db.crear_bom(
             conn, bom['id_proyecto'], user_id,
-            responsable_ing=bom.get('responsable_ing'),
-            coordinador_obra=bom.get('coordinador_obra'),
+            responsable_ing=responsable["id_usuario"] if responsable else bom.get('responsable_ing'),
+            jefe_construccion=jefe_const["id_usuario"] if jefe_const else bom.get('jefe_construccion'),
+            coordinador_obra=coordinador["id_usuario"] if coordinador else bom.get('coordinador_obra'),
             notas=f"Modificacion solicitada sobre v{bom['version']}. {comentarios or ''}".strip(),
             version=nueva_version
         )
@@ -939,13 +1022,14 @@ class BomService:
                 'ENVIADO_REVISION_FINAL': f"BOM {bom.get('proyecto_id_estandar', '')} - Aprobacion final requerida",
                 'APROBADO_FINAL':         f"BOM {bom.get('proyecto_id_estandar', '')} - Aprobado definitivamente",
                 'RECHAZADO_FINAL':        f"BOM {bom.get('proyecto_id_estandar', '')} - Devuelto por Aprobador Final",
+                'FALTA_COORDINADOR_OBRA': f"BOM {bom.get('proyecto_id_estandar', '')} - Asignar coordinador de obra",
             }
             subject = subject_map.get(evento, f"BOM {bom.get('proyecto_id_estandar', '')} - Actualizacion")
 
             await notif._send_email({to_email}, set(), subject, html, sender_email)
             logger.info("BOM notify enviada: evento=%s to_user=%s", evento, to_user_id)
-        except (asyncpg.PostgresError, KeyError, RuntimeError, TemplateError, TypeError, ValueError):
-            logger.exception("BOM notify: error enviando email, evento=%s", evento)
+        except (asyncpg.PostgresError, KeyError, RuntimeError, TemplateError, TypeError, ValueError) as exc:
+            logger.warning("BOM notify: error enviando email, evento=%s: %s", evento, exc)
 
     # ─── CATALOGOS ──────────────────────────────────────────
 
@@ -1089,16 +1173,31 @@ class BomService:
 
     async def listar_cotizaciones(self, conn, id_bom: UUID) -> List[dict]:
         cotizaciones = await self.db.get_cotizaciones_by_bom(conn, id_bom)
+        if not cotizaciones:
+            return cotizaciones
+
+        cot_items_map = {}
+        all_bom_item_ids = []
         for cot in cotizaciones:
             items = await self.db.get_items_cotizacion(conn, cot['id'])
+            cot_items_map[str(cot['id'])] = items
+            all_bom_item_ids.extend(i['bom_item_id'] for i in items)
+
+        bom_items_map = {}
+        if all_bom_item_ids:
+            bom_items = await self.db.get_items_by_ids(conn, list(set(all_bom_item_ids)))
+            bom_items_map = {str(bi['id_item']): bi for bi in bom_items}
+
+        for cot in cotizaciones:
             tiene_sobrecosto = False
-            for it in items:
-                bom_item = await self.db.get_item_by_id(conn, it['bom_item_id'])
-                if bom_item and bom_item.get('precio_unitario'):
+            for it in cot_items_map.get(str(cot['id']), []):
+                bom_item = bom_items_map.get(str(it['bom_item_id']))
+                if bom_item and bom_item.get('precio_unitario') and it.get('precio_unitario'):
                     if float(it['precio_unitario']) > float(bom_item['precio_unitario']):
                         tiene_sobrecosto = True
                         break
             cot['tiene_sobrecosto'] = tiene_sobrecosto
+
         return cotizaciones
 
     async def crear_cotizacion(
@@ -1121,8 +1220,9 @@ class BomService:
         Valida sobrecosto si hay precios individuales.
         """
         bom = await self.get_bom(conn, id_bom)
-        if bom['estatus'] != EstatusBOM.APROBADO_CONST:
-            raise ValueError("Solo se pueden crear cotizaciones en BOMs con estatus APROBADO_CONST.")
+        ESTATUS_COTIZABLE = {EstatusBOM.APROBADO_CONST, EstatusBOM.EN_REVISION_FINAL, EstatusBOM.APROBADO_FINAL}
+        if EstatusBOM(bom['estatus']) not in ESTATUS_COTIZABLE:
+            raise ValueError("Solo se pueden crear cotizaciones en BOMs aprobados por Construccion.")
 
         if not items_data:
             raise ValueError("Debes seleccionar al menos un item para cotizar.")
@@ -1133,12 +1233,19 @@ class BomService:
         )
 
         if tiene_precios:
+            bom_ids_con_precio = [
+                i['bom_item_id'] for i in items_data
+                if float(i.get('precio_unitario') or 0) > 0
+            ]
+            bom_items_batch = await self.db.get_items_by_ids(conn, list(set(bom_ids_con_precio)))
+            bom_items_map_cot = {str(bi['id_item']): bi for bi in bom_items_batch}
+
             sobrecostos = []
             for i in items_data:
                 pu = float(i.get('precio_unitario') or 0)
                 if pu <= 0:
                     continue
-                bom_item = await self.db.get_item_by_id(conn, i['bom_item_id'])
+                bom_item = bom_items_map_cot.get(str(i['bom_item_id']))
                 if bom_item and bom_item.get('precio_unitario'):
                     precio_bom = float(bom_item['precio_unitario'])
                     if pu > precio_bom:
@@ -1168,7 +1275,8 @@ class BomService:
             for i in items_data:
                 prop = float(i.get('cantidad', 1)) / total_cantidad if total_cantidad > 0 else 1.0 / len(items_data)
                 if 'precio_unitario' not in i or not i['precio_unitario']:
-                    i['precio_unitario'] = round(subtotal * prop / float(i.get('cantidad', 1)), 4)
+                    cantidad_item = float(i.get('cantidad') or 1)
+                    i['precio_unitario'] = round(subtotal * prop / cantidad_item, 4)
         elif tiene_precios:
             subtotal = sum(
                 float(i.get('precio_unitario') or 0) * float(i.get('cantidad') or 0)
@@ -1237,8 +1345,11 @@ class BomService:
 
             # Actualizar precio_unitario del BOM con el precio de la cotización
             # Solo items no protegidos (origen != CATALOGO)
+            bom_ids = [i['bom_item_id'] for i in items]
+            bom_items_sel = await self.db.get_items_by_ids(conn, bom_ids)
+            bom_items_sel_map = {str(bi['id_item']): bi for bi in bom_items_sel}
             for it in items:
-                bom_item = await self.db.get_item_by_id(conn, it['bom_item_id'])
+                bom_item = bom_items_sel_map.get(str(it['bom_item_id']))
                 if bom_item and bom_item.get('origen_precio') != 'CATALOGO':
                     await self.db.update_item(
                         conn, it['bom_item_id'],
@@ -1292,8 +1403,16 @@ class BomService:
         bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
 
         # Validar que el usuario es el coordinador_obra del proyecto o ADMIN
-        if user_role != 'ADMIN' and bom.get('coordinador_obra') != user_id:
-            raise ValueError("Solo el coordinador de obra del proyecto puede aprobar este paso.")
+        # Si coordinador_obra es NULL (no asignado al crear BOM), el jefe de construccion puede aprobar
+        if user_role != 'ADMIN':
+            coordinador_obra = bom.get('coordinador_obra')
+            if coordinador_obra:
+                if coordinador_obra != user_id:
+                    raise ValueError("Solo el coordinador de obra del proyecto puede aprobar este paso.")
+            else:
+                es_jefe_const = await self.db.usuario_tiene_rol_org(conn, user_id, "jefe_construccion")
+                if not es_jefe_const:
+                    raise ValueError("No hay coordinador de obra asignado. Solo el jefe de Construccion puede aprobar este paso.")
 
         updated = await self.db.update_autorizacion_paso_obra(conn, autorizacion_id, user_id, nota)
 
@@ -1384,8 +1503,14 @@ class BomService:
             paso = 'OBRA'
             if user_role != 'ADMIN':
                 bom = await self.db.get_bom_by_id(conn, aut['bom_id'])
-                if bom.get('coordinador_obra') != user_id:
-                    raise ValueError("Solo el coordinador de obra puede rechazar en este paso.")
+                coordinador_obra = bom.get('coordinador_obra')
+                if coordinador_obra:
+                    if coordinador_obra != user_id:
+                        raise ValueError("Solo el coordinador de obra puede rechazar en este paso.")
+                else:
+                    es_jefe_const = await self.db.usuario_tiene_rol_org(conn, user_id, "jefe_construccion")
+                    if not es_jefe_const:
+                        raise ValueError("No hay coordinador de obra asignado. Solo el jefe de Construccion puede rechazar en este paso.")
         elif estatus == 'AUTORIZADO_OBRA':
             paso = 'DIRECCION'
             if user_role != 'ADMIN' and rol_org != 'director':
@@ -1465,8 +1590,8 @@ class BomService:
 
             await notif._send_email({to_email}, set(), subject, html, sender_email)
             logger.info("Autorizacion notify: evento=%s to_user=%s", evento, to_user_id)
-        except (asyncpg.PostgresError, KeyError, RuntimeError, TemplateError, TypeError, ValueError):
-            logger.exception("Autorizacion notify: error enviando email, evento=%s", evento)
+        except (asyncpg.PostgresError, KeyError, RuntimeError, TemplateError, TypeError, ValueError) as exc:
+            logger.warning("Autorizacion notify: error enviando email, evento=%s: %s", evento, exc)
 
     async def rechazar_cotizacion(
         self, conn, cotizacion_id: UUID, user_id: UUID
@@ -1511,17 +1636,15 @@ class BomService:
         if area_editor == 'ingenieria':
             if estatus not in ESTATUS_EDITABLE_ING:
                 raise ValueError(
-                    f"El BOM estÃ¡ en estado {estatus} y no permite ediciÃ³n estructural por IngenierÃa."
+                    f"El BOM esta en estado {estatus} y no permite edicion estructural por Ingenieria."
                 )
         elif area_editor == 'construccion':
             if estatus not in ESTATUS_EDITABLE_CONST_COMPRAS:
-                 raise ValueError(
-                    f"El BOM estÃ¡ en estado {estatus} y no permite ediciÃ³n estructural por ConstrucciÃ³n."
+                raise ValueError(
+                    f"El BOM esta en estado {estatus} y no permite edicion estructural por Construccion."
                 )
-        # Compras no suele agregar/eliminar items, pero si fuera necesario se agrega aqui.
         else:
-            # Fallback seguro
-             if estatus not in ESTATUS_EDITABLE_ING:
+            if estatus not in ESTATUS_EDITABLE_ING:
                 raise ValueError("Area de edicion no reconocida o estado invalido.")
         
         return bom

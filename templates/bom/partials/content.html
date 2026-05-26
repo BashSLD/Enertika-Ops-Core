@@ -34,7 +34,7 @@
             {% endif %}
             {% endif %}
 
-            {% if not bom and es_ing_editor %}
+            {% if not bom and puede_gestionar_bom_ingenieria %}
             {# Boton crear BOM #}
             <button onclick="document.getElementById('modal-crear-bom').classList.remove('hidden')"
                 class="inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition shadow-sm">
@@ -121,8 +121,11 @@
     {% endif %}
 
     {# Boton agregar item — permitido en todos los estados menos CANCELADO y APROBADO_FINAL #}
-    {% if bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and area_editor in ['ingenieria', 'construccion'] %}
+    {% set puede_agregar_item = area_editor == 'construccion' or (area_editor == 'ingenieria' and puede_gestionar_bom_ingenieria) %}
+    {% set puede_cotizar_seleccionados = es_compras_editor and bom.estatus == 'APROBADO_CONST' %}
+    {% if bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and (puede_agregar_item or puede_cotizar_seleccionados) %}
     <div class="mb-4 flex gap-2">
+        {% if puede_agregar_item %}
         <button
             onclick="document.getElementById('modal-agregar-item').classList.remove('hidden'); setTimeout(() => { let inp = document.querySelector('#modal-agregar-item [x-ref=inputBusqueda]'); if(inp) inp.focus(); }, 100)"
             class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition shadow-sm">
@@ -131,6 +134,8 @@
             </svg>
             Agregar Item
         </button>
+        {% endif %}
+        {% if puede_cotizar_seleccionados %}
         <button onclick="abrirCotizacionSeleccionados()"
             class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 transition shadow-sm"
             title="Cotizar items seleccionados">
@@ -139,6 +144,7 @@
             </svg>
             Cotizar seleccionados
         </button>
+        {% endif %}
     </div>
     {% endif %}
 
@@ -219,7 +225,7 @@
                     Historial de Cambios
                 </button>
                 {% if bom.estatus in ['APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'] and es_compras_editor %}
-                <button @click="tab = 'cotizaciones'"
+                <button x-ref="tabCotizaciones" @click="tab = 'cotizaciones'"
                     :class="{'border-emerald-500 text-emerald-600': tab === 'cotizaciones', 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300': tab !== 'cotizaciones'}"
                     class="py-2 px-3 border-b-2 font-medium text-sm transition">
                     Cotizaciones
@@ -308,6 +314,7 @@
                     cantidad: 0,
                     unidad: '',
                     origen: 'MANUAL',
+                    moneda: 'MXN',
                     materialRef: '',
                     materialSeleccionado: '',
                     mostrarResultados: false,
@@ -318,6 +325,7 @@
                         this.cantidad = 0;
                         this.unidad = '';
                         this.origen = 'MANUAL';
+                        this.moneda = 'MXN';
                         this.materialRef = '';
                         this.materialSeleccionado = '';
                         this.mostrarResultados = false;
@@ -331,6 +339,7 @@
                         this.precio = 0;
                         this.unidad = '';
                         this.origen = 'MANUAL';
+                        this.moneda = 'MXN';
                         this.materialRef = '';
                         this.materialSeleccionado = '';
                     }
@@ -358,6 +367,7 @@
 
                     {# Hidden fields para origen y material ref #}
                     <input type="hidden" name="origen_precio" :value="origen">
+                    <input type="hidden" name="moneda" :value="moneda">
                     <input type="hidden" name="id_material_ref" :value="materialRef">
 
                     <div class="space-y-3">
@@ -455,6 +465,15 @@
                             </div>
                         </div>
 
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Moneda</label>
+                            <select x-model="moneda"
+                                class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500">
+                                <option value="MXN">MXN - Peso mexicano</option>
+                                <option value="USD">USD - Dolar americano</option>
+                            </select>
+                        </div>
+
                         {# Preview importe #}
                         <div x-show="precio > 0 && cantidad > 0"
                             class="bg-gray-50 rounded-lg px-3 py-2 flex items-center justify-between">
@@ -507,35 +526,9 @@
                 <form hx-post="/bom/{{ id_proyecto }}/crear" hx-target="#main-content" hx-swap="innerHTML">
                     <div class="space-y-3">
                         <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Responsable de
-                                Ingenieria</label>
-                            <select name="responsable_ing"
-                                class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">-- Seleccionar --</option>
-                                {% for u in catalogos.usuarios_ing_jefes %}
-                                <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Jefe de Construcción</label>
-                            <select name="jefe_construccion"
-                                class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">-- Seleccionar --</option>
-                                {% for u in catalogos.usuarios_const_jefes %}
-                                <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Coordinador de Obra</label>
-                            <select name="coordinador_obra"
-                                class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">-- Seleccionar --</option>
-                                {% for u in catalogos.usuarios_const %}
-                                <option value="{{ u.id_usuario }}">{{ u.nombre }}</option>
-                                {% endfor %}
-                            </select>
+                            <div class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+                                El sistema tomara automaticamente el jefe de Ingenieria, el jefe de Construccion y el equipo asignado del proyecto.
+                            </div>
                         </div>
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Notas</label>
