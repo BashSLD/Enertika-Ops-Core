@@ -41,9 +41,15 @@ logging.basicConfig(
 )
 logger = logging.getLogger("worker")
 
+def _sentry_before_send(event, hint):
+    if "ASGI callable returned without completing response" in event.get("message", ""):
+        return None
+    return event
+
 if settings.SENTRY_DSN:
     sentry_sdk.init(
         dsn=settings.SENTRY_DSN,
+        before_send=_sentry_before_send,
         integrations=[FastApiIntegration(), StarletteIntegration()],
         traces_sample_rate=0.05,
         send_default_pii=False,
