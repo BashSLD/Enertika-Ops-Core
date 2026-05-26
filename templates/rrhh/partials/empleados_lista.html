@@ -91,7 +91,6 @@
     @rrhh-close-empleado-modal.window="close()"
     @htmx:after-swap.window="if ($event.detail.target && $event.detail.target.id === 'empleado-modal-content') open = true"
     @keydown.escape.window="if (open) close()"
-    @click.self="close()"
     x-show="open" x-cloak
     class="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 px-4">
     <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90dvh] flex flex-col">

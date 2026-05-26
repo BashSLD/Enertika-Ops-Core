@@ -6,7 +6,7 @@
      x-data="{ cerrar() { document.getElementById('modal-cotizacion-info')?.remove(); } }"
      @keydown.escape.window="cerrar()">
 
-    <div @click.away="cerrar()"
+    <div
          class="bg-white rounded-xl shadow-2xl w-full max-w-md mx-4 max-h-[90dvh] flex flex-col"
          x-transition:enter="transition ease-out duration-200"
          x-transition:enter-start="opacity-0 scale-95"

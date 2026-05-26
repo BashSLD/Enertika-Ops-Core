@@ -9,8 +9,7 @@
     class="fixed inset-0 flex items-center justify-center z-[10001] transition-all duration-300 bg-gray-900 bg-opacity-50 backdrop-blur-sm"
     x-data="{ expandido: false, cargando: false }" x-init="$nextTick(() => $el.querySelector('[autofocus]')?.focus())">
 
-    <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden border border-gray-200 max-h-[90dvh] flex flex-col"
-        @click.away="$el.closest('#modal-confirmar-seguimiento').remove()">
+    <div class="bg-white rounded-lg shadow-xl w-full max-w-md mx-4 overflow-hidden border border-gray-200 max-h-[90dvh] flex flex-col">
 
         <!-- Header -->
         <div class="bg-[#123456] px-6 py-4 flex items-center gap-3">

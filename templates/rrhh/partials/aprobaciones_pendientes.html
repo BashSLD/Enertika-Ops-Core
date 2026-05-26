@@ -295,7 +295,7 @@
 
   <div x-show="rechazandoId !== null" x-cloak
     class="fixed inset-0 z-50 flex items-end justify-center bg-black/40 px-4 sm:items-center">
-    <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl" @click.outside="rechazandoId = null">
+    <div class="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
       <h3 class="mb-1 text-base font-semibold text-gray-900">Rechazar solicitud</h3>
       <p class="mb-4 text-sm text-gray-500">Indica el motivo para notificar al empleado.</p>
       <textarea x-model="motivoRechazo" rows="3"

@@ -3,8 +3,7 @@
 <!-- Modo: Solo Lectura (View-Only) -->
 
 <div id="modal-backdrop-detalle"
-    class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-[9999] animate-fade-in p-4"
-    @click.self="$el.remove()">
+    class="fixed inset-0 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center z-[9999] animate-fade-in p-4">
 
     <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
     <!-- Modal Container - Adaptativo (Mobile/Tablet/Desktop) -->
@@ -273,7 +272,7 @@
                                 </div>
 
                                 <template x-teleport="body">
-                                    <div x-show="showWarningModal" x-cloak @click.self="showWarningModal = false"
+                                    <div x-show="showWarningModal" x-cloak
                                         class="fixed inset-0 z-[10050] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
                                         <div class="w-full max-w-md bg-white rounded-xl shadow-2xl border border-gray-200 overflow-hidden">
                                             <div class="px-5 py-4 bg-amber-50 border-b border-amber-200">

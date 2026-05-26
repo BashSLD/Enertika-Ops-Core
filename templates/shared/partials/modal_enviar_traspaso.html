@@ -1,6 +1,6 @@
 {# Modal generico para enviar traspaso con checklist de documentos #}
 <div id="modal-enviar-traspaso" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-    x-data="{ open: true, validationFailed: false }" x-show="open" x-transition @click.self="open = false; $el.remove()">
+    x-data="{ open: true, validationFailed: false }" x-show="open" x-transition>
     <div class="bg-white rounded-xl shadow-2xl max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" @click.stop>
         <form hx-post="/transfers/enviar" hx-swap="none"
             @submit="

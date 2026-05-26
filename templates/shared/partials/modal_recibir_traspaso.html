@@ -1,6 +1,6 @@
 {# Modal generico para aceptar/recibir un traspaso #}
 <div id="modal-recibir-traspaso" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-    x-data="{ open: true }" x-show="open" x-transition @click.self="open = false; $el.remove()">
+    x-data="{ open: true }" x-show="open" x-transition>
     <div class="bg-white rounded-xl shadow-2xl max-w-md w-full mx-4" @click.stop>
         <form hx-post="/transfers/recibir/{{ id_traspaso }}" hx-swap="none">
             {# Header #}
