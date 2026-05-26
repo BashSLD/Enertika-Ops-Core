@@ -11,8 +11,7 @@
             modal.remove();
         }
 
-        // Obtener tab actual desde localStorage (guardado por tabs.html)
-        const currentTab = localStorage.getItem('sim_current_tab') || 'activos';
+        const currentTab = new URLSearchParams(window.location.search).get('tab') || 'activos';
         const currentSubtab = localStorage.getItem('sim_current_subtab') || '';
 
         // Construir URL con tab y subtab actuales
