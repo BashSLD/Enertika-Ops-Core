@@ -65,12 +65,14 @@ async def get_current_user_context(
         modulo_preferido = row['modulo_preferido']
         es_rh = bool(row['es_rh'])
     else:
-        # Auto-create user on the fly if not exists (First Login)
         try:
-             # Default role USER
-             user_db_id = await security_db.create_user(conn, user_name, final_email)
+            user_db_id = await security_db.create_user(conn, user_name, final_email)
         except asyncpg.PostgresError as e:
-            logging.error(f"Error auto-creating user: {e}")
+            logging.error(f"Error auto-creating user {final_email}: {e}")
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="No se pudo registrar tu usuario. Intenta de nuevo en unos momentos.",
+            )
 
     # Fix User Name priority: DB Name > Session Name > Email fallback
     if db_name:

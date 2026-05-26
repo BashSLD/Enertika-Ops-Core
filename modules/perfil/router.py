@@ -6,7 +6,7 @@ from uuid import UUID
 
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, File, Form, Query, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
@@ -65,6 +65,13 @@ def _legacy_redirect(path: str) -> RedirectResponse:
     return RedirectResponse(url=f"/vacaciones{path}", status_code=301)
 
 
+def _get_usuario_id(context: dict) -> UUID:
+    user_db_id = context.get("user_db_id")
+    if not user_db_id:
+        raise HTTPException(status_code=403, detail="Usuario sin registro en base de datos")
+    return UUID(str(user_db_id))
+
+
 def _context_con_perfil(context: dict, perfil: dict | None) -> dict:
     perfil = perfil or {}
     return {
@@ -114,7 +121,7 @@ async def perfil_ui(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     perfil = await perfil_db.get_perfil_usuario(conn, usuario_id)
     context_perfil = _context_con_perfil(context, perfil)
     balance = await vac_service.get_balance_usuario(conn, usuario_id)
@@ -171,7 +178,7 @@ async def ver_firma(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     firma = await signatures_db.get_firma_usuario(conn, usuario_id)
     firma_b64 = None
     if firma:
@@ -196,7 +203,7 @@ async def subir_firma(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     if firma_file.content_type != "image/png":
         return toast_error(request, "Solo se aceptan imagenes PNG.", status_code=200)
     firma_bytes = await firma_file.read()
@@ -229,7 +236,7 @@ async def guardar_firma_dibujada(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     try:
         raw = firma_b64.split(",", 1)[-1]
         firma_bytes = base64.b64decode(raw, validate=True)
@@ -270,7 +277,7 @@ async def mi_asistencia(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     rows, tiene_mas = await _fetch_asistencia(conn, usuario_id, offset=0)
     return templates.TemplateResponse(
         request,
@@ -286,7 +293,7 @@ async def mi_asistencia_mas(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
     rows, tiene_mas = await _fetch_asistencia(conn, usuario_id, offset=offset)
     return templates.TemplateResponse(
         request,
