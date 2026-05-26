@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 from jinja2 import Environment, FileSystemLoader
 from openpyxl import load_workbook
@@ -6,6 +8,9 @@ from modules.shared.services.cfe import CfeXmlInput, generar_excel_cfe
 from modules.shared.services.cfe.extractor import extraer_datos_xml
 from modules.shared.services.cfe.profiles import obtener_perfil_cfe
 
+
+CFE_REAL_DIR = Path("CFE")
+CFE_REAL_GDMTO_XML = CFE_REAL_DIR / "JB-000090976983(3).xml"
 
 CFE_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4"
@@ -138,8 +143,8 @@ CFE_GDMTO_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
       <IMPTE_TOT_REG_5>50.00</IMPTE_TOT_REG_5>
       <MOTIVO_REG_6>EMB</MOTIVO_REG_6>
       <IMPTE_TOT_REG_6>60.00</IMPTE_TOT_REG_6>
-      <MOTIVO_REG_7>X07</MOTIVO_REG_7>
-      <IMPTE_TOT_REG_7>7.00</IMPTE_TOT_REG_7>
+      <MOTIVO_REG_7>EG1</MOTIVO_REG_7>
+      <IMPTE_TOT_REG_7>4200.24</IMPTE_TOT_REG_7>
       <MOTIVO_REG_8>X08</MOTIVO_REG_8>
       <IMPTE_TOT_REG_8>8.00</IMPTE_TOT_REG_8>
       <MOTIVO_REG_9>X09</MOTIVO_REG_9>
@@ -258,6 +263,8 @@ def test_extrae_gdmto_demandas_historial_y_campos_dinamicos():
         },
     ]
     assert datos["componentes_tarifarios"][-1]["codigo"] == "ET1"
+    importes = {linea["concepto"]: linea["importe"] for linea in datos["lineas_excel"]}
+    assert importes["Generación I"] == 4200.24
     assert any(
         concepto["concepto"] == "Cargo dinamico"
         for concepto in datos["conceptos_importes"]
@@ -281,6 +288,7 @@ def test_generar_excel_gdmto_usa_directos_na_e_historial():
     assert _valor_en_fila(ws, "Reactiva") == "N/A"
     assert _valor_en_fila(ws, "KW CAP") == 30
     assert _valor_en_fila(ws, "kW DIST") == 31
+    assert _valor_en_fila(ws, "Coste Energía (Intermedia)") == 4200.24
 
     hojas_historial = [name for name in wb.sheetnames if "Historial" in name]
     assert hojas_historial == ["226160800958 Historial"]
@@ -310,6 +318,35 @@ def test_generar_excel_gdmto_formulas_conserva_valores_directos():
     assert _valor_en_fila(ws, "Consumo") == 4500
     assert _valor_en_fila(ws, "KW CAP") == 30
     assert _valor_en_fila(ws, "kW DIST") == 31
+
+
+def test_gdmth_no_remapea_eg1_como_generacion_intermedia():
+    xml = CFE_XML.replace(
+        b"<MOTIVO_REG_2>EGI</MOTIVO_REG_2>",
+        b"<MOTIVO_REG_2>EG1</MOTIVO_REG_2>",
+    )
+    datos = extraer_datos_xml(xml, "gdmth-eg1.xml")
+
+    importes = {linea["concepto"]: linea["importe"] for linea in datos["lineas_excel"]}
+    assert importes["Generacion"] == 200
+    assert "Generación I" not in importes
+
+
+@pytest.mark.skipif(
+    not CFE_REAL_GDMTO_XML.exists(),
+    reason="XML real GDMTO no disponible",
+)
+def test_xml_real_gdmto_eg1_alimenta_coste_energia_intermedia():
+    content = CFE_REAL_GDMTO_XML.read_bytes()
+    buffer = generar_excel_cfe(
+        [CfeXmlInput(filename="JB-000090976983(3).xml", content=content)],
+        perfil_slug="simulacion",
+        modo_calculo="calculado",
+    )
+    wb = load_workbook(buffer, data_only=False)
+    ws = wb.active
+
+    assert _valor_en_fila(ws, "Coste Energía (Intermedia)") == 4200.24
 
 
 def test_generar_excel_simulacion_calculado():

@@ -34,6 +34,12 @@ TARIFA_CODES.update({
     "EM1": TARIFA_CODES["EMB"],
 })
 
+ALIASES_COMPONENTES_POR_TARIFA = {
+    "GDMTO": {
+        "EG1": TARIFA_CODES["EGI"],
+    },
+}
+
 TARIFAS_RECONOCIDAS = {"GDMTH", "GDMTO"}
 
 MESES = [
@@ -82,6 +88,13 @@ def text_of(element: ET.Element, tag_name: str) -> str:
     if el is not None and el.text:
         return el.text.strip()
     return ""
+
+
+def _nombre_componente_tarifario(motivo: str, tarifa: str) -> str:
+    alias = ALIASES_COMPONENTES_POR_TARIFA.get(tarifa, {}).get(motivo)
+    if alias:
+        return alias
+    return TARIFA_CODES.get(motivo, motivo)
 
 
 def extraer_datos_xml(content: bytes, filename: str) -> CfeReceipt:
@@ -202,7 +215,7 @@ def extraer_datos_xml(content: bytes, filename: str) -> CfeReceipt:
         total = text_of(reg, f"IMPTE_TOT_REG_{index}")
         datos["componentes_tarifarios"].append({
             "codigo": motivo,
-            "nombre": TARIFA_CODES.get(motivo, motivo),
+            "nombre": _nombre_componente_tarifario(motivo, tarifa),
             "importe": _numero(total),
         })
         index += 1
