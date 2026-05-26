@@ -8,6 +8,7 @@ from fastapi.templating import Jinja2Templates
 from uuid import UUID
 from typing import Optional, List
 from core.config import settings
+import asyncpg
 import logging
 
 logger = logging.getLogger("Proyectos.Router")
@@ -29,6 +30,17 @@ router = APIRouter(
 )
 
 
+def _separar_proyectos_globales(proyectos):
+    return {
+        "proyectos_activos": [
+            p for p in proyectos if p.get("area_actual") != "OYM"
+        ],
+        "proyectos_terminados": [
+            p for p in proyectos if p.get("area_actual") == "OYM"
+        ],
+    }
+
+
 @router.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)
 async def get_proyectos_ui(
     request: Request,
@@ -39,6 +51,7 @@ async def get_proyectos_ui(
 ):
     kpis = await service.get_kpis(conn)
     proyectos = await service.get_proyectos(conn)
+    proyectos_split = _separar_proyectos_globales(proyectos)
 
     template_data = {
         "user_name": context.get("user_name"),
@@ -47,6 +60,7 @@ async def get_proyectos_ui(
         "current_module_role": context.get("module_roles", {}).get("proyectos", "viewer"),
         "kpis": kpis,
         "proyectos": proyectos,
+        **proyectos_split,
         "area": None,
         "vista_global": True,
     }
@@ -70,8 +84,10 @@ async def get_proyectos_partial(
     service: ProyectosService = Depends(get_service),
 ):
     proyectos = await service.get_proyectos(conn, area, status, q, limit)
+    proyectos_split = _separar_proyectos_globales(proyectos)
 
     return templates.TemplateResponse(request, "shared/partials/lista_proyectos.html", {"proyectos": proyectos,
+        **proyectos_split,
         "area": area,
         "current_module_role": context.get("module_roles", {}).get("proyectos", "viewer"),
         "vista_global": True,
@@ -117,7 +133,7 @@ async def get_equipo_partial(
     service: ProyectosService = Depends(get_service),
 ):
     data = await service.get_equipo_proyecto(conn, id_proyecto)
-    permisos = service.permisos_equipo(context)
+    permisos = await service.permisos_equipo(conn, context)
 
     return templates.TemplateResponse(request, 
         "proyectos/partials/equipo_modal.html",
@@ -134,34 +150,39 @@ async def save_equipo(
     conn=Depends(get_db_connection),
     service: ProyectosService = Depends(get_service),
 ):
-    permisos = service.permisos_equipo(context)
+    permisos = await service.permisos_equipo(conn, context)
     if not any([permisos["puede_asignar_ingenieria"], permisos["puede_asignar_construccion"], permisos["puede_asignar_oym"]]):
         raise HTTPException(status_code=403, detail="Sin permisos para editar el equipo")
-
-    form = await request.form()
-    asignaciones = []
-    n = 0
-    while True:
-        rol = form.get(f"rol_{n}_rol")
-        if rol is None:
-            break
-        area = form.get(f"rol_{n}_area", "")
-        usuario_str = form.get(f"rol_{n}_usuario", "")
-        asignaciones.append({
-            "rol_proyecto": rol,
-            "area": area,
-            "id_usuario": UUID(usuario_str) if usuario_str else None,
-        })
-        n += 1
 
     user_db_id = context.get("user_db_id")
     if not user_db_id:
         raise HTTPException(status_code=401, detail="Usuario no autenticado")
 
     try:
-        await service.save_equipo_proyecto(conn, id_proyecto, asignaciones, user_db_id)
+        form = await request.form()
+        asignaciones = []
+        n = 0
+        while True:
+            rol = form.get(f"rol_{n}_rol")
+            if rol is None:
+                break
+            area = form.get(f"rol_{n}_area", "")
+            usuario_str = form.get(f"rol_{n}_usuario", "")
+            asignaciones.append({
+                "rol_proyecto": rol,
+                "area": area,
+                "id_usuario": UUID(usuario_str) if usuario_str else None,
+            })
+            n += 1
+
+        await service.save_equipo_proyecto(
+            conn, id_proyecto, asignaciones, user_db_id, permisos
+        )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    except asyncpg.PostgresError:
+        logger.exception("Error de BD al guardar equipo de proyecto")
+        raise HTTPException(status_code=500, detail="Error interno al guardar el equipo")
 
     data = await service.get_equipo_proyecto(conn, id_proyecto)
     return templates.TemplateResponse(request, 

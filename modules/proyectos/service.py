@@ -7,6 +7,7 @@ from uuid import UUID
 import logging
 
 from core.transfers.service import TransferService, get_transfer_service
+from .db_service import ProyectosDBService, get_db_service
 
 logger = logging.getLogger("ProyectosService")
 
@@ -17,11 +18,24 @@ ROLES_EQUIPO = [
     {"rol": "encargado",          "area": "OYM",          "label": "Encargado O&M"},
 ]
 
+ROLES_EQUIPO_MAP = {(r["rol"], r["area"]): r for r in ROLES_EQUIPO}
+PERMISO_POR_ROL = {
+    ("ingeniero_asignado", "INGENIERIA"): "puede_asignar_ingenieria",
+    ("coordinador_obra", "CONSTRUCCION"): "puede_asignar_construccion",
+    ("encargado", "OYM"): "puede_asignar_oym",
+}
+DEPARTAMENTO_POR_ROL = {
+    ("ingeniero_asignado", "INGENIERIA"): "ingenieria",
+    ("coordinador_obra", "CONSTRUCCION"): "construccion",
+    ("encargado", "OYM"): "oym",
+}
+
 
 class ProyectosService:
 
     def __init__(self):
         self.transfers = get_transfer_service()
+        self.db: ProyectosDBService = get_db_service()
         self.roles_equipo = ROLES_EQUIPO
 
     async def get_proyectos(
@@ -55,50 +69,25 @@ class ProyectosService:
         - jefe_ingenieria / jefe_construccion: referencias organizacionales (solo lectura)
         - usuarios por departamento: listas filtradas para los dropdowns
         """
-        # Asignaciones actuales del proyecto
-        rows = await conn.fetch(
-            """
-            SELECT pu.rol_proyecto, pu.area, pu.id_usuario, u.nombre AS nombre_usuario
-            FROM tb_proyecto_usuarios pu
-            JOIN tb_usuarios u ON u.id_usuario = pu.id_usuario
-            WHERE pu.id_proyecto = $1 AND pu.activo = TRUE
-            ORDER BY pu.area, pu.rol_proyecto
-            """,
-            id_proyecto
-        )
-        asignaciones = [dict(r) for r in rows]
+        asignaciones = await self.db.get_asignaciones_equipo(conn, id_proyecto)
 
         # Responsables organizacionales (referencia, no asignables desde este modal)
-        jefes_rows = await conn.fetch(
-            """
-            SELECT id_usuario, nombre, rol_organizacional
-            FROM tb_usuarios
-            WHERE rol_organizacional IN ('jefe_ingenieria', 'jefe_construccion')
-              AND is_active = TRUE
-            """,
-        )
+        jefes_rows = await self.db.get_jefes_organizacionales(conn)
         jefe_ingenieria = next(
-            (dict(j) for j in jefes_rows if j["rol_organizacional"] == "jefe_ingenieria"), None
+            (j for j in jefes_rows if j["rol_organizacional"] == "jefe_ingenieria"), None
         )
         jefe_construccion = next(
-            (dict(j) for j in jefes_rows if j["rol_organizacional"] == "jefe_construccion"), None
+            (j for j in jefes_rows if j["rol_organizacional"] == "jefe_construccion"), None
         )
 
         # Usuarios activos filtrados por departamento (via slug de tb_cat_departamentos)
-        dept_rows = await conn.fetch(
-            """
-            SELECT u.id_usuario, u.nombre, d.slug AS dept_slug
-            FROM tb_usuarios u
-            JOIN tb_cat_departamentos d ON d.nombre = u.department
-            WHERE d.slug IN ('ingenieria', 'construccion', 'oym')
-              AND u.is_active = TRUE
-            ORDER BY d.slug, u.nombre
-            """
+        dept_rows = await self.db.get_usuarios_por_departamentos(
+            conn, ["ingenieria", "construccion", "oym"]
         )
 
-        usuarios_ingenieria  = [dict(r) for r in dept_rows if r["dept_slug"] == "ingenieria"]
-        usuarios_construccion = [dict(r) for r in dept_rows if r["dept_slug"] == "construccion"]
-        usuarios_oym         = [dict(r) for r in dept_rows if r["dept_slug"] == "oym"]
+        usuarios_ingenieria = [r for r in dept_rows if r["dept_slug"] == "ingenieria"]
+        usuarios_construccion = [r for r in dept_rows if r["dept_slug"] == "construccion"]
+        usuarios_oym = [r for r in dept_rows if r["dept_slug"] == "oym"]
 
         return {
             "asignaciones": asignaciones,
@@ -115,50 +104,74 @@ class ProyectosService:
         id_proyecto: UUID,
         asignaciones: List[Dict],
         asignado_por_id: UUID,
+        permisos: Dict[str, bool],
     ) -> None:
         """
-        Reemplaza el equipo del proyecto.
-        Desactiva asignaciones anteriores e inserta las nuevas.
+        Actualiza solo las secciones del equipo que el usuario puede editar.
+        Preserva asignaciones existentes para secciones sin permiso.
         asignaciones = [{"rol_proyecto": ..., "area": ..., "id_usuario": UUID|None}, ...]
         """
-        await conn.execute(
-            "UPDATE tb_proyecto_usuarios SET activo = FALSE, fecha_fin = NOW() WHERE id_proyecto = $1",
-            id_proyecto
-        )
-
+        asignaciones_por_rol = {}
         for item in asignaciones:
-            if not item.get("id_usuario"):
-                continue
-            await conn.execute(
-                """
-                INSERT INTO tb_proyecto_usuarios
-                    (id_proyecto, id_usuario, rol_proyecto, area, activo, asignado_por_id)
-                VALUES ($1, $2, $3, $4, TRUE, $5)
-                """,
-                id_proyecto,
-                item["id_usuario"],
-                item["rol_proyecto"],
-                item["area"],
-                asignado_por_id,
-            )
+            key = (item.get("rol_proyecto"), item.get("area"))
+            if key not in ROLES_EQUIPO_MAP:
+                raise ValueError("Asignacion de equipo invalida")
+            asignaciones_por_rol[key] = item
+
+        async with conn.transaction():
+            for key in ROLES_EQUIPO_MAP:
+                permiso = PERMISO_POR_ROL[key]
+                if not permisos.get(permiso):
+                    continue
+
+                if key not in asignaciones_por_rol:
+                    continue
+
+                item = asignaciones_por_rol[key]
+                id_usuario = item.get("id_usuario")
+
+                if id_usuario:
+                    dept_slug = DEPARTAMENTO_POR_ROL[key]
+                    usuario_valido = await self.db.usuario_activo_en_departamento(
+                        conn, id_usuario, dept_slug
+                    )
+                    if not usuario_valido:
+                        raise ValueError("El usuario seleccionado no pertenece al departamento requerido")
+
+                await self.db.desactivar_asignacion_equipo(
+                    conn, id_proyecto, key[0], key[1]
+                )
+
+                if id_usuario:
+                    await self.db.insertar_asignacion_equipo(
+                        conn, id_proyecto, id_usuario, key[0], key[1], asignado_por_id
+                    )
 
         logger.info("Equipo actualizado para proyecto %s por usuario %s", id_proyecto, asignado_por_id)
 
-    def permisos_equipo(self, context: Dict) -> Dict[str, bool]:
+    async def permisos_equipo(self, conn, context: Dict) -> Dict[str, bool]:
         """
         Retorna flags de permiso granulares por seccion del equipo.
-        - puede_asignar_ingenieria: ADMIN o jefe_ingenieria
-        - puede_asignar_construccion: ADMIN o jefe_construccion
-        - puede_asignar_oym: ADMIN o MANAGER
+        - Ingenieria: jefe_ingenieria organizacional.
+        - Construccion: jefe_construccion organizacional.
+        - O&M: usuario cuyo departamento resuelve al catalogo con slug oym.
         """
-        role = context.get("role", "")
-        rol_org = context.get("rol_organizacional") or ""
-        is_admin = role == "ADMIN"
+        if context.get("role") == "ADMIN":
+            return {
+                "puede_asignar_ingenieria": True,
+                "puede_asignar_construccion": True,
+                "puede_asignar_oym": True,
+                "puede_ver_modal": True,
+            }
+
+        rol_org = (context.get("rol_organizacional") or "").strip().lower()
+        dept_slug = await self.db.get_department_slug(conn, context.get("department"))
+
         return {
-            "puede_asignar_ingenieria":  is_admin or rol_org == "jefe_ingenieria",
-            "puede_asignar_construccion": is_admin or rol_org == "jefe_construccion",
-            "puede_asignar_oym":         is_admin or role == "MANAGER",
-            "puede_ver_modal":           is_admin or role == "MANAGER" or rol_org in ("jefe_ingenieria", "jefe_construccion", "director"),
+            "puede_asignar_ingenieria": rol_org == "jefe_ingenieria",
+            "puede_asignar_construccion": rol_org == "jefe_construccion",
+            "puede_asignar_oym": dept_slug == "oym",
+            "puede_ver_modal": True,
         }
 
 
