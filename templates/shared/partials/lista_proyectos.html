@@ -37,11 +37,15 @@
             {% if puede_recibir is defined and puede_recibir %}
             <div class="mt-3 flex gap-2 justify-end">
                 {% set module_prefix = {'CONSTRUCCION': 'construccion', 'OYM': 'oym'}.get(area, '') %}
-                <button hx-get="/{{ module_prefix }}/modal/rechazar/{{ pend.id_traspaso }}" hx-target="body" hx-swap="beforeend"
+                <button hx-get="/{{ module_prefix }}/modal/rechazar/{{ pend.id_traspaso }}"
+                    hx-target="#modal-action-container" hx-swap="innerHTML"
+                    hx-disabled-elt="this" hx-sync="this:drop"
                     class="text-xs px-3 py-1 rounded border border-red-300 text-red-600 hover:bg-red-50 transition font-medium">
                     Rechazar
                 </button>
-                <button hx-get="/{{ module_prefix }}/modal/recibir/{{ pend.id_traspaso }}" hx-target="body" hx-swap="beforeend"
+                <button hx-get="/{{ module_prefix }}/modal/recibir/{{ pend.id_traspaso }}"
+                    hx-target="#modal-action-container" hx-swap="innerHTML"
+                    hx-disabled-elt="this" hx-sync="this:drop"
                     class="text-xs px-3 py-1 rounded bg-green-600 text-white hover:bg-green-700 transition font-medium">
                     Aceptar
                 </button>
@@ -53,6 +57,59 @@
 </div>
 {% endif %}
 
+{# Vista global de Proyectos: separar activos y terminados/O&M #}
+{% if vista_global is defined and vista_global and (proyectos_activos is defined or proyectos_terminados is defined) %}
+    {% set total_global = (proyectos_activos|length if proyectos_activos is defined else 0) + (proyectos_terminados|length if proyectos_terminados is defined else 0) %}
+    {% if total_global > 0 %}
+        {% if proyectos_activos is defined and proyectos_activos|length > 0 %}
+        <div class="mb-6">
+            <h3 class="text-sm font-bold text-blue-700 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                Proyectos Activos ({{ proyectos_activos|length }})
+            </h3>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {% for p in proyectos_activos %}
+                {{ render_card(
+                    p, area,
+                    area_destino=area_destino if area_destino is defined else None,
+                    puede_enviar=puede_enviar if puede_enviar is defined else False,
+                    puede_recibir=puede_recibir if puede_recibir is defined else False,
+                    vista_global=vista_global if vista_global is defined else False
+                ) }}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {% if proyectos_terminados is defined and proyectos_terminados|length > 0 %}
+        <div>
+            <h3 class="text-sm font-bold text-emerald-700 uppercase tracking-wider mb-3 flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full bg-emerald-500"></span>
+                Terminados / O&M ({{ proyectos_terminados|length }})
+            </h3>
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {% for p in proyectos_terminados %}
+                {{ render_card(
+                    p, area,
+                    area_destino=area_destino if area_destino is defined else None,
+                    puede_enviar=puede_enviar if puede_enviar is defined else False,
+                    puede_recibir=puede_recibir if puede_recibir is defined else False,
+                    vista_global=vista_global if vista_global is defined else False
+                ) }}
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+    {% else %}
+    <div class="text-center py-12 text-gray-400">
+        <svg class="w-16 h-16 mx-auto mb-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z"/>
+        </svg>
+        <p class="text-sm">No hay proyectos para los filtros seleccionados</p>
+    </div>
+    {% endif %}
+{% else %}
 {# Seccion: Proyectos en area #}
 {% if proyectos|length > 0 %}
 <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -74,4 +131,5 @@
     </svg>
     <p class="text-sm">No hay proyectos en esta area</p>
 </div>
+{% endif %}
 {% endif %}

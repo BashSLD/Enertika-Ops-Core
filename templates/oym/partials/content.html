@@ -3,7 +3,9 @@
 
     {# MOVIL: template de acciones para el header #}
     <div id="mobile-actions-template" style="display:none">
-        <button hx-get="/oym/cfe/modal" hx-target="body" hx-swap="beforeend"
+        <button hx-get="/oym/cfe/modal"
+           hx-target="#modal-action-container" hx-swap="innerHTML"
+           hx-disabled-elt="this" hx-sync="this:drop"
            hx-on::before-request="document.getElementById('cfe-upload-modal-oym')?.remove()"
            class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg cursor-pointer">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -62,7 +64,9 @@
             Gestionar Plantas
         </a>
         <button x-show="activeTab === 'plantas'"
-           hx-get="/oym/plantas/nueva-modal" hx-target="body" hx-swap="beforeend"
+           hx-get="/oym/plantas/nueva-modal"
+           hx-target="#modal-action-container" hx-swap="innerHTML"
+           hx-disabled-elt="this" hx-sync="this:drop"
            class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg cursor-pointer">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -93,7 +97,9 @@
             <p class="text-gray-500 text-xs mt-0.5">Operación y mantenimiento de plantas</p>
         </div>
         <div class="flex items-center gap-2">
-            <button hx-get="/oym/cfe/modal" hx-target="body" hx-swap="beforeend"
+            <button hx-get="/oym/cfe/modal"
+               hx-target="#modal-action-container" hx-swap="innerHTML"
+               hx-disabled-elt="this" hx-sync="this:drop"
                hx-on::before-request="document.getElementById('cfe-upload-modal-oym')?.remove()"
                class="btn-secondary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 cursor-pointer">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -158,7 +164,9 @@
             </a>
             {# Nueva Planta — solo en tab Plantas, solo editors #}
             <button x-show="activeTab === 'plantas'" x-transition
-               hx-get="/oym/plantas/nueva-modal" hx-target="body" hx-swap="beforeend"
+               hx-get="/oym/plantas/nueva-modal"
+               hx-target="#modal-action-container" hx-swap="innerHTML"
+               hx-disabled-elt="this" hx-sync="this:drop"
                class="btn-secondary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 cursor-pointer">
                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
