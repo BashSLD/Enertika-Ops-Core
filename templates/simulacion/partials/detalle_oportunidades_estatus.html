@@ -28,8 +28,9 @@
                 {% for op in oportunidades %}
                 <tr class="hover:bg-indigo-50 transition-colors">
                     <td class="px-3 py-2">
-                        <a href="#" hx-get="/simulacion/modals/detalle/{{ op.id_oportunidad }}" hx-target="body"
-                            hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                        <a href="#" hx-get="/simulacion/modals/detalle/{{ op.id_oportunidad }}"
+                            hx-target="#modal-action-container" hx-swap="innerHTML"
+                            hx-disabled-elt="this" hx-sync="this:drop" hx-indicator="#global-loading-overlay"
                             class="text-blue-600 hover:text-blue-800 font-mono font-semibold hover:underline">
                             {{ op.op_id_estandar }}
                         </a>

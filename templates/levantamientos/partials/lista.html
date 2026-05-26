@@ -220,7 +220,8 @@
                     <!-- Proyecto / Cliente -->
                     <td class="px-4 py-3">
                         <button hx-get="/levantamientos/modals/detalle/{{ lev.id_levantamiento }}"
-                            hx-target="body" hx-swap="beforeend"
+                            hx-target="#modal-action-container" hx-swap="innerHTML"
+                            hx-disabled-elt="this" hx-sync="this:drop"
                             class="font-semibold text-gray-800 text-sm leading-tight text-left hover:text-blue-600 hover:underline transition-colors cursor-pointer">
                             {{ lev.nombre_proyecto or lev.titulo_proyecto or '—' }}
                         </button>

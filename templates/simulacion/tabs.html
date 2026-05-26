@@ -66,8 +66,9 @@
         {% endif %}
         <button
             hx-get="/shared/partials/calculadora-ventas?modulo=simulacion"
-            hx-target="body"
-            hx-swap="beforeend"
+            hx-target="#modal-action-container"
+            hx-swap="innerHTML"
+            hx-disabled-elt="this" hx-sync="this:drop"
             hx-on::before-request="document.getElementById('modal-calculadora-ventas')?.remove()"
             class="bg-gray-700 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -78,8 +79,9 @@
         </button>
         <button
             hx-get="/simulacion/cfe/modal"
-            hx-target="body"
-            hx-swap="beforeend"
+            hx-target="#modal-action-container"
+            hx-swap="innerHTML"
+            hx-disabled-elt="this" hx-sync="this:drop"
             hx-on::before-request="document.getElementById('cfe-upload-modal-simulacion')?.remove()"
             class="bg-indigo-700 text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -133,8 +135,9 @@
             <!-- Calculadora (todos los roles) -->
             <button
                 hx-get="/shared/partials/calculadora-ventas?modulo=simulacion"
-                hx-target="body"
-                hx-swap="beforeend"
+                hx-target="#modal-action-container"
+                hx-swap="innerHTML"
+                hx-disabled-elt="this" hx-sync="this:drop"
                 hx-on::before-request="document.getElementById('modal-calculadora-ventas')?.remove()"
                 class="sim-action-btn ripple-effect bg-gray-700 hover:bg-gray-800 text-white text-sm font-bold py-2 px-2.5 rounded-lg shadow-lg transition-all duration-200 ease-in-out transform hover:scale-105"
                 aria-label="Calculadora de ventas">
@@ -146,8 +149,9 @@
             </button>
             <button
                 hx-get="/simulacion/cfe/modal"
-                hx-target="body"
-                hx-swap="beforeend"
+                hx-target="#modal-action-container"
+                hx-swap="innerHTML"
+                hx-disabled-elt="this" hx-sync="this:drop"
                 hx-on::before-request="document.getElementById('cfe-upload-modal-simulacion')?.remove()"
                 class="sim-action-btn ripple-effect bg-indigo-700 hover:bg-indigo-800 text-white text-sm font-bold py-2 px-2.5 rounded-lg shadow-lg shadow-indigo-700/30 transition-all duration-200 ease-in-out transform hover:scale-105"
                 aria-label="Recibos CFE">

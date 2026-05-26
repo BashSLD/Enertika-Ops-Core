@@ -190,7 +190,8 @@
                                             <!-- Botón 0: Actualizar -->
                                             {% if current_tab == 'activos' or current_tab == 'monitoreo' %}
                                             <button hx-get="/simulacion/modals/edit/{{ op.id_oportunidad }}"
-                                                hx-target="body" hx-swap="beforeend"
+                                                hx-target="#modal-action-container" hx-swap="innerHTML"
+                                                hx-disabled-elt="this" hx-sync="this:drop"
                                                 hx-indicator="#global-loading-overlay"
                                                 onclick="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...'"
                                                 class="w-full text-white border border-[#00BABB] px-2 py-1 rounded bg-gradient-to-r from-[#00BABB] to-cyan-500 hover:from-[#009999] hover:to-cyan-600 flex items-center justify-center gap-1 text-xs font-semibold transition-all shadow-md shadow-cyan-400/30 hover:shadow-lg hover:shadow-cyan-500/40 hover:scale-[1.03]">
@@ -208,7 +209,9 @@
                                                     hx-get="/workflow/modals/comentarios?id_oportunidad={{ op.id_oportunidad }}&module=levantamientos"
                                                     {% else %}
                                                     hx-get="/workflow/modals/comentarios?id_oportunidad={{ op.id_oportunidad }}&module=simulacion"
-                                                    {% endif %} hx-target="body" hx-swap="beforeend"
+                                                    {% endif %}
+                                                    hx-target="#modal-action-container" hx-swap="innerHTML"
+                                                    hx-disabled-elt="this" hx-sync="this:drop"
                                                     title="Ver y enviar comentarios de la oportunidad"
                                                     class="w-full text-white border border-blue-500 px-2 py-1 rounded bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 flex items-center justify-center gap-1 text-xs font-semibold transition-all shadow-md shadow-blue-400/30 hover:shadow-lg hover:shadow-indigo-500/40 hover:scale-[1.03]">
                                                     <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -223,7 +226,8 @@
                                             {% if op.tiene_detalles_bess %}
                                             <div>
                                                 <button hx-get="/simulacion/partials/bess/{{ op.id_oportunidad }}"
-                                                    hx-target="body" hx-swap="beforeend"
+                                                    hx-target="#modal-action-container" hx-swap="innerHTML"
+                                                    hx-disabled-elt="this" hx-sync="this:drop"
                                                     class="text-white border border-green-500 px-2 py-1 rounded bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 flex items-center justify-center gap-1 text-xs font-semibold transition-all shadow-md shadow-green-400/30 hover:shadow-lg hover:shadow-teal-500/40 hover:scale-[1.03]">
                                                     <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -271,7 +275,8 @@
                                             class="text-sm font-mono text-gray-700 font-bold whitespace-nowrap flex items-center gap-2">
                                             {% if current_tab == 'levantamientos' and op.id_levantamiento %}
                                             <button hx-get="/levantamientos/modals/detalle/{{ op.id_levantamiento }}"
-                                                hx-target="body" hx-swap="beforeend"
+                                                hx-target="#modal-action-container" hx-swap="innerHTML"
+                                                hx-disabled-elt="this" hx-sync="this:drop"
                                                 hx-indicator="#global-loading-overlay"
                                                 class="hover:text-blue-600 hover:underline focus:outline-none transition-colors font-bold text-blue-700"
                                                 @click.stop="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando Detalles Levantamiento...'">
@@ -279,7 +284,8 @@
                                             </button>
                                             {% else %}
                                             <button hx-get="/workflow/modals/detalle/{{ op.id_oportunidad }}?source_module=simulacion"
-                                                hx-target="body" hx-swap="beforeend"
+                                                hx-target="#modal-action-container" hx-swap="innerHTML"
+                                                hx-disabled-elt="this" hx-sync="this:drop"
                                                 hx-indicator="#global-loading-overlay" hx-disabled-elt="this"
                                                 class="hover:text-[#00BABB] hover:underline focus:outline-none transition-colors"
                                                 @click.stop="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...'">

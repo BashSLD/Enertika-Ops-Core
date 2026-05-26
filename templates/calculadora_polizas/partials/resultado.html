@@ -37,8 +37,9 @@
         <button hx-get="/calculadora-polizas/partials/guardar-modal"
                 hx-vals='{"planta_id": "{{ resultado.planta_id }}", "tipo_poliza": "{{ resultado.tipo_poliza }}", "utilidad": "{{ resultado.utilidad }}", "limpiezas_extra": "{{ resultado.limpiezas_extra }}", "descuento_pct_1": "{{ resultado.descuento_pct_1 or '' }}", "descuento_pct_3": "{{ resultado.descuento_pct_3 or '' }}", "descuento_pct_5": "{{ resultado.descuento_pct_5 or '' }}"}'
                 hx-include="#calc-fecha-fin-anterior"
-                hx-target="body"
-                hx-swap="beforeend"
+                hx-target="#modal-action-container"
+                hx-swap="innerHTML"
+                hx-disabled-elt="this" hx-sync="this:drop"
                 hx-on::before-request="document.getElementById('modal-guardar-cotizacion')?.remove()"
                 class="flex-shrink-0 bg-green-600 hover:bg-green-700 text-white text-xs font-semibold px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">

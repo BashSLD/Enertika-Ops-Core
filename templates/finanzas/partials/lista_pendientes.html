@@ -41,8 +41,9 @@
                     {% if puede_registrar_pago %}
                     <button
                         hx-get="/finanzas/autorizaciones/{{ a.id }}/modal-pago"
-                        hx-target="body"
-                        hx-swap="beforeend"
+                        hx-target="#modal-action-container"
+                        hx-swap="innerHTML"
+                        hx-disabled-elt="this" hx-sync="this:drop"
                         class="inline-flex items-center gap-1 px-3 py-1.5 bg-emerald-600 text-white text-xs font-medium rounded-lg hover:bg-emerald-700 transition-colors duration-150">
                         Registrar Pago
                     </button>

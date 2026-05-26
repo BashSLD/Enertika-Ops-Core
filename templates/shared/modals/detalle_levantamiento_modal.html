@@ -260,8 +260,10 @@
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
                     <!-- Solicitar Actualización -->
-                    <form hx-post="/comercial/crear-seguimiento/{{ lev.id_oportunidad }}" hx-target="body"
-                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                    <form hx-post="/comercial/crear-seguimiento/{{ lev.id_oportunidad }}"
+                        hx-target="#modal-secondary-container" hx-swap="innerHTML"
+                        hx-sync="this:drop" hx-disabled-elt="find button[type='submit']"
+                        hx-indicator="#global-loading-overlay"
                         x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
                         class="block w-full">
                         <input type="hidden" name="tipo_solicitud" value="ACTUALIZACION">
@@ -277,8 +279,10 @@
                     </form>
 
                     <!-- Solicitar Oferta Final -->
-                    <form hx-post="/comercial/crear-seguimiento/{{ lev.id_oportunidad }}" hx-target="body"
-                        hx-swap="beforeend" hx-indicator="#global-loading-overlay"
+                    <form hx-post="/comercial/crear-seguimiento/{{ lev.id_oportunidad }}"
+                        hx-target="#modal-secondary-container" hx-swap="innerHTML"
+                        hx-sync="this:drop" hx-disabled-elt="find button[type='submit']"
+                        hx-indicator="#global-loading-overlay"
                         x-on:submit="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...';"
                         class="block w-full">
                         <input type="hidden" name="tipo_solicitud" value="OFERTA_FINAL">

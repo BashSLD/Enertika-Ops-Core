@@ -63,7 +63,8 @@
                         {% if current_module_role in ('editor', 'admin') or role in ('ADMIN', 'MANAGER') %}
                         <button type="button"
                                 hx-get="/oym/cotizaciones/{{ c.id }}/asignar-modal?page={{ page }}{% if estatus_filter %}&amp;estatus_filter={{ estatus_filter }}{% endif %}"
-                                hx-target="body" hx-swap="beforeend"
+                                hx-target="#modal-action-container" hx-swap="innerHTML"
+                                hx-disabled-elt="this" hx-sync="this:drop"
                                 hx-on::before-request="document.getElementById('modal-asignar-cotizacion')?.remove()"
                                 class="font-medium text-gray-800 hover:text-blue-600 text-left transition-colors underline-offset-2 hover:underline">
                             {{ c.nombre_planta }}

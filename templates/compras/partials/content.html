@@ -332,8 +332,8 @@
 
         htmx.ajax('POST', '/compras/comprobantes/bulk-update', {
             values: Object.fromEntries(formData),
-            target: 'body',
-            swap: 'beforeend'
+            target: '#global-toast-container',
+            swap: 'afterbegin'
         }).then(() => {
             cancelarSeleccion();
             // Reset dropdowns

@@ -237,7 +237,8 @@
                         {% if puede_editar %}
                         <button type="button"
                                 hx-get="/oym/cotizaciones/{{ c.id }}/cambiar-estatus-resumen-modal"
-                                hx-target="body" hx-swap="beforeend"
+                                hx-target="#modal-action-container" hx-swap="innerHTML"
+                                hx-disabled-elt="this" hx-sync="this:drop"
                                 hx-on::before-request="document.getElementById('modal-cambiar-estatus-resumen')?.remove()"
                                 class="font-medium text-gray-800 hover:text-blue-600 hover:underline underline-offset-2 text-left transition-colors">
                             {{ c.nombre_planta }}

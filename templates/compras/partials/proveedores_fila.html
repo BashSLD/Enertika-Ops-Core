@@ -29,7 +29,8 @@
                 </svg>
             </button>
             <button hx-get="/compras/proveedores/{{ p.id_proveedor }}/documentos"
-                    hx-target="body" hx-swap="beforeend"
+                    hx-target="#modal-action-container" hx-swap="innerHTML"
+                    hx-disabled-elt="this" hx-sync="this:drop"
                     hx-on:htmx:before-request="document.getElementById('modal-proveedor-docs')?.remove()"
                     class="text-gray-400 hover:text-blue-600 transition-colors" title="Documentos">
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

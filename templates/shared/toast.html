@@ -66,8 +66,21 @@
 {% if redirect_url %}
 <script>
     (function() {
+        var modalContainers = [
+            'modal-proyecto-container',
+            'modal-action-container',
+            'modal-secondary-container',
+            'modal-docs-container'
+        ];
+        modalContainers.forEach(function(id) {
+            var container = document.getElementById(id);
+            if (container) container.innerHTML = '';
+        });
+        var preservedModals = modalContainers.concat(['modal-overlay', 'modal-container', 'modal-content']);
         var modals = document.querySelectorAll('[id^="modal-"]');
-        modals.forEach(function(m) { m.remove(); });
+        modals.forEach(function(m) {
+            if (!preservedModals.includes(m.id)) m.remove();
+        });
         setTimeout(function() {
             htmx.ajax('GET', '{{ redirect_url }}', {
                 target: '#main-content',

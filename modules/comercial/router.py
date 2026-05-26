@@ -1091,7 +1091,7 @@ async def crear_seguimiento(
                 "sim": bloqueador.get("sim"),
                 "lev": bloqueador.get("lev"),
             },
-            headers={"HX-Reswap": "beforeend", "HX-Retarget": "body"},
+            headers={"HX-Reswap": "innerHTML", "HX-Retarget": "#modal-secondary-container"},
         )
 
     if bloqueador["tipo"] == "ganado" and not (force_ganada and can_force):
@@ -1107,7 +1107,7 @@ async def crear_seguimiento(
                 "ganado_op_id": bloqueador["op_id"],
                 "can_force": can_force,
             },
-            headers={"HX-Reswap": "beforeend", "HX-Retarget": "body"},
+            headers={"HX-Reswap": "innerHTML", "HX-Retarget": "#modal-secondary-container"},
         )
 
     # --- THREAD CHECK LOGIC ---

@@ -147,7 +147,8 @@
                                             {% if mostrar_levantamiento and op.id_levantamiento %}
                                             <button
                                                 hx-get="/levantamientos/modals/detalle/{{ op.id_levantamiento }}?source=comercial"
-                                                hx-target="body" hx-swap="beforeend"
+                                                hx-target="#modal-action-container" hx-swap="innerHTML"
+                                                hx-disabled-elt="this" hx-sync="this:drop"
                                                 hx-indicator="#global-loading-overlay"
                                                 class="hover:text-blue-600 hover:underline focus:outline-none transition-colors font-bold text-blue-700"
                                                 @click.stop="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando Detalles Levantamiento...'">
@@ -155,7 +156,8 @@
                                             </button>
                                             {% else %}
                                             <button hx-get="/workflow/modals/detalle/{{ op.id_oportunidad }}"
-                                                hx-target="body" hx-swap="beforeend"
+                                                hx-target="#modal-action-container" hx-swap="innerHTML"
+                                                hx-disabled-elt="this" hx-sync="this:drop"
                                                 hx-indicator="#global-loading-overlay" hx-disabled-elt="this"
                                                 class="hover:text-[#00BABB] hover:underline focus:outline-none transition-colors"
                                                 @click.stop="document.querySelector('#global-loading-overlay p.text-lg').textContent = 'Cargando...'">
@@ -441,7 +443,9 @@
                                                     hx-get="/workflow/modals/comentarios?id_oportunidad={{ op.id_oportunidad }}&module=levantamientos"
                                                     {% else %}
                                                     hx-get="/workflow/modals/comentarios?id_oportunidad={{ op.id_oportunidad }}&module=comercial"
-                                                    {% endif %} hx-target="body" hx-swap="beforeend"
+                                                    {% endif %}
+                                                    hx-target="#modal-action-container" hx-swap="innerHTML"
+                                                    hx-disabled-elt="this" hx-sync="this:drop"
                                                     title="Ver y enviar comentarios de la oportunidad"
                                                     class="text-white border border-blue-500 px-2 py-1 rounded bg-gradient-to-r from-blue-500 to-indigo-500 hover:from-blue-600 hover:to-indigo-600 flex items-center justify-center gap-1 text-xs font-semibold transition-all shadow-md shadow-blue-400/30 hover:shadow-lg hover:shadow-indigo-500/40 hover:scale-[1.03]">
                                                     <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -456,7 +460,8 @@
                                             {% if op.tiene_detalles_bess %}
                                             <div>
                                                 <button hx-get="/comercial/partials/bess/{{ op.id_oportunidad }}"
-                                                    hx-target="body" hx-swap="beforeend"
+                                                    hx-target="#modal-action-container" hx-swap="innerHTML"
+                                                    hx-disabled-elt="this" hx-sync="this:drop"
                                                     class="text-white border border-green-500 px-2 py-1 rounded bg-gradient-to-r from-green-500 to-teal-500 hover:from-green-600 hover:to-teal-600 flex items-center justify-center gap-1 text-xs font-semibold transition-all shadow-md shadow-green-400/30 hover:shadow-lg hover:shadow-teal-500/40 hover:scale-[1.03]">
                                                     <svg class="w-4 h-4" fill="none" stroke="currentColor"
                                                         viewBox="0 0 24 24">
@@ -472,7 +477,8 @@
                                             {% if op.id_proyecto %}
                                             <div>
                                                 <button hx-get="/comercial/partials/progreso/{{ op.id_oportunidad }}"
-                                                    hx-target="body" hx-swap="beforeend"
+                                                    hx-target="#modal-action-container" hx-swap="innerHTML"
+                                                    hx-disabled-elt="this" hx-sync="this:drop"
                                                     @click.stop
                                                     class="text-white border border-amber-500 px-2 py-1 rounded bg-gradient-to-r from-amber-500 to-orange-500 hover:from-amber-600 hover:to-orange-600 flex items-center justify-center gap-1 text-xs font-semibold transition-all shadow-md shadow-amber-400/30 hover:shadow-lg hover:shadow-orange-500/40 hover:scale-[1.03]">
                                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

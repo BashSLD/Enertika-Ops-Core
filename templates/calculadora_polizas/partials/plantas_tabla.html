@@ -107,25 +107,29 @@
                             {% if dias is none %}
                                 {# Fecha fin no definida — activa indefinida #}
                                 <button hx-get="/oym/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
-                                        hx-target="body" hx-swap="beforeend"
+                                        hx-target="#modal-action-container" hx-swap="innerHTML"
+                                        hx-disabled-elt="this" hx-sync="this:drop"
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 hover:bg-green-200 transition-colors">
                                     Activa
                                 </button>
                             {% elif dias > 30 %}
                                 <button hx-get="/oym/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
-                                        hx-target="body" hx-swap="beforeend"
+                                        hx-target="#modal-action-container" hx-swap="innerHTML"
+                                        hx-disabled-elt="this" hx-sync="this:drop"
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700 hover:bg-green-200 transition-colors">
                                     Activa · {{ dias }} días
                                 </button>
                             {% elif dias > 0 %}
                                 <button hx-get="/oym/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
-                                        hx-target="body" hx-swap="beforeend"
+                                        hx-target="#modal-action-container" hx-swap="innerHTML"
+                                        hx-disabled-elt="this" hx-sync="this:drop"
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors">
                                     Vence en {{ dias }} días
                                 </button>
                             {% else %}
                                 <button hx-get="/oym/cotizaciones/{{ p.poliza_vigente_id }}/info-modal"
-                                        hx-target="body" hx-swap="beforeend"
+                                        hx-target="#modal-action-container" hx-swap="innerHTML"
+                                        hx-disabled-elt="this" hx-sync="this:drop"
                                         class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-700 hover:bg-red-200 transition-colors">
                                     Venció hace {{ (dias * -1) }} días
                                 </button>
@@ -133,7 +137,8 @@
                             {# Chip renovación programada #}
                             {% if p.poliza_proxima_id %}
                             <button hx-get="/oym/cotizaciones/{{ p.poliza_proxima_id }}/info-modal"
-                                    hx-target="body" hx-swap="beforeend"
+                                    hx-target="#modal-action-container" hx-swap="innerHTML"
+                                    hx-disabled-elt="this" hx-sync="this:drop"
                                     class="mt-1 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-teal-100 text-teal-700 hover:bg-teal-200 transition-colors">
                                 Renovacion programada
                             </button>
@@ -142,7 +147,8 @@
                             {# Solo hay póliza futura — no hay cobertura hoy #}
                             {% set dias_para_inicio = (p.poliza_proxima_inicio - today).days if p.poliza_proxima_inicio else 0 %}
                             <button hx-get="/oym/cotizaciones/{{ p.poliza_proxima_id }}/info-modal"
-                                    hx-target="body" hx-swap="beforeend"
+                                    hx-target="#modal-action-container" hx-swap="innerHTML"
+                                    hx-disabled-elt="this" hx-sync="this:drop"
                                     class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 hover:bg-blue-200 transition-colors">
                                 Programada · inicia en {{ dias_para_inicio }} días
                             </button>
@@ -156,8 +162,9 @@
                     <td class="px-4 py-3 text-right whitespace-nowrap">
                         <div class="inline-flex items-center justify-end gap-2">
                         <button hx-get="/oym/plantas/{{ p.id }}/editar-modal"
-                                hx-target="body"
-                                hx-swap="beforeend"
+                                hx-target="#modal-action-container"
+                                hx-swap="innerHTML"
+                                hx-disabled-elt="this" hx-sync="this:drop"
                                 hx-on::before-request="document.getElementById('modal-editar-planta')?.remove()"
                                 title="Editar planta"
                                 class="inline-flex items-center gap-1 text-sm font-medium text-blue-700 bg-blue-50 border border-blue-200 hover:bg-blue-100 focus:outline-none focus:ring-2 focus:ring-blue-500/30 transition-colors px-3 py-1.5 rounded-lg">
