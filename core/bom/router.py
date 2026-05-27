@@ -106,6 +106,26 @@ def _build_bom_context(request, context, bom, **extra) -> dict:
     return ctx
 
 
+def _toast_response(
+    request: Request,
+    message: str,
+    type_: str = "warning",
+    title: str = "Aviso",
+) -> Response:
+    """Retorna toast OOB sin reemplazar el contenido HTMX actual."""
+    return templates.TemplateResponse(
+        request,
+        "shared/toast.html",
+        {"message": message, "type": type_, "title": title},
+        headers={"HX-Reswap": "none"},
+    )
+
+
+async def _jefe_ingenieria_label(conn, service: BomService) -> str:
+    jefe = await service.db.get_usuario_activo_por_rol_org(conn, "jefe_ingenieria")
+    return jefe["nombre"] if jefe else "el jefe de Ingeniería"
+
+
 # ========================================
 # VISTA PRINCIPAL BOM
 # ========================================
@@ -117,30 +137,75 @@ async def bom_ui(
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_any_module_access(["ingenieria", "compras", "finanzas"]),
 ):
     """Vista principal del BOM de un proyecto."""
+    module_roles = context.get("module_roles", {})
+    role = context.get("role")
+    is_admin = role == "ADMIN"
+    tiene_ingenieria = is_admin or bool(module_roles.get("ingenieria"))
+    tiene_construccion = is_admin or bool(module_roles.get("construccion"))
+    tiene_compras = is_admin or bool(module_roles.get("compras"))
+    tiene_finanzas = is_admin or bool(module_roles.get("finanzas"))
+
+    if not any([tiene_ingenieria, tiene_construccion, tiene_compras, tiene_finanzas]):
+        return _toast_response(
+            request,
+            "El BOM solo lo pueden abrir Ingeniería, Construcción, Compras o Finanzas.",
+        )
+
     bom = await service.get_bom_proyecto(conn, id_proyecto)
     proyecto = await service.db.get_proyecto_info(conn, id_proyecto)
 
     if not proyecto:
         raise HTTPException(status_code=404, detail="Proyecto no encontrado")
 
-    # Si el usuario solo tiene acceso por compras (no ingenieria), validar que el BOM este aprobado
-    module_roles = context.get("module_roles", {})
+    user_id_ctx = context.get("user_db_id")
+    puede_gestionar_bom_ingenieria = await service.puede_crear_o_retomar_bom(
+        conn, id_proyecto, user_id_ctx
+    )
+
+    if not bom:
+        if not tiene_ingenieria:
+            return _toast_response(
+                request,
+                "El BOM no ha sido iniciado. Solo lo puede crear el departamento de Ingeniería.",
+            )
+        if not puede_gestionar_bom_ingenieria:
+            jefe_label = await _jefe_ingenieria_label(conn, service)
+            return _toast_response(
+                request,
+                f"No tienes este proyecto asignado como ingeniero. Solicita a {jefe_label} que te asigne o que cree el BOM.",
+            )
+
+    # Si el usuario solo tiene acceso por compras/finanzas, validar que el BOM este aprobado.
     is_downstream_only = (
-        context.get("role") != "ADMIN"
+        not is_admin
         and not module_roles.get("ingenieria")
+        and not module_roles.get("construccion")
         and (module_roles.get("compras") or module_roles.get("finanzas"))
     )
     if is_downstream_only:
         if not bom or bom['estatus'] not in [
             'APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'
         ]:
-            raise HTTPException(
-                status_code=403,
-                detail="El BOM aun no esta disponible para Compras. Espera a que sea aprobado por Construccion."
+            return _toast_response(
+                request,
+                "El BOM aún no está disponible para Compras o Finanzas. Espera a que sea aprobado por Construcción.",
             )
+
+    is_construccion_only = (
+        not is_admin
+        and not module_roles.get("ingenieria")
+        and module_roles.get("construccion")
+    )
+    if is_construccion_only and bom and bom['estatus'] not in [
+        'EN_REVISION_OBRA', 'EN_REVISION_CONST',
+        'APROBADO_CONST', 'EN_REVISION_FINAL', 'APROBADO_FINAL'
+    ]:
+        return _toast_response(
+            request,
+            "El BOM aún no está disponible para Construcción. Ingeniería debe enviarlo a revisión de Obra o Construcción.",
+        )
 
     catalogos = await service.get_catalogos(conn)
     items = []
@@ -150,10 +215,6 @@ async def bom_ui(
 
     es_aprobador_final = False
     es_rol_bom = False
-    user_id_ctx = context.get("user_db_id")
-    puede_gestionar_bom_ingenieria = await service.puede_crear_o_retomar_bom(
-        conn, id_proyecto, user_id_ctx
-    )
 
     if bom:
         items = await service.get_items(conn, bom['id_bom'])
@@ -528,7 +589,7 @@ async def buscar_materiales(
     q: str = "",
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
-    _=require_module_access("ingenieria", "editor"),
+    _=require_any_module_access(["ingenieria", "construccion"], "editor"),
 ):
     """Busqueda fuzzy de materiales en historial para agregar al BOM."""
     q = q.strip()

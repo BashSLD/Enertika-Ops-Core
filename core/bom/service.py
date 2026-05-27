@@ -843,6 +843,7 @@ class BomService:
             return False
         representados = await self.get_titulares_que_representa(conn, user_id)
         bom_roles = {
+            bom.get('elaborado_por'),
             bom.get('responsable_ing'),
             bom.get('jefe_construccion'),
             bom.get('coordinador_obra'),

@@ -1,10 +1,10 @@
 {# Modal de aprobacion/rechazo/envio con campo de comentarios #}
 {% set accion_config = {
     'enviar-revision': {
-        'titulo': 'Enviar a Revision de Ingenieria',
-        'descripcion': 'El BOM sera enviado al responsable de ingenieria para su revision.',
+        'titulo': 'Enviar a revision',
+        'descripcion': 'Se cerrara el borrador y se notificara al jefe de Ingenieria para revisar el BOM.',
         'url': '/bom/' ~ bom.id_bom ~ '/enviar-revision',
-        'btn_text': 'Enviar a Revision',
+        'btn_text': 'Enviar a revision',
         'btn_class': 'bg-blue-600 hover:bg-blue-700',
     },
     'aprobar-ing': {

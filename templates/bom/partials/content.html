@@ -1,5 +1,91 @@
 {# Vista principal del BOM de un proyecto #}
-<div class="w-full mx-auto px-4 py-6 animate-fade-in-down">
+<style>
+.bom-page button svg,
+.bom-page a svg {
+    width: 1rem;
+    height: 1rem;
+    flex-shrink: 0;
+}
+
+.bom-page .bg-blue-600 {
+    background-color: #2563eb;
+}
+
+.bom-page .bg-blue-600:hover {
+    background-color: #1d4ed8;
+}
+
+.bom-page .bg-green-600 {
+    background-color: #16a34a;
+}
+
+.bom-page .bg-green-600:hover {
+    background-color: #15803d;
+}
+
+.bom-page .bg-red-500,
+.bom-page .bg-red-600 {
+    background-color: #ef4444;
+}
+
+.bom-page .bg-red-500:hover,
+.bom-page .bg-red-600:hover {
+    background-color: #dc2626;
+}
+
+.bom-page .bg-gray-600 {
+    background-color: #4b5563;
+}
+
+.bom-page .bg-gray-600:hover {
+    background-color: #374151;
+}
+
+.bom-page .bg-amber-600 {
+    background-color: #d97706;
+}
+
+.bom-page .bg-amber-600:hover {
+    background-color: #b45309;
+}
+
+.bom-page .bg-violet-600 {
+    background-color: #7c3aed;
+}
+
+.bom-page .bg-violet-600:hover {
+    background-color: #6d28d9;
+}
+
+.bom-page .bg-emerald-600 {
+    background-color: #059669;
+}
+
+.bom-page .bg-emerald-600:hover {
+    background-color: #047857;
+}
+
+@media (min-width: 640px) {
+    .bom-page .sm\:flex-row {
+        flex-direction: row;
+    }
+
+    .bom-page .sm\:items-center {
+        align-items: center;
+    }
+
+    .bom-page .sm\:grid-cols-4 {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+}
+
+@media (min-width: 1024px) {
+    .bom-page .lg\:grid-cols-7 {
+        grid-template-columns: repeat(7, minmax(0, 1fr));
+    }
+}
+</style>
+<div class="bom-page w-full mx-auto px-4 py-6 animate-fade-in-down" hx-history="false">
 
     {# Header del proyecto #}
     <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6">
@@ -23,7 +109,7 @@
             </a>
             {# Suplencia #}
             {% if es_rol_bom %}
-            <button hx-get="/bom/suplencia/modal" hx-target="#modal-container" hx-swap="innerHTML"
+            <button hx-get="/bom/suplencia/modal" hx-target="#bom-modal-container" hx-swap="innerHTML"
                 class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg border border-gray-300 text-gray-700 bg-white hover:bg-gray-50 transition"
                 title="Configurar suplente">
                 <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -35,9 +121,17 @@
             {% endif %}
 
             {% if not bom and puede_gestionar_bom_ingenieria %}
-            {# Boton crear BOM #}
-            <button onclick="document.getElementById('modal-crear-bom').classList.remove('hidden')"
-                class="inline-flex items-center px-4 py-2 text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition shadow-sm">
+            <button hx-post="/bom/{{ id_proyecto }}/crear"
+                hx-target="#main-content"
+                hx-swap="innerHTML"
+                hx-indicator="#crear-bom-spinner"
+                hx-disabled-elt="this"
+                hx-sync="this:drop"
+                class="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-medium rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition shadow-sm">
+                <svg id="crear-bom-spinner" class="htmx-indicator w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                </svg>
                 <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
                 </svg>
@@ -126,8 +220,8 @@
     {% if bom and bom.estatus not in ['CANCELADO', 'APROBADO_FINAL'] and (puede_agregar_item or puede_cotizar_seleccionados) %}
     <div class="mb-4 flex gap-2">
         {% if puede_agregar_item %}
-        <button
-            onclick="document.getElementById('modal-agregar-item').classList.remove('hidden'); setTimeout(() => { let inp = document.querySelector('#modal-agregar-item [x-ref=inputBusqueda]'); if(inp) inp.focus(); }, 100)"
+        <button type="button"
+            onclick="window.dispatchEvent(new CustomEvent('abrir-modal-agregar-item-bom'))"
             class="inline-flex items-center px-3 py-2 text-sm font-medium rounded-lg text-white bg-green-600 hover:bg-green-700 transition shadow-sm">
             <svg class="w-4 h-4 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
@@ -303,67 +397,147 @@
 
     {# Modal agregar item con busqueda en catalogo + entrada manual #}
     <div id="modal-agregar-item" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-modal="true"
-        x-ref="modalAgregarItem">
+        x-data="{
+            modo: 'catalogo',
+            descripcion: '',
+            precio: 0,
+            cantidad: 0,
+            unidad: '',
+            origen: 'CATALOGO',
+            moneda: 'MXN',
+            materialRef: '',
+            materialSeleccionado: '',
+            proveedorSeleccionado: '',
+            claveSeleccionada: '',
+            mostrarResultados: false,
+            errorCatalogo: '',
+            get importe() { return (parseFloat(this.cantidad) || 0) * (parseFloat(this.precio) || 0); },
+            abrir() {
+                this.reset();
+                this.$el.classList.remove('hidden');
+                this.$nextTick(() => {
+                    if (this.$refs.inputBusqueda) this.$refs.inputBusqueda.focus();
+                });
+            },
+            cerrar() {
+                this.reset();
+                this.$el.classList.add('hidden');
+            },
+            limpiarIndicadorBusqueda() {
+                const spinner = this.$el.querySelector('#buscar-material-spinner');
+                if (spinner) spinner.classList.remove('htmx-request');
+            },
+            limpiarResultadosBusqueda() {
+                this.mostrarResultados = false;
+                const res = this.$el.querySelector('#resultados-materiales');
+                if (res) res.innerHTML = '';
+                this.limpiarIndicadorBusqueda();
+            },
+            setModo(nuevoModo) {
+                this.modo = nuevoModo;
+                this.limpiarSeleccion();
+                this.limpiarResultadosBusqueda();
+                if (nuevoModo === 'catalogo') {
+                    this.$nextTick(() => { if (this.$refs.inputBusqueda) this.$refs.inputBusqueda.focus(); });
+                }
+            },
+            seleccionarMaterial(material) {
+                this.descripcion = material.descripcion || '';
+                this.precio = material.precio || 0;
+                this.unidad = material.unidad || '';
+                this.origen = 'CATALOGO';
+                this.moneda = 'MXN';
+                this.materialRef = material.id || '';
+                this.materialSeleccionado = material.descripcion || '';
+                this.proveedorSeleccionado = material.proveedor || '';
+                this.claveSeleccionada = material.clave || '';
+                this.errorCatalogo = '';
+                if (this.$refs.inputBusqueda) this.$refs.inputBusqueda.value = '';
+                this.mostrarResultados = false;
+                this.limpiarIndicadorBusqueda();
+            },
+            validarSubmit(event) {
+                if (this.modo === 'catalogo' && !this.materialRef) {
+                    this.errorCatalogo = 'Selecciona un material del catalogo antes de agregarlo.';
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return false;
+                }
+                this.origen = this.modo === 'catalogo' ? 'CATALOGO' : 'MANUAL';
+                return true;
+            },
+            reset() {
+                if (this.$refs.formAgregarItem) this.$refs.formAgregarItem.reset();
+                this.descripcion = '';
+                this.precio = 0;
+                this.cantidad = 0;
+                this.unidad = '';
+                this.origen = 'CATALOGO';
+                this.moneda = 'MXN';
+                this.materialRef = '';
+                this.materialSeleccionado = '';
+                this.proveedorSeleccionado = '';
+                this.claveSeleccionada = '';
+                this.errorCatalogo = '';
+                this.modo = 'catalogo';
+                if (this.$refs.inputBusqueda) this.$refs.inputBusqueda.value = '';
+                this.limpiarResultadosBusqueda();
+            },
+            limpiarSeleccion() {
+                this.descripcion = '';
+                this.precio = 0;
+                this.unidad = '';
+                this.origen = this.modo === 'catalogo' ? 'CATALOGO' : 'MANUAL';
+                this.moneda = 'MXN';
+                this.materialRef = '';
+                this.materialSeleccionado = '';
+                this.proveedorSeleccionado = '';
+                this.claveSeleccionada = '';
+                this.errorCatalogo = '';
+            }
+        }"
+        @abrir-modal-agregar-item-bom.window="abrir()"
+        @keydown.escape.window="if (!$el.classList.contains('hidden')) cerrar()"
+        @htmx:after-request.window="if ($event.detail.target && $event.detail.target.id === 'resultados-materiales') { mostrarResultados = true; limpiarIndicadorBusqueda(); }"
+        @htmx:response-error.window="if ($event.detail.target && $event.detail.target.id === 'resultados-materiales') { limpiarResultadosBusqueda(); }">
         <div class="flex min-h-screen items-center justify-center px-4">
             <div class="fixed inset-0 bg-black bg-opacity-30"
-                @click="reset(); document.getElementById('modal-agregar-item').classList.add('hidden')"></div>
-            <div class="relative bg-white rounded-xl shadow-xl max-w-lg w-full p-6 z-10" x-data="{
-                    modo: 'catalogo',
-                    descripcion: '',
-                    precio: 0,
-                    cantidad: 0,
-                    unidad: '',
-                    origen: 'MANUAL',
-                    moneda: 'MXN',
-                    materialRef: '',
-                    materialSeleccionado: '',
-                    mostrarResultados: false,
-                    get importe() { return (parseFloat(this.cantidad) || 0) * (parseFloat(this.precio) || 0); },
-                    reset() {
-                        this.descripcion = '';
-                        this.precio = 0;
-                        this.cantidad = 0;
-                        this.unidad = '';
-                        this.origen = 'MANUAL';
-                        this.moneda = 'MXN';
-                        this.materialRef = '';
-                        this.materialSeleccionado = '';
-                        this.mostrarResultados = false;
-                        this.modo = 'catalogo';
-                        if (this.$refs.inputBusqueda) this.$refs.inputBusqueda.value = '';
-                        let res = document.getElementById('resultados-materiales');
-                        if (res) res.innerHTML = '';
-                    },
-                    limpiarSeleccion() {
-                        this.descripcion = '';
-                        this.precio = 0;
-                        this.unidad = '';
-                        this.origen = 'MANUAL';
-                        this.moneda = 'MXN';
-                        this.materialRef = '';
-                        this.materialSeleccionado = '';
-                    }
-                }">
+                @click="cerrar()"></div>
+            <div class="relative bg-white rounded-xl shadow-xl max-w-lg w-full p-6 z-10">
                 <h3 class="text-lg font-bold text-gray-800 mb-4">Agregar Item al BOM</h3>
 
                 {# Toggle modo #}
-                <div class="flex rounded-lg border border-gray-300 overflow-hidden mb-4">
-                    <button type="button" @click="modo = 'catalogo'; limpiarSeleccion()"
-                        :class="modo === 'catalogo' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'"
-                        class="flex-1 px-3 py-2 text-sm font-medium transition">
-                        Buscar en Catalogo
+                <div class="grid grid-cols-2 gap-2 mb-4">
+                    <button type="button" @click="setModo('catalogo')"
+                        :class="modo === 'catalogo' ? 'border-blue-600 bg-blue-50 text-blue-800 ring-2 ring-blue-100' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'"
+                        class="rounded-lg border px-3 py-2 text-left transition">
+                        <span class="flex items-center gap-2 text-sm font-semibold">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35m1.6-5.15a6.75 6.75 0 11-13.5 0 6.75 6.75 0 0113.5 0z"/>
+                            </svg>
+                            Busqueda en catalogo
+                        </span>
+                        <span class="mt-1 block text-xs opacity-75">Usar material historico</span>
                     </button>
-                    <button type="button" @click="modo = 'manual'; limpiarSeleccion()"
-                        :class="modo === 'manual' ? 'bg-blue-600 text-white' : 'bg-white text-gray-700 hover:bg-gray-50'"
-                        class="flex-1 px-3 py-2 text-sm font-medium transition border-l">
-                        Entrada Manual
+                    <button type="button" @click="setModo('manual')"
+                        :class="modo === 'manual' ? 'border-emerald-600 bg-emerald-50 text-emerald-800 ring-2 ring-emerald-100' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'"
+                        class="rounded-lg border px-3 py-2 text-left transition">
+                        <span class="flex items-center gap-2 text-sm font-semibold">
+                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                            </svg>
+                            Entrada manual
+                        </span>
+                        <span class="mt-1 block text-xs opacity-75">Capturar desde cero</span>
                     </button>
                 </div>
 
-                <form hx-post="/bom/{{ id_proyecto }}/items" hx-target="#tabla-bom-items" hx-swap="innerHTML"
+                <form x-ref="formAgregarItem"
+                    hx-post="/bom/{{ id_proyecto }}/items" hx-target="#tabla-bom-items" hx-swap="innerHTML"
                     hx-disabled-elt="find button[type='submit']"
-                    hx-on::after-request="if(event.detail.successful && event.detail.elt === this) { document.getElementById('modal-agregar-item').classList.add('hidden'); }"
-                    @submit="$nextTick(() => { if(event.detail && event.detail.successful) reset(); })">
+                    hx-on::after-request="if(event.detail.successful && event.detail.elt === this) { cerrar(); }"
+                    @submit.capture="validarSubmit($event)"
+                    autocomplete="off">
 
                     {# Hidden fields para origen y material ref #}
                     <input type="hidden" name="origen_precio" :value="origen">
@@ -372,37 +546,76 @@
 
                     <div class="space-y-3">
                         {# Busqueda en catalogo #}
-                        <div x-show="modo === 'catalogo'">
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Buscar material</label>
+                        <div x-show="modo === 'catalogo'" class="space-y-2">
+                            <label class="block text-sm font-medium text-gray-700">Buscar material en catalogo</label>
                             <div class="relative" @click.outside="mostrarResultados = false">
-                                <input type="text" x-ref="inputBusqueda" hx-get="/bom/materiales/buscar"
-                                    hx-trigger="focus, keyup changed delay:400ms" hx-target="#resultados-materiales"
-                                    hx-swap="innerHTML" hx-on::after-request="mostrarResultados = true" name="q"
-                                    @focus="mostrarResultados = true" autocomplete="off"
-                                    class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500"
-                                    placeholder="Buscar o ver materiales recientes...">
+                                <div class="relative">
+                                    <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center">
+                                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35m1.6-5.15a6.75 6.75 0 11-13.5 0 6.75 6.75 0 0113.5 0z"/>
+                                        </svg>
+                                    </span>
+                                    <input id="bom-material-search" type="text" x-ref="inputBusqueda"
+                                        hx-get="/bom/materiales/buscar"
+                                        hx-trigger="focus, keyup changed delay:400ms"
+                                        hx-target="#resultados-materiales"
+                                        hx-swap="innerHTML"
+                                        hx-indicator="#buscar-material-spinner"
+                                        name="q"
+                                        @focus="mostrarResultados = true"
+                                        autocomplete="off"
+                                        class="w-full rounded-lg border-gray-300 pl-9 pr-24 text-sm focus:ring-blue-500 focus:border-blue-500"
+                                        placeholder="Buscar descripcion, proveedor o clave SAT">
+                                    <span id="buscar-material-spinner" class="htmx-indicator pointer-events-none absolute inset-y-0 right-20 items-center">
+                                        <svg class="w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+                                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                                        </svg>
+                                    </span>
+                                    <button type="button"
+                                        hx-get="/bom/materiales/buscar"
+                                        hx-include="#bom-material-search"
+                                        hx-target="#resultados-materiales"
+                                        hx-swap="innerHTML"
+                                        hx-indicator="#buscar-material-spinner"
+                                        @click="mostrarResultados = true"
+                                        class="absolute right-1 top-1 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition">
+                                        Buscar
+                                    </button>
+                                </div>
                                 <div id="resultados-materiales" class="absolute z-20 w-full mt-1"
                                     x-show="mostrarResultados"></div>
                             </div>
+                            <p class="text-xs text-gray-500">Escribe al menos 3 letras para buscar o enfoca el campo para ver recientes.</p>
+                            <p x-show="errorCatalogo" class="text-xs text-red-600" x-text="errorCatalogo"></p>
 
                             {# Material seleccionado #}
                             <div x-show="materialSeleccionado"
-                                class="mt-2 flex items-center gap-2 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2">
-                                <svg class="w-4 h-4 text-blue-500 flex-shrink-0" fill="none" stroke="currentColor"
-                                    viewBox="0 0 24 24">
-                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                        d="M5 13l4 4L19 7" />
-                                </svg>
-                                <span class="text-sm text-blue-800 truncate" x-text="materialSeleccionado"></span>
-                                <span class="text-sm font-semibold text-green-700"
-                                    x-text="'$' + parseFloat(precio).toFixed(2)"></span>
-                                <button type="button" @click="limpiarSeleccion()"
-                                    class="ml-auto text-blue-400 hover:text-blue-600">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                class="mt-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2">
+                                <div class="flex items-start gap-2">
+                                    <svg class="w-4 h-4 text-blue-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor"
+                                        viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M6 18L18 6M6 6l12 12" />
+                                            d="M5 13l4 4L19 7" />
                                     </svg>
-                                </button>
+                                    <div class="min-w-0 flex-1">
+                                        <p class="text-sm font-medium text-blue-900 truncate" x-text="materialSeleccionado"></p>
+                                        <p class="text-xs text-blue-700 mt-0.5">
+                                            <span x-show="proveedorSeleccionado" x-text="proveedorSeleccionado"></span>
+                                            <span x-show="proveedorSeleccionado && unidad"> - </span>
+                                            <span x-show="unidad" x-text="unidad"></span>
+                                            <span x-show="claveSeleccionada"> - SAT: <span x-text="claveSeleccionada"></span></span>
+                                        </p>
+                                    </div>
+                                    <div class="shrink-0 text-right">
+                                        <p class="text-sm font-semibold text-green-700"
+                                            x-text="'$' + parseFloat(precio || 0).toFixed(2)"></p>
+                                        <button type="button" @click="limpiarSeleccion()"
+                                            class="text-xs font-medium text-blue-600 hover:text-blue-800">
+                                            Cambiar
+                                        </button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
 
@@ -427,14 +640,16 @@
                                 {% endfor %}
                             </select>
                         </div>
-                        <div>
+                        <div x-show="modo === 'manual' || materialRef">
                             <label class="block text-sm font-medium text-gray-700 mb-1">Descripcion *</label>
                             <textarea name="descripcion" required rows="2" x-model="descripcion"
-                                :readonly="origen === 'CATALOGO'"
-                                :class="origen === 'CATALOGO' ? 'bg-gray-100 text-gray-500' : ''"
+                                :required="modo === 'manual' || !!materialRef"
+                                :disabled="modo === 'catalogo' && !materialRef"
+                                :readonly="modo === 'catalogo'"
+                                :class="modo === 'catalogo' ? 'bg-gray-100 text-gray-600' : ''"
                                 class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500"
                                 placeholder="Detalle del material o equipo"></textarea>
-                            <p x-show="origen === 'CATALOGO'" class="text-xs text-blue-500 mt-0.5">
+                            <p x-show="modo === 'catalogo'" class="text-xs text-blue-500 mt-0.5">
                                 Descripcion fija del catalogo de materiales
                             </p>
                         </div>
@@ -448,8 +663,9 @@
                             <div>
                                 <label class="block text-sm font-medium text-gray-700 mb-1">Unidad</label>
                                 <input type="text" name="unidad_medida" x-model="unidad"
-                                    :readonly="origen === 'CATALOGO'"
-                                    :class="origen === 'CATALOGO' ? 'bg-gray-100 text-gray-500' : ''"
+                                    :disabled="modo === 'catalogo' && !materialRef"
+                                    :readonly="modo === 'catalogo'"
+                                    :class="modo === 'catalogo' ? 'bg-gray-100 text-gray-600' : ''"
                                     class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="pza, kg, m...">
                             </div>
@@ -458,8 +674,10 @@
                                     Precio Unit. <span x-show="modo === 'manual'" class="text-red-500">*</span>
                                 </label>
                                 <input type="number" name="precio_unitario" step="0.01" min="0" x-model="precio"
-                                    :required="modo === 'manual'" :readonly="origen === 'CATALOGO'"
-                                    :class="origen === 'CATALOGO' ? 'bg-gray-100 text-gray-500' : ''"
+                                    :required="modo === 'manual'"
+                                    :disabled="modo === 'catalogo' && !materialRef"
+                                    :readonly="modo === 'catalogo'"
+                                    :class="modo === 'catalogo' ? 'bg-gray-100 text-gray-600' : ''"
                                     class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500"
                                     placeholder="0.00">
                             </div>
@@ -490,13 +708,14 @@
                     </div>
                     <div class="flex justify-end gap-2 mt-5">
                         <button type="button"
-                            @click="reset(); document.getElementById('modal-agregar-item').classList.add('hidden')"
+                            @click="cerrar()"
                             class="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition">
                             Cancelar
                         </button>
                         <button type="submit"
+                            :disabled="modo === 'catalogo' && !materialRef"
                             class="px-4 py-2 text-sm rounded-lg text-white bg-green-600 hover:bg-green-700 transition font-medium disabled:opacity-60 disabled:cursor-not-allowed">
-                            Agregar
+                            <span x-text="modo === 'catalogo' && !materialRef ? 'Selecciona material' : 'Agregar'">Agregar</span>
                         </button>
                     </div>
                 </form>
@@ -516,45 +735,8 @@
     </div>
     {% endif %}
 
-    {# Modal crear BOM #}
-    <div id="modal-crear-bom" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-modal="true">
-        <div class="flex min-h-screen items-center justify-center px-4">
-            <div class="fixed inset-0 bg-black bg-opacity-30"
-                onclick="document.getElementById('modal-crear-bom').classList.add('hidden')"></div>
-            <div class="relative bg-white rounded-xl shadow-xl max-w-lg w-full p-6 z-10">
-                <h3 class="text-lg font-bold text-gray-800 mb-4">Crear Lista de Materiales</h3>
-                <form hx-post="/bom/{{ id_proyecto }}/crear" hx-target="#main-content" hx-swap="innerHTML">
-                    <div class="space-y-3">
-                        <div>
-                            <div class="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-                                El sistema tomara automaticamente el jefe de Ingenieria, el jefe de Construccion y el equipo asignado del proyecto.
-                            </div>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Notas</label>
-                            <textarea name="notas" rows="2"
-                                class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500"
-                                placeholder="Notas opcionales..."></textarea>
-                        </div>
-                    </div>
-                    <div class="flex justify-end gap-2 mt-5">
-                        <button type="button"
-                            onclick="document.getElementById('modal-crear-bom').classList.add('hidden')"
-                            class="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition">
-                            Cancelar
-                        </button>
-                        <button type="submit"
-                            class="px-4 py-2 text-sm rounded-lg text-white bg-blue-600 hover:bg-blue-700 transition font-medium">
-                            Crear BOM
-                        </button>
-                    </div>
-                </form>
-            </div>
-        </div>
-    </div>
-
     {# Container para modales dinamicos #}
-    <div id="modal-container"></div>
+    <div id="bom-modal-container"></div>
 
     <script>
     function abrirCotizacionSeleccionados() {
