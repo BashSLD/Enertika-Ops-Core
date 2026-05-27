@@ -138,6 +138,13 @@ class ProyectosService:
                     if not usuario_valido:
                         raise ValueError("El usuario seleccionado no pertenece al departamento requerido")
 
+                asignacion_actual = await self.db.get_asignacion_equipo_actual(
+                    conn, id_proyecto, key[0], key[1]
+                )
+                if asignacion_actual and id_usuario:
+                    if str(asignacion_actual["id_usuario"]) == str(id_usuario):
+                        continue
+
                 await self.db.desactivar_asignacion_equipo(
                     conn, id_proyecto, key[0], key[1]
                 )

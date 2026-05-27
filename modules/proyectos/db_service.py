@@ -86,6 +86,25 @@ class ProyectosDBService:
         )
         return bool(exists)
 
+    async def get_asignacion_equipo_actual(
+        self, conn, id_proyecto: UUID, rol_proyecto: str, area: str
+    ) -> Optional[Dict[str, Any]]:
+        row = await conn.fetchrow(
+            """
+            SELECT id_usuario, rol_proyecto, area
+            FROM tb_proyecto_usuarios
+            WHERE id_proyecto = $1
+              AND rol_proyecto = $2
+              AND area = $3
+              AND activo = TRUE
+            LIMIT 1
+            """,
+            id_proyecto,
+            rol_proyecto,
+            area,
+        )
+        return dict(row) if row else None
+
     async def desactivar_asignacion_equipo(
         self, conn, id_proyecto: UUID, rol_proyecto: str, area: str
     ) -> None:
