@@ -9,7 +9,7 @@
     <link rel="manifest" href="/manifest.webmanifest">
     <meta name="theme-color" content="#123456">
 
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/static/css/tailwind.css">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
     <script src="https://unpkg.com/htmx.org@1.9.10/dist/ext/json-enc.js"></script>
 
@@ -509,7 +509,7 @@
                     </svg>
                 </button>
                 <!-- Bottom sheet -->
-                <div x-show="actionsOpen" x-transition:enter="transition ease-out duration-250"
+                <div x-show="actionsOpen" x-transition:enter="transition ease-out duration-[250ms]"
                     x-transition:enter-start="opacity-0 translate-y-4"
                     x-transition:enter-end="opacity-100 translate-y-0"
                     x-transition:leave="transition ease-in duration-200"

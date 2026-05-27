@@ -50,3 +50,7 @@ docs/
 .vscode/
 memory/
 .worktrees/
+
+# Node
+node_modules/
+package-lock.json
