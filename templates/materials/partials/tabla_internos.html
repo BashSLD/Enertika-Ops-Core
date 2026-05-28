@@ -1,0 +1,68 @@
+<!-- OOB: actualizar estadísticas -->
+<div id="stats-internos" hx-swap-oob="innerHTML">
+    <div class="bg-white rounded-lg shadow p-4 text-center">
+        <p class="text-3xl font-bold text-[#123456]">{{ estadisticas.total_activos }}</p>
+        <p class="text-xs text-gray-500 mt-1">Materiales activos</p>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4 text-center">
+        <p class="text-3xl font-bold text-[#00BABB]">{{ estadisticas.con_categoria }}</p>
+        <p class="text-xs text-gray-500 mt-1">Con categoría</p>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4 text-center">
+        <p class="text-3xl font-bold text-green-600">{{ estadisticas.con_precio }}</p>
+        <p class="text-xs text-gray-500 mt-1">Con precio referencia</p>
+    </div>
+    <div class="bg-white rounded-lg shadow p-4 text-center">
+        <p class="text-3xl font-bold text-orange-500">{{ estadisticas.total_inactivos }}</p>
+        <p class="text-xs text-gray-500 mt-1">Desactivados</p>
+    </div>
+</div>
+
+<div class="bg-white rounded-lg shadow overflow-hidden">
+    {% if internos %}
+    <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+            <thead class="bg-[#123456] text-white">
+                <tr>
+                    <th class="px-3 py-3 text-left font-semibold">Descripción canónica</th>
+                    <th class="px-3 py-3 text-left font-semibold">Unidad</th>
+                    <th class="px-3 py-3 text-left font-semibold">Categoría</th>
+                    <th class="px-3 py-3 text-right font-semibold">Precio ref.</th>
+                    <th class="px-3 py-3 text-center font-semibold">Clave SAT</th>
+                    <th class="px-3 py-3 text-center font-semibold">XML</th>
+                    <th class="px-3 py-3 text-center font-semibold">Acciones</th>
+                </tr>
+            </thead>
+            <tbody id="internos-tbody" class="divide-y divide-gray-100">
+                {% for m in internos %}
+                {% include "materials/partials/row_interno.html" %}
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    {% if pages > 1 %}
+    <div class="px-4 py-3 bg-gray-50 flex items-center justify-between border-t">
+        <span class="text-sm text-gray-600">{{ total }} materiales · pág. {{ page }} de {{ pages }}</span>
+        <div class="flex gap-2">
+            {% if page > 1 %}
+            <button hx-get="/materials/internos?page={{ page - 1 }}&per_page={{ per_page }}"
+                hx-include="#filtros-internos" hx-target="#tabla-internos" hx-swap="innerHTML"
+                class="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-100">Anterior</button>
+            {% endif %}
+            {% if page < pages %}
+            <button hx-get="/materials/internos?page={{ page + 1 }}&per_page={{ per_page }}"
+                hx-include="#filtros-internos" hx-target="#tabla-internos" hx-swap="innerHTML"
+                class="px-3 py-1.5 text-sm border rounded-lg hover:bg-gray-100">Siguiente</button>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {% else %}
+    <div class="px-6 py-12 text-center">
+        <p class="text-gray-400 text-lg mb-2">Sin materiales internos</p>
+        <p class="text-gray-400 text-sm">Crea el primero con el botón "Nuevo Material"</p>
+    </div>
+    {% endif %}
+</div>
