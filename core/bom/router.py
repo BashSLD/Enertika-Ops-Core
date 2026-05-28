@@ -17,6 +17,7 @@ from core.security import get_current_user_context
 from core.permissions import require_module_access, require_manager_access, get_user_module_role, require_role, require_any_module_access
 from core.config import settings
 from core.timezone import now_mx
+from core.materials.normalizer import normalizar_descripcion
 from .service import BomService, get_bom_service
 
 logger = logging.getLogger("BOM.Router")
@@ -345,11 +346,13 @@ async def agregar_item(
     precio_unitario_raw = form.get("precio_unitario", "").strip()
     origen_precio = form.get("origen_precio", "MANUAL").strip() or "MANUAL"
     id_material_ref_raw = form.get("id_material_ref", "").strip()
+    id_material_interno_raw = form.get("id_material_interno", "").strip()
 
     try:
         from decimal import Decimal
         precio_unitario = Decimal(precio_unitario_raw) if precio_unitario_raw else None
         id_material_ref = UUID(id_material_ref_raw) if id_material_ref_raw else None
+        id_material_interno = UUID(id_material_interno_raw) if id_material_interno_raw else None
 
         await service.agregar_item(
             conn, bom['id_bom'], user_id,
@@ -361,6 +364,7 @@ async def agregar_item(
             precio_unitario=precio_unitario,
             origen_precio=origen_precio if origen_precio in ('CATALOGO', 'MANUAL') else 'MANUAL',
             id_material_ref=id_material_ref,
+            id_material_interno=id_material_interno,
             tipo_partida=form.get("tipo_partida", "MATERIAL").strip() or "MATERIAL",
             moneda=form.get("moneda", "MXN").strip() or "MXN",
             area_editor=area_editor,
@@ -600,7 +604,7 @@ async def buscar_materiales(
     resultado_busqueda = {"items": [], "total": 0, "limit": limit}
     if len(q) >= 3:
         resultado_busqueda = await service.db.buscar_materiales_para_bom(
-            conn, q, limite=limit, offset=offset
+            conn, q, query_norm=normalizar_descripcion(q), limite=limit, offset=offset
         )
     else:
         # Sin query: mostrar materiales recientes como dropdown inicial

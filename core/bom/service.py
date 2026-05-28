@@ -194,6 +194,7 @@ class BomService:
         precio_unitario=None,
         origen_precio: Optional[str] = 'MANUAL',
         id_material_ref: Optional[UUID] = None,
+        id_material_interno: Optional[UUID] = None,
         tipo_partida: Optional[str] = 'MATERIAL',
         moneda: Optional[str] = 'MXN',
         area_editor: str = 'ingenieria'
@@ -229,6 +230,7 @@ class BomService:
             precio_unitario=precio_unitario,
             origen_precio=origen_precio,
             id_material_ref=id_material_ref,
+            id_material_interno=id_material_interno,
             tipo_partida=tipo_partida,
             moneda=moneda
         )

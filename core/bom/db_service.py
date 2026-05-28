@@ -173,6 +173,7 @@ class BomDBService:
         precio_unitario=None,
         origen_precio: Optional[str] = 'MANUAL',
         id_material_ref: Optional[UUID] = None,
+        id_material_interno: Optional[UUID] = None,
         tipo_partida: Optional[str] = 'MATERIAL',
         moneda: Optional[str] = 'MXN'
     ) -> dict:
@@ -181,12 +182,13 @@ class BomDBService:
             INSERT INTO tb_bom_items (id_bom, id_categoria, descripcion,
                                       cantidad, unidad_medida, comentarios, orden,
                                       precio_unitario, origen_precio, id_material_ref,
-                                      tipo_partida, moneda)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                                      id_material_interno, tipo_partida, moneda)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING *
         """, id_bom, id_categoria, descripcion, cantidad,
             unidad_medida, comentarios, orden,
-            precio_unitario, origen_precio, id_material_ref, tipo_partida, moneda)
+            precio_unitario, origen_precio, id_material_ref,
+            id_material_interno, tipo_partida, moneda)
         return dict(row)
 
     async def get_items_by_bom(self, conn, id_bom: UUID, solo_activos: bool = True) -> List[dict]:
@@ -300,14 +302,15 @@ class BomDBService:
                                       id_proveedor, tipo_entrega,
                                       fecha_estimada_entrega, comentarios, orden,
                                       precio_unitario, origen_precio, id_material_ref,
-                                      tipo_partida, moneda, estatus_compra, id_item_origen,
-                                      bloqueado)
+                                      id_material_interno, tipo_partida, moneda,
+                                      estatus_compra, id_item_origen, bloqueado)
             SELECT $2, id_categoria, descripcion,
                    cantidad, unidad_medida, fecha_requerida,
                    id_proveedor, tipo_entrega,
                    fecha_estimada_entrega, comentarios, orden,
                    precio_unitario, origen_precio, id_material_ref,
-                   tipo_partida, moneda, estatus_compra, id_item,
+                   id_material_interno, tipo_partida, moneda,
+                   estatus_compra, id_item,
                    (estatus_compra IN ('PAGADO', 'FACTURADO'))
             FROM tb_bom_items
             WHERE id_bom = $1 AND activo = TRUE
@@ -476,38 +479,66 @@ class BomDBService:
         return [dict(r) for r in rows]
 
     async def buscar_materiales_para_bom(
-        self, conn, query: str, umbral: float = 0.15, limite: int = 20, offset: int = 0
+        self, conn, query: str, query_norm: str = "",
+        umbral: float = 0.15, limite: int = 20, offset: int = 0
     ) -> dict:
-        """Busca materiales en historial. Usa ILIKE + word_similarity (pg_trgm)
-        para encontrar palabras dentro de descripciones largas."""
+        """Busca materiales en historial XML y catalogo interno.
+        query_norm debe ser normalizar_descripcion(query) para el matching contra descripcion_norm."""
         rows = await conn.fetch("""
-            SELECT DISTINCT ON (m.descripcion_proveedor)
-                m.id,
-                m.descripcion_proveedor,
-                m.precio_unitario,
-                m.unidad,
-                m.clave_prod_serv,
-                m.fecha_factura,
-                p.razon_social AS proveedor_nombre,
+            WITH xml_dedup AS (
+                SELECT DISTINCT ON (m.descripcion_proveedor)
+                    m.id::text                                        AS id,
+                    m.descripcion_proveedor                           AS descripcion,
+                    COALESCE(m.unidad_homologada, m.unidad)           AS unidad,
+                    m.precio_unitario,
+                    p.razon_social                                     AS proveedor_nombre,
+                    NULL::text                                         AS categoria_nombre,
+                    m.clave_prod_serv,
+                    m.fecha_factura,
+                    'XML'::text                                        AS fuente,
+                    GREATEST(
+                        similarity(m.descripcion_proveedor, $1),
+                        word_similarity($1, m.descripcion_proveedor)
+                    )                                                  AS similitud
+                FROM tb_materiales_historial m
+                LEFT JOIN tb_proveedores p ON p.id_proveedor = m.id_proveedor
+                WHERE m.descripcion_proveedor ILIKE '%' || $1 || '%'
+                   OR word_similarity($1, m.descripcion_proveedor) >= $2
+                ORDER BY m.descripcion_proveedor, m.fecha_factura DESC
+            )
+            SELECT * FROM xml_dedup
+            UNION ALL
+            SELECT
+                c.id::text,
+                c.descripcion_canonica,
+                u.codigo,
+                c.precio_referencia,
+                NULL,
+                cat.nombre,
+                c.clave_prod_serv,
+                NULL::date,
+                'INTERNO'::text,
                 GREATEST(
-                    similarity(m.descripcion_proveedor, $1),
-                    word_similarity($1, m.descripcion_proveedor)
-                ) AS similitud
-            FROM tb_materiales_historial m
-            LEFT JOIN tb_proveedores p ON m.id_proveedor = p.id_proveedor
-            WHERE m.descripcion_proveedor ILIKE '%' || $1 || '%'
-               OR word_similarity($1, m.descripcion_proveedor) >= $2
-            ORDER BY m.descripcion_proveedor, m.fecha_factura DESC
-        """, query, umbral)
-        # Ordenar por similitud descendente y limitar
-        result = sorted(
-            [dict(r) for r in rows],
-            key=lambda x: (
-                -(float(x['similitud'] or 0)),
-                -(x['fecha_factura'].toordinal() if x.get('fecha_factura') else 0),
-                x.get('descripcion_proveedor') or '',
-            ),
+                    similarity(c.descripcion_norm, $3),
+                    word_similarity($3, c.descripcion_norm)
+                )
+            FROM tb_cat_materiales c
+            LEFT JOIN tb_cat_unidades_medida u   ON u.id  = c.id_unidad_medida
+            LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
+            WHERE c.activo = TRUE
+              AND (c.descripcion_norm ILIKE '%' || $3 || '%'
+                   OR word_similarity($3, c.descripcion_norm) >= $2)
+        """, query, umbral, query_norm or query)
+        rows_list = [dict(r) for r in rows]
+        xml_items = sorted(
+            [r for r in rows_list if r['fuente'] == 'XML'],
+            key=lambda x: -(float(x['similitud'] or 0)),
         )
+        int_items = sorted(
+            [r for r in rows_list if r['fuente'] == 'INTERNO'],
+            key=lambda x: -(float(x['similitud'] or 0)),
+        )
+        result = xml_items + int_items
         return {
             "items": result[offset:offset + limite],
             "total": len(result),
@@ -516,23 +547,53 @@ class BomDBService:
         }
 
     async def get_materiales_recientes(self, conn, limite: int = 10, offset: int = 0) -> dict:
-        """Lista materiales mas recientes del historial (para dropdown inicial sin busqueda)."""
+        """Lista materiales recientes (XML) y todos los internos activos para el dropdown inicial."""
         rows = await conn.fetch("""
-            SELECT DISTINCT ON (m.descripcion_proveedor)
-                m.id,
-                m.descripcion_proveedor,
-                m.precio_unitario,
-                m.unidad,
-                m.clave_prod_serv,
-                m.fecha_factura,
-                p.razon_social AS proveedor_nombre,
-                1.0::real AS similitud
-            FROM tb_materiales_historial m
-            LEFT JOIN tb_proveedores p ON m.id_proveedor = p.id_proveedor
-            ORDER BY m.descripcion_proveedor, m.fecha_factura DESC
+            WITH xml_dedup AS (
+                SELECT DISTINCT ON (m.descripcion_proveedor)
+                    m.id::text                              AS id,
+                    m.descripcion_proveedor                 AS descripcion,
+                    COALESCE(m.unidad_homologada, m.unidad) AS unidad,
+                    m.precio_unitario,
+                    p.razon_social                          AS proveedor_nombre,
+                    NULL::text                              AS categoria_nombre,
+                    m.clave_prod_serv,
+                    m.fecha_factura,
+                    'XML'::text                             AS fuente,
+                    1.0::real                               AS similitud
+                FROM tb_materiales_historial m
+                LEFT JOIN tb_proveedores p ON p.id_proveedor = m.id_proveedor
+                ORDER BY m.descripcion_proveedor, m.fecha_factura DESC
+            )
+            SELECT * FROM xml_dedup
+            UNION ALL
+            SELECT
+                c.id::text,
+                c.descripcion_canonica,
+                u.codigo,
+                c.precio_referencia,
+                NULL,
+                cat.nombre,
+                c.clave_prod_serv,
+                c.created_at::date,
+                'INTERNO'::text,
+                1.0::real
+            FROM tb_cat_materiales c
+            LEFT JOIN tb_cat_unidades_medida u   ON u.id  = c.id_unidad_medida
+            LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
+            WHERE c.activo = TRUE
         """)
-        # Los mas recientes primero, limitados
-        result = sorted([dict(r) for r in rows], key=lambda x: x['fecha_factura'] or '', reverse=True)
+        rows_list = [dict(r) for r in rows]
+        xml_items = sorted(
+            [r for r in rows_list if r['fuente'] == 'XML'],
+            key=lambda x: x['fecha_factura'].isoformat() if x.get('fecha_factura') else '',
+            reverse=True,
+        )
+        int_items = sorted(
+            [r for r in rows_list if r['fuente'] == 'INTERNO'],
+            key=lambda x: (x.get('descripcion') or '').lower(),
+        )
+        result = xml_items + int_items
         return {
             "items": result[offset:offset + limite],
             "total": len(result),
