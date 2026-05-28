@@ -1,8 +1,32 @@
 """
 Helper para registrar filtros Jinja2 de timezone en todas las instancias de templates.
 """
-from zoneinfo import ZoneInfo
+import logging
+import os
+import subprocess
 from datetime import datetime
+from zoneinfo import ZoneInfo
+
+logger = logging.getLogger(__name__)
+
+
+def _compute_static_version() -> str:
+    v = os.environ.get("RAILWAY_GIT_COMMIT_SHA", "")[:7]
+    if v:
+        return v
+    try:
+        result = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            stderr=subprocess.DEVNULL,
+            timeout=2,
+        ).decode().strip()
+        return result or "dev"
+    except Exception:
+        logger.warning("cache-busting CSS: no se pudo obtener git hash, usando 'dev'")
+        return "dev"
+
+
+_STATIC_V = _compute_static_version()
 
 def datetime_mx_format(value, format="%d/%m/%Y %H:%M"):
     """
@@ -80,3 +104,4 @@ def register_timezone_filters(jinja_env):
     jinja_env.filters["time_mx"] = datetime_mx_format
     jinja_env.filters["input_date"] = datetime_input_format
     jinja_env.filters["clean_text"] = clean_text
+    jinja_env.globals["static_v"] = _STATIC_V

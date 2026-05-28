@@ -3,8 +3,6 @@
 import asyncio
 import contextlib
 import logging
-import os
-import subprocess
 from logging.handlers import RotatingFileHandler
 
 import sentry_sdk
@@ -73,16 +71,6 @@ register_timezone_filters(templates.env)
 
 # Variables Globales para Templates
 templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
-
-_static_v = os.environ.get("RAILWAY_GIT_COMMIT_SHA", "")[:8]
-if not _static_v:
-    try:
-        _static_v = subprocess.check_output(
-            ["git", "rev-parse", "--short", "HEAD"], stderr=subprocess.DEVNULL
-        ).decode().strip()
-    except Exception:
-        _static_v = "dev"
-templates.env.globals["static_v"] = _static_v
 
 # Montar directorios estáticos
 app.mount("/static", StaticFiles(directory="static"), name="static")
