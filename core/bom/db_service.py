@@ -476,8 +476,8 @@ class BomDBService:
         return [dict(r) for r in rows]
 
     async def buscar_materiales_para_bom(
-        self, conn, query: str, umbral: float = 0.15, limite: int = 15
-    ) -> List[dict]:
+        self, conn, query: str, umbral: float = 0.15, limite: int = 20, offset: int = 0
+    ) -> dict:
         """Busca materiales en historial. Usa ILIKE + word_similarity (pg_trgm)
         para encontrar palabras dentro de descripciones largas."""
         rows = await conn.fetch("""
@@ -500,10 +500,22 @@ class BomDBService:
             ORDER BY m.descripcion_proveedor, m.fecha_factura DESC
         """, query, umbral)
         # Ordenar por similitud descendente y limitar
-        result = sorted([dict(r) for r in rows], key=lambda x: x['similitud'], reverse=True)
-        return result[:limite]
+        result = sorted(
+            [dict(r) for r in rows],
+            key=lambda x: (
+                -(float(x['similitud'] or 0)),
+                -(x['fecha_factura'].toordinal() if x.get('fecha_factura') else 0),
+                x.get('descripcion_proveedor') or '',
+            ),
+        )
+        return {
+            "items": result[offset:offset + limite],
+            "total": len(result),
+            "limit": limite,
+            "offset": offset,
+        }
 
-    async def get_materiales_recientes(self, conn, limite: int = 10) -> List[dict]:
+    async def get_materiales_recientes(self, conn, limite: int = 10, offset: int = 0) -> dict:
         """Lista materiales mas recientes del historial (para dropdown inicial sin busqueda)."""
         rows = await conn.fetch("""
             SELECT DISTINCT ON (m.descripcion_proveedor)
@@ -521,7 +533,12 @@ class BomDBService:
         """)
         # Los mas recientes primero, limitados
         result = sorted([dict(r) for r in rows], key=lambda x: x['fecha_factura'] or '', reverse=True)
-        return result[:limite]
+        return {
+            "items": result[offset:offset + limite],
+            "total": len(result),
+            "limit": limite,
+            "offset": offset,
+        }
 
     async def get_proyecto_info(self, conn, id_proyecto: UUID) -> Optional[dict]:
         """Obtiene info basica del proyecto."""

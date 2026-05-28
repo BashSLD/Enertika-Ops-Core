@@ -587,21 +587,41 @@ async def get_modal_editar_item(
 async def buscar_materiales(
     request: Request,
     q: str = "",
+    limit: int = 20,
+    offset: int = 0,
     conn=Depends(get_db_connection),
     service: BomService = Depends(get_bom_service),
     _=require_any_module_access(["ingenieria", "construccion"], "editor"),
 ):
     """Busqueda fuzzy de materiales en historial para agregar al BOM."""
     q = q.strip()
-    resultados = []
+    limit = min(max(limit, 10), 50)
+    offset = max(offset, 0)
+    resultado_busqueda = {"items": [], "total": 0, "limit": limit}
     if len(q) >= 3:
-        resultados = await service.db.buscar_materiales_para_bom(conn, q)
+        resultado_busqueda = await service.db.buscar_materiales_para_bom(
+            conn, q, limite=limit, offset=offset
+        )
     else:
         # Sin query: mostrar materiales recientes como dropdown inicial
-        resultados = await service.db.get_materiales_recientes(conn, limite=10)
+        resultado_busqueda = await service.db.get_materiales_recientes(
+            conn, limite=limit, offset=offset
+        )
 
+    resultados = resultado_busqueda["items"]
+    total = resultado_busqueda["total"]
+    current_limit = resultado_busqueda["limit"]
+    current_offset = resultado_busqueda["offset"]
+    mostrados = min(current_offset + len(resultados), total)
     return templates.TemplateResponse(request, "bom/partials/buscar_materiales.html", {"resultados": resultados,
         "query": q,
+        "total": total,
+        "limit": current_limit,
+        "offset": current_offset,
+        "mostrados": mostrados,
+        "has_more": mostrados < total,
+        "next_offset": mostrados,
+        "append_mode": current_offset > 0,
     })
 
 
