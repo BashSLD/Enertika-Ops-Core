@@ -17,7 +17,7 @@ from core.permissions import require_module_access, ROLE_HIERARCHY
 from core.config import settings
 from core.timezone import now_mx
 from .service import MaterialsService, get_materials_service
-from .schemas import MaterialFilter, MaterialUpdate
+from .schemas import MaterialFilter, MaterialUpdate, MaterialInternoCreate, MaterialInternoFilter
 
 logger = logging.getLogger("MaterialsRouter")
 
@@ -300,3 +300,240 @@ async def get_catalogos(
 ):
     """Catalogos para dropdowns de materiales."""
     return await service.get_catalogos(conn)
+
+
+# ========================================
+# CATALOGO INTERNO DE MATERIALES
+# ========================================
+
+@router.api_route("/internos/ui", methods=["GET", "HEAD"], include_in_schema=False)
+async def get_internos_ui(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: MaterialsService = Depends(get_materials_service),
+    _=Depends(require_materials_view_access),
+):
+    internos, total = await service.get_internos(conn, {})
+    per_page = 50
+    ctx = {
+        "user_name": context.get("user_name"),
+        "role": context.get("role"),
+        "module_roles": context.get("module_roles", {}),
+        "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
+        "internos": internos,
+        "total": total,
+        "page": 1,
+        "per_page": per_page,
+        "pages": max((total + per_page - 1) // per_page, 1),
+        "estadisticas": await service.get_estadisticas_internos(conn),
+        "categorias": (await service.get_catalogos(conn)).get("categorias", []),
+        "unidades": await service.get_cat_unidades(conn),
+        "filtros": {},
+    }
+    if request.headers.get("hx-request") and not request.headers.get("hx-history-restore-request"):
+        template = "materials/partials/internos_content.html"
+    else:
+        template = "materials/internos.html"
+    return templates.TemplateResponse(request, template, ctx)
+
+
+@router.get("/internos", response_class=HTMLResponse)
+async def get_internos_list(
+    request: Request,
+    filtros: Annotated[MaterialInternoFilter, Query()],
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: MaterialsService = Depends(get_materials_service),
+    _=Depends(require_materials_view_access),
+):
+    filtro_dict = filtros.model_dump(exclude_none=True)
+    filtro_dict.pop('page', None)
+    filtro_dict.pop('per_page', None)
+    internos, total = await service.get_internos(conn, filtro_dict, filtros.page, filtros.per_page)
+    catalogos = await service.get_catalogos(conn)
+    return templates.TemplateResponse(
+        request, "materials/partials/tabla_internos.html",
+        {
+            "internos": internos,
+            "total": total,
+            "page": filtros.page,
+            "per_page": filtros.per_page,
+            "pages": max((total + filtros.per_page - 1) // filtros.per_page, 1),
+            "estadisticas": await service.get_estadisticas_internos(conn),
+            "categorias": catalogos.get("categorias", []),
+            "unidades": await service.get_cat_unidades(conn),
+            "filtros": {
+                "q": filtros.q or "",
+                "id_unidad_medida": filtros.id_unidad_medida or "",
+                "id_categoria": filtros.id_categoria or "",
+            },
+            "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
+            "role": context.get("role"),
+        }
+    )
+
+
+@router.post("/internos", response_class=HTMLResponse)
+async def crear_interno(
+    request: Request,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: MaterialsService = Depends(get_materials_service),
+    _=require_module_access("compras", "editor"),
+):
+    form = await request.form()
+    try:
+        data = MaterialInternoCreate(
+            descripcion_canonica=form.get("descripcion_canonica", ""),
+            id_unidad_medida=int(form["id_unidad_medida"]) if form.get("id_unidad_medida") else None,
+            id_categoria=int(form["id_categoria"]) if form.get("id_categoria") else None,
+            clave_prod_serv=form.get("clave_prod_serv") or None,
+            precio_referencia=float(form["precio_referencia"]) if form.get("precio_referencia") else None,
+            notas=form.get("notas") or None,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    interno = await service.crear_interno(conn, data.model_dump())
+    catalogos = await service.get_catalogos(conn)
+    return templates.TemplateResponse(
+        request, "materials/partials/row_interno.html",
+        {
+            "m": interno,
+            "categorias": catalogos.get("categorias", []),
+            "unidades": await service.get_cat_unidades(conn),
+            "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
+            "role": context.get("role"),
+        },
+        headers={"HX-Trigger": "interno-creado"},
+    )
+
+
+@router.patch("/internos/{interno_id}", response_class=HTMLResponse)
+async def actualizar_interno(
+    request: Request,
+    interno_id: UUID,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+    service: MaterialsService = Depends(get_materials_service),
+    _=require_module_access("compras", "editor"),
+):
+    form = await request.form()
+    data = {}
+    for field in ['descripcion_canonica', 'clave_prod_serv', 'notas']:
+        if field in form:
+            data[field] = form[field] or None
+    for field in ['id_unidad_medida', 'id_categoria']:
+        if field in form:
+            data[field] = int(form[field]) if form.get(field) else None
+    if 'precio_referencia' in form:
+        val = form['precio_referencia']
+        data['precio_referencia'] = float(val) if val else None
+
+    interno = await service.actualizar_interno(conn, interno_id, data)
+    if not interno:
+        raise HTTPException(status_code=404, detail="Material no encontrado")
+    catalogos = await service.get_catalogos(conn)
+    return templates.TemplateResponse(
+        request, "materials/partials/row_interno.html",
+        {
+            "m": interno,
+            "categorias": catalogos.get("categorias", []),
+            "unidades": await service.get_cat_unidades(conn),
+            "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
+            "role": context.get("role"),
+        }
+    )
+
+
+@router.delete("/internos/{interno_id}", response_class=HTMLResponse)
+async def desactivar_interno(
+    request: Request,
+    interno_id: UUID,
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=require_module_access("compras", "editor"),
+):
+    ok = await service.desactivar_interno(conn, interno_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Material no encontrado")
+    return HTMLResponse("")
+
+
+@router.post("/internos/importar", response_class=HTMLResponse)
+async def importar_internos(
+    request: Request,
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=require_module_access("compras", "editor"),
+):
+    form = await request.form()
+    archivo = form.get("archivo")
+    if not archivo or not getattr(archivo, 'filename', None):
+        raise HTTPException(status_code=400, detail="Archivo requerido")
+    contenido = await archivo.read()
+    try:
+        resultado = await service.importar_internos_excel(conn, contenido)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Error al leer archivo: {e}")
+    return templates.TemplateResponse(
+        request, "materials/partials/importar_resultado.html",
+        {"resultado": resultado},
+        headers={"HX-Trigger": "internos-importados"},
+    )
+
+
+@router.get("/internos/{interno_id}/vincular-xml", response_class=HTMLResponse)
+async def modal_vincular_xml(
+    request: Request,
+    interno_id: UUID,
+    q: str = Query(default=""),
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=Depends(require_materials_view_access),
+):
+    resultados = await service.buscar_xml_para_vincular(conn, interno_id, q) if len(q) >= 3 else []
+    vinculos = await service.get_vinculos_xml(conn, interno_id)
+    return templates.TemplateResponse(
+        request, "materials/partials/modal_vincular_xml.html",
+        {"interno_id": str(interno_id), "resultados": resultados, "vinculos": vinculos, "q": q}
+    )
+
+
+@router.post("/internos/{interno_id}/vincular-xml", response_class=HTMLResponse)
+async def crear_vinculo_xml(
+    request: Request,
+    interno_id: UUID,
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=require_module_access("compras", "editor"),
+):
+    form = await request.form()
+    try:
+        id_xml = UUID(str(form["id_xml"]))
+    except (KeyError, ValueError):
+        raise HTTPException(status_code=400, detail="id_xml inválido")
+    await service.crear_vinculo_xml(conn, interno_id, id_xml)
+    vinculos = await service.get_vinculos_xml(conn, interno_id)
+    return templates.TemplateResponse(
+        request, "materials/partials/vinculos_xml_list.html",
+        {"interno_id": str(interno_id), "vinculos": vinculos}
+    )
+
+
+@router.delete("/internos/{interno_id}/vincular-xml/{id_xml}", response_class=HTMLResponse)
+async def eliminar_vinculo_xml(
+    request: Request,
+    interno_id: UUID,
+    id_xml: UUID,
+    conn=Depends(get_db_connection),
+    service: MaterialsService = Depends(get_materials_service),
+    _=require_module_access("compras", "editor"),
+):
+    await service.eliminar_vinculo_xml(conn, interno_id, id_xml)
+    vinculos = await service.get_vinculos_xml(conn, interno_id)
+    return templates.TemplateResponse(
+        request, "materials/partials/vinculos_xml_list.html",
+        {"interno_id": str(interno_id), "vinculos": vinculos}
+    )
