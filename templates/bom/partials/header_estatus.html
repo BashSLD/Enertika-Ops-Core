@@ -1,6 +1,6 @@
 {# Header con estatus del BOM + botones de accion del workflow #}
 {% set estatus_config = {
-    'BORRADOR':          {'bg': 'bg-gray-100',   'text': 'text-gray-800',   'dot': 'bg-gray-400',   'label': 'Borrador'},
+    'BORRADOR':          {'bg': 'bg-gray-100',   'text': 'text-gray-800',   'dot': 'bg-sky-600',    'label': 'Borrador'},
     'EN_REVISION_ING':   {'bg': 'bg-amber-100',  'text': 'text-amber-800',  'dot': 'bg-amber-400',  'label': 'En Revision Ing.'},
     'APROBADO_ING':      {'bg': 'bg-blue-100',   'text': 'text-blue-800',   'dot': 'bg-blue-400',   'label': 'Aprobado Ing.'},
     'EN_REVISION_OBRA':  {'bg': 'bg-yellow-100', 'text': 'text-yellow-800', 'dot': 'bg-yellow-400', 'label': 'En Revision Obra'},
@@ -18,7 +18,10 @@
         <div class="flex items-center gap-4">
             <div>
                 <span class="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium {{ cfg.bg }} {{ cfg.text }}">
-                    <span class="w-2 h-2 mr-2 rounded-full {{ cfg.dot }}"></span>
+                    <span class="relative flex h-2.5 w-2.5 mr-2">
+                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 {{ cfg.dot }}"></span>
+                        <span class="relative inline-flex rounded-full h-2.5 w-2.5 {{ cfg.dot }}"></span>
+                    </span>
                     {{ cfg.label }}
                 </span>
             </div>
