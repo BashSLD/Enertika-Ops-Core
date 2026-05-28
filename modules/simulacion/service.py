@@ -518,9 +518,14 @@ class SimulacionService:
                         detail="No autorizado. Solo puedes autoasignarte oportunidades."
                     )
 
-            # Si tiene permisos y envió una fecha de deadline, forzamos la hora a las 18:00:00 (Regla de negocio original)
             if datos.deadline_negociado:
-                datos.deadline_negociado = datos.deadline_negociado.replace(hour=18, minute=0, second=0, microsecond=0)
+                config = await self.get_configuracion_global(conn)
+                parts = config.get("HORA_CORTE_L_V", "18:00").split(":")
+                h, m = int(parts[0]), int(parts[1])
+                datos.deadline_negociado = datos.deadline_negociado.replace(
+                    hour=h, minute=m, second=0, microsecond=0,
+                    tzinfo=ZoneInfo("America/Mexico_City")
+                )
 
         # 2. Validaciones de Reglas de Negocio para Cierre
         es_cierre = datos.id_estatus_global in [

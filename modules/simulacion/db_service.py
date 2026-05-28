@@ -586,6 +586,36 @@ class SimulacionDBService:
 
 
 
+    async def get_simulaciones_para_excel(
+        self, conn,
+        fecha_inicio: date, fecha_fin: date,
+        responsable_id=None, id_tecnologia: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        rows = await conn.fetch("""
+            SELECT
+                o.op_id_estandar,
+                u.nombre                                                        AS responsable,
+                o.cliente_nombre,
+                o.titulo_proyecto,
+                o.fecha_solicitud   AT TIME ZONE 'America/Mexico_City'          AS fecha_solicitud,
+                o.deadline_calculado AT TIME ZONE 'America/Mexico_City'         AS deadline_calculado,
+                o.deadline_negociado AT TIME ZONE 'America/Mexico_City'         AS deadline_negociado,
+                o.fecha_entrega_simulacion AT TIME ZONE 'America/Mexico_City'   AS fecha_entrega,
+                e.nombre                                                        AS estatus,
+                o.kpi_status_sla_interno,
+                o.kpi_status_compromiso
+            FROM tb_oportunidades o
+            LEFT JOIN tb_cat_estatus_oportunidades e ON e.id = o.id_estatus_global
+            LEFT JOIN tb_usuarios u ON u.id_usuario = o.responsable_simulacion_id
+            WHERE (o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date >= $1
+              AND (o.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date <= $2
+              AND ($3::uuid IS NULL OR o.responsable_simulacion_id = $3)
+              AND ($4::int IS NULL OR o.id_tecnologia = $4)
+            ORDER BY o.fecha_solicitud ASC
+        """, fecha_inicio, fecha_fin, responsable_id, id_tecnologia)
+        return [dict(r) for r in rows]
+
+
 QUERY_INSERT_HISTORIAL_ESTATUS = """
     INSERT INTO tb_historial_estatus (
         id_oportunidad, id_estatus_anterior, id_estatus_nuevo, 

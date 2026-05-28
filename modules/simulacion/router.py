@@ -369,6 +369,128 @@ async def get_graphs_partial(
         }
     })
 
+@router.get("/exportar-excel", include_in_schema=False)
+async def exportar_simulaciones_excel(
+    request: Request,
+    fecha_inicio: Optional[str] = None,
+    fecha_fin: Optional[str] = None,
+    responsable_id: Optional[str] = None,
+    id_tecnologia: Optional[str] = None,
+    context = Depends(get_current_user_context),
+    db_service: SimulacionDBService = Depends(get_db_service),
+    conn = Depends(get_db_connection),
+    _ = require_module_access("simulacion", "editor"),
+):
+    import openpyxl
+    from openpyxl.styles import PatternFill, Font, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    today = today_mx()
+    fi = today.replace(month=1, day=1)
+    ff = today
+    try:
+        if fecha_inicio:
+            fi = datetime.strptime(fecha_inicio, "%Y-%m-%d").date()
+        if fecha_fin:
+            ff = datetime.strptime(fecha_fin, "%Y-%m-%d").date()
+    except ValueError:
+        pass
+
+    resp_uuid = _safe_uuid(responsable_id)
+    tec_int   = _safe_int(id_tecnologia)
+
+    rows = await db_service.get_simulaciones_para_excel(conn, fi, ff, resp_uuid, tec_int)
+
+    # ── Estilos ──────────────────────────────────────────────────────────────
+    thin  = Side(style="thin", color="BFBFBF")
+    brd   = Border(left=thin, right=thin, top=thin, bottom=thin)
+    AZUL  = "1F4E79"; AZUL_C = "BDD7EE"; VERDE = "C6EFCE"; ROJO = "FFC7CE"
+    NARAN = "FFEB9C"; GRIS  = "F2F2F2"; BLANC = "FFFFFF"; AMAR  = "FFF2CC"
+
+    def fill(c):
+        return PatternFill("solid", fgColor=c)
+
+    def put(ws, row, col, val, bg=BLANC, bold=False, center=False, txt_color="000000"):
+        c = ws.cell(row=row, column=col, value=val)
+        c.fill = fill(bg)
+        c.font = Font(bold=bold, size=10, color=txt_color)
+        c.alignment = Alignment(
+            horizontal="center" if center else "left",
+            vertical="center", wrap_text=True
+        )
+        c.border = brd
+        return c
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Simulaciones"
+    ws.freeze_panes = "A3"
+
+    titulo = f"SIMULACIONES | {fi.strftime('%d/%m/%Y')} – {ff.strftime('%d/%m/%Y')} | Hora México"
+    ws.merge_cells("A1:K1")
+    t = ws["A1"]
+    t.value = titulo
+    t.fill = fill(AZUL)
+    t.font = Font(bold=True, color="FFFFFF", size=12)
+    t.alignment = Alignment(horizontal="center", vertical="center")
+    ws.row_dimensions[1].height = 24
+    ws.row_dimensions[2].height = 30
+
+    headers = [
+        "OP ID", "Responsable", "Cliente", "Título del Proyecto",
+        "Fecha Solicitud", "Deadline Calculado", "Deadline Negociado",
+        "Fecha Entrega", "Estatus", "KPI Interno", "KPI Compromiso",
+    ]
+    widths = [20, 26, 28, 52, 17, 20, 20, 17, 14, 18, 18]
+    for col, (h, w) in enumerate(zip(headers, widths), 1):
+        c = ws.cell(row=2, column=col, value=h)
+        c.fill = fill(AZUL)
+        c.font = Font(bold=True, color="FFFFFF", size=10)
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+        c.border = brd
+        ws.column_dimensions[get_column_letter(col)].width = w
+
+    def fmt_dt(val):
+        if val is None:
+            return "Pendiente"
+        return val.strftime("%Y-%m-%d %H:%M") if hasattr(val, "strftime") else str(val)
+
+    for i, r in enumerate(rows, 3):
+        tiene_dn = r["deadline_negociado"] is not None
+        bg = AMAR if tiene_dn else (GRIS if i % 2 == 0 else BLANC)
+        ki, kc = r["kpi_status_sla_interno"] or "", r["kpi_status_compromiso"] or ""
+
+        put(ws, i, 1,  r["op_id_estandar"],          bg, center=True)
+        put(ws, i, 2,  r["responsable"] or "Sin asignar", bg)
+        put(ws, i, 3,  r["cliente_nombre"],            bg)
+        put(ws, i, 4,  r["titulo_proyecto"],           bg)
+        put(ws, i, 5,  fmt_dt(r["fecha_solicitud"]),   bg, center=True)
+        put(ws, i, 6,  fmt_dt(r["deadline_calculado"]), bg, center=True)
+        put(ws, i, 7,  fmt_dt(r["deadline_negociado"]) if tiene_dn else "—",
+            bg, bold=tiene_dn, center=True, txt_color="7B3F00" if tiene_dn else "000000")
+        put(ws, i, 8,  fmt_dt(r["fecha_entrega"]),     bg, center=True)
+        est_bg = {"Entregado": VERDE, "En Proceso": NARAN, "En Revisión": AZUL_C,
+                  "Pendiente": GRIS}.get(r["estatus"], bg)
+        put(ws, i, 9,  r["estatus"] or "—",           est_bg, center=True)
+        ki_bg = VERDE if "a tiempo" in ki else (ROJO if "tarde" in ki else bg)
+        put(ws, i, 10, ki or "—",                     ki_bg, center=True)
+        kc_bg = VERDE if "a tiempo" in kc else (ROJO if "tarde" in kc else bg)
+        put(ws, i, 11, kc or "—",                     kc_bg, center=True)
+
+    ws.auto_filter.ref = f"A2:K{max(2, 2 + len(rows))}"
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    buf.seek(0)
+
+    nombre = f"Simulaciones_{fi.isoformat()}_{ff.isoformat()}.xlsx"
+    return StreamingResponse(
+        buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
+
+
 @router.get("/partials/cards", include_in_schema=False)
 async def get_cards_partial(
     request: Request,
