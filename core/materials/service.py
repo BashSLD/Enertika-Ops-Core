@@ -8,6 +8,7 @@ from uuid import UUID
 from typing import List, Dict, Optional, Tuple
 from decimal import Decimal
 import logging
+from core.materials.normalizer import normalizar_descripcion
 
 from .db_service import MaterialsDBService, get_materials_db_service
 
@@ -106,6 +107,115 @@ class MaterialsService:
                 if r.get(key) and isinstance(r[key], Decimal):
                     r[key] = float(r[key])
         return rows
+
+    async def get_internos(
+        self, conn, filtros: dict, page: int = 1, per_page: int = 50
+    ) -> Tuple[List[dict], int]:
+        total = await self.db.get_internos_filtered(conn, filtros, page, per_page, count_only=True)
+        rows  = await self.db.get_internos_filtered(conn, filtros, page, per_page, count_only=False)
+        internos = []
+        for row in rows:
+            m = dict(row)
+            if m.get('precio_referencia') and isinstance(m['precio_referencia'], Decimal):
+                m['precio_referencia'] = float(m['precio_referencia'])
+            internos.append(m)
+        return internos, total
+
+    async def crear_interno(self, conn, data: dict) -> dict:
+        return await self.db.crear_interno(conn, data)
+
+    async def actualizar_interno(self, conn, id: UUID, data: dict) -> Optional[dict]:
+        ok = await self.db.actualizar_interno(conn, id, data)
+        if not ok:
+            return None
+        m = await self.db.get_interno_by_id(conn, id)
+        if m and m.get('precio_referencia') and isinstance(m['precio_referencia'], Decimal):
+            m['precio_referencia'] = float(m['precio_referencia'])
+        return m
+
+    async def desactivar_interno(self, conn, id: UUID) -> bool:
+        return await self.db.desactivar_interno(conn, id)
+
+    async def get_estadisticas_internos(self, conn) -> dict:
+        return await self.db.get_estadisticas_internos(conn)
+
+    async def get_cat_unidades(self, conn) -> list:
+        return await self.db.get_cat_unidades(conn)
+
+    async def get_vinculos_xml(self, conn, id_interno: UUID) -> list:
+        rows = await self.db.get_vinculos_xml(conn, id_interno)
+        for r in rows:
+            if r.get('precio_unitario') and isinstance(r['precio_unitario'], Decimal):
+                r['precio_unitario'] = float(r['precio_unitario'])
+        return rows
+
+    async def buscar_xml_para_vincular(self, conn, id_interno: UUID, q: str) -> list:
+        rows = await self.db.buscar_xml_para_vincular(conn, id_interno, q)
+        for r in rows:
+            if r.get('precio_unitario') and isinstance(r['precio_unitario'], Decimal):
+                r['precio_unitario'] = float(r['precio_unitario'])
+        return rows
+
+    async def crear_vinculo_xml(self, conn, id_interno: UUID, id_xml: UUID) -> None:
+        await self.db.crear_vinculo_xml(conn, id_interno, id_xml)
+
+    async def eliminar_vinculo_xml(self, conn, id_interno: UUID, id_xml: UUID) -> None:
+        await self.db.eliminar_vinculo_xml(conn, id_interno, id_xml)
+
+    async def importar_internos_excel(self, conn, archivo_bytes: bytes) -> dict:
+        from openpyxl import load_workbook
+        from io import BytesIO
+
+        wb = load_workbook(BytesIO(archivo_bytes), read_only=True)
+        ws = wb.active
+
+        unidades_cache = {u['codigo'].upper(): u['id'] for u in await self.db.get_cat_unidades(conn)}
+        cats_raw = await self.db.get_catalogos(conn)
+        cats_cache = {c['nombre'].upper(): c['id'] for c in cats_raw.get('categorias', [])}
+
+        headers = None
+        creados, duplicados = 0, 0
+        errores: List[str] = []
+        norms_sesion: set = set()
+
+        for i, row in enumerate(ws.iter_rows(values_only=True), start=1):
+            if i == 1:
+                headers = [str(c).strip().lower() if c else '' for c in row]
+                continue
+            if not any(row):
+                continue
+            try:
+                fila = dict(zip(headers, row))
+                desc = str(fila.get('descripcion') or '').strip()
+                if not desc:
+                    errores.append(f"Fila {i}: descripcion vacía")
+                    continue
+                norm = normalizar_descripcion(desc)
+                if norm in norms_sesion:
+                    duplicados += 1
+                    continue
+                unidad_txt = str(fila.get('unidad') or '').strip().upper()
+                cat_txt    = str(fila.get('categoria') or '').strip().upper()
+                precio_raw = fila.get('precio_referencia')
+                try:
+                    precio = float(precio_raw) if precio_raw is not None and precio_raw != '' else None
+                except (ValueError, TypeError):
+                    precio = None
+                data = {
+                    'descripcion_canonica': desc,
+                    'id_unidad_medida': unidades_cache.get(unidad_txt),
+                    'id_categoria':     cats_cache.get(cat_txt),
+                    'clave_prod_serv':  str(fila.get('clave_sat') or '').strip() or None,
+                    'precio_referencia': precio,
+                    'notas':            str(fila.get('notas') or '').strip() or None,
+                }
+                await self.db.crear_interno(conn, data)
+                norms_sesion.add(norm)
+                creados += 1
+            except Exception as e:
+                errores.append(f"Fila {i}: {e}")
+
+        return {'creados': creados, 'duplicados': duplicados, 'errores': errores}
 
     async def export_to_excel(self, conn, filtros: dict) -> bytes:
         """Genera archivo Excel con materiales filtrados."""
