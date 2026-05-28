@@ -108,3 +108,49 @@ class MaterialPrecioAnalisis(BaseModel):
     avg_precio: Decimal
     total_compras: int
     ultima_compra: Optional[date] = None
+
+
+class MaterialInternoCreate(BaseModel):
+    descripcion_canonica: str = Field(..., min_length=1, max_length=1000)
+    id_unidad_medida: Optional[int] = None
+    id_categoria: Optional[int] = None
+    clave_prod_serv: Optional[str] = None
+    precio_referencia: Optional[Decimal] = None
+    notas: Optional[str] = None
+
+    @field_validator('descripcion_canonica', mode='before')
+    @classmethod
+    def strip_desc(cls, v):
+        return v.strip() if v else v
+
+
+class MaterialInternoUpdate(BaseModel):
+    descripcion_canonica: Optional[str] = None
+    id_unidad_medida: Optional[int] = None
+    id_categoria: Optional[int] = None
+    clave_prod_serv: Optional[str] = None
+    precio_referencia: Optional[Decimal] = None
+    notas: Optional[str] = None
+
+    @field_validator('descripcion_canonica', mode='before')
+    @classmethod
+    def strip_desc(cls, v):
+        return v.strip() if v else v
+
+
+class MaterialInternoFilter(BaseModel):
+    q: Optional[str] = None
+    id_unidad_medida: Optional[int] = None
+    id_categoria: Optional[int] = None
+    page: int = Field(default=1, ge=1)
+    per_page: int = Field(default=50, ge=1, le=500)
+
+    @field_validator('q', mode='before')
+    @classmethod
+    def validate_empty_str(cls, v):
+        return None if not v or v == "" else v
+
+    @field_validator('id_unidad_medida', 'id_categoria', mode='before')
+    @classmethod
+    def validate_empty_int(cls, v):
+        return None if v is None or v == "" or v == "0" else v
