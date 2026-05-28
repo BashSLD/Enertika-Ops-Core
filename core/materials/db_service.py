@@ -449,5 +449,58 @@ class MaterialsDBService:
         return [dict(r) for r in rows]
 
 
+    async def get_vinculos_xml(self, conn, id_interno: UUID) -> list:
+        rows = await conn.fetch("""
+            SELECT
+                m.id AS id_xml,
+                m.descripcion_proveedor,
+                COALESCE(m.unidad_homologada, m.unidad) AS unidad,
+                m.precio_unitario,
+                p.razon_social AS proveedor_nombre,
+                m.fecha_factura,
+                v.created_at AS vinculado_en
+            FROM tb_materiales_interno_xml v
+            JOIN tb_materiales_historial m ON m.id = v.id_material_xml
+            LEFT JOIN tb_proveedores p ON p.id_proveedor = m.id_proveedor
+            WHERE v.id_material_interno = $1
+            ORDER BY v.created_at DESC
+        """, id_interno)
+        return [dict(r) for r in rows]
+
+    async def buscar_xml_para_vincular(self, conn, id_interno: UUID, q: str, limite: int = 20) -> list:
+        rows = await conn.fetch("""
+            SELECT DISTINCT ON (m.descripcion_proveedor)
+                m.id,
+                m.descripcion_proveedor,
+                COALESCE(m.unidad_homologada, m.unidad) AS unidad,
+                m.precio_unitario,
+                p.razon_social AS proveedor_nombre,
+                m.fecha_factura,
+                EXISTS(
+                    SELECT 1 FROM tb_materiales_interno_xml v
+                    WHERE v.id_material_interno = $1 AND v.id_material_xml = m.id
+                ) AS ya_vinculado
+            FROM tb_materiales_historial m
+            LEFT JOIN tb_proveedores p ON p.id_proveedor = m.id_proveedor
+            WHERE m.descripcion_proveedor ILIKE '%' || $2 || '%'
+            ORDER BY m.descripcion_proveedor, m.fecha_factura DESC
+            LIMIT $3
+        """, id_interno, q, limite)
+        return [dict(r) for r in rows]
+
+    async def crear_vinculo_xml(self, conn, id_interno: UUID, id_xml: UUID) -> None:
+        await conn.execute("""
+            INSERT INTO tb_materiales_interno_xml (id_material_interno, id_material_xml)
+            VALUES ($1, $2)
+            ON CONFLICT DO NOTHING
+        """, id_interno, id_xml)
+
+    async def eliminar_vinculo_xml(self, conn, id_interno: UUID, id_xml: UUID) -> None:
+        await conn.execute("""
+            DELETE FROM tb_materiales_interno_xml
+            WHERE id_material_interno = $1 AND id_material_xml = $2
+        """, id_interno, id_xml)
+
+
 def get_materials_db_service():
     return MaterialsDBService()
