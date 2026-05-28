@@ -1,0 +1,260 @@
+<div
+    class="animate-fade-in-down px-4"
+    x-data="{
+        modalAbierto: false,
+        modoEditar: false,
+        editandoId: '',
+        form: {
+            descripcion_canonica: '',
+            id_unidad_medida: '',
+            id_categoria: '',
+            clave_prod_serv: '',
+            precio_referencia: '',
+            notas: ''
+        },
+        abrirCrear() {
+            this.modoEditar = false;
+            this.editandoId = '';
+            this.form = { descripcion_canonica: '', id_unidad_medida: '', id_categoria: '', clave_prod_serv: '', precio_referencia: '', notas: '' };
+            this.modalAbierto = true;
+        },
+        abrirEditar(jsonStr) {
+            const d = JSON.parse(jsonStr);
+            this.modoEditar = true;
+            this.editandoId = d.id;
+            this.form = {
+                descripcion_canonica: d.descripcion || '',
+                id_unidad_medida: d.id_unidad ? String(d.id_unidad) : '',
+                id_categoria: d.id_categoria ? String(d.id_categoria) : '',
+                clave_prod_serv: d.clave || '',
+                precio_referencia: d.precio || '',
+                notas: d.notas || ''
+            };
+            this.modalAbierto = true;
+        },
+        cerrarModal() { this.modalAbierto = false; },
+        modalImportar: false
+    }"
+    @keydown.escape.window="modalAbierto = false; modalImportar = false"
+>
+    <!-- MOVIL: acciones -->
+    <div id="mobile-actions-template" style="display:none">
+        <button @click="abrirCrear()"
+            class="bg-[#00BABB] text-white text-sm font-semibold py-2.5 px-4 rounded-xl flex items-center gap-3 w-full">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            Nuevo Material
+        </button>
+    </div>
+    <script>
+    (function() {
+        var tmpl = document.getElementById('mobile-actions-template');
+        var slot = document.getElementById('mobile-module-actions-slot');
+        if (!slot || !tmpl) return;
+        slot.innerHTML = '';
+        Array.from(tmpl.children).forEach(function(c) { slot.appendChild(c.cloneNode(true)); });
+        if (typeof htmx !== 'undefined') htmx.process(slot);
+        var sep = document.getElementById('mobile-actions-separator');
+        if (sep) sep.classList.toggle('hidden', slot.children.length === 0);
+    })();
+    </script>
+
+    <!-- DESKTOP: Header -->
+    <div class="glass-panel rounded-xl shadow-lg p-4 border-l-4 border-[#00BABB] mb-4 hidden md:block">
+        <div class="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
+            <div>
+                <div class="mb-1">
+                    <a href="/materials/ui" hx-get="/materials/ui" hx-target="#main-content" hx-push-url="true"
+                        class="text-sm text-[#00BABB] hover:underline">← Historial XML</a>
+                </div>
+                <h1 class="text-2xl font-light text-[#123456]">
+                    Catálogo <span class="font-bold text-[#00BABB]">Interno</span> de Materiales
+                </h1>
+                <p class="text-gray-500 text-sm">Descripciones canónicas de la empresa, independientes del proveedor</p>
+            </div>
+            <div class="flex flex-wrap gap-3">
+                {% if role == 'ADMIN' or current_module_role in ['editor', 'admin'] %}
+                <button @click="modalImportar = true"
+                    class="ripple-effect bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/>
+                    </svg>
+                    Importar Excel
+                </button>
+                <button @click="abrirCrear()"
+                    class="ripple-effect bg-[#00BABB] hover:bg-[#009999] text-white font-bold py-2 px-3 text-sm rounded-lg shadow flex items-center gap-2 transition-transform hover:scale-105">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                    </svg>
+                    Nuevo Material
+                </button>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <!-- Estadísticas -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-4" id="stats-internos">
+        <div class="bg-white rounded-lg shadow p-4 text-center">
+            <p class="text-3xl font-bold text-[#123456]">{{ estadisticas.total_activos }}</p>
+            <p class="text-xs text-gray-500 mt-1">Materiales activos</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-4 text-center">
+            <p class="text-3xl font-bold text-[#00BABB]">{{ estadisticas.con_categoria }}</p>
+            <p class="text-xs text-gray-500 mt-1">Con categoría</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-4 text-center">
+            <p class="text-3xl font-bold text-green-600">{{ estadisticas.con_precio }}</p>
+            <p class="text-xs text-gray-500 mt-1">Con precio referencia</p>
+        </div>
+        <div class="bg-white rounded-lg shadow p-4 text-center">
+            <p class="text-3xl font-bold text-orange-500">{{ estadisticas.total_inactivos }}</p>
+            <p class="text-xs text-gray-500 mt-1">Desactivados</p>
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="bg-white rounded-lg shadow p-4 mb-4">
+        <form id="filtros-internos" hx-get="/materials/internos" hx-target="#tabla-internos" hx-swap="innerHTML"
+            hx-trigger="submit, change delay:400ms" class="flex flex-wrap gap-4 items-end">
+            <div class="flex-1 min-w-[200px]">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Buscar</label>
+                <input type="text" name="q" value="{{ filtros.q|default('', true) }}"
+                    placeholder="Descripción..." autocomplete="off"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+            </div>
+            <div class="flex-1 min-w-[140px]">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Unidad</label>
+                <select name="id_unidad_medida" autocomplete="off"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                    <option value="">Todas</option>
+                    {% for u in unidades %}
+                    <option value="{{ u.id }}" {% if filtros.id_unidad_medida|string == u.id|string %}selected{% endif %}>{{ u.codigo }} — {{ u.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex-1 min-w-[140px]">
+                <label class="block text-xs font-medium text-gray-600 mb-1">Categoría</label>
+                <select name="id_categoria" autocomplete="off"
+                    class="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-[#00BABB] focus:border-transparent">
+                    <option value="">Todas</option>
+                    {% for cat in categorias %}
+                    <option value="{{ cat.id }}" {% if filtros.id_categoria|string == cat.id|string %}selected{% endif %}>{{ cat.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="flex items-center gap-3 pb-1">
+                <button type="submit"
+                    class="bg-[#123456] hover:bg-[#0d2640] text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors">
+                    Filtrar
+                </button>
+                <a href="/materials/internos/ui" hx-get="/materials/internos/ui" hx-target="#main-content" hx-push-url="true"
+                    class="text-sm text-blue-600 hover:text-blue-800 underline">Limpiar</a>
+            </div>
+        </form>
+    </div>
+
+    <!-- Tabla -->
+    <div id="tabla-internos">
+        {% include "materials/partials/tabla_internos.html" %}
+    </div>
+
+    <!-- Container para modal vincular XML -->
+    <div id="modal-vincular-container"></div>
+
+    <!-- Modal Crear / Editar -->
+    <div x-show="modalAbierto" x-cloak
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+        @click.self="cerrarModal()">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90dvh] flex flex-col">
+            <div class="flex items-center justify-between px-6 py-4 border-b flex-shrink-0">
+                <h3 class="text-lg font-semibold text-[#123456]"
+                    x-text="modoEditar ? 'Editar material' : 'Nuevo material interno'"></h3>
+                <button @click="cerrarModal()" class="text-gray-400 hover:text-gray-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="flex-1 min-h-0 overflow-y-auto px-6 py-4">
+                <!-- Crear -->
+                <form x-show="!modoEditar"
+                    hx-post="/materials/internos"
+                    hx-target="#internos-tbody"
+                    hx-swap="afterbegin"
+                    @htmx:after-request="if($event.detail.successful){ cerrarModal(); }"
+                    class="space-y-4">
+                    {% include "materials/partials/_form_interno.html" %}
+                    <div class="flex justify-end gap-3 pt-2">
+                        <button type="button" @click="cerrarModal()"
+                            class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
+                        <button type="submit"
+                            class="bg-[#00BABB] hover:bg-[#009999] text-white px-5 py-2 rounded-lg text-sm font-semibold">
+                            Crear
+                        </button>
+                    </div>
+                </form>
+                <!-- Editar -->
+                <form x-show="modoEditar"
+                    :hx-patch="'/materials/internos/' + editandoId"
+                    :hx-target="'#row-interno-' + editandoId"
+                    hx-swap="outerHTML"
+                    @htmx:after-request="if($event.detail.successful){ cerrarModal(); }"
+                    class="space-y-4">
+                    {% include "materials/partials/_form_interno.html" %}
+                    <div class="flex justify-end gap-3 pt-2">
+                        <button type="button" @click="cerrarModal()"
+                            class="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">Cancelar</button>
+                        <button type="submit"
+                            class="bg-[#123456] hover:bg-[#0d2640] text-white px-5 py-2 rounded-lg text-sm font-semibold">
+                            Guardar cambios
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Importar Excel -->
+    <div x-show="modalImportar" x-cloak
+        class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+        @click.self="modalImportar = false">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-md">
+            <div class="flex items-center justify-between px-6 py-4 border-b">
+                <h3 class="text-lg font-semibold text-[#123456]">Importar desde Excel</h3>
+                <button @click="modalImportar = false" class="text-gray-400 hover:text-gray-600">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="px-6 py-4 space-y-3">
+                <p class="text-sm text-gray-600">El archivo debe tener las columnas (primera fila = encabezado):</p>
+                <code class="block text-xs bg-gray-100 rounded p-2 text-gray-700">
+                    descripcion | unidad | categoria | clave_sat | precio_referencia | notas
+                </code>
+                <form hx-post="/materials/internos/importar"
+                    hx-target="#resultado-importar"
+                    hx-swap="innerHTML"
+                    hx-encoding="multipart/form-data"
+                    class="space-y-3">
+                    <input type="file" name="archivo" accept=".xlsx,.xls"
+                        class="block w-full text-sm text-gray-700 file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:bg-[#00BABB] file:text-white file:font-semibold hover:file:bg-[#009999]">
+                    <button type="submit"
+                        class="w-full bg-green-600 hover:bg-green-700 text-white py-2 rounded-lg text-sm font-semibold">
+                        Importar
+                    </button>
+                </form>
+                <div id="resultado-importar"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Recargar tabla tras importar -->
+    <div hx-get="/materials/internos"
+         hx-target="#tabla-internos"
+         hx-swap="innerHTML"
+         hx-trigger="internos-importados from:body">
+    </div>
+</div>
