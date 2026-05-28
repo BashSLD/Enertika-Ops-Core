@@ -19,35 +19,53 @@
 {% endmacro %}
 
 {% macro rows() %}
+{% set ns = namespace(prev_fuente='') %}
 {% for mat in resultados %}
+    {% if not append_mode and mat.fuente != ns.prev_fuente %}
+    <div class="px-3 py-1 text-xs font-semibold uppercase tracking-wide
+        {% if mat.fuente == 'XML' %}text-blue-500 bg-blue-50{% else %}text-green-600 bg-green-50{% endif %}">
+        {% if mat.fuente == 'XML' %}Proveedor{% else %}Catalogo interno{% endif %}
+    </div>
+    {% set ns.prev_fuente = mat.fuente %}
+    {% endif %}
 <button type="button"
     class="w-full cursor-pointer px-3 py-2.5 text-left transition-colors hover:bg-blue-50 focus:bg-blue-50 focus:outline-none"
     data-material-id="{{ mat.id }}"
-    data-descripcion="{{ mat.descripcion_proveedor }}"
+    data-descripcion="{{ mat.descripcion }}"
     data-precio="{{ mat.precio_unitario or 0 }}"
     data-unidad="{{ mat.unidad or '' }}"
     data-proveedor="{{ mat.proveedor_nombre or '' }}"
+    data-categoria="{{ mat.categoria_nombre or '' }}"
     data-clave="{{ mat.clave_prod_serv or '' }}"
+    data-fuente="{{ mat.fuente }}"
     @click="seleccionarMaterial({
         id: $el.dataset.materialId,
         descripcion: $el.dataset.descripcion,
         precio: parseFloat($el.dataset.precio || '0'),
         unidad: $el.dataset.unidad,
         proveedor: $el.dataset.proveedor,
-        clave: $el.dataset.clave
+        categoria: $el.dataset.categoria,
+        clave: $el.dataset.clave,
+        fuente: $el.dataset.fuente
     })">
     <div class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-medium text-gray-800">{{ mat.descripcion_proveedor }}</p>
+            <p class="truncate text-sm font-medium text-gray-800">{{ mat.descripcion }}</p>
             <p class="mt-0.5 truncate text-xs text-gray-500">
-                {% if mat.proveedor_nombre %}{{ mat.proveedor_nombre|truncate(36) }}{% endif %}
-                {% if mat.proveedor_nombre and mat.unidad %} - {% endif %}
-                {% if mat.unidad %}{{ mat.unidad }}{% endif %}
-                {% if mat.clave_prod_serv %} - SAT: {{ mat.clave_prod_serv }}{% endif %}
+                {% if mat.fuente == 'XML' %}
+                    {% if mat.proveedor_nombre %}{{ mat.proveedor_nombre|truncate(30) }}{% endif %}
+                {% else %}
+                    {% if mat.categoria_nombre %}{{ mat.categoria_nombre|truncate(30) }}{% endif %}
+                {% endif %}
+                {% if mat.unidad %} · {{ mat.unidad }}{% endif %}
+                {% if mat.clave_prod_serv %} · SAT: {{ mat.clave_prod_serv }}{% endif %}
             </p>
         </div>
-        <div class="shrink-0 text-right">
-            <p class="text-sm font-semibold text-green-700">${{ "%.2f"|format(mat.precio_unitario or 0) }}</p>
+        <div class="shrink-0 flex flex-col items-end gap-1">
+            <span class="inline-block rounded px-1.5 py-0.5 text-xs font-medium
+                {% if mat.fuente == 'XML' %}bg-blue-100 text-blue-700{% else %}bg-green-100 text-green-700{% endif %}">
+                {% if mat.fuente == 'XML' %}Proveedor{% else %}Interno{% endif %}
+            </span>
             {% if es_busqueda %}
             <p class="text-xs text-gray-400">{{ "%.0f"|format((mat.similitud or 0) * 100) }}% sim.</p>
             {% endif %}
