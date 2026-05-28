@@ -71,10 +71,10 @@
 
     aplicarFiltros() {
         const params = new URLSearchParams({
-            fecha_inicio: this.filtros.fecha_inicio,
-            fecha_fin: this.filtros.fecha_fin,
-            id_tecnologia: this.filtros.tecnologia,
-            responsable_id: this.filtros.usuario
+            filtro_fecha_inicio: this.filtros.fecha_inicio,
+            filtro_fecha_fin: this.filtros.fecha_fin,
+            filtro_tecnologia_id: this.filtros.tecnologia,
+            filtro_responsable_id: this.filtros.usuario
         }).toString();
 
         htmx.ajax('GET', '/simulacion/partials/graphs?' + params, {
