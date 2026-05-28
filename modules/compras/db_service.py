@@ -5,6 +5,7 @@ from datetime import date
 from typing import List, Tuple, Optional
 from decimal import Decimal
 from fastapi import HTTPException
+import asyncpg
 import logging
 import json
 
@@ -848,6 +849,21 @@ class ComprasDBService:
                 DO NOTHING
             """, rows)
 
+        try:
+            await conn.execute("""
+                UPDATE tb_materiales_historial m
+                SET id_unidad_medida  = a.unidad_id,
+                    unidad_homologada = u.codigo
+                FROM tb_cat_unidad_aliases a
+                JOIN tb_cat_unidades_medida u ON u.id = a.unidad_id
+                WHERE m.uuid_factura = $1
+                  AND m.id_unidad_medida IS NULL
+                  AND (UPPER(TRIM(m.clave_unidad)) = a.alias
+                    OR UPPER(TRIM(m.unidad)) = a.alias)
+            """, uuid_factura)
+        except asyncpg.PostgresError as e:
+            logger.warning("No se pudo homologar unidades para %s: %s", uuid_factura[:8], e)
+
         if auto_cat_count:
             logger.info(
                 "Auto-categorizado %d/%d conceptos por clave SAT (UUID=%s)",
@@ -1494,6 +1510,12 @@ class ComprasDBService:
     async def get_proveedores_activos(self, conn) -> list:
         rows = await conn.fetch(
             "SELECT id_proveedor, razon_social FROM tb_proveedores WHERE activo = true ORDER BY razon_social"
+        )
+        return [dict(r) for r in rows]
+
+    async def get_unidades_medida(self, conn) -> list:
+        rows = await conn.fetch(
+            "SELECT codigo, nombre FROM tb_cat_unidades_medida WHERE activo = TRUE ORDER BY orden, codigo"
         )
         return [dict(r) for r in rows]
 

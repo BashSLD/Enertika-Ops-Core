@@ -1586,10 +1586,12 @@ async def get_inventario(
     db_svc = get_db_service()
     items = await db_svc.get_inventario(conn)
     proveedores = await db_svc.get_proveedores_activos(conn)
+    unidades = await db_svc.get_unidades_medida(conn)
     return templates.TemplateResponse(
         request, "compras/partials/inventario.html", {
             "items": items,
             "proveedores": proveedores,
+            "unidades": unidades,
             "role": context.get("role"),
             "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
         }
@@ -1618,10 +1620,12 @@ async def registrar_inventario(
     )
     items = await db_svc.get_inventario(conn)
     proveedores = await db_svc.get_proveedores_activos(conn)
+    unidades = await db_svc.get_unidades_medida(conn)
     return templates.TemplateResponse(
         request, "compras/partials/inventario.html", {
             "items": items,
             "proveedores": proveedores,
+            "unidades": unidades,
             "role": context.get("role"),
             "current_module_role": context.get("module_roles", {}).get("compras", "viewer"),
         }
@@ -1653,8 +1657,9 @@ async def actualizar_inventario(
     db_svc = get_db_service()
     await db_svc.update_inventario(conn, inventario_id, **campos)
     items = await db_svc.get_inventario(conn)
+    unidades = await db_svc.get_unidades_medida(conn)
     return templates.TemplateResponse(
-        request, "compras/partials/inventario.html", {"items": items}
+        request, "compras/partials/inventario.html", {"items": items, "unidades": unidades}
     )
 
 
