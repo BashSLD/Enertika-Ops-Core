@@ -396,12 +396,17 @@
     </div>
 
     {# Modal agregar item con busqueda en catalogo + entrada manual #}
-    <div id="modal-agregar-item" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-modal="true"
+    <style>
+        #buscar-material-status.htmx-request .buscar-material-idle-icon {
+            display: none;
+        }
+    </style>
+    <div id="modal-agregar-item" x-ref="modalAgregarItem" class="hidden fixed inset-0 z-50 overflow-y-auto" aria-modal="true"
         x-data="{
             modo: 'catalogo',
             descripcion: '',
             precio: 0,
-            cantidad: 0,
+            cantidad: '',
             unidad: '',
             origen: 'CATALOGO',
             moneda: 'MXN',
@@ -409,27 +414,120 @@
             materialSeleccionado: '',
             proveedorSeleccionado: '',
             claveSeleccionada: '',
+            unidadCatalogoFija: false,
+            cantidadAutogenerada: false,
             mostrarResultados: false,
             errorCatalogo: '',
+            unidadesHomologadas: [
+                { valor: 'pza', etiqueta: 'pza - Pieza' },
+                { valor: 'lote', etiqueta: 'lote' },
+                { valor: 'servicio', etiqueta: 'servicio' },
+                { valor: 'hr', etiqueta: 'hr - Hora' },
+                { valor: 'día', etiqueta: 'dia - Dia' },
+                { valor: 'global', etiqueta: 'global' },
+                { valor: 'kg', etiqueta: 'kg - Kilogramo' },
+                { valor: 'ton', etiqueta: 'ton - Tonelada' },
+                { valor: 'm', etiqueta: 'm - Metro lineal' },
+                { valor: 'm²', etiqueta: 'm2 - Metro cuadrado' },
+                { valor: 'm³', etiqueta: 'm3 - Metro cubico' },
+                { valor: 'l', etiqueta: 'l - Litro' },
+                { valor: 'kW', etiqueta: 'kW - Kilowatt' },
+                { valor: 'kWh', etiqueta: 'kWh - Kilowatt hora' },
+                { valor: 'kVA', etiqueta: 'kVA - Kilovoltampere' },
+                { valor: 'MW', etiqueta: 'MW - Megawatt' },
+                { valor: 'MWh', etiqueta: 'MWh - Megawatt hora' }
+            ],
             get importe() { return (parseFloat(this.cantidad) || 0) * (parseFloat(this.precio) || 0); },
+            normalizarUnidad(valor) {
+                const texto = String(valor || '')
+                    .trim()
+                    .toLowerCase()
+                    .replace(/²/g, '2')
+                    .replace(/³/g, '3')
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '')
+                    .replace(/\./g, '')
+                    .replace(/\s+/g, ' ');
+                const alias = {
+                    'pieza': 'pza',
+                    'piezas': 'pza',
+                    'pza': 'pza',
+                    'pzas': 'pza',
+                    'pz': 'pza',
+                    'lotes': 'lote',
+                    'servicios': 'servicio',
+                    'hora': 'hr',
+                    'horas': 'hr',
+                    'hrs': 'hr',
+                    'dia': 'día',
+                    'dias': 'día',
+                    'kilogramo': 'kg',
+                    'kilogramos': 'kg',
+                    'kgs': 'kg',
+                    'tonelada': 'ton',
+                    'toneladas': 'ton',
+                    'metro': 'm',
+                    'metros': 'm',
+                    'mt': 'm',
+                    'mts': 'm',
+                    'metro lineal': 'm',
+                    'metros lineales': 'm',
+                    'm2': 'm²',
+                    'metro cuadrado': 'm²',
+                    'metros cuadrados': 'm²',
+                    'm3': 'm³',
+                    'metro cubico': 'm³',
+                    'metros cubicos': 'm³',
+                    'litro': 'l',
+                    'litros': 'l',
+                    'lt': 'l',
+                    'lts': 'l'
+                };
+                return alias[texto] || valor;
+            },
+            unidadEsContable(valor) {
+                return ['pza', 'lote', 'servicio', 'hr', 'día', 'global'].includes(this.normalizarUnidad(valor));
+            },
+            cantidadDefaultPorUnidad(valor) {
+                return this.unidadEsContable(valor) ? 1 : '';
+            },
+            asignarCantidadDefaultPorUnidad(opciones = {}) {
+                const cantidadActual = String(this.cantidad ?? '').trim();
+                if (opciones.forzar || this.cantidadAutogenerada || !cantidadActual || Number(cantidadActual) === 0) {
+                    const cantidadDefault = this.cantidadDefaultPorUnidad(this.unidad);
+                    this.cantidad = cantidadDefault;
+                    this.cantidadAutogenerada = cantidadDefault !== '';
+                }
+            },
             abrir() {
                 this.reset();
-                this.$el.classList.remove('hidden');
+                const modal = this.$refs.modalAgregarItem || document.getElementById('modal-agregar-item');
+                if (modal) modal.classList.remove('hidden');
                 this.$nextTick(() => {
                     if (this.$refs.inputBusqueda) this.$refs.inputBusqueda.focus();
                 });
             },
             cerrar() {
+                const modal = this.$refs.modalAgregarItem || document.getElementById('modal-agregar-item');
+                if (modal) modal.classList.add('hidden');
+                try {
+                    if (this.$refs.inputBusqueda && window.htmx) {
+                        htmx.trigger(this.$refs.inputBusqueda, 'htmx:abort');
+                    }
+                } catch (_) {
+                    // El cierre del modal no debe depender del estado interno de HTMX.
+                }
                 this.reset();
-                this.$el.classList.add('hidden');
             },
             limpiarIndicadorBusqueda() {
-                const spinner = this.$el.querySelector('#buscar-material-spinner');
-                if (spinner) spinner.classList.remove('htmx-request');
+                const modal = this.$refs.modalAgregarItem || document.getElementById('modal-agregar-item');
+                const indicator = modal ? modal.querySelector('#buscar-material-status') : null;
+                if (indicator) indicator.classList.remove('htmx-request');
             },
             limpiarResultadosBusqueda() {
                 this.mostrarResultados = false;
-                const res = this.$el.querySelector('#resultados-materiales');
+                const modal = this.$refs.modalAgregarItem || document.getElementById('modal-agregar-item');
+                const res = modal ? modal.querySelector('#resultados-materiales') : null;
                 if (res) res.innerHTML = '';
                 this.limpiarIndicadorBusqueda();
             },
@@ -445,6 +543,8 @@
                 this.descripcion = material.descripcion || '';
                 this.precio = material.precio || 0;
                 this.unidad = material.unidad || '';
+                this.unidadCatalogoFija = !!String(this.unidad || '').trim();
+                this.asignarCantidadDefaultPorUnidad({ forzar: true });
                 this.origen = 'CATALOGO';
                 this.moneda = 'MXN';
                 this.materialRef = material.id || '';
@@ -470,8 +570,10 @@
                 if (this.$refs.formAgregarItem) this.$refs.formAgregarItem.reset();
                 this.descripcion = '';
                 this.precio = 0;
-                this.cantidad = 0;
+                this.cantidad = '';
                 this.unidad = '';
+                this.unidadCatalogoFija = false;
+                this.cantidadAutogenerada = false;
                 this.origen = 'CATALOGO';
                 this.moneda = 'MXN';
                 this.materialRef = '';
@@ -487,6 +589,9 @@
                 this.descripcion = '';
                 this.precio = 0;
                 this.unidad = '';
+                this.cantidad = '';
+                this.unidadCatalogoFija = false;
+                this.cantidadAutogenerada = false;
                 this.origen = this.modo === 'catalogo' ? 'CATALOGO' : 'MANUAL';
                 this.moneda = 'MXN';
                 this.materialRef = '';
@@ -504,7 +609,18 @@
             <div class="fixed inset-0 bg-black bg-opacity-30"
                 @click="cerrar()"></div>
             <div class="relative bg-white rounded-xl shadow-xl max-w-lg w-full p-6 z-10">
-                <h3 class="text-lg font-bold text-gray-800 mb-4">Agregar Item al BOM</h3>
+                <div class="mb-4 flex items-center justify-between gap-3">
+                    <h3 class="text-lg font-bold text-gray-800">Agregar Item al BOM</h3>
+                    <button type="button"
+                        @click.prevent.stop="cerrar()"
+                        class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition hover:bg-gray-100 hover:text-gray-600"
+                        aria-label="Cerrar modal"
+                        title="Cerrar">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                        </svg>
+                    </button>
+                </div>
 
                 {# Toggle modo #}
                 <div class="grid grid-cols-2 gap-2 mb-4">
@@ -534,7 +650,7 @@
 
                 <form x-ref="formAgregarItem"
                     hx-post="/bom/{{ id_proyecto }}/items" hx-target="#tabla-bom-items" hx-swap="innerHTML"
-                    hx-disabled-elt="find button[type='submit']"
+                    hx-disabled-elt="#bom-agregar-item-submit"
                     hx-on::after-request="if(event.detail.successful && event.detail.elt === this) { cerrar(); }"
                     @submit.capture="validarSubmit($event)"
                     autocomplete="off">
@@ -545,48 +661,41 @@
                     <input type="hidden" name="id_material_ref" :value="materialRef">
 
                     <div class="space-y-3">
+                        <input type="hidden" :name="modo === 'catalogo' ? 'descripcion' : ''" :value="descripcion">
+                        <input type="hidden" :name="modo === 'catalogo' ? 'precio_unitario' : ''" :value="precio">
+
                         {# Busqueda en catalogo #}
-                        <div x-show="modo === 'catalogo'" class="space-y-2">
+                        <div x-show="modo === 'catalogo'" class="space-y-3">
                             <label class="block text-sm font-medium text-gray-700">Buscar material en catalogo</label>
                             <div class="relative" @click.outside="mostrarResultados = false">
-                                <div class="relative">
-                                    <span class="pointer-events-none absolute inset-y-0 left-3 flex items-center">
-                                        <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35m1.6-5.15a6.75 6.75 0 11-13.5 0 6.75 6.75 0 0113.5 0z"/>
-                                        </svg>
-                                    </span>
+                                <div class="flex gap-2">
                                     <input id="bom-material-search" type="text" x-ref="inputBusqueda"
                                         hx-get="/bom/materiales/buscar"
-                                        hx-trigger="focus, keyup changed delay:400ms"
+                                        hx-trigger="keyup changed delay:400ms"
                                         hx-target="#resultados-materiales"
                                         hx-swap="innerHTML"
-                                        hx-indicator="#buscar-material-spinner"
+                                        hx-indicator="#buscar-material-status"
+                                        hx-disinherit="hx-disabled-elt"
                                         name="q"
                                         @focus="mostrarResultados = true"
                                         autocomplete="off"
-                                        class="w-full rounded-lg border-gray-300 pl-9 pr-24 text-sm focus:ring-blue-500 focus:border-blue-500"
+                                        class="h-10 w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500"
                                         placeholder="Buscar descripcion, proveedor o clave SAT">
-                                    <span id="buscar-material-spinner" class="htmx-indicator pointer-events-none absolute inset-y-0 right-20 items-center">
-                                        <svg class="w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24">
+                                    <div id="buscar-material-status"
+                                        class="relative inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-gray-50 text-gray-400">
+                                        <svg class="buscar-material-idle-icon w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-4.35-4.35m1.6-5.15a6.75 6.75 0 11-13.5 0 6.75 6.75 0 0113.5 0z"/>
+                                        </svg>
+                                        <svg class="htmx-indicator absolute w-4 h-4 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24" aria-hidden="true">
                                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
                                         </svg>
-                                    </span>
-                                    <button type="button"
-                                        hx-get="/bom/materiales/buscar"
-                                        hx-include="#bom-material-search"
-                                        hx-target="#resultados-materiales"
-                                        hx-swap="innerHTML"
-                                        hx-indicator="#buscar-material-spinner"
-                                        @click="mostrarResultados = true"
-                                        class="absolute right-1 top-1 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition">
-                                        Buscar
-                                    </button>
+                                    </div>
                                 </div>
-                                <div id="resultados-materiales" class="absolute z-20 w-full mt-1"
+                                <div id="resultados-materiales" class="absolute z-50 w-full mt-1"
                                     x-show="mostrarResultados"></div>
                             </div>
-                            <p class="text-xs text-gray-500">Escribe al menos 3 letras para buscar o enfoca el campo para ver recientes.</p>
+                            <p class="text-xs text-gray-500">Escribe al menos 3 letras para buscar en el catalogo.</p>
                             <p x-show="errorCatalogo" class="text-xs text-red-600" x-text="errorCatalogo"></p>
 
                             {# Material seleccionado #}
@@ -607,93 +716,122 @@
                                             <span x-show="claveSeleccionada"> - SAT: <span x-text="claveSeleccionada"></span></span>
                                         </p>
                                     </div>
-                                    <div class="shrink-0 text-right">
-                                        <p class="text-sm font-semibold text-green-700"
-                                            x-text="'$' + parseFloat(precio || 0).toFixed(2)"></p>
-                                        <button type="button" @click="limpiarSeleccion()"
-                                            class="text-xs font-medium text-blue-600 hover:text-blue-800">
-                                            Cambiar
-                                        </button>
-                                    </div>
+                                    <button type="button" @click="limpiarSeleccion()"
+                                        class="shrink-0 text-xs font-medium text-blue-600 hover:text-blue-800">
+                                        Cambiar
+                                    </button>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad *</label>
+                                    <input type="number" name="cantidad" required step="0.0001" min="0.0001"
+                                        x-model="cantidad"
+                                        @input="cantidadAutogenerada = false"
+                                        :disabled="modo !== 'catalogo' || !materialRef"
+                                        class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Unidad</label>
+                                    <input x-show="!materialRef" type="text" disabled
+                                        class="w-full rounded-lg border border-gray-300 bg-gray-100 px-3 text-sm text-gray-500 shadow-none"
+                                        placeholder="Selecciona material">
+                                    <input x-show="materialRef && unidadCatalogoFija" type="text" name="unidad_medida" x-model="unidad"
+                                        readonly
+                                        :disabled="modo !== 'catalogo' || !materialRef || !unidadCatalogoFija"
+                                        class="w-full cursor-default rounded-lg border border-gray-300 bg-gray-50 px-3 text-sm text-gray-700 shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none">
+                                    <select x-show="materialRef && !unidadCatalogoFija" name="unidad_medida" x-model="unidad"
+                                        @change="asignarCantidadDefaultPorUnidad()"
+                                        :disabled="modo !== 'catalogo' || !materialRef || unidadCatalogoFija"
+                                        class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none">
+                                        <option value="">Selecciona unidad</option>
+                                        <template x-for="opcion in unidadesHomologadas" :key="opcion.valor">
+                                            <option :value="opcion.valor" x-text="opcion.etiqueta"></option>
+                                        </template>
+                                    </select>
                                 </div>
                             </div>
                         </div>
 
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
-                            <select name="id_categoria"
-                                class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500">
-                                <option value="">-- Sin categoria --</option>
-                                {% for cat in catalogos.categorias %}
-                                <option value="{{ cat.id }}">{{ cat.nombre }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Partida</label>
-                            <select name="tipo_partida"
-                                class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500">
-                                {% set tipos = ['MATERIAL', 'MANO_OBRA', 'SERVICIO', 'LEGALIZACION', 'EQUIPO'] %}
-                                {% set tipo_labels = {'MATERIAL': 'Material', 'MANO_OBRA': 'Mano de Obra', 'SERVICIO': 'Servicio', 'LEGALIZACION': 'Legalizacion', 'EQUIPO': 'Equipo'} %}
-                                {% for t in tipos %}
-                                <option value="{{ t }}">{{ tipo_labels[t] }}</option>
-                                {% endfor %}
-                            </select>
-                        </div>
-                        <div x-show="modo === 'manual' || materialRef">
+                        {# Entrada manual #}
+                        <div x-show="modo === 'manual'" class="space-y-3">
                             <label class="block text-sm font-medium text-gray-700 mb-1">Descripcion *</label>
                             <textarea name="descripcion" required rows="2" x-model="descripcion"
-                                :required="modo === 'manual' || !!materialRef"
-                                :disabled="modo === 'catalogo' && !materialRef"
-                                :readonly="modo === 'catalogo'"
-                                :class="modo === 'catalogo' ? 'bg-gray-100 text-gray-600' : ''"
-                                class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500"
+                                :disabled="modo !== 'manual'"
+                                class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none"
                                 placeholder="Detalle del material o equipo"></textarea>
-                            <p x-show="modo === 'catalogo'" class="text-xs text-blue-500 mt-0.5">
-                                Descripcion fija del catalogo de materiales
-                            </p>
-                        </div>
-                        <div class="grid grid-cols-3 gap-3">
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad *</label>
-                                <input type="number" name="cantidad" required step="0.0001" min="0.0001"
-                                    x-model="cantidad"
-                                    class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">Unidad</label>
-                                <input type="text" name="unidad_medida" x-model="unidad"
-                                    :disabled="modo === 'catalogo' && !materialRef"
-                                    :readonly="modo === 'catalogo'"
-                                    :class="modo === 'catalogo' ? 'bg-gray-100 text-gray-600' : ''"
-                                    class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500"
-                                    placeholder="pza, kg, m...">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-medium text-gray-700 mb-1">
-                                    Precio Unit. <span x-show="modo === 'manual'" class="text-red-500">*</span>
-                                </label>
-                                <input type="number" name="precio_unitario" step="0.01" min="0" x-model="precio"
-                                    :required="modo === 'manual'"
-                                    :disabled="modo === 'catalogo' && !materialRef"
-                                    :readonly="modo === 'catalogo'"
-                                    :class="modo === 'catalogo' ? 'bg-gray-100 text-gray-600' : ''"
-                                    class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500"
-                                    placeholder="0.00">
-                            </div>
-                        </div>
 
-                        <div>
-                            <label class="block text-sm font-medium text-gray-700 mb-1">Moneda</label>
-                            <select x-model="moneda"
-                                class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500">
-                                <option value="MXN">MXN - Peso mexicano</option>
-                                <option value="USD">USD - Dolar americano</option>
-                            </select>
+                            <div class="grid grid-cols-2 gap-3">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Categoria</label>
+                                    <select name="id_categoria"
+                                        :disabled="modo !== 'manual'"
+                                        class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none">
+                                        <option value="">-- Sin categoria --</option>
+                                        {% for cat in catalogos.categorias %}
+                                        <option value="{{ cat.id }}">{{ cat.nombre }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Tipo de Partida</label>
+                                    <select name="tipo_partida"
+                                        :disabled="modo !== 'manual'"
+                                        class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none">
+                                        {% set tipos = ['MATERIAL', 'MANO_OBRA', 'SERVICIO', 'LEGALIZACION', 'EQUIPO'] %}
+                                        {% set tipo_labels = {'MATERIAL': 'Material', 'MANO_OBRA': 'Mano de Obra', 'SERVICIO': 'Servicio', 'LEGALIZACION': 'Legalizacion', 'EQUIPO': 'Equipo'} %}
+                                        {% for t in tipos %}
+                                        <option value="{{ t }}">{{ tipo_labels[t] }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div class="grid grid-cols-3 gap-3">
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Cantidad *</label>
+                                    <input type="number" name="cantidad" required step="0.0001" min="0.0001"
+                                        x-model="cantidad"
+                                        @input="cantidadAutogenerada = false"
+                                        :disabled="modo !== 'manual'"
+                                        class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Unidad</label>
+                                    <select name="unidad_medida" x-model="unidad"
+                                        @change="asignarCantidadDefaultPorUnidad()"
+                                        :disabled="modo !== 'manual'"
+                                        class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none">
+                                        <option value="">Selecciona unidad</option>
+                                        <template x-for="opcion in unidadesHomologadas" :key="opcion.valor">
+                                            <option :value="opcion.valor" x-text="opcion.etiqueta"></option>
+                                        </template>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-medium text-gray-700 mb-1">Precio Unit. *</label>
+                                    <input type="number" name="precio_unitario" step="0.01" min="0" x-model="precio"
+                                        required
+                                        :disabled="modo !== 'manual'"
+                                        class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none"
+                                        placeholder="0.00">
+                                </div>
+                            </div>
+
+                            <div>
+                                <label class="block text-sm font-medium text-gray-700 mb-1">Moneda</label>
+                                <select x-model="moneda"
+                                    :disabled="modo !== 'manual'"
+                                    class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none">
+                                    <option value="MXN">MXN - Peso mexicano</option>
+                                    <option value="USD">USD - Dolar americano</option>
+                                </select>
+                            </div>
                         </div>
 
                         {# Preview importe #}
-                        <div x-show="precio > 0 && cantidad > 0"
+                        <div x-show="modo === 'manual' && precio > 0 && cantidad > 0"
                             class="bg-gray-50 rounded-lg px-3 py-2 flex items-center justify-between">
                             <span class="text-sm text-gray-600">Importe estimado:</span>
                             <span class="text-sm font-bold text-gray-800"
@@ -703,16 +841,12 @@
                         <div>
                             <label class="block text-sm font-medium text-gray-700 mb-1">Comentarios</label>
                             <input type="text" name="comentarios"
-                                class="w-full rounded-lg border-gray-300 text-sm focus:ring-blue-500 focus:border-blue-500">
+                                class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
                         </div>
                     </div>
-                    <div class="flex justify-end gap-2 mt-5">
-                        <button type="button"
-                            @click="cerrar()"
-                            class="px-4 py-2 text-sm rounded-lg border border-gray-300 text-gray-700 hover:bg-gray-50 transition">
-                            Cancelar
-                        </button>
+                    <div class="relative z-10 flex justify-end mt-5">
                         <button type="submit"
+                            id="bom-agregar-item-submit"
                             :disabled="modo === 'catalogo' && !materialRef"
                             class="px-4 py-2 text-sm rounded-lg text-white bg-green-600 hover:bg-green-700 transition font-medium disabled:opacity-60 disabled:cursor-not-allowed">
                             <span x-text="modo === 'catalogo' && !materialRef ? 'Selecciona material' : 'Agregar'">Agregar</span>
