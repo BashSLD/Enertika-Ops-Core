@@ -9,6 +9,9 @@ from typing import List, Optional, Tuple
 from decimal import Decimal
 import logging
 
+from core.materials.normalizer import normalizar_descripcion
+from core.timezone import now_mx
+
 logger = logging.getLogger("Materials.DBService")
 
 
@@ -290,6 +293,133 @@ class MaterialsDBService:
             "proyectos": [dict(r) for r in proyectos],
         }
 
+
+    async def get_cat_unidades(self, conn) -> list:
+        rows = await conn.fetch(
+            "SELECT id, codigo, nombre, tipo FROM tb_cat_unidades_medida WHERE activo ORDER BY orden, codigo"
+        )
+        return [dict(r) for r in rows]
+
+    async def get_estadisticas_internos(self, conn) -> dict:
+        row = await conn.fetchrow("""
+            SELECT
+                COUNT(*) FILTER (WHERE activo)                                   AS total_activos,
+                COUNT(*) FILTER (WHERE NOT activo)                               AS total_inactivos,
+                COUNT(*) FILTER (WHERE activo AND id_categoria IS NOT NULL)      AS con_categoria,
+                COUNT(*) FILTER (WHERE activo AND precio_referencia IS NOT NULL) AS con_precio
+            FROM tb_cat_materiales
+        """)
+        return dict(row)
+
+    async def get_internos_filtered(
+        self, conn, filtros: dict, page: int = 1, per_page: int = 50, count_only: bool = False
+    ):
+        if count_only:
+            base = "SELECT COUNT(*) FROM tb_cat_materiales c WHERE c.activo = TRUE"
+        else:
+            base = """
+                SELECT
+                    c.id, c.descripcion_canonica, c.id_unidad_medida, c.id_categoria,
+                    c.clave_prod_serv, c.precio_referencia, c.notas, c.activo,
+                    c.created_at, c.updated_at,
+                    u.codigo AS unidad_codigo, u.nombre AS unidad_nombre,
+                    cat.nombre AS categoria_nombre,
+                    (SELECT COUNT(*) FROM tb_materiales_interno_xml v
+                     WHERE v.id_material_interno = c.id) AS vinculos_xml
+                FROM tb_cat_materiales c
+                LEFT JOIN tb_cat_unidades_medida u    ON u.id  = c.id_unidad_medida
+                LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
+                WHERE c.activo = TRUE
+            """
+        params = []
+        idx = 1
+
+        if filtros.get('q'):
+            q_norm = normalizar_descripcion(filtros['q'])
+            base += f" AND (c.descripcion_norm ILIKE ${idx} OR c.descripcion_canonica ILIKE ${idx})"
+            params.append(f"%{q_norm}%")
+            idx += 1
+        if filtros.get('id_unidad_medida'):
+            base += f" AND c.id_unidad_medida = ${idx}"
+            params.append(filtros['id_unidad_medida'])
+            idx += 1
+        if filtros.get('id_categoria'):
+            base += f" AND c.id_categoria = ${idx}"
+            params.append(filtros['id_categoria'])
+            idx += 1
+
+        if count_only:
+            return await conn.fetchval(base, *params)
+
+        base += f" ORDER BY c.created_at DESC LIMIT ${idx} OFFSET ${idx + 1}"
+        params.extend([per_page, (page - 1) * per_page])
+        return await conn.fetch(base, *params)
+
+    async def get_interno_by_id(self, conn, id: UUID) -> Optional[dict]:
+        row = await conn.fetchrow("""
+            SELECT
+                c.id, c.descripcion_canonica, c.id_unidad_medida, c.id_categoria,
+                c.clave_prod_serv, c.precio_referencia, c.notas, c.activo,
+                c.created_at, c.updated_at,
+                u.codigo AS unidad_codigo, u.nombre AS unidad_nombre,
+                cat.nombre AS categoria_nombre
+            FROM tb_cat_materiales c
+            LEFT JOIN tb_cat_unidades_medida u    ON u.id  = c.id_unidad_medida
+            LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
+            WHERE c.id = $1
+        """, id)
+        return dict(row) if row else None
+
+    async def crear_interno(self, conn, data: dict) -> dict:
+        norm = normalizar_descripcion(data['descripcion_canonica'])
+        row = await conn.fetchrow("""
+            INSERT INTO tb_cat_materiales
+                (descripcion_canonica, descripcion_norm, id_unidad_medida, id_categoria,
+                 clave_prod_serv, precio_referencia, notas)
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            RETURNING id
+        """,
+            data['descripcion_canonica'], norm,
+            data.get('id_unidad_medida'), data.get('id_categoria'),
+            data.get('clave_prod_serv') or None,
+            data.get('precio_referencia'),
+            data.get('notas') or None,
+        )
+        return await self.get_interno_by_id(conn, row['id'])
+
+    async def actualizar_interno(self, conn, id: UUID, data: dict) -> bool:
+        allowed = ['descripcion_canonica', 'id_unidad_medida', 'id_categoria',
+                   'clave_prod_serv', 'precio_referencia', 'notas']
+        sets, params, idx = [], [], 1
+        for field in allowed:
+            if field not in data:
+                continue
+            val = data[field]
+            if field == 'descripcion_canonica' and val:
+                sets += [f"descripcion_canonica = ${idx}", f"descripcion_norm = ${idx + 1}"]
+                params += [val, normalizar_descripcion(val)]
+                idx += 2
+            elif val is None or val == "":
+                sets.append(f"{field} = NULL")
+            else:
+                sets.append(f"{field} = ${idx}")
+                params.append(val)
+                idx += 1
+        if not sets:
+            return False
+        sets.append(f"updated_at = ${idx}")
+        params.extend([now_mx(), id])
+        result = await conn.execute(
+            f"UPDATE tb_cat_materiales SET {', '.join(sets)} WHERE id = ${idx + 1}", *params
+        )
+        return result == "UPDATE 1"
+
+    async def desactivar_interno(self, conn, id: UUID) -> bool:
+        result = await conn.execute(
+            "UPDATE tb_cat_materiales SET activo = FALSE, updated_at = $1 WHERE id = $2",
+            now_mx(), id
+        )
+        return result == "UPDATE 1"
 
     async def buscar_similar_materiales(
         self, conn, query: str, threshold: float = 0.3, limit: int = 20
