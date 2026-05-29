@@ -28,7 +28,7 @@ graceful_timeout = 30
 
 # Worker lifecycle
 # Reiniciar workers después de N requests (previene memory leaks)
-max_requests = 1000
+max_requests = 5000
 max_requests_jitter = 50  # Añade aleatoriedad para evitar restarts simultáneos
 
 # Logging

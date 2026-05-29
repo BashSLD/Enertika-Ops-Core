@@ -399,11 +399,11 @@
 
     <!-- === BANNER GLOBAL: Estado descarga SAT === -->
     <!-- Solo visible para usuarios con acceso a compras -->
-    {% if role == 'ADMIN' or 'compras' in (module_roles or {}) %}
+    {% if role == 'ADMIN' or (module_roles or {}).get('compras') in ['editor', 'admin'] %}
     <div
       id="sat-global-banner"
       hx-get="/compras/sat/jobs/banner"
-      hx-trigger="load, every 15s"
+      hx-trigger="load, every 60s"
       hx-target="#sat-global-banner"
       hx-swap="outerHTML"
       class="hidden">
