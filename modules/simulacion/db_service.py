@@ -447,7 +447,9 @@ class SimulacionDBService:
             "SELECT id FROM tb_cat_tipos_solicitud WHERE LOWER(nombre) = 'levantamiento' LIMIT 1"
         )
 
-    async def get_oportunidades_filtradas(self, conn, tab: str, subtab: Optional[str], q: Optional[str], limit: int, filtro_tecnologia_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def get_oportunidades_filtradas(self, conn, tab: str, subtab: Optional[str], q: Optional[str], limit: int, page: int = 1, filtro_tecnologia_id: Optional[int] = None) -> dict:
+        limit = max(1, min(limit, 50))
+        page = max(1, page)
         status_map = await self.get_status_map(conn)
         
         # Query base
@@ -467,7 +469,8 @@ class SimulacionDBService:
                 lev_estatus.nombre as status_levantamiento,
                 lev.fecha_visita_programada as fecha_programada,
                 lev.id_levantamiento,
-                u_tecnico.nombre as tecnico_asignado_nombre
+                u_tecnico.nombre as tecnico_asignado_nombre,
+                COUNT(*) OVER() AS total_count
             FROM tb_oportunidades o
             LEFT JOIN tb_cat_estatus_oportunidades estatus ON o.id_estatus_global = estatus.id
             LEFT JOIN tb_cat_tipos_solicitud tipo_sol ON o.id_tipo_solicitud = tipo_sol.id
@@ -576,13 +579,19 @@ class SimulacionDBService:
             query += f" AND (o.op_id_estandar ILIKE {param_ph} OR o.nombre_proyecto ILIKE {param_ph} OR o.cliente_nombre ILIKE {param_ph})"
             params.append(f"%{q}%")
 
-        query += " ORDER BY o.fecha_solicitud DESC"
-        
-        if limit > 0:
-            query += f" LIMIT {limit}"
-        
+        offset = (page - 1) * limit
+        query += f" ORDER BY o.fecha_solicitud DESC LIMIT {limit} OFFSET {offset}"
+
         rows = await conn.fetch(query, *params)
-        return [dict(r) for r in rows]
+        total = rows[0]['total_count'] if rows else 0
+        total_pages = (total + limit - 1) // limit
+        return {
+            "items": [dict(r) for r in rows],
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages,
+        }
 
 
 

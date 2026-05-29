@@ -496,7 +496,8 @@ async def get_cards_partial(
     request: Request,
     tab: str = "activos",
     q: Optional[str] = None,
-    limit: int = 30,  # Default 30 para simulación
+    limit: int = 20,
+    page: int = 1,
     subtab: Optional[str] = None,
     filtro_tecnologia_id: Optional[str] = None,
     context = Depends(get_current_user_context),
@@ -507,24 +508,30 @@ async def get_cards_partial(
     """Partial: Tabla de oportunidades con filtros."""
     f_tecnologia = _safe_int(filtro_tecnologia_id)
     
-    oportunidades = await service.get_oportunidades_list(
-        conn, context, tab=tab, q=q, limit=limit, subtab=subtab, filtro_tecnologia_id=f_tecnologia
+    result = await service.get_oportunidades_list(
+        conn, context, tab=tab, q=q, limit=limit, page=page, subtab=subtab, filtro_tecnologia_id=f_tecnologia
     )
 
-    # Inject persistent multisite flag
     ops_processed = []
-    for op in oportunidades:
+    for op in result["items"]:
         d = dict(op)
         d['es_multisitio'] = ComercialService.is_originally_multisite(d)
         ops_processed.append(d)
-    
-    return templates.TemplateResponse(request, "simulacion/partials/cards.html", {"oportunidades": ops_processed,
+
+    return templates.TemplateResponse(request, "simulacion/partials/cards.html", {
+        "oportunidades": ops_processed,
         "current_tab": tab,
         "subtab": subtab,
-        "limit": limit,
+        "limit": result["limit"],
+        "page": result["page"],
+        "total": result["total"],
+        "total_pages": result["total_pages"],
         "context": context,
         "catalogos": await service.get_tecnologias_only(conn),
-        "filtro_tecnologia_id": f_tecnologia
+        "filtro_tecnologia_id": f_tecnologia,
+        "base_url": "/simulacion/partials/cards",
+        "hx_target": "#sim-tab-content",
+        "hx_include": "#active_tab_input, #search-input, .filter-select, #limit-selector",
     })
 
 @router.get("/partials/comentarios/{id_oportunidad}", include_in_schema=False)

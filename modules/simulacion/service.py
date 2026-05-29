@@ -722,11 +722,9 @@ class SimulacionService:
 
     # --- CONSULTAS (CORREGIDO: LISTA COMPLETA) ---
 
-    async def get_oportunidades_list(self, conn, user_context: dict, tab: str = "activos", q: str = None, limit: int = 30, subtab: str = None, filtro_tecnologia_id: Optional[int] = None) -> List[dict]:
-        """
-        Recupera lista filtrada de oportunidades para Simulación.
-        """
-        return await self.db.get_oportunidades_filtradas(conn, tab, subtab, q, limit, filtro_tecnologia_id)
+    async def get_oportunidades_list(self, conn, user_context: dict, tab: str = "activos", q: str = None, limit: int = 20, page: int = 1, subtab: str = None, filtro_tecnologia_id: Optional[int] = None) -> dict:
+        """Recupera lista paginada de oportunidades para Simulación."""
+        return await self.db.get_oportunidades_filtradas(conn, tab, subtab, q, limit, page, filtro_tecnologia_id)
 
     async def get_dashboard_stats(self, conn, user_context: dict) -> dict:
         """Calcula KPIs globales."""
