@@ -263,6 +263,12 @@ async def ejecutar_descarga(
         month_str = now.strftime("%m")
 
         for id_paquete in ids_paquetes:
+            # Refrescar token por paquete — el job puede durar >60 min y el token expira en ~60 min
+            fresh_token = await get_ms_auth().get_application_token()
+            if not fresh_token:
+                raise ValueError("No se pudo renovar token de aplicacion Microsoft")
+            sp.access_token = fresh_token
+
             zip_bytes = await client.descargar_paquete(id_paquete)
             await update(estado="procesando")
 
