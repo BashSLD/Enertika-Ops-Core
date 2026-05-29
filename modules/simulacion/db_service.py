@@ -379,14 +379,8 @@ class SimulacionDBService:
         return [dict(r) for r in rows]
 
     async def get_catalog_tecnologias(self, conn) -> List[Dict[str, Any]]:
-        cache_key = "SIM_tecnologias_list"
-        cached = await ConfigService.get_cached_value(cache_key)
-        if cached:
-            return cached
         rows = await conn.fetch("SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre")
-        result = [dict(r) for r in rows]
-        await ConfigService.set_cached_value(cache_key, result)
-        return result
+        return [dict(r) for r in rows]
     
     async def get_catalog_tipos_solicitud_ui(self, conn, codigos: List[str]) -> List[Dict[str, Any]]:
         rows = await conn.fetch(f"""

@@ -925,14 +925,13 @@ class SimulacionService:
         }
 
     async def get_tecnologias_only(self, conn) -> dict:
-        """
-        Retorna solo el catálogo de tecnologías para filtros ligeros (ej. HTMX partials).
-        Evita cargar usuarios y tipos de solicitud innecesarios.
-        """
+        cache_key = "SIM_tecnologias_list"
+        cached = await ConfigService.get_cached_value(cache_key)
+        if cached:
+            return {"tecnologias": cached}
         tecnologias = await self.db.get_catalog_tecnologias(conn)
-        return {
-            "tecnologias": tecnologias
-        }
+        await ConfigService.set_cached_value(cache_key, tecnologias)
+        return {"tecnologias": tecnologias}
     
     @staticmethod
     def get_canal_from_user_name(user_name: str) -> str:
