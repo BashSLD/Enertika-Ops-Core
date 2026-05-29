@@ -724,6 +724,8 @@ class SimulacionService:
 
     async def get_oportunidades_list(self, conn, user_context: dict, tab: str = "activos", q: str = None, limit: int = 20, page: int = 1, subtab: str = None, filtro_tecnologia_id: Optional[int] = None) -> dict:
         """Recupera lista paginada de oportunidades para Simulación."""
+        limit = max(1, min(limit, 50))
+        page = max(1, page)
         return await self.db.get_oportunidades_filtradas(conn, tab, subtab, q, limit, page, filtro_tecnologia_id)
 
     async def get_dashboard_stats(self, conn, user_context: dict) -> dict:

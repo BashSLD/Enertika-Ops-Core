@@ -228,11 +228,7 @@ async def get_cards_partial(
         filtro_fecha_fin=f_fin
     )
 
-    ops_processed = []
-    for op in result["items"]:
-        d = dict(op)
-        d['es_multisitio'] = ComercialService.is_originally_multisite(d)
-        ops_processed.append(d)
+    ops_processed = [{**op, 'es_multisitio': ComercialService.is_originally_multisite(op)} for op in result["items"]]
 
     return templates.TemplateResponse(
         request, "comercial/partials/cards.html",

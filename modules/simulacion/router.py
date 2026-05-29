@@ -512,11 +512,7 @@ async def get_cards_partial(
         conn, context, tab=tab, q=q, limit=limit, page=page, subtab=subtab, filtro_tecnologia_id=f_tecnologia
     )
 
-    ops_processed = []
-    for op in result["items"]:
-        d = dict(op)
-        d['es_multisitio'] = ComercialService.is_originally_multisite(d)
-        ops_processed.append(d)
+    ops_processed = [{**op, 'es_multisitio': ComercialService.is_originally_multisite(op)} for op in result["items"]]
 
     return templates.TemplateResponse(request, "simulacion/partials/cards.html", {
         "oportunidades": ops_processed,

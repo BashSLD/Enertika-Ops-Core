@@ -448,8 +448,6 @@ class SimulacionDBService:
         )
 
     async def get_oportunidades_filtradas(self, conn, tab: str, subtab: Optional[str], q: Optional[str], limit: int, page: int = 1, filtro_tecnologia_id: Optional[int] = None) -> dict:
-        limit = max(1, min(limit, 50))
-        page = max(1, page)
         status_map = await self.get_status_map(conn)
         
         # Query base
