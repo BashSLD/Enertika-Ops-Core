@@ -183,7 +183,8 @@ async def get_cards_partial(
     request: Request,
     tab: str = "activos",
     q: Optional[str] = None,
-    limit: int = 15,
+    limit: int = 20,
+    page: int = 1,
     subtab: Optional[str] = None,
     filtro_usuario_id: Optional[str] = None,
     filtro_tipo_id: Optional[str] = None,
@@ -211,12 +212,13 @@ async def get_cards_partial(
         user_context['user_db_id']
     )
     
-    items = await service.get_oportunidades_list(
-        conn, 
-        user_context=user_context, 
-        tab=tab, 
-        q=q, 
-        limit=limit, 
+    result = await service.get_oportunidades_list(
+        conn,
+        user_context=user_context,
+        tab=tab,
+        q=q,
+        limit=limit,
+        page=page,
         subtab=subtab,
         filtro_usuario_id=f_user,
         filtro_tipo_id=f_tipo,
@@ -226,22 +228,28 @@ async def get_cards_partial(
         filtro_fecha_fin=f_fin
     )
 
-    # Inject persistent multisite flag
     ops_processed = []
-    for op in items:
+    for op in result["items"]:
         d = dict(op)
         d['es_multisitio'] = ComercialService.is_originally_multisite(d)
         ops_processed.append(d)
-    
+
     return templates.TemplateResponse(
-        request, "comercial/partials/cards.html", 
-        {            "oportunidades": ops_processed,
+        request, "comercial/partials/cards.html",
+        {
+            "oportunidades": ops_processed,
             "user_token": has_valid_token,
             "current_tab": tab,
             "subtab": subtab,
             "q": q,
             "is_global_search": bool(q and q.strip()),
-            "limit": limit
+            "limit": result["limit"],
+            "page": result["page"],
+            "total": result["total"],
+            "total_pages": result["total_pages"],
+            "base_url": "/comercial/partials/cards",
+            "hx_target": "#tab-content",
+            "hx_include": ".global-filter",
         }
     )
 

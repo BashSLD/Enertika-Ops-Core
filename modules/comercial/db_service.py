@@ -19,7 +19,8 @@ QUERY_GET_OPORTUNIDADES_LIST = """
         u_tecnico.nombre as tecnico_asignado_nombre,
         pg.id_proyecto,
         COALESCE(pg.proyectos_count, 0) as proyectos_count,
-        pg.area_actual AS proyecto_area_actual
+        pg.area_actual AS proyecto_area_actual,
+        COUNT(*) OVER() AS total_count
     FROM tb_oportunidades o
     LEFT JOIN tb_cat_estatus_oportunidades estatus ON o.id_estatus_global = estatus.id
     LEFT JOIN tb_cat_tipos_solicitud tipo_sol ON o.id_tipo_solicitud = tipo_sol.id

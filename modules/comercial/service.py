@@ -696,22 +696,24 @@ class ComercialService:
         return await self.notification_service.get_email_threading_context(conn, row, legacy_search_term)
 
     async def get_oportunidades_list(
-        self, 
-        conn, 
-        user_context: dict, 
-        tab: str = "activos", 
-        q: str = None, 
-        limit: int = 15, 
+        self,
+        conn,
+        user_context: dict,
+        tab: str = "activos",
+        q: str = None,
+        limit: int = 20,
+        page: int = 1,
         subtab: str = None,
-        # Nuevos filtros globales
         filtro_usuario_id: Optional[UUID] = None,
         filtro_tipo_id: Optional[int] = None,
         filtro_estatus_id: Optional[int] = None,
         filtro_tecnologia_id: Optional[int] = None,
-        filtro_fecha_inicio: Optional[str] = None, # YYYY-MM-DD
-        filtro_fecha_fin: Optional[str] = None     # YYYY-MM-DD
-    ) -> List[dict]:
-        """Recupera lista filtrada de oportunidades con permisos y paginación."""
+        filtro_fecha_inicio: Optional[str] = None,
+        filtro_fecha_fin: Optional[str] = None
+    ) -> dict:
+        """Recupera lista paginada de oportunidades con permisos."""
+        limit = max(1, min(limit, 50))
+        page = max(1, page)
         user_id = user_context.get("user_db_id")  # CORREGIDO: era "user_id"
         role = user_context.get("role", "USER")
         
@@ -902,15 +904,21 @@ class ComercialService:
             params.append(user_id)
             param_idx += 1
 
-        query += " ORDER BY o.fecha_solicitud DESC"
-        
-        if limit > 0:
-            query += f" LIMIT {limit}"
-        
+        offset = (page - 1) * limit
+        query += f" ORDER BY o.fecha_solicitud DESC LIMIT {limit} OFFSET {offset}"
+
         rows = await conn.fetch(query, *params)
-        
-        logger.debug(f"Retornando {len(rows)} oportunidades")
-        return [dict(row) for row in rows]
+
+        total = rows[0]['total_count'] if rows else 0
+        total_pages = (total + limit - 1) // limit
+        logger.debug(f"Retornando {len(rows)} oportunidades (página {page}/{total_pages}, total {total})")
+        return {
+            "items": [dict(row) for row in rows],
+            "total": total,
+            "page": page,
+            "limit": limit,
+            "total_pages": total_pages,
+        }
 
 
     async def update_email_status(self, conn, id_oportunidad: UUID, user_context: dict):
