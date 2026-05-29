@@ -499,14 +499,24 @@ class BomDBService:
                     GREATEST(
                         similarity(m.descripcion_proveedor, $1),
                         word_similarity($1, m.descripcion_proveedor)
-                    )                                                  AS similitud
+                    )                                                  AS similitud,
+                    m.id_material_interno
                 FROM tb_materiales_historial m
                 LEFT JOIN tb_proveedores p ON p.id_proveedor = m.id_proveedor
                 WHERE m.descripcion_proveedor ILIKE '%' || $1 || '%'
                    OR word_similarity($1, m.descripcion_proveedor) >= $2
-                ORDER BY m.descripcion_proveedor, m.fecha_factura DESC
+                ORDER BY m.descripcion_proveedor,
+                         (m.id_material_interno IS NOT NULL) DESC,
+                         m.fecha_factura DESC
             )
-            SELECT * FROM xml_dedup
+            SELECT
+                xd.id, xd.descripcion, xd.unidad, xd.precio_unitario,
+                xd.proveedor_nombre, xd.categoria_nombre, xd.clave_prod_serv,
+                xd.fecha_factura, xd.fuente, xd.similitud,
+                ci.descripcion_canonica                                AS descripcion_interna,
+                xd.id_material_interno::text                           AS id_material_interno
+            FROM xml_dedup xd
+            LEFT JOIN tb_cat_materiales ci ON ci.id = xd.id_material_interno
             UNION ALL
             SELECT
                 c.id::text,
@@ -521,13 +531,19 @@ class BomDBService:
                 GREATEST(
                     similarity(c.descripcion_norm, $3),
                     word_similarity($3, c.descripcion_norm)
-                )
+                ),
+                NULL::text,
+                NULL::text
             FROM tb_cat_materiales c
             LEFT JOIN tb_cat_unidades_medida u   ON u.id  = c.id_unidad_medida
             LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
             WHERE c.activo = TRUE
               AND (c.descripcion_norm ILIKE '%' || $3 || '%'
                    OR word_similarity($3, c.descripcion_norm) >= $2)
+              AND NOT EXISTS (
+                  SELECT 1 FROM tb_materiales_historial mh
+                  WHERE mh.id_material_interno = c.id
+              )
         """, query, umbral, query_norm or query)
         rows_list = [dict(r) for r in rows]
         xml_items = sorted(
@@ -560,12 +576,22 @@ class BomDBService:
                     m.clave_prod_serv,
                     m.fecha_factura,
                     'XML'::text                             AS fuente,
-                    1.0::real                               AS similitud
+                    1.0::real                               AS similitud,
+                    m.id_material_interno
                 FROM tb_materiales_historial m
                 LEFT JOIN tb_proveedores p ON p.id_proveedor = m.id_proveedor
-                ORDER BY m.descripcion_proveedor, m.fecha_factura DESC
+                ORDER BY m.descripcion_proveedor,
+                         (m.id_material_interno IS NOT NULL) DESC,
+                         m.fecha_factura DESC
             )
-            SELECT * FROM xml_dedup
+            SELECT
+                xd.id, xd.descripcion, xd.unidad, xd.precio_unitario,
+                xd.proveedor_nombre, xd.categoria_nombre, xd.clave_prod_serv,
+                xd.fecha_factura, xd.fuente, xd.similitud,
+                ci.descripcion_canonica                 AS descripcion_interna,
+                xd.id_material_interno::text            AS id_material_interno
+            FROM xml_dedup xd
+            LEFT JOIN tb_cat_materiales ci ON ci.id = xd.id_material_interno
             UNION ALL
             SELECT
                 c.id::text,
@@ -577,11 +603,17 @@ class BomDBService:
                 c.clave_prod_serv,
                 c.created_at::date,
                 'INTERNO'::text,
-                1.0::real
+                1.0::real,
+                NULL::text,
+                NULL::text
             FROM tb_cat_materiales c
             LEFT JOIN tb_cat_unidades_medida u   ON u.id  = c.id_unidad_medida
             LEFT JOIN tb_cat_categorias_compra cat ON cat.id = c.id_categoria
             WHERE c.activo = TRUE
+              AND NOT EXISTS (
+                  SELECT 1 FROM tb_materiales_historial mh
+                  WHERE mh.id_material_interno = c.id
+              )
         """)
         rows_list = [dict(r) for r in rows]
         xml_items = sorted(
