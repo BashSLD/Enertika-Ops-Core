@@ -1,0 +1,46 @@
+{# Variables esperadas: base_url, page, total_pages, total, limit, hx_target, hx_include #}
+{% if total_pages > 1 or total > 0 %}
+<div class="flex items-center justify-between px-1 py-3 border-t border-gray-200 mt-2">
+    <span class="text-xs text-gray-500">
+        {{ total }} registro{{ 's' if total != 1 else '' }} en total
+    </span>
+
+    <div class="flex items-center gap-2">
+        {% if page > 1 %}
+        <button
+            hx-get="{{ base_url }}?page={{ page - 1 }}&limit={{ limit }}"
+            hx-target="{{ hx_target }}"
+            hx-include="{{ hx_include }}"
+            hx-swap="innerHTML"
+            class="px-3 py-1 text-xs rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors">
+            &lsaquo; Anterior
+        </button>
+        {% else %}
+        <button disabled
+            class="px-3 py-1 text-xs rounded border border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed">
+            &lsaquo; Anterior
+        </button>
+        {% endif %}
+
+        <span class="text-xs text-gray-600 font-medium">
+            Página {{ page }} de {{ total_pages }}
+        </span>
+
+        {% if page < total_pages %}
+        <button
+            hx-get="{{ base_url }}?page={{ page + 1 }}&limit={{ limit }}"
+            hx-target="{{ hx_target }}"
+            hx-include="{{ hx_include }}"
+            hx-swap="innerHTML"
+            class="px-3 py-1 text-xs rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 transition-colors">
+            Siguiente &rsaquo;
+        </button>
+        {% else %}
+        <button disabled
+            class="px-3 py-1 text-xs rounded border border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed">
+            Siguiente &rsaquo;
+        </button>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
