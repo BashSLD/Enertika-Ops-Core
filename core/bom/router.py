@@ -354,7 +354,7 @@ async def agregar_item(
         id_material_ref = UUID(id_material_ref_raw) if id_material_ref_raw else None
         id_material_interno = UUID(id_material_interno_raw) if id_material_interno_raw else None
 
-        await service.agregar_item(
+        item = await service.agregar_item(
             conn, bom['id_bom'], user_id,
             descripcion=form.get("descripcion", "").strip(),
             cantidad=Decimal(cantidad),
@@ -369,6 +369,10 @@ async def agregar_item(
             moneda=form.get("moneda", "MXN").strip() or "MXN",
             area_editor=area_editor,
         )
+
+        grupo_ids = [int(g) for g in form.getlist("grupo_ids") if g]
+        if grupo_ids:
+            await service.set_item_grupos(conn, item['id_item'], user_id, grupo_ids)
 
         # Retornar tabla actualizada
         items = await service.get_items(conn, bom['id_bom'])

@@ -192,7 +192,7 @@ def _periodos_migrables(
     )
     balance = calcular_balance(periodos, consumos_no_migracion)
     consumo_por_periodo = _sumar_consumos_por_periodo(consumos_no_migracion)
-    return [p for p in balance if not p.get("expirado")], consumo_por_periodo
+    return balance, consumo_por_periodo
 
 
 async def _validar_rows_migracion(conn, raw_rows: list[dict]) -> list[dict]:
