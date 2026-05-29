@@ -542,7 +542,7 @@
                 }
             },
             seleccionarMaterial(material) {
-                this.descripcion      = material.descripcion || '';
+                this.descripcion      = material.descripcionInterna || material.descripcion || '';
                 this.precio           = material.precio || 0;
                 this.unidad           = material.unidad || '';
                 this.unidadCatalogoFija = !!String(this.unidad || '').trim();
@@ -550,7 +550,7 @@
                 this.origen           = 'CATALOGO';
                 this.moneda           = 'MXN';
                 this.fuenteSeleccionada = material.fuente || '';
-                this.materialSeleccionado = material.descripcion || '';
+                this.materialSeleccionado = material.descripcionInterna || material.descripcion || '';
                 this.claveSeleccionada  = material.clave || '';
                 this.errorCatalogo    = '';
                 if (material.fuente === 'INTERNO') {
@@ -559,7 +559,7 @@
                     this.proveedorSeleccionado = '';
                 } else {
                     this.materialRef     = material.id || '';
-                    this.materialInterno = '';
+                    this.materialInterno = material.idMaterialInterno || '';
                     this.proveedorSeleccionado = material.proveedor || '';
                 }
                 if (this.$refs.inputBusqueda) this.$refs.inputBusqueda.value = '';
@@ -622,7 +622,7 @@
         <div class="flex min-h-screen items-center justify-center px-4">
             <div class="fixed inset-0 bg-black bg-opacity-30"
                 @click="cerrar()"></div>
-            <div class="relative bg-white rounded-xl shadow-xl max-w-lg w-full p-6 z-10">
+            <div class="relative bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 z-10">
                 <div class="mb-4 flex items-center justify-between gap-3">
                     <h3 class="text-lg font-bold text-gray-800">Agregar Item al BOM</h3>
                     <button type="button"
@@ -867,6 +867,18 @@
                             <label class="block text-sm font-medium text-gray-700 mb-1">Comentarios</label>
                             <input type="text" name="comentarios"
                                 class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-medium text-gray-700 mb-1">Grupo BOM</label>
+                            <select name="grupo_ids"
+                                class="w-full rounded-lg border border-gray-300 bg-white px-3 text-sm shadow-inner focus:border-blue-500 focus:ring-2 focus:ring-blue-500">
+                                <option value="">Sin grupo</option>
+                                {% for grupo in catalogos.grupos_bom %}
+                                <option value="{{ grupo.id }}">{{ grupo.codigo }} — {{ grupo.nombre }}</option>
+                                {% endfor %}
+                            </select>
+                            <p class="text-xs text-gray-400 mt-0.5">Puedes asignar grupos adicionales editando el item.</p>
                         </div>
                     </div>
                     <div class="relative z-10 flex justify-end mt-5">
