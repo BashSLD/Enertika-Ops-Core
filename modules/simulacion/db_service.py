@@ -5,6 +5,7 @@ from decimal import Decimal
 import logging
 
 from core.database import get_db_connection
+from core.config_service import ConfigService
 
 logger = logging.getLogger("SimulacionDBService")
 
@@ -378,8 +379,14 @@ class SimulacionDBService:
         return [dict(r) for r in rows]
 
     async def get_catalog_tecnologias(self, conn) -> List[Dict[str, Any]]:
+        cache_key = "SIM_tecnologias_list"
+        cached = await ConfigService.get_cached_value(cache_key)
+        if cached:
+            return cached
         rows = await conn.fetch("SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre")
-        return [dict(r) for r in rows]
+        result = [dict(r) for r in rows]
+        await ConfigService.set_cached_value(cache_key, result)
+        return result
     
     async def get_catalog_tipos_solicitud_ui(self, conn, codigos: List[str]) -> List[Dict[str, Any]]:
         rows = await conn.fetch(f"""
@@ -439,8 +446,7 @@ class SimulacionDBService:
         return [dict(r) for r in rows]
 
     async def get_status_map(self, conn) -> Dict[str, int]:
-        rows = await conn.fetch("SELECT id, LOWER(nombre) as nombre FROM tb_cat_estatus_oportunidades WHERE activo = true")
-        return {r['nombre']: r['id'] for r in rows}
+        return await ConfigService.get_catalog_map(conn, "tb_cat_estatus_oportunidades", "nombre", "id")
     
     async def get_id_levantamiento(self, conn) -> Optional[int]:
          return await conn.fetchval(
