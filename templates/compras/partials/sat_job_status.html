@@ -32,7 +32,7 @@
       {% elif estado == 'descargando' %}Descargando paquetes...
       {% elif estado == 'procesando' %}Procesando XMLs...
       {% elif estado == 'completado' %}Listo: {{ job.cfdi_encontrados }} CFDIs importados, {{ job.cfdi_duplicados }} duplicados
-      {% elif estado == 'error' %}Error: {{ job.mensaje_error }}
+      {% elif estado == 'error' %}Error en la última consulta al SAT
       {% endif %}
     </span>
   </div>
@@ -40,6 +40,11 @@
   <div class="mt-2 text-xs text-green-600">
     Rango: {{ job.fecha_inicio_rango }} al {{ job.fecha_fin_rango }}
   </div>
+  {% elif estado == 'error' %}
+  {% if job.mensaje_error %}
+  <p class="mt-1 text-xs opacity-80">{{ job.mensaje_error }}</p>
+  {% endif %}
+  <p class="mt-2 text-xs font-medium">Vuelve a intentar la descarga con el formulario de arriba.</p>
   {% endif %}
 </div>
 {% endif %}

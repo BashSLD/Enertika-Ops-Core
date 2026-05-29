@@ -21,12 +21,21 @@ ESTADO_LABELS = {
 }
 
 POLL_INTERVAL_SECONDS = 30
+TIMEOUT_SOLICITUD = 90.0
+TIMEOUT_STATUS = 60.0
+TIMEOUT_DESCARGA = 120.0
 
 
 class SATClient:
     def __init__(self, signer: Signer):
         self._sat = SAT(signer=signer)
         self.rfc = signer.rfc
+
+    async def _sat_call(self, fn, /, *args, timeout: float, **kwargs):
+        return await asyncio.wait_for(
+            asyncio.to_thread(fn, *args, **kwargs),
+            timeout=timeout,
+        )
 
     async def solicitar_descarga(
         self,
@@ -50,9 +59,10 @@ class SATClient:
         if rfc_emisor:
             kwargs["rfc_emisor"] = rfc_emisor
 
-        respuesta = await asyncio.to_thread(
+        respuesta = await self._sat_call(
             self._sat.recover_comprobante_received_request,
-            **kwargs
+            timeout=TIMEOUT_SOLICITUD,
+            **kwargs,
         )
         id_solicitud = respuesta.get("IdSolicitud")
         if not id_solicitud:
@@ -72,8 +82,9 @@ class SATClient:
         Lanza ValueError si el SAT rechaza o hay error.
         """
         while True:
-            estado = await asyncio.to_thread(
+            estado = await self._sat_call(
                 self._sat.recover_comprobante_status,
+                timeout=TIMEOUT_STATUS,
                 id_solicitud=id_solicitud,
             )
             codigo = estado.get("EstadoSolicitud")
@@ -97,8 +108,9 @@ class SATClient:
         """
         Descarga un paquete ZIP del SAT y retorna los bytes crudos (sin base64).
         """
-        resultado = await asyncio.to_thread(
+        resultado = await self._sat_call(
             self._sat.recover_comprobante_download,
+            timeout=TIMEOUT_DESCARGA,
             id_paquete=id_paquete,
         )
         zip_bytes = base64.b64decode(resultado[1])
