@@ -112,10 +112,8 @@
                         <select id="limit-selector" hx-get="/simulacion/partials/cards" hx-target="#sim-tab-content"
                             hx-include="#active_tab_input, #search-input, .filter-select" name="limit"
                             class="border border-gray-300 rounded px-2.5 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
-                            <option value="15" {{ 'selected' if limit==15 else '' }}>15 registros</option>
+                            <option value="20" {{ 'selected' if limit==20 else '' }}>20 registros</option>
                             <option value="50" {{ 'selected' if limit==50 else '' }}>50 registros</option>
-                            <option value="100" {{ 'selected' if limit==100 else '' }}>100 registros</option>
-                            <option value="0" {{ 'selected' if limit==0 else '' }}>Mostrar Todo</option>
                         </select>
                     </div>
                 </div>
@@ -611,6 +609,7 @@
             </div>
         </div>
 
+        {% include "shared/partials/paginacion.html" %}
     </div>
 </div>
 </div>
