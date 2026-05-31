@@ -47,11 +47,16 @@
           <td class="px-4 py-3 hidden lg:table-cell">
             {% set b = balances.get(emp.id_usuario) %}
             {% if b %}
-              <span class="font-semibold text-gray-800 text-sm">{{ b.total_disponible }} días</span>
+              <span class="font-semibold text-sm {{ 'text-red-600' if b.saldo_neto < 0 else 'text-gray-800' }}">{{ b.saldo_neto }} días</span>
               {% if b.periodos %}
                 {% for p in b.periodos if p.alerta and not p.es_proximo and not p.expirado %}
                 <p class="text-xs mt-0.5 {{ 'text-red-500' if p.dias_para_expiracion < 30 else 'text-amber-500' }}">
                   Período {{ p.periodo }}: {{ p.dias_restantes }} días · vence {{ p.fecha_expiracion.strftime('%d/%m/%Y') }}
+                </p>
+                {% endfor %}
+                {% for p in b.periodos if p.tiene_prorroga and not p.es_proximo and not p.expirado %}
+                <p class="text-xs mt-0.5 text-teal-600">
+                  Período {{ p.periodo }}: {{ p.dias_restantes_prorrogados }} días en prórroga · vence {{ p.fecha_expiracion_efectiva.strftime('%d/%m/%Y') }}
                 </p>
                 {% endfor %}
               {% endif %}

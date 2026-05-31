@@ -65,11 +65,13 @@ async def get_balance_usuario(conn, usuario_id: UUID) -> dict[str, Any]:
         meses_expiracion=meses_exp,
     )
     consumos = await db.get_consumos_usuario(conn, usuario_id)
-    balance = calcular_balance(periodos, consumos)
+    prorrogas = await db.get_prorrogas_activas_usuario(conn, usuario_id)
+    balance = calcular_balance(periodos, consumos, prorrogas=prorrogas)
     progreso = calcular_progreso(empleado["fecha_contratacion"], hoy, catalogo)
 
     periodos_activos = [p for p in balance if not p.get("es_proximo") and not p.get("expirado")]
     total_disponible = sum(max(p["dias_restantes"], 0) for p in periodos_activos)
+    saldo_neto = sum(p["dias_restantes"] for p in periodos_activos)
 
     semestre = None
     dias_efectivos_disponibles = total_disponible
@@ -90,6 +92,7 @@ async def get_balance_usuario(conn, usuario_id: UUID) -> dict[str, Any]:
         "periodos": balance,
         "progreso": progreso,
         "total_disponible": total_disponible,
+        "saldo_neto": saldo_neto,
         "semestre": semestre,
         "dias_efectivos_disponibles": dias_efectivos_disponibles,
         "dias_tomados_anticipadamente": dias_tomados_anticipadamente,
@@ -437,7 +440,9 @@ async def get_balances_por_ids(conn, ids: list[UUID]) -> dict:
     catalogo = await db.get_catalogo_dias(conn)
     meses_exp = await ConfigService.get_global_config(conn, "VACACIONES_MESES_EXPIRACION", 18, int)
     empleados = await db.get_empleados_balance_base(conn, ids)
-    consumos_por_usuario = await db.get_consumos_bulk(conn, [emp["id_usuario"] for emp in empleados])
+    uids = [emp["id_usuario"] for emp in empleados]
+    consumos_por_usuario = await db.get_consumos_bulk(conn, uids)
+    prorrogas_por_usuario = await db.get_prorrogas_activas_bulk(conn, uids)
 
     resultado = {}
     for emp in empleados:
@@ -452,13 +457,22 @@ async def get_balances_por_ids(conn, ids: list[UUID]) -> dict:
                 ajuste_dias=emp.get("dias_vacaciones_ajuste") or 0,
                 meses_expiracion=meses_exp,
             )
-            periodos_balance = calcular_balance(periodos, consumos_por_usuario.get(uid, []))
-            total_disponible = sum(
-                max(p["dias_restantes"], 0)
-                for p in periodos_balance
-                if not p.get("es_proximo") and not p.get("expirado")
+            periodos_balance = calcular_balance(
+                periodos,
+                consumos_por_usuario.get(uid, []),
+                prorrogas=prorrogas_por_usuario.get(uid, []),
             )
-            resultado[uid] = {"periodos": periodos_balance, "total_disponible": total_disponible}
+            periodos_activos = [
+                p for p in periodos_balance
+                if not p.get("es_proximo") and not p.get("expirado")
+            ]
+            total_disponible = sum(max(p["dias_restantes"], 0) for p in periodos_activos)
+            saldo_neto = sum(p["dias_restantes"] for p in periodos_activos)
+            resultado[uid] = {
+                "periodos": periodos_balance,
+                "total_disponible": total_disponible,
+                "saldo_neto": saldo_neto,
+            }
     return resultado
 
 
@@ -481,9 +495,9 @@ async def get_equipo_balances(conn, user_id: UUID, user_ctx: dict) -> list[dict]
         conn, "VACACIONES_MESES_EXPIRACION", 18, int
     )
     empleados = await db.get_empleados_balance_base(conn, all_ids)
-    consumos_por_usuario = await db.get_consumos_bulk(
-        conn, [emp["id_usuario"] for emp in empleados]
-    )
+    uids = [emp["id_usuario"] for emp in empleados]
+    consumos_por_usuario = await db.get_consumos_bulk(conn, uids)
+    prorrogas_por_usuario = await db.get_prorrogas_activas_bulk(conn, uids)
 
     resultados = []
     for emp in empleados:
@@ -497,6 +511,7 @@ async def get_equipo_balances(conn, user_id: UUID, user_ctx: dict) -> list[dict]
             "id_aprobador_vacaciones": emp.get("id_aprobador_vacaciones"),
             "dias_vacaciones_ajuste": emp.get("dias_vacaciones_ajuste") or 0,
         }
+        uid = emp["id_usuario"]
         if not empleado["fecha_contratacion"]:
             balance = {
                 "empleado": empleado,
@@ -514,7 +529,8 @@ async def get_equipo_balances(conn, user_id: UUID, user_ctx: dict) -> list[dict]
             )
             periodos_balance = calcular_balance(
                 periodos,
-                consumos_por_usuario.get(emp["id_usuario"], []),
+                consumos_por_usuario.get(uid, []),
+                prorrogas=prorrogas_por_usuario.get(uid, []),
             )
             progreso = calcular_progreso(empleado["fecha_contratacion"], hoy, catalogo)
             total_disponible = sum(
