@@ -327,10 +327,13 @@ async def ausencias_panel(
         ff = fi
     ausencias = await vac_db.get_ausencias_activas(conn, fi, ff, tipo_slug=tipo or None)
     tipos = await vac_db.get_tipos_ausencia(conn)
+    ausencias_hoy = [a for a in ausencias if a["fecha_inicio"] <= hoy <= a["fecha_fin"]]
+    ausencias_proximas = [a for a in ausencias if a["fecha_inicio"] > hoy]
     return templates.TemplateResponse(
         request, "rrhh/partials/ausencias.html",
         {
-            "ausencias": ausencias,
+            "ausencias_hoy": ausencias_hoy,
+            "ausencias_proximas": ausencias_proximas,
             "tipos": tipos,
             "fecha_inicio": fi,
             "fecha_fin": ff,

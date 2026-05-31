@@ -1,9 +1,8 @@
-<div class="space-y-3">
+<div class="space-y-4">
 
   <!-- Barra de filtros -->
   <div class="flex flex-wrap items-center gap-2">
 
-    <!-- Rango de fechas (auto-submit al cambiar) -->
     <form hx-get="/rrhh/ausencias" hx-target="#rrhh-content" hx-swap="innerHTML"
           hx-push-url="true" hx-trigger="change">
       <input type="hidden" name="tipo" value="{{ tipo_filtro }}">
@@ -36,15 +35,12 @@
           <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7"/>
         </svg>
       </button>
-
-      <!-- Panel dropdown -->
       <div x-show="open" x-transition:enter="transition ease-out duration-100"
            x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
            x-transition:leave="transition ease-in duration-75"
            x-transition:leave-start="opacity-100 scale-100" x-transition:leave-end="opacity-0 scale-95"
            class="absolute z-20 top-full left-0 mt-1 w-52 bg-white rounded-xl shadow-lg border border-gray-100 py-1"
            style="display: none;">
-        <!-- Todas -->
         <button hx-get="/rrhh/ausencias?fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}"
                 hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="true"
                 @click="open = false"
@@ -80,12 +76,10 @@
       </div>
     </div>
 
-    <!-- Limpiar filtro de tipo (si hay uno activo) -->
     {% if tipo_filtro %}
     <button hx-get="/rrhh/ausencias?fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}"
             hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="true"
-            title="Quitar filtro de tipo"
-            type="button"
+            title="Quitar filtro de tipo" type="button"
             class="flex items-center justify-center w-7 h-7 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 transition-colors">
       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
         <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12"/>
@@ -93,12 +87,11 @@
     </button>
     {% endif %}
 
-    <!-- Contador -->
-    <span class="ml-auto text-xs text-gray-400">{{ ausencias | length }} ausencia{{ 's' if ausencias | length != 1 else '' }}</span>
+    {% set total_ausencias = (ausencias_hoy | length) + (ausencias_proximas | length) %}
+    <span class="ml-auto text-xs text-gray-400">{{ total_ausencias }} ausencia{{ 's' if total_ausencias != 1 else '' }}</span>
   </div>
 
-  <!-- Lista -->
-  {% if ausencias %}
+  <!-- Grid dos columnas -->
   {% set badge_colors = {
     'vacaciones':            'bg-blue-100 text-blue-700',
     'extraordinaria':        'bg-orange-100 text-orange-700',
@@ -109,37 +102,8 @@
     'permiso_llegar_tarde':  'bg-amber-100 text-amber-700',
     'permiso_salir_temprano':'bg-amber-100 text-amber-700',
   } %}
-  <div class="space-y-2">
-    {% for a in ausencias %}
-    <div class="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 flex items-center justify-between gap-4">
-      <div class="flex items-center gap-3 min-w-0">
-        <div class="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center flex-shrink-0">
-          <svg class="w-4 h-4 text-gray-400" fill="currentColor" viewBox="0 0 16 16">
-            <path d="M8 8a3 3 0 1 0 0-6 3 3 0 0 0 0 6zm2-3a2 2 0 1 1-4 0 2 2 0 0 1 4 0zm4 8c0 1-1 1-1 1H3s-1 0-1-1 1-4 6-4 6 3 6 4z"/>
-          </svg>
-        </div>
-        <div class="min-w-0">
-          <div class="flex items-center gap-2">
-            <p class="text-sm font-medium text-gray-800 truncate">{{ a.empleado_nombre }}</p>
-            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 {{ badge_colors.get(a.tipo_slug, 'bg-gray-100 text-gray-600') }}"
-                  title="{{ a.tipo_nombre }}">
-              {{ a.tipo_abreviatura }}
-            </span>
-          </div>
-          <p class="text-xs text-gray-500">
-            {{ a.fecha_inicio.strftime('%d/%m') }} — {{ a.fecha_fin.strftime('%d/%m/%Y') }}
-            · {{ a.dias_solicitados }} día{{ 's' if a.dias_solicitados != 1 else '' }}
-          </p>
-        </div>
-      </div>
-      <div class="text-right flex-shrink-0">
-        <p class="text-xs text-gray-400">Regresa</p>
-        <p class="text-sm font-semibold text-gray-700">{{ a.fecha_presentarse.strftime('%d/%m/%Y') }}</p>
-      </div>
-    </div>
-    {% endfor %}
-  </div>
-  {% else %}
+
+  {% if not ausencias_hoy and not ausencias_proximas %}
   <div class="bg-white rounded-xl border border-gray-100 shadow-sm p-8 text-center text-gray-400">
     <svg class="w-10 h-10 mx-auto mb-3 opacity-40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
@@ -148,6 +112,70 @@
     {% if tipo_filtro %}
     <p class="text-xs mt-1 text-gray-400">Prueba quitando el filtro de tipo</p>
     {% endif %}
+  </div>
+  {% else %}
+  <div class="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+    <div class="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-100">
+
+      <!-- Actualmente ausentes -->
+      <div class="p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Actualmente ausentes</h4>
+          <span class="text-xs font-bold text-[#00BABB]">{{ ausencias_hoy | length }}</span>
+        </div>
+        {% if ausencias_hoy %}
+        <div class="space-y-2">
+          {% for a in ausencias_hoy %}
+          <div class="rounded-xl border border-[#00BABB]/20 bg-[#00BABB]/5 px-3 py-2">
+            <div class="flex items-center gap-2">
+              <p class="text-sm font-semibold text-gray-800 truncate">{{ a.empleado_nombre }}</p>
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 {{ badge_colors.get(a.tipo_slug, 'bg-gray-100 text-gray-600') }}"
+                    title="{{ a.tipo_nombre }}">
+                {{ a.tipo_abreviatura }}
+              </span>
+            </div>
+            <p class="text-xs text-gray-500 mt-0.5">
+              {{ a.fecha_inicio.strftime('%d/%m') }} — {{ a.fecha_fin.strftime('%d/%m/%Y') }}
+              · regresa {{ a.fecha_presentarse.strftime('%d/%m/%Y') }}
+            </p>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-400">Nadie está ausente hoy.</p>
+        {% endif %}
+      </div>
+
+      <!-- Próximas aprobadas -->
+      <div class="p-5">
+        <div class="flex items-center justify-between mb-3">
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Próximas aprobadas</h4>
+          <span class="text-xs font-bold text-gray-500">{{ ausencias_proximas | length }}</span>
+        </div>
+        {% if ausencias_proximas %}
+        <div class="space-y-2">
+          {% for a in ausencias_proximas %}
+          <div class="rounded-xl border border-gray-100 px-3 py-2">
+            <div class="flex items-center gap-2">
+              <p class="text-sm font-semibold text-gray-800 truncate">{{ a.empleado_nombre }}</p>
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 {{ badge_colors.get(a.tipo_slug, 'bg-gray-100 text-gray-600') }}"
+                    title="{{ a.tipo_nombre }}">
+                {{ a.tipo_abreviatura }}
+              </span>
+            </div>
+            <p class="text-xs text-gray-500 mt-0.5">
+              {{ a.fecha_inicio.strftime('%d/%m') }} — {{ a.fecha_fin.strftime('%d/%m/%Y') }}
+              · {{ a.dias_solicitados }} día{{ 's' if a.dias_solicitados != 1 else '' }}
+            </p>
+          </div>
+          {% endfor %}
+        </div>
+        {% else %}
+        <p class="text-sm text-gray-400">No hay próximas ausencias aprobadas.</p>
+        {% endif %}
+      </div>
+
+    </div>
   </div>
   {% endif %}
 
