@@ -702,7 +702,7 @@ async def sync_biotime_periodically() -> None:
         except asyncpg.PostgresError as exc:
             logger.error("[BIOTIME_SYNC] Error de BD: %s", exc)
         except httpx.HTTPError as exc:
-            logger.error("[BIOTIME_SYNC] Error HTTP BioTime: %s", exc)
+            logger.error("[BIOTIME_SYNC] Error HTTP BioTime: %s: %s", type(exc).__name__, exc or "(sin mensaje)")
         except (ValueError, TypeError, RuntimeError) as exc:
             logger.error("[BIOTIME_SYNC] Error de sincronizacion: %s", exc)
 
