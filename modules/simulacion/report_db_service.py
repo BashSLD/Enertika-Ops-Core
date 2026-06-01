@@ -332,44 +332,114 @@ class ReportDBService:
     async def get_report_oportunidades_usuario(self, conn, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
         where_clause, params = self._build_report_where_clause(filters)
         query = f"""
-            SELECT
-                o.id_oportunidad, o.op_id_estandar, o.nombre_proyecto, o.cliente_nombre,
-                o.es_licitacion, o.clasificacion_solicitud, o.parent_id, o.cantidad_sitios,
-                o.fecha_solicitud, o.fecha_entrega_simulacion,
-                o.deadline_calculado,
-                o.deadline_negociado,
-                (o.deadline_negociado < o.deadline_calculado) AS compromiso_adelantado,
-                e.nombre AS estatus_nombre,
-                ts.nombre AS tipo_solicitud,
-                t.nombre AS tecnologia,
-                COUNT(s.id_sitio) AS sitios_count,
-                CASE
-                    WHEN COUNT(CASE WHEN s.kpi_status_interno = 'Entrega tarde' THEN 1 END) > 0 THEN 'Tarde'
-                    WHEN COUNT(CASE WHEN s.kpi_status_interno = 'Entrega a tiempo' THEN 1 END) = COUNT(s.id_sitio)
-                         AND COUNT(s.id_sitio) > 0 THEN 'A tiempo'
-                    ELSE '-'
-                END AS kpi_interno,
-                CASE
-                    WHEN COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega tarde' THEN 1 END) > 0 THEN 'Tarde'
-                    WHEN COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega a tiempo' THEN 1 END) = COUNT(s.id_sitio)
-                         AND COUNT(s.id_sitio) > 0 THEN 'A tiempo'
-                    ELSE '-'
-                END AS kpi_compromiso
-            FROM tb_oportunidades o
-            JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
-            JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
-            LEFT JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
-            LEFT JOIN tb_sitios_oportunidad s ON o.id_oportunidad = s.id_oportunidad
-            {where_clause}
-            GROUP BY
-                o.id_oportunidad, o.op_id_estandar, o.nombre_proyecto, o.cliente_nombre,
-                o.es_licitacion, o.clasificacion_solicitud, o.parent_id, o.cantidad_sitios,
-                o.fecha_solicitud, o.fecha_entrega_simulacion,
-                o.deadline_calculado, o.deadline_negociado,
-                e.nombre, ts.nombre, t.nombre
+            SELECT * FROM (
+                SELECT
+                    o.id_oportunidad, o.op_id_estandar, o.nombre_proyecto, o.cliente_nombre,
+                    o.es_licitacion, o.clasificacion_solicitud, o.parent_id, o.cantidad_sitios,
+                    o.fecha_solicitud, o.fecha_entrega_simulacion,
+                    o.deadline_calculado,
+                    o.deadline_negociado,
+                    (o.deadline_negociado < o.deadline_calculado) AS compromiso_adelantado,
+                    e.nombre AS estatus_nombre,
+                    ts.nombre AS tipo_solicitud,
+                    t.nombre AS tecnologia,
+                    COUNT(s.id_sitio) AS sitios_count,
+                    CASE
+                        WHEN COUNT(CASE WHEN s.kpi_status_interno = 'Entrega tarde' THEN 1 END) > 0 THEN 'Tarde'
+                        WHEN COUNT(CASE WHEN s.kpi_status_interno = 'Entrega a tiempo' THEN 1 END) = COUNT(s.id_sitio)
+                             AND COUNT(s.id_sitio) > 0 THEN 'A tiempo'
+                        ELSE '-'
+                    END AS kpi_interno,
+                    CASE
+                        WHEN COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega tarde' THEN 1 END) > 0 THEN 'Tarde'
+                        WHEN COUNT(CASE WHEN s.kpi_status_compromiso = 'Entrega a tiempo' THEN 1 END) = COUNT(s.id_sitio)
+                             AND COUNT(s.id_sitio) > 0 THEN 'A tiempo'
+                        ELSE '-'
+                    END AS kpi_compromiso
+                FROM tb_oportunidades o
+                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
+                JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
+                LEFT JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
+                LEFT JOIN tb_sitios_oportunidad s ON o.id_oportunidad = s.id_oportunidad
+                {where_clause}
+                GROUP BY
+                    o.id_oportunidad, o.op_id_estandar, o.nombre_proyecto, o.cliente_nombre,
+                    o.es_licitacion, o.clasificacion_solicitud, o.parent_id, o.cantidad_sitios,
+                    o.fecha_solicitud, o.fecha_entrega_simulacion,
+                    o.deadline_calculado, o.deadline_negociado,
+                    e.nombre, ts.nombre, t.nombre
+            ) sub
             ORDER BY
                 (kpi_compromiso = 'Tarde') DESC,
-                o.fecha_solicitud DESC
+                fecha_solicitud DESC
+        """
+        rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
+    async def get_kpi_insights_usuario(self, conn, filters: Dict[str, Any], cats: Dict) -> List[Dict[str, Any]]:
+        where_clause, params = self._build_report_where_clause(filters)
+
+        id_entregado = cats['estatus'].get('entregado')
+        id_perdido = cats['estatus'].get('perdido')
+        id_ganada = cats['estatus'].get('ganada')
+        id_levantamiento = cats['tipos'].get('levantamiento')
+
+        params.extend([id_entregado, id_perdido, id_ganada, id_levantamiento])
+        idx_entregado = len(params) - 3
+        idx_perdido = len(params) - 2
+        idx_ganada = len(params) - 1
+        idx_levantamiento = len(params)
+
+        query = f"""
+            WITH sitios_combined AS (
+                SELECT
+                    s.kpi_status_compromiso,
+                    o.id_oportunidad, s.id_sitio,
+                    o.op_id_estandar, o.nombre_proyecto,
+                    o.deadline_negociado, o.deadline_calculado
+                FROM tb_sitios_oportunidad s
+                JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
+                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
+                {where_clause}
+                AND o.id_tipo_solicitud != ${idx_levantamiento}
+                AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada})
+
+                UNION ALL
+
+                SELECT
+                    sa.kpi_status_compromiso,
+                    o.id_oportunidad, sa.id AS id_sitio,
+                    o.op_id_estandar, o.nombre_proyecto,
+                    o.deadline_negociado, o.deadline_calculado
+                FROM tb_simulaciones_adicionales sa
+                JOIN tb_oportunidades o ON sa.id_oportunidad = o.id_oportunidad
+                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
+                {where_clause}
+                AND o.id_tipo_solicitud != ${idx_levantamiento}
+                AND o.id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada})
+            ),
+            base AS (
+                SELECT
+                    id_oportunidad,
+                    op_id_estandar,
+                    nombre_proyecto,
+                    (MIN(deadline_negociado) < MIN(deadline_calculado)) AS compromiso_adelantado,
+                    COUNT(id_sitio) AS total_sitios,
+                    COUNT(CASE WHEN kpi_status_compromiso = 'Entrega tarde' THEN 1 END) AS sitios_tarde,
+                    COUNT(CASE WHEN kpi_status_compromiso = 'Entrega a tiempo' THEN 1 END) AS sitios_a_tiempo
+                FROM sitios_combined
+                GROUP BY id_oportunidad, op_id_estandar, nombre_proyecto
+            ),
+            totals AS (
+                SELECT
+                    SUM(sitios_tarde)    AS total_tarde_global,
+                    SUM(sitios_a_tiempo) AS total_a_tiempo_global,
+                    COUNT(*) FILTER (WHERE compromiso_adelantado) AS casos_compromiso_adelantado
+                FROM base
+            )
+            SELECT b.*, t.total_tarde_global, t.total_a_tiempo_global, t.casos_compromiso_adelantado
+            FROM base b, totals t
+            ORDER BY b.sitios_tarde DESC
         """
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]

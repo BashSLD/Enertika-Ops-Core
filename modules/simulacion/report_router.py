@@ -326,6 +326,37 @@ async def get_oportunidades_usuario_modal(
 
 
 # =============================================================================
+# INSIGHTS DE KPI POR USUARIO
+# =============================================================================
+
+@router.get("/usuario/{usuario_id}/kpi-insights", include_in_schema=False)
+async def get_kpi_insights_usuario(
+    request: Request,
+    usuario_id: str,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    tech_id: Optional[str] = None,
+    type_id: Optional[str] = None,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    service: ReportesSimulacionService = Depends(get_reportes_service),
+    _=require_module_access("simulacion"),
+):
+    try:
+        uid = UUID(usuario_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="usuario_id inválido")
+
+    filtros = parse_filtros(start_date, end_date, tech_id, type_id)
+    insights = await service.get_kpi_insights_usuario(conn, uid, filtros)
+    return templates.TemplateResponse(
+        request,
+        "simulacion/reportes/partials/kpi_insights_popover.html",
+        {"insights": insights},
+    )
+
+
+# =============================================================================
 # ENDPOINTS DE DATOS (JSON para Gráficas)
 # =============================================================================
 

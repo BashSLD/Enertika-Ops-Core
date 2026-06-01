@@ -403,6 +403,55 @@ class ReportesSimulacionService:
         filtros_usuario = dc_replace(filtros, responsable_id=usuario_id)
         return await self.db.get_report_oportunidades_usuario(conn, asdict(filtros_usuario))
 
+    async def get_kpi_insights_usuario(
+        self,
+        conn,
+        usuario_id: UUID,
+        filtros: FiltrosReporte,
+    ) -> Dict[str, Any]:
+        cats = await self.db.get_report_catalog_ids(conn)
+        filtros_usuario = dc_replace(filtros, responsable_id=usuario_id)
+        rows = await self.db.get_kpi_insights_usuario(conn, asdict(filtros_usuario), cats)
+
+        if not rows:
+            return {"top_offenders": [], "total_tarde": 0, "kpi_sin_top_offender": None,
+                    "casos_compromiso_adelantado": 0, "kpi_actual": 0.0}
+
+        first = rows[0]
+        total_tarde = first["total_tarde_global"] or 0
+        total_a_tiempo = first["total_a_tiempo_global"] or 0
+        total_evaluados = total_tarde + total_a_tiempo
+        casos_adelantado = first["casos_compromiso_adelantado"] or 0
+
+        kpi_actual = round(total_a_tiempo / total_evaluados * 100, 1) if total_evaluados else 0.0
+
+        top_offenders = [
+            {
+                "op_id_estandar": row["op_id_estandar"],
+                "nombre_proyecto": row["nombre_proyecto"],
+                "sitios_tarde": row["sitios_tarde"],
+                "total_sitios": row["total_sitios"],
+                "pct_del_total": round(row["sitios_tarde"] / total_evaluados * 100, 1) if total_evaluados else 0,
+                "compromiso_adelantado": row["compromiso_adelantado"],
+            }
+            for row in rows[:3]
+            if row["sitios_tarde"] > 0
+        ]
+
+        kpi_sin_top_offender = None
+        if top_offenders:
+            total_sin_top = total_evaluados - top_offenders[0]["sitios_tarde"]
+            if total_sin_top > 0:
+                kpi_sin_top_offender = round(total_a_tiempo / total_sin_top * 100, 1)
+
+        return {
+            "top_offenders": top_offenders,
+            "total_tarde": total_tarde,
+            "kpi_sin_top_offender": kpi_sin_top_offender,
+            "casos_compromiso_adelantado": casos_adelantado,
+            "kpi_actual": kpi_actual,
+        }
+
     async def get_tiempo_promedio_por_tipo(
         self,
         conn,
