@@ -28,6 +28,12 @@ from modules.vacaciones.logic import (
 logger = logging.getLogger("vacaciones.service")
 
 
+def _saldo_neto(balance: list[dict]) -> int:
+    activos = [p for p in balance if not p.get("es_proximo") and not p.get("expirado")]
+    adelantos = sum(p["dias_usados"] for p in balance if p.get("es_proximo"))
+    return sum(p["dias_restantes"] for p in activos) - adelantos
+
+
 # ─────────────────────────────────────────────
 # Balance y períodos
 # ─────────────────────────────────────────────
@@ -71,7 +77,7 @@ async def get_balance_usuario(conn, usuario_id: UUID) -> dict[str, Any]:
 
     periodos_activos = [p for p in balance if not p.get("es_proximo") and not p.get("expirado")]
     total_disponible = sum(max(p["dias_restantes"], 0) for p in periodos_activos)
-    saldo_neto = sum(p["dias_restantes"] for p in periodos_activos)
+    saldo_neto = _saldo_neto(balance)
 
     semestre = None
     dias_efectivos_disponibles = total_disponible
@@ -467,7 +473,7 @@ async def get_balances_por_ids(conn, ids: list[UUID]) -> dict:
                 if not p.get("es_proximo") and not p.get("expirado")
             ]
             total_disponible = sum(max(p["dias_restantes"], 0) for p in periodos_activos)
-            saldo_neto = sum(p["dias_restantes"] for p in periodos_activos)
+            saldo_neto = _saldo_neto(periodos_balance)
             resultado[uid] = {
                 "periodos": periodos_balance,
                 "total_disponible": total_disponible,
