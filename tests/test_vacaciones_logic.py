@@ -157,25 +157,29 @@ class TestCalcularSemestreLiberado:
         resultado = calcular_semestre_liberado(date(2026, 1, 1), HOY, CATALOGO_BASE)
         assert resultado["semestre_activo"] is False
         assert resultado["dias_liberados"] == 0
+        assert resultado["dias_a_liberar"] == 6  # proyección aunque no activo
 
     def test_despues_del_semestre_libera_dias(self):
         resultado = calcular_semestre_liberado(date(2025, 8, 1), HOY, CATALOGO_BASE)
         assert resultado["semestre_activo"] is True
         assert resultado["dias_liberados"] == 6  # floor(12 * 50/100)
+        assert resultado["dias_a_liberar"] == 6
 
     def test_exactamente_en_fecha_semestre_activa(self):
         resultado = calcular_semestre_liberado(date(2025, 11, 21), HOY, CATALOGO_BASE)
         assert resultado["semestre_activo"] is True
         assert resultado["dias_liberados"] == 6
+        assert resultado["dias_a_liberar"] == 6
 
     def test_porcentaje_liberacion_custom(self):
         resultado = calcular_semestre_liberado(date(2025, 8, 1), HOY, CATALOGO_BASE, porcentaje_liberacion=75)
         assert resultado["dias_liberados"] == 9  # floor(12 * 75/100)
+        assert resultado["dias_a_liberar"] == 9
 
     def test_estructura_respuesta(self):
         resultado = calcular_semestre_liberado(date(2025, 8, 1), HOY, CATALOGO_BASE)
         assert set(resultado.keys()) == {
-            "fecha_semestre", "dias_liberados", "semestre_activo",
+            "fecha_semestre", "dias_a_liberar", "dias_liberados", "semestre_activo",
             "dias_proximo_periodo", "meses_semestre", "semestre_pct",
         }
 

@@ -28,10 +28,14 @@ from modules.vacaciones.logic import (
 logger = logging.getLogger("vacaciones.service")
 
 
+def _dias_usables(p: dict) -> int:
+    return p["dias_restantes_prorrogados"] if p.get("tiene_prorroga") else p["dias_restantes"]
+
+
 def _saldo_neto(balance: list[dict]) -> int:
     activos = [p for p in balance if not p.get("es_proximo") and not p.get("expirado")]
     adelantos = sum(p["dias_usados"] for p in balance if p.get("es_proximo"))
-    return sum(p["dias_restantes"] for p in activos) - adelantos
+    return sum(_dias_usables(p) for p in activos) - adelantos
 
 
 # ─────────────────────────────────────────────
@@ -76,7 +80,7 @@ async def get_balance_usuario(conn, usuario_id: UUID) -> dict[str, Any]:
     progreso = calcular_progreso(empleado["fecha_contratacion"], hoy, catalogo)
 
     periodos_activos = [p for p in balance if not p.get("es_proximo") and not p.get("expirado")]
-    total_disponible = sum(max(p["dias_restantes"], 0) for p in periodos_activos)
+    total_disponible = sum(max(_dias_usables(p), 0) for p in periodos_activos)
     saldo_neto = _saldo_neto(balance)
 
     semestre = None
@@ -87,7 +91,7 @@ async def get_balance_usuario(conn, usuario_id: UUID) -> dict[str, Any]:
         semestre = calcular_semestre_liberado(
             empleado["fecha_contratacion"], hoy, catalogo, meses_semestre, porcentaje_liberacion
         )
-        dias_de_aniversarios = sum(p["dias_otorgados"] for p in periodos_activos)
+        dias_de_aniversarios = sum(p["dias_usados"] + _dias_usables(p) for p in periodos_activos)
         total_usados = sum(p["dias_usados"] for p in balance)
         dias_semestre = semestre["dias_liberados"] if semestre["semestre_activo"] else 0
         dias_efectivos_disponibles = dias_de_aniversarios + dias_semestre - total_usados
@@ -472,7 +476,7 @@ async def get_balances_por_ids(conn, ids: list[UUID]) -> dict:
                 p for p in periodos_balance
                 if not p.get("es_proximo") and not p.get("expirado")
             ]
-            total_disponible = sum(max(p["dias_restantes"], 0) for p in periodos_activos)
+            total_disponible = sum(max(_dias_usables(p), 0) for p in periodos_activos)
             saldo_neto = _saldo_neto(periodos_balance)
             resultado[uid] = {
                 "periodos": periodos_balance,

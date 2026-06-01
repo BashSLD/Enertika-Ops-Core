@@ -50,7 +50,7 @@
     {% if balance.semestre %}
     <div class="absolute top-0 h-2.5 w-0.5 {{ 'bg-[#00BABB]/40' if balance.semestre.semestre_activo else 'bg-amber-400' }}"
          style="left: {{ balance.semestre.semestre_pct }}%"
-         title="{{ balance.semestre.meses_semestre }} meses: {{ balance.semestre.dias_liberados }} días liberados"></div>
+         title="{{ balance.semestre.meses_semestre }} meses: {{ balance.semestre.dias_a_liberar }} días liberados"></div>
     {% endif %}
   </div>
   <div class="flex items-center justify-between text-xs text-gray-500">
@@ -58,7 +58,7 @@
     {% if balance.semestre %}
     {% if not balance.semestre.semestre_activo %}
     <span class="text-amber-600 font-medium">
-      {{ balance.semestre.fecha_semestre.strftime('%d/%m/%Y') }}: {{ balance.semestre.dias_liberados }} días disponibles
+      {{ balance.semestre.fecha_semestre.strftime('%d/%m/%Y') }}: {{ balance.semestre.dias_a_liberar }} días disponibles
     </span>
     {% else %}
     <span class="text-[#00BABB] font-medium">
@@ -95,7 +95,7 @@
       </thead>
       <tbody class="divide-y divide-gray-50">
         {% for p in balance.periodos %}
-        <tr class="{{ 'bg-amber-50' if p.alerta and p.dias_para_expiracion < 30 else 'bg-yellow-50/50' if p.alerta else '' }}">
+        <tr class="{{ 'bg-amber-50' if p.alerta and p.dias_para_expiracion < 30 else 'bg-yellow-50/50' if p.alerta else '' }} {{ 'opacity-50' if p.es_proximo else '' }}">
           <td class="px-4 py-3 text-gray-700">
             {% if p.es_proximo %}
               <span class="text-gray-400 italic">{{ p.periodo }} (próximo)</span>

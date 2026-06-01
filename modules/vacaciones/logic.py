@@ -233,12 +233,14 @@ def calcular_semestre_liberado(
     fecha_semestre = ultimo_aniversario + relativedelta(months=meses_semestre)
     semestre_activo = hoy >= fecha_semestre
     dias_proximo_periodo = obtener_dias_por_antiguedad(anios_cumplidos + 1, catalogo)
-    dias_liberados = floor(dias_proximo_periodo * porcentaje_liberacion / 100) if semestre_activo else 0
+    dias_a_liberar = floor(dias_proximo_periodo * porcentaje_liberacion / 100)
+    dias_liberados = dias_a_liberar if semestre_activo else 0
     dias_hasta_semestre = min(dias_totales, max(0, (fecha_semestre - ultimo_aniversario).days))
     semestre_pct = round((dias_hasta_semestre / dias_totales) * 100, 1)
 
     return {
         "fecha_semestre": fecha_semestre,
+        "dias_a_liberar": dias_a_liberar,
         "dias_liberados": dias_liberados,
         "semestre_activo": semestre_activo,
         "dias_proximo_periodo": dias_proximo_periodo,
