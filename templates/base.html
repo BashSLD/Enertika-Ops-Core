@@ -1582,9 +1582,20 @@
             document.body.style.overflow = 'hidden';
         };
 
-        window.closeModal = function (event) {
-            // If event provided (click), check logic
-            if (event && event.target.id !== 'modal-overlay') return;
+        window.closeModal = function (eventOrId) {
+            // Called with a modal ID string → close that specific modal
+            if (typeof eventOrId === 'string') {
+                const modal = document.getElementById(eventOrId);
+                if (modal) {
+                    modal.classList.add('opacity-0');
+                    modal.querySelector(':scope > div')?.classList.add('scale-95');
+                    setTimeout(() => modal.classList.add('hidden'), 300);
+                }
+                return;
+            }
+
+            // Called with a click event → handle overlay close
+            if (eventOrId && eventOrId.target.id !== 'modal-overlay') return;
 
             const overlay = document.getElementById('modal-overlay');
             if (!overlay) return;
@@ -1594,10 +1605,9 @@
             setTimeout(() => {
                 overlay.classList.add('hidden');
                 const content = document.getElementById('modal-content');
-                if (content) content.innerHTML = ''; // Clear content
+                if (content) content.innerHTML = '';
             }, 200);
 
-            // Restore body scroll
             document.body.style.overflow = '';
         };
 
