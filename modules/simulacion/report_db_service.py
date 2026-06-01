@@ -336,6 +336,9 @@ class ReportDBService:
                 o.id_oportunidad, o.op_id_estandar, o.nombre_proyecto, o.cliente_nombre,
                 o.es_licitacion, o.clasificacion_solicitud, o.parent_id, o.cantidad_sitios,
                 o.fecha_solicitud, o.fecha_entrega_simulacion,
+                o.deadline_calculado,
+                o.deadline_negociado,
+                (o.deadline_negociado < o.deadline_calculado) AS compromiso_adelantado,
                 e.nombre AS estatus_nombre,
                 ts.nombre AS tipo_solicitud,
                 t.nombre AS tecnologia,
@@ -362,8 +365,11 @@ class ReportDBService:
                 o.id_oportunidad, o.op_id_estandar, o.nombre_proyecto, o.cliente_nombre,
                 o.es_licitacion, o.clasificacion_solicitud, o.parent_id, o.cantidad_sitios,
                 o.fecha_solicitud, o.fecha_entrega_simulacion,
+                o.deadline_calculado, o.deadline_negociado,
                 e.nombre, ts.nombre, t.nombre
-            ORDER BY o.fecha_solicitud DESC
+            ORDER BY
+                (kpi_compromiso = 'Tarde') DESC,
+                o.fecha_solicitud DESC
         """
         rows = await conn.fetch(query, *params)
         return [dict(r) for r in rows]

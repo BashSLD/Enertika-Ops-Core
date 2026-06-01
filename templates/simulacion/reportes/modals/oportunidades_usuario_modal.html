@@ -70,13 +70,14 @@
                             <th class="px-4 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Estatus</th>
                             <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Fecha solicitud</th>
                             <th class="px-4 py-3 text-center text-xs font-semibold text-gray-600 uppercase tracking-wide whitespace-nowrap">Fecha entrega</th>
+                            <th class="px-4 py-3 text-center text-xs font-semibold text-orange-700 uppercase tracking-wide bg-orange-50 whitespace-nowrap">Deadlines</th>
                             <th class="px-4 py-3 text-center text-xs font-semibold text-indigo-700 uppercase tracking-wide bg-indigo-50 whitespace-nowrap">KPI Interno</th>
                             <th class="px-4 py-3 text-center text-xs font-semibold text-blue-700 uppercase tracking-wide bg-blue-50 whitespace-nowrap">KPI Compromiso</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
                         {% for op in oportunidades %}
-                        <tr class="hover:bg-gray-50 transition-colors">
+                        <tr class="hover:bg-gray-50 transition-colors{% if op.kpi_compromiso == 'Tarde' %} bg-orange-50/40{% endif %}">
 
                             {# ID #}
                             <td class="px-4 py-3 font-mono text-xs text-gray-500 whitespace-nowrap">
@@ -169,6 +170,25 @@
                                 </span>
                             </td>
 
+                            {# Deadlines #}
+                            <td class="px-4 py-3 text-center bg-orange-50/20">
+                                <div class="space-y-1 text-xs">
+                                    <div class="text-gray-600 whitespace-nowrap">
+                                        <span class="text-gray-400">Sist.:</span>
+                                        {{ op.deadline_calculado | time_mx("%d/%m/%Y") if op.deadline_calculado else '—' }}
+                                    </div>
+                                    {% if op.deadline_negociado %}
+                                    <div class="text-gray-700 whitespace-nowrap">
+                                        <span class="text-gray-400">Neg.:</span>
+                                        {{ op.deadline_negociado | time_mx("%d/%m/%Y") }}
+                                    </div>
+                                    {% endif %}
+                                    {% if op.compromiso_adelantado %}
+                                    <span class="inline-block px-1.5 py-0.5 bg-orange-100 text-orange-700 rounded text-[10px] font-medium">Compromiso adelantado</span>
+                                    {% endif %}
+                                </div>
+                            </td>
+
                             {# KPI Interno #}
                             <td class="px-4 py-3 text-center bg-indigo-50/40">
                                 {% if op.kpi_interno == 'A tiempo' %}
@@ -210,18 +230,22 @@
 
         {# Footer #}
         <div class="px-4 sm:px-6 py-3 bg-gray-50 border-t rounded-b-xl flex flex-wrap items-center gap-3 justify-between shrink-0">
-            {% set ns = namespace(lic=0, multisitio=0, tiempo=0, tarde=0) %}
+            {% set ns = namespace(lic=0, multisitio=0, tiempo=0, tarde=0, adelantado=0) %}
             {% for op in oportunidades %}
                 {% if op.es_licitacion %}{% set ns.lic = ns.lic + 1 %}{% endif %}
                 {% if (op.sitios_count or 0) > 1 %}{% set ns.multisitio = ns.multisitio + 1 %}{% endif %}
                 {% if op.kpi_compromiso == 'A tiempo' %}{% set ns.tiempo = ns.tiempo + 1 %}{% endif %}
                 {% if op.kpi_compromiso == 'Tarde' %}{% set ns.tarde = ns.tarde + 1 %}{% endif %}
+                {% if op.compromiso_adelantado %}{% set ns.adelantado = ns.adelantado + 1 %}{% endif %}
             {% endfor %}
             <div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-500">
                 <span><strong class="text-amber-600">{{ ns.lic }}</strong> licitaciones</span>
                 <span><strong class="text-teal-600">{{ ns.multisitio }}</strong> multisitio</span>
                 <span class="hidden sm:inline"><strong class="text-green-600">{{ ns.tiempo }}</strong> a tiempo</span>
                 <span class="hidden sm:inline"><strong class="text-orange-600">{{ ns.tarde }}</strong> tarde</span>
+                {% if ns.adelantado > 0 %}
+                <span class="hidden sm:inline"><strong class="text-orange-500">{{ ns.adelantado }}</strong> compromiso adelantado</span>
+                {% endif %}
                 <span class="sm:hidden text-[10px]">
                     <strong class="text-green-600">{{ ns.tiempo }}</strong> ok /
                     <strong class="text-orange-600">{{ ns.tarde }}</strong> tarde
