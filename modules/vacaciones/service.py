@@ -448,7 +448,7 @@ async def get_balances_por_ids(conn, ids: list[UUID]) -> dict:
     for emp in empleados:
         uid = emp["id_usuario"]
         if not emp.get("fecha_contratacion"):
-            resultado[uid] = {"periodos": None, "total_disponible": 0}
+            resultado[uid] = {"periodos": None, "total_disponible": 0, "saldo_neto": 0}
         else:
             periodos = calcular_periodos(
                 emp["fecha_contratacion"],
