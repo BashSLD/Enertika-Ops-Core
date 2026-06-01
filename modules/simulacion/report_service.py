@@ -731,14 +731,24 @@ class ReportesSimulacionService:
             resultado['retrabajos'].valores[mes] = row['retrabajos'] or 0
             resultado['total_sitios'].valores[mes] = row['total_sitios'] or 0
 
+        _pct_keys = {
+            'porcentaje_en_plazo_interno', 'porcentaje_fuera_plazo_interno',
+            'porcentaje_en_plazo_compromiso', 'porcentaje_fuera_plazo_compromiso',
+            'tiempo_promedio',
+        }
         for nombre, fila in resultado.items():
-            if nombre in ('porcentaje_en_plazo_interno', 'porcentaje_fuera_plazo_interno',
-                          'porcentaje_en_plazo_compromiso', 'porcentaje_fuera_plazo_compromiso',
-                          'tiempo_promedio'):
-                valores = [v for v in fila.valores.values() if v > 0]
-                fila.total = round(sum(valores) / len(valores), 1) if valores else 0
-            else:
+            if nombre not in _pct_keys:
                 fila.total = sum(fila.valores.values())
+
+        t_int = resultado['entregas_a_tiempo_interno'].total + resultado['entregas_tarde_interno'].total
+        t_com = resultado['entregas_a_tiempo_compromiso'].total + resultado['entregas_tarde_compromiso'].total
+
+        for par, total in [('interno', t_int), ('compromiso', t_com)]:
+            resultado[f'porcentaje_en_plazo_{par}'].total = round(resultado[f'entregas_a_tiempo_{par}'].total / total * 100, 1) if total > 0 else 0
+            resultado[f'porcentaje_fuera_plazo_{par}'].total = round(resultado[f'entregas_tarde_{par}'].total / total * 100, 1) if total > 0 else 0
+
+        valores_tp = [v for v in resultado['tiempo_promedio'].valores.values() if v > 0]
+        resultado['tiempo_promedio'].total = round(sum(valores_tp) / len(valores_tp), 1) if valores_tp else 0
 
         return resultado
 
