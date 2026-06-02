@@ -119,6 +119,7 @@ class ReportDBService:
             )
             SELECT
                 COUNT(DISTINCT CASE WHEN id_tipo_solicitud != ${idx_levantamiento} THEN id_oportunidad END) as total_solicitudes,
+                -- total_ofertas = sitios entregados (estatus 4,6,7; excl. cancelado=5). NO cuenta oportunidades; idéntico a total_sitios_entregados.
                 COUNT(CASE WHEN id_estatus_global IN (${idx_entregado}, ${idx_perdido}, ${idx_ganada}) AND id_tipo_solicitud != ${idx_levantamiento} THEN id_sitio END) as total_ofertas,
                 COUNT(DISTINCT CASE WHEN id_estatus_global IN (${idx_pendiente}, ${idx_proceso}, ${idx_revision}) THEN id_oportunidad END) as en_espera,
                 COUNT(DISTINCT CASE WHEN id_estatus_global = ${idx_cancelado} THEN id_oportunidad END) as canceladas,

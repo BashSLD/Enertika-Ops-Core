@@ -85,6 +85,16 @@
             </div>
         </div>
 
+        {# Nota contextual de carga alta #}
+        {% if usuario.carga_alta %}
+        <div class="px-4 sm:px-6 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-900">
+            <strong>Carga alta:</strong> entregó {{ usuario.metricas_generales.total_sitios_entregados }} sitios,
+            ~{{ usuario.carga_pct_sobre_promedio }}% más que el promedio del equipo.
+            Un mayor volumen aumenta la exposición a entregas tardías; considéralo al evaluar el
+            {{ usuario.metricas_generales.porcentaje_a_tiempo_compromiso }}% de cumplimiento.
+        </div>
+        {% endif %}
+
         {# ============================================ #}
         {# CONTENIDO EXPANDIBLE #}
         {# ============================================ #}

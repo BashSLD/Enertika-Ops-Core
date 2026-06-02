@@ -133,6 +133,7 @@ class ConfiguracionScore:
     mult_actualizaciones: float = MULTIPLICADOR_ACTUALIZACIONES
     penalizacion_retrabajos: float = PENALIZACION_RETRABAJOS
     volumen_max: int = VOLUMEN_MAX_NORMALIZACION
+    umbral_carga_alta: float = 1.20
 
 
 @dataclass
@@ -320,6 +321,8 @@ class DetalleUsuario:
     tiempo_promedio_por_tipo: Dict[str, float] = field(default_factory=dict)
     resumen_texto: str = ""
     resumen_datos: Optional[ResumenUsuario] = None
+    carga_alta: bool = False
+    carga_pct_sobre_promedio: float = 0.0
 
 
 @dataclass
@@ -362,7 +365,16 @@ class MetricaUsuario(KPIMetricsMixin):
 
 @dataclass
 class ScoreUsuario:
-    """Score ponderado de desempeño del usuario"""
+    """Score ponderado de desempeño del usuario.
+
+    Capa 1 — Base (suma 100%): compromiso×0.50 + interno×0.25 + carga×0.25
+    Capa 2 — Multiplicador: × (1 + licitaciones×0.20 + actualizaciones×0.10 + retrabajos×(-0.15))
+    score_final = max(0, base × multiplicador)
+
+    factor_volumen: normalización relativa al período (usuario con más entregas = 1.00).
+    Métrica de carga = sitios entregados (total_ofertas; estatus 4,6,7; excl. cancelado).
+    Distinto de total_solicitudes (oportunidades). Ver calcular_score_usuario().
+    """
 
     cumplimiento_compromiso: float
     cumplimiento_interno: float
@@ -509,12 +521,18 @@ def categorizar_usuario(entregas: int, ratio_licitaciones: float, config: 'Confi
     return "eficiencia"
 
 
-def calcular_score_usuario(usuario: MetricaUsuario, config: 'ConfiguracionScore' = None) -> ScoreUsuario:
+def calcular_score_usuario(
+    usuario: MetricaUsuario,
+    config: 'ConfiguracionScore' = None,
+    volumen_referencia: int = 0,
+) -> ScoreUsuario:
+    # denom = max(referencia_período, piso_mínimo, 1) para normalización relativa de carga.
     cfg = config or ConfiguracionScore()
 
     cumplimiento_compromiso = usuario.porcentaje_a_tiempo_compromiso / 100.0
     cumplimiento_interno = usuario.porcentaje_a_tiempo_interno / 100.0
-    factor_volumen = min(usuario.total_ofertas / cfg.volumen_max, 1.0)
+    denom = max(volumen_referencia, cfg.volumen_max, 1)
+    factor_volumen = min(usuario.total_ofertas / denom, 1.0)
 
     ratio_licitaciones = usuario.licitaciones / usuario.total_solicitudes if usuario.total_solicitudes > 0 else 0.0
     ratio_actualizaciones = usuario.versiones / usuario.total_solicitudes if usuario.total_solicitudes > 0 else 0.0

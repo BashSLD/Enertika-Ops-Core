@@ -242,8 +242,8 @@ async def update_global_config_endpoint(
     sp_sat_base_folder: str = Form("SAT-Inbox"),
     # Simulation KPI Config (Defaults match constants.py)
     sim_peso_compromiso: float = Form(0.50),
-    sim_peso_interno: float = Form(0.35),
-    sim_peso_volumen: float = Form(0.15),
+    sim_peso_interno: float = Form(0.25),
+    sim_peso_volumen: float = Form(0.25),
     sim_umbral_min_entregas: int = Form(10),
     sim_umbral_ratio_licitaciones: float = Form(0.10),
     sim_umbral_verde: float = Form(90.0),
@@ -251,7 +251,7 @@ async def update_global_config_endpoint(
     sim_mult_licitaciones: float = Form(0.20),
     sim_mult_actualizaciones: float = Form(0.10),
     sim_penalizacion_retrabajos: float = Form(-0.15),
-    sim_volumen_max: int = Form(100),
+    sim_volumen_max: int = Form(15),
     # Comercial Config
     comercial_popup_targets: str = Form(""),
     # Reporte Semanal
@@ -557,14 +557,14 @@ async def backfill_biotime_chunk_endpoint(
 async def update_config_simulacion_kpis(
     request: Request,
     sim_peso_compromiso: float = Form(0.50),
-    sim_peso_interno: float = Form(0.35),
-    sim_peso_volumen: float = Form(0.15),
+    sim_peso_interno: float = Form(0.25),
+    sim_peso_volumen: float = Form(0.25),
     sim_umbral_min_entregas: int = Form(10),
     sim_umbral_ratio_licitaciones: float = Form(0.10),
     sim_mult_licitaciones: float = Form(0.20),
     sim_mult_actualizaciones: float = Form(0.10),
     sim_penalizacion_retrabajos: float = Form(-0.15),
-    sim_volumen_max: int = Form(100),
+    sim_volumen_max: int = Form(15),
     service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection),
     _ = require_module_access("admin"),

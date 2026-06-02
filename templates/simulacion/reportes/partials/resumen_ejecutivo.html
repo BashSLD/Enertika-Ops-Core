@@ -254,6 +254,13 @@
                     </span>
                 </div>
                 <div class="flex items-start">
+                    <span class="w-4 mr-2">├─</span>
+                    <span>
+                        Carga: <strong>{{ usuario.total_sitios_entregados }}</strong> sitios entregados
+                        ({{ "%.0f"|format(usuario.score.factor_volumen * 100) }}% del máx. del periodo)
+                    </span>
+                </div>
+                <div class="flex items-start">
                     <span class="w-4 mr-2">└─</span>
                     <span>
                         Retrabajos: <strong>{{ usuario.retrabajados }}</strong>
@@ -311,6 +318,13 @@
                     </span>
                 </div>
                 <div class="flex items-start">
+                    <span class="w-4 mr-2">├─</span>
+                    <span>
+                        Carga: <strong>{{ usuario.total_sitios_entregados }}</strong> sitios entregados
+                        ({{ "%.0f"|format(usuario.score.factor_volumen * 100) }}% del máx. del periodo)
+                    </span>
+                </div>
+                <div class="flex items-start">
                     <span class="w-4 mr-2">└─</span>
                     <span>
                         Retrabajos: <strong>{{ usuario.retrabajados }}</strong>
@@ -357,7 +371,7 @@
         {% endfor %}
 
         <p class="ml-4 text-xs text-gray-500 italic mt-2">
-            Nota: Se requieren al menos 10 entregas para cálculo de score de desempeño.
+            Nota: Se requieren al menos 10 sitios entregados para cálculo de score de desempeño.
         </p>
     </div>
     {% endif %}

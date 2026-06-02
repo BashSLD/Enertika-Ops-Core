@@ -99,6 +99,7 @@ class ReportesSimulacionService:
             volumen_max=await ConfigService.get_global_config(conn, "sim_volumen_max", VOLUMEN_MAX_NORMALIZACION, int),
             umbral_verde=await ConfigService.get_global_config(conn, "sim_umbral_verde", UMBRAL_VERDE, float),
             umbral_ambar=await ConfigService.get_global_config(conn, "sim_umbral_ambar", UMBRAL_AMBAR, float),
+            umbral_carga_alta=await ConfigService.get_global_config(conn, "sim_umbral_carga_alta", 1.20, float),
         )
 
     def calcular_semaforo(self, porcentaje: float, config: ConfiguracionScore = None) -> str:
@@ -332,6 +333,7 @@ class ReportesSimulacionService:
         cats = await self.db.get_report_catalog_ids(conn)
         u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
         u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso")
+        score_config = await self._get_score_config(conn)
         filtros_dict = asdict(filtros)
 
         batch_metricas = await self.db.get_report_metricas_generales_batch(conn, filtros_dict, cats)
@@ -391,6 +393,18 @@ class ReportesSimulacionService:
             )
 
             resultados.append(detalle_usuario)
+
+        cohorte = [u for u in resultados if u.metricas_generales.total_sitios_entregados >= score_config.umbral_min_entregas]
+        if len(cohorte) >= 2:
+            total_cohorte = sum(u.metricas_generales.total_sitios_entregados for u in cohorte)
+            for u in cohorte:
+                sitios_u = u.metricas_generales.total_sitios_entregados
+                promedio_resto = (total_cohorte - sitios_u) / (len(cohorte) - 1)
+                if promedio_resto > 0:
+                    relativo = sitios_u / promedio_resto
+                    if relativo >= score_config.umbral_carga_alta and u.metricas_generales.semaforo_compromiso != "green":
+                        u.carga_alta = True
+                        u.carga_pct_sobre_promedio = round((relativo - 1) * 100, 1)
 
         return resultados
 
@@ -567,6 +581,11 @@ class ReportesSimulacionService:
 
         score_config = await self._get_score_config(conn)
 
+        volumen_referencia = max(
+            (u.metricas_generales.total_ofertas for u in usuarios),
+            default=0,
+        )
+
         usuarios_con_score = []
         for usuario in usuarios:
             metrica_usuario = MetricaUsuario(
@@ -586,7 +605,7 @@ class ReportesSimulacionService:
                 oportunidades_multisitio=usuario.metricas_generales.oportunidades_multisitio,
             )
 
-            score = calcular_score_usuario(metrica_usuario, score_config)
+            score = calcular_score_usuario(metrica_usuario, score_config, volumen_referencia)
             metrica_usuario.score = score
 
             if metrica_usuario.retrabajados > 0:

@@ -27,8 +27,8 @@ class ConfiguracionGlobalUpdate(AdminBaseSchema):
     # 3. Configuración KPIs Simulación (Scores)
     # Porcentajes (Weights) 0.0 - 1.0 (o escalado según lógica)
     sim_peso_compromiso: Optional[float] = Field(0.50, ge=0.0, le=1.0)
-    sim_peso_interno: Optional[float] = Field(0.35, ge=0.0, le=1.0)
-    sim_peso_volumen: Optional[float] = Field(0.15, ge=0.0, le=1.0)
+    sim_peso_interno: Optional[float] = Field(0.25, ge=0.0, le=1.0)
+    sim_peso_volumen: Optional[float] = Field(0.25, ge=0.0, le=1.0)
     
     # Umbrales y Factores
     sim_umbral_min_entregas: Optional[int] = Field(10, ge=1)
@@ -38,7 +38,7 @@ class ConfiguracionGlobalUpdate(AdminBaseSchema):
     sim_mult_licitaciones: Optional[float] = Field(0.20)
     sim_mult_actualizaciones: Optional[float] = Field(0.10)
     sim_penalizacion_retrabajos: Optional[float] = Field(-0.15)
-    sim_volumen_max: Optional[int] = Field(100)
+    sim_volumen_max: Optional[int] = Field(15)
 
     # 4. Configuración Comercial (Targeted Popups)
     comercial_popup_targets: Optional[str] = Field("", description="Lista de emails separados por coma")

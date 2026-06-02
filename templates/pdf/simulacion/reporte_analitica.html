@@ -921,6 +921,10 @@
             r.motivo_retrabajo_principal %}, motivo principal: &ldquo;{{ r.motivo_retrabajo_principal }}&rdquo;{% endif
             %}.</span>
         {% endif %}
+        {% if u.carga_alta %}
+        <span style="color:#92400e;"> Carga alta: entrego {{ u.metricas_generales.total_sitios_entregados }} sitios,
+        ~{{ u.carga_pct_sobre_promedio }}% mas que el promedio del equipo; considerar al evaluar el cumplimiento.</span>
+        {% endif %}
     </div>
     {% endif %}
     {% endfor %}

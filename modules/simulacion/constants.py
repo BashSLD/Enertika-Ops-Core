@@ -17,11 +17,11 @@ UMBRAL_RATIO_LICITACIONES = 0.10
 PESO_CUMPLIMIENTO_COMPROMISO = 0.50
 """Peso de cumplimiento con cliente en score base"""
 
-PESO_CUMPLIMIENTO_INTERNO = 0.35
+PESO_CUMPLIMIENTO_INTERNO = 0.25
 """Peso de cumplimiento SLA interno en score base"""
 
-PESO_VOLUMEN = 0.15
-"""Peso de volumen de entregas en score base"""
+PESO_VOLUMEN = 0.25
+"""Peso de carga de trabajo (sitios entregados) en score base"""
 
 # ============================================
 # MULTIPLICADORES DE COMPLEJIDAD
@@ -38,8 +38,8 @@ PENALIZACION_RETRABAJOS = -0.15
 # ============================================
 # NORMALIZACIÓN
 # ============================================
-VOLUMEN_MAX_NORMALIZACION = 100
-"""Volumen de entregas que representa 100% en normalización"""
+VOLUMEN_MAX_NORMALIZACION = 15
+"""Piso mínimo de carga (sitios) para la normalización relativa al período"""
 
 # ============================================
 # CATEGORÍAS (sin emojis - esos van en frontend)
