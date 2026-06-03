@@ -30,7 +30,7 @@ def _build_maps_url(sitio_maps, op_maps, coords):
     return None
 
 
-def _vacaciones_recordatorio_recipientes(responsables, rh_emails: set[str], hito: str) -> tuple[set[str], set[str]]:
+def _vacaciones_recordatorio_destinatarios(responsables, rh_emails: set[str], hito: str) -> tuple[set[str], set[str]]:
     responsables_emails = {email for email in (responsables or []) if email}
     if hito == "t2":
         return responsables_emails or rh_emails, rh_emails if responsables_emails else set()
@@ -801,7 +801,7 @@ async def verificar_recordatorios_aprobacion_periodically(interval_seconds: int 
                         "fecha_presentarse": row["fecha_presentarse"],
                         "observaciones": row["observaciones"],
                     }
-                    to_emails, cc_emails = _vacaciones_recordatorio_recipientes(
+                    to_emails, cc_emails = _vacaciones_recordatorio_destinatarios(
                         row["responsable_emails"],
                         rh_emails,
                         hito,

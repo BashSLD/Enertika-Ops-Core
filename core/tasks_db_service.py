@@ -450,8 +450,6 @@ class TasksDBService:
                 ta.abreviatura AS tipo_abreviatura,
                 u.nombre AS solicitante_nombre,
                 u.email AS solicitante_email,
-                ARRAY_REMOVE(ARRAY[u_ap.email::text], NULL)::text[] AS aprobador_emails,
-                COALESCE(jefes.emails, ARRAY[]::text[]) AS jefe_emails,
                 CASE
                     WHEN u_ap.email IS NOT NULL THEN ARRAY[u_ap.email::text]::text[]
                     ELSE COALESCE(jefes.emails, ARRAY[]::text[])
@@ -482,12 +480,6 @@ class TasksDBService:
             hoy,
         )
         return [dict(row) for row in rows]
-
-    async def mark_absence_approver_notified(self, conn, solicitud_id) -> None:
-        await conn.execute(
-            "UPDATE tb_solicitudes_ausencia SET ultima_notificacion_aprobador = now() WHERE id = $1",
-            solicitud_id,
-        )
 
     async def get_vacation_days_catalog(self, conn) -> list[dict]:
         rows = await conn.fetch(
