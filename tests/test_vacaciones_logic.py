@@ -3,7 +3,14 @@ from datetime import date
 import pytest
 from dateutil.relativedelta import relativedelta
 
-from modules.vacaciones.logic import asignar_consumo_fifo, calcular_balance, calcular_progreso, calcular_semestre_liberado
+from modules.vacaciones.logic import (
+    asignar_consumo_fifo,
+    calcular_balance,
+    calcular_progreso,
+    calcular_semestre_liberado,
+    hito_recordatorio_aprobacion,
+    restar_dias_habiles,
+)
 
 HOY = date(2026, 5, 21)
 
@@ -53,6 +60,36 @@ def _balance_enriquecido(num, aniversario, exp_efectiva, dias_otorgados, dias_us
 # ─────────────────────────────────────────────
 # calcular_balance con prórrogas
 # ─────────────────────────────────────────────
+
+class TestRecordatoriosAprobacionHabiles:
+    def test_lunes_dispara_t2_jueves_y_t1_viernes(self):
+        inicio = date(2026, 6, 8)  # lunes
+        festivos = set()
+
+        assert restar_dias_habiles(inicio, 2, festivos) == date(2026, 6, 4)
+        assert restar_dias_habiles(inicio, 1, festivos) == date(2026, 6, 5)
+        assert hito_recordatorio_aprobacion(inicio, date(2026, 6, 4), festivos) == "t2"
+        assert hito_recordatorio_aprobacion(inicio, date(2026, 6, 5), festivos) == "t1"
+
+    def test_no_dispara_en_fin_de_semana(self):
+        inicio = date(2026, 6, 8)
+
+        assert hito_recordatorio_aprobacion(inicio, date(2026, 6, 6), set()) is None
+        assert hito_recordatorio_aprobacion(inicio, date(2026, 6, 7), set()) is None
+
+    def test_festivo_mueve_hito_al_dia_habil_anterior(self):
+        inicio = date(2026, 6, 8)
+        festivos = {date(2026, 6, 5)}
+
+        assert restar_dias_habiles(inicio, 1, festivos) == date(2026, 6, 4)
+        assert hito_recordatorio_aprobacion(inicio, date(2026, 6, 4), festivos) == "t1"
+        assert hito_recordatorio_aprobacion(inicio, date(2026, 6, 5), festivos) is None
+
+    def test_no_dispara_si_la_solicitud_ya_inicio(self):
+        inicio = date(2026, 6, 8)
+
+        assert hito_recordatorio_aprobacion(inicio, inicio, set()) is None
+
 
 class TestCalcularBalanceProrrogas:
     def test_vencido_sin_prorroga_sigue_expirado(self, monkeypatch):

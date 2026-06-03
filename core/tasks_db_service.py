@@ -436,7 +436,7 @@ class TasksDBService:
             """
         )
 
-    async def get_pending_absence_approval_reminders(self, conn) -> list[dict]:
+    async def get_pending_absence_approval_reminders(self, conn, hoy) -> list[dict]:
         rows = await conn.fetch(
             """
             SELECT
@@ -450,7 +450,12 @@ class TasksDBService:
                 ta.abreviatura AS tipo_abreviatura,
                 u.nombre AS solicitante_nombre,
                 u.email AS solicitante_email,
-                COALESCE(u_ap.email, u_jefe.email) AS aprobador_email
+                ARRAY_REMOVE(ARRAY[u_ap.email::text], NULL)::text[] AS aprobador_emails,
+                COALESCE(jefes.emails, ARRAY[]::text[]) AS jefe_emails,
+                CASE
+                    WHEN u_ap.email IS NOT NULL THEN ARRAY[u_ap.email::text]::text[]
+                    ELSE COALESCE(jefes.emails, ARRAY[]::text[])
+                END AS responsable_emails
             FROM tb_solicitudes_ausencia sa
             JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
             JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
@@ -458,20 +463,23 @@ class TasksDBService:
             LEFT JOIN tb_usuarios u_ap
                 ON u_ap.id_usuario = ed.id_aprobador_vacaciones AND u_ap.is_active = true
             LEFT JOIN LATERAL (
-                SELECT jefe_id FROM tb_empleados_jefes
-                WHERE empleado_id = sa.usuario_id LIMIT 1
-            ) ej ON true
-            LEFT JOIN tb_usuarios u_jefe
-                ON u_jefe.id_usuario = ej.jefe_id AND u_jefe.is_active = true
+                SELECT ARRAY_AGG(j.email::text ORDER BY j.nombre)::text[] AS emails
+                FROM (
+                    SELECT DISTINCT u_jefe.email, u_jefe.nombre
+                    FROM tb_empleados_jefes ej
+                    JOIN tb_usuarios u_jefe
+                        ON u_jefe.id_usuario = ej.jefe_id
+                       AND u_jefe.is_active = true
+                       AND u_jefe.email IS NOT NULL
+                    WHERE ej.empleado_id = sa.usuario_id
+                ) j
+            ) jefes ON true
             WHERE sa.estado = 'pendiente'
               AND sa.firma_solicitante_pendiente = false
-              AND sa.fecha_solicitud < NOW() - INTERVAL '24 hours'
-              AND (
-                  sa.ultima_notificacion_aprobador IS NULL
-                  OR sa.ultima_notificacion_aprobador < NOW() - INTERVAL '24 hours'
-              )
-              AND COALESCE(u_ap.email, u_jefe.email) IS NOT NULL
-            """
+              AND sa.fecha_inicio > $1
+            ORDER BY sa.fecha_inicio, sa.fecha_solicitud
+            """,
+            hoy,
         )
         return [dict(row) for row in rows]
 

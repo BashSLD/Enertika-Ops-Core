@@ -30,6 +30,13 @@ def _build_maps_url(sitio_maps, op_maps, coords):
     return None
 
 
+def _vacaciones_recordatorio_recipientes(responsables, rh_emails: set[str], hito: str) -> tuple[set[str], set[str]]:
+    responsables_emails = {email for email in (responsables or []) if email}
+    if hito == "t2":
+        return responsables_emails or rh_emails, rh_emails if responsables_emails else set()
+    return responsables_emails | rh_emails, set()
+
+
 async def cleanup_temp_uploads_periodically(interval_seconds: int = 3600, max_age_seconds: int = 3600):
     """
     Tarea en segundo plano que elimina archivos antiguos de la carpeta temp_uploads.
@@ -747,9 +754,9 @@ async def sat_jobs_worker_periodically(interval_seconds: int = 30):
 
 async def verificar_recordatorios_aprobacion_periodically(interval_seconds: int = 3600):
     """
-    Tarea periódica (cada hora) que reenvía la notificación de solicitud pendiente
-    al aprobador cuando llevan más de 24 h sin resolverse.
-    Usa `ultima_notificacion_aprobador` en BD como anti-spam persistente.
+    Tarea periodica que envia recordatorios de aprobacion en hitos habiles:
+    t2 = dos dias habiles antes del inicio, t1 = un dia habil antes del inicio.
+    Usa tb_vacaciones_notificaciones_worker como anti-duplicados persistente.
     """
     logger.info("[VAC_RECORDATORIO] Tarea inicializada (intervalo: %sh)", interval_seconds // 3600)
 
@@ -757,19 +764,31 @@ async def verificar_recordatorios_aprobacion_periodically(interval_seconds: int 
         await asyncio.sleep(interval_seconds)
         try:
             from core.database import get_db_pool
+            from core.timezone import today_mx
             from core.workflow.notification_service import get_notification_service
+            from modules.vacaciones.db_service import get_festivos_set, try_register_worker_notification
+            from modules.vacaciones.logic import hito_recordatorio_aprobacion
 
             pool = await get_db_pool()
             notif = get_notification_service()
 
             async with pool.acquire() as conn:
-                rows = await tasks_db.get_pending_absence_approval_reminders(conn)
+                hoy = today_mx()
+                festivos = await get_festivos_set(conn)
+                rows = await tasks_db.get_pending_absence_approval_reminders(conn, hoy)
 
                 if not rows:
                     logger.debug("[VAC_RECORDATORIO] Sin solicitudes pendientes que requieran recordatorio")
                     continue
 
+                rh_rows = await tasks_db.get_active_rh_contacts(conn)
+                rh_emails = {r["email"] for r in rh_rows if r["email"]}
+
                 for row in rows:
+                    hito = hito_recordatorio_aprobacion(row["fecha_inicio"], hoy, festivos)
+                    if not hito:
+                        continue
+
                     solicitud = {
                         "id": row["id"],
                         "tipo_nombre": row["tipo_nombre"],
@@ -782,12 +801,51 @@ async def verificar_recordatorios_aprobacion_periodically(interval_seconds: int 
                         "fecha_presentarse": row["fecha_presentarse"],
                         "observaciones": row["observaciones"],
                     }
-                    await notif.notify_vacation_request(conn, solicitud, row["aprobador_email"])
-                    await tasks_db.mark_absence_approver_notified(conn, row["id"])
-                    logger.info(
-                        "[VAC_RECORDATORIO] Recordatorio enviado: sol=%s aprobador=%s",
-                        row["id"], row["aprobador_email"],
+                    to_emails, cc_emails = _vacaciones_recordatorio_recipientes(
+                        row["responsable_emails"],
+                        rh_emails,
+                        hito,
                     )
+
+                    if to_emails:
+                        clave_responsables = f"aprobacion_{hito}:{row['id']}"
+                        registrado = await try_register_worker_notification(
+                            conn,
+                            clave=clave_responsables,
+                            tipo="SOLICITUD_APROBACION_PENDIENTE",
+                            solicitud_id=row["id"],
+                            fecha_objetivo=row["fecha_inicio"],
+                            metadata={
+                                "hito": hito,
+                                "to_count": len(to_emails),
+                                "cc_count": len(cc_emails),
+                            },
+                        )
+                        if registrado:
+                            await notif.notify_pending_vacation_approval(
+                                conn,
+                                solicitud,
+                                to_emails=to_emails,
+                                cc_emails=cc_emails,
+                                hito=hito,
+                            )
+                            logger.info(
+                                "[VAC_RECORDATORIO] Recordatorio %s enviado: sol=%s TO=%d CC=%d",
+                                hito, row["id"], len(to_emails), len(cc_emails),
+                            )
+
+                    if row["solicitante_email"]:
+                        clave_solicitante = f"solicitante_{hito}:{row['id']}"
+                        registrado = await try_register_worker_notification(
+                            conn,
+                            clave=clave_solicitante,
+                            tipo="SOLICITANTE_APROBACION_PENDIENTE",
+                            solicitud_id=row["id"],
+                            fecha_objetivo=row["fecha_inicio"],
+                            metadata={"hito": hito},
+                        )
+                        if registrado:
+                            await notif.notify_vacation_pending_requester(conn, solicitud, hito=hito)
 
         except asyncpg.PostgresError as e:
             logger.error("[VAC_RECORDATORIO] Error de BD: %s", e)

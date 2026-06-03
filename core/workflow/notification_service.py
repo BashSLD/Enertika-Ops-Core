@@ -913,6 +913,14 @@ class NotificationService:
     async def _get_rh_emails_cc(self, conn) -> set[str]:
         return await self.db.get_rh_emails(conn)
 
+    @staticmethod
+    def _vacaciones_hito_label(hito: str) -> str:
+        labels = {
+            "t2": "dos dias habiles",
+            "t1": "un dia habil",
+        }
+        return labels.get(hito, "pocos dias")
+
     async def notify_periodo_expira(self, conn, empleado: dict, periodo: dict) -> None:
         """Notifica por email al empleado y CC a RH cuando un periodo esta por expirar."""
         try:
@@ -977,6 +985,90 @@ class NotificationService:
             logger.error("[NOTIFY] HTTP error en notify_solicitud_vencida: %s", e, exc_info=True)
         except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as e:
             logger.error("[NOTIFY] Error en notify_solicitud_vencida: %s", e, exc_info=True)
+
+    async def notify_pending_vacation_approval(
+        self,
+        conn,
+        solicitud: dict,
+        to_emails: set[str],
+        cc_emails: set[str],
+        hito: str,
+    ) -> None:
+        """Notifica a responsables/RH que una solicitud inicia pronto y sigue pendiente."""
+        try:
+            if not to_emails:
+                logger.info("[NOTIFY] Recordatorio de aprobacion sin destinatarios: %s", solicitud.get("id"))
+                return
+            hito_label = self._vacaciones_hito_label(hito)
+            html = self._render_template("shared/emails/vacaciones/solicitud_pendiente_aprobacion.html", {
+                "solicitud_id": str(solicitud["id"]),
+                "solicitante_nombre": solicitud["solicitante_nombre"],
+                "tipo_nombre": solicitud["tipo_nombre"],
+                "fecha_inicio": solicitud["fecha_inicio"].strftime("%d/%m/%Y"),
+                "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
+                "dias": solicitud["dias_solicitados"],
+                "fecha_presentarse": solicitud["fecha_presentarse"].strftime("%d/%m/%Y"),
+                "observaciones": solicitud.get("observaciones"),
+                "hito_label": hito_label,
+                "base_url": settings.APP_BASE_URL,
+            })
+            sender = await self._get_notification_sender(conn)
+            await self._send_email(
+                to_emails,
+                cc_emails,
+                f"Solicitud pendiente de aprobacion: {solicitud['tipo_nombre']} - {solicitud['solicitante_nombre']}",
+                html,
+                sender["email"],
+            )
+        except asyncpg.PostgresError as e:
+            logger.error("[NOTIFY] BD error en notify_pending_vacation_approval: %s", e, exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error("[NOTIFY] HTTP error en notify_pending_vacation_approval: %s", e, exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as e:
+            logger.error("[NOTIFY] Error en notify_pending_vacation_approval: %s", e, exc_info=True)
+
+    async def notify_vacation_pending_requester(self, conn, solicitud: dict, hito: str) -> None:
+        """Notifica al solicitante que su solicitud sigue pendiente de aprobacion."""
+        try:
+            solicitante_email = solicitud.get("solicitante_email")
+            if not solicitante_email:
+                logger.info("[NOTIFY] Recordatorio a solicitante sin email: %s", solicitud.get("id"))
+                return
+            hito_label = self._vacaciones_hito_label(hito)
+            html = self._render_template("shared/emails/vacaciones/solicitud_pendiente_solicitante.html", {
+                "solicitante_nombre": solicitud["solicitante_nombre"],
+                "tipo_nombre": solicitud["tipo_nombre"],
+                "fecha_inicio": solicitud["fecha_inicio"].strftime("%d/%m/%Y"),
+                "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
+                "dias": solicitud["dias_solicitados"],
+                "hito_label": hito_label,
+                "solicitud_id": str(solicitud["id"]),
+                "base_url": settings.APP_BASE_URL,
+            })
+            sender = await self._get_notification_sender(conn)
+            await self._send_email(
+                {solicitante_email},
+                set(),
+                f"Tu solicitud de {solicitud['tipo_nombre'].lower()} sigue pendiente",
+                html,
+                sender["email"],
+            )
+
+            await self._save_and_broadcast(
+                conn=conn,
+                recipient_email=solicitante_email,
+                tipo="CAMBIO_ESTATUS",
+                titulo="Solicitud pendiente",
+                mensaje=f"{solicitud['tipo_nombre']} aun no ha sido aprobada",
+                id_oportunidad=None,
+                modulo_origen="vacaciones",
+            )
+        except asyncpg.PostgresError as e:
+            logger.error("[NOTIFY] BD error en notify_vacation_pending_requester: %s", e, exc_info=True)
+        except httpx.HTTPError as e:
+            logger.error("[NOTIFY] HTTP error en notify_vacation_pending_requester: %s", e, exc_info=True)
+        except (AttributeError, KeyError, TemplateError, TypeError, ValueError, RuntimeError) as e:
+            logger.error("[NOTIFY] Error en notify_vacation_pending_requester: %s", e, exc_info=True)
 
     async def notify_vacation_request(self, conn, solicitud: dict, aprobador_email: str) -> None:
         """Notifica al aprobador cuando el empleado envía una solicitud de ausencia."""

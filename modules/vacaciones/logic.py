@@ -259,6 +259,37 @@ def contar_dias_habiles(inicio: date, fin: date, festivos: set[date]) -> int:
         current += relativedelta(days=1)
     return count
 
+def es_dia_habil(fecha: date, festivos: set[date]) -> bool:
+    return fecha.weekday() < 5 and fecha not in festivos
+
+
+def restar_dias_habiles(desde: date, dias: int, festivos: set[date]) -> date:
+    """Resta dias habiles a una fecha, excluyendo fines de semana y festivos."""
+    current = desde
+    restantes = dias
+    while restantes > 0:
+        current -= relativedelta(days=1)
+        if es_dia_habil(current, festivos):
+            restantes -= 1
+    return current
+
+
+def hito_recordatorio_aprobacion(fecha_inicio: date, hoy: date, festivos: set[date]) -> str | None:
+    """
+    Devuelve el hito de recordatorio aplicable antes de iniciar la ausencia.
+    Solo dispara en dias habiles: t2 = dos dias habiles antes, t1 = un dia habil antes.
+    """
+    if hoy >= fecha_inicio or not es_dia_habil(hoy, festivos):
+        return None
+
+    t2 = restar_dias_habiles(fecha_inicio, 2, festivos)
+    t1 = restar_dias_habiles(fecha_inicio, 1, festivos)
+    if hoy >= t1:
+        return "t1"
+    if hoy >= t2:
+        return "t2"
+    return None
+
 
 def siguiente_dia_habil(desde: date, festivos: set[date]) -> date:
     """Primer día hábil (L-V) posterior a `desde`, excluyendo festivos."""
