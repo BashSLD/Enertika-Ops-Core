@@ -138,7 +138,7 @@ class NotificationService:
 
         op_data = await conn.fetchrow("""
             SELECT o.op_id_estandar, o.cliente_nombre, o.solicitado_por,
-                   to_char(o.fecha_solicitud AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City', 'DD/MM/YYYY HH24:MI') as fecha_solicitud
+                   to_char(o.fecha_solicitud AT TIME ZONE 'America/Mexico_City', 'DD/MM/YYYY HH24:MI') as fecha_solicitud
             FROM tb_oportunidades o WHERE o.id_oportunidad = $1
         """, id_oportunidad)
         
