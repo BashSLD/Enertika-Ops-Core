@@ -36,6 +36,18 @@ register_timezone_filters(templates.env)
 
 # --- CONFIG EMAIL ENDPOINTS ---
 
+def _parse_email_targets(raw_values: list[str]) -> list[str]:
+    """Normaliza listas de correos recibidas desde inputs simples o multiples."""
+    targets = []
+    seen = set()
+    for raw_value in raw_values:
+        for email in (raw_value or "").replace(";", ",").split(","):
+            normalized = email.strip().lower()
+            if normalized and normalized not in seen:
+                seen.add(normalized)
+                targets.append(normalized)
+    return targets
+
 @router.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)
 async def admin_dashboard(
     request: Request,
@@ -59,6 +71,15 @@ async def admin_dashboard(
     recordatorios_monitor = await service.get_recordatorios_oportunidad_monitor(conn)
     tc_actual = await tc_service.get_tasa_actual(conn)
     tc_historial = await tc_service.get_historial(conn, limit=30)
+    comercial_popup_users = [
+        user for user in users_enriched
+        if user.get("is_active") and user.get("email")
+    ]
+    active_emails = {user["email"].strip().lower() for user in comercial_popup_users}
+    comercial_popup_target_emails = [
+        email for email in _parse_email_targets([global_config.get("comercial_popup_targets", "")])
+        if email in active_emails
+    ]
 
     return templates.TemplateResponse(request, "admin/dashboard.html", {"users": users_enriched,
         "rules": rules,
@@ -69,6 +90,8 @@ async def admin_dashboard(
         "sucursales": ubicaciones["sucursales"],
         "zonas_compra": ubicaciones["zonas_compra"],
         "config_global": global_config,
+        "comercial_popup_target_emails": comercial_popup_target_emails,
+        "comercial_popup_users": comercial_popup_users,
         "fiel_config": fiel_config,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
@@ -615,13 +638,22 @@ async def reset_simulation_config_endpoint(
 @router.post("/config/comercial", include_in_schema=False)
 async def update_config_comercial(
     request: Request,
-    comercial_popup_targets: str = Form(""),
     service: AdminService = Depends(get_admin_service),
     conn = Depends(get_db_connection),
     _ = require_module_access("admin"),
 ):
     """Guarda solo la configuracion de popup comercial."""
-    await service.db.upsert_global_config(conn, "COMERCIAL_POPUP_TARGETS", comercial_popup_targets)
+    form_data = await request.form()
+    requested_emails = _parse_email_targets(form_data.getlist("comercial_popup_targets"))
+    users = await service.db.fetch_all_users(conn)
+    active_emails = {
+        (user.get("email") or "").strip().lower()
+        for user in users
+        if user.get("is_active") and user.get("email")
+    }
+    valid_targets = [email for email in requested_emails if email in active_emails]
+
+    await service.db.upsert_global_config(conn, "COMERCIAL_POPUP_TARGETS", ", ".join(valid_targets))
     ConfigService.invalidar_cache()
     return templates.TemplateResponse(request, "admin/partials/messages/success.html", {
         "title": "Guardado", "message": "Configuracion comercial actualizada."
