@@ -28,6 +28,7 @@ from .db_service import (
     QUERY_UPDATE_OPORTUNIDAD_OWNER,
     QUERY_GET_USUARIOS_COMERCIAL,
     QUERY_GET_ALL_USUARIOS,
+    QUERY_GET_USUARIOS_CON_ACCESO_COMERCIAL,
     QUERY_GET_TIPO_ACTUALIZACION_ID,
     QUERY_CHECK_USER_TOKEN,
     QUERY_GET_TECNOLOGIA_NAME,
@@ -36,7 +37,6 @@ from .db_service import (
     QUERY_GET_TIPO_SOLICITUD_NAME,
     QUERY_GET_USER_NAME,
     QUERY_GET_DETALLES_BESS,
-    QUERY_GET_COMENTARIOS_WORKFLOW,
     QUERY_GET_CANTIDAD_SITIOS,
     QUERY_GET_TIPO_SOLICITUD_FROM_OP,
     QUERY_DELETE_SITIOS_OP,
@@ -139,7 +139,7 @@ class ComercialService:
             return False
             
         # Normalizar y comparar
-        targets = [e.strip().lower() for e in targets_str.split(",") if e.strip()]
+        targets = [e.strip().lower() for e in targets_str.replace(";", ",").split(",") if e.strip()]
         return user_email.lower() in targets
 
     
@@ -1016,24 +1016,31 @@ class ComercialService:
         )
         logger.info(f"Prioridad actualizada a '{prioridad}' para oportunidad {id_oportunidad}")
 
+    async def get_usuarios_activos(self, conn) -> list:
+        rows = await conn.fetch(QUERY_GET_USUARIOS_CON_ACCESO_COMERCIAL)
+        return [dict(r) for r in rows]
+
     async def reasignar_oportunidad(self, conn, id_oportunidad: UUID, new_owner_id: UUID, user_context: dict) -> None:
-        """
-        Transfiere la propiedad de una oportunidad a otro usuario.
-        Solo permitido para MANAGER o ADMIN.
-        """
-        # Validación: ADMIN global, admin del módulo, o MANAGER + editor del módulo
+        """Transfiere la propiedad de una oportunidad. Permitido al dueño o a ADMIN/MANAGER."""
         role = user_context.get("role")
         com_role = user_context.get("module_roles", {}).get("comercial", "")
-        can_reassign = (
+        user_id = user_context.get("user_db_id")
+
+        is_admin_or_manager = (
             role == "ADMIN" or
             com_role == "admin" or
             (role == "MANAGER" and com_role in ["editor", "admin"])
         )
-        if not can_reassign:
-             raise HTTPException(status_code=403, detail="No tienes permisos para reasignar oportunidades.")
+
+        owner_id = await conn.fetchval(QUERY_GET_OPORTUNIDAD_OWNER, id_oportunidad)
+        if owner_id is None:
+            raise HTTPException(status_code=404, detail="Oportunidad no encontrada.")
+
+        if not is_admin_or_manager and str(owner_id) != str(user_id):
+            raise HTTPException(status_code=403, detail="Solo puedes transferir tus propias oportunidades.")
 
         await conn.execute(QUERY_UPDATE_OPORTUNIDAD_OWNER, new_owner_id, id_oportunidad)
-        logger.info(f"Oportunidad {id_oportunidad} reasignada a {new_owner_id} por {user_context.get('user_db_id')}")
+        logger.info(f"Oportunidad {id_oportunidad} reasignada a {new_owner_id} por {user_id}")
     
     async def check_user_has_access_token(
         self, 
@@ -1193,20 +1200,6 @@ class ComercialService:
             filtro_tecnologia_id, filtro_fecha_inicio, filtro_fecha_fin
         )
 
-    async def get_comentarios_workflow(self, conn, id_oportunidad: UUID) -> List[dict]:
-        """
-        Obtiene el historial unificado de comentarios.
-        Usa tb_comentarios_workflow (la única fuente de verdad).
-        
-        Args:
-            conn: Conexión a la base de datos
-            id_oportunidad: UUID de la oportunidad
-            
-        Returns:
-            Lista de diccionarios con comentarios
-        """
-        rows = await conn.fetch(QUERY_GET_COMENTARIOS_WORKFLOW, id_oportunidad)
-        return [dict(r) for r in rows]
 
     async def get_detalles_bess(self, conn, id_oportunidad: UUID, user_context: dict) -> Optional[dict]:
         """

@@ -314,6 +314,10 @@ class WorkflowService:
         can_edit_comercial = user_has_module_access("comercial", user_context, min_role="editor")
         can_close_sale = self._can_close_sale(user_context)
 
+        user_id = user_context.get("user_db_id")
+        is_owner = str(op.get("creado_por_id", "")) == str(user_id or "")
+        can_reassign = is_owner or can_close_sale
+
         sitios = []
         if can_close_sale and op.get("cantidad_sitios", 1) > 1:
             sitios = await self.db.get_sitios_oportunidad(conn, id_oportunidad)
@@ -331,6 +335,7 @@ class WorkflowService:
             "op": op,
             "can_edit_comercial": can_edit_comercial,
             "can_close_sale": can_close_sale,
+            "can_reassign": can_reassign,
             "sitios": sitios,
             "show_solicitar_actions": source_module == "comercial",
             "tiene_proyecto": sitios_con_proyecto_total > 0,

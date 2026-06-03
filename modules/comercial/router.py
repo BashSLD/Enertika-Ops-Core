@@ -842,6 +842,21 @@ async def cancelar_oportunidad(
 
     return Response(status_code=200, headers={"HX-Redirect": "/comercial/ui"}) 
 
+@router.get("/reasignar-modal/{id_oportunidad}", response_class=HTMLResponse)
+async def get_reasignar_modal(
+    request: Request,
+    id_oportunidad: UUID,
+    service: ComercialService = Depends(get_comercial_service),
+    conn = Depends(get_db_connection),
+    _auth = require_module_access("comercial", "editor"),
+):
+    usuarios = await service.get_usuarios_activos(conn)
+    return templates.TemplateResponse(request, "comercial/modals/reasignar_modal.html", {
+        "id_oportunidad": id_oportunidad,
+        "usuarios": usuarios,
+    })
+
+
 @router.post("/reasignar/{id_oportunidad}")
 async def reasignar_oportunidad(
     request: Request,
@@ -850,15 +865,13 @@ async def reasignar_oportunidad(
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
     user_context = Depends(get_current_user_context),
-    _ = require_manager_access("comercial")
+    _auth = require_module_access("comercial", "editor")
 ):
-    """Permite a un Manager/Admin transferir la oportunidad a otro usuario."""
     await service.reasignar_oportunidad(conn, id_oportunidad, new_owner_id, user_context)
-    
-    # Retornar toast de éxito via OOB swap
-    return templates.TemplateResponse(request, "shared/toast.html", {"type": "success",
-        "title": "Reasignación exitosa",
-        "message": "Oportunidad reasignada correctamente."
+    return templates.TemplateResponse(request, "shared/toast.html", {
+        "type": "success",
+        "title": "Transferencia exitosa",
+        "message": "Oportunidad transferida correctamente.",
     })
 
 

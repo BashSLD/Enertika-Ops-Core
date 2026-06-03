@@ -151,6 +151,21 @@ QUERY_GET_USUARIOS_COMERCIAL = """
 """
 QUERY_GET_ALL_USUARIOS = "SELECT id_usuario, nombre FROM tb_usuarios WHERE is_active = true ORDER BY nombre"
 
+QUERY_GET_USUARIOS_CON_ACCESO_COMERCIAL = """
+    SELECT DISTINCT u.id_usuario, u.nombre
+    FROM tb_usuarios u
+    WHERE u.is_active = true
+      AND (
+        u.rol_sistema = 'ADMIN'
+        OR EXISTS (
+            SELECT 1 FROM tb_permisos_modulos pm
+            WHERE pm.usuario_id = u.id_usuario
+              AND pm.modulo_slug = 'comercial'
+        )
+      )
+    ORDER BY u.nombre
+"""
+
 QUERY_GET_TIPO_ACTUALIZACION_ID = "SELECT id FROM tb_cat_tipos_solicitud WHERE codigo_interno = 'ACTUALIZACION' AND activo = true"
 
 # Validation & Access
@@ -176,33 +191,6 @@ QUERY_GET_DETALLES_BESS = """
         db.tiene_planta_emergencia
     FROM tb_detalles_bess db
     WHERE db.id_oportunidad = $1
-"""
-
-# Workflow & Notifications
-QUERY_GET_COMENTARIOS_WORKFLOW = """
-    WITH cadena AS (
-        SELECT id_oportunidad FROM tb_oportunidades WHERE id_oportunidad = $1
-        UNION
-        SELECT id_oportunidad FROM tb_oportunidades WHERE parent_id = $1
-        UNION
-        SELECT parent_id FROM tb_oportunidades 
-        WHERE id_oportunidad = $1 AND parent_id IS NOT NULL
-        UNION
-        SELECT id_oportunidad FROM tb_oportunidades 
-        WHERE parent_id = (
-            SELECT parent_id FROM tb_oportunidades WHERE id_oportunidad = $1
-        ) AND parent_id IS NOT NULL
-    )
-    SELECT 
-        cw.comentario,
-        cw.usuario_nombre,
-        cw.modulo_origen,
-        cw.fecha_comentario AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City' as fecha_comentario,
-        op.op_id_estandar as comentario_op_estandar
-    FROM tb_comentarios_workflow cw
-    LEFT JOIN tb_oportunidades op ON cw.id_oportunidad = op.id_oportunidad
-    WHERE cw.id_oportunidad IN (SELECT id_oportunidad FROM cadena)
-    ORDER BY cw.fecha_comentario DESC
 """
 
 # Site Management
