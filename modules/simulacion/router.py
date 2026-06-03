@@ -780,6 +780,7 @@ async def update_simulacion(
     monto_cierre_usd: Optional[Decimal] = Form(None),
     potencia_cierre_fv_kwp: Optional[Decimal] = Form(None),
     capacidad_cierre_bess_kwh: Optional[Decimal] = Form(None),
+    fecha_cambio_real: Optional[str] = Form(None),          # backdating del cambio de estatus
     # Campos de retrabajo
     es_retrabajo: Optional[bool] = Form(False),
     id_motivo_retrabajo: Optional[int] = Form(None),
@@ -813,13 +814,25 @@ async def update_simulacion(
             except (json.JSONDecodeError, ValueError):
                 pass
 
-        # Reconstruir modelo Pydantic manually
+        # Parsear fecha_cambio_real si viene del form
+        fecha_cambio_real_dt = None
+        if fecha_cambio_real:
+            try:
+                fecha_cambio_real_dt = datetime.fromisoformat(fecha_cambio_real)
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Formato de fecha inválido. Use el selector de fecha del formulario."
+                )
+
+        # Reconstruir modelo Pydantic
         datos = SimulacionUpdate(
             id_estatus_global=id_estatus_global,
             id_interno_simulacion=id_interno_simulacion,
             responsable_simulacion_id=responsable_simulacion_id,
             fecha_entrega_simulacion=fecha_entrega_simulacion,
             deadline_negociado=deadline_negociado,
+            fecha_cambio_real=fecha_cambio_real_dt,
             id_motivo_cierre=id_motivo_cierre,
             monto_cierre_usd=monto_cierre_usd,
             potencia_cierre_fv_kwp=potencia_cierre_fv_kwp,
@@ -830,30 +843,29 @@ async def update_simulacion(
             simulaciones_adicionales=sims_adicionales
         )
 
+        kpi_sla_interno, kpi_compromiso, has_negotiated_deadline, es_cierre_terminal = \
+            await service.update_simulacion_padre(conn, id_oportunidad, datos, context)
 
-        # Capture KPI values from service for confetti logic
-        kpi_sla_interno, kpi_compromiso, has_negotiated_deadline = await service.update_simulacion_padre(conn, id_oportunidad, datos, context)
-        
-        # Las notificaciones ahora se manejan internamente en el servicio (Service Layer Pattern)
-        
-        # Determine if confetti should be shown (SLA compliance logic)
-        # User criteria: Use KPI Compromiso if negotiated deadline exists, otherwise KPI SLA Interno
-        # KPIs will only be calculated if status is "Entregado" or "Perdido", so check for None
+        # Avance intermedio (no terminal): modal permanece abierto, se recarga con el nuevo estatus
+        if not es_cierre_terminal:
+            return templates.TemplateResponse(
+                request,
+                "simulacion/partials/messages/success_inline.html",
+                {"message": "Estatus actualizado correctamente.", "id_oportunidad": id_oportunidad}
+            )
+
+        # Cierre terminal (Entregado/Cancelado/Perdido): cerrar modal y refrescar lista
         show_confetti = False
-        if kpi_sla_interno is not None or kpi_compromiso is not None:  # KPIs were calculated (means delivered/perdido)
+        if kpi_sla_interno is not None or kpi_compromiso is not None:
             if has_negotiated_deadline:
-                # Has negotiated deadline: check KPI Compromiso
                 show_confetti = (kpi_compromiso == "Entrega a tiempo")
             else:
-                # No negotiated deadline: check KPI SLA Interno
                 show_confetti = (kpi_sla_interno == "Entrega a tiempo")
-        
-        # Build redirect URL with optional confetti parameter
+
         redirect_url = "/simulacion/ui"
         if show_confetti:
             redirect_url += "?confetti=1"
 
-        
         return templates.TemplateResponse(request, "simulacion/partials/messages/success_redirect.html", {"title": "Actualización Exitosa",
             "message": "La oportunidad se ha actualizado correctamente.",
             "redirect_url": redirect_url
@@ -1119,11 +1131,19 @@ async def get_datos_metricas(
         user_id=user_uuid,
         tipo_solicitud_id=tipo_int
     )
-    
+
+    # 5. Métricas del ciclo de revisión (Dirección + retrabajo)
+    ciclo_revision = await metrics_service.get_metricas_ciclo_revision(
+        conn, start.date(), end.date(),
+        user_id=user_uuid,
+        tipo_solicitud_id=tipo_int
+    )
+
     return templates.TemplateResponse(request, "simulacion/partials/metricas_datos.html", {"metricas_estatus": metricas_estatus,
         "cuellos_botella": cuellos,
         "ciclos": ciclos,
         "transiciones": transiciones,
+        "ciclo_revision": ciclo_revision,
         "fecha_inicio": start.date().isoformat(),
         "fecha_fin": end.date().isoformat(),
         **context

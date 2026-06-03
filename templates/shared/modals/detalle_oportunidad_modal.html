@@ -479,9 +479,10 @@
                     <!-- STATUS TIMELINE COMPONENT (Replaces simple badge) -->
                     <div class="sm:col-span-2 mt-2 mb-8" x-data="{
                         status: '{{ op.status_global | default('pendiente') | lower }}',
-                        steps: ['pendiente', 'en proceso', 'en revisión', 'finalizado'],
+                        steps: ['pendiente', 'en proceso', 'en revisión', 'comentarios recibidos', 'finalizado'],
                         get currentStep() {
-                            if (['ganada', 'entregado'].includes(this.status)) return 3;
+                            if (['ganada', 'entregado'].includes(this.status)) return 4;
+                            if (this.status === 'comentarios recibidos') return 3;
                             if (this.status === 'en revisión' || this.status === 'en revision') return 2;
                             if (this.status === 'en proceso') return 1;
                             return 0;
@@ -518,7 +519,7 @@
 
                             <!-- Active Progress Line -->
                             <div class="absolute left-0 top-1/2 transform -translate-y-1/2 h-1 bg-[#00BABB] transition-all duration-1000 ease-out -z-10 rounded-full"
-                                :style="'width: ' + (currentStep * 33) + '%'"></div>
+                                :style="'width: ' + (currentStep * 25) + '%'"></div>
 
                             <!-- Step 1: Pendiente -->
                             <div class="relative flex flex-col items-center group">
@@ -572,40 +573,61 @@
                             <!-- Step 3: En Revisión -->
                             <div class="relative flex flex-col items-center group">
                                 <div class="w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-300 z-10"
-                                    :class="[
-                                        currentStep > 2 ? 'bg-[#00BABB] border-[#00BABB] text-white' : '',
-                                        currentStep === 2 ? 'bg-white border-[#00BABB] text-[#00BABB] animate-pulse-ring' : '',
-                                        currentStep < 2 ? 'bg-white border-gray-300 text-gray-400' : ''
-                                     ]">
+                                    :class="{
+                                        'bg-[#00BABB] border-[#00BABB] text-white': currentStep > 2,
+                                        'bg-white border-[#00BABB] text-[#00BABB] animate-pulse-ring': currentStep === 2,
+                                        'bg-white border-gray-300 text-gray-400': currentStep < 2
+                                    }">
                                     <template x-if="currentStep > 2">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3"
                                                 d="M5 13l4 4L19 7"></path>
                                         </svg>
                                     </template>
-                                    <template x-if="currentStep === 2">
-                                        <span class="text-xs font-bold">3</span>
-                                    </template>
-                                    <template x-if="currentStep < 2">
+                                    <template x-if="currentStep <= 2">
                                         <span class="text-xs font-bold">3</span>
                                     </template>
                                 </div>
-                                <span
-                                    class="absolute -bottom-6 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
-                                    :class="currentStep === 2 ? 'text-[#123456]' : 'text-gray-400'">En Revisión</span>
+                                <span class="absolute -bottom-6 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
+                                    :class="{'text-[#123456]': currentStep === 2, 'text-gray-400': currentStep !== 2}">En Revisión</span>
                             </div>
 
-                            <!-- Step 4: Finalizado -->
+                            <!-- Step 4: Comentarios Recibidos -->
                             <div class="relative flex flex-col items-center group">
                                 <div class="w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-300 z-10"
-                                    :class="currentStep === 3 ? 'bg-green-500 border-green-500 text-white animate-bounce' : 'bg-white border-gray-300 text-gray-400'">
+                                    :class="{
+                                        'bg-[#00BABB] border-[#00BABB] text-white': currentStep > 3,
+                                        'bg-white border-[#F97316] text-[#F97316] animate-pulse-ring': currentStep === 3,
+                                        'bg-white border-gray-300 text-gray-400': currentStep < 3
+                                    }">
+                                    <template x-if="currentStep > 3">
+                                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3"
+                                                d="M5 13l4 4L19 7"></path>
+                                        </svg>
+                                    </template>
+                                    <template x-if="currentStep <= 3">
+                                        <span class="text-xs font-bold">4</span>
+                                    </template>
+                                </div>
+                                <span class="absolute -bottom-6 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap"
+                                    :class="{'text-[#F97316]': currentStep === 3, 'text-gray-400': currentStep !== 3}">Comentarios</span>
+                            </div>
+
+                            <!-- Step 5: Finalizado -->
+                            <div class="relative flex flex-col items-center group">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-300 z-10"
+                                    :class="{
+                                        'bg-green-500 border-green-500 text-white animate-bounce': currentStep === 4,
+                                        'bg-white border-gray-300 text-gray-400': currentStep !== 4
+                                    }">
                                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3"
                                             d="M5 13l4 4L19 7"></path>
                                     </svg>
                                 </div>
                                 <span class="absolute -bottom-6 text-[10px] font-bold uppercase tracking-wider"
-                                    :class="currentStep === 3 ? 'text-green-600' : 'text-gray-400'">Finalizado</span>
+                                    :class="{'text-green-600': currentStep === 4, 'text-gray-400': currentStep !== 4}">Finalizado</span>
                             </div>
                         </div>
                     </div>
@@ -783,7 +805,7 @@
                             Fecha Solicitud
                         </label>
                         <p class="text-gray-800 font-medium">
-                            {{ op.fecha_solicitud.strftime('%d/%m/%Y') if op.fecha_solicitud else 'N/A' }}
+                            {{ op.fecha_solicitud | time_mx("%d/%m/%Y") if op.fecha_solicitud else 'N/A' }}
                         </p>
                     </div>
                     {% endif %}
@@ -805,7 +827,7 @@
                             Deadline (SLA)
                         </label>
                         <p class="text-gray-800 font-medium">
-                            {{ op.deadline_calculado.strftime('%d/%m/%Y') }}
+                            {{ op.deadline_calculado | time_mx("%d/%m/%Y") }}
                         </p>
                     </div>
                     {% endif %}
@@ -816,7 +838,7 @@
                             Deadline Negociado
                         </label>
                         <p class="text-rose-700 font-bold">
-                            {{ op.deadline_negociado.strftime('%d/%m/%Y') }}
+                            {{ op.deadline_negociado | time_mx("%d/%m/%Y") }}
                         </p>
                     </div>
                     {% endif %}
@@ -827,7 +849,7 @@
                             Fecha Entrega
                         </label>
                         <p class="text-green-700 font-bold">
-                            {{ op.fecha_entrega_simulacion.strftime('%d/%m/%Y') }}
+                            {{ op.fecha_entrega_simulacion | time_mx("%d/%m/%Y") }}
                         </p>
                     </div>
                     {% endif %}
@@ -902,6 +924,28 @@
                     {% endif %}
                     {% endif %}
                 </div>
+            </div>
+            {% endif %}
+
+            {% if can_reassign and show_solicitar_actions %}
+            <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                        </svg>
+                        Responsable
+                    </span>
+                    <button type="button"
+                        hx-get="/comercial/reasignar-modal/{{ op.id_oportunidad }}"
+                        hx-target="body" hx-swap="beforeend"
+                        hx-disabled-elt="this" hx-sync="this:drop"
+                        class="text-xs font-semibold text-[#00BABB] hover:text-[#009899] border border-[#00BABB] rounded-md px-3 py-1.5 transition hover:bg-[#E0F7F7]">
+                        Transferir
+                    </button>
+                </div>
+                <p class="text-sm text-gray-700 mt-2">{{ op.responsable_email or 'Sin asignar' }}</p>
             </div>
             {% endif %}
 

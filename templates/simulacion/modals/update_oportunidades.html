@@ -17,8 +17,8 @@
             responsable: '{{ op.responsable_simulacion_id or '' }}',
             initialResponsable: '{{ op.responsable_simulacion_id or '' }}',
             
-            deadline: '{{ op.deadline_negociado.strftime('%Y-%m-%d') if op.deadline_negociado else '' }}',
-            initialDeadline: '{{ op.deadline_negociado.strftime('%Y-%m-%d') if op.deadline_negociado else '' }}',
+            deadline: '{{ op.deadline_negociado | time_mx("%Y-%m-%d") }}',
+            initialDeadline: '{{ op.deadline_negociado | time_mx("%Y-%m-%d") }}',
             
             potencia: '{{ op.potencia_cierre_fv_kwp if op.potencia_cierre_fv_kwp is not none else '' }}',
             initialPotencia: '{{ op.potencia_cierre_fv_kwp if op.potencia_cierre_fv_kwp is not none else '' }}',
@@ -241,6 +241,21 @@
                             </select>
                         </div>
 
+                        <!-- Fecha real del cambio (backdating, solo visible al cambiar estatus) -->
+                        <div x-show="status !== initialStatus"
+                            class="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 shadow-md">
+                            <label class="block text-sm font-bold text-amber-800 mb-1 flex items-center gap-2">
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                                Fecha/hora real del cambio
+                            </label>
+                            <input type="datetime-local" name="fecha_cambio_real"
+                                class="w-full border border-amber-300 rounded-md shadow-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 bg-white text-sm transition-all">
+                            <p class="mt-1 text-xs text-amber-700">Opcional — dejar vacío para usar la hora actual. Útil para registrar cuándo ocurrió realmente el cambio.</p>
+                        </div>
+
                         <!-- Responsable Asignado -->
                         <div
                             class="bg-gradient-to-br from-[#E0F7F7] to-white border-2 border-[#00BABB] rounded-lg p-4 shadow-md hover:shadow-lg transition-all duration-200">
@@ -288,7 +303,7 @@
                                 <span>Deadline Negociado</span>
                             </label>
                             <input type="date" name="deadline_negociado" x-model="deadline"
-                                value="{{ op.deadline_negociado.strftime('%Y-%m-%d') if op.deadline_negociado else '' }}"
+                                value="{{ op.deadline_negociado | time_mx("%Y-%m-%d") }}"
                                 {% if not can_edit_assignment_fields %}disabled{% elif not can_assign_others %}:disabled="responsable !== '{{ current_user_id }}'"{% endif %}
                                 class="w-full border-2 border-[#00BABB] rounded-md shadow-sm focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 text-sm transition-all hover:border-[#009999]">
                         </div>

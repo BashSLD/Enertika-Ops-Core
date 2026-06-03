@@ -282,7 +282,11 @@ class SimulacionService:
         datos = await self._resolve_update_permissions(
             conn, current_data, datos, user_context, status_map, total_sitios
         )
-        
+
+        # 1.5. Validar transición de estatus y fecha/hora real (enforcement §5.1 / §5.2)
+        now_mx = await self.get_current_datetime_mx(conn)
+        es_cierre_terminal = await self._validate_status_transition(conn, id_oportunidad, current_data, datos, now_mx)
+
         # 2. Calcular KPIs de Entrega (Padre)
         kpi_sla_val, kpi_compromiso_val, tiempo_elaboracion_horas = await self._calculate_kpis_entrega_padre(
             conn, current_data, datos, status_map
@@ -302,20 +306,20 @@ class SimulacionService:
         if datos.id_estatus_global != current_data['id_estatus_global']:
             from modules.comercial.sla_calculator import SLACalculator
             from .db_service import QUERY_INSERT_HISTORIAL_ESTATUS
-            
-            # Calcular Fecha SLA (Inicio día siguiente si fuera de horario)
+
             config = await self.get_configuracion_global(conn)
             hora_corte, dias_fin_semana, _ = SLACalculator.parse_config(config)
-            now_mx = await self.get_current_datetime_mx(conn)
-            
-            fecha_inicio_sla = SLACalculator.calculate_deadline(now_mx, hora_corte, 0)
-            
+
+            # Usar fecha capturada por el usuario (backdating) o la hora actual
+            fecha_real = datos.fecha_cambio_real or now_mx
+            fecha_sla = SLACalculator.calculate_deadline(fecha_real, hora_corte, 0)
+
             await conn.execute(QUERY_INSERT_HISTORIAL_ESTATUS,
                 id_oportunidad,
                 current_data['id_estatus_global'],
                 datos.id_estatus_global,
-                now_mx,
-                fecha_inicio_sla,
+                fecha_real,
+                fecha_sla,
                 user_context['user_db_id']
             )
 
@@ -342,10 +346,8 @@ class SimulacionService:
         )
         
         # 6. Return KPI data for confetti logic in router
-        # Determine if there was a negotiated deadline (current or new)
         has_negotiated_deadline = bool(datos.deadline_negociado or current_data['deadline_negociado'])
-        
-        return (kpi_sla_val, kpi_compromiso_val, has_negotiated_deadline)
+        return (kpi_sla_val, kpi_compromiso_val, has_negotiated_deadline, es_cierre_terminal)
 
     async def update_sitios_batch(
         self, 
@@ -519,13 +521,27 @@ class SimulacionService:
                     )
 
             if datos.deadline_negociado:
-                config = await self.get_configuracion_global(conn)
-                parts = config.get("HORA_CORTE_L_V", "18:00").split(":")
-                h, m = int(parts[0]), int(parts[1])
-                datos.deadline_negociado = datos.deadline_negociado.replace(
-                    hour=h, minute=m, second=0, microsecond=0,
-                    tzinfo=ZoneInfo("America/Mexico_City")
+                # Guard de idempotencia: solo reescribir si la fecha (en MX) cambio
+                # de verdad. Sin esto, un guardado que solo mueve el estatus
+                # reescribe el deadline y, al reaplicar la hora de corte, lo corre
+                # +1 dia en cada edicion.
+                current_dn = current_data['deadline_negociado']
+                incoming_date = datos.deadline_negociado.date()
+                current_date_mx = (
+                    current_dn.astimezone(ZoneInfo("America/Mexico_City")).date()
+                    if current_dn else None
                 )
+                if current_date_mx is not None and incoming_date == current_date_mx:
+                    # Sin cambio real de fecha: preservar el valor almacenado tal cual.
+                    datos.deadline_negociado = current_dn
+                else:
+                    config = await self.get_configuracion_global(conn)
+                    parts = config.get("HORA_CORTE_L_V", "18:00").split(":")
+                    h, m = int(parts[0]), int(parts[1])
+                    datos.deadline_negociado = datos.deadline_negociado.replace(
+                        hour=h, minute=m, second=0, microsecond=0,
+                        tzinfo=ZoneInfo("America/Mexico_City")
+                    )
 
         # 2. Validaciones de Reglas de Negocio para Cierre
         es_cierre = datos.id_estatus_global in [
@@ -623,13 +639,150 @@ class SimulacionService:
                 
         return kpi_sla_val, kpi_compromiso_val, tiempo_elaboracion_horas
 
+    async def _validate_fecha_cambio(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        datos: SimulacionUpdate,
+        now_mx: datetime
+    ) -> None:
+        """
+        Valida la fecha/hora real del cambio de estatus (§5.2):
+        1. No futura.
+        2. Mayor que el último cambio registrado.
+        3. Gap >= MIN_MINUTOS_ENTRE_ESTATUS.
+        """
+        fecha_real = datos.fecha_cambio_real
+        if fecha_real is None:
+            return  # Sin backdating → se usará now_mx, siempre válido
+
+        if fecha_real.tzinfo is None:
+            fecha_real = fecha_real.replace(tzinfo=ZoneInfo("America/Mexico_City"))
+            datos.fecha_cambio_real = fecha_real
+
+        if fecha_real > now_mx:
+            raise HTTPException(status_code=400, detail="La fecha del cambio no puede ser futura.")
+
+        ultimo = await conn.fetchrow(
+            """
+            SELECT fecha_cambio_real
+            FROM tb_historial_estatus
+            WHERE id_oportunidad = $1
+            ORDER BY fecha_cambio_real DESC, fecha_creacion DESC
+            LIMIT 1
+            """,
+            id_oportunidad
+        )
+        if not ultimo or not ultimo['fecha_cambio_real']:
+            return
+
+        ultima_fecha = self._as_aware(ultimo['fecha_cambio_real'])
+        if fecha_real <= ultima_fecha:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"La fecha del cambio debe ser posterior al último registro "
+                    f"({ultima_fecha.strftime('%d/%m/%Y %H:%M')})."
+                )
+            )
+
+        min_gap = await ConfigService.get_global_config(conn, "MIN_MINUTOS_ENTRE_ESTATUS", 1, int)
+
+        gap_minutos = (fecha_real - ultima_fecha).total_seconds() / 60
+        if gap_minutos < min_gap:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Deben pasar al menos {min_gap} minuto(s) entre cambios de estatus. "
+                    f"El último cambio fue el {ultima_fecha.strftime('%d/%m/%Y %H:%M')}."
+                )
+            )
+
+    async def _validate_status_transition(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        current_data: dict,
+        datos: SimulacionUpdate,
+        now_mx: datetime
+    ) -> bool:
+        """
+        Valida que la transición de estatus siga el flujo secuencial (§5.1)
+        y la fecha real sea coherente (§5.2).
+        Lanza HTTPException(400) si alguna regla es violada.
+        Devuelve True si el nuevo estatus es terminal (cierre de modal).
+        """
+        id_actual = current_data['id_estatus_global']
+        id_nuevo = datos.id_estatus_global
+
+        if id_actual == id_nuevo:
+            return False
+
+        # Cargar catálogo completo (< 10 filas) para evitar roundtrips extra en mensajes de error
+        rows = await conn.fetch(
+            "SELECT id, nombre, orden, es_estatus_final FROM tb_cat_estatus_oportunidades WHERE activo = true"
+        )
+        catalog = {r['id']: r for r in rows}
+        by_orden = {r['orden']: r for r in rows if r['orden'] is not None}
+
+        actual = catalog.get(id_actual)
+        nuevo = catalog.get(id_nuevo)
+
+        if not actual or not nuevo:
+            raise HTTPException(status_code=400, detail="Estatus no válido.")
+
+        # Reversión de terminales solo por endpoint dedicado (§5.7)
+        if actual['es_estatus_final']:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"La oportunidad está en estatus terminal '{actual['nombre']}'. "
+                    f"Solo un Administrador puede revertir un cierre."
+                )
+            )
+
+        if nuevo['es_estatus_final']:
+            # Entregado requiere pasar primero por Comentarios Recibidos (revisión obligatoria)
+            if nuevo['nombre'] == 'Entregado' and actual['nombre'] != 'Comentarios Recibidos':
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Para marcar como 'Entregado' la oportunidad debe pasar primero por "
+                        f"'Comentarios Recibidos'. Estatus actual: '{actual['nombre']}'."
+                    )
+                )
+            # Cancelado/Perdido: permitidos desde cualquier activo → sin más restricción
+        elif actual['orden'] is not None and nuevo['orden'] is not None:
+            diferencia = nuevo['orden'] - actual['orden']
+            if diferencia > 1:
+                siguiente = by_orden.get(actual['orden'] + 1, {}).get('nombre', 'el siguiente estatus')
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"El flujo es secuencial. Desde '{actual['nombre']}' el siguiente paso "
+                        f"es '{siguiente}', no '{nuevo['nombre']}'."
+                    )
+                )
+            elif diferencia not in (1, -1):
+                anterior = by_orden.get(actual['orden'] - 1, {}).get('nombre', 'el estatus anterior')
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"Solo se permite retroceder un paso. Desde '{actual['nombre']}' "
+                        f"el retroceso permitido es a '{anterior}'."
+                    )
+                )
+
+        await self._validate_fecha_cambio(conn, id_oportunidad, datos, now_mx)
+        return nuevo['es_estatus_final']
+
     async def _handle_site_updates(
-        self, 
-        conn, 
-        id_oportunidad: UUID, 
-        current_data: dict, 
-        datos: SimulacionUpdate, 
-        status_map: dict, 
+        self,
+        conn,
+        id_oportunidad: UUID,
+        current_data: dict,
+        datos: SimulacionUpdate,
+        status_map: dict,
         total_sitios: int,
         sitios_pendientes: int
     ):
@@ -894,20 +1047,6 @@ class SimulacionService:
         
 
 
-    async def get_comentarios_workflow(self, conn, id_oportunidad: UUID) -> List[dict]:
-        """
-        Obtiene el historial unificado de comentarios.
-        Usa tb_comentarios_workflow (la única fuente de verdad).
-        
-        Args:
-            conn: Conexión a la base de datos
-            id_oportunidad: UUID de la oportunidad
-            
-        Returns:
-            Lista de diccionarios con comentarios
-        """
-        return await self.db.get_comentarios_workflow(conn, id_oportunidad)
-    
     async def get_catalogos_ui(self, conn) -> dict:
         tecnologias = await self.db.get_catalog_tecnologias(conn)
         

@@ -1,0 +1,21 @@
+<div class="bg-green-50 border-l-4 border-green-500 p-4 rounded-lg shadow-md animate-fade-in-down" role="status">
+    <div class="flex items-center gap-3">
+        <svg class="h-6 w-6 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+        </svg>
+        <p class="text-sm font-medium text-green-800">{{ message }}</p>
+    </div>
+</div>
+
+<script>
+    // Recargar el modal con el nuevo estatus (sin cerrarlo)
+    setTimeout(function () {
+        const modalContainer = document.getElementById('modal-backdrop');
+        if (modalContainer) {
+            htmx.ajax('GET', '/simulacion/modals/edit/{{ id_oportunidad }}', {
+                target: '#modal-backdrop',
+                swap: 'innerHTML'
+            });
+        }
+    }, 700);
+</script>

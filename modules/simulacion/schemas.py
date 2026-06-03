@@ -93,6 +93,7 @@ class SimulacionUpdate(BaseModel):
     # Fechas
     fecha_entrega_simulacion: Optional[datetime] = None
     deadline_negociado: Optional[datetime] = None
+    fecha_cambio_real: Optional[datetime] = None  # backdating del cambio de estatus
     
     # Estatus y Cierre
     id_estatus_global: int
