@@ -27,6 +27,10 @@ logger = logging.getLogger("NotificationService")
 OPPORTUNITY_WON_REMINDER_HOURS = 48
 OPPORTUNITY_WON_BASE_ROLES = ("jefe_comercial", "jefe_construccion")
 OPPORTUNITY_WON_DIRECTOR_ROLE = "director"
+VACACIONES_EVENTO_APROBADA = "VACACIONES_SOLICITUD_APROBADA"
+VACACIONES_EVENTO_RECHAZADA = "VACACIONES_SOLICITUD_RECHAZADA"
+VACACIONES_REGLAS_MODULOS = {"GLOBAL", "RRHH"}
+
 
 class NotificationService:
     """
@@ -701,19 +705,25 @@ class NotificationService:
         """
         return await self._get_emails_for_event(conn, trigger_value, 'CC')
 
-    async def _get_emails_for_event(self, conn, trigger_value: str, type_filter: str) -> Set[str]:
+    async def _get_emails_for_event(
+        self,
+        conn,
+        trigger_value: str,
+        type_filter: str,
+        modulos: Optional[Set[str]] = None,
+    ) -> Set[str]:
         """
-        Obtiene emails TO o CC desde tb_config_emails para un evento dado.
+        Obtiene emails TO, CC o CCO desde tb_config_emails para un evento dado.
 
         Args:
             conn: Conexión a base de datos
             trigger_value: Valor del trigger (ej. 'OPORTUNIDAD_GANADA', 'NUEVO_COMENTARIO')
-            type_filter: 'TO' o 'CC'
+            type_filter: 'TO', 'CC' o 'CCO'
 
         Returns:
             Set[str]: Conjunto de emails configurados
         """
-        return await self.db.get_emails_for_event(conn, trigger_value, type_filter)
+        return await self.db.get_emails_for_event(conn, trigger_value, type_filter, modulos)
     
     async def _get_notification_sender(self, conn, departamento: str = 'DEFAULT') -> dict:
         """
@@ -809,9 +819,19 @@ class NotificationService:
         template = self.templates.get_template(template_path)
         return template.render(**context)
     
-    async def _get_vacaciones_bcc_emails(self, conn) -> set[str]:
+    async def _get_vacaciones_bcc_emails(self, conn, trigger_value: str) -> set[str]:
+        bcc = await self._get_emails_for_event(
+            conn,
+            trigger_value,
+            "CCO",
+            VACACIONES_REGLAS_MODULOS,
+        )
+        if bcc:
+            return bcc
+
         raw = await ConfigService.get_global_config(conn, "VACACIONES_CCO_EMAILS", "", str)
-        return {e.strip() for e in raw.split(",") if e.strip()}
+        normalized = raw.replace(";", ",")
+        return {e.strip() for e in normalized.split(",") if e.strip()}
 
     async def _send_email(
         self,
@@ -1006,7 +1026,7 @@ class NotificationService:
         """Notifica al solicitante + CC a RH + CCO configurado cuando la solicitud es aprobada."""
         try:
             cc = await self._get_rh_emails_cc(conn)
-            bcc = await self._get_vacaciones_bcc_emails(conn)
+            bcc = await self._get_vacaciones_bcc_emails(conn, VACACIONES_EVENTO_APROBADA)
 
             html = self._render_template("shared/emails/vacaciones/solicitud_aprobada.html", {
                 "solicitante_nombre": solicitud["solicitante_nombre"],
@@ -1061,7 +1081,7 @@ class NotificationService:
         """Notifica al solicitante + CC a RH + CCO configurado cuando la solicitud es rechazada."""
         try:
             cc = await self._get_rh_emails_cc(conn)
-            bcc = await self._get_vacaciones_bcc_emails(conn)
+            bcc = await self._get_vacaciones_bcc_emails(conn, VACACIONES_EVENTO_RECHAZADA)
 
             html = self._render_template("shared/emails/vacaciones/solicitud_rechazada.html", {
                 "solicitante_nombre": solicitud["solicitante_nombre"],

@@ -391,6 +391,8 @@ class AdminService:
                         {"label": "Asignación",               "value": "ASIGNACION"},
                         {"label": "Solicitud de Viáticos",    "value": "SOLICITUD_VIATICOS"},
                         {"label": "Oportunidad Ganada",       "value": "OPORTUNIDAD_GANADA"},
+                        {"label": "Solicitud de vacaciones aprobada",  "value": "VACACIONES_SOLICITUD_APROBADA"},
+                        {"label": "Solicitud de vacaciones rechazada", "value": "VACACIONES_SOLICITUD_RECHAZADA"},
                     ]
             # Si no existe en BD, usar fallback
             return [
@@ -400,6 +402,8 @@ class AdminService:
                 {"label": "Asignación",               "value": "ASIGNACION"},
                 {"label": "Solicitud de Viáticos",    "value": "SOLICITUD_VIATICOS"},
                 {"label": "Oportunidad Ganada",       "value": "OPORTUNIDAD_GANADA"},
+                {"label": "Solicitud de vacaciones aprobada",  "value": "VACACIONES_SOLICITUD_APROBADA"},
+                {"label": "Solicitud de vacaciones rechazada", "value": "VACACIONES_SOLICITUD_RECHAZADA"},
             ]
 
         else:

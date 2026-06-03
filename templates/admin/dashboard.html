@@ -265,11 +265,9 @@
                             class="mt-1 block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-[#00BABB] focus:border-[#00BABB] sm:text-sm rounded-md">
                             <option value="" disabled selected>Selecciona módulo...</option>
                             <option value="GLOBAL">GLOBAL (Todos los módulos)</option>
-                            <option value="SIMULACION">Simulación</option>
-                            <option value="COMERCIAL">Comercial</option>
-                            <option value="PROYECTOS">Proyectos</option>
-                            <option value="COMPRAS">Compras</option>
-                            <option value="LEVANTAMIENTOS">Levantamientos</option>
+                            {% for mod in modules %}
+                            <option value="{{ mod.slug | upper }}">{{ mod.nombre }}</option>
+                            {% endfor %}
                         </select>
                     </div>
 

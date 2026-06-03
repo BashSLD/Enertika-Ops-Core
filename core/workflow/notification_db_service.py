@@ -162,7 +162,25 @@ class WorkflowNotificationDBService:
         conn,
         trigger_value: str,
         type_filter: str,
+        modulos: Optional[Set[str]] = None,
     ) -> Set[str]:
+        if modulos:
+            modulos_normalizados = [modulo.strip().upper() for modulo in modulos if modulo.strip()]
+            rows = await conn.fetch(
+                """
+                SELECT email_to_add
+                FROM tb_config_emails
+                WHERE trigger_field = 'EVENTO'
+                  AND trigger_value = $1
+                  AND type = $2
+                  AND modulo = ANY($3::varchar[])
+                """,
+                trigger_value,
+                type_filter,
+                modulos_normalizados,
+            )
+            return {row["email_to_add"] for row in rows if row["email_to_add"]}
+
         rows = await conn.fetch(
             """
             SELECT email_to_add
@@ -215,13 +233,12 @@ class WorkflowNotificationDBService:
             """
             SELECT DISTINCT u.email
             FROM tb_usuarios u
-            LEFT JOIN tb_permisos_modulos pm
+            JOIN tb_permisos_modulos pm
                 ON pm.usuario_id = u.id_usuario
                AND pm.modulo_slug = 'rrhh'
                AND pm.rol_modulo IN ('editor', 'admin')
             WHERE u.is_active = true
               AND u.email IS NOT NULL
-              AND (u.rol_sistema = 'ADMIN' OR pm.usuario_id IS NOT NULL)
             """
         )
         return {row["email"] for row in rows}
