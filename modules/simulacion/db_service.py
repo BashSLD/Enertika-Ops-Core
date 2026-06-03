@@ -24,12 +24,12 @@ class SimulacionDBService:
         """Obtiene opciones para el dropdown de estatus global, filtrando por módulo."""
         if exclude_id:
             rows = await conn.fetch(
-                "SELECT id, nombre FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' AND id != $1 ORDER BY id",
+                "SELECT id, nombre FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' AND id != $1 ORDER BY orden NULLS LAST",
                 exclude_id
             )
         else:
             rows = await conn.fetch(
-                "SELECT id, nombre FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY id"
+                "SELECT id, nombre FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY orden NULLS LAST"
             )
         return [dict(r) for r in rows]
 
@@ -350,34 +350,6 @@ class SimulacionDBService:
         row = await conn.fetchrow("SELECT * FROM tb_detalles_bess WHERE id_oportunidad = $1", id_oportunidad)
         return dict(row) if row else None
 
-    async def get_comentarios_workflow(self, conn, id_oportunidad: UUID) -> List[Dict[str, Any]]:
-        rows = await conn.fetch("""
-            WITH cadena AS (
-                SELECT id_oportunidad FROM tb_oportunidades WHERE id_oportunidad = $1
-                UNION
-                SELECT id_oportunidad FROM tb_oportunidades WHERE parent_id = $1
-                UNION
-                SELECT parent_id FROM tb_oportunidades 
-                WHERE id_oportunidad = $1 AND parent_id IS NOT NULL
-                UNION
-                SELECT id_oportunidad FROM tb_oportunidades 
-                WHERE parent_id = (
-                    SELECT parent_id FROM tb_oportunidades WHERE id_oportunidad = $1
-                ) AND parent_id IS NOT NULL
-            )
-            SELECT 
-                cw.comentario,
-                cw.usuario_nombre,
-                cw.modulo_origen,
-                cw.fecha_comentario AT TIME ZONE 'UTC' AT TIME ZONE 'America/Mexico_City' as fecha_comentario,
-                op.op_id_estandar as comentario_op_estandar
-            FROM tb_comentarios_workflow cw
-            LEFT JOIN tb_oportunidades op ON cw.id_oportunidad = op.id_oportunidad
-            WHERE cw.id_oportunidad IN (SELECT id_oportunidad FROM cadena)
-            ORDER BY cw.fecha_comentario DESC
-        """, id_oportunidad)
-        return [dict(r) for r in rows]
-
     async def get_catalog_tecnologias(self, conn) -> List[Dict[str, Any]]:
         rows = await conn.fetch("SELECT id, nombre FROM tb_cat_tecnologias WHERE activo = true ORDER BY nombre")
         return [dict(r) for r in rows]
@@ -431,7 +403,7 @@ class SimulacionDBService:
     
     async def get_chart_trend(self, conn) -> List[Dict[str, Any]]:
         rows = await conn.fetch("""
-            SELECT to_char(fecha_solicitud, 'YYYY-MM-DD') as fecha, COUNT(*) as total
+            SELECT to_char(fecha_solicitud AT TIME ZONE 'America/Mexico_City', 'YYYY-MM-DD') as fecha, COUNT(*) as total
             FROM tb_oportunidades
             WHERE fecha_solicitud >= NOW() - INTERVAL '30 days' AND email_enviado = true
             GROUP BY 1

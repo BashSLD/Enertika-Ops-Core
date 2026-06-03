@@ -1,11 +1,4 @@
 # modules/simulacion/metrics_service.py
-"""
-Servicio de Métricas Operativas para Simulación.
-
-Proporciona análisis de tiempos entre estatus, cuellos de botella
-y ciclos de retrabajo para el dashboard de administradores.
-"""
-
 from dataclasses import dataclass
 from typing import List, Optional
 from uuid import UUID
@@ -22,7 +15,6 @@ logger = logging.getLogger("MetricsService")
 
 @dataclass
 class MetricaEstatus:
-    """Métrica de tiempo por estatus"""
     estatus_nombre: str
     tiempo_promedio_dias: float
     cantidad_transiciones: int
@@ -31,16 +23,13 @@ class MetricaEstatus:
 
 @dataclass
 class MetricaCuelloBotella:
-    """Análisis de cuellos de botella"""
     estatus_lento: str
     tiempo_promedio: float
     impacto: str  # "Alto", "Medio", "Bajo"
 
 
-
 @dataclass
 class MetricaCiclos:
-    """Análisis de ciclos de retrabajo"""
     transicion: str  # "En Proceso ↔ En Revisión"
     promedio_ciclos: float
     maximo_ciclos: int
@@ -49,7 +38,6 @@ class MetricaCiclos:
 
 @dataclass
 class MetricaTransicion:
-    """Métrica de transición entre pares de estatus"""
     estatus_origen: str
     estatus_destino: str
     cantidad: int
@@ -57,19 +45,15 @@ class MetricaTransicion:
     es_retroceso: bool
 
 
-# Estatus que representan fin de ciclo — no deben aparecer como cuellos de botella
-ESTATUS_TERMINALES = {"Entregado", "Cancelado", "Perdido", "Ganada"}
-
-# Orden del flujo "feliz" para detectar retrocesos
-ORDEN_FLUJO = {
-    "Pendiente": 1,
-    "En Proceso": 2,
-    "En Revisión": 3,
-    "Entregado": 4,
-    "Cancelado": 4,
-    "Perdido": 4,
-    "Ganada": 4
-}
+@dataclass
+class MetricaCicloRevision:
+    """Mide el ciclo de revisión de Dirección + retrabajo de Simulación."""
+    tiempo_revision_direccion_dias: float
+    tiempo_retrabajo_simulacion_dias: float
+    oportunidades_con_revision: int
+    total_entregadas: int
+    pct_con_revision: float
+    rondas_promedio: float
 
 
 # =============================================================================
@@ -77,8 +61,7 @@ ORDEN_FLUJO = {
 # =============================================================================
 
 class MetricsService:
-    """Servicio de métricas operativas para simulación."""
-    
+
     async def get_tiempo_por_estatus(
         self,
         conn: asyncpg.Connection,
@@ -88,65 +71,73 @@ class MetricsService:
         tipo_solicitud_id: int = None
     ) -> List[MetricaEstatus]:
         """
-        Calcula tiempo promedio en cada estatus.
-        
-        Lógica:
-        - Para cada oportunidad, calcula tiempo entre cambios de estatus
-        - Agrupa por estatus y promedia
+        Calcula tiempo promedio en cada estatus no-terminal.
+
+        LEAD() se calcula sobre el historial completo de cada oportunidad
+        para evitar que el filtro de fecha corte los intervalos en los bordes (A.1).
+        Los terminales se excluyen del resultado y del porcentaje (A.2).
         """
-        
-        filters = ["h1.fecha_cambio_sla >= $1", "h1.fecha_cambio_sla <= $2"]
         params: list = [fecha_inicio, fecha_fin]
-        
+        user_filter = ""
+        tipo_filter = ""
+
         if user_id:
-            filters.append(f"o.responsable_simulacion_id = ${len(params) + 1}")
             params.append(user_id)
-        
+            user_filter = f"AND o.responsable_simulacion_id = ${len(params)}"
+
         if tipo_solicitud_id:
-            filters.append(f"o.id_tipo_solicitud = ${len(params) + 1}")
             params.append(tipo_solicitud_id)
-        
-        where_clause = " AND ".join(filters)
-        
+            tipo_filter = f"AND o.id_tipo_solicitud = ${len(params)}"
+
         query = f"""
-            WITH transiciones AS (
-                SELECT 
-                    h1.id_oportunidad,
-                    e.nombre as estatus,
-                    h1.fecha_cambio_sla as inicio,
-                    LEAD(h1.fecha_cambio_sla) OVER (
-                        PARTITION BY h1.id_oportunidad 
-                        ORDER BY h1.fecha_cambio_sla
-                    ) as fin
-                FROM tb_historial_estatus h1
-                JOIN tb_cat_estatus_oportunidades e ON h1.id_estatus_nuevo = e.id
-                JOIN tb_oportunidades o ON h1.id_oportunidad = o.id_oportunidad
-                WHERE {where_clause}
+            WITH oportunidades_en_rango AS (
+                SELECT DISTINCT h.id_oportunidad
+                FROM tb_historial_estatus h
+                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
+                WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
+                  {user_filter}
+                  {tipo_filter}
             ),
-            tiempos_por_estatus AS (
-                SELECT 
+            todas_transiciones AS (
+                SELECT
+                    h.id_oportunidad,
+                    e.nombre AS estatus,
+                    e.es_estatus_final,
+                    h.fecha_cambio_sla AS inicio,
+                    LEAD(h.fecha_cambio_sla) OVER (
+                        PARTITION BY h.id_oportunidad
+                        ORDER BY h.fecha_cambio_sla
+                    ) AS fin
+                FROM tb_historial_estatus h
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+                WHERE h.id_oportunidad IN (SELECT id_oportunidad FROM oportunidades_en_rango)
+            ),
+            en_rango AS (
+                SELECT
                     estatus,
-                    EXTRACT(EPOCH FROM (fin - inicio)) / 86400.0 as dias,
-                    COUNT(*) OVER (PARTITION BY estatus) as cantidad
-                FROM transiciones
-                WHERE fin IS NOT NULL  -- Excluir estatus actual (sin fin)
+                    EXTRACT(EPOCH FROM (fin - inicio)) / 86400.0 AS dias
+                FROM todas_transiciones
+                WHERE fin IS NOT NULL
+                  AND (inicio AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (inicio AT TIME ZONE 'America/Mexico_City')::date <= $2
+                  AND es_estatus_final = false
             )
-            SELECT 
+            SELECT
                 estatus,
-                AVG(dias) as tiempo_promedio_dias,
-                MAX(cantidad) as cantidad_transiciones,
+                AVG(dias) AS tiempo_promedio_dias,
+                COUNT(*) AS cantidad_transiciones,
                 COALESCE(
                     SUM(dias) * 100.0 / NULLIF(SUM(SUM(dias)) OVER (), 0),
                     0
-                ) as porcentaje_tiempo_total
-            FROM tiempos_por_estatus
+                ) AS porcentaje_tiempo_total
+            FROM en_rango
             GROUP BY estatus
             ORDER BY tiempo_promedio_dias DESC
         """
-        
+
         try:
             rows = await conn.fetch(query, *params)
-
             return [
                 MetricaEstatus(
                     estatus_nombre=row['estatus'],
@@ -159,53 +150,43 @@ class MetricsService:
         except asyncpg.PostgresError as e:
             logger.error(f"Error de BD obteniendo tiempo por estatus: {e}")
             raise
-    
+
     def get_cuellos_botella(
         self,
         metricas_estatus: List[MetricaEstatus]
     ) -> List[MetricaCuelloBotella]:
         """
-        Identifica cuellos de botella basándose en:
-        1. Tiempo promedio alto
-        2. Alto % del tiempo total
+        Identifica cuellos de botella por tiempo promedio alto y % del total.
+        Los estatus terminales ya vienen excluidos de metricas_estatus.
         """
-        
         if not metricas_estatus:
             return []
 
-        # Excluir estatus terminales (fin de ciclo, no son cuellos de botella)
-        metricas_activas = [m for m in metricas_estatus if m.estatus_nombre not in ESTATUS_TERMINALES]
+        tiempos = [m.tiempo_promedio_dias for m in metricas_estatus]
 
-        if not metricas_activas:
-            return []
-
-        # Calcular percentiles solo sobre estatus activos
-        tiempos = [m.tiempo_promedio_dias for m in metricas_activas]
-        
         if len(tiempos) >= 4:
             sorted_tiempos = sorted(tiempos)
             p75 = sorted_tiempos[int(len(tiempos) * 0.75)]
         else:
             p75 = max(tiempos) if tiempos else 0
-        
+
         cuellos = []
-        for metrica in metricas_activas:
-            # Criterio: >75% percentil Y >20% del tiempo total
+        for metrica in metricas_estatus:
             if metrica.tiempo_promedio_dias >= p75 and metrica.porcentaje_tiempo_total > 20:
                 impacto = "Alto"
             elif metrica.tiempo_promedio_dias >= p75 or metrica.porcentaje_tiempo_total > 15:
                 impacto = "Medio"
             else:
                 continue
-            
+
             cuellos.append(MetricaCuelloBotella(
                 estatus_lento=metrica.estatus_nombre,
                 tiempo_promedio=metrica.tiempo_promedio_dias,
                 impacto=impacto
             ))
-        
+
         return sorted(cuellos, key=lambda x: x.tiempo_promedio, reverse=True)
-    
+
     async def get_analisis_ciclos(
         self,
         conn: asyncpg.Connection,
@@ -215,8 +196,12 @@ class MetricsService:
     ) -> List[MetricaCiclos]:
         """
         Analiza ciclos de retrabajo (ej: En Proceso ↔ En Revisión).
-        """
 
+        Usa LAG() por oportunidad para contar retrocesos reales, evitando
+        el sobre-conteo cartesiano del self-join anterior (A.3).
+        El orden del flujo proviene del catálogo (columna `orden`), no de
+        un dict hardcodeado (A.4).
+        """
         params: list = [fecha_inicio, fecha_fin]
         tipo_filter = ""
         if tipo_solicitud_id:
@@ -224,41 +209,50 @@ class MetricsService:
             tipo_filter = f"AND o.id_tipo_solicitud = ${len(params)}"
 
         query = f"""
-            WITH cambios_ida_vuelta AS (
+            WITH transiciones_seq AS (
                 SELECT
-                    h1.id_oportunidad,
-                    e1.nombre as estatus_a,
-                    e2.nombre as estatus_b,
-                    COUNT(*) as veces
-                FROM tb_historial_estatus h1
-                JOIN tb_historial_estatus h2 ON (
-                    h1.id_oportunidad = h2.id_oportunidad
-                    AND h1.fecha_cambio_sla < h2.fecha_cambio_sla
-                    AND h1.id_estatus_nuevo = h2.id_estatus_anterior
-                    AND h1.id_estatus_anterior = h2.id_estatus_nuevo
-                )
-                JOIN tb_cat_estatus_oportunidades e1 ON h1.id_estatus_nuevo = e1.id
-                JOIN tb_cat_estatus_oportunidades e2 ON h2.id_estatus_nuevo = e2.id
-                JOIN tb_oportunidades o ON h1.id_oportunidad = o.id_oportunidad
-                WHERE h1.fecha_cambio_sla >= $1
-                  AND h1.fecha_cambio_sla <= $2
+                    h.id_oportunidad,
+                    e.nombre AS estatus_nuevo,
+                    e.orden AS orden_nuevo,
+                    LAG(e.nombre) OVER (
+                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla
+                    ) AS estatus_prev,
+                    LAG(e.orden) OVER (
+                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla
+                    ) AS orden_prev
+                FROM tb_historial_estatus h
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
+                WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
+                  AND e.es_estatus_final = false
                   {tipo_filter}
-                GROUP BY h1.id_oportunidad, estatus_a, estatus_b
+            ),
+            retrocesos_por_opp AS (
+                SELECT
+                    id_oportunidad,
+                    estatus_nuevo AS estatus_a,
+                    estatus_prev AS estatus_b,
+                    COUNT(*) AS num_retrocesos
+                FROM transiciones_seq
+                WHERE estatus_prev IS NOT NULL
+                  AND orden_nuevo IS NOT NULL
+                  AND orden_prev IS NOT NULL
+                  AND orden_nuevo < orden_prev
+                GROUP BY id_oportunidad, estatus_nuevo, estatus_prev
             )
             SELECT
-                estatus_a || ' ↔ ' || estatus_b as transicion,
-                AVG(veces) as promedio_ciclos,
-                MAX(veces) as maximo_ciclos,
-                COUNT(DISTINCT id_oportunidad) as oportunidades_afectadas
-            FROM cambios_ida_vuelta
-            WHERE veces >= 2  -- Solo considerar ciclos reales (≥2 vueltas)
+                estatus_a || ' ↔ ' || estatus_b AS transicion,
+                AVG(num_retrocesos::float) AS promedio_ciclos,
+                MAX(num_retrocesos) AS maximo_ciclos,
+                COUNT(DISTINCT id_oportunidad) AS oportunidades_afectadas
+            FROM retrocesos_por_opp
             GROUP BY estatus_a, estatus_b
             ORDER BY promedio_ciclos DESC
         """
 
         try:
             rows = await conn.fetch(query, *params)
-
             return [
                 MetricaCiclos(
                     transicion=row['transicion'],
@@ -272,6 +266,110 @@ class MetricsService:
             logger.error(f"Error de BD obteniendo análisis de ciclos: {e}")
             raise
 
+    async def get_metricas_ciclo_revision(
+        self,
+        conn: asyncpg.Connection,
+        fecha_inicio: date,
+        fecha_fin: date,
+        user_id: UUID = None,
+        tipo_solicitud_id: int = None
+    ) -> MetricaCicloRevision:
+        """
+        Mide el ciclo de revisión de Dirección y retrabajo de Simulación.
+
+        - Tiempo de revisión: duración en 'En Revisión' (Dirección analiza).
+        - Tiempo de retrabajo: duración en 'Comentarios Recibidos' (Simulación retrabaja).
+        - Rondas: cuántas veces se regresó a 'En Revisión' desde 'Comentarios Recibidos'.
+        """
+        params: list = [fecha_inicio, fecha_fin]
+        user_filter = ""
+        tipo_filter = ""
+
+        if user_id:
+            params.append(user_id)
+            user_filter = f"AND o.responsable_simulacion_id = ${len(params)}"
+
+        if tipo_solicitud_id:
+            params.append(tipo_solicitud_id)
+            tipo_filter = f"AND o.id_tipo_solicitud = ${len(params)}"
+
+        query = f"""
+            WITH transiciones AS (
+                SELECT
+                    h.id_oportunidad,
+                    e.orden,
+                    e.es_estatus_final,
+                    h.fecha_cambio_sla AS inicio,
+                    LEAD(h.fecha_cambio_sla) OVER (
+                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla
+                    ) AS fin,
+                    LAG(e.orden) OVER (
+                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla
+                    ) AS orden_anterior
+                FROM tb_historial_estatus h
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
+                WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
+                  {user_filter}
+                  {tipo_filter}
+            ),
+            entregadas AS (
+                -- orden=5: Entregado (cierre no-cancela y no-perdido del flujo de revisión)
+                SELECT DISTINCT id_oportunidad FROM transiciones WHERE orden = 5 AND es_estatus_final = true
+            ),
+            tiempo_revision AS (
+                -- orden=3: En Revisión
+                SELECT id_oportunidad,
+                       SUM(EXTRACT(EPOCH FROM (fin - inicio)) / 86400.0) AS dias
+                FROM transiciones
+                WHERE orden = 3 AND fin IS NOT NULL
+                GROUP BY id_oportunidad
+            ),
+            tiempo_retrabajo AS (
+                -- orden=4: Comentarios Recibidos
+                SELECT id_oportunidad,
+                       SUM(EXTRACT(EPOCH FROM (fin - inicio)) / 86400.0) AS dias
+                FROM transiciones
+                WHERE orden = 4 AND fin IS NOT NULL
+                GROUP BY id_oportunidad
+            ),
+            rondas AS (
+                -- Segunda ronda: volver a En Revisión (orden=3) desde Comentarios Recibidos (orden=4)
+                SELECT id_oportunidad, COUNT(*) AS num_rondas
+                FROM transiciones
+                WHERE orden = 3 AND orden_anterior = 4
+                GROUP BY id_oportunidad
+            )
+            SELECT
+                COUNT(DISTINCT e.id_oportunidad) AS total_entregadas,
+                COUNT(DISTINCT tr.id_oportunidad) AS con_revision,
+                COALESCE(AVG(tr.dias), 0) AS tiempo_revision_dias,
+                COALESCE(AVG(ret.dias), 0) AS tiempo_retrabajo_dias,
+                COALESCE(AVG(r.num_rondas::float), 0) AS rondas_promedio
+            FROM entregadas e
+            LEFT JOIN tiempo_revision tr ON e.id_oportunidad = tr.id_oportunidad
+            LEFT JOIN tiempo_retrabajo ret ON e.id_oportunidad = ret.id_oportunidad
+            LEFT JOIN rondas r ON e.id_oportunidad = r.id_oportunidad
+        """
+
+        try:
+            row = await conn.fetchrow(query, *params)
+            total = int(row['total_entregadas'] or 0)
+            con_rev = int(row['con_revision'] or 0)
+            pct = round(con_rev * 100.0 / total, 1) if total > 0 else 0.0
+            return MetricaCicloRevision(
+                tiempo_revision_direccion_dias=round(float(row['tiempo_revision_dias'] or 0), 1),
+                tiempo_retrabajo_simulacion_dias=round(float(row['tiempo_retrabajo_dias'] or 0), 1),
+                oportunidades_con_revision=con_rev,
+                total_entregadas=total,
+                pct_con_revision=pct,
+                rondas_promedio=round(float(row['rondas_promedio'] or 0), 1)
+            )
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de BD obteniendo métricas de ciclo de revisión: {e}")
+            raise
+
     async def get_oportunidades_por_estatus(
         self,
         conn: asyncpg.Connection,
@@ -281,12 +379,9 @@ class MetricsService:
         user_id: UUID = None
     ) -> List[dict]:
         """
-        Obtiene detalle de oportunidades que están/estuvieron en un estatus específico.
-        
-        Returns:
-            Lista de oportunidades con información completa para análisis
+        Obtiene detalle de oportunidades en un estatus específico.
+        LEAD() calculado antes de filtrar por fecha para no cortar intervalos.
         """
-        
         params: list = [fecha_inicio, fecha_fin, estatus_nombre]
         user_filter = ""
         if user_id:
@@ -295,7 +390,6 @@ class MetricsService:
 
         query = f"""
             WITH todas_transiciones AS (
-                -- Calcula LEAD sobre TODAS las filas antes de filtrar por oportunidad
                 SELECT
                     h.id_oportunidad,
                     h.fecha_cambio_sla as fecha_inicio_estatus,
@@ -307,12 +401,11 @@ class MetricsService:
                 JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
                 JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
                 WHERE e.nombre = $3
-                  AND h.fecha_cambio_sla >= $1
-                  AND h.fecha_cambio_sla <= $2
+                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
                   {user_filter}
             ),
             peor_caso AS (
-                -- Por oportunidad, tomar la visita de mayor duración
                 SELECT DISTINCT ON (id_oportunidad)
                     id_oportunidad,
                     fecha_inicio_estatus,
@@ -347,13 +440,11 @@ class MetricsService:
             ORDER BY dias_en_estatus DESC
             LIMIT 50
         """
-        
+
         try:
             rows = await conn.fetch(query, *params)
-            
-            oportunidades = []
-            for row in rows:
-                oportunidades.append({
+            return [
+                {
                     'id_oportunidad': str(row['id_oportunidad']),
                     'op_id_estandar': row['op_id_estandar'],
                     'cliente_nombre': row['cliente_nombre'] or 'N/A',
@@ -365,10 +456,9 @@ class MetricsService:
                     'responsable_simulacion': row['responsable_simulacion'] or 'Sin asignar',
                     'solicitado_por': row['solicitado_por'] or 'N/A',
                     'dias_en_estatus': round(float(row['dias_en_estatus']), 1)
-                })
-            
-            return oportunidades
-        
+                }
+                for row in rows
+            ]
         except asyncpg.PostgresError as e:
             logger.error(f"Error de BD obteniendo oportunidades por estatus: {e}")
             raise
@@ -380,25 +470,26 @@ class MetricsService:
         tipo_solicitud_id: int = None
     ) -> List[MetricaTransicion]:
         """
-        Obtiene métricas de transiciones agrupadas por par (origen → destino).
-        
-        Muestra el estado ACTUAL del pipeline: para cada oportunidad activa,
-        identifica su última transición y agrupa por par de estatus.
+        Estado actual del pipeline activo por par de transición.
+        El orden del flujo proviene del catálogo (A.4), sin dict hardcodeado.
         """
-        
-        filters = ["o.id_estatus_global NOT IN (SELECT id FROM tb_cat_estatus_oportunidades WHERE nombre IN ('Entregado', 'Cancelado', 'Perdido', 'Ganada'))"]
+        filters = [
+            "o.id_estatus_global NOT IN ("
+            "  SELECT id FROM tb_cat_estatus_oportunidades WHERE es_estatus_final = true"
+            ")"
+        ]
         params: list = []
-        
+
         if user_id:
-            filters.append(f"o.responsable_simulacion_id = ${len(params) + 1}")
             params.append(user_id)
-        
+            filters.append(f"o.responsable_simulacion_id = ${len(params)}")
+
         if tipo_solicitud_id:
-            filters.append(f"o.id_tipo_solicitud = ${len(params) + 1}")
             params.append(tipo_solicitud_id)
-        
-        where_clause = " AND ".join(filters) if filters else "TRUE"
-        
+            filters.append(f"o.id_tipo_solicitud = ${len(params)}")
+
+        where_clause = " AND ".join(filters)
+
         query = f"""
             WITH ultima_transicion AS (
                 SELECT DISTINCT ON (h.id_oportunidad)
@@ -412,43 +503,34 @@ class MetricsService:
                   AND h.id_estatus_anterior IS NOT NULL
                 ORDER BY h.id_oportunidad, h.fecha_cambio_sla DESC
             )
-            SELECT 
-                COALESCE(e_ant.nombre, 'Inicio') as estatus_origen,
-                e_nuevo.nombre as estatus_destino,
-                COUNT(*) as cantidad,
+            SELECT
+                COALESCE(e_ant.nombre, 'Inicio') AS estatus_origen,
+                e_nuevo.nombre AS estatus_destino,
+                COUNT(*) AS cantidad,
                 AVG(
                     EXTRACT(EPOCH FROM (NOW() - ut.fecha_cambio_sla)) / 86400.0
-                ) as dias_promedio_en_destino
+                ) AS dias_promedio_en_destino,
+                COALESCE(e_ant.orden, 0) AS orden_origen,
+                COALESCE(e_nuevo.orden, 0) AS orden_destino
             FROM ultima_transicion ut
             LEFT JOIN tb_cat_estatus_oportunidades e_ant ON ut.id_estatus_anterior = e_ant.id
             JOIN tb_cat_estatus_oportunidades e_nuevo ON ut.id_estatus_nuevo = e_nuevo.id
-            GROUP BY e_ant.nombre, e_nuevo.nombre
+            GROUP BY e_ant.nombre, e_nuevo.nombre, e_ant.orden, e_nuevo.orden
             ORDER BY cantidad DESC
         """
-        
+
         try:
             rows = await conn.fetch(query, *params)
-            
-            transiciones = []
-            for row in rows:
-                origen = row['estatus_origen'] or 'Inicio'
-                destino = row['estatus_destino']
-                
-                # Detectar retroceso
-                orden_origen = ORDEN_FLUJO.get(origen, 0)
-                orden_destino = ORDEN_FLUJO.get(destino, 0)
-                es_retroceso = orden_destino < orden_origen
-                
-                transiciones.append(MetricaTransicion(
-                    estatus_origen=origen,
-                    estatus_destino=destino,
+            return [
+                MetricaTransicion(
+                    estatus_origen=row['estatus_origen'] or 'Inicio',
+                    estatus_destino=row['estatus_destino'],
                     cantidad=int(row['cantidad']),
                     dias_promedio_en_destino=round(float(row['dias_promedio_en_destino'] or 0), 1),
-                    es_retroceso=es_retroceso
-                ))
-            
-            return transiciones
-        
+                    es_retroceso=(row['orden_destino'] or 0) < (row['orden_origen'] or 0)
+                )
+                for row in rows
+            ]
         except asyncpg.PostgresError as e:
             logger.error(f"Error de BD obteniendo transiciones par a par: {e}")
             raise
@@ -460,20 +542,14 @@ class MetricsService:
         estatus_destino: str,
         user_id: UUID = None
     ) -> List[dict]:
-        """
-        Obtiene oportunidades cuya última transición fue de origen → destino.
-        
-        Returns:
-            Lista de oportunidades actualmente en estatus_destino que vinieron de estatus_origen
-        """
-        
+        """Oportunidades cuya última transición fue de origen → destino."""
         params = [estatus_origen, estatus_destino]
         user_filter = ""
-        
+
         if user_id:
             user_filter = "AND o.responsable_simulacion_id = $3"
             params.append(user_id)
-        
+
         query = f"""
             WITH ultima_transicion AS (
                 SELECT DISTINCT ON (h.id_oportunidad)
@@ -485,7 +561,7 @@ class MetricsService:
                 WHERE h.id_estatus_anterior IS NOT NULL
                 ORDER BY h.id_oportunidad, h.fecha_cambio_sla DESC
             )
-            SELECT 
+            SELECT
                 o.id_oportunidad,
                 o.op_id_estandar,
                 o.cliente_nombre,
@@ -515,13 +591,11 @@ class MetricsService:
             ORDER BY dias_en_estatus DESC
             LIMIT 50
         """
-        
+
         try:
             rows = await conn.fetch(query, *params)
-            
-            oportunidades = []
-            for row in rows:
-                oportunidades.append({
+            return [
+                {
                     'id_oportunidad': str(row['id_oportunidad']),
                     'op_id_estandar': row['op_id_estandar'],
                     'cliente_nombre': row['cliente_nombre'] or 'N/A',
@@ -533,10 +607,9 @@ class MetricsService:
                     'responsable_simulacion': row['responsable_simulacion'] or 'Sin asignar',
                     'solicitado_por': row['solicitado_por'] or 'N/A',
                     'dias_en_estatus': round(float(row['dias_en_estatus']), 1)
-                })
-            
-            return oportunidades
-        
+                }
+                for row in rows
+            ]
         except asyncpg.PostgresError as e:
             logger.error(f"Error de BD obteniendo oportunidades por transición: {e}")
             raise
@@ -547,5 +620,4 @@ class MetricsService:
 # =============================================================================
 
 def get_metrics_service() -> MetricsService:
-    """Factory para inyección de dependencias."""
     return MetricsService()
