@@ -48,6 +48,25 @@ def _parse_email_targets(raw_values: list[str]) -> list[str]:
                 targets.append(normalized)
     return targets
 
+
+def _has_module_access(user: dict, module_slug: str) -> bool:
+    """Evalua acceso efectivo a modulo desde el usuario enriquecido."""
+    if user.get("rol_sistema") == "ADMIN":
+        return True
+    return any(
+        permission.get("modulo_slug") == module_slug and permission.get("rol_modulo")
+        for permission in user.get("user_modules", [])
+    )
+
+
+def _is_comercial_popup_user(user: dict) -> bool:
+    return bool(
+        user.get("is_active")
+        and user.get("email")
+        and _has_module_access(user, "comercial")
+    )
+
+
 @router.api_route("/ui", methods=["GET", "HEAD"], include_in_schema=False)
 async def admin_dashboard(
     request: Request,
@@ -73,7 +92,7 @@ async def admin_dashboard(
     tc_historial = await tc_service.get_historial(conn, limit=30)
     comercial_popup_users = [
         user for user in users_enriched
-        if user.get("is_active") and user.get("email")
+        if _is_comercial_popup_user(user)
     ]
     active_emails = {user["email"].strip().lower() for user in comercial_popup_users}
     comercial_popup_target_emails = [
@@ -645,11 +664,11 @@ async def update_config_comercial(
     """Guarda solo la configuracion de popup comercial."""
     form_data = await request.form()
     requested_emails = _parse_email_targets(form_data.getlist("comercial_popup_targets"))
-    users = await service.db.fetch_all_users(conn)
+    users = await service.get_users_enriched(conn)
     active_emails = {
         (user.get("email") or "").strip().lower()
         for user in users
-        if user.get("is_active") and user.get("email")
+        if _is_comercial_popup_user(user)
     }
     valid_targets = [email for email in requested_emails if email in active_emails]
 
