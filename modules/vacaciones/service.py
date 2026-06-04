@@ -92,7 +92,7 @@ async def get_balance_usuario(conn, usuario_id: UUID) -> dict[str, Any]:
             empleado["fecha_contratacion"], hoy, catalogo, meses_semestre, porcentaje_liberacion
         )
         dias_de_aniversarios = sum(p["dias_usados"] + _dias_usables(p) for p in periodos_activos)
-        total_usados = sum(p["dias_usados"] for p in balance)
+        total_usados = sum(p["dias_usados"] for p in balance if not p.get("expirado"))
         dias_semestre = semestre["dias_liberados"] if semestre["semestre_activo"] else 0
         dias_efectivos_disponibles = dias_de_aniversarios + dias_semestre - total_usados
         dias_tomados_anticipadamente = max(0, -dias_efectivos_disponibles)

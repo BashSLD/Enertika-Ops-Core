@@ -58,11 +58,11 @@
     {% if balance.semestre %}
     {% if not balance.semestre.semestre_activo %}
     <span class="text-amber-600 font-medium">
-      {{ balance.semestre.fecha_semestre.strftime('%d/%m/%Y') }}: {{ balance.semestre.dias_a_liberar }} días disponibles
+      {{ balance.semestre.fecha_semestre.strftime('%d/%m/%Y') }}: tendrás {{ balance.semestre.dias_a_liberar }} días del período {{ balance.progreso.numero_periodo_actual }} disponibles en anticipo
     </span>
     {% else %}
     <span class="text-[#00BABB] font-medium">
-      Semestre activo: {{ balance.semestre.dias_liberados }} días liberados
+      Semestre activo: {{ balance.semestre.dias_liberados }} días del período {{ balance.progreso.numero_periodo_actual }} liberados
     </span>
     {% endif %}
     {% endif %}
@@ -79,7 +79,7 @@
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 2.75v3M16 2.75v3M4.75 9.25h14.5M6.75 4.75h10.5a2 2 0 0 1 2 2v10.5a2 2 0 0 1-2 2H6.75a2 2 0 0 1-2-2V6.75a2 2 0 0 1 2-2Z"/>
         </svg>
       </span>
-      <h2 class="text-sm font-semibold text-gray-700">Mis Períodos</h2>
+      <h2 class="text-sm font-semibold text-gray-700">Mis Períodos Vacacionales</h2>
     </div>
   </div>
   <div class="overflow-x-auto">
