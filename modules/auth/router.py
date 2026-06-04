@@ -1,7 +1,7 @@
 import logging
 
 import asyncpg
-from fastapi import APIRouter, Request, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import RedirectResponse, JSONResponse
 
 from core.database import get_db_connection
@@ -17,9 +17,21 @@ router = APIRouter(
 )
 
 
+def _safe_redirect_path(path: str | None) -> str:
+    if not path or not path.startswith("/") or path.startswith("//"):
+        return "/"
+    return path
+
+
 @router.get("/login")
-async def login(ms_auth: MicrosoftAuth = Depends(get_ms_auth)):
+async def login(
+    request: Request,
+    next_url: str | None = Query(None, alias="next"),
+    ms_auth: MicrosoftAuth = Depends(get_ms_auth),
+):
     """Inicia el flujo de autenticacion con Microsoft."""
+    if next_url:
+        request.session["post_login_redirect"] = _safe_redirect_path(next_url)
     auth_url = ms_auth.get_auth_url()
     return RedirectResponse(auth_url)
 
@@ -33,11 +45,12 @@ async def callback(
 ):
     """Callback tras el login en Microsoft. Guarda sesion ligera."""
     try:
+        redirect_url = _safe_redirect_path(request.session.get("post_login_redirect"))
         user = await process_login_callback(conn, code, ms_auth)
         request.session.clear()
         request.session["user_email"] = user["email"]
         request.session["user_name"] = user["name"]
-        return RedirectResponse(url="/")
+        return RedirectResponse(url=redirect_url)
     except ValueError as exc:
         logger.warning("Callback de autenticacion invalido: %s", exc)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
