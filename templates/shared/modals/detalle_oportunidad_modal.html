@@ -481,7 +481,7 @@
                         status: '{{ op.status_global | default('pendiente') | lower }}',
                         steps: ['pendiente', 'en proceso', 'en revisión', 'comentarios recibidos', 'finalizado'],
                         get currentStep() {
-                            if (['ganada', 'entregado'].includes(this.status)) return 4;
+                            if (['ganada', 'entregado', 'monitoreo de cotización', 'monitoreo de cotizacion'].includes(this.status)) return 4;
                             if (this.status === 'comentarios recibidos') return 3;
                             if (this.status === 'en revisión' || this.status === 'en revision') return 2;
                             if (this.status === 'en proceso') return 1;

@@ -24,14 +24,151 @@ class SimulacionDBService:
         """Obtiene opciones para el dropdown de estatus global, filtrando por módulo."""
         if exclude_id:
             rows = await conn.fetch(
-                "SELECT id, nombre FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' AND id != $1 ORDER BY orden NULLS LAST",
+                "SELECT id, nombre, orden, es_estatus_final FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' AND id != $1 ORDER BY orden NULLS LAST",
                 exclude_id
             )
         else:
             rows = await conn.fetch(
-                "SELECT id, nombre FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY orden NULLS LAST"
+                "SELECT id, nombre, orden, es_estatus_final FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY orden NULLS LAST"
             )
         return [dict(r) for r in rows]
+
+    async def get_estatus_by_ids(self, conn, status_ids: List[int]) -> List[Dict[str, Any]]:
+        if not status_ids:
+            return []
+
+        rows = await conn.fetch(
+            """
+            SELECT id, nombre, es_estatus_final
+            FROM tb_cat_estatus_oportunidades
+            WHERE id = ANY($1::int[])
+            """,
+            status_ids,
+        )
+        return [dict(row) for row in rows]
+
+    async def get_estatus_oportunidades_activos(self, conn) -> List[Dict[str, Any]]:
+        rows = await conn.fetch(
+            """
+            SELECT id, nombre, orden, es_estatus_final
+            FROM tb_cat_estatus_oportunidades
+            WHERE activo = true
+            """
+        )
+        return [dict(row) for row in rows]
+
+    async def get_ultima_fecha_cambio_real(self, conn, id_oportunidad: UUID) -> Optional[datetime]:
+        row = await conn.fetchrow(
+            """
+            SELECT fecha_cambio_real
+            FROM tb_historial_estatus
+            WHERE id_oportunidad = $1
+            ORDER BY fecha_cambio_real DESC, fecha_creacion DESC
+            LIMIT 1
+            """,
+            id_oportunidad,
+        )
+        return row["fecha_cambio_real"] if row and row["fecha_cambio_real"] else None
+
+    async def get_historial_estatus_timeline(self, conn, id_oportunidad: UUID) -> List[Dict[str, Any]]:
+        rows = await conn.fetch(
+            """
+            SELECT
+                h.id,
+                h.id_oportunidad,
+                h.id_estatus_anterior,
+                h.id_estatus_nuevo,
+                h.fecha_cambio_real,
+                h.fecha_cambio_sla,
+                h.fecha_creacion,
+                h.cambiado_por_id,
+                h.notas,
+                e_ant.nombre AS estatus_anterior,
+                e_new.nombre AS estatus_nuevo,
+                e_new.orden AS orden_nuevo,
+                e_new.es_estatus_final,
+                u.nombre AS cambiado_por_nombre
+            FROM tb_historial_estatus h
+            LEFT JOIN tb_cat_estatus_oportunidades e_ant ON h.id_estatus_anterior = e_ant.id
+            JOIN tb_cat_estatus_oportunidades e_new ON h.id_estatus_nuevo = e_new.id
+            LEFT JOIN tb_usuarios u ON h.cambiado_por_id = u.id_usuario
+            WHERE h.id_oportunidad = $1
+            ORDER BY h.fecha_cambio_real ASC, h.fecha_creacion ASC, h.id ASC
+            """,
+            id_oportunidad,
+        )
+        return [dict(row) for row in rows]
+
+    async def get_ultimo_historial_por_estatus(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        id_estatus: int,
+    ) -> Optional[Dict[str, Any]]:
+        row = await conn.fetchrow(
+            """
+            SELECT fecha_creacion, fecha_cambio_real
+            FROM tb_historial_estatus
+            WHERE id_oportunidad = $1
+              AND id_estatus_nuevo = $2
+            ORDER BY fecha_creacion DESC, fecha_cambio_real DESC, id DESC
+            LIMIT 1
+            """,
+            id_oportunidad,
+            id_estatus,
+        )
+        return dict(row) if row else None
+
+    async def insert_historial_estatus(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        id_estatus_anterior: Optional[int],
+        id_estatus_nuevo: int,
+        fecha_cambio_real: datetime,
+        fecha_cambio_sla: datetime,
+        cambiado_por_id: UUID,
+        notas: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        row = await conn.fetchrow(
+            """
+            INSERT INTO tb_historial_estatus (
+                id_oportunidad,
+                id_estatus_anterior,
+                id_estatus_nuevo,
+                fecha_cambio_real,
+                fecha_cambio_sla,
+                cambiado_por_id,
+                notas
+            ) VALUES (
+                $1, $2, $3, $4, $5, $6, $7
+            )
+            RETURNING id, id_oportunidad, id_estatus_anterior, id_estatus_nuevo,
+                      fecha_cambio_real, fecha_cambio_sla, cambiado_por_id, notas, fecha_creacion
+            """,
+            id_oportunidad,
+            id_estatus_anterior,
+            id_estatus_nuevo,
+            fecha_cambio_real,
+            fecha_cambio_sla,
+            cambiado_por_id,
+            notas,
+        )
+        return dict(row)
+
+    async def get_historial_anterior(self, conn, id_oportunidad: UUID) -> Optional[Dict[str, Any]]:
+        row = await conn.fetchrow(
+            """
+            SELECT fecha_creacion
+            FROM tb_historial_estatus
+            WHERE id_oportunidad = $1
+            ORDER BY fecha_creacion DESC, fecha_cambio_real DESC, id DESC
+            OFFSET 1
+            LIMIT 1
+            """,
+            id_oportunidad,
+        )
+        return dict(row) if row else None
 
     async def get_motivos_cierre(self, conn) -> List[Dict[str, Any]]:
         rows = await conn.fetch("SELECT id, motivo FROM tb_cat_motivos_cierre WHERE activo = true ORDER BY motivo")
@@ -125,6 +262,12 @@ class SimulacionDBService:
             WHERE id_oportunidad = $1
         """, id_oportunidad)
 
+    async def lock_oportunidad_for_update(self, conn, id_oportunidad: UUID) -> Optional[Dict[str, Any]]:
+        return await conn.fetchrow(
+            "SELECT id_oportunidad, id_estatus_global FROM tb_oportunidades WHERE id_oportunidad = $1 FOR UPDATE",
+            id_oportunidad,
+        )
+
     async def get_total_sitios_count(self, conn, id_oportunidad: UUID) -> int:
         return await conn.fetchval(
             "SELECT count(*) FROM tb_sitios_oportunidad WHERE id_oportunidad = $1", 
@@ -204,6 +347,25 @@ class SimulacionDBService:
             datos['kpi_compromiso_val'],
             datos['tiempo_elaboracion_horas'],
             id_oportunidad
+        )
+
+    async def revertir_oportunidad_a_estatus(self, conn, id_oportunidad: UUID, id_estatus_destino: int) -> None:
+        await conn.execute(
+            """
+            UPDATE tb_oportunidades
+            SET
+                id_estatus_global = $1,
+                fecha_entrega_simulacion = NULL,
+                kpi_status_sla_interno = NULL,
+                kpi_status_compromiso = NULL,
+                tiempo_elaboracion_horas = NULL,
+                monto_cierre_usd = NULL,
+                potencia_cierre_fv_kwp = NULL,
+                capacidad_cierre_bess_kwh = NULL
+            WHERE id_oportunidad = $2
+            """,
+            id_estatus_destino,
+            id_oportunidad,
         )
 
     async def get_deadlines_padre(self, conn, id_oportunidad: UUID) -> Optional[Dict[str, Any]]:
@@ -594,15 +756,6 @@ class SimulacionDBService:
         """, fecha_inicio, fecha_fin, responsable_id, id_tecnologia)
         return [dict(r) for r in rows]
 
-
-QUERY_INSERT_HISTORIAL_ESTATUS = """
-    INSERT INTO tb_historial_estatus (
-        id_oportunidad, id_estatus_anterior, id_estatus_nuevo, 
-        fecha_cambio_real, fecha_cambio_sla, cambiado_por_id
-    ) VALUES (
-        $1, $2, $3, $4, $5, $6
-    )
-"""
 
 def get_db_service() -> SimulacionDBService:
     return SimulacionDBService()

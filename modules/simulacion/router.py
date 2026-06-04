@@ -687,50 +687,31 @@ async def get_detalle_modal(
 
 # --- ENDPOINTS DE GESTIÓN (MODALES Y UPDATES) ---
 
-@router.get("/modals/edit/{id_oportunidad}", include_in_schema=False)
-async def get_edit_modal(
-    request: Request,
+async def _build_edit_modal_context(
+    conn,
     id_oportunidad: UUID,
-    service: SimulacionService = Depends(get_simulacion_service),
-    db_service: SimulacionDBService = Depends(get_db_service),
-    conn = Depends(get_db_connection),
-    context = Depends(get_current_user_context), # Necesario para checar rol
-    _ = require_module_access("simulacion") # Acceso base (Viewer puede ver el modal, pero no guardar)
-):
-    """Renderiza el modal de edición principal."""
-    # 1. Obtener datos actuales
+    service: SimulacionService,
+    db_service: SimulacionDBService,
+    context: dict,
+    form_message: Optional[str] = None,
+    historial_message: Optional[str] = None,
+    historial_error: Optional[str] = None
+) -> Optional[dict]:
     op = await db_service.get_oportunidad_by_id(conn, id_oportunidad)
     if not op:
-        return JSONResponse(status_code=404, content={"message": "Oportunidad no encontrada"})
+        return None
 
-    # 2. Cargar catálogos dinámicos
     responsables = await service.get_responsables_dropdown(conn)
-    
-    # 3. Obtener mapa de IDs para lógica frontend (AlpineJS)
     status_ids = await service._get_status_ids(conn)
-    
-    # Excluir "Ganada" del dropdown (solo para selección manual)
     estatus_global = await db_service.get_estatus_simulacion_dropdown(conn, exclude_id=status_ids["ganada"])
     motivos_cierre = await db_service.get_motivos_cierre(conn)
-    
-    # NUEVO: Cargar sitios de esta oportunidad para checkbox de retrabajo
     sitios_oportunidad = await db_service.get_sitios_by_oportunidad(conn, id_oportunidad)
-    
-    # NUEVO: Cargar catálogo de motivos de retrabajo
     motivos_retrabajo = await db_service.get_motivos_retrabajo(conn)
-    
-    # Determinar si es multisitio
-    # Use persistent multisite check (heuristic)
     es_multisitio = ComercialService.is_originally_multisite(dict(op))
 
-    # 4. Definir permisos de edicion.
     permisos_update = resolve_update_permissions(context)
-    can_manage = permisos_update["can_manage"]
-    can_edit_sensitive = permisos_update["can_edit_sensitive"]
-    can_assign_others = permisos_update["can_assign_others"]
-    can_edit_assignment_fields = permisos_update["can_edit_assignment_fields"]
     current_user_id = str(context.get("user_db_id") or "")
-    if can_edit_assignment_fields and current_user_id:
+    if permisos_update["can_edit_assignment_fields"] and current_user_id:
         existe_usuario_actual = any(str(resp["id_usuario"]) == current_user_id for resp in responsables)
         if not existe_usuario_actual:
             responsables.append({
@@ -739,32 +720,58 @@ async def get_edit_modal(
                 "departamento": context.get("department") or ""
             })
 
-    # Determinar si es tecnología BESS (ID 2) o FV+BESS (ID 3)
-    is_bess_related = op['id_tecnologia'] in [2, 3]
-    # BESS puro (ID 2): potencia FV no obligatoria
-    is_bess_only = op['id_tecnologia'] == 2
-
-    # Simulaciones adicionales existentes (read-only si ya están registradas)
     simulaciones_adicionales = await db_service.get_simulaciones_adicionales(conn, id_oportunidad)
-
-    return templates.TemplateResponse(request, "simulacion/modals/update_oportunidades.html", {"op": dict(op),
+    historial_timeline = await service.get_historial_timeline(conn, id_oportunidad)
+    current_status = next(
+        (status for status in estatus_global if status["id"] == op["id_estatus_global"]),
+        None,
+    )
+    estatus_reversion = [
+        status for status in estatus_global
+        if not status["es_estatus_final"] and status["orden"] in (1, 2, 3, 4)
+    ]
+    return {
+        "op": dict(op),
         "responsables": responsables,
         "estatus_global": [dict(r) for r in estatus_global],
         "motivos_cierre": [dict(r) for r in motivos_cierre],
         "status_ids": status_ids,
-        "can_manage": can_manage,
-        "can_edit_sensitive": can_edit_sensitive,
-        "can_edit_assignment_fields": can_edit_assignment_fields,
-        "can_assign_others": can_assign_others,
+        "can_manage": permisos_update["can_manage"],
+        "can_edit_sensitive": permisos_update["can_edit_sensitive"],
+        "can_edit_assignment_fields": permisos_update["can_edit_assignment_fields"],
+        "can_assign_others": permisos_update["can_assign_others"],
         "current_user_id": current_user_id,
         "context": context,
         "sitios_oportunidad": [dict(r) for r in sitios_oportunidad],
         "motivos_retrabajo": [dict(r) for r in motivos_retrabajo],
         "es_multisitio": es_multisitio,
-        "is_bess_related": is_bess_related,
-        "is_bess_only": is_bess_only,
-        "simulaciones_adicionales": simulaciones_adicionales
-    })
+        "is_bess_related": op["id_tecnologia"] in [2, 3],
+        "is_bess_only": op["id_tecnologia"] == 2,
+        "simulaciones_adicionales": simulaciones_adicionales,
+        "form_message": form_message,
+        "historial_timeline": historial_timeline,
+        "can_reconstruct_history": permisos_update["can_edit_sensitive"],
+        "can_reverse_terminal": context.get("role") == "ADMIN" and bool(current_status and current_status["es_estatus_final"]),
+        "estatus_reversion": estatus_reversion,
+        "historial_message": historial_message,
+        "historial_error": historial_error,
+    }
+
+
+@router.get("/modals/edit/{id_oportunidad}", include_in_schema=False)
+async def get_edit_modal(
+    request: Request,
+    id_oportunidad: UUID,
+    service: SimulacionService = Depends(get_simulacion_service),
+    db_service: SimulacionDBService = Depends(get_db_service),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_module_access("simulacion"),
+):
+    modal_context = await _build_edit_modal_context(conn, id_oportunidad, service, db_service, context)
+    if not modal_context:
+        return JSONResponse(status_code=404, content={"message": "Oportunidad no encontrada"})
+    return templates.TemplateResponse(request, "simulacion/modals/update_oportunidades.html", modal_context)
 
 @router.put("/update/{id_oportunidad}")
 async def update_simulacion(
@@ -786,8 +793,9 @@ async def update_simulacion(
     id_motivo_retrabajo: Optional[int] = Form(None),
     sitios_retrabajo: Optional[str] = Form(None),          # JSON string de UUIDs
     simulaciones_adicionales_json: Optional[str] = Form(None),  # JSON string de SimulacionAdicionalItem
-    
+
     service: SimulacionService = Depends(get_simulacion_service),
+    db_service: SimulacionDBService = Depends(get_db_service),
     conn = Depends(get_db_connection),
     context = Depends(get_current_user_context),
     _ = require_module_access("simulacion", "editor") 
@@ -846,12 +854,12 @@ async def update_simulacion(
         kpi_sla_interno, kpi_compromiso, has_negotiated_deadline, es_cierre_terminal = \
             await service.update_simulacion_padre(conn, id_oportunidad, datos, context)
 
-        # Avance intermedio (no terminal): modal permanece abierto, se recarga con el nuevo estatus
+        # Avance intermedio (no terminal): confirma en #form-feedback y recarga el modal vía JS
         if not es_cierre_terminal:
             return templates.TemplateResponse(
                 request,
                 "simulacion/partials/messages/success_inline.html",
-                {"message": "Estatus actualizado correctamente.", "id_oportunidad": id_oportunidad}
+                {"message": "Estatus actualizado correctamente.", "id_oportunidad": id_oportunidad},
             )
 
         # Cierre terminal (Entregado/Cancelado/Perdido): cerrar modal y refrescar lista
@@ -879,6 +887,176 @@ async def update_simulacion(
             
         return templates.TemplateResponse(request, "simulacion/partials/messages/error_inline.html", {"message": e.detail
         }, status_code=e.status_code)
+
+async def _build_historial_context(
+    conn,
+    id_oportunidad: UUID,
+    service: SimulacionService,
+    db_service: SimulacionDBService,
+    context: dict,
+    historial_message: Optional[str] = None,
+    historial_error: Optional[str] = None,
+) -> Optional[dict]:
+    op = await db_service.get_oportunidad_by_id(conn, id_oportunidad)
+    if not op:
+        return None
+    status_ids = await service._get_status_ids(conn)
+    estatus_global = await db_service.get_estatus_simulacion_dropdown(conn, exclude_id=status_ids["ganada"])
+    historial_timeline = await service.get_historial_timeline(conn, id_oportunidad)
+    current_status = next((s for s in estatus_global if s["id"] == op["id_estatus_global"]), None)
+    estatus_reversion = [
+        s for s in estatus_global
+        if not s["es_estatus_final"] and s["orden"] in (1, 2, 3, 4)
+    ]
+    permisos_update = resolve_update_permissions(context)
+    return {
+        "op": dict(op),
+        "historial_timeline": historial_timeline,
+        "estatus_global": [dict(r) for r in estatus_global],
+        "estatus_reversion": estatus_reversion,
+        "can_reconstruct_history": permisos_update["can_edit_sensitive"],
+        "can_reverse_terminal": context.get("role") == "ADMIN" and bool(current_status and current_status["es_estatus_final"]),
+        "historial_message": historial_message,
+        "historial_error": historial_error,
+    }
+
+
+async def _render_historial_timeline_partial(
+    request: Request,
+    conn,
+    id_oportunidad: UUID,
+    service: SimulacionService,
+    db_service: SimulacionDBService,
+    context: dict,
+    historial_message: Optional[str] = None,
+    historial_error: Optional[str] = None,
+):
+    ctx = await _build_historial_context(
+        conn, id_oportunidad, service, db_service, context,
+        historial_message=historial_message,
+        historial_error=historial_error,
+    )
+    if not ctx:
+        raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
+    return templates.TemplateResponse(request, "simulacion/partials/historial_timeline.html", ctx)
+
+
+@router.post("/historial/{id_oportunidad}/insertar-transicion", include_in_schema=False)
+async def insertar_transicion_historica(
+    request: Request,
+    id_oportunidad: UUID,
+    id_estatus: int = Form(...),
+    fecha_cambio_real: str = Form(...),
+    service: SimulacionService = Depends(get_simulacion_service),
+    db_service: SimulacionDBService = Depends(get_db_service),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_manager_access("simulacion"),
+):
+    try:
+        try:
+            fecha_real = datetime.fromisoformat(fecha_cambio_real)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=400,
+                detail="Formato de fecha inválido. Use el selector de fecha del formulario.",
+            ) from exc
+
+        await service.insertar_transicion_historica(
+            conn,
+            id_oportunidad,
+            id_estatus,
+            fecha_real,
+            context,
+        )
+        return await _render_historial_timeline_partial(
+            request,
+            conn,
+            id_oportunidad,
+            service,
+            db_service,
+            context,
+            historial_message="Evento histórico insertado correctamente.",
+        )
+    except HTTPException as exc:
+        return await _render_historial_timeline_partial(
+            request,
+            conn,
+            id_oportunidad,
+            service,
+            db_service,
+            context,
+            historial_error=str(exc.detail),
+        )
+    except asyncpg.PostgresError:
+        logger.exception("Error de base de datos insertando transición histórica %s", id_oportunidad)
+        return await _render_historial_timeline_partial(
+            request,
+            conn,
+            id_oportunidad,
+            service,
+            db_service,
+            context,
+            historial_error="Error de base de datos al insertar el evento histórico.",
+        )
+
+
+@router.post("/historial/{id_oportunidad}/revertir-cierre", include_in_schema=False)
+async def revertir_cierre_admin(
+    request: Request,
+    id_oportunidad: UUID,
+    id_estatus_destino: int = Form(...),
+    confirmar_reversion: Optional[str] = Form(None),
+    service: SimulacionService = Depends(get_simulacion_service),
+    db_service: SimulacionDBService = Depends(get_db_service),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_role(["ADMIN"]),
+):
+    try:
+        if confirmar_reversion != "on":
+            raise HTTPException(
+                status_code=400,
+                detail="Debe confirmar explícitamente la reversión del cierre.",
+            )
+
+        await service.revertir_cierre_admin(
+            conn,
+            id_oportunidad,
+            id_estatus_destino,
+            context,
+        )
+        return await _render_historial_timeline_partial(
+            request,
+            conn,
+            id_oportunidad,
+            service,
+            db_service,
+            context,
+            historial_message="Cierre revertido correctamente.",
+        )
+    except HTTPException as exc:
+        return await _render_historial_timeline_partial(
+            request,
+            conn,
+            id_oportunidad,
+            service,
+            db_service,
+            context,
+            historial_error=str(exc.detail),
+        )
+    except asyncpg.PostgresError:
+        logger.exception("Error de base de datos revirtiendo cierre %s", id_oportunidad)
+        return await _render_historial_timeline_partial(
+            request,
+            conn,
+            id_oportunidad,
+            service,
+            db_service,
+            context,
+            historial_error="Error de base de datos al revertir el cierre.",
+        )
+
 
 @router.put("/sitios/batch-update")
 async def batch_update_sitios(

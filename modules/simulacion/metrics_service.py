@@ -107,7 +107,7 @@ class MetricsService:
                     h.fecha_cambio_sla AS inicio,
                     LEAD(h.fecha_cambio_sla) OVER (
                         PARTITION BY h.id_oportunidad
-                        ORDER BY h.fecha_cambio_sla
+                        ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
                     ) AS fin
                 FROM tb_historial_estatus h
                 JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
@@ -209,24 +209,30 @@ class MetricsService:
             tipo_filter = f"AND o.id_tipo_solicitud = ${len(params)}"
 
         query = f"""
-            WITH transiciones_seq AS (
+            WITH oportunidades_en_rango AS (
+                SELECT DISTINCT h.id_oportunidad
+                FROM tb_historial_estatus h
+                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
+                WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
+                  {tipo_filter}
+            ),
+            transiciones_seq AS (
                 SELECT
                     h.id_oportunidad,
                     e.nombre AS estatus_nuevo,
                     e.orden AS orden_nuevo,
+                    e.es_estatus_final,
+                    h.fecha_cambio_sla,
                     LAG(e.nombre) OVER (
-                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla
+                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
                     ) AS estatus_prev,
                     LAG(e.orden) OVER (
-                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla
+                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
                     ) AS orden_prev
                 FROM tb_historial_estatus h
                 JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
-                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
-                WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
-                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
-                  AND e.es_estatus_final = false
-                  {tipo_filter}
+                WHERE h.id_oportunidad IN (SELECT id_oportunidad FROM oportunidades_en_rango)
             ),
             retrocesos_por_opp AS (
                 SELECT
@@ -236,8 +242,13 @@ class MetricsService:
                     COUNT(*) AS num_retrocesos
                 FROM transiciones_seq
                 WHERE estatus_prev IS NOT NULL
+                  AND (fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
+                  AND es_estatus_final = false
                   AND orden_nuevo IS NOT NULL
                   AND orden_prev IS NOT NULL
+                  AND orden_nuevo BETWEEN 1 AND 4
+                  AND orden_prev BETWEEN 1 AND 4
                   AND orden_nuevo < orden_prev
                 GROUP BY id_oportunidad, estatus_nuevo, estatus_prev
             )
@@ -294,29 +305,42 @@ class MetricsService:
             tipo_filter = f"AND o.id_tipo_solicitud = ${len(params)}"
 
         query = f"""
-            WITH transiciones AS (
+            WITH oportunidades_entregadas AS (
+                SELECT DISTINCT h.id_oportunidad
+                FROM tb_historial_estatus h
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
+                WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
+                  AND e.orden = 5
+                  AND e.es_estatus_final = true
+                  {user_filter}
+                  {tipo_filter}
+            ),
+            transiciones AS (
                 SELECT
                     h.id_oportunidad,
                     e.orden,
                     e.es_estatus_final,
                     h.fecha_cambio_sla AS inicio,
                     LEAD(h.fecha_cambio_sla) OVER (
-                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla
+                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
                     ) AS fin,
                     LAG(e.orden) OVER (
-                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla
+                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
                     ) AS orden_anterior
                 FROM tb_historial_estatus h
                 JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
-                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
-                WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
-                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
-                  {user_filter}
-                  {tipo_filter}
+                WHERE h.id_oportunidad IN (SELECT id_oportunidad FROM oportunidades_entregadas)
             ),
             entregadas AS (
                 -- orden=5: Entregado (cierre no-cancela y no-perdido del flujo de revisión)
-                SELECT DISTINCT id_oportunidad FROM transiciones WHERE orden = 5 AND es_estatus_final = true
+                SELECT DISTINCT id_oportunidad
+                FROM transiciones
+                WHERE orden = 5
+                  AND es_estatus_final = true
+                  AND (inicio AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (inicio AT TIME ZONE 'America/Mexico_City')::date <= $2
             ),
             tiempo_revision AS (
                 -- orden=3: En Revisión
@@ -389,14 +413,8 @@ class MetricsService:
             user_filter = f"AND o.responsable_simulacion_id = ${len(params)}"
 
         query = f"""
-            WITH todas_transiciones AS (
-                SELECT
-                    h.id_oportunidad,
-                    h.fecha_cambio_sla as fecha_inicio_estatus,
-                    LEAD(h.fecha_cambio_sla) OVER (
-                        PARTITION BY h.id_oportunidad
-                        ORDER BY h.fecha_cambio_sla
-                    ) as fecha_fin_estatus
+            WITH oportunidades_en_rango AS (
+                SELECT DISTINCT h.id_oportunidad
                 FROM tb_historial_estatus h
                 JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
                 JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
@@ -405,12 +423,28 @@ class MetricsService:
                   AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
                   {user_filter}
             ),
+            todas_transiciones AS (
+                SELECT
+                    h.id_oportunidad,
+                    e.nombre AS estatus,
+                    h.fecha_cambio_sla as fecha_inicio_estatus,
+                    LEAD(h.fecha_cambio_sla) OVER (
+                        PARTITION BY h.id_oportunidad
+                        ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
+                    ) as fecha_fin_estatus
+                FROM tb_historial_estatus h
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+                WHERE h.id_oportunidad IN (SELECT id_oportunidad FROM oportunidades_en_rango)
+            ),
             peor_caso AS (
                 SELECT DISTINCT ON (id_oportunidad)
                     id_oportunidad,
                     fecha_inicio_estatus,
                     fecha_fin_estatus
                 FROM todas_transiciones
+                WHERE estatus = $3
+                  AND (fecha_inicio_estatus AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (fecha_inicio_estatus AT TIME ZONE 'America/Mexico_City')::date <= $2
                 ORDER BY id_oportunidad,
                          (COALESCE(fecha_fin_estatus, NOW()) - fecha_inicio_estatus) DESC
             )
@@ -491,31 +525,48 @@ class MetricsService:
         where_clause = " AND ".join(filters)
 
         query = f"""
-            WITH ultima_transicion AS (
-                SELECT DISTINCT ON (h.id_oportunidad)
+            WITH historial_ordenado AS (
+                SELECT
                     h.id_oportunidad,
-                    h.id_estatus_anterior,
-                    h.id_estatus_nuevo,
-                    h.fecha_cambio_sla
+                    e.nombre AS estatus_destino,
+                    e.orden AS orden_destino,
+                    h.fecha_cambio_sla,
+                    h.fecha_creacion,
+                    h.id,
+                    LAG(e.nombre) OVER (
+                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
+                    ) AS estatus_origen,
+                    LAG(e.orden) OVER (
+                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
+                    ) AS orden_origen
                 FROM tb_historial_estatus h
-                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+            ),
+            ultima_transicion AS (
+                SELECT DISTINCT ON (ho.id_oportunidad)
+                    ho.id_oportunidad,
+                    ho.estatus_origen,
+                    ho.estatus_destino,
+                    ho.orden_origen,
+                    ho.orden_destino,
+                    ho.fecha_cambio_sla
+                FROM historial_ordenado ho
+                JOIN tb_oportunidades o ON ho.id_oportunidad = o.id_oportunidad
                 WHERE {where_clause}
-                  AND h.id_estatus_anterior IS NOT NULL
-                ORDER BY h.id_oportunidad, h.fecha_cambio_sla DESC
+                  AND ho.estatus_origen IS NOT NULL
+                ORDER BY ho.id_oportunidad, ho.fecha_cambio_sla DESC, ho.fecha_creacion DESC, ho.id DESC
             )
             SELECT
-                COALESCE(e_ant.nombre, 'Inicio') AS estatus_origen,
-                e_nuevo.nombre AS estatus_destino,
+                COALESCE(ut.estatus_origen, 'Inicio') AS estatus_origen,
+                ut.estatus_destino,
                 COUNT(*) AS cantidad,
                 AVG(
                     EXTRACT(EPOCH FROM (NOW() - ut.fecha_cambio_sla)) / 86400.0
                 ) AS dias_promedio_en_destino,
-                COALESCE(e_ant.orden, 0) AS orden_origen,
-                COALESCE(e_nuevo.orden, 0) AS orden_destino
+                COALESCE(ut.orden_origen, 0) AS orden_origen,
+                COALESCE(ut.orden_destino, 0) AS orden_destino
             FROM ultima_transicion ut
-            LEFT JOIN tb_cat_estatus_oportunidades e_ant ON ut.id_estatus_anterior = e_ant.id
-            JOIN tb_cat_estatus_oportunidades e_nuevo ON ut.id_estatus_nuevo = e_nuevo.id
-            GROUP BY e_ant.nombre, e_nuevo.nombre, e_ant.orden, e_nuevo.orden
+            GROUP BY ut.estatus_origen, ut.estatus_destino, ut.orden_origen, ut.orden_destino
             ORDER BY cantidad DESC
         """
 
@@ -551,15 +602,28 @@ class MetricsService:
             params.append(user_id)
 
         query = f"""
-            WITH ultima_transicion AS (
-                SELECT DISTINCT ON (h.id_oportunidad)
+            WITH historial_ordenado AS (
+                SELECT
                     h.id_oportunidad,
-                    h.id_estatus_anterior,
-                    h.id_estatus_nuevo,
-                    h.fecha_cambio_sla as fecha_transicion
+                    e.nombre AS estatus_destino,
+                    h.fecha_cambio_sla AS fecha_transicion,
+                    h.fecha_creacion,
+                    h.id,
+                    LAG(e.nombre) OVER (
+                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
+                    ) AS estatus_origen
                 FROM tb_historial_estatus h
-                WHERE h.id_estatus_anterior IS NOT NULL
-                ORDER BY h.id_oportunidad, h.fecha_cambio_sla DESC
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+            ),
+            ultima_transicion AS (
+                SELECT DISTINCT ON (id_oportunidad)
+                    id_oportunidad,
+                    estatus_origen,
+                    estatus_destino,
+                    fecha_transicion
+                FROM historial_ordenado
+                WHERE estatus_origen IS NOT NULL
+                ORDER BY id_oportunidad, fecha_transicion DESC, fecha_creacion DESC, id DESC
             )
             SELECT
                 o.id_oportunidad,
@@ -579,14 +643,12 @@ class MetricsService:
                 ) as dias_en_estatus
             FROM ultima_transicion ut
             JOIN tb_oportunidades o ON ut.id_oportunidad = o.id_oportunidad
-            LEFT JOIN tb_cat_estatus_oportunidades e_ant ON ut.id_estatus_anterior = e_ant.id
-            JOIN tb_cat_estatus_oportunidades e_nuevo ON ut.id_estatus_nuevo = e_nuevo.id
             LEFT JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
             LEFT JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
             LEFT JOIN tb_usuarios u_sim ON o.responsable_simulacion_id = u_sim.id_usuario
             LEFT JOIN tb_usuarios u_sol ON o.solicitado_por_id = u_sol.id_usuario
-            WHERE COALESCE(e_ant.nombre, 'Inicio') = $1
-              AND e_nuevo.nombre = $2
+            WHERE COALESCE(ut.estatus_origen, 'Inicio') = $1
+              AND ut.estatus_destino = $2
               {user_filter}
             ORDER BY dias_en_estatus DESC
             LIMIT 50

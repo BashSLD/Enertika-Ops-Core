@@ -1,0 +1,143 @@
+<div id="historial-timeline" class="border-t-4 border-amber-400 pt-6 mt-8 space-y-5">
+    <div class="flex items-start justify-between gap-4">
+        <div class="flex items-center gap-3">
+            <div class="p-2 bg-amber-100 rounded-lg text-amber-700">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                        d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+            </div>
+            <div>
+                <h3 class="text-lg font-bold text-[#003366]">Historial de Estatus</h3>
+                <p class="text-sm text-gray-500">Reconstrucción auditada de transiciones.</p>
+            </div>
+        </div>
+    </div>
+
+    {% if historial_message %}
+    <div class="bg-green-50 border-l-4 border-green-500 p-3 rounded-md text-sm font-medium text-green-800">
+        {{ historial_message }}
+    </div>
+    {% endif %}
+
+    {% if historial_error %}
+    <div class="bg-red-50 border-l-4 border-red-500 p-3 rounded-md text-sm font-medium text-red-800">
+        {{ historial_error }}
+    </div>
+    {% endif %}
+
+    <div class="space-y-3">
+        {% for evento in historial_timeline %}
+        <div class="flex gap-3">
+            <div class="flex flex-col items-center">
+                <div class="w-3 h-3 rounded-full {% if evento.es_estatus_final %}bg-green-500{% elif evento.notas %}bg-amber-500{% else %}bg-[#00BABB]{% endif %}"></div>
+                {% if not loop.last %}
+                <div class="w-px flex-1 bg-gray-200"></div>
+                {% endif %}
+            </div>
+            <div class="flex-1 rounded-lg border border-gray-200 bg-white p-3 shadow-sm">
+                <div class="flex flex-wrap items-center justify-between gap-2">
+                    <div>
+                        <p class="text-sm font-bold text-gray-900">
+                            {{ evento.estatus_anterior or 'Inicio' }} → {{ evento.estatus_nuevo }}
+                        </p>
+                        <p class="text-xs text-gray-500">
+                            Fecha real: {{ evento.fecha_cambio_real | time_mx("%d/%m/%Y %H:%M") }}
+                        </p>
+                    </div>
+                    {% if evento.notas %}
+                    <span class="rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800">
+                        {{ evento.notas }}
+                    </span>
+                    {% else %}
+                    <span class="rounded-md bg-cyan-50 px-2 py-1 text-xs font-semibold text-cyan-700">
+                        En vivo
+                    </span>
+                    {% endif %}
+                </div>
+                <div class="mt-2 text-xs text-gray-500">
+                    Registrado: {{ evento.fecha_creacion | time_mx("%d/%m/%Y %H:%M") if evento.fecha_creacion else 'N/A' }}
+                    {% if evento.cambiado_por_nombre %}
+                    · Por: {{ evento.cambiado_por_nombre }}
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% else %}
+        <div class="rounded-lg border border-dashed border-gray-300 p-4 text-sm text-gray-500">
+            No hay historial de estatus registrado.
+        </div>
+        {% endfor %}
+    </div>
+
+    {% if can_reconstruct_history %}
+    <form hx-post="/simulacion/historial/{{ op.id_oportunidad }}/insertar-transicion"
+        hx-target="#historial-timeline" hx-swap="outerHTML"
+        hx-disabled-elt="find button[type='submit']"
+        class="rounded-lg border border-amber-200 bg-amber-50 p-4">
+        <h4 class="text-sm font-bold text-amber-900 mb-3">Insertar evento faltante</h4>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+                <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Estatus</label>
+                <select name="id_estatus" required
+                    class="w-full rounded-md border-amber-300 text-sm focus:border-amber-500 focus:ring-amber-500">
+                    <option value="">Seleccione estatus...</option>
+                    {% for st in estatus_global %}
+                    <option value="{{ st.id }}">{{ st.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div>
+                <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Fecha/hora real</label>
+                <input type="datetime-local" name="fecha_cambio_real" required
+                    x-data
+                    x-init="$el.value = (() => { const d = new Date(); const toLocalISO = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`; return `${toLocalISO(d)}T${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`; })()"
+                    class="w-full rounded-md border-amber-300 text-sm focus:border-amber-500 focus:ring-amber-500">
+            </div>
+            <div class="flex items-end">
+                <button type="submit"
+                    class="w-full rounded-md bg-amber-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-amber-700 transition">
+                    Insertar evento
+                </button>
+            </div>
+        </div>
+        <p class="mt-2 text-xs text-amber-800">
+            Solo se insertan eventos entre dos registros existentes. No se modifican filas anteriores.
+        </p>
+    </form>
+    {% endif %}
+
+    {% if can_reverse_terminal %}
+    <form hx-post="/simulacion/historial/{{ op.id_oportunidad }}/revertir-cierre"
+        hx-target="#historial-timeline" hx-swap="outerHTML"
+        hx-disabled-elt="find button[type='submit']"
+        class="rounded-lg border border-red-200 bg-red-50 p-4">
+        <h4 class="text-sm font-bold text-red-900 mb-3">Reversión de cierre Admin</h4>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+                <label class="block text-xs font-bold text-gray-600 uppercase mb-1">Reabrir en</label>
+                <select name="id_estatus_destino" required
+                    class="w-full rounded-md border-red-300 text-sm focus:border-red-500 focus:ring-red-500">
+                    <option value="">Seleccione estatus...</option>
+                    {% for st in estatus_reversion %}
+                    <option value="{{ st.id }}" {% if st.nombre == 'Comentarios Recibidos' %}selected{% endif %}>{{ st.nombre }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <label class="flex items-center gap-2 rounded-md bg-white px-3 py-2 text-sm font-medium text-red-800 border border-red-200 md:col-span-1">
+                <input type="checkbox" name="confirmar_reversion" class="rounded border-red-300 text-red-600 focus:ring-red-500">
+                Confirmo la reversión
+            </label>
+            <div class="flex items-end">
+                <button type="submit"
+                    class="w-full rounded-md bg-red-600 px-4 py-2 text-sm font-bold text-white shadow-sm hover:bg-red-700 transition">
+                    Revertir cierre
+                </button>
+            </div>
+        </div>
+        <p class="mt-2 text-xs text-red-800">
+            Esta acción limpia KPIs de cierre y registra una transición auditada sin enviar correo.
+        </p>
+    </form>
+    {% endif %}
+</div>

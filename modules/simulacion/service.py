@@ -304,23 +304,18 @@ class SimulacionService:
 
         # 3.5. Insertar Historial (Si Cambio Estatus)
         if datos.id_estatus_global != current_data['id_estatus_global']:
-            from modules.comercial.sla_calculator import SLACalculator
-            from .db_service import QUERY_INSERT_HISTORIAL_ESTATUS
-
-            config = await self.get_configuracion_global(conn)
-            hora_corte, dias_fin_semana, _ = SLACalculator.parse_config(config)
-
             # Usar fecha capturada por el usuario (backdating) o la hora actual
             fecha_real = datos.fecha_cambio_real or now_mx
-            fecha_sla = SLACalculator.calculate_deadline(fecha_real, hora_corte, 0)
+            fecha_sla = await self._calculate_fecha_sla(conn, fecha_real)
 
-            await conn.execute(QUERY_INSERT_HISTORIAL_ESTATUS,
+            await self.db.insert_historial_estatus(
+                conn,
                 id_oportunidad,
                 current_data['id_estatus_global'],
                 datos.id_estatus_global,
                 fecha_real,
                 fecha_sla,
-                user_context['user_db_id']
+                user_context['user_db_id'],
             )
 
         # 4. Manejar Cascada a Sitios y Retrabajos
@@ -639,6 +634,209 @@ class SimulacionService:
                 
         return kpi_sla_val, kpi_compromiso_val, tiempo_elaboracion_horas
 
+    async def _calculate_fecha_sla(self, conn, fecha_real: datetime) -> datetime:
+        from modules.comercial.sla_calculator import SLACalculator
+
+        config = await self.get_configuracion_global(conn)
+        hora_corte, _, _ = SLACalculator.parse_config(config)
+        return SLACalculator.calculate_deadline(fecha_real, hora_corte, 0)
+
+    async def get_historial_timeline(self, conn, id_oportunidad: UUID) -> List[dict]:
+        return await self.db.get_historial_estatus_timeline(conn, id_oportunidad)
+
+    async def _get_catalogo_estatus(self, conn) -> tuple[dict, dict]:
+        rows = await self.db.get_estatus_oportunidades_activos(conn)
+        catalog = {row["id"]: row for row in rows}
+        by_orden = {row["orden"]: row for row in rows if row.get("orden") is not None}
+        return catalog, by_orden
+
+    @staticmethod
+    def _is_entregado(estatus: dict) -> bool:
+        return (estatus.get("nombre") or "").lower() == "entregado"
+
+    def _validate_status_pair(self, origen: dict, destino: dict, by_orden: dict) -> None:
+        if not origen or not destino:
+            raise HTTPException(status_code=400, detail="Estatus no válido.")
+
+        if origen["id"] == destino["id"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"El estatus '{destino['nombre']}' no puede repetirse de forma consecutiva.",
+            )
+
+        if origen["es_estatus_final"]:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No se puede continuar el flujo después del estatus terminal '{origen['nombre']}'.",
+            )
+
+        if destino["es_estatus_final"]:
+            if self._is_entregado(destino) and origen["nombre"] != "Comentarios Recibidos":
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        "Para marcar como 'Entregado' la oportunidad debe pasar primero por "
+                        "'Comentarios Recibidos'."
+                    ),
+                )
+            return
+
+        if origen["orden"] is None or destino["orden"] is None:
+            return
+
+        diferencia = destino["orden"] - origen["orden"]
+        if diferencia > 1:
+            siguiente = by_orden.get(origen["orden"] + 1, {}).get("nombre", "el siguiente estatus")
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"El flujo es secuencial. Desde '{origen['nombre']}' el siguiente paso "
+                    f"es '{siguiente}', no '{destino['nombre']}'."
+                ),
+            )
+        if diferencia not in (1, -1):
+            anterior = by_orden.get(origen["orden"] - 1, {}).get("nombre", "el estatus anterior")
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Solo se permite retroceder un paso. Desde '{origen['nombre']}' "
+                    f"el retroceso permitido es a '{anterior}'."
+                ),
+            )
+
+    async def insertar_transicion_historica(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        id_estatus: int,
+        fecha_real: datetime,
+        user_context: dict,
+    ) -> dict:
+        fecha_real = self._as_aware(fecha_real)
+        now_mx = await self.get_current_datetime_mx(conn)
+        if fecha_real > now_mx:
+            raise HTTPException(status_code=400, detail="La fecha del evento no puede ser futura.")
+
+        catalog, by_orden = await self._get_catalogo_estatus(conn)
+        nuevo = catalog.get(id_estatus)
+        if not nuevo:
+            raise HTTPException(status_code=400, detail="Estatus no válido.")
+
+        timeline = await self.db.get_historial_estatus_timeline(conn, id_oportunidad)
+        if len(timeline) < 2:
+            raise HTTPException(
+                status_code=400,
+                detail="La reconstrucción requiere al menos dos eventos existentes en el historial.",
+            )
+
+        anteriores = []
+        siguientes = []
+        for evento in timeline:
+            t = self._as_aware(evento["fecha_cambio_real"])
+            if t == fecha_real:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Ya existe un evento registrado exactamente en esa fecha y hora.",
+                )
+            if t < fecha_real:
+                anteriores.append(evento)
+            else:
+                siguientes.append(evento)
+        if not anteriores or not siguientes:
+            raise HTTPException(
+                status_code=400,
+                detail="La reconstrucción solo puede insertarse entre dos eventos existentes.",
+            )
+
+        anterior = anteriores[-1]
+        siguiente = siguientes[0]
+        fecha_anterior = self._as_aware(anterior["fecha_cambio_real"])
+        fecha_siguiente = self._as_aware(siguiente["fecha_cambio_real"])
+        min_gap = await ConfigService.get_global_config(conn, "MIN_MINUTOS_ENTRE_ESTATUS", 1, int)
+
+        gap_anterior = (fecha_real - fecha_anterior).total_seconds() / 60
+        gap_siguiente = (fecha_siguiente - fecha_real).total_seconds() / 60
+        if gap_anterior < min_gap or gap_siguiente < min_gap:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Deben existir al menos {min_gap} minuto(s) entre eventos consecutivos.",
+            )
+
+        estatus_anterior = catalog.get(anterior["id_estatus_nuevo"])
+        estatus_siguiente = catalog.get(siguiente["id_estatus_nuevo"])
+        self._validate_status_pair(estatus_anterior, nuevo, by_orden)
+        self._validate_status_pair(nuevo, estatus_siguiente, by_orden)
+
+        fecha_sla = await self._calculate_fecha_sla(conn, fecha_real)
+        return await self.db.insert_historial_estatus(
+            conn,
+            id_oportunidad,
+            anterior["id_estatus_nuevo"],
+            id_estatus,
+            fecha_real,
+            fecha_sla,
+            user_context["user_db_id"],
+            "Reconstrucción manual (correo)",
+        )
+
+    async def revertir_cierre_admin(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        id_estatus_destino: int,
+        user_context: dict,
+    ) -> dict:
+        if user_context.get("role") != "ADMIN":
+            raise HTTPException(status_code=403, detail="Solo un Administrador puede revertir un cierre.")
+
+        current_data = await self.db.get_oportunidad_for_update(conn, id_oportunidad)
+        if not current_data:
+            raise HTTPException(status_code=404, detail="Oportunidad no encontrada.")
+
+        catalog, _ = await self._get_catalogo_estatus(conn)
+        actual = catalog.get(current_data["id_estatus_global"])
+        destino = catalog.get(id_estatus_destino)
+        if not actual or not destino:
+            raise HTTPException(status_code=400, detail="Estatus no válido.")
+        if not actual["es_estatus_final"]:
+            raise HTTPException(
+                status_code=400,
+                detail="La reversión Admin solo aplica a oportunidades en estatus terminal.",
+            )
+        if destino["es_estatus_final"] or destino.get("orden") not in (1, 2, 3, 4):
+            raise HTTPException(
+                status_code=400,
+                detail="Seleccione un estatus activo válido para reabrir la oportunidad.",
+            )
+
+        now_mx = await self.get_current_datetime_mx(conn)
+        datos_fecha = SimulacionUpdate(
+            id_estatus_global=id_estatus_destino,
+            fecha_cambio_real=now_mx,
+        )
+        await self._validate_fecha_cambio(conn, id_oportunidad, datos_fecha, now_mx)
+        fecha_real = datos_fecha.fecha_cambio_real
+        fecha_sla = await self._calculate_fecha_sla(conn, fecha_real)
+
+        async with conn.transaction():
+            locked = await self.db.lock_oportunidad_for_update(conn, id_oportunidad)
+            if not locked or locked["id_estatus_global"] != actual["id"]:
+                raise HTTPException(
+                    status_code=409,
+                    detail="El estatus de la oportunidad cambió mientras se procesaba la solicitud. Intente de nuevo.",
+                )
+            await self.db.revertir_oportunidad_a_estatus(conn, id_oportunidad, id_estatus_destino)
+            return await self.db.insert_historial_estatus(
+                conn,
+                id_oportunidad,
+                actual["id"],
+                id_estatus_destino,
+                fecha_real,
+                fecha_sla,
+                user_context["user_db_id"],
+                "Reversión de cierre (Admin)",
+            )
+
     async def _validate_fecha_cambio(
         self,
         conn,
@@ -651,32 +849,26 @@ class SimulacionService:
         1. No futura.
         2. Mayor que el último cambio registrado.
         3. Gap >= MIN_MINUTOS_ENTRE_ESTATUS.
+        Solo aplica validación de gap/orden cuando el usuario proporcionó backdating.
+        Sin backdating (fecha_cambio_real=None), se normaliza a now_mx y se omite la validación.
         """
-        fecha_real = datos.fecha_cambio_real
-        if fecha_real is None:
-            return  # Sin backdating → se usará now_mx, siempre válido
-
+        backdating = datos.fecha_cambio_real is not None
+        fecha_real = datos.fecha_cambio_real or now_mx
         if fecha_real.tzinfo is None:
             fecha_real = fecha_real.replace(tzinfo=ZoneInfo("America/Mexico_City"))
-            datos.fecha_cambio_real = fecha_real
+        datos.fecha_cambio_real = fecha_real
+
+        if not backdating:
+            return
 
         if fecha_real > now_mx:
             raise HTTPException(status_code=400, detail="La fecha del cambio no puede ser futura.")
 
-        ultimo = await conn.fetchrow(
-            """
-            SELECT fecha_cambio_real
-            FROM tb_historial_estatus
-            WHERE id_oportunidad = $1
-            ORDER BY fecha_cambio_real DESC, fecha_creacion DESC
-            LIMIT 1
-            """,
-            id_oportunidad
-        )
-        if not ultimo or not ultimo['fecha_cambio_real']:
+        ultima_fecha_raw = await self.db.get_ultima_fecha_cambio_real(conn, id_oportunidad)
+        if not ultima_fecha_raw:
             return
 
-        ultima_fecha = self._as_aware(ultimo['fecha_cambio_real'])
+        ultima_fecha = self._as_aware(ultima_fecha_raw)
         if fecha_real <= ultima_fecha:
             raise HTTPException(
                 status_code=400,
@@ -697,6 +889,81 @@ class SimulacionService:
                     f"El último cambio fue el {ultima_fecha.strftime('%d/%m/%Y %H:%M')}."
                 )
             )
+
+    async def _should_notify_status_change(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        old_status_id: int,
+        new_status_id: int,
+        datos: SimulacionUpdate,
+        notify_status: bool = True
+    ) -> bool:
+        """Decide si un cambio de estatus debe enviar correo para evitar spam."""
+        if not notify_status:
+            logger.info(
+                "Correo de estatus omitido por bandera notify_status=false: oportunidad %s",
+                id_oportunidad,
+            )
+            return False
+
+        rows = await self.db.get_estatus_by_ids(conn, [new_status_id])
+        new_status = rows[0] if rows else None
+        if not new_status:
+            return False
+
+        hitos_config = await ConfigService.get_global_config(conn, "ESTATUS_HITO_CORREO", "Entregado")
+        hitos = {
+            hito.strip().lower()
+            for hito in str(hitos_config).split(",")
+            if hito.strip()
+        }
+        new_status_name = new_status["nombre"]
+        if new_status_name.lower() not in hitos:
+            logger.info(
+                "Correo de estatus omitido: %s no es estatus hito para oportunidad %s",
+                new_status_name,
+                id_oportunidad,
+            )
+            return False
+
+        registro_actual = await self.db.get_ultimo_historial_por_estatus(
+            conn,
+            id_oportunidad,
+            new_status_id,
+        )
+
+        now_mx = await self.get_current_datetime_mx(conn)
+        fecha_creacion_actual = self._as_aware(
+            registro_actual["fecha_creacion"] if registro_actual else now_mx
+        )
+        fecha_real = self._as_aware(
+            registro_actual["fecha_cambio_real"] if registro_actual else (datos.fecha_cambio_real or now_mx)
+        )
+        umbral_lag = await ConfigService.get_global_config(conn, "UMBRAL_LAG_NOTIFICACION", 1440, int)
+        lag_minutos = (fecha_creacion_actual - fecha_real).total_seconds() / 60
+        if lag_minutos > umbral_lag:
+            logger.info(
+                "Correo de estatus omitido por cambio retroactivo: oportunidad %s, lag %.1f min",
+                id_oportunidad,
+                lag_minutos,
+            )
+            return False
+
+        ventana_bloque = await ConfigService.get_global_config(conn, "VENTANA_BLOQUE_REGISTRO_MIN", 2, int)
+        previo = await self.db.get_historial_anterior(conn, id_oportunidad)
+        if previo and not new_status["es_estatus_final"]:
+            fecha_previa = self._as_aware(previo["fecha_creacion"])
+            minutos_desde_previo = (fecha_creacion_actual - fecha_previa).total_seconds() / 60
+            if minutos_desde_previo < ventana_bloque:
+                logger.info(
+                    "Correo de estatus omitido por registro en bloque: oportunidad %s, ventana %.1f min",
+                    id_oportunidad,
+                    minutos_desde_previo,
+                )
+                return False
+
+        return True
 
     async def _validate_status_transition(
         self,
@@ -719,11 +986,7 @@ class SimulacionService:
             return False
 
         # Cargar catálogo completo (< 10 filas) para evitar roundtrips extra en mensajes de error
-        rows = await conn.fetch(
-            "SELECT id, nombre, orden, es_estatus_final FROM tb_cat_estatus_oportunidades WHERE activo = true"
-        )
-        catalog = {r['id']: r for r in rows}
-        by_orden = {r['orden']: r for r in rows if r['orden'] is not None}
+        catalog, by_orden = await self._get_catalogo_estatus(conn)
 
         actual = catalog.get(id_actual)
         nuevo = catalog.get(id_nuevo)
@@ -841,7 +1104,8 @@ class SimulacionService:
         id_oportunidad: UUID, 
         current_data: dict, 
         datos: SimulacionUpdate, 
-        user_context: dict
+        user_context: dict,
+        notify_status: bool = True
     ):
         """
         Envía notificaciones de cambio de asignación y cambio de estatus.
@@ -863,14 +1127,29 @@ class SimulacionService:
             
             # Notificar cambio de estatus si cambió
             if datos.id_estatus_global and old_status != datos.id_estatus_global:
-                await self.notification_service.notify_status_change(
-                    conn=conn,
-                    id_oportunidad=id_oportunidad,
-                    old_status_id=old_status,
-                    new_status_id=datos.id_estatus_global,
-                    changed_by_ctx=user_context
+                should_notify = await self._should_notify_status_change(
+                    conn,
+                    id_oportunidad,
+                    old_status,
+                    datos.id_estatus_global,
+                    datos,
+                    notify_status
                 )
-        except Exception as notif_error:
+                if should_notify:
+                    await self.notification_service.notify_status_change(
+                        conn=conn,
+                        id_oportunidad=id_oportunidad,
+                        old_status_id=old_status,
+                        new_status_id=datos.id_estatus_global,
+                        changed_by_ctx=user_context
+                    )
+        except (
+            asyncpg.PostgresError,
+            KeyError,
+            RuntimeError,
+            TypeError,
+            ValueError,
+        ) as notif_error:
             logger.error(f"Error en notificaciones (no critico): {notif_error}")
 
     # --- CONSULTAS (CORREGIDO: LISTA COMPLETA) ---

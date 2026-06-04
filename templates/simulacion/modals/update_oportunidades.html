@@ -206,7 +206,20 @@
                 <form id="form-update-op" {% if can_manage %}hx-put="/simulacion/update/{{ op.id_oportunidad }}"
                     hx-target="#form-feedback" hx-swap="innerHTML" hx-indicator="#loading-overlay-main"
                     @submit="validateForm($event)" @keydown.enter.prevent novalidate {% endif %}>
-                    <div id="form-feedback"></div>
+                    <div id="form-feedback">
+                        {% if form_message %}
+                        <div class="bg-green-50 border-l-4 border-green-500 p-4 rounded-lg shadow-md animate-fade-in-down mb-4" role="status">
+                            <div class="flex items-center gap-3">
+                                <svg class="h-6 w-6 text-green-600 flex-shrink-0" fill="none" viewBox="0 0 24 24"
+                                    stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M5 13l4 4L19 7" />
+                                </svg>
+                                <p class="text-sm font-medium text-green-800">{{ form_message }}</p>
+                            </div>
+                        </div>
+                        {% endif %}
+                    </div>
 
                     <!-- ID Interno - Full Width -->
                     <div>
@@ -232,13 +245,30 @@
                                 </div>
                                 <span>Estatus Simulación</span>
                             </label>
+                            {% set current_status = namespace(orden=none, nombre='', final=false) %}
+                            {% for st in estatus_global %}
+                                {% if st.id == op.id_estatus_global %}
+                                    {% set current_status.orden = st.orden %}
+                                    {% set current_status.nombre = st.nombre %}
+                                    {% set current_status.final = st.es_estatus_final %}
+                                {% endif %}
+                            {% endfor %}
                             <select name="id_estatus_global" x-model.number="status" {% if not can_manage %}disabled{%
                                 endif %}
                                 class="w-full border-2 border-[#00BABB] rounded-md shadow-sm focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 font-medium text-sm text-gray-800 transition-all hover:border-[#009999]">
                                 {% for st in estatus_global %}
-                                <option value="{{ st.id }}">{{ st.nombre }}</option>
+                                {% set is_current = st.id == op.id_estatus_global %}
+                                {% set has_order = st.orden is not none and current_status.orden is not none %}
+                                {% set diff = st.orden - current_status.orden if has_order else none %}
+                                {% set is_entregado = st.nombre == 'Entregado' %}
+                                {% set salida_terminal = st.es_estatus_final and not is_entregado %}
+                                {% set entrega_valida = is_entregado and current_status.nombre == 'Comentarios Recibidos' %}
+                                {% set flujo_valido = (diff == 1 or diff == -1) and not st.es_estatus_final %}
+                                {% set is_valid = is_current or ((not current_status.final) and (salida_terminal or entrega_valida or flujo_valido)) %}
+                                <option value="{{ st.id }}" {% if not is_valid %}disabled{% endif %}>{{ st.nombre }}</option>
                                 {% endfor %}
                             </select>
+                            <p class="mt-1 text-xs text-gray-500">El flujo es secuencial: solo se habilita el siguiente paso, el retroceso inmediato o un cierre permitido.</p>
                         </div>
 
                         <!-- Fecha real del cambio (backdating, solo visible al cambiar estatus) -->
@@ -597,6 +627,8 @@
                     </div>
 
                 </form>
+
+                {% include "simulacion/partials/historial_timeline.html" %}
 
                 <div
                     class="border-t-4 border-[#00BABB] pt-6 mt-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
