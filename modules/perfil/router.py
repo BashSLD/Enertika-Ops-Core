@@ -17,7 +17,7 @@ from core.permissions import user_has_module_access
 from core.security import get_current_user_context
 from core.timezone import fmt_time_mx, today_mx
 from modules.asistencia import db_service as asistencia_db
-from modules.asistencia.constants import ASISTENCIA_ESTADO_LABELS
+from modules.asistencia.constants import ASISTENCIA_ESTADO_COLORES, ASISTENCIA_ESTADO_LABELS
 from modules.asistencia.service import omitir_horas_extra_propio_svc
 from modules.perfil import db_service as perfil_db
 from modules.perfil import service as perfil_service
@@ -41,6 +41,7 @@ PERFIL_TAB_ENDPOINTS = {
 
 _DIAS_SEMANA = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
 _ASISTENCIA_DIAS_VENTANA = 90
+_HEATMAP_DIAS_VENTANA = 365
 
 
 def _fmt_minutos(minutos: int | None) -> str:
@@ -63,6 +64,35 @@ def _preparar_asistencia_rows(rows: list[dict]) -> list[dict]:
             row.get("estado", ""), row.get("estado", "")
         )
     return rows
+
+
+def _build_heatmap(rows: list[dict], hoy) -> list[list[dict]]:
+    por_fecha = {r["fecha_laboral"]: r["estado"] for r in rows}
+    lunes_actual = hoy - timedelta(days=hoy.weekday())
+    inicio = lunes_actual - timedelta(weeks=51)
+    fin = lunes_actual + timedelta(days=6)
+    semanas: list[list[dict]] = []
+    d = inicio
+    while d <= fin:
+        semana: list[dict] = []
+        for _ in range(7):
+            estado = por_fecha.get(d)
+            if d > hoy:
+                semana.append({"color": "#f9fafb", "tip": ""})
+            else:
+                dia_label = _DIAS_SEMANA[d.weekday()]
+                fecha_label = d.strftime("%d/%m")
+                if estado:
+                    color = ASISTENCIA_ESTADO_COLORES.get(estado, "#e5e7eb")
+                    estado_label = ASISTENCIA_ESTADO_LABELS.get(estado, estado)
+                    tip = f"{dia_label} {fecha_label} · {estado_label}"
+                else:
+                    color = "#f3f4f6"
+                    tip = f"{dia_label} {fecha_label} · Sin registro"
+                semana.append({"color": color, "tip": tip})
+            d += timedelta(days=1)
+        semanas.append(semana)
+    return semanas
 
 
 def _legacy_redirect(path: str) -> RedirectResponse:
@@ -282,11 +312,22 @@ async def mi_asistencia(
     context=Depends(get_current_user_context),
 ):
     usuario_id = _get_usuario_id(context)
+    hoy = today_mx()
+    desde = hoy - timedelta(days=_ASISTENCIA_DIAS_VENTANA)
+    desde_heatmap = hoy - timedelta(days=_HEATMAP_DIAS_VENTANA)
     rows, tiene_mas = await _fetch_asistencia(conn, usuario_id, offset=0)
+    heatmap_raw = await perfil_db.get_mi_asistencia_heatmap(conn, usuario_id, desde_heatmap, hoy)
+    heatmap_semanas = _build_heatmap(heatmap_raw, hoy)
     return templates.TemplateResponse(
         request,
         "perfil/partials/tab_asistencia.html",
-        {"asistencia": rows, "tiene_mas": tiene_mas, "offset": 0, "context": context},
+        {
+            "asistencia": rows,
+            "tiene_mas": tiene_mas,
+            "offset": 0,
+            "context": context,
+            "heatmap_semanas": heatmap_semanas,
+        },
     )
 
 

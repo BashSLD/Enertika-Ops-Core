@@ -17,6 +17,27 @@ async def get_perfil_usuario(conn, usuario_id: UUID) -> Optional[dict]:
     return dict(row) if row else None
 
 
+async def get_mi_asistencia_heatmap(
+    conn,
+    usuario_id: UUID,
+    fecha_inicio: date,
+    fecha_fin: date,
+) -> list[dict]:
+    rows = await conn.fetch(
+        """
+        SELECT fecha_laboral, estado
+        FROM tb_asistencia_diaria
+        WHERE usuario_id = $1
+          AND fecha_laboral >= $2
+          AND fecha_laboral <= $3
+        """,
+        usuario_id,
+        fecha_inicio,
+        fecha_fin,
+    )
+    return [dict(row) for row in rows]
+
+
 async def get_mi_asistencia(
     conn,
     usuario_id: UUID,

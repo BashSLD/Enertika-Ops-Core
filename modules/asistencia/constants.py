@@ -26,6 +26,19 @@ ASISTENCIA_ESTADO_LABELS = {
     "sin_horario": "Sin horario",
 }
 
+ASISTENCIA_ESTADO_COLORES: dict[str, str] = {
+    "asistencia": "#4ade80",
+    "en_curso": "#38bdf8",
+    "falta": "#f87171",
+    "sin_registro": "#fca5a5",
+    "incompleto": "#fdba74",
+    "vacaciones": "#00BABB",
+    "checada_en_vacaciones": "#5eead4",
+    "descanso": "#d1d5db",
+    "feriado": "#e5e7eb",
+    "sin_horario": "#e9d5ff",
+}
+
 BIOTIME_CONFIG_KEYS = {
     "sync_activo": "BIOTIME_SYNC_ACTIVO",
     "base_url": "BIOTIME_BASE_URL",

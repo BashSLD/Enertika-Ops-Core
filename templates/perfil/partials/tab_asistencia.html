@@ -11,6 +11,48 @@
     </div>
   </div>
 
+  {% if heatmap_semanas %}
+  <div class="px-5 pt-4 pb-3 border-b border-gray-100"
+       x-data="{ tip: '' }">
+    <div class="flex gap-[3px] items-start">
+      <!-- Etiquetas días -->
+      <div class="flex flex-col gap-[3px] flex-shrink-0 mr-0.5 pt-px">
+        {% for label in ['L','M','X','J','V','S','D'] %}
+        <span class="text-[9px] text-gray-300 leading-3 w-3 text-center select-none">{{ label }}</span>
+        {% endfor %}
+      </div>
+      <!-- Semanas -->
+      {% for semana in heatmap_semanas %}
+      <div class="flex flex-col gap-[3px] flex-1 min-w-0">
+        {% for dia in semana %}
+        <div class="w-full h-3 rounded-[2px] cursor-default"
+             style="background: {{ dia.color }};"
+             {% if dia.tip %}
+             @mouseenter="tip = $el.dataset.tip"
+             @mouseleave="tip = ''"
+             data-tip="{{ dia.tip }}"
+             {% endif %}
+        ></div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+    </div>
+    <!-- Info bar + leyenda -->
+    <div class="flex items-center justify-between mt-2 gap-2">
+      <p class="text-xs text-gray-400 h-4 leading-4 truncate transition-opacity duration-75 min-w-0"
+         :class="tip ? 'opacity-100' : 'opacity-0'"
+         x-text="tip || ' '"></p>
+      <div class="flex items-center gap-1 flex-shrink-0">
+        <div class="w-3 h-3 rounded-[2px]" style="background: #f3f4f6;" title="Sin registro"></div>
+        <div class="w-3 h-3 rounded-[2px]" style="background: #4ade80;" title="Asistencia"></div>
+        <div class="w-3 h-3 rounded-[2px]" style="background: #00BABB;" title="Vacaciones"></div>
+        <div class="w-3 h-3 rounded-[2px]" style="background: #fdba74;" title="Incompleto"></div>
+        <div class="w-3 h-3 rounded-[2px]" style="background: #f87171;" title="Falta"></div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+
   {% if not asistencia %}
   <div class="px-5 py-10 text-center text-sm text-gray-400">
     Sin registros en el período.
