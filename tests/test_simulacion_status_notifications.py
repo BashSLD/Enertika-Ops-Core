@@ -212,11 +212,12 @@ async def test_insertar_transicion_historica_inserta_entre_vecinos(monkeypatch):
             history_event(3, datetime(2026, 1, 1, 10, 0, tzinfo=MX)),
             history_event(5, datetime(2026, 1, 1, 12, 0, tzinfo=MX)),
         ],
+        current_data={"id_estatus_global": 3},
     )
     user_id = uuid4()
 
     await service.insertar_transicion_historica(
-        FakeConn(),
+        FakeHistoryConn(),
         uuid4(),
         15,
         datetime(2026, 1, 1, 11, 0, tzinfo=MX),
@@ -243,11 +244,12 @@ async def test_insertar_transicion_historica_rechaza_fuera_de_vecinos(monkeypatc
             history_event(3, datetime(2026, 1, 1, 10, 0, tzinfo=MX)),
             history_event(5, datetime(2026, 1, 1, 12, 0, tzinfo=MX)),
         ],
+        current_data={"id_estatus_global": 3},
     )
 
     with pytest.raises(HTTPException) as exc:
         await service.insertar_transicion_historica(
-            FakeConn(),
+            FakeHistoryConn(),
             uuid4(),
             15,
             datetime(2026, 1, 1, 13, 0, tzinfo=MX),
@@ -326,6 +328,60 @@ async def test_status_notification_uses_history_creation_for_retroactive_lag(mon
         old_status_id=4,
         new_status_id=5,
         datos=SimpleNamespace(fecha_cambio_real=datetime(2026, 1, 2, 9, 0, tzinfo=MX)),
+    )
+
+    assert should_notify is True
+
+
+@pytest.mark.asyncio
+async def test_status_notification_ignores_non_hito_status(monkeypatch):
+    monkeypatch.setattr(
+        "modules.simulacion.service.ConfigService.get_global_config",
+        fake_get_global_config,
+    )
+
+    service = SimulacionService()
+    conn = FakeConn(status_rows=[status_row(2, "En Proceso", False)])
+
+    should_notify = await service._should_notify_status_change(
+        conn,
+        uuid4(),
+        old_status_id=1,
+        new_status_id=2,
+        datos=SimpleNamespace(fecha_cambio_real=None),
+    )
+
+    assert should_notify is False
+    assert conn.fetchrow_calls == []
+
+
+@pytest.mark.asyncio
+async def test_status_notification_allows_final_hito_after_quick_previous_registration(monkeypatch):
+    monkeypatch.setattr(
+        "modules.simulacion.service.ConfigService.get_global_config",
+        fake_get_global_config,
+    )
+
+    service = SimulacionService()
+    current_created = datetime(2026, 1, 2, 10, 0, tzinfo=MX)
+    service.get_current_datetime_mx = async_now(current_created)
+    conn = FakeConn(
+        status_rows=[status_row(5, "Entregado", True)],
+        current_history={
+            "fecha_creacion": current_created,
+            "fecha_cambio_real": current_created,
+        },
+        previous_history={
+            "fecha_creacion": current_created - timedelta(seconds=30),
+        },
+    )
+
+    should_notify = await service._should_notify_status_change(
+        conn,
+        uuid4(),
+        old_status_id=15,
+        new_status_id=5,
+        datos=SimpleNamespace(fecha_cambio_real=current_created),
     )
 
     assert should_notify is True

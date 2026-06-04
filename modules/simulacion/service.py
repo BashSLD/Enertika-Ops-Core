@@ -722,62 +722,68 @@ class SimulacionService:
         if not nuevo:
             raise HTTPException(status_code=400, detail="Estatus no válido.")
 
-        timeline = await self.db.get_historial_estatus_timeline(conn, id_oportunidad)
-        if len(timeline) < 2:
-            raise HTTPException(
-                status_code=400,
-                detail="La reconstrucción requiere al menos dos eventos existentes en el historial.",
-            )
-
-        anteriores = []
-        siguientes = []
-        for evento in timeline:
-            t = self._as_aware(evento["fecha_cambio_real"])
-            if t == fecha_real:
-                raise HTTPException(
-                    status_code=400,
-                    detail="Ya existe un evento registrado exactamente en esa fecha y hora.",
-                )
-            if t < fecha_real:
-                anteriores.append(evento)
-            else:
-                siguientes.append(evento)
-        if not anteriores or not siguientes:
-            raise HTTPException(
-                status_code=400,
-                detail="La reconstrucción solo puede insertarse entre dos eventos existentes.",
-            )
-
-        anterior = anteriores[-1]
-        siguiente = siguientes[0]
-        fecha_anterior = self._as_aware(anterior["fecha_cambio_real"])
-        fecha_siguiente = self._as_aware(siguiente["fecha_cambio_real"])
         min_gap = await ConfigService.get_global_config(conn, "MIN_MINUTOS_ENTRE_ESTATUS", 1, int)
 
-        gap_anterior = (fecha_real - fecha_anterior).total_seconds() / 60
-        gap_siguiente = (fecha_siguiente - fecha_real).total_seconds() / 60
-        if gap_anterior < min_gap or gap_siguiente < min_gap:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Deben existir al menos {min_gap} minuto(s) entre eventos consecutivos.",
+        async with conn.transaction():
+            locked = await self.db.lock_oportunidad_for_update(conn, id_oportunidad)
+            if not locked:
+                raise HTTPException(status_code=404, detail="Oportunidad no encontrada.")
+
+            timeline = await self.db.get_historial_estatus_timeline(conn, id_oportunidad)
+            if len(timeline) < 2:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La reconstrucción requiere al menos dos eventos existentes en el historial.",
+                )
+
+            anteriores = []
+            siguientes = []
+            for evento in timeline:
+                t = self._as_aware(evento["fecha_cambio_real"])
+                if t == fecha_real:
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Ya existe un evento registrado exactamente en esa fecha y hora.",
+                    )
+                if t < fecha_real:
+                    anteriores.append(evento)
+                else:
+                    siguientes.append(evento)
+            if not anteriores or not siguientes:
+                raise HTTPException(
+                    status_code=400,
+                    detail="La reconstrucción solo puede insertarse entre dos eventos existentes.",
+                )
+
+            anterior = anteriores[-1]
+            siguiente = siguientes[0]
+            fecha_anterior = self._as_aware(anterior["fecha_cambio_real"])
+            fecha_siguiente = self._as_aware(siguiente["fecha_cambio_real"])
+
+            gap_anterior = (fecha_real - fecha_anterior).total_seconds() / 60
+            gap_siguiente = (fecha_siguiente - fecha_real).total_seconds() / 60
+            if gap_anterior < min_gap or gap_siguiente < min_gap:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Deben existir al menos {min_gap} minuto(s) entre eventos consecutivos.",
+                )
+
+            estatus_anterior = catalog.get(anterior["id_estatus_nuevo"])
+            estatus_siguiente = catalog.get(siguiente["id_estatus_nuevo"])
+            self._validate_status_pair(estatus_anterior, nuevo, by_orden)
+            self._validate_status_pair(nuevo, estatus_siguiente, by_orden)
+
+            fecha_sla = await self._calculate_fecha_sla(conn, fecha_real)
+            return await self.db.insert_historial_estatus(
+                conn,
+                id_oportunidad,
+                anterior["id_estatus_nuevo"],
+                id_estatus,
+                fecha_real,
+                fecha_sla,
+                user_context["user_db_id"],
+                "Reconstrucción manual (correo)",
             )
-
-        estatus_anterior = catalog.get(anterior["id_estatus_nuevo"])
-        estatus_siguiente = catalog.get(siguiente["id_estatus_nuevo"])
-        self._validate_status_pair(estatus_anterior, nuevo, by_orden)
-        self._validate_status_pair(nuevo, estatus_siguiente, by_orden)
-
-        fecha_sla = await self._calculate_fecha_sla(conn, fecha_real)
-        return await self.db.insert_historial_estatus(
-            conn,
-            id_oportunidad,
-            anterior["id_estatus_nuevo"],
-            id_estatus,
-            fecha_real,
-            fecha_sla,
-            user_context["user_db_id"],
-            "Reconstrucción manual (correo)",
-        )
 
     async def revertir_cierre_admin(
         self,
@@ -812,7 +818,7 @@ class SimulacionService:
         now_mx = await self.get_current_datetime_mx(conn)
         datos_fecha = SimulacionUpdate(
             id_estatus_global=id_estatus_destino,
-            fecha_cambio_real=now_mx,
+            fecha_cambio_real=None,
         )
         await self._validate_fecha_cambio(conn, id_oportunidad, datos_fecha, now_mx)
         fecha_real = datos_fecha.fecha_cambio_real

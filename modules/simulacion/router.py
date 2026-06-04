@@ -18,6 +18,7 @@ from dataclasses import asdict
 from core.security import get_current_user_context
 from core.permissions import require_module_access, require_manager_access, require_role
 from core.config import settings
+from core.config_service import ConfigService
 
 from core.database import get_db_connection
 
@@ -687,6 +688,35 @@ async def get_detalle_modal(
 
 # --- ENDPOINTS DE GESTIÓN (MODALES Y UPDATES) ---
 
+def _compose_historial_ctx(
+    op,
+    estatus_global: list,
+    historial_timeline: list,
+    umbral_lag_registro_min: int,
+    context: dict,
+    permisos_update: dict,
+    *,
+    historial_message: Optional[str] = None,
+    historial_error: Optional[str] = None,
+) -> dict:
+    current_status = next((s for s in estatus_global if s["id"] == op["id_estatus_global"]), None)
+    estatus_reversion = [s for s in estatus_global if not s["es_estatus_final"] and s["orden"] in (1, 2, 3, 4)]
+    # current_status is None when the op's status was excluded from the dropdown
+    # (e.g. 'ganada', which is filtered out but is still a terminal state).
+    is_terminal = bool(current_status and current_status["es_estatus_final"]) or current_status is None
+    return {
+        "op": dict(op),
+        "historial_timeline": historial_timeline,
+        "umbral_lag_registro_min": umbral_lag_registro_min,
+        "estatus_global": [dict(r) for r in estatus_global],
+        "estatus_reversion": estatus_reversion,
+        "can_reconstruct_history": permisos_update["can_edit_sensitive"],
+        "can_reverse_terminal": context.get("role") == "ADMIN" and is_terminal,
+        "historial_message": historial_message,
+        "historial_error": historial_error,
+    }
+
+
 async def _build_edit_modal_context(
     conn,
     id_oportunidad: UUID,
@@ -722,18 +752,11 @@ async def _build_edit_modal_context(
 
     simulaciones_adicionales = await db_service.get_simulaciones_adicionales(conn, id_oportunidad)
     historial_timeline = await service.get_historial_timeline(conn, id_oportunidad)
-    current_status = next(
-        (status for status in estatus_global if status["id"] == op["id_estatus_global"]),
-        None,
-    )
-    estatus_reversion = [
-        status for status in estatus_global
-        if not status["es_estatus_final"] and status["orden"] in (1, 2, 3, 4)
-    ]
+    umbral_lag_registro_min = await ConfigService.get_global_config(conn, "UMBRAL_LAG_NOTIFICACION", 1440, int)
+
     return {
-        "op": dict(op),
+        **_compose_historial_ctx(op, estatus_global, historial_timeline, umbral_lag_registro_min, context, permisos_update, historial_message=historial_message, historial_error=historial_error),
         "responsables": responsables,
-        "estatus_global": [dict(r) for r in estatus_global],
         "motivos_cierre": [dict(r) for r in motivos_cierre],
         "status_ids": status_ids,
         "can_manage": permisos_update["can_manage"],
@@ -749,12 +772,6 @@ async def _build_edit_modal_context(
         "is_bess_only": op["id_tecnologia"] == 2,
         "simulaciones_adicionales": simulaciones_adicionales,
         "form_message": form_message,
-        "historial_timeline": historial_timeline,
-        "can_reconstruct_history": permisos_update["can_edit_sensitive"],
-        "can_reverse_terminal": context.get("role") == "ADMIN" and bool(current_status and current_status["es_estatus_final"]),
-        "estatus_reversion": estatus_reversion,
-        "historial_message": historial_message,
-        "historial_error": historial_error,
     }
 
 
@@ -903,22 +920,12 @@ async def _build_historial_context(
     status_ids = await service._get_status_ids(conn)
     estatus_global = await db_service.get_estatus_simulacion_dropdown(conn, exclude_id=status_ids["ganada"])
     historial_timeline = await service.get_historial_timeline(conn, id_oportunidad)
-    current_status = next((s for s in estatus_global if s["id"] == op["id_estatus_global"]), None)
-    estatus_reversion = [
-        s for s in estatus_global
-        if not s["es_estatus_final"] and s["orden"] in (1, 2, 3, 4)
-    ]
+    umbral_lag_registro_min = await ConfigService.get_global_config(conn, "UMBRAL_LAG_NOTIFICACION", 1440, int)
     permisos_update = resolve_update_permissions(context)
-    return {
-        "op": dict(op),
-        "historial_timeline": historial_timeline,
-        "estatus_global": [dict(r) for r in estatus_global],
-        "estatus_reversion": estatus_reversion,
-        "can_reconstruct_history": permisos_update["can_edit_sensitive"],
-        "can_reverse_terminal": context.get("role") == "ADMIN" and bool(current_status and current_status["es_estatus_final"]),
-        "historial_message": historial_message,
-        "historial_error": historial_error,
-    }
+    return _compose_historial_ctx(
+        op, estatus_global, historial_timeline, umbral_lag_registro_min, context, permisos_update,
+        historial_message=historial_message, historial_error=historial_error,
+    )
 
 
 async def _render_historial_timeline_partial(
@@ -1317,11 +1324,29 @@ async def get_datos_metricas(
         tipo_solicitud_id=tipo_int
     )
 
+    # 6. Comparativo SLA actual vs ajustado sin tiempo en revision
+    comparativo_sla = await metrics_service.get_comparativo_sla_ajustado(
+        conn, start.date(), end.date(),
+        user_id=user_uuid,
+        tipo_solicitud_id=tipo_int
+    )
+
+    # 7. Calidad de registro (solo Admin): lag, bloqueos y rafagas de captura
+    calidad_registro = None
+    if is_admin:
+        calidad_registro = await metrics_service.get_calidad_registro(
+            conn, start.date(), end.date(),
+            user_id=user_uuid,
+            tipo_solicitud_id=tipo_int
+        )
+
     return templates.TemplateResponse(request, "simulacion/partials/metricas_datos.html", {"metricas_estatus": metricas_estatus,
         "cuellos_botella": cuellos,
         "ciclos": ciclos,
         "transiciones": transiciones,
         "ciclo_revision": ciclo_revision,
+        "comparativo_sla": comparativo_sla,
+        "calidad_registro": calidad_registro,
         "fecha_inicio": start.date().isoformat(),
         "fecha_fin": end.date().isoformat(),
         **context
