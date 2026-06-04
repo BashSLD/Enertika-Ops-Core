@@ -1,10 +1,12 @@
 # modules/simulacion/metrics_service.py
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List
 from uuid import UUID
 from datetime import date
 import asyncpg
 import logging
+
+from core.config_service import ConfigService
 
 logger = logging.getLogger("MetricsService")
 
@@ -56,6 +58,36 @@ class MetricaCicloRevision:
     rondas_promedio: float
 
 
+@dataclass
+class MetricaComparativoSLA:
+    """Compara el ciclo completo contra el ciclo sin tiempo en revision."""
+    total_oportunidades: int
+    tiempo_actual_promedio_dias: float
+    tiempo_ajustado_promedio_dias: float
+    tiempo_revision_descontado_dias: float
+    reduccion_promedio_dias: float
+    reduccion_pct: float
+    descuento_sla_activo: bool
+
+
+@dataclass
+class MetricaCalidadRegistro:
+    """Mide disciplina de captura entre fecha real y registro en sistema."""
+    total_transiciones: int
+    pct_registrado_a_tiempo: float
+    lag_promedio_horas: float
+    lag_p95_horas: float
+    transiciones_tarde: int
+    oportunidades_en_bloque: int
+    rafagas_usuario: int
+    max_oportunidades_por_rafaga: int
+    transiciones_sin_usuario: int
+    umbral_lag_horas: float
+    ventana_bloque_min: int
+    ventana_rafaga_min: int
+    umbral_rafaga_usuario: int
+
+
 # =============================================================================
 # SERVICE CLASS
 # =============================================================================
@@ -78,16 +110,7 @@ class MetricsService:
         Los terminales se excluyen del resultado y del porcentaje (A.2).
         """
         params: list = [fecha_inicio, fecha_fin]
-        user_filter = ""
-        tipo_filter = ""
-
-        if user_id:
-            params.append(user_id)
-            user_filter = f"AND o.responsable_simulacion_id = ${len(params)}"
-
-        if tipo_solicitud_id:
-            params.append(tipo_solicitud_id)
-            tipo_filter = f"AND o.id_tipo_solicitud = ${len(params)}"
+        user_filter, tipo_filter = self._build_filters(params, user_id, tipo_solicitud_id)
 
         query = f"""
             WITH oportunidades_en_rango AS (
@@ -187,6 +210,17 @@ class MetricsService:
 
         return sorted(cuellos, key=lambda x: x.tiempo_promedio, reverse=True)
 
+    def _build_filters(self, params: list, user_id=None, tipo_solicitud_id=None) -> tuple[str, str]:
+        user_filter = ""
+        tipo_filter = ""
+        if user_id:
+            params.append(user_id)
+            user_filter = f"AND o.responsable_simulacion_id = ${len(params)}"
+        if tipo_solicitud_id:
+            params.append(tipo_solicitud_id)
+            tipo_filter = f"AND o.id_tipo_solicitud = ${len(params)}"
+        return user_filter, tipo_filter
+
     async def get_analisis_ciclos(
         self,
         conn: asyncpg.Connection,
@@ -203,10 +237,7 @@ class MetricsService:
         un dict hardcodeado (A.4).
         """
         params: list = [fecha_inicio, fecha_fin]
-        tipo_filter = ""
-        if tipo_solicitud_id:
-            params.append(tipo_solicitud_id)
-            tipo_filter = f"AND o.id_tipo_solicitud = ${len(params)}"
+        _, tipo_filter = self._build_filters(params, tipo_solicitud_id=tipo_solicitud_id)
 
         query = f"""
             WITH oportunidades_en_rango AS (
@@ -293,16 +324,7 @@ class MetricsService:
         - Rondas: cuántas veces se regresó a 'En Revisión' desde 'Comentarios Recibidos'.
         """
         params: list = [fecha_inicio, fecha_fin]
-        user_filter = ""
-        tipo_filter = ""
-
-        if user_id:
-            params.append(user_id)
-            user_filter = f"AND o.responsable_simulacion_id = ${len(params)}"
-
-        if tipo_solicitud_id:
-            params.append(tipo_solicitud_id)
-            tipo_filter = f"AND o.id_tipo_solicitud = ${len(params)}"
+        user_filter, tipo_filter = self._build_filters(params, user_id, tipo_solicitud_id)
 
         query = f"""
             WITH oportunidades_entregadas AS (
@@ -392,6 +414,251 @@ class MetricsService:
             )
         except asyncpg.PostgresError as e:
             logger.error(f"Error de BD obteniendo métricas de ciclo de revisión: {e}")
+            raise
+
+    async def get_comparativo_sla_ajustado(
+        self,
+        conn: asyncpg.Connection,
+        fecha_inicio: date,
+        fecha_fin: date,
+        user_id: UUID = None,
+        tipo_solicitud_id: int = None
+    ) -> MetricaComparativoSLA:
+        """
+        Compara el SLA actual contra una lectura ajustada.
+
+        El KPI oficial no se modifica: el ajuste descuenta el tiempo
+        en el estatus de orden 3 antes de la entrega.
+        """
+        descuento_activo = await ConfigService.get_global_config(
+            conn,
+            "DESCONTAR_TIEMPO_REVISION_SLA",
+            False,
+            bool,
+        )
+
+        params: list = [fecha_inicio, fecha_fin]
+        user_filter, tipo_filter = self._build_filters(params, user_id, tipo_solicitud_id)
+
+        query = f"""
+            WITH entregas_en_rango AS (
+                SELECT DISTINCT ON (h.id_oportunidad)
+                    h.id_oportunidad,
+                    h.fecha_cambio_sla AS fecha_entrega_sla
+                FROM tb_historial_estatus h
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
+                WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
+                  AND e.orden = 5
+                  AND e.es_estatus_final = true
+                  AND o.fecha_solicitud IS NOT NULL
+                  {user_filter}
+                  {tipo_filter}
+                ORDER BY h.id_oportunidad, h.fecha_cambio_sla DESC, h.fecha_creacion DESC, h.id DESC
+            ),
+            transiciones AS (
+                SELECT
+                    h.id_oportunidad,
+                    e.orden,
+                    h.fecha_cambio_sla AS inicio,
+                    LEAD(h.fecha_cambio_sla) OVER (
+                        PARTITION BY h.id_oportunidad
+                        ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
+                    ) AS fin
+                FROM tb_historial_estatus h
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+                WHERE h.id_oportunidad IN (SELECT id_oportunidad FROM entregas_en_rango)
+            ),
+            tiempo_revision AS (
+                SELECT
+                    t.id_oportunidad,
+                    SUM(
+                        EXTRACT(EPOCH FROM (
+                            LEAST(t.fin, er.fecha_entrega_sla) - t.inicio
+                        )) / 86400.0
+                    ) AS dias_revision
+                FROM transiciones t
+                JOIN entregas_en_rango er ON t.id_oportunidad = er.id_oportunidad
+                WHERE t.orden = 3
+                  AND t.fin IS NOT NULL
+                  AND t.inicio < er.fecha_entrega_sla
+                  AND t.fin > t.inicio
+                GROUP BY t.id_oportunidad
+            ),
+            base AS (
+                SELECT
+                    o.id_oportunidad,
+                    EXTRACT(EPOCH FROM (
+                        COALESCE(o.fecha_entrega_simulacion, er.fecha_entrega_sla) - o.fecha_solicitud
+                    )) / 86400.0 AS dias_actuales,
+                    COALESCE(tr.dias_revision, 0) AS dias_revision
+                FROM entregas_en_rango er
+                JOIN tb_oportunidades o ON er.id_oportunidad = o.id_oportunidad
+                LEFT JOIN tiempo_revision tr ON er.id_oportunidad = tr.id_oportunidad
+                WHERE COALESCE(o.fecha_entrega_simulacion, er.fecha_entrega_sla) > o.fecha_solicitud
+            )
+            SELECT
+                COUNT(*) AS total_oportunidades,
+                COALESCE(AVG(dias_actuales), 0) AS dias_actuales_promedio,
+                COALESCE(AVG(GREATEST(dias_actuales - dias_revision, 0)), 0) AS dias_ajustados_promedio,
+                COALESCE(AVG(dias_revision), 0) AS dias_revision_promedio
+            FROM base
+        """
+
+        try:
+            row = await conn.fetchrow(query, *params)
+            total = int(row["total_oportunidades"] or 0)
+            actual = float(row["dias_actuales_promedio"] or 0)
+            ajustado = float(row["dias_ajustados_promedio"] or 0)
+            revision = float(row["dias_revision_promedio"] or 0)
+            reduccion = max(actual - ajustado, 0)
+            reduccion_pct = round(reduccion * 100.0 / actual, 1) if actual > 0 else 0.0
+
+            return MetricaComparativoSLA(
+                total_oportunidades=total,
+                tiempo_actual_promedio_dias=round(actual, 1),
+                tiempo_ajustado_promedio_dias=round(ajustado, 1),
+                tiempo_revision_descontado_dias=round(revision, 1),
+                reduccion_promedio_dias=round(reduccion, 1),
+                reduccion_pct=reduccion_pct,
+                descuento_sla_activo=bool(descuento_activo),
+            )
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de BD obteniendo comparativo SLA ajustado: {e}")
+            raise
+
+    async def get_calidad_registro(
+        self,
+        conn: asyncpg.Connection,
+        fecha_inicio: date,
+        fecha_fin: date,
+        user_id: UUID = None,
+        tipo_solicitud_id: int = None
+    ) -> MetricaCalidadRegistro:
+        """
+        Reporta calidad de captura usando fecha_creacion como verdad de sistema.
+
+        - Lag de registro: fecha_creacion - fecha_cambio_real.
+        - Registro en bloque: varias transiciones de una oportunidad capturadas en ventana corta.
+        - Rafagas por usuario: muchas oportunidades distintas capturadas en cubetas cortas.
+        """
+        configs = await ConfigService.get_global_configs_bulk(conn, {
+            "UMBRAL_LAG_NOTIFICACION": (1440, int),
+            "VENTANA_BLOQUE_REGISTRO_MIN": (2, int),
+            "VENTANA_RAFAGA_USUARIO_MIN": (10, int),
+            "UMBRAL_RAFAGA_USUARIO_OPS": (10, int),
+        })
+        umbral_lag_min = configs["UMBRAL_LAG_NOTIFICACION"]
+        ventana_bloque_min = configs["VENTANA_BLOQUE_REGISTRO_MIN"]
+        ventana_rafaga_min = configs["VENTANA_RAFAGA_USUARIO_MIN"]
+        umbral_rafaga_usuario = configs["UMBRAL_RAFAGA_USUARIO_OPS"]
+
+        params: list = [
+            fecha_inicio,
+            fecha_fin,
+            umbral_lag_min,
+            ventana_bloque_min,
+            ventana_rafaga_min,
+            umbral_rafaga_usuario,
+        ]
+        user_filter, tipo_filter = self._build_filters(params, user_id, tipo_solicitud_id)
+
+        query = f"""
+            WITH base AS (
+                SELECT
+                    h.id,
+                    h.id_oportunidad,
+                    h.cambiado_por_id,
+                    h.fecha_creacion,
+                    h.fecha_cambio_real,
+                    GREATEST(
+                        EXTRACT(EPOCH FROM (h.fecha_creacion - h.fecha_cambio_real)) / 60.0,
+                        0
+                    ) AS lag_minutos
+                FROM tb_historial_estatus h
+                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
+                WHERE (h.fecha_creacion AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (h.fecha_creacion AT TIME ZONE 'America/Mexico_City')::date <= $2
+                  {user_filter}
+                  {tipo_filter}
+            ),
+            resumen AS (
+                SELECT
+                    COUNT(*) AS total_transiciones,
+                    COUNT(*) FILTER (WHERE lag_minutos <= $3) AS transiciones_a_tiempo,
+                    COUNT(*) FILTER (WHERE lag_minutos > $3) AS transiciones_tarde,
+                    COUNT(*) FILTER (WHERE cambiado_por_id IS NULL) AS transiciones_sin_usuario,
+                    COALESCE(AVG(lag_minutos), 0) AS lag_promedio_min,
+                    COALESCE(
+                        percentile_cont(0.95) WITHIN GROUP (ORDER BY lag_minutos),
+                        0
+                    ) AS lag_p95_min
+                FROM base
+            ),
+            bloque AS (
+                SELECT COUNT(*) AS oportunidades_en_bloque
+                FROM (
+                    SELECT id_oportunidad
+                    FROM base
+                    GROUP BY id_oportunidad
+                    HAVING COUNT(*) >= 2
+                       AND EXTRACT(EPOCH FROM (MAX(fecha_creacion) - MIN(fecha_creacion))) / 60.0 <= $4
+                ) x
+            ),
+            rafagas AS (
+                SELECT
+                    COUNT(*) AS rafagas_usuario,
+                    COALESCE(MAX(oportunidades), 0) AS max_oportunidades_por_rafaga
+                FROM (
+                    SELECT
+                        cambiado_por_id,
+                        FLOOR(EXTRACT(EPOCH FROM fecha_creacion) / ($5::int * 60)) AS bucket,
+                        COUNT(DISTINCT id_oportunidad) AS oportunidades
+                    FROM base
+                    WHERE cambiado_por_id IS NOT NULL
+                    GROUP BY cambiado_por_id, bucket
+                    HAVING COUNT(DISTINCT id_oportunidad) >= $6
+                ) y
+            )
+            SELECT
+                r.total_transiciones,
+                r.transiciones_a_tiempo,
+                r.transiciones_tarde,
+                r.transiciones_sin_usuario,
+                r.lag_promedio_min,
+                r.lag_p95_min,
+                b.oportunidades_en_bloque,
+                ra.rafagas_usuario,
+                ra.max_oportunidades_por_rafaga
+            FROM resumen r
+            CROSS JOIN bloque b
+            CROSS JOIN rafagas ra
+        """
+
+        try:
+            row = await conn.fetchrow(query, *params)
+            total = int(row["total_transiciones"] or 0)
+            a_tiempo = int(row["transiciones_a_tiempo"] or 0)
+            pct_a_tiempo = round(a_tiempo * 100.0 / total, 1) if total > 0 else 0.0
+
+            return MetricaCalidadRegistro(
+                total_transiciones=total,
+                pct_registrado_a_tiempo=pct_a_tiempo,
+                lag_promedio_horas=round(float(row["lag_promedio_min"] or 0) / 60.0, 1),
+                lag_p95_horas=round(float(row["lag_p95_min"] or 0) / 60.0, 1),
+                transiciones_tarde=int(row["transiciones_tarde"] or 0),
+                oportunidades_en_bloque=int(row["oportunidades_en_bloque"] or 0),
+                rafagas_usuario=int(row["rafagas_usuario"] or 0),
+                max_oportunidades_por_rafaga=int(row["max_oportunidades_por_rafaga"] or 0),
+                transiciones_sin_usuario=int(row["transiciones_sin_usuario"] or 0),
+                umbral_lag_horas=round(float(umbral_lag_min) / 60.0, 1),
+                ventana_bloque_min=int(ventana_bloque_min),
+                ventana_rafaga_min=int(ventana_rafaga_min),
+                umbral_rafaga_usuario=int(umbral_rafaga_usuario),
+            )
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de BD obteniendo calidad de registro: {e}")
             raise
 
     async def get_oportunidades_por_estatus(
