@@ -630,6 +630,22 @@ def _find_vacacion_id(vacaciones: list[dict], usuario_id: UUID, fecha_laboral: d
     return None
 
 
+async def omitir_horas_extra_propio_svc(
+    conn,
+    *,
+    asistencia_id: UUID,
+    usuario_id: UUID,
+) -> None:
+    row = await db.get_asistencia_para_aprobar(conn, asistencia_id)
+    if not row:
+        raise ValueError("Registro no encontrado")
+    if row["usuario_id"] != usuario_id:
+        raise ValueError("No tienes permiso para modificar este registro")
+    if row["horas_extra_estado"] != "pendiente":
+        raise ValueError("Solo puedes descartar registros pendientes")
+    await db.omitir_horas_extra(conn, asistencia_id)
+
+
 async def omitir_horas_extra_svc(
     conn,
     *,

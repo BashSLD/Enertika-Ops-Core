@@ -2,10 +2,12 @@ from __future__ import annotations
 
 import base64
 import binascii
+import logging
 from uuid import UUID
 
 from datetime import timedelta
 
+import asyncpg
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -14,16 +16,18 @@ from core.database import get_db_connection
 from core.permissions import user_has_module_access
 from core.security import get_current_user_context
 from core.timezone import fmt_time_mx, today_mx
+from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.constants import ASISTENCIA_ESTADO_LABELS
+from modules.asistencia.service import omitir_horas_extra_propio_svc
 from modules.perfil import db_service as perfil_db
 from modules.perfil import service as perfil_service
 from modules.shared import signatures_db_service as signatures_db
 from modules.shared.utils import is_htmx, toast_error
-from modules.asistencia import db_service as asistencia_db
 from modules.vacaciones import db_service as vac_db
 from modules.vacaciones import service as vac_service
 
 router = APIRouter(prefix="/perfil", tags=["perfil"])
+logger = logging.getLogger("perfil.router")
 templates = Jinja2Templates(directory="templates")
 
 PERFIL_TAB_ENDPOINTS = {
@@ -299,6 +303,28 @@ async def mi_asistencia_mas(
         request,
         "perfil/partials/tab_asistencia_rows.html",
         {"asistencia": rows, "tiene_mas": tiene_mas, "offset": offset, "context": context},
+    )
+
+
+@router.post("/horas-extra/{asistencia_id}/omitir")
+async def omitir_horas_extra_propio(
+    request: Request,
+    asistencia_id: UUID,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+):
+    usuario_id = _get_usuario_id(context)
+    try:
+        await omitir_horas_extra_propio_svc(conn, asistencia_id=asistencia_id, usuario_id=usuario_id)
+    except ValueError as exc:
+        return toast_error(request, str(exc))
+    except asyncpg.PostgresError as exc:
+        logger.error("Error BD omitiendo HE propias: %s", exc)
+        return toast_error(request, "Error al descartar el registro.", status_code=500)
+    return templates.TemplateResponse(
+        request,
+        "perfil/partials/he_omitida_row.html",
+        {"asistencia_id": str(asistencia_id)},
     )
 
 

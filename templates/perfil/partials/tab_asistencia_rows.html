@@ -45,6 +45,13 @@
               class="px-3 py-1 rounded-lg text-xs font-medium text-white bg-[#00BABB] hover:bg-[#009899] transition-colors">
         Solicitar aprobación
       </button>
+      <button x-show="!f"
+              hx-post="/perfil/horas-extra/{{ row.id }}/omitir"
+              hx-target="#he-row-mi-{{ row.id }}"
+              hx-swap="outerHTML"
+              class="px-3 py-1 rounded-lg text-xs font-medium text-gray-500 bg-gray-100 hover:bg-gray-200 transition-colors">
+        Descartar
+      </button>
     </div>
     <form x-show="f" x-cloak
           hx-post="/asistencia/api/horas-extra/{{ row.id }}/solicitar"
