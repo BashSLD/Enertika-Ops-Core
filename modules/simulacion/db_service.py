@@ -83,6 +83,15 @@ class SimulacionDBService:
                 h.fecha_creacion,
                 h.cambiado_por_id,
                 h.notas,
+                GREATEST(
+                    EXTRACT(EPOCH FROM (h.fecha_creacion - h.fecha_cambio_real)) / 60.0,
+                    0
+                ) AS lag_registro_minutos,
+                CASE
+                    WHEN h.notas LIKE 'Reconstrucción%' THEN 'reconstruccion'
+                    WHEN h.notas LIKE 'Reversión%' THEN 'reversion_admin'
+                    ELSE 'normal'
+                END AS tipo_evento,
                 e_ant.nombre AS estatus_anterior,
                 e_new.nombre AS estatus_nuevo,
                 e_new.orden AS orden_nuevo,

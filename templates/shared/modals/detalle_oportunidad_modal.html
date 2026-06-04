@@ -17,10 +17,11 @@
                 'from-yellow-400 to-orange-500': '{{ op.status_global|lower }}' == 'pendiente',
                 'from-blue-400 to-indigo-600': ['en revision', 'en revisión'].includes('{{ op.status_global|lower }}'),
                 'from-[#00BABB] to-[#123456]': '{{ op.status_global|lower }}' == 'en proceso',
-                'from-green-400 to-emerald-600': ['entregado', 'ganada'].includes('{{ op.status_global|lower }}'),
+                'from-green-400 to-emerald-600': ['entregado', 'ganada', 'monitoreo de cotización', 'monitoreo de cotizacion'].includes('{{ op.status_global|lower }}'),
                 'from-emerald-500 to-green-700': '{{ op.status_global|lower }}' == 'cerrada',
+                'from-orange-400 to-orange-600': '{{ op.status_global|lower }}' == 'comentarios recibidos',
                 'from-red-400 to-rose-600': ['cancelado', 'error', 'perdida', 'perdido'].includes('{{ op.status_global|lower }}'),
-                'from-gray-500 to-gray-700': !['pendiente', 'en revision', 'en revisión', 'en proceso', 'entregado', 'ganada', 'cerrada', 'cancelado', 'error', 'perdida', 'perdido'].includes('{{ op.status_global|lower }}')
+                'from-gray-500 to-gray-700': !['pendiente', 'en revision', 'en revisión', 'en proceso', 'entregado', 'ganada', 'monitoreo de cotización', 'monitoreo de cotizacion', 'cerrada', 'comentarios recibidos', 'cancelado', 'error', 'perdida', 'perdido'].includes('{{ op.status_global|lower }}')
              }" x-data x-init="if('{{ op.status_global|lower }}' == 'ganada') {
                 await new Promise(resolve => setTimeout(resolve, 500)); 
                 confetti({
@@ -478,10 +479,10 @@
                     <!-- Status Global -->
                     <!-- STATUS TIMELINE COMPONENT (Replaces simple badge) -->
                     <div class="sm:col-span-2 mt-2 mb-8" x-data="{
-                        status: '{{ op.status_global | default('pendiente') | lower }}',
+                        status: '{{ op.status_global | default('pendiente') | lower }}'.trim(),
                         steps: ['pendiente', 'en proceso', 'en revisión', 'comentarios recibidos', 'finalizado'],
                         get currentStep() {
-                            if (['ganada', 'entregado', 'monitoreo de cotización', 'monitoreo de cotizacion'].includes(this.status)) return 4;
+                            if (['ganada', 'entregado', 'monitoreo de cotización', 'monitoreo de cotizacion', 'cerrada'].includes(this.status)) return 4;
                             if (this.status === 'comentarios recibidos') return 3;
                             if (this.status === 'en revisión' || this.status === 'en revision') return 2;
                             if (this.status === 'en proceso') return 1;
@@ -542,11 +543,11 @@
                             <!-- Step 2: En Proceso -->
                             <div class="relative flex flex-col items-center group">
                                 <div class="w-8 h-8 rounded-full flex items-center justify-center border-2 transition-all duration-300 z-10"
-                                    :class="[
-                                        currentStep > 1 ? 'bg-[#00BABB] border-[#00BABB] text-white' : '',
-                                        currentStep === 1 ? 'bg-white border-[#00BABB] text-[#00BABB] animate-pulse-ring shadow-[0_0_0_4px_rgba(0,186,187,0.2)]' : '',
-                                        currentStep < 1 ? 'bg-white border-gray-300 text-gray-400' : ''
-                                     ]">
+                                    :class="{
+                                        'bg-[#00BABB] border-[#00BABB] text-white': currentStep > 1,
+                                        'bg-white border-[#00BABB] text-[#00BABB] animate-pulse-ring shadow-[0_0_0_4px_rgba(0,186,187,0.2)]': currentStep === 1,
+                                        'bg-white border-gray-300 text-gray-400': currentStep < 1
+                                     }">
                                     <template x-if="currentStep > 1">
                                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3"
