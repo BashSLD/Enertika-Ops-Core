@@ -10,6 +10,7 @@
             entregado_id: {{ status_ids.entregado }},
             cancelado_id: {{ status_ids.cancelado }},
             perdido_id: {{ status_ids.perdido }},
+            comentarios_recibidos_id: {{ status_ids.comentarios_recibidos | default('null') }},
             
             originalIdInterno: '{{ op.id_interno_simulacion or '' }}',
             currentIdInterno: '{{ op.id_interno_simulacion or '' }}',
@@ -271,8 +272,8 @@
                             <p class="mt-1 text-xs text-gray-500">El flujo es secuencial: solo se habilita el siguiente paso, el retroceso inmediato o un cierre permitido.</p>
                         </div>
 
-                        <!-- Fecha real del cambio (backdating, solo visible al cambiar estatus) -->
-                        <div x-show="status !== initialStatus"
+                        <!-- Fecha real del cambio (solo para Comentarios Recibidos: la dirección puede haber enviado comentarios antes de que se capture en sistema) -->
+                        <div x-show="status === comentarios_recibidos_id && status !== initialStatus"
                             class="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 shadow-md">
                             <label class="block text-sm font-bold text-amber-800 mb-1 flex items-center gap-2">
                                 <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -282,6 +283,7 @@
                                 Fecha/hora real del cambio
                             </label>
                             <input type="datetime-local" name="fecha_cambio_real"
+                                :disabled="status !== comentarios_recibidos_id"
                                 class="w-full border border-amber-300 rounded-md shadow-sm focus:ring-2 focus:ring-amber-400 focus:border-amber-400 bg-white text-sm transition-all">
                             <p class="mt-1 text-xs text-amber-700">Opcional — dejar vacío para usar la hora actual. Útil para registrar cuándo ocurrió realmente el cambio.</p>
                         </div>
@@ -627,8 +629,6 @@
                     </div>
 
                 </form>
-
-                {% include "simulacion/partials/historial_timeline.html" %}
 
                 <div
                     class="border-t-4 border-[#00BABB] pt-6 mt-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
