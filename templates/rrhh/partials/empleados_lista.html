@@ -1,3 +1,6 @@
+{% set rrhh_perms = rrhh_perms | default({}) %}
+{% set can_edit_rrhh = rrhh_perms.can_edit | default(false) %}
+
 <div>
   <div class="flex items-center justify-between mb-4">
     <h2 class="text-base font-semibold text-gray-800">
@@ -26,6 +29,7 @@
             {{ emp.numero_empleado or '—' }}
           </td>
           <td class="px-4 py-3">
+            {% if can_edit_rrhh %}
             <button
               hx-get="/rrhh/empleados/{{ emp.id_usuario }}/editar"
               hx-target="#empleado-modal-content"
@@ -33,6 +37,11 @@
               class="font-medium text-gray-800 hover:text-[#00BABB] truncate max-w-[180px] transition-colors text-left block">
               {{ emp.nombre }}
             </button>
+            {% else %}
+            <span class="block max-w-[180px] truncate text-left font-medium text-gray-800">
+              {{ emp.nombre }}
+            </span>
+            {% endif %}
             <p class="text-xs text-gray-400">{{ emp.email or '—' }}</p>
           </td>
           <td class="px-4 py-3 hidden md:table-cell text-gray-600">
@@ -88,6 +97,7 @@
   </div>
   {% endif %}
 
+  {% if can_edit_rrhh %}
   <!-- Modal editar empleado -->
   <div id="empleado-modal"
     hx-history="false"
@@ -115,4 +125,5 @@
       </div>
     </div>
   </div>
+  {% endif %}
 </div>

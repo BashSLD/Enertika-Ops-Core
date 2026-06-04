@@ -3,7 +3,7 @@
 <div class="animate-fade-in-down px-4 pb-8"
   x-data="{ tab: '{{ current_tab }}' }"
   @htmx:before-request="if ($event.detail.target && $event.detail.target.id === 'rrhh-content') $dispatch('rrhh-close-empleado-modal')">
-  {% set rrhh_role = (context.module_roles or {}).get('rrhh', '') %}
+  {% set rrhh_perms = rrhh_perms | default({}) %}
   {% macro rrhh_tab_icon(icon) -%}
     {% if icon == 'hoy' %}
     <svg aria-hidden="true" class="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
@@ -75,6 +75,7 @@
 
   <div class="mb-6 text-sm font-medium text-gray-500 border-b border-gray-200">
     <ul class="rrhh-tabs flex -mb-px gap-0.5 overflow-x-auto">
+      {% if rrhh_perms.show_asistencia | default(true) %}
       <li class="shrink-0">
         <button @click="tab = 'asistencia'"
           hx-get="/rrhh/asistencia" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=asistencia"
@@ -84,13 +85,14 @@
           <span :class="{'font-semibold': tab === 'asistencia'}">Asistencia</span>
         </button>
       </li>
+      {% endif %}
       <li class="shrink-0">
         <button @click="tab = 'ausencias'"
           hx-get="/rrhh/ausencias" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=ausencias"
           :class="{'active text-[#007A7B]': tab === 'ausencias', 'border-transparent hover:bg-gray-50 hover:text-gray-700': tab !== 'ausencias'}"
           class="rrhh-tab inline-flex items-center gap-1.5 px-3 py-2 rounded-t-lg transition-colors whitespace-nowrap">
           {{ rrhh_tab_icon('hoy') }}
-          <span :class="{'font-semibold': tab === 'ausencias'}">Ausencias</span>
+          <span :class="{'font-semibold': tab === 'ausencias'}">Vacaciones y ausencias</span>
         </button>
       </li>
       <li class="shrink-0">
@@ -123,6 +125,7 @@
           <span :class="{'font-semibold': tab === 'empleados'}">Empleados</span>
         </button>
       </li>
+      {% if rrhh_perms.show_reportes | default(true) %}
       <li class="shrink-0">
         <button @click="tab = 'reportes'"
           hx-get="/rrhh/reportes" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=reportes"
@@ -132,6 +135,8 @@
           <span :class="{'font-semibold': tab === 'reportes'}">Reportes</span>
         </button>
       </li>
+      {% endif %}
+      {% if rrhh_perms.show_festivos | default(true) %}
       <li class="shrink-0">
         <button @click="tab = 'festivos'"
           hx-get="/rrhh/festivos" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=festivos"
@@ -141,7 +146,8 @@
           <span :class="{'font-semibold': tab === 'festivos'}">Festivos</span>
         </button>
       </li>
-      {% if context.role == 'ADMIN' or rrhh_role == 'admin' or (context.role == 'MANAGER' and rrhh_role in ['editor', 'admin']) %}
+      {% endif %}
+      {% if rrhh_perms.show_admin | default(false) %}
       <li class="shrink-0">
         <button @click="tab = 'admin'"
           hx-get="/rrhh/admin" hx-target="#rrhh-content" hx-swap="innerHTML" hx-push-url="/rrhh/ui?tab=admin"

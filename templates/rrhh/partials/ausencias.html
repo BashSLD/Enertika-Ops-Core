@@ -158,9 +158,8 @@
           <div class="rounded-xl border border-gray-100 px-3 py-2">
             <div class="flex items-center gap-2">
               <p class="text-sm font-semibold text-gray-800 truncate">{{ a.empleado_nombre }}</p>
-              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 {{ badge_colors.get(a.tipo_slug, 'bg-gray-100 text-gray-600') }}"
-                    title="{{ a.tipo_nombre }}">
-                {{ a.tipo_abreviatura }}
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 {{ badge_colors.get(a.tipo_slug, 'bg-gray-100 text-gray-600') }}">
+                {{ a.tipo_nombre }}
               </span>
             </div>
             <p class="text-xs text-gray-500 mt-0.5">

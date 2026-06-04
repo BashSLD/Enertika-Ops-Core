@@ -5,6 +5,7 @@
 {% endif %}
 
 {% set origen = origen | default('solicitudes') %}
+{% set solo_consulta = solo_consulta | default(false) %}
 {% set es_contexto_rrhh = origen in ['rrhh_aprobaciones', 'rrhh_solicitudes'] %}
 {% if origen == 'aprobaciones' %}
   {% set volver_url = '/vacaciones/aprobaciones' %}
@@ -128,7 +129,7 @@
     </a>
     {% endif %}
 
-    {% if not es_contexto_rrhh and not solicitud.es_migracion and es_dueno and solicitud.firma_solicitante_pendiente %}
+    {% if not solo_consulta and not es_contexto_rrhh and not solicitud.es_migracion and es_dueno and solicitud.firma_solicitante_pendiente %}
     <button
       hx-get="/perfil/firma?solicitud_pendiente_id={{ solicitud.id }}"
       hx-target="#tab-content"
@@ -140,7 +141,7 @@
     </button>
     {% endif %}
 
-    {% if not es_contexto_rrhh and not solicitud.es_migracion and es_dueno and solicitud.estado == 'pendiente' %}
+    {% if not solo_consulta and not es_contexto_rrhh and not solicitud.es_migracion and es_dueno and solicitud.estado == 'pendiente' %}
     <button
       hx-post="/vacaciones/solicitudes/{{ solicitud.id }}/cancelar"
       hx-replace-url="/perfil/ui?tab=solicitudes"
@@ -152,7 +153,7 @@
     </button>
     {% endif %}
 
-    {% if not solicitud.es_migracion and es_aprobador and solicitud.estado == 'pendiente' and not solicitud.firma_solicitante_pendiente %}
+    {% if not solo_consulta and not solicitud.es_migracion and es_aprobador and solicitud.estado == 'pendiente' and not solicitud.firma_solicitante_pendiente %}
     <button
       x-data="{ aprobando: false }"
       hx-post="{{ aprobar_url }}"

@@ -921,6 +921,10 @@ class NotificationService:
         }
         return labels.get(hito, "pocos dias")
 
+    @staticmethod
+    def _vacaciones_detalle_url(solicitud_id: UUID | str) -> str:
+        return f"{settings.APP_BASE_URL}/vacaciones/solicitudes/{solicitud_id}/abrir"
+
     async def notify_periodo_expira(self, conn, empleado: dict, periodo: dict) -> None:
         """Notifica por email al empleado y CC a RH cuando un periodo esta por expirar."""
         try:
@@ -970,6 +974,7 @@ class NotificationService:
                 "fecha_inicio": solicitud["fecha_inicio"].strftime("%d/%m/%Y"),
                 "fecha_fin": solicitud["fecha_fin"].strftime("%d/%m/%Y"),
                 "base_url": settings.APP_BASE_URL,
+                "detalle_url": self._vacaciones_detalle_url(solicitud["id"]),
             })
             sender = await self._get_notification_sender(conn)
             await self._send_email(
@@ -1011,6 +1016,7 @@ class NotificationService:
                 "observaciones": solicitud.get("observaciones"),
                 "hito_label": hito_label,
                 "base_url": settings.APP_BASE_URL,
+                "detalle_url": self._vacaciones_detalle_url(solicitud["id"]),
             })
             sender = await self._get_notification_sender(conn)
             await self._send_email(
@@ -1044,6 +1050,7 @@ class NotificationService:
                 "hito_label": hito_label,
                 "solicitud_id": str(solicitud["id"]),
                 "base_url": settings.APP_BASE_URL,
+                "detalle_url": self._vacaciones_detalle_url(solicitud["id"]),
             })
             sender = await self._get_notification_sender(conn)
             await self._send_email(
@@ -1088,6 +1095,7 @@ class NotificationService:
                 "observaciones": solicitud.get("observaciones"),
                 "solicitud_id": str(solicitud["id"]),
                 "base_url": settings.APP_BASE_URL,
+                "detalle_url": self._vacaciones_detalle_url(solicitud["id"]),
             })
             sender = await self._get_notification_sender(conn)
             await self._send_email(
@@ -1130,6 +1138,7 @@ class NotificationService:
                 "fecha_presentarse": solicitud["fecha_presentarse"].strftime("%d/%m/%Y"),
                 "solicitud_id": str(solicitud["id"]),
                 "base_url": settings.APP_BASE_URL,
+                "detalle_url": self._vacaciones_detalle_url(solicitud["id"]),
             })
             sender = await self._get_notification_sender(conn)
             attachments = []
@@ -1184,6 +1193,7 @@ class NotificationService:
                 "motivo": motivo,
                 "solicitud_id": str(solicitud["id"]),
                 "base_url": settings.APP_BASE_URL,
+                "detalle_url": self._vacaciones_detalle_url(solicitud["id"]),
             })
             sender = await self._get_notification_sender(conn)
             await self._send_email({solicitud["solicitante_email"]}, cc, f"Solicitud de {solicitud['tipo_nombre'].lower()} no aprobada", html, sender["email"], bcc_emails=bcc)

@@ -4,7 +4,7 @@ from datetime import date, timedelta
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Query, Request
-from fastapi.responses import JSONResponse, Response
+from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from core.database import get_db_connection
@@ -21,6 +21,33 @@ from modules.vacaciones.logic import contar_dias_habiles, siguiente_dia_habil
 router = APIRouter(prefix="/vacaciones", tags=["vacaciones"])
 templates = Jinja2Templates(directory="templates")
 
+
+def _get_usuario_id(context: dict) -> UUID | None:
+    user_db_id = context.get("user_db_id")
+    return UUID(str(user_db_id)) if user_db_id else None
+
+
+def _redirect_to_login(request: Request) -> RedirectResponse | Response:
+    return_to = request.url.path
+    if request.url.query:
+        return_to = f"{return_to}?{request.url.query}"
+    request.session["post_login_redirect"] = return_to
+    if is_htmx(request):
+        return Response(status_code=401, headers={"HX-Redirect": "/auth/login"})
+    return RedirectResponse(url="/auth/login", status_code=303)
+
+
+def _perfil_detalle_url(solicitud_id: UUID, origen: str) -> str:
+    tab = "aprobaciones" if origen == "aprobaciones" else "solicitudes"
+    return f"/perfil/ui?tab={tab}&solicitud_id={solicitud_id}&origen={origen}"
+
+
+def _rrhh_detalle_url(solicitud_id: UUID, origen: str, solo_consulta: bool = True) -> str:
+    tab = "aprobaciones" if origen == "rrhh_aprobaciones" else "solicitudes"
+    url = f"/rrhh/ui?tab={tab}&solicitud_id={solicitud_id}&origen={origen}"
+    if solo_consulta:
+        url = f"{url}&solo_consulta=1"
+    return url
 
 
 # ─────────────────────────────────────────────
@@ -156,11 +183,48 @@ async def crear_solicitud(
     )
 
 
+@router.get("/solicitudes/{solicitud_id}/abrir")
+async def abrir_solicitud_desde_cta(
+    request: Request,
+    solicitud_id: UUID,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+):
+    usuario_id = _get_usuario_id(context)
+    if not usuario_id:
+        return _redirect_to_login(request)
+
+    solicitud = await db.get_solicitud(conn, solicitud_id)
+    if not solicitud:
+        raise HTTPException(404)
+
+    if solicitud["usuario_id"] == usuario_id:
+        return RedirectResponse(url=_perfil_detalle_url(solicitud_id, "solicitudes"), status_code=303)
+
+    if await service.es_aprobador_operativo(conn, solicitud_id, usuario_id, solicitud=solicitud):
+        return RedirectResponse(url=_perfil_detalle_url(solicitud_id, "aprobaciones"), status_code=303)
+
+    if user_has_module_access("rrhh", context, "editor"):
+        return RedirectResponse(
+            url=_rrhh_detalle_url(solicitud_id, "rrhh_aprobaciones", solo_consulta=False),
+            status_code=303,
+        )
+
+    if user_has_module_access("rrhh", context, "viewer"):
+        return RedirectResponse(
+            url=_rrhh_detalle_url(solicitud_id, "rrhh_solicitudes", solo_consulta=True),
+            status_code=303,
+        )
+
+    raise HTTPException(403)
+
+
 @router.get("/solicitudes/{solicitud_id}")
 async def detalle_solicitud(
     request: Request,
     solicitud_id: UUID,
     origen: str = "solicitudes",
+    solo_consulta: bool = False,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
@@ -171,12 +235,31 @@ async def detalle_solicitud(
     solicitud = await db.get_solicitud(conn, solicitud_id)
     if not solicitud:
         raise HTTPException(404)
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
+    if not usuario_id:
+        return _redirect_to_login(request)
     es_dueno = solicitud["usuario_id"] == usuario_id
-    es_aprobador = await service.puede_aprobar(conn, solicitud_id, usuario_id, context)
-    if not es_dueno and not es_aprobador:
+    es_aprobador_operativo = await service.es_aprobador_operativo(conn, solicitud_id, usuario_id, solicitud=solicitud)
+    es_aprobador = await service.puede_aprobar(conn, solicitud_id, usuario_id, context, solicitud=solicitud)
+    es_rrhh_viewer = user_has_module_access("rrhh", context, "viewer")
+    if not es_dueno and not es_aprobador and not es_rrhh_viewer:
         raise HTTPException(403)
-    if not es_dueno and es_aprobador and origen == "solicitudes":
+    if not es_request_htmx:
+        if origen == "solicitudes" and not es_dueno and not es_aprobador_operativo and es_rrhh_viewer:
+            return RedirectResponse(
+                url=_rrhh_detalle_url(solicitud_id, "rrhh_solicitudes", solo_consulta=True),
+                status_code=303,
+            )
+        if origen in {"rrhh_aprobaciones", "rrhh_solicitudes"}:
+            return RedirectResponse(
+                url=_rrhh_detalle_url(
+                    solicitud_id,
+                    origen,
+                    solo_consulta=solo_consulta or origen == "rrhh_solicitudes",
+                ),
+                status_code=303,
+            )
+    if not es_dueno and es_aprobador_operativo and origen == "solicitudes":
         origen = "aprobaciones"
     if not es_request_htmx:
         if origen == "rrhh_aprobaciones":
@@ -191,6 +274,7 @@ async def detalle_solicitud(
         "es_aprobador": es_aprobador,
         "es_dueno": es_dueno,
         "origen": origen,
+        "solo_consulta": solo_consulta or origen == "rrhh_solicitudes",
         "context": context,
     }
     if es_request_htmx:
@@ -201,7 +285,6 @@ async def detalle_solicitud(
         )
 
     es_jefe = await service.es_jefe_o_aprobador_de_alguien(conn, usuario_id)
-    es_rrhh_viewer = user_has_module_access("rrhh", context, "viewer")
     if es_jefe:
         pendientes_aprobacion = await db.get_solicitudes_pendientes_para_aprobador(conn, usuario_id)
     else:
@@ -256,7 +339,9 @@ async def descargar_pdf(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
 ):
-    usuario_id = UUID(str(context["user_db_id"]))
+    usuario_id = _get_usuario_id(context)
+    if not usuario_id:
+        raise HTTPException(status_code=401, detail="Inicia sesion para descargar el PDF")
     solicitud = await db.get_solicitud(conn, solicitud_id)
     if not solicitud:
         raise HTTPException(404)
@@ -264,7 +349,7 @@ async def descargar_pdf(
         raise HTTPException(status_code=400, detail="Los registros historicos no generan PDF.")
     es_dueno = solicitud["usuario_id"] == usuario_id
     es_aprobador = await service.puede_aprobar(conn, solicitud_id, usuario_id, context)
-    es_rh = user_has_module_access("rrhh", context, "editor")
+    es_rh = user_has_module_access("rrhh", context, "viewer")
     if not es_dueno and not es_aprobador and not es_rh:
         raise HTTPException(403)
 

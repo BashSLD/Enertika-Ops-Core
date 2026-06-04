@@ -114,10 +114,11 @@ async def get_balance_usuario(conn, usuario_id: UUID) -> dict[str, Any]:
 # Permisos
 # ─────────────────────────────────────────────
 
-async def puede_aprobar(conn, solicitud_id: UUID, current_user_id: UUID, user_ctx: dict) -> bool:
-    if user_has_module_access("rrhh", user_ctx, "editor"):
-        return True
-    solicitud = await db.get_solicitud(conn, solicitud_id)
+async def es_aprobador_operativo(
+    conn, solicitud_id: UUID, current_user_id: UUID, *, solicitud: dict | None = None
+) -> bool:
+    if solicitud is None:
+        solicitud = await db.get_solicitud(conn, solicitud_id)
     if not solicitud:
         return False
     empleado = await db.get_empleado_datos(conn, solicitud["usuario_id"])
@@ -125,6 +126,14 @@ async def puede_aprobar(conn, solicitud_id: UUID, current_user_id: UUID, user_ct
     aprobador_designado = empleado and empleado.get("id_aprobador_vacaciones") == current_user_id
     es_jefe = current_user_id in jefes
     return bool(aprobador_designado or es_jefe)
+
+
+async def puede_aprobar(
+    conn, solicitud_id: UUID, current_user_id: UUID, user_ctx: dict, *, solicitud: dict | None = None
+) -> bool:
+    if user_has_module_access("rrhh", user_ctx, "editor"):
+        return True
+    return await es_aprobador_operativo(conn, solicitud_id, current_user_id, solicitud=solicitud)
 
 
 def puede_cancelar(solicitud: dict, current_user_id: UUID) -> bool:

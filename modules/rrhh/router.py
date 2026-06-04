@@ -39,6 +39,10 @@ RRHH_TAB_ENDPOINTS = {
     "admin": "/rrhh/admin",
 }
 
+RRHH_VIEWER_TABS = {"ausencias", "aprobaciones", "solicitudes", "empleados"}
+RRHH_EDITOR_TABS = {"asistencia", "reportes", "festivos"}
+RRHH_DETAIL_ORIGENES = {"rrhh_aprobaciones", "rrhh_solicitudes"}
+
 
 def _parse_optional_uuid(value: Optional[str], field_name: str) -> Optional[UUID]:
     if not value:
@@ -74,10 +78,56 @@ def _has_rrhh_admin_access(context: dict) -> bool:
     )
 
 
-def _resolve_initial_tab(tab: Optional[str], anio: Optional[int], context: dict) -> tuple[str, str]:
-    initial_tab = tab if tab in RRHH_TAB_ENDPOINTS else "asistencia"
-    if initial_tab == "admin" and not _has_rrhh_admin_access(context):
-        initial_tab = "asistencia"
+def _get_rrhh_permissions(context: dict) -> dict:
+    rrhh_role = (context.get("module_roles") or {}).get("rrhh", "")
+    is_admin = context.get("role") == "ADMIN"
+    can_view = is_admin or bool(rrhh_role)
+    can_edit = is_admin or rrhh_role in {"editor", "admin"}
+    can_admin = _has_rrhh_admin_access(context)
+    is_viewer_only = can_view and not can_edit
+    return {
+        "role": rrhh_role,
+        "can_view": can_view,
+        "can_edit": can_edit,
+        "can_admin": can_admin,
+        "can_reports": can_edit,
+        "can_manage_horas_extra": can_edit,
+        "is_viewer_only": is_viewer_only,
+        "show_asistencia": not is_viewer_only,
+        "show_ausencias": can_view,
+        "show_aprobaciones": can_view,
+        "show_solicitudes": can_view,
+        "show_empleados": can_view,
+        "show_reportes": can_edit,
+        "show_festivos": can_edit,
+        "show_admin": can_admin,
+    }
+
+
+def _resolve_initial_tab(
+    tab: Optional[str],
+    anio: Optional[int],
+    perms: dict,
+    solicitud_id: Optional[UUID] = None,
+    origen: str = "rrhh_solicitudes",
+    solo_consulta: bool = False,
+) -> tuple[str, str]:
+    if solicitud_id:
+        origen = origen if origen in RRHH_DETAIL_ORIGENES else "rrhh_solicitudes"
+        initial_tab = "aprobaciones" if origen == "rrhh_aprobaciones" else "solicitudes"
+        endpoint = f"/vacaciones/solicitudes/{solicitud_id}?origen={origen}"
+        if solo_consulta or origen == "rrhh_solicitudes" or perms["is_viewer_only"]:
+            endpoint = f"{endpoint}&solo_consulta=1"
+        return initial_tab, endpoint
+
+    default_tab = "ausencias" if perms["is_viewer_only"] else "asistencia"
+    initial_tab = tab if tab in RRHH_TAB_ENDPOINTS else default_tab
+    if perms["is_viewer_only"] and initial_tab not in RRHH_VIEWER_TABS:
+        initial_tab = default_tab
+    if initial_tab == "admin" and not perms["can_admin"]:
+        initial_tab = default_tab
+    if initial_tab in RRHH_EDITOR_TABS and not perms["can_edit"]:
+        initial_tab = default_tab
     endpoint = RRHH_TAB_ENDPOINTS[initial_tab]
     if initial_tab == "festivos":
         endpoint = f"{endpoint}?anio={anio or today_mx().year}"
@@ -99,6 +149,7 @@ async def _festivos_template_response(
         validacion["validado_at_fmt"] = _format_datetime(validacion["validado_at"])
     ctx.update({
         "context": context,
+        "rrhh_perms": _get_rrhh_permissions(context),
         "toast_type": toast_type,
         "toast_msg": toast_msg,
     })
@@ -267,18 +318,30 @@ async def rrhh_ui(
     request: Request,
     tab: Optional[str] = None,
     anio: Optional[int] = None,
+    solicitud_id: Optional[UUID] = None,
+    origen: str = "rrhh_solicitudes",
+    solo_consulta: bool = False,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
     _=require_module_access("rrhh", "viewer"),
 ):
     data = await service.get_dashboard_data(conn)
-    initial_tab, initial_endpoint = _resolve_initial_tab(tab, anio, context)
+    rrhh_perms = _get_rrhh_permissions(context)
+    initial_tab, initial_endpoint = _resolve_initial_tab(
+        tab,
+        anio,
+        rrhh_perms,
+        solicitud_id=solicitud_id,
+        origen=origen,
+        solo_consulta=solo_consulta,
+    )
     ctx = {
         **data,
         "context": context,
         "user_name": context.get("user_name"),
         "role": context.get("role"),
         "module_roles": context.get("module_roles", {}),
+        "rrhh_perms": rrhh_perms,
         "initial_tab": initial_tab,
         "initial_endpoint": initial_endpoint,
     }
@@ -391,6 +454,7 @@ async def aprobaciones_pendientes(
             "horas_extra_grupos": list(grupos_map.values()),
             "horas_extra_json": horas_extra_json,
             "context": context,
+            "rrhh_perms": _get_rrhh_permissions(context),
         },
     )
 
@@ -413,7 +477,13 @@ async def empleados_lista(
     balances = await vac_service.get_balances_por_ids(conn, ids)
     return templates.TemplateResponse(
         request, "rrhh/partials/empleados_lista.html",
-        {"empleados": empleados, "total": total, "offset": offset, "balances": balances},
+        {
+            "empleados": empleados,
+            "total": total,
+            "offset": offset,
+            "balances": balances,
+            "rrhh_perms": _get_rrhh_permissions(context),
+        },
     )
 
 
@@ -421,7 +491,7 @@ async def empleados_lista(
 async def empleados_exportar_excel(
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("rrhh", "viewer"),
+    _=require_module_access("rrhh", "editor"),
     sucursal_id: List[str] = Query(default=[]),
     usuario_id: List[str] = Query(default=[]),
     incluir_dados_de_baja: bool = False,
@@ -443,10 +513,11 @@ async def reportes_panel(
     request: Request,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("rrhh", "viewer"),
+    _=require_module_access("rrhh", "editor"),
 ):
     ctx = await service.get_reportes_ctx(conn)
     ctx["context"] = context
+    ctx["rrhh_perms"] = _get_rrhh_permissions(context)
     return templates.TemplateResponse(request, "rrhh/partials/reportes.html", ctx)
 
 
@@ -461,7 +532,7 @@ async def reporte_asistencia_excel(
     incluir_descanso: bool = False,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("rrhh", "viewer"),
+    _=require_module_access("rrhh", "editor"),
 ):
     uids = _parse_uuid_list(usuario_id, "usuario_id")
     sids = _parse_uuid_list(sucursal_id, "sucursal_id")
@@ -511,7 +582,7 @@ async def reporte_vacaciones_excel(
     incluir_dados_de_baja: bool = False,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("rrhh", "viewer"),
+    _=require_module_access("rrhh", "editor"),
 ):
     uids = _parse_uuid_list(usuario_id, "usuario_id")
     try:
@@ -574,7 +645,7 @@ async def reporte_vacaciones_aprobadas_excel(
     incluir_dados_de_baja: bool = False,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("rrhh", "viewer"),
+    _=require_module_access("rrhh", "editor"),
 ):
     uids = _parse_uuid_list(usuario_id, "usuario_id")
     try:
@@ -632,7 +703,7 @@ async def reporte_horas_extra_excel(
     incluir_dados_de_baja: bool = False,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("rrhh", "viewer"),
+    _=require_module_access("rrhh", "editor"),
 ):
     uids = _parse_uuid_list(usuario_id, "usuario_id")
     sids = _parse_uuid_list(sucursal_id, "sucursal_id")
@@ -1325,7 +1396,7 @@ async def festivos_lista(
     anio: Optional[int] = None,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("rrhh", "viewer"),
+    _=require_module_access("rrhh", "editor"),
 ):
     try:
         return await _festivos_template_response(request, conn, context, anio)
@@ -1489,7 +1560,7 @@ async def asistencia_panel(
     page: int = 0,
     conn=Depends(get_db_connection),
     context=Depends(get_current_user_context),
-    _=require_module_access("rrhh", "viewer"),
+    _=require_module_access("rrhh", "editor"),
 ):
     hoy = today_mx()
     fi = fecha_inicio or hoy
@@ -1578,7 +1649,12 @@ async def solicitudes_lista(
     solicitudes = await vac_db.get_todas_solicitudes(conn, estado=estado, limit=limit)
     return templates.TemplateResponse(
         request, "rrhh/partials/solicitudes_lista.html",
-        {"solicitudes": solicitudes, "estado_filtro": estado, "limit": limit},
+        {
+            "solicitudes": solicitudes,
+            "estado_filtro": estado,
+            "limit": limit,
+            "rrhh_perms": _get_rrhh_permissions(context),
+        },
     )
 
 
@@ -1600,6 +1676,7 @@ async def aprobar_solicitud(
         {
             "pendientes": pendientes,
             "context": context,
+            "rrhh_perms": _get_rrhh_permissions(context),
             "toast_type": "success",
             "toast_msg": "Solicitud aprobada",
         },
@@ -1627,6 +1704,7 @@ async def rechazar_solicitud(
         {
             "pendientes": pendientes,
             "context": context,
+            "rrhh_perms": _get_rrhh_permissions(context),
             "toast_type": "success",
             "toast_msg": "Solicitud rechazada",
         },
