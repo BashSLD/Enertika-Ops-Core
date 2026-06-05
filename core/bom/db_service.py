@@ -601,7 +601,7 @@ class BomDBService:
                 NULL,
                 cat.nombre,
                 c.clave_prod_serv,
-                c.created_at::date,
+                (c.created_at AT TIME ZONE 'America/Mexico_City')::date,
                 'INTERNO'::text,
                 1.0::real,
                 NULL::text,

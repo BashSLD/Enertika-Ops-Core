@@ -238,7 +238,7 @@
                 <p class="text-xs font-bold text-red-600">Rechazado en paso: {{ aut.rechazado_en_paso }}</p>
                 {% if aut.rechazado_por_nombre %}<p class="text-xs text-red-500">Por: {{ aut.rechazado_por_nombre }}</p>{% endif %}
                 {% if aut.motivo_rechazo %}<p class="text-xs text-red-600 mt-1 italic">Motivo: {{ aut.motivo_rechazo }}</p>{% endif %}
-                {% if aut.fecha_rechazo %}<p class="text-xs text-gray-400 mt-0.5">{{ aut.fecha_rechazo.strftime('%d/%m/%Y %H:%M') }}</p>{% endif %}
+                {% if aut.fecha_rechazo %}<p class="text-xs text-gray-400 mt-0.5">{{ aut.fecha_rechazo | time_mx }}</p>{% endif %}
             </div>
             {% endif %}
 
