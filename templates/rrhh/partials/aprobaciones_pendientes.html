@@ -36,7 +36,7 @@
             <span class="rounded-full bg-gray-100 px-2 py-0.5 font-semibold text-gray-700">{{ sol.tipo_nombre }}</span>
             <span>{{ sol.fecha_inicio.strftime('%d/%m/%Y') }} - {{ sol.fecha_fin.strftime('%d/%m/%Y') }}</span>
             <span>{{ sol.dias_solicitados }} días hábiles</span>
-            <span>Solicitada {{ sol.fecha_solicitud.strftime('%d/%m/%Y') if sol.fecha_solicitud else '-' }}</span>
+            <span>Solicitada {{ sol.fecha_solicitud | time_mx("%d/%m/%Y") if sol.fecha_solicitud else '-' }}</span>
           </div>
           {% if sol.observaciones %}
           <p class="mt-2 line-clamp-2 rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-500">{{ sol.observaciones }}</p>

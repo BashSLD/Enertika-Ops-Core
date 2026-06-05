@@ -90,7 +90,7 @@
                             {% endif %}
                         </td>
                         <td class="px-3 py-2 text-gray-500 text-xs">
-                            {{ rel.created_at.strftime("%d/%m/%Y") if rel.created_at else '-' }}
+                            {{ rel.created_at | time_mx("%d/%m/%Y") if rel.created_at else '-' }}
                         </td>
                         {% if can_edit %}
                         <td class="px-3 py-2 text-center">

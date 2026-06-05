@@ -162,7 +162,7 @@
                             </td>
                             <td class="px-3 py-2 text-xs text-gray-400">
                                 {{ doc.subido_por_nombre or 'Sin usuario' }}
-                                <br>{{ doc.created_at.strftime('%d/%m/%Y') if doc.created_at else '' }}
+                                <br>{{ doc.created_at | time_mx("%d/%m/%Y") if doc.created_at else '' }}
                             </td>
                             <td class="px-3 py-2">
                                 <div class="flex items-center justify-center gap-1">

@@ -125,7 +125,7 @@
               Vence {{ pr.fecha_expiracion_prorroga.strftime('%d/%m/%Y') }}
             </p>
             <p class="text-xs text-gray-400 mt-1 line-clamp-2">{{ pr.motivo }}</p>
-            <p class="text-xs text-gray-400">Otorgada por {{ pr.created_by_nombre }} el {{ pr.created_at.strftime('%d/%m/%Y') }}</p>
+            <p class="text-xs text-gray-400">Otorgada por {{ pr.created_by_nombre }} el {{ pr.created_at | time_mx("%d/%m/%Y") }}</p>
           </div>
           {% if pr.estado == 'activa' %}
           <button type="button" @click="cancelar = !cancelar"

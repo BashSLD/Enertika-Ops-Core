@@ -104,7 +104,7 @@
       {% for f in firmas %}
       <p class="text-xs text-gray-600">
         <span class="font-medium">{{ f.rol_firma | capitalize }}:</span>
-        {{ f.firmante_nombre }} — {{ f.fecha_firma.strftime('%d/%m/%Y %H:%M') }}
+        {{ f.firmante_nombre }} — {{ f.fecha_firma | time_mx }}
       </p>
       {% endfor %}
     </div>

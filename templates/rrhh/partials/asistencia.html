@@ -132,7 +132,7 @@
             <td class="py-1 pr-4 font-medium">{{ item.biotime_emp_code }}</td>
             <td class="py-1 pr-4">{{ item.deptname or 'Sin departamento' }}</td>
             <td class="py-1 pr-4">{{ item.total }}</td>
-            <td class="py-1 pr-4">{{ item.ultima_checada.strftime('%d/%m/%Y %H:%M') if item.ultima_checada else '' }}</td>
+            <td class="py-1 pr-4">{{ item.ultima_checada | time_mx if item.ultima_checada else '' }}</td>
           </tr>
           {% endfor %}
         </tbody>

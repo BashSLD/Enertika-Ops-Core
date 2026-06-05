@@ -44,7 +44,7 @@
         <p class="mt-2 truncate text-xs text-gray-400">{{ s.observaciones }}</p>
         {% endif %}
         <p class="mt-1 text-xs text-gray-400">
-          Enviada {{ s.fecha_solicitud.strftime('%d/%m/%Y %H:%M') }}
+          Enviada {{ s.fecha_solicitud | time_mx }}
         </p>
       </div>
 

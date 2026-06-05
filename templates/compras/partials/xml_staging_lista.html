@@ -25,7 +25,7 @@
         <p class="text-xs text-gray-500">
           {{ item.emisor_rfc }}
           | ${{ '{:,.2f}'.format(item.monto | float) }} {{ item.moneda }}
-          | {{ item.updated_at.strftime('%d/%m/%Y') if item.updated_at else '—' }}
+          | {{ item.updated_at | time_mx("%d/%m/%Y") if item.updated_at else '—' }}
         </p>
       </div>
 

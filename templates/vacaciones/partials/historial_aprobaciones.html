@@ -23,7 +23,7 @@
       {% endif %}
     </div>
     <p class="shrink-0 text-xs text-gray-400">
-      {% if s.fecha_resolucion %}{{ s.fecha_resolucion.strftime('%d/%m/%Y') }}{% endif %}
+      {% if s.fecha_resolucion %}{{ s.fecha_resolucion | time_mx("%d/%m/%Y") }}{% endif %}
     </p>
   </div>
   {% endfor %}
