@@ -204,7 +204,7 @@
         <!-- FORMULARIO -->
         <div class="max-h-[70vh] overflow-y-auto relative">
 
-            <div class="p-6 space-y-6">
+            <div class="p-5 space-y-4">
                 <form id="form-update-op" {% if can_manage %}hx-put="/simulacion/update/{{ op.id_oportunidad }}"
                     hx-target="#form-feedback" hx-swap="innerHTML" hx-indicator="#loading-overlay-main"
                     @submit="validateForm($event)" @keydown.enter.prevent novalidate {% endif %}>
@@ -225,27 +225,23 @@
 
                     <!-- ID Interno - Full Width -->
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-1">ID Interno Simulación</label>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">ID Interno Simulación</label>
                         <input type="text" name="id_interno_simulacion" x-model="currentIdInterno"
                             @input="currentIdInterno = $el.value.toUpperCase()" {% if not can_edit_sensitive
                             %}disabled{% endif %}
                             class="w-full border-gray-300 rounded-md shadow-sm focus:ring-[#00BABB] focus:border-[#00BABB] disabled:bg-gray-100 uppercase transition-all">
                     </div>
 
-                    <!-- Grid 2x2 - Todos los campos destacados -->
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
+                    <!-- Grid 2x2 -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                         <!-- Estatus Simulación -->
-                        <div
-                            class="bg-gradient-to-br from-[#E0F7F7] to-white border-2 border-[#00BABB] rounded-lg p-4 shadow-md hover:shadow-lg transition-all duration-200">
-                            <label class="block text-sm font-bold text-[#123456] mb-2 flex items-center gap-2">
-                                <div class="p-1.5 bg-[#00BABB] rounded-md">
-                                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor"
-                                        viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
-                                    </svg>
-                                </div>
-                                <span>Estatus Simulación</span>
+                        <div class="bg-white border border-gray-200 rounded-lg p-3">
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                                <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01" />
+                                </svg>
+                                Estatus Simulación
                             </label>
                             {% set current_status = namespace(orden=none, nombre='', final=false) %}
                             {% for st in estatus_global %}
@@ -255,9 +251,8 @@
                                     {% set current_status.final = st.es_estatus_final %}
                                 {% endif %}
                             {% endfor %}
-                            <select name="id_estatus_global" x-model.number="status" {% if not can_manage %}disabled{%
-                                endif %}
-                                class="w-full border-2 border-[#00BABB] rounded-md shadow-sm focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 font-medium text-sm text-gray-800 transition-all hover:border-[#009999]">
+                            <select name="id_estatus_global" x-model.number="status" {% if not can_manage %}disabled{% endif %}
+                                class="w-full border border-gray-300 rounded-md shadow-sm focus:ring-1 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 text-sm text-gray-800 transition-colors">
                                 {% for st in estatus_global %}
                                 {% set is_current = st.id == op.id_estatus_global %}
                                 {% set has_order = st.orden is not none and current_status.orden is not none %}
@@ -293,11 +288,11 @@
                             </p>
                         </div>
 
-                        <!-- Fecha real del cambio (solo para Comentarios Recibidos: la dirección puede haber enviado comentarios antes de que se capture en sistema) -->
+                        <!-- Fecha real del cambio (solo para Comentarios Recibidos) -->
                         <div x-show="status === comentarios_recibidos_id && status !== initialStatus"
-                            class="bg-amber-50 border-2 border-amber-300 rounded-lg p-4 shadow-md">
-                            <label class="block text-sm font-bold text-amber-800 mb-1 flex items-center gap-2">
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                            <label class="block text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1.5 flex items-center gap-1.5">
+                                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                         d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                                 </svg>
@@ -310,21 +305,16 @@
                         </div>
 
                         <!-- Responsable Asignado -->
-                        <div
-                            class="bg-gradient-to-br from-[#E0F7F7] to-white border-2 border-[#00BABB] rounded-lg p-4 shadow-md hover:shadow-lg transition-all duration-200">
-                            <label class="block text-sm font-bold text-[#123456] mb-2 flex items-center gap-2">
-                                <div class="p-1.5 bg-[#00BABB] rounded-md">
-                                    <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor"
-                                        viewBox="0 0 24 24">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                                    </svg>
-                                </div>
-                                <span>Responsable Asignado</span>
+                        <div class="bg-white border border-gray-200 rounded-lg p-3">
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                                <svg class="w-3.5 h-3.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                                </svg>
+                                Responsable Asignado
                             </label>
-                            <select name="responsable_simulacion_id" x-model="responsable" {% if not can_edit_assignment_fields
-                                %}disabled{% endif %}
-                                class="w-full border-2 border-[#00BABB] rounded-md shadow-sm focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 font-medium text-sm text-gray-800 transition-all hover:border-[#009999]"
+                            <select name="responsable_simulacion_id" x-model="responsable" {% if not can_edit_assignment_fields %}disabled{% endif %}
+                                class="w-full border border-gray-300 rounded-md shadow-sm focus:ring-1 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 text-sm text-gray-800 transition-colors"
                                 :class="{'border-red-500 ring-1 ring-red-500': errors.responsable}">
                                 <option value="" {% if not can_assign_others %}disabled{% endif %}>-- Sin Asignar --</option>
                                 {% for resp in responsables %}
@@ -343,26 +333,22 @@
                         </div>
 
                         <!-- Deadline Negociado -->
-                        <div
-                            class="bg-gradient-to-br from-[#E0F7F7] to-white border-2 border-[#00BABB] rounded-lg p-4 shadow-md hover:shadow-lg transition-all duration-200">
-                            <label class="block text-sm font-bold text-[#123456] mb-2 flex items-center gap-2">
-                                <div class="p-1.5 bg-[#00BABB] rounded-md">
-                                    <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24"
-                                        stroke="currentColor">
-                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                    </svg>
-                                </div>
-                                <span>Deadline Negociado</span>
+                        <div class="bg-white border border-gray-200 rounded-lg p-3">
+                            <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2 flex items-center gap-1.5">
+                                <svg class="w-3.5 h-3.5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                </svg>
+                                Deadline Negociado
                             </label>
                             <input type="date" name="deadline_negociado" x-model="deadline"
                                 value="{{ op.deadline_negociado | time_mx("%Y-%m-%d") }}"
                                 {% if not can_edit_assignment_fields %}disabled{% elif not can_assign_others %}:disabled="responsable !== '{{ current_user_id }}'"{% endif %}
-                                class="w-full border-2 border-[#00BABB] rounded-md shadow-sm focus:ring-2 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 text-sm transition-all hover:border-[#009999]">
+                                class="w-full border border-gray-300 rounded-md shadow-sm focus:ring-1 focus:ring-[#00BABB] focus:border-[#00BABB] bg-white disabled:bg-gray-100 text-sm transition-colors">
                         </div>
                     </div>
 
-                    <div class="border-t border-gray-200 pt-6 mt-6">
+                    <div class="border-t border-gray-200 pt-4 mt-4">
 
                         <!-- Panel: Cancelado/Perdido -->
                         <div x-show="status == cancelado_id || status == perdido_id"
