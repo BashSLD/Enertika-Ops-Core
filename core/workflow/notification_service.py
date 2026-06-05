@@ -854,6 +854,9 @@ class NotificationService:
             html_body: Cuerpo del email en HTML
             sender_email: Email del usuario autenticado que ejecuta la accion (FROM)
         """
+        if settings.DEBUG_MODE:
+            logger.debug("[NOTIFY][DEV] Email suprimido (DEBUG_MODE): subject=%s", subject)
+            return True
         if not to_emails:
             logger.info("[NOTIFY] No hay destinatarios, email no enviado")
             return False
