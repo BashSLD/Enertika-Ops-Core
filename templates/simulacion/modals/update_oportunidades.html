@@ -4,13 +4,14 @@
 
     <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90dvh] overflow-y-auto transform transition-all animate-scale-in relative"
         x-data="{ 
-            status: {{ op.id_estatus_global }}, 
+            status: {{ op.id_estatus_global }},
             initialStatus: {{ op.id_estatus_global }},
-            
+
             entregado_id: {{ status_ids.entregado }},
             cancelado_id: {{ status_ids.cancelado }},
             perdido_id: {{ status_ids.perdido }},
             comentarios_recibidos_id: {{ status_ids.comentarios_recibidos | default('null') }},
+            monitoreo_cotizacion_id: {{ status_ids.monitoreo_cotizacion | default('null') }},
             
             originalIdInterno: '{{ op.id_interno_simulacion or '' }}',
             currentIdInterno: '{{ op.id_interno_simulacion or '' }}',
@@ -262,14 +263,34 @@
                                 {% set has_order = st.orden is not none and current_status.orden is not none %}
                                 {% set diff = st.orden - current_status.orden if has_order else none %}
                                 {% set is_entregado = st.nombre == 'Entregado' %}
+                                {% set es_monitoreo = st.nombre == 'Monitoreo de Cotización' %}
                                 {% set salida_terminal = st.es_estatus_final and not is_entregado %}
                                 {% set entrega_valida = is_entregado and current_status.nombre == 'Comentarios Recibidos' %}
-                                {% set flujo_valido = (diff == 1 or diff == -1) and not st.es_estatus_final %}
-                                {% set is_valid = is_current or ((not current_status.final) and (salida_terminal or entrega_valida or flujo_valido)) %}
+                                {% set flujo_valido = (diff == 1 or diff == -1) and not st.es_estatus_final and not es_monitoreo %}
+                                {% set salida_monitoreo = current_status.nombre == 'Monitoreo de Cotización' and not st.es_estatus_final %}
+                                {% set is_valid = is_current or ((not current_status.final) and (salida_terminal or entrega_valida or flujo_valido or es_monitoreo or salida_monitoreo)) %}
                                 <option value="{{ st.id }}" {% if not is_valid %}disabled{% endif %}>{{ st.nombre }}</option>
                                 {% endfor %}
                             </select>
                             <p class="mt-1 text-xs text-gray-500">El flujo es secuencial: solo se habilita el siguiente paso, el retroceso inmediato o un cierre permitido.</p>
+                            <p x-show="status === comentarios_recibidos_id"
+                               x-transition
+                               class="mt-1 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded px-2 py-1 flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                Dirección revisó la propuesta y devolvió comentarios al equipo de simulación.
+                            </p>
+                            <p x-show="status === monitoreo_cotizacion_id"
+                               x-transition
+                               class="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 flex items-center gap-1">
+                                <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                        d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                                </svg>
+                                La oportunidad queda en stand-by fuera del flujo normal. Para reactivarla, selecciona el estatus al que deseas regresar.
+                            </p>
                         </div>
 
                         <!-- Fecha real del cambio (solo para Comentarios Recibidos: la dirección puede haber enviado comentarios antes de que se capture en sistema) -->

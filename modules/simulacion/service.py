@@ -1022,6 +1022,8 @@ class SimulacionService:
                     )
                 )
             # Cancelado/Perdido: permitidos desde cualquier activo → sin más restricción
+        elif actual['nombre'] == 'Monitoreo de Cotización' or nuevo['nombre'] == 'Monitoreo de Cotización':
+            pass  # stand-by: entrada desde cualquier activo, salida a cualquier activo
         elif actual['orden'] is not None and nuevo['orden'] is not None:
             diferencia = nuevo['orden'] - actual['orden']
             if diferencia > 1:
