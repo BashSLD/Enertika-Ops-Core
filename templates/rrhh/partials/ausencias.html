@@ -128,7 +128,8 @@
           {% for a in ausencias_hoy %}
           <div class="rounded-xl border border-[#00BABB]/20 bg-[#00BABB]/5 px-3 py-2">
             <div class="flex items-center gap-2">
-              <p class="text-sm font-semibold text-gray-800 truncate">{{ a.empleado_nombre }}</p>
+              <a href="/vacaciones/solicitudes/{{ a.id }}/abrir"
+                 class="text-sm font-semibold text-gray-800 hover:text-[#00BABB] truncate transition-colors">{{ a.empleado_nombre }}</a>
               <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 {{ badge_colors.get(a.tipo_slug, 'bg-gray-100 text-gray-600') }}"
                     title="{{ a.tipo_nombre }}">
                 {{ a.tipo_nombre }}
@@ -157,7 +158,8 @@
           {% for a in ausencias_proximas %}
           <div class="rounded-xl border border-gray-100 px-3 py-2">
             <div class="flex items-center gap-2">
-              <p class="text-sm font-semibold text-gray-800 truncate">{{ a.empleado_nombre }}</p>
+              <a href="/vacaciones/solicitudes/{{ a.id }}/abrir"
+                 class="text-sm font-semibold text-gray-800 hover:text-[#00BABB] truncate transition-colors">{{ a.empleado_nombre }}</a>
               <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 {{ badge_colors.get(a.tipo_slug, 'bg-gray-100 text-gray-600') }}">
                 {{ a.tipo_nombre }}
               </span>
