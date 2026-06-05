@@ -980,13 +980,15 @@ async def get_vacaciones_aprobadas_equipo(
             sa.fecha_presentarse,
             sa.dias_solicitados,
             u.nombre AS empleado_nombre,
-            u.email AS empleado_email
+            u.email AS empleado_email,
+            ta.nombre AS tipo_nombre,
+            ta.abreviatura AS tipo_abreviatura,
+            ta.slug AS tipo_slug
         FROM tb_solicitudes_ausencia sa
         JOIN tb_usuarios u ON u.id_usuario = sa.usuario_id
         JOIN tb_cat_tipos_ausencia ta ON ta.id = sa.tipo_ausencia_id
         WHERE sa.usuario_id = ANY($1::uuid[])
           AND sa.estado = 'aprobado'
-          AND ta.slug = 'vacaciones'
           AND COALESCE(sa.es_migracion, false) = false
           AND sa.fecha_fin >= $2
         ORDER BY sa.fecha_inicio, u.nombre

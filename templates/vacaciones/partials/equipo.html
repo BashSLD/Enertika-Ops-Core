@@ -19,7 +19,7 @@
     </div>
     <div class="flex flex-wrap gap-2 text-xs">
       <span class="px-2.5 py-1 rounded-full bg-[#00BABB]/10 text-[#007C7D] font-semibold">
-        {{ vacaciones_actuales | length }} de vacaciones hoy
+        {{ vacaciones_actuales | length }} ausente{{ 's' if vacaciones_actuales | length != 1 else '' }} hoy
       </span>
     </div>
   </div>
@@ -33,38 +33,54 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M8 2.75v3M16 2.75v3M4.75 9.25h14.5M6.75 4.75h10.5a2 2 0 0 1 2 2v10.5a2 2 0 0 1-2 2H6.75a2 2 0 0 1-2-2V6.75a2 2 0 0 1 2-2Z"/>
             </svg>
           </span>
-          <h3 class="text-sm font-semibold text-gray-800">Vacaciones de Mi equipo</h3>
+          <h3 class="text-sm font-semibold text-gray-800">Mi equipo</h3>
         </div>
-        <p class="text-xs text-gray-400">Hoy y próximas vacaciones aprobadas.</p>
+        <p class="text-xs text-gray-400">Actualmente ausentes y próximas aprobadas.</p>
       </div>
       <span class="text-xs text-gray-400">{{ hoy.strftime('%d/%m/%Y') }}</span>
     </div>
 
+    {% set badge_colors = {
+      'vacaciones':            'bg-blue-100 text-blue-700',
+      'extraordinaria':        'bg-orange-100 text-orange-700',
+      'home_office':           'bg-green-100 text-green-700',
+      'incapacidad':           'bg-red-100 text-red-700',
+      'permiso_con_goce':      'bg-purple-100 text-purple-700',
+      'permiso_sin_goce':      'bg-purple-100 text-purple-700',
+      'permiso_llegar_tarde':  'bg-amber-100 text-amber-700',
+      'permiso_salir_temprano':'bg-amber-100 text-amber-700',
+    } %}
     {% if not vacaciones_actuales and not vacaciones_proximas %}
     <div class="px-5 py-8 text-center text-sm text-gray-400">
-      No hay vacaciones aprobadas activas o próximas.
+      No hay solicitudes aprobadas activas o próximas.
     </div>
     {% else %}
     <div class="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-gray-100">
       <div class="p-5">
         <div class="flex items-center justify-between mb-3">
-          <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Actualmente de vacaciones</h4>
+          <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Actualmente ausentes</h4>
           <span class="text-xs font-bold text-[#00BABB]">{{ vacaciones_actuales | length }}</span>
         </div>
         {% if vacaciones_actuales %}
         <div class="space-y-2">
           {% for v in vacaciones_actuales %}
           <div class="rounded-xl border border-[#00BABB]/20 bg-[#00BABB]/5 px-3 py-2">
-            <p class="text-sm font-semibold text-gray-800">{{ v.empleado_nombre }}</p>
-            <p class="text-xs text-gray-500">
-              {{ v.fecha_inicio.strftime('%d/%m') }} a {{ v.fecha_fin.strftime('%d/%m/%Y') }}
+            <div class="flex items-center gap-2">
+              <a href="/vacaciones/solicitudes/{{ v.id }}/abrir"
+                 class="text-sm font-semibold text-gray-800 hover:text-[#00BABB] truncate transition-colors">{{ v.empleado_nombre }}</a>
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 {{ badge_colors.get(v.tipo_slug, 'bg-gray-100 text-gray-600') }}">
+                {{ v.tipo_nombre }}
+              </span>
+            </div>
+            <p class="text-xs text-gray-500 mt-0.5">
+              {{ v.fecha_inicio.strftime('%d/%m') }} — {{ v.fecha_fin.strftime('%d/%m/%Y') }}
               · regresa {{ v.fecha_presentarse.strftime('%d/%m/%Y') }}
             </p>
           </div>
           {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-400">Nadie de Mi equipo está de vacaciones hoy.</p>
+        <p class="text-sm text-gray-400">Nadie de Mi equipo está ausente hoy.</p>
         {% endif %}
       </div>
 
@@ -77,16 +93,22 @@
         <div class="space-y-2">
           {% for v in vacaciones_proximas %}
           <div class="rounded-xl border border-gray-100 px-3 py-2">
-            <p class="text-sm font-semibold text-gray-800">{{ v.empleado_nombre }}</p>
-            <p class="text-xs text-gray-500">
-              {{ v.fecha_inicio.strftime('%d/%m') }} a {{ v.fecha_fin.strftime('%d/%m/%Y') }}
+            <div class="flex items-center gap-2">
+              <a href="/vacaciones/solicitudes/{{ v.id }}/abrir"
+                 class="text-sm font-semibold text-gray-800 hover:text-[#00BABB] truncate transition-colors">{{ v.empleado_nombre }}</a>
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold flex-shrink-0 {{ badge_colors.get(v.tipo_slug, 'bg-gray-100 text-gray-600') }}">
+                {{ v.tipo_nombre }}
+              </span>
+            </div>
+            <p class="text-xs text-gray-500 mt-0.5">
+              {{ v.fecha_inicio.strftime('%d/%m') }} — {{ v.fecha_fin.strftime('%d/%m/%Y') }}
               · {{ v.dias_solicitados }} día{{ 's' if v.dias_solicitados != 1 else '' }}
             </p>
           </div>
           {% endfor %}
         </div>
         {% else %}
-        <p class="text-sm text-gray-400">No hay próximas vacaciones aprobadas.</p>
+        <p class="text-sm text-gray-400">No hay próximas aprobadas.</p>
         {% endif %}
       </div>
     </div>
