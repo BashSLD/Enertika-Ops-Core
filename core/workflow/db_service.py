@@ -123,13 +123,18 @@ class WorkflowDBService:
                 c.nombre_fiscal as cliente_nombre,
                 t.nombre as tecnologia_nombre,
                 u_sim.nombre as responsable_simulacion,
-                u_com.email as responsable_email,
+                u_sim.email as responsable_simulacion_email,
+                u_com.nombre as creador_nombre,
+                u_com.email as creador_email,
+                COALESCE(u_resp.nombre, u_com.nombre) as responsable_comercial_nombre,
+                COALESCE(u_resp.email, u_com.email) as responsable_comercial_email,
                 estatus.nombre as status_global
             FROM tb_oportunidades op
             LEFT JOIN tb_clientes c ON op.cliente_id = c.id
             LEFT JOIN tb_cat_tecnologias t ON op.id_tecnologia = t.id
             LEFT JOIN tb_usuarios u_sim ON op.responsable_simulacion_id = u_sim.id_usuario
             LEFT JOIN tb_usuarios u_com ON op.creado_por_id = u_com.id_usuario
+            LEFT JOIN tb_usuarios u_resp ON op.responsable_comercial_id = u_resp.id_usuario
             LEFT JOIN tb_cat_estatus_oportunidades estatus ON op.id_estatus_global = estatus.id
             WHERE op.id_oportunidad = $1
             """,

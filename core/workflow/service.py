@@ -315,7 +315,8 @@ class WorkflowService:
         can_close_sale = self._can_close_sale(user_context)
 
         user_id = user_context.get("user_db_id")
-        is_owner = str(op.get("creado_por_id", "")) == str(user_id or "")
+        responsable_id = op.get("responsable_comercial_id") or op.get("creado_por_id")
+        is_owner = str(responsable_id or "") == str(user_id or "")
         can_reassign = is_owner or can_close_sale
 
         sitios = []

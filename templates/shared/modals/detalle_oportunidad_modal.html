@@ -449,6 +449,37 @@
                         </p>
                     </div>
 
+                    <!-- Creado por -->
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                            Creado por
+                        </label>
+                        <p class="text-sm text-gray-700 bg-white px-3 py-2 rounded-md border border-gray-200 truncate">
+                            {{ op.creador_nombre or op.creador_email or '-' }}
+                        </p>
+                    </div>
+
+                    <!-- Responsable actual -->
+                    <div>
+                        <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                            Responsable actual
+                        </label>
+                        <div class="flex items-center gap-2">
+                            <p class="text-sm text-gray-700 bg-white px-3 py-2 rounded-md border border-gray-200 truncate flex-1">
+                                {{ op.responsable_comercial_nombre or '-' }}
+                            </p>
+                            {% if can_reassign and show_solicitar_actions %}
+                            <button type="button"
+                                hx-get="/comercial/reasignar-modal/{{ op.id_oportunidad }}"
+                                hx-target="body" hx-swap="beforeend"
+                                hx-disabled-elt="this" hx-sync="this:drop"
+                                class="flex-shrink-0 text-xs font-semibold text-[#00BABB] hover:text-[#009899] border border-[#00BABB] rounded-md px-2.5 py-1.5 transition hover:bg-[#E0F7F7]">
+                                Transferir
+                            </button>
+                            {% endif %}
+                        </div>
+                    </div>
+
                 </div>
             </div>
 
@@ -928,27 +959,6 @@
             </div>
             {% endif %}
 
-            {% if can_reassign and show_solicitar_actions %}
-            <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
-                <div class="flex items-center justify-between">
-                    <span class="text-xs font-semibold text-gray-500 uppercase tracking-wide flex items-center gap-1">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                                d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                        </svg>
-                        Responsable
-                    </span>
-                    <button type="button"
-                        hx-get="/comercial/reasignar-modal/{{ op.id_oportunidad }}"
-                        hx-target="body" hx-swap="beforeend"
-                        hx-disabled-elt="this" hx-sync="this:drop"
-                        class="text-xs font-semibold text-[#00BABB] hover:text-[#009899] border border-[#00BABB] rounded-md px-3 py-1.5 transition hover:bg-[#E0F7F7]">
-                        Transferir
-                    </button>
-                </div>
-                <p class="text-sm text-gray-700 mt-2">{{ op.responsable_email or 'Sin asignar' }}</p>
-            </div>
-            {% endif %}
 
             <div id="modal-content-placeholder" class="hidden"></div>
 
