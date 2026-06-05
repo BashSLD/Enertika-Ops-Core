@@ -14,7 +14,7 @@
         if (modalContainer) {
             htmx.ajax('GET', '/simulacion/modals/edit/{{ id_oportunidad }}', {
                 target: '#modal-backdrop',
-                swap: 'innerHTML'
+                swap: 'outerHTML'
             });
         }
     }, 700);

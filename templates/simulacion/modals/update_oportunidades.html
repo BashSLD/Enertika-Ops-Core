@@ -181,7 +181,7 @@
 
         <!-- HEADER -->
         <div
-            class="px-6 py-4 bg-gradient-to-r from-[#00BABB] to-[#123456] border-b border-gray-200 flex justify-between items-center rounded-t-xl">
+            class="px-6 py-2 bg-gradient-to-r from-[#00BABB] to-[#123456] border-b border-gray-200 flex justify-between items-center rounded-t-xl">
             <div>
                 <h3 class="text-lg font-bold text-white">
                     {% if can_manage %}Actualizar Oportunidad{% else %}Detalles de Simulación (Solo Lectura){% endif %}
@@ -670,12 +670,7 @@
             </div>
         </div>
         <!-- FOOTER -->
-        <div class="px-6 py-4 bg-gray-50 border-t border-gray-200 rounded-b-xl flex justify-end items-center gap-3">
-            <button type="button" onclick="document.getElementById('modal-backdrop').remove()"
-                class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium shadow-sm transition-all duration-200 hover:text-gray-900">
-                {% if can_manage %}Cancelar{% else %}Cerrar{% endif %}
-            </button>
-
+        <div class="px-6 py-2 bg-gray-50 border-t border-gray-200 rounded-b-xl flex justify-end items-center gap-3">
             {% if can_manage %}
             <button type="submit" form="form-update-op" :disabled="!isDirty"
                 :class="{'opacity-50 cursor-not-allowed': !isDirty, 'hover:scale-105 hover:bg-[#009999]': isDirty}"
