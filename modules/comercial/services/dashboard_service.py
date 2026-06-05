@@ -59,12 +59,12 @@ class DashboardService:
         es_admin_o_manager = role in ("ADMIN", "MANAGER")
         es_admin_modulo = user_has_module_access("comercial", user_context, "admin")
         if not (es_admin_o_manager or es_admin_modulo):
-            conditions.append(f"o.creado_por_id = ${len(params)+1}")
+            conditions.append(f"COALESCE(o.responsable_comercial_id, o.creado_por_id) = ${len(params)+1}")
             params.append(user_id)
-        
+
         # --- Filtros Globales ---
         if filtro_usuario_id:
-            conditions.append(f"o.creado_por_id = ${len(params)+1}")
+            conditions.append(f"COALESCE(o.responsable_comercial_id, o.creado_por_id) = ${len(params)+1}")
             params.append(filtro_usuario_id)
             
         if filtro_tipo_id:

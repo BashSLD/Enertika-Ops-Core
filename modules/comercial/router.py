@@ -862,16 +862,21 @@ async def reasignar_oportunidad(
     request: Request,
     id_oportunidad: UUID,
     new_owner_id: UUID = Form(...),
+    motivo: Optional[str] = Form(None),
     service: ComercialService = Depends(get_comercial_service),
     conn = Depends(get_db_connection),
     user_context = Depends(get_current_user_context),
     _auth = require_module_access("comercial", "editor")
 ):
-    await service.reasignar_oportunidad(conn, id_oportunidad, new_owner_id, user_context)
+    is_manager = await service.transferir_responsable_comercial(
+        conn, id_oportunidad, new_owner_id, motivo, user_context
+    )
+    if not is_manager:
+        return Response(status_code=200, headers={"HX-Redirect": "/comercial/ui"})
     return templates.TemplateResponse(request, "shared/toast.html", {
         "type": "success",
         "title": "Transferencia exitosa",
-        "message": "Oportunidad transferida correctamente.",
+        "message": "Responsable comercial actualizado.",
     })
 
 
@@ -1088,6 +1093,14 @@ async def crear_seguimiento(
     token = await get_valid_graph_token(request)
     if not token:
         return Response(status_code=200, headers={"HX-Redirect": "/auth/login?expired=1"})
+
+    # Stopper: solo el responsable comercial puede crear seguimientos
+    if not await service.is_responsable_para_seguimiento(conn, parent_id, user_context):
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "type": "error",
+            "title": "Sin permiso",
+            "message": "Esta oportunidad fue transferida. Solicita que te devuelvan la responsabilidad para continuar el seguimiento.",
+        }, headers={"HX-Reswap": "none"})
 
     # --- VERIFICACIÓN DE GRUPO ---
     bloqueador = await service.check_grupo_bloqueador(conn, parent_id)

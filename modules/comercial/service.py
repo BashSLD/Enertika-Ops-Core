@@ -1,5 +1,5 @@
 from datetime import datetime, timedelta, date, time as dt_time
-from core.timezone import today_mx
+from core.timezone import today_mx, now_mx
 from uuid import UUID, uuid4
 from typing import List, Optional, Tuple
 import json
@@ -25,7 +25,6 @@ from .db_service import (
     QUERY_GET_ESTATUS_GLOBAL,
     QUERY_GET_OPORTUNIDAD_OWNER,
     QUERY_GET_OPORTUNIDAD_FROM_SITIO,
-    QUERY_UPDATE_OPORTUNIDAD_OWNER,
     QUERY_GET_USUARIOS_COMERCIAL,
     QUERY_GET_ALL_USUARIOS,
     QUERY_GET_USUARIOS_CON_ACCESO_COMERCIAL,
@@ -88,6 +87,11 @@ from .db_service import (
     QUERY_GET_JEFE_BY_ROL_ORG,
     QUERY_GET_EQUIPO_PROYECTO_ACTIVO,
     QUERY_CHECK_GRUPO_BLOQUEADOR,
+    QUERY_GET_RESPONSABLE_COMERCIAL_ID,
+    QUERY_GET_RESPONSABLE_EFECTIVO,
+    QUERY_UPDATE_RESPONSABLE_COMERCIAL,
+    QUERY_INSERT_TRANSFERENCIA,
+    QUERY_GET_USUARIO_NOMBRE_EMAIL,
 )
 
 # Shared Services
@@ -98,6 +102,7 @@ from .services import DashboardService, NotificationService
 from .sla_calculator import SLACalculator
 from core.config_service import ConfigService
 from core.workflow.notification_service import get_notification_service as get_workflow_notification_service
+from core.workflow.db_service import WorkflowDBService
 import logging
 
 logger = logging.getLogger("ComercialModule")
@@ -455,7 +460,7 @@ class ComercialService:
         if is_global_admin or is_module_admin or is_manager_editor:
             return
 
-        owner_id = await conn.fetchval(QUERY_GET_OPORTUNIDAD_OWNER, id_oportunidad)
+        owner_id = await conn.fetchval(QUERY_GET_RESPONSABLE_EFECTIVO, id_oportunidad)
 
         if owner_id is None:
             raise HTTPException(status_code=404, detail="Oportunidad no encontrada.")
@@ -747,7 +752,7 @@ class ComercialService:
 
         # --- Lógica de Filtros Globales ---
         if filtro_usuario_id:
-            query += f" AND o.creado_por_id = ${param_idx}"
+            query += f" AND COALESCE(o.responsable_comercial_id, o.creado_por_id) = ${param_idx}"
             params.append(filtro_usuario_id)
             param_idx += 1
             
@@ -900,7 +905,7 @@ class ComercialService:
         es_admin_o_manager = role in ("ADMIN", "MANAGER")
         es_admin_modulo = user_has_module_access("comercial", user_context, "admin")
         if not (es_admin_o_manager or es_admin_modulo):
-            query += f" AND o.creado_por_id = ${param_idx}"
+            query += f" AND COALESCE(o.responsable_comercial_id, o.creado_por_id) = ${param_idx}"
             params.append(user_id)
             param_idx += 1
 
@@ -1020,11 +1025,13 @@ class ComercialService:
         rows = await conn.fetch(QUERY_GET_USUARIOS_CON_ACCESO_COMERCIAL)
         return [dict(r) for r in rows]
 
-    async def reasignar_oportunidad(self, conn, id_oportunidad: UUID, new_owner_id: UUID, user_context: dict) -> None:
-        """Transfiere la propiedad de una oportunidad. Permitido al dueño o a ADMIN/MANAGER."""
+    async def transferir_responsable_comercial(
+        self, conn, id_oportunidad: UUID, new_owner_id: UUID, motivo: Optional[str], user_context: dict
+    ) -> bool:
+        """Transfiere responsabilidad operativa. Retorna True si el caller es admin/manager."""
         role = user_context.get("role")
         com_role = user_context.get("module_roles", {}).get("comercial", "")
-        user_id = user_context.get("user_db_id")
+        user_id = UUID(str(user_context.get("user_db_id")))
 
         is_admin_or_manager = (
             role == "ADMIN" or
@@ -1032,15 +1039,71 @@ class ComercialService:
             (role == "MANAGER" and com_role in ["editor", "admin"])
         )
 
-        owner_id = await conn.fetchval(QUERY_GET_OPORTUNIDAD_OWNER, id_oportunidad)
-        if owner_id is None:
+        responsable_actual = await conn.fetchval(QUERY_GET_RESPONSABLE_EFECTIVO, id_oportunidad)
+        if responsable_actual is None:
             raise HTTPException(status_code=404, detail="Oportunidad no encontrada.")
 
-        if not is_admin_or_manager and str(owner_id) != str(user_id):
-            raise HTTPException(status_code=403, detail="Solo puedes transferir tus propias oportunidades.")
+        if not is_admin_or_manager and responsable_actual != user_id:
+            raise HTTPException(status_code=403, detail="Solo puedes transferir oportunidades de las que eres responsable.")
 
-        await conn.execute(QUERY_UPDATE_OPORTUNIDAD_OWNER, new_owner_id, id_oportunidad)
-        logger.info(f"Oportunidad {id_oportunidad} reasignada a {new_owner_id} por {user_id}")
+        if responsable_actual == new_owner_id:
+            raise HTTPException(status_code=400, detail="El usuario seleccionado ya es el responsable actual.")
+
+        nuevo = await conn.fetchrow(QUERY_GET_USUARIO_NOMBRE_EMAIL, new_owner_id)
+        if nuevo is None:
+            raise HTTPException(status_code=400, detail="El usuario destino no existe.")
+
+        anterior = await conn.fetchrow(QUERY_GET_USUARIO_NOMBRE_EMAIL, responsable_actual)
+
+        async with conn.transaction():
+            await conn.execute(QUERY_UPDATE_RESPONSABLE_COMERCIAL, new_owner_id, id_oportunidad)
+            await conn.execute(QUERY_INSERT_TRANSFERENCIA, id_oportunidad, responsable_actual, new_owner_id, user_id, motivo if motivo else None)
+
+        caller_nombre = user_context.get("user_name") or ""
+        caller_email = user_context.get("email") or ""
+        anterior_nombre = anterior["nombre"] if anterior else str(responsable_actual)
+
+        texto = (
+            f"Transferencia comercial: responsable anterior {anterior_nombre}, "
+            f"nuevo responsable {nuevo['nombre']}. Transferido por {caller_nombre}."
+        )
+        if motivo:
+            texto += f" Motivo: {motivo}"
+
+        wf_db = WorkflowDBService()
+        await wf_db.insert_comentario(conn, {
+            "id": uuid4(),
+            "id_oportunidad": id_oportunidad,
+            "usuario_id": user_id,
+            "usuario_nombre": caller_nombre,
+            "usuario_email": caller_email,
+            "comentario": texto,
+            "departamento_origen": "Comercial",
+            "modulo_origen": "comercial",
+            "fecha_comentario": now_mx(),
+        })
+
+        logger.info(f"Oportunidad {id_oportunidad} transferida a {new_owner_id} por {user_id}")
+        return is_admin_or_manager
+
+    async def is_responsable_para_seguimiento(self, conn, id_oportunidad: UUID, user_context: dict) -> bool:
+        """Retorna True si el usuario puede crear seguimientos en esta oportunidad."""
+        role = user_context.get("role")
+        com_role = user_context.get("module_roles", {}).get("comercial", "")
+        user_id = UUID(str(user_context.get("user_db_id")))
+
+        is_admin_or_manager = (
+            role == "ADMIN" or
+            com_role == "admin" or
+            (role == "MANAGER" and com_role in ["editor", "admin"])
+        )
+        if is_admin_or_manager:
+            return True
+
+        responsable_actual = await conn.fetchval(QUERY_GET_RESPONSABLE_EFECTIVO, id_oportunidad)
+        if responsable_actual is None:
+            return False
+        return responsable_actual == user_id
     
     async def check_user_has_access_token(
         self, 

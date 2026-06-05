@@ -291,6 +291,22 @@ QUERY_UPDATE_EMAIL_ENVIADO = "UPDATE tb_oportunidades SET email_enviado = TRUE W
 QUERY_UPDATE_PRIORIDAD = "UPDATE tb_oportunidades SET prioridad = $1 WHERE id_oportunidad = $2"
 QUERY_UPDATE_OPORTUNIDAD_OWNER = "UPDATE tb_oportunidades SET creado_por_id = $1 WHERE id_oportunidad = $2"
 
+QUERY_GET_RESPONSABLE_COMERCIAL_ID = "SELECT responsable_comercial_id FROM tb_oportunidades WHERE id_oportunidad = $1"
+# COALESCE: returns NULL only when the row is missing (creado_por_id is NOT NULL).
+# Use this instead of QUERY_GET_RESPONSABLE_COMERCIAL_ID to distinguish "row not found"
+# from "responsable_comercial_id is NULL" — both returned None with the plain column query.
+QUERY_GET_RESPONSABLE_EFECTIVO = """
+    SELECT COALESCE(responsable_comercial_id, creado_por_id) AS responsable_id
+    FROM tb_oportunidades WHERE id_oportunidad = $1
+"""
+QUERY_UPDATE_RESPONSABLE_COMERCIAL = "UPDATE tb_oportunidades SET responsable_comercial_id = $1 WHERE id_oportunidad = $2"
+QUERY_INSERT_TRANSFERENCIA = """
+    INSERT INTO tb_oportunidades_transferencias (
+        id_oportunidad, responsable_anterior_id, responsable_nuevo_id, transferido_por_id, motivo
+    ) VALUES ($1, $2, $3, $4, $5)
+"""
+QUERY_GET_USUARIO_NOMBRE_EMAIL = "SELECT nombre, email FROM tb_usuarios WHERE id_usuario = $1"
+
 # Publicar borrador: marca como enviado y fija fecha/SLA al momento real del envío
 QUERY_PUBLISH_BORRADOR = """
     UPDATE tb_oportunidades
