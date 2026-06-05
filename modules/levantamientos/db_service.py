@@ -614,11 +614,11 @@ class LevantamientosDBService:
 
         if fecha_inicio:
             params.append(fecha_inicio)
-            conditions.append(f"l.fecha_solicitud >= ${len(params)}::date")
+            conditions.append(f"(l.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date >= ${len(params)}::date")
 
         if fecha_fin:
             params.append(fecha_fin)
-            conditions.append(f"l.fecha_solicitud <= ${len(params)}::date")
+            conditions.append(f"(l.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date <= ${len(params)}::date")
 
         where_clause = " AND ".join(conditions)
 
@@ -717,11 +717,11 @@ class LevantamientosDBService:
 
         if fecha_inicio:
             params.append(fecha_inicio)
-            conditions.append(f"l.fecha_solicitud >= ${len(params)}::date")
+            conditions.append(f"(l.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date >= ${len(params)}::date")
 
         if fecha_fin:
             params.append(fecha_fin)
-            conditions.append(f"l.fecha_solicitud <= ${len(params)}::date")
+            conditions.append(f"(l.fecha_solicitud AT TIME ZONE 'America/Mexico_City')::date <= ${len(params)}::date")
 
         where_clause = " AND ".join(conditions)
 
@@ -814,11 +814,11 @@ class LevantamientosDBService:
 
         if fecha_inicio:
             params.append(fecha_inicio)
-            conditions.append(f"l.updated_at >= ${len(params)}::date")
+            conditions.append(f"(l.updated_at AT TIME ZONE 'America/Mexico_City')::date >= ${len(params)}::date")
 
         if fecha_fin:
             params.append(fecha_fin)
-            conditions.append(f"l.updated_at <= ${len(params)}::date")
+            conditions.append(f"(l.updated_at AT TIME ZONE 'America/Mexico_City')::date <= ${len(params)}::date")
 
         where_clause = " AND ".join(conditions)
 
