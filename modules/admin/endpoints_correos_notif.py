@@ -10,10 +10,12 @@ from uuid import UUID, uuid4
 from typing import Optional
 
 from core.database import get_db_connection
+from core.jinja_filters import register_timezone_filters
 from core.security import get_current_user_context
 from core.permissions import require_module_access
 
 templates = Jinja2Templates(directory="templates")
+register_timezone_filters(templates.env)
 
 router = APIRouter()
 
