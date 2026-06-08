@@ -335,6 +335,12 @@ QUERY_INSERT_TRANSFERENCIA = """
     ) VALUES ($1, $2, $3, $4, $5)
 """
 QUERY_GET_USUARIO_NOMBRE_EMAIL = "SELECT nombre, email FROM tb_usuarios WHERE id_usuario = $1"
+QUERY_GET_OP_ESTATUS_NOMBRE = """
+    SELECT estatus.nombre
+    FROM tb_oportunidades o
+    JOIN tb_cat_estatus_oportunidades estatus ON o.id_estatus_global = estatus.id
+    WHERE o.id_oportunidad = $1
+"""
 
 # Publicar borrador: marca como enviado y fija fecha/SLA al momento real del envío
 QUERY_PUBLISH_BORRADOR = """

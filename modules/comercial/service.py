@@ -12,7 +12,7 @@ import re
 
 from openpyxl import load_workbook
 from .schemas import SitioImportacion, DetalleBessCreate
-from .constants import STATUS_PENDIENTE, DEFAULT_STATUS_ID_PENDIENTE
+from .constants import STATUS_PENDIENTE, STATUS_GANADA, STATUS_CANCELADO, STATUS_PERDIDO, DEFAULT_STATUS_ID_PENDIENTE
 import asyncio
 from core.config_service import ConfigService
 from .db_service import (
@@ -94,6 +94,7 @@ from .db_service import (
     QUERY_UPDATE_RESPONSABLE_COMERCIAL,
     QUERY_INSERT_TRANSFERENCIA,
     QUERY_GET_USUARIO_NOMBRE_EMAIL,
+    QUERY_GET_OP_ESTATUS_NOMBRE,
 )
 
 # Shared Services
@@ -1053,6 +1054,10 @@ class ComercialService:
         responsable_actual = await conn.fetchval(QUERY_GET_RESPONSABLE_EFECTIVO, id_oportunidad)
         if responsable_actual is None:
             raise HTTPException(status_code=404, detail="Oportunidad no encontrada.")
+
+        estatus_nombre = (await conn.fetchval(QUERY_GET_OP_ESTATUS_NOMBRE, id_oportunidad) or "").lower()
+        if estatus_nombre in (STATUS_GANADA, STATUS_CANCELADO, STATUS_PERDIDO):
+            raise HTTPException(status_code=400, detail="No se puede transferir una oportunidad ganada, perdida o cancelada.")
 
         if not is_admin_or_manager and responsable_actual != user_id:
             raise HTTPException(status_code=403, detail="Solo puedes transferir oportunidades de las que eres responsable.")

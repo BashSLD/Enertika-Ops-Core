@@ -317,7 +317,8 @@ class WorkflowService:
         user_id = user_context.get("user_db_id")
         responsable_id = op.get("responsable_comercial_id") or op.get("creado_por_id")
         is_owner = str(responsable_id or "") == str(user_id or "")
-        can_reassign = is_owner or can_close_sale
+        _status = (op.get("status_global") or "").lower()
+        can_reassign = (is_owner or can_close_sale) and _status not in ("ganada", "cancelado", "perdido")
 
         sitios = []
         if can_close_sale and op.get("cantidad_sitios", 1) > 1:
