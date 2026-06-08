@@ -72,7 +72,7 @@ async def get_comercial_ui(
     """Main Entry: Shows the Tabbed Dashboard (Graphs + Records)."""
     user_name = context.get("user_name", "Usuario")
     role = context.get("role", "USER")
-    can_filter_creadores = role in ("ADMIN", "MANAGER")
+    can_filter_responsables = role in ("ADMIN", "MANAGER")
     
     # Detección inteligente: HTMX devuelve tabs.html, carga completa devuelve dashboard.html
     # HX-History-Restore-Request: HTMX lo envía cuando restaura desde historial (Back/Forward)
@@ -87,7 +87,7 @@ async def get_comercial_ui(
     # Cargar catálogos para filtros globales
     catalogos = await service.get_catalogos_ui(
         conn,
-        include_inactive_creators=can_filter_creadores,
+        include_responsables_con_oportunidades=can_filter_responsables,
     )
 
     # Verificar si debe mostrar el popup
@@ -100,7 +100,7 @@ async def get_comercial_ui(
         "role": role,
         "module_roles": context.get("module_roles", {}),
         "current_module_role": context.get("module_roles", {}).get("comercial", "viewer"),
-        "can_filter_creadores": can_filter_creadores,
+        "can_filter_responsables": can_filter_responsables,
         "catalogos": catalogos,
         "show_custom_popup": show_popup,
         "borradores_count": borradores_count,
@@ -873,9 +873,17 @@ async def reasignar_oportunidad(
     user_context = Depends(get_current_user_context),
     _auth = require_module_access("comercial", "editor")
 ):
-    is_manager = await service.transferir_responsable_comercial(
-        conn, id_oportunidad, new_owner_id, motivo, user_context
-    )
+    try:
+        is_manager = await service.transferir_responsable_comercial(
+            conn, id_oportunidad, new_owner_id, motivo, user_context
+        )
+    except HTTPException as exc:
+        return templates.TemplateResponse(request, "shared/toast.html", {
+            "type": "error",
+            "title": "No se pudo transferir",
+            "message": exc.detail,
+        }, headers={"HX-Reswap": "none", "X-Transfer-Error": "1"})
+
     if not is_manager:
         return Response(status_code=200, headers={"HX-Redirect": "/comercial/ui"})
     return templates.TemplateResponse(request, "shared/toast.html", {
@@ -1232,5 +1240,3 @@ async def cierre_venta(
             request, "comercial/partials/toasts/toast_error.html",
             {"title": "Error", "message": "Ocurrió un error al procesar el cierre de venta."}
         )
-
-

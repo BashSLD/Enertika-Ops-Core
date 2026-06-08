@@ -471,7 +471,7 @@
                             {% if can_reassign and show_solicitar_actions %}
                             <button type="button"
                                 hx-get="/comercial/reasignar-modal/{{ op.id_oportunidad }}"
-                                hx-target="body" hx-swap="beforeend"
+                                hx-target="#modal-secondary-container" hx-swap="innerHTML"
                                 hx-disabled-elt="this" hx-sync="this:drop"
                                 class="flex-shrink-0 text-xs font-semibold text-[#00BABB] hover:text-[#009899] border border-[#00BABB] rounded-md px-2.5 py-1.5 transition hover:bg-[#E0F7F7]">
                                 Transferir

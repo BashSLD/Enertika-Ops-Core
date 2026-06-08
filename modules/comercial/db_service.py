@@ -1,29 +1,8 @@
 
 # SQL Queries for Commercial Module
 
-
-def _sql_nombre_normalizado(expression: str) -> str:
-    return f"lower(regexp_replace(trim({expression}), '\\\\s+', ' ', 'g'))"
-
-
 def build_usuario_comercial_filter_sql(param_ref: str, opportunity_alias: str = "o") -> str:
-    solicitado_por_norm = _sql_nombre_normalizado(f"{opportunity_alias}.solicitado_por")
-    usuario_nombre_norm = _sql_nombre_normalizado("u_filtro.nombre")
-    return f"""
-        (
-            {opportunity_alias}.creado_por_id = {param_ref}
-            OR {opportunity_alias}.solicitado_por_id = {param_ref}
-            OR (
-                {opportunity_alias}.solicitado_por_id IS NULL
-                AND EXISTS (
-                    SELECT 1
-                    FROM tb_usuarios u_filtro
-                    WHERE u_filtro.id_usuario = {param_ref}
-                      AND {solicitado_por_norm} = {usuario_nombre_norm}
-                )
-            )
-        )
-    """
+    return f"COALESCE({opportunity_alias}.responsable_comercial_id, {opportunity_alias}.creado_por_id) = {param_ref}"
 
 QUERY_GET_OPORTUNIDADES_LIST = """
     SELECT
@@ -174,7 +153,7 @@ QUERY_GET_USUARIOS_COMERCIAL = """
     ORDER BY nombre
 """
 
-QUERY_GET_USUARIOS_FILTRO_COMERCIAL = f"""
+QUERY_GET_USUARIOS_RESPONSABLES_COMERCIAL = """
     WITH usuarios_filtro AS (
         SELECT
             u.id_usuario AS id,
@@ -186,16 +165,7 @@ QUERY_GET_USUARIOS_FILTRO_COMERCIAL = f"""
                 SELECT 1
                 FROM tb_oportunidades o
                 WHERE o.email_enviado = true
-                  AND (
-                    o.creado_por_id = u.id_usuario
-                    OR o.solicitado_por_id = u.id_usuario
-                    OR (
-                        o.solicitado_por_id IS NULL
-                        AND o.solicitado_por IS NOT NULL
-                        AND {_sql_nombre_normalizado("o.solicitado_por")} =
-                            {_sql_nombre_normalizado("u.nombre")}
-                    )
-                  )
+                  AND COALESCE(o.responsable_comercial_id, o.creado_por_id) = u.id_usuario
            )
     )
     SELECT

@@ -27,7 +27,7 @@ from .db_service import (
     QUERY_GET_OPORTUNIDAD_OWNER,
     QUERY_GET_OPORTUNIDAD_FROM_SITIO,
     QUERY_GET_USUARIOS_COMERCIAL,
-    QUERY_GET_USUARIOS_FILTRO_COMERCIAL,
+    QUERY_GET_USUARIOS_RESPONSABLES_COMERCIAL,
     QUERY_GET_ALL_USUARIOS,
     QUERY_GET_USUARIOS_CON_ACCESO_COMERCIAL,
     QUERY_GET_TIPO_ACTUALIZACION_ID,
@@ -314,12 +314,12 @@ class ComercialService:
         
         return SLACalculator.calculate_deadline(fecha_creacion, hora_corte, dias_sla)
 
-    async def get_catalogos_ui(self, conn, include_inactive_creators: bool = False) -> dict:
+    async def get_catalogos_ui(self, conn, include_responsables_con_oportunidades: bool = False) -> dict:
         """Recupera los catálogos para llenar los <select> del formulario y filtros."""
         # Cache Strategy (5 min TTL)
         cache_key = (
-            "COMERCIAL_UI_FILTER_CATALOGS"
-            if include_inactive_creators
+            "COMERCIAL_UI_RESPONSABLE_FILTER_CATALOGS"
+            if include_responsables_con_oportunidades
             else "COMERCIAL_UI_CATALOGS"
         )
         cached = await ConfigService.get_cached_value(cache_key, ttl=300.0)
@@ -330,8 +330,8 @@ class ComercialService:
         tipos = await conn.fetch(QUERY_GET_TIPOS_SOLICITUD)
         estatus = await conn.fetch(QUERY_GET_ESTATUS_GLOBAL)
         usuarios_query = (
-            QUERY_GET_USUARIOS_FILTRO_COMERCIAL
-            if include_inactive_creators
+            QUERY_GET_USUARIOS_RESPONSABLES_COMERCIAL
+            if include_responsables_con_oportunidades
             else QUERY_GET_USUARIOS_COMERCIAL
         )
         usuarios = await conn.fetch(usuarios_query)

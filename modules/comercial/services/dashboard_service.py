@@ -161,7 +161,8 @@ class DashboardService:
                     COALESCE(u.nombre, 'Sin asignar') as vendedor,
                     count(*) as count
                 FROM tb_oportunidades o
-                LEFT JOIN tb_usuarios u ON o.creado_por_id = u.id_usuario
+                LEFT JOIN tb_usuarios u
+                    ON COALESCE(o.responsable_comercial_id, o.creado_por_id) = u.id_usuario
                 {where_str}
                 {condition_monthly}
                 GROUP BY mes_date, mes, u.nombre

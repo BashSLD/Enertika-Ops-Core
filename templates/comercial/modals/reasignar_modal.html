@@ -1,5 +1,5 @@
 <div id="modal-reasignar"
-    class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-[10010] p-4"
+    class="fixed inset-0 bg-gray-900 bg-opacity-50 flex items-center justify-center z-[10050] p-4"
     x-data="{ loading: false }"
     @click.self="$el.remove()">
 
@@ -25,7 +25,9 @@
             hx-target="body" hx-swap="beforeend"
             hx-indicator="#global-loading-overlay"
             x-on:submit="loading = true"
-            hx-on::after-request="if(event.detail.successful){ $el.closest('#modal-reasignar').remove(); loading = false; } else { loading = false; }"
+            hx-on::after-request="loading = false; if(event.detail.successful && event.detail.xhr.getResponseHeader('X-Transfer-Error') !== '1'){ this.closest('#modal-reasignar')?.remove(); }"
+            hx-on::response-error="loading = false"
+            hx-on::send-error="loading = false"
             class="p-5 space-y-4">
 
             <div>
