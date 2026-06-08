@@ -1013,7 +1013,7 @@ class SimulacionService:
 
         if nuevo['es_estatus_final']:
             # Entregado requiere pasar primero por Comentarios Recibidos (revisión obligatoria)
-            if nuevo['nombre'] == 'Entregado' and actual['nombre'] != 'Comentarios Recibidos':
+            if nuevo['nombre'] == 'Entregado' and actual['nombre'] not in ('Comentarios Recibidos', 'Monitoreo de Cotización'):
                 raise HTTPException(
                     status_code=400,
                     detail=(
