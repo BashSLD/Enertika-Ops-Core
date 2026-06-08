@@ -8,7 +8,6 @@
 </div>
 
 <script>
-    // Recargar el modal con el nuevo estatus (sin cerrarlo)
     setTimeout(function () {
         const modalContainer = document.getElementById('modal-backdrop');
         if (modalContainer) {
@@ -17,5 +16,10 @@
                 swap: 'outerHTML'
             });
         }
+        const currentTab = new URLSearchParams(window.location.search).get('tab') || 'activos';
+        htmx.ajax('GET', `/simulacion/partials/cards?tab=${currentTab}`, {
+            target: '#sim-tab-content',
+            swap: 'innerHTML'
+        });
     }, 700);
 </script>
