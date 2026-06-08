@@ -7,6 +7,7 @@ import pandas as pd
 from collections import defaultdict
 from core.permissions import user_has_module_access
 from core.timezone import now_mx
+from ..db_service import build_usuario_comercial_filter_sql
 
 logger = logging.getLogger("ComercialServices")
 
@@ -64,7 +65,7 @@ class DashboardService:
 
         # --- Filtros Globales ---
         if filtro_usuario_id:
-            conditions.append(f"COALESCE(o.responsable_comercial_id, o.creado_por_id) = ${len(params)+1}")
+            conditions.append(build_usuario_comercial_filter_sql(f"${len(params)+1}"))
             params.append(filtro_usuario_id)
             
         if filtro_tipo_id:

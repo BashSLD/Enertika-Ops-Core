@@ -16,6 +16,7 @@ from .constants import STATUS_PENDIENTE, DEFAULT_STATUS_ID_PENDIENTE
 import asyncio
 from core.config_service import ConfigService
 from .db_service import (
+    build_usuario_comercial_filter_sql,
     QUERY_GET_OPORTUNIDADES_LIST,
     QUERY_INSERT_OPORTUNIDAD,
     QUERY_INSERT_FOLLOWUP,
@@ -26,6 +27,7 @@ from .db_service import (
     QUERY_GET_OPORTUNIDAD_OWNER,
     QUERY_GET_OPORTUNIDAD_FROM_SITIO,
     QUERY_GET_USUARIOS_COMERCIAL,
+    QUERY_GET_USUARIOS_FILTRO_COMERCIAL,
     QUERY_GET_ALL_USUARIOS,
     QUERY_GET_USUARIOS_CON_ACCESO_COMERCIAL,
     QUERY_GET_TIPO_ACTUALIZACION_ID,
@@ -312,10 +314,14 @@ class ComercialService:
         
         return SLACalculator.calculate_deadline(fecha_creacion, hora_corte, dias_sla)
 
-    async def get_catalogos_ui(self, conn) -> dict:
+    async def get_catalogos_ui(self, conn, include_inactive_creators: bool = False) -> dict:
         """Recupera los catálogos para llenar los <select> del formulario y filtros."""
         # Cache Strategy (5 min TTL)
-        cache_key = "COMERCIAL_UI_CATALOGS"
+        cache_key = (
+            "COMERCIAL_UI_FILTER_CATALOGS"
+            if include_inactive_creators
+            else "COMERCIAL_UI_CATALOGS"
+        )
         cached = await ConfigService.get_cached_value(cache_key, ttl=300.0)
         if cached:
             return cached
@@ -323,7 +329,12 @@ class ComercialService:
         tecnologias = await conn.fetch(QUERY_GET_TECNOLOGIAS)
         tipos = await conn.fetch(QUERY_GET_TIPOS_SOLICITUD)
         estatus = await conn.fetch(QUERY_GET_ESTATUS_GLOBAL)
-        usuarios = await conn.fetch(QUERY_GET_USUARIOS_COMERCIAL)
+        usuarios_query = (
+            QUERY_GET_USUARIOS_FILTRO_COMERCIAL
+            if include_inactive_creators
+            else QUERY_GET_USUARIOS_COMERCIAL
+        )
+        usuarios = await conn.fetch(usuarios_query)
         
         data = {
             "tecnologias": [dict(t) for t in tecnologias],
@@ -752,7 +763,7 @@ class ComercialService:
 
         # --- Lógica de Filtros Globales ---
         if filtro_usuario_id:
-            query += f" AND COALESCE(o.responsable_comercial_id, o.creado_por_id) = ${param_idx}"
+            query += f" AND {build_usuario_comercial_filter_sql(f'${param_idx}')}"
             params.append(filtro_usuario_id)
             param_idx += 1
             

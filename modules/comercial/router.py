@@ -72,6 +72,7 @@ async def get_comercial_ui(
     """Main Entry: Shows the Tabbed Dashboard (Graphs + Records)."""
     user_name = context.get("user_name", "Usuario")
     role = context.get("role", "USER")
+    can_filter_creadores = role in ("ADMIN", "MANAGER")
     
     # Detección inteligente: HTMX devuelve tabs.html, carga completa devuelve dashboard.html
     # HX-History-Restore-Request: HTMX lo envía cuando restaura desde historial (Back/Forward)
@@ -84,7 +85,10 @@ async def get_comercial_ui(
         template = "comercial/dashboard.html"
         
     # Cargar catálogos para filtros globales
-    catalogos = await service.get_catalogos_ui(conn)
+    catalogos = await service.get_catalogos_ui(
+        conn,
+        include_inactive_creators=can_filter_creadores,
+    )
 
     # Verificar si debe mostrar el popup
     show_popup = await service.should_show_popup(conn, context.get("email"))
@@ -96,6 +100,7 @@ async def get_comercial_ui(
         "role": role,
         "module_roles": context.get("module_roles", {}),
         "current_module_role": context.get("module_roles", {}).get("comercial", "viewer"),
+        "can_filter_creadores": can_filter_creadores,
         "catalogos": catalogos,
         "show_custom_popup": show_popup,
         "borradores_count": borradores_count,

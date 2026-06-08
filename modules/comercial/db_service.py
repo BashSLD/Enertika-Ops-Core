@@ -1,6 +1,30 @@
 
 # SQL Queries for Commercial Module
 
+
+def _sql_nombre_normalizado(expression: str) -> str:
+    return f"lower(regexp_replace(trim({expression}), '\\\\s+', ' ', 'g'))"
+
+
+def build_usuario_comercial_filter_sql(param_ref: str, opportunity_alias: str = "o") -> str:
+    solicitado_por_norm = _sql_nombre_normalizado(f"{opportunity_alias}.solicitado_por")
+    usuario_nombre_norm = _sql_nombre_normalizado("u_filtro.nombre")
+    return f"""
+        (
+            {opportunity_alias}.creado_por_id = {param_ref}
+            OR {opportunity_alias}.solicitado_por_id = {param_ref}
+            OR (
+                {opportunity_alias}.solicitado_por_id IS NULL
+                AND EXISTS (
+                    SELECT 1
+                    FROM tb_usuarios u_filtro
+                    WHERE u_filtro.id_usuario = {param_ref}
+                      AND {solicitado_por_norm} = {usuario_nombre_norm}
+                )
+            )
+        )
+    """
+
 QUERY_GET_OPORTUNIDADES_LIST = """
     SELECT
         o.id_oportunidad, o.op_id_estandar, o.nombre_proyecto, o.cliente_nombre, o.canal_venta,
@@ -148,6 +172,41 @@ QUERY_GET_USUARIOS_COMERCIAL = """
     FROM tb_usuarios 
     WHERE is_active = true AND department IN ('Comercial')
     ORDER BY nombre
+"""
+
+QUERY_GET_USUARIOS_FILTRO_COMERCIAL = f"""
+    WITH usuarios_filtro AS (
+        SELECT
+            u.id_usuario AS id,
+            COALESCE(NULLIF(u.nombre, ''), u.email, 'Usuario sin nombre') AS nombre,
+            u.is_active
+        FROM tb_usuarios u
+        WHERE (u.is_active = true AND u.department IN ('Comercial'))
+           OR EXISTS (
+                SELECT 1
+                FROM tb_oportunidades o
+                WHERE o.email_enviado = true
+                  AND (
+                    o.creado_por_id = u.id_usuario
+                    OR o.solicitado_por_id = u.id_usuario
+                    OR (
+                        o.solicitado_por_id IS NULL
+                        AND o.solicitado_por IS NOT NULL
+                        AND {_sql_nombre_normalizado("o.solicitado_por")} =
+                            {_sql_nombre_normalizado("u.nombre")}
+                    )
+                  )
+           )
+    )
+    SELECT
+        id,
+        CASE
+            WHEN is_active THEN nombre
+            ELSE nombre || ' (inactivo)'
+        END AS nombre,
+        is_active
+    FROM usuarios_filtro
+    ORDER BY is_active DESC, nombre
 """
 QUERY_GET_ALL_USUARIOS = "SELECT id_usuario, nombre FROM tb_usuarios WHERE is_active = true ORDER BY nombre"
 
