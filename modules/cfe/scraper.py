@@ -15,6 +15,8 @@ from typing import Optional
 
 from playwright.async_api import async_playwright, Page, BrowserContext
 
+from modules.shared.services.cfe.extractor import extraer_datos_xml
+
 logger = logging.getLogger("CfeScraper")
 
 CFE_PUBLIC_URL = "https://app.cfe.mx/Aplicaciones/CCFE/ReciboDeLuzGMX/Consulta"
@@ -66,11 +68,17 @@ class DescargaResult:
     error: Optional[str] = None
 
 
+_cached_browser_path: Optional[str] = None
+
+
 def _pick_browser() -> Optional[str]:
-    for p in _BROWSER_PATHS:
-        if Path(p).exists():
-            return p
-    return None  # Playwright usará su propio Chromium gestionado
+    global _cached_browser_path
+    if _cached_browser_path is None:
+        for p in _BROWSER_PATHS:
+            if Path(p).exists():
+                _cached_browser_path = p
+                break
+    return _cached_browser_path
 
 
 async def _detect_block(page: Page) -> Optional[str]:
@@ -263,8 +271,11 @@ async def _download_period_pdf(page: Page, cfg: CfeScraperConfig, periodo: str) 
 
     candidate = next((c for c in candidates if target and target in c["periodText"]), candidates[0])
 
-    loc_id = candidate["id"].replace("$", r"\$") if candidate["id"] else ""
-    locator = page.locator(f"#{loc_id}") if loc_id else page.locator(f'a[href="{candidate["href"]}"]')
+    locator = (
+        page.locator(f"#{candidate['id'].replace('$', r'\$')}")
+        if candidate["id"]
+        else page.locator(f'a[href="{candidate["href"]}"]')
+    )
 
     if not await locator.count():
         raise ValueError("No se pudo localizar el enlace PDF en la página de MiEspacio.")
@@ -332,14 +343,14 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
                 await _fill_public_form(pub_page, cfg)
 
                 try:
-                    dl_promise = pub_page.wait_for_event("download", timeout=25_000)
+                    dl_promise = pub_page.wait_for_event("download", timeout=20_000)
                     await pub_page.click("#MainContent_btnContinuar", timeout=cfg.timeout_ms)
-                    download = await asyncio.wait_for(asyncio.ensure_future(dl_promise), timeout=25)
+                    download = await asyncio.wait_for(dl_promise, timeout=25)
                     tmp = await download.path()
                     if tmp:
                         result.xml_content = Path(tmp).read_bytes()
                         result.xml_filename = download.suggested_filename or "recibo.xml"
-                except (asyncio.TimeoutError, Exception):
+                except Exception:
                     pass
 
                 await pub_page.wait_for_load_state("networkidle", timeout=10_000)
@@ -375,7 +386,7 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
                 if cfg.session_json:
                     try:
                         ctx_opts["storage_state"] = json.loads(cfg.session_json)
-                    except (json.JSONDecodeError, Exception):
+                    except Exception:
                         logger.warning("Session JSON inválido, ignorando sesión guardada")
 
                 mi_ctx: BrowserContext = await browser.new_context(**ctx_opts)
@@ -392,7 +403,6 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
                     )
                     return result
 
-                from modules.shared.services.cfe.extractor import extraer_datos_xml
                 try:
                     receipt = extraer_datos_xml(result.xml_content, result.xml_filename)
                     total_val = receipt.get("cfdi", {}).get("total", 0)
@@ -411,7 +421,10 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
                 await mi_ctx.close()
 
             finally:
-                await browser.close()
+                try:
+                    await browser.close()
+                except Exception:
+                    pass
 
     except ValueError as exc:
         result.error = str(exc)
