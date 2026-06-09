@@ -1658,3 +1658,10 @@ async def actualizar_session_cfe(
             {"title": "Sesión CFE", "message": str(exc), "type": "error"},
             status_code=400,
         )
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error guardando sesión CFE: {exc}")
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"title": "Sesión CFE", "message": "Error al guardar la sesión.", "type": "error"},
+            status_code=500,
+        )
