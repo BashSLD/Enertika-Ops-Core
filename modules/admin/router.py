@@ -85,6 +85,8 @@ async def admin_dashboard(
     catalogos = await service.get_catalogos_reglas(conn)
     ubicaciones = await service.get_ubicaciones(conn)
     global_config = await service.get_global_config(conn)
+    cfe_cfg = await service.get_cfe_config(conn)
+    global_config.update(cfe_cfg)
     fiel_config = await service.db.fetch_fiel_config(conn)
     reporte = await service.generar_reporte_semanal(conn)
     recordatorios_monitor = await service.get_recordatorios_oportunidad_monitor(conn)
@@ -1610,3 +1612,49 @@ async def probar_fiel(
         {"message": message, "type": type_},
         headers={"HX-Reswap": "none"},
     )
+
+
+@router.post("/config/cfe", include_in_schema=False, response_class=HTMLResponse)
+async def actualizar_config_cfe(
+    request: Request,
+    cfe_miespacio_user: str = Form(""),
+    cfe_miespacio_pass: str = Form(""),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    _user=require_role(["ADMIN"]),
+):
+    try:
+        await service.update_cfe_config(conn, user=cfe_miespacio_user, password=cfe_miespacio_pass)
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"title": "Configuración CFE", "message": "Configuración CFE MiEspacio guardada.", "type": "success"},
+        )
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error guardando config CFE: {exc}")
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"title": "Configuración CFE", "message": "Error al guardar la configuración.", "type": "error"},
+            status_code=500,
+        )
+
+
+@router.post("/config/cfe/session", include_in_schema=False, response_class=HTMLResponse)
+async def actualizar_session_cfe(
+    request: Request,
+    cfe_session_json: str = Form(""),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    _user=require_role(["ADMIN"]),
+):
+    try:
+        await service.update_cfe_session(conn, session_json=cfe_session_json)
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"title": "Sesión CFE", "message": "Sesión CFE MiEspacio actualizada.", "type": "success"},
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"title": "Sesión CFE", "message": str(exc), "type": "error"},
+            status_code=400,
+        )
