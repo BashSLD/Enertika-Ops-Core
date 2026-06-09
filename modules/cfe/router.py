@@ -5,16 +5,17 @@ import logging
 from uuid import UUID
 
 import asyncpg
-from fastapi import APIRouter, Depends, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from core.database import get_db_connection
 from core.jinja_filters import register_timezone_filters
 from core.permissions import require_any_module_access
 from core.security import get_current_user_context
+from modules.shared.services.cfe import generar_excel_cfe_desde_uploads
 
-from .constants import CFE_MODULE_SLUGS
+from .constants import CFE_MODULE_SLUGS, CFE_PUBLIC_FORM_DEFAULTS
 from .service import get_cfe_service
 
 logger = logging.getLogger("CfeRouter")
@@ -37,10 +38,17 @@ async def cfe_ui(
     _=_editor,
 ):
     svc = get_cfe_service()
+    await svc.limpiar_errores_invalidos(conn)
     servicios = await svc.listar_servicios(conn)
     is_htmx = request.headers.get("hx-request")
     is_restore = request.headers.get("hx-history-restore-request")
-    ctx = {"servicios": servicios, "user": user}
+    ctx = {
+        "servicios": servicios,
+        "user": user,
+        "user_name": user.get("user_name"),
+        "role": user.get("role"),
+        "module_roles": user.get("module_roles", {}),
+    }
     template = "cfe/partials/lista_servicios.html" if (is_htmx and not is_restore) else "cfe/index.html"
     return templates.TemplateResponse(request, template, ctx)
 
@@ -49,7 +57,48 @@ async def cfe_ui(
 
 @router.get("/ui/modal-agregar", response_class=HTMLResponse)
 async def modal_agregar(request: Request, _=_editor):
-    return templates.TemplateResponse(request, "cfe/partials/modal_agregar_servicio.html", {})
+    return templates.TemplateResponse(
+        request,
+        "cfe/partials/modal_agregar_servicio.html",
+        {"contacto_defaults": CFE_PUBLIC_FORM_DEFAULTS},
+    )
+
+
+@router.get("/ui/modal-xml-excel", response_class=HTMLResponse)
+async def modal_xml_excel(
+    request: Request,
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    return templates.TemplateResponse(
+        request,
+        "shared/modals/cfe_upload_modal.html",
+        {
+            "module_slug": "cfe",
+            "module_label": "XML a Excel",
+            "post_url": "/cfe/xml-excel",
+            "accent": "blue",
+        },
+    )
+
+
+@router.get("/servicios/{servicio_id}/modal-buscar-periodos", response_class=HTMLResponse)
+async def modal_buscar_periodos(
+    request: Request,
+    servicio_id: UUID,
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
+    if not servicio:
+        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    return templates.TemplateResponse(
+        request,
+        "cfe/partials/modal_buscar_periodos.html",
+        {"servicio": servicio, "user": user},
+    )
 
 
 # ── Servicios ─────────────────────────────────────────────────────────────────
@@ -60,9 +109,9 @@ async def crear_servicio(
     numero_servicio: str = Form(...),
     nombre: str = Form(...),
     alias: str = Form(""),
-    lada: str = Form("55"),
-    telefono: str = Form(...),
-    email: str = Form(...),
+    lada: str = Form(CFE_PUBLIC_FORM_DEFAULTS["lada"]),
+    telefono: str = Form(CFE_PUBLIC_FORM_DEFAULTS["telefono"]),
+    email: str = Form(CFE_PUBLIC_FORM_DEFAULTS["email"]),
     conn=Depends(get_db_connection),
     user=Depends(get_current_user_context),
     _=_editor,
@@ -97,6 +146,34 @@ async def crear_servicio(
 
 # ── Descargas ─────────────────────────────────────────────────────────────────
 
+@router.post("/xml-excel", response_class=StreamingResponse, include_in_schema=False)
+async def generar_excel_desde_xml(
+    files: list[UploadFile] = File(...),
+    perfil: str = Form("oym"),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    try:
+        buffer = await generar_excel_cfe_desde_uploads(
+            files,
+            perfil_slug=perfil,
+            modo_calculo="calculado",
+        )
+    except ValueError as exc:
+        logger.warning(
+            "cfe_xml_excel_error usuario=%s error=%s",
+            user.get("user_db_id"),
+            exc,
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    return StreamingResponse(
+        buffer,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="recibos_cfe.xlsx"'},
+    )
+
+
 @router.get("/servicios/{servicio_id}/descargas", response_class=HTMLResponse)
 async def historial_descargas(
     request: Request,
@@ -109,6 +186,7 @@ async def historial_descargas(
     servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
     if not servicio:
         raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    await svc.limpiar_errores_invalidos(conn, servicio_id)
     descargas = await svc.db.get_descargas_por_servicio(conn, servicio_id)
     tiene_activo = any(d["estatus"] in ("pendiente", "descargando") for d in descargas)
     return templates.TemplateResponse(
@@ -142,6 +220,167 @@ async def iniciar_descarga(
     except asyncpg.PostgresError as exc:
         logger.error(f"Error de BD encolando descarga CFE para {servicio_id}: {exc}")
         toast_msg = "Error interno al encolar la descarga."
+        toast_type = "error"
+        status_code = 500
+    if servicio is None:
+        servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
+    descargas = await svc.db.get_descargas_por_servicio(conn, servicio_id)
+    return templates.TemplateResponse(
+        request, "cfe/partials/historial_descargas.html",
+        {"servicio": servicio, "descargas": descargas, "tiene_activo": tiene_activo,
+         "user": user, "_toast": {"message": toast_msg, "type": toast_type}},
+        status_code=status_code,
+    )
+
+
+@router.post("/servicios/{servicio_id}/buscar-periodos", response_class=HTMLResponse)
+async def iniciar_busqueda_periodos(
+    request: Request,
+    servicio_id: UUID,
+    max_periodos: int = Form(12),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    toast_type = "info"
+    toast_msg = ""
+    status_code = 200
+    busqueda = None
+    items: list[dict] = []
+    try:
+        toast_msg, servicio, busqueda = await svc.iniciar_busqueda_periodos(
+            conn, servicio_id, max_periodos, user["user_db_id"]
+        )
+    except ValueError as exc:
+        servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
+        toast_msg = str(exc)
+        toast_type = "error"
+        status_code = 400
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error de BD encolando busqueda CFE para {servicio_id}: {exc}")
+        servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
+        toast_msg = "Error interno al encolar la busqueda."
+        toast_type = "error"
+        status_code = 500
+    if not servicio:
+        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    return templates.TemplateResponse(
+        request,
+        "cfe/partials/busqueda_periodos.html",
+        {
+            "servicio": servicio,
+            "busqueda": busqueda,
+            "items": items,
+            "user": user,
+            "_toast": {"message": toast_msg, "type": toast_type},
+        },
+        status_code=status_code,
+    )
+
+
+@router.get("/servicios/{servicio_id}/busquedas/{busqueda_id}", response_class=HTMLResponse)
+async def ver_busqueda_periodos(
+    request: Request,
+    servicio_id: UUID,
+    busqueda_id: UUID,
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
+    if not servicio:
+        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    try:
+        busqueda, items = await svc.get_busqueda_periodos(conn, servicio_id, busqueda_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    return templates.TemplateResponse(
+        request,
+        "cfe/partials/busqueda_periodos.html",
+        {"servicio": servicio, "busqueda": busqueda, "items": items, "user": user},
+    )
+
+
+@router.post("/servicios/{servicio_id}/busquedas/{busqueda_id}/confirmar", response_class=HTMLResponse)
+async def confirmar_busqueda_periodos(
+    request: Request,
+    servicio_id: UUID,
+    busqueda_id: UUID,
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    form = await request.form()
+    periodos = [str(value) for value in form.getlist("periodos")]
+    toast_type = "success"
+    toast_msg = "Periodos seleccionados conservados."
+    status_code = 200
+    try:
+        await svc.confirmar_busqueda_periodos(
+            conn, servicio_id, busqueda_id, periodos, user["user_db_id"]
+        )
+    except ValueError as exc:
+        toast_msg = str(exc)
+        toast_type = "error"
+        status_code = 400
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error de BD confirmando busqueda CFE {busqueda_id}: {exc}")
+        toast_msg = "Error interno al confirmar la busqueda."
+        toast_type = "error"
+        status_code = 500
+
+    servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
+    if not servicio:
+        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    busqueda, items = await svc.get_busqueda_periodos(conn, servicio_id, busqueda_id)
+    descargas = await svc.db.get_descargas_por_servicio(conn, servicio_id)
+    tiene_activo = any(d["estatus"] in ("pendiente", "descargando") for d in descargas)
+    return templates.TemplateResponse(
+        request,
+        "cfe/partials/busqueda_confirmada.html",
+        {
+            "servicio": servicio,
+            "busqueda": busqueda,
+            "items": items,
+            "descargas": descargas,
+            "tiene_activo": tiene_activo,
+            "user": user,
+            "_toast": {"message": toast_msg, "type": toast_type},
+        },
+        status_code=status_code,
+    )
+
+
+@router.post("/servicios/{servicio_id}/descargas/{periodo}/reintentar-pdf", response_class=HTMLResponse)
+async def reintentar_pdf(
+    request: Request,
+    servicio_id: UUID,
+    periodo: str,
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    servicio = None
+    tiene_activo = False
+    toast_type = "info"
+    toast_msg = ""
+    status_code = 200
+    try:
+        toast_msg, servicio = await svc.iniciar_descarga_pdf(
+            conn, servicio_id, periodo, user["user_db_id"]
+        )
+        tiene_activo = True
+    except ValueError as exc:
+        toast_msg = str(exc)
+        toast_type = "error"
+        status_code = 400
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error de BD encolando PDF CFE para {servicio_id}/{periodo}: {exc}")
+        toast_msg = "Error interno al encolar la descarga del PDF."
         toast_type = "error"
         status_code = 500
     if servicio is None:

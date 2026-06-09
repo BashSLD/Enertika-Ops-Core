@@ -28,24 +28,20 @@
                     <input type="text" name="nombre" required placeholder="Nombre exacto en el recibo CFE"
                         class="w-full rounded-lg border-gray-300 px-3 py-2 uppercase placeholder:normal-case focus:ring-yellow-500 focus:border-yellow-500">
                 </div>
-                <div>
+                <div class="col-span-2">
                     <label class="block text-sm font-bold text-gray-700 mb-1">Alias / Nombre corto</label>
                     <input type="text" name="alias" placeholder="Ej: Planta Norte"
                         class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
                 </div>
-                <div>
-                    <label class="block text-sm font-bold text-gray-700 mb-1">Lada <span class="text-red-500">*</span></label>
-                    <input type="text" name="lada" value="55" required maxlength="4"
-                        class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
-                </div>
-                <div>
+                <input type="hidden" name="lada" value="{{ contacto_defaults.lada }}">
+                <div class="hidden">
                     <label class="block text-sm font-bold text-gray-700 mb-1">Teléfono <span class="text-red-500">*</span></label>
-                    <input type="text" name="telefono" required placeholder="55123456"
+                    <input type="hidden" name="telefono" value="{{ contacto_defaults.telefono }}"
                         class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
                 </div>
-                <div>
+                <div class="hidden">
                     <label class="block text-sm font-bold text-gray-700 mb-1">Correo de contacto <span class="text-red-500">*</span></label>
-                    <input type="email" name="email" required placeholder="correo@empresa.com"
+                    <input type="hidden" name="email" value="{{ contacto_defaults.email }}"
                         class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
                 </div>
             </div>

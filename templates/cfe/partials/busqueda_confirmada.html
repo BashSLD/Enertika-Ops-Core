@@ -1,0 +1,50 @@
+{# templates/cfe/partials/busqueda_confirmada.html #}
+<div id="historial-{{ servicio.id }}" hx-swap-oob="innerHTML" class="mt-4">
+    {% include "cfe/partials/historial_descargas.html" %}
+</div>
+
+<div class="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+     id="cfe-busqueda-confirmada-modal">
+    <div class="w-full max-w-xl bg-white rounded-xl shadow-2xl">
+        <div class="{% if _toast.type == 'error' %}bg-red-700{% else %}bg-green-700{% endif %} px-6 py-4 rounded-t-xl">
+            <h3 class="text-lg font-bold text-white">Resultado de busqueda CFE</h3>
+        </div>
+        <div class="p-6">
+            {% if _toast is defined %}
+            <div class="{% if _toast.type == 'error' %}border-red-200 bg-red-50 text-red-700{% else %}border-green-200 bg-green-50 text-green-700{% endif %} rounded-lg border p-3 text-sm">
+                {{ _toast.message }}
+            </div>
+            {% endif %}
+
+            <div class="mt-4 max-h-64 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
+                {% for item in items %}
+                <div class="p-3 flex items-center justify-between gap-4">
+                    <div>
+                        <p class="font-mono text-sm text-gray-900">{{ item.periodo }}</p>
+                        {% if item.etiqueta_periodo %}
+                        <p class="text-xs text-gray-500">{{ item.etiqueta_periodo }}</p>
+                        {% endif %}
+                    </div>
+                    <span class="text-xs px-2 py-1 rounded
+                        {% if item.decision == 'conservado' %}bg-green-50 text-green-700
+                        {% elif item.decision == 'descartado' %}bg-gray-100 text-gray-600
+                        {% elif item.decision == 'no_aplica' %}bg-blue-50 text-blue-700
+                        {% else %}bg-yellow-50 text-yellow-700{% endif %}">
+                        {% if item.decision == 'conservado' %}Conservado
+                        {% elif item.decision == 'descartado' %}Descartado
+                        {% elif item.decision == 'no_aplica' %}Ya registrado
+                        {% else %}Pendiente{% endif %}
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+
+            <div class="flex justify-end mt-5">
+                <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
+                        class="px-4 py-2 text-sm font-medium text-white bg-gray-800 hover:bg-gray-900 rounded-lg">
+                    Cerrar
+                </button>
+            </div>
+        </div>
+    </div>
+</div>

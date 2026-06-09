@@ -1,0 +1,110 @@
+{# templates/cfe/partials/busqueda_periodos.html #}
+<div id="cfe-busqueda-body"
+     {% if busqueda and busqueda.estatus in ['pendiente', 'descargando'] %}
+     hx-get="/cfe/servicios/{{ servicio.id }}/busquedas/{{ busqueda.id }}"
+     hx-trigger="every 4s"
+     hx-swap="outerHTML"
+     {% endif %}
+     class="p-6">
+    {% if _toast is defined %}
+    {% with message=_toast.message, type=_toast.type, title=_toast.title|default('Recibos CFE') %}
+    {% include "shared/toast.html" %}
+    {% endwith %}
+    {% endif %}
+
+    {% if not busqueda %}
+    <div class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        No se pudo iniciar la busqueda.
+    </div>
+    <div class="flex justify-end mt-4">
+        <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
+                class="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
+            Cerrar
+        </button>
+    </div>
+    {% elif busqueda.estatus in ['pendiente', 'descargando'] %}
+    <div class="flex items-center gap-3 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
+        <svg class="animate-spin h-5 w-5 text-yellow-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <div>
+            <p class="text-sm font-semibold text-yellow-900">Descargando periodos detectados...</p>
+            <p class="text-xs text-yellow-700 mt-0.5">Buscando hasta {{ busqueda.max_periodos }} periodos para {{ servicio.nombre }}.</p>
+        </div>
+    </div>
+    {% elif busqueda.estatus == 'error' %}
+    <div class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        {{ busqueda.mensaje_error or 'No se pudo completar la busqueda.' }}
+    </div>
+    <div class="flex justify-end mt-4">
+        <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
+                class="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
+            Cerrar
+        </button>
+    </div>
+    {% else %}
+    <div class="mb-4">
+        <p class="text-sm font-semibold text-gray-900">Periodos encontrados</p>
+        <p class="text-xs text-gray-500 mt-0.5">
+            Selecciona los periodos que quieres conservar. Los que ya existen no se pueden seleccionar.
+        </p>
+    </div>
+
+    {% if not items %}
+    <div class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-600">
+        No se encontraron periodos para revisar.
+    </div>
+    {% else %}
+    <form hx-post="/cfe/servicios/{{ servicio.id }}/busquedas/{{ busqueda.id }}/confirmar"
+          hx-target="#cfe-modal-container"
+          hx-swap="innerHTML">
+        <div class="max-h-96 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
+            {% for item in items %}
+            {% set ya_completo = item.ya_descargado_xml and item.ya_descargado_pdf %}
+            {% set tiene_staging = item.xml_estatus == 'descargado' or item.pdf_estatus == 'descargado' %}
+            {% set seleccionable = tiene_staging and not ya_completo %}
+            <label class="flex items-start gap-3 p-3 {% if seleccionable %}hover:bg-gray-50 cursor-pointer{% else %}bg-gray-50 cursor-not-allowed{% endif %}">
+                <input type="checkbox" name="periodos" value="{{ item.periodo }}"
+                       {% if not seleccionable %}disabled{% else %}checked{% endif %}
+                       class="mt-1 text-yellow-700 focus:ring-yellow-600 rounded">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                        <span class="font-mono text-sm text-gray-900">{{ item.periodo }}</span>
+                        {% if item.etiqueta_periodo %}
+                        <span class="text-xs text-gray-500">{{ item.etiqueta_periodo }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                        <span class="{% if item.xml_estatus in ['descargado','ya_descargado'] %}text-green-700 bg-green-50{% elif item.xml_estatus == 'error' %}text-red-700 bg-red-50{% else %}text-gray-600 bg-gray-100{% endif %} px-2 py-0.5 rounded">
+                            XML: {% if item.xml_estatus == 'ya_descargado' %}ya descargado{% elif item.xml_estatus == 'descargado' %}descargado{% elif item.xml_estatus == 'error' %}error{% else %}no disponible{% endif %}
+                        </span>
+                        <span class="{% if item.pdf_estatus in ['descargado','ya_descargado'] %}text-green-700 bg-green-50{% elif item.pdf_estatus == 'error' %}text-red-700 bg-red-50{% else %}text-gray-600 bg-gray-100{% endif %} px-2 py-0.5 rounded">
+                            PDF: {% if item.pdf_estatus == 'ya_descargado' %}ya descargado{% elif item.pdf_estatus == 'descargado' %}descargado{% elif item.pdf_estatus == 'error' %}error{% else %}no disponible{% endif %}
+                        </span>
+                        {% if ya_completo %}
+                        <span class="text-gray-600 bg-gray-100 px-2 py-0.5 rounded">Registrado</span>
+                        {% endif %}
+                    </div>
+                    {% if item.error_mensaje %}
+                    <p class="text-xs text-red-600 mt-1 truncate" title="{{ item.error_mensaje }}">{{ item.error_mensaje }}</p>
+                    {% endif %}
+                </div>
+            </label>
+            {% endfor %}
+        </div>
+
+        <div class="flex justify-end gap-3 mt-5">
+            <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
+                    class="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
+                Cancelar
+            </button>
+            <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-yellow-700 hover:bg-yellow-800 rounded-lg">
+                Conservar seleccionados
+            </button>
+        </div>
+    </form>
+    {% endif %}
+    {% endif %}
+</div>

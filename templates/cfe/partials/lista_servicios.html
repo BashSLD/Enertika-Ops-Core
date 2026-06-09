@@ -11,16 +11,29 @@
             <h1 class="text-xl font-bold text-gray-900">Recibos CFE</h1>
             <p class="text-sm text-gray-500 mt-0.5">Descarga y gestión de recibos de luz por servicio</p>
         </div>
-        <button type="button"
-            hx-get="/cfe/ui/modal-agregar"
-            hx-target="#cfe-modal-container"
-            hx-swap="innerHTML"
-            class="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
-            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
-            </svg>
-            Agregar Servicio
-        </button>
+        <div class="flex items-center gap-2">
+            <button type="button"
+                hx-get="/cfe/ui/modal-xml-excel"
+                hx-target="#cfe-modal-container"
+                hx-swap="innerHTML"
+                class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                </svg>
+                XML a Excel
+            </button>
+            <button type="button"
+                hx-get="/cfe/ui/modal-agregar"
+                hx-target="#cfe-modal-container"
+                hx-swap="innerHTML"
+                class="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                Agregar Servicio
+            </button>
+        </div>
     </div>
 
     <div id="cfe-modal-container"></div>
@@ -60,12 +73,12 @@
                     </span>
                     {% endif %}
                     <button type="button"
-                        hx-post="/cfe/servicios/{{ s.id }}/descargar"
-                        hx-target="#historial-{{ s.id }}"
+                        hx-get="/cfe/servicios/{{ s.id }}/modal-buscar-periodos"
+                        hx-target="#cfe-modal-container"
                         hx-swap="innerHTML"
                         {% if s.tiene_pendiente %}disabled{% endif %}
                         class="text-xs bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
-                        Descargar periodo actual
+                        Buscar periodos
                     </button>
                     <button type="button"
                         @click="expanded = !expanded"
