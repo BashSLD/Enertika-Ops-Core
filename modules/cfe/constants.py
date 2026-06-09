@@ -6,8 +6,15 @@ CFE_CONFIG_KEYS = {
     "session_json":  "CFE_MIESPACIO_SESSION_JSON",
 }
 
+CFE_PUBLIC_FORM_DEFAULTS = {
+    "lada": "55",
+    "telefono": "12345678",
+    "email": "correo@dominio.com",
+}
+
 # SharePoint: Recibos CFE/{numero_servicio}/{periodo}/
 SHAREPOINT_CFE_ROOT = "Recibos CFE"
+SHAREPOINT_CFE_STAGING_ROOT = f"{SHAREPOINT_CFE_ROOT}/_staging"
 
 # Módulos con acceso a esta funcionalidad
 CFE_MODULE_SLUGS = ["oym", "simulacion"]
