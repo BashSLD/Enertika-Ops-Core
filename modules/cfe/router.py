@@ -127,12 +127,13 @@ async def iniciar_descarga(
     _=_editor,
 ):
     svc = get_cfe_service()
+    servicio = None
     tiene_activo = False
     toast_type = "info"
     toast_msg = ""
     status_code = 200
     try:
-        toast_msg = await svc.iniciar_descarga(conn, servicio_id, user["user_db_id"])
+        toast_msg, servicio = await svc.iniciar_descarga(conn, servicio_id, user["user_db_id"])
         tiene_activo = True
     except ValueError as exc:
         toast_msg = str(exc)
@@ -143,7 +144,8 @@ async def iniciar_descarga(
         toast_msg = "Error interno al encolar la descarga."
         toast_type = "error"
         status_code = 500
-    servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
+    if servicio is None:
+        servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
     descargas = await svc.db.get_descargas_por_servicio(conn, servicio_id)
     return templates.TemplateResponse(
         request, "cfe/partials/historial_descargas.html",

@@ -16,6 +16,7 @@ from .constants import ROLES_ORGANIZACIONALES_VALIDOS
 from core.config_service import ConfigService
 from core.microsoft import MicrosoftAuth
 from modules.asistencia.constants import BIOTIME_CONFIG_KEYS
+from modules.cfe.constants import CFE_CONFIG_KEYS
 from .permission_utils import validate_module_roles
 
 logger = logging.getLogger("AdminModule")
@@ -909,7 +910,6 @@ class AdminService:
 
 
     async def get_cfe_config(self, conn) -> dict:
-        from modules.cfe.constants import CFE_CONFIG_KEYS
         user = await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["mi_user"], "", str)
         has_pass = bool(
             await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["mi_pass"], "", str)
@@ -920,7 +920,6 @@ class AdminService:
         return {"cfe_user": user, "cfe_has_pass": has_pass, "cfe_has_session": has_session}
 
     async def update_cfe_config(self, conn, *, user: str, password: str) -> None:
-        from modules.cfe.constants import CFE_CONFIG_KEYS
         updates = [(CFE_CONFIG_KEYS["mi_user"], user.strip())]
         if password.strip():
             updates.append((CFE_CONFIG_KEYS["mi_pass"], password.strip()))
@@ -931,14 +930,12 @@ class AdminService:
 
     async def update_cfe_session(self, conn, *, session_json: str) -> None:
         """Guarda el state.json de MiEspacio pegado por un admin (renovacion manual de sesion)."""
-        import json as _json
-        from modules.cfe.constants import CFE_CONFIG_KEYS
         raw = session_json.strip()
         if not raw:
             raise ValueError("Pega el contenido del state.json de la sesion.")
         try:
-            _json.loads(raw)
-        except _json.JSONDecodeError:
+            json.loads(raw)
+        except json.JSONDecodeError:
             raise ValueError("El contenido pegado no es un JSON valido.")
         await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_json"], raw)
         ConfigService.invalidar_cache()

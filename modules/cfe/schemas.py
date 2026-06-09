@@ -1,9 +1,10 @@
 # modules/cfe/schemas.py
 from __future__ import annotations
+from datetime import datetime
 from typing import Optional
 from uuid import UUID
-from datetime import datetime
-from pydantic import BaseModel
+
+from pydantic import BaseModel, ConfigDict
 
 
 class CfeServicioCreate(BaseModel):
@@ -15,18 +16,12 @@ class CfeServicioCreate(BaseModel):
     email: str
 
 
-class CfeServicioRow(BaseModel):
+class CfeServicioRow(CfeServicioCreate):
     id: UUID
-    numero_servicio: str
-    nombre: str
-    alias: Optional[str]
-    lada: str
-    telefono: str
-    email: str
     activo: bool
     creado_en: datetime
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)
 
 
 class CfeDescargaRow(BaseModel):
@@ -40,4 +35,4 @@ class CfeDescargaRow(BaseModel):
     error_mensaje: Optional[str]
     descargado_en: Optional[datetime]
 
-    model_config = {"from_attributes": True}
+    model_config = ConfigDict(from_attributes=True)

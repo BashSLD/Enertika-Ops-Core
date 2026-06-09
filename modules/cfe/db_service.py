@@ -121,16 +121,6 @@ class CfeDBService:
         )
         return row is not None
 
-    async def upsert_config(self, conn: asyncpg.Connection, clave: str, valor: str) -> None:
-        await conn.execute(
-            """
-            INSERT INTO tb_configuracion_global (clave, valor)
-            VALUES ($1, $2)
-            ON CONFLICT (clave) DO UPDATE SET valor = EXCLUDED.valor
-            """,
-            clave, valor,
-        )
-
     async def reclamar_trabajo(self, conn: asyncpg.Connection) -> Optional[dict]:
         row = await conn.fetchrow(
             """
