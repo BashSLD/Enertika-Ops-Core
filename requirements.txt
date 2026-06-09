@@ -41,3 +41,6 @@ python-dateutil>=2.8,<3.0
 
 # SAT CFDI
 satcfdi>=4.9,<5.0
+
+# Web Scraping CFE
+playwright==1.44.0

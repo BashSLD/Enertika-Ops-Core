@@ -1,5 +1,5 @@
 [build]
-builder = "dockerfile"
+buildCommand = "pip install -r requirements.txt && playwright install chromium --with-deps"
 
 [deploy]
 startCommand = "python worker.py"

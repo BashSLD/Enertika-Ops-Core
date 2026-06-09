@@ -105,6 +105,9 @@ app.include_router(ingenieria_router.router)
 from modules.oym import router as oym_router
 app.include_router(oym_router.router)
 
+from modules.cfe.router import router as cfe_router
+app.include_router(cfe_router)
+
 from modules.calculadora_polizas import router as calculadora_polizas_router
 app.include_router(calculadora_polizas_router.router)
 app.include_router(calculadora_polizas_router.oym_router)
