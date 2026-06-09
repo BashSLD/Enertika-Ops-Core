@@ -388,6 +388,32 @@ class SharePointService:
         config = await self._resolve_config(conn)
         return await self._fetch_item_bytes(drive_item_id, config.get("drive_id"), config.get("site_id"))
 
+    async def delete_file_by_item_id(self, conn, drive_item_id: str) -> bool:
+        """Borra un archivo por drive_item_id. Retorna True si se borro o ya no existia."""
+        config = await self._resolve_config(conn)
+        drive_id = config.get("drive_id")
+        site_id = config.get("site_id")
+        if drive_id:
+            url = f"{self.BASE_URL}/drives/{drive_id}/items/{drive_item_id}"
+        elif site_id:
+            url = f"{self.BASE_URL}/sites/{site_id}/drive/items/{drive_item_id}"
+        else:
+            raise ValueError("drive_id o site_id requerido en SharePointService")
+
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.delete(url, headers=headers)
+            if resp.status_code in (204, 404):
+                return True
+            logger.error(
+                "Error borrando archivo SP item_id=%s: %s %s",
+                drive_item_id,
+                resp.status_code,
+                resp.text[:200],
+            )
+            resp.raise_for_status()
+            return False
+
     async def download_bytes_direct_by_item_id(self, drive_item_id: str) -> bytes:
         """Descarga por item_id usando self.drive_id / self.site_id ya resueltos (sin conn)."""
         return await self._fetch_item_bytes(drive_item_id, self.drive_id, self.site_id)
