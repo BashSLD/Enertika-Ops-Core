@@ -13,6 +13,7 @@ from fastapi.templating import Jinja2Templates
 from openpyxl.styles import Font, PatternFill
 
 from core.database import get_db_connection
+from core.jinja_filters import register_timezone_filters
 from core.permissions import require_manager_access, require_module_access
 from core.security import get_current_user_context
 from modules.asistencia import db_service as asistencia_db
@@ -27,6 +28,7 @@ from core.timezone import fmt_time_mx, today_mx
 logger = logging.getLogger("rrhh.router")
 router = APIRouter(prefix="/rrhh", tags=["rrhh"])
 templates = Jinja2Templates(directory="templates")
+register_timezone_filters(templates.env)
 
 RRHH_TAB_ENDPOINTS = {
     "asistencia": "/rrhh/asistencia",
