@@ -1,0 +1,220 @@
+# modules/cfe/router.py
+from __future__ import annotations
+
+import logging
+from uuid import UUID
+
+import asyncpg
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.templating import Jinja2Templates
+
+from core.database import get_db_connection
+from core.jinja_filters import register_timezone_filters
+from core.permissions import require_any_module_access
+from core.security import get_current_user_context
+
+from .constants import CFE_MODULE_SLUGS
+from .service import get_cfe_service
+
+logger = logging.getLogger("CfeRouter")
+
+router = APIRouter(prefix="/cfe", tags=["CFE"])
+templates = Jinja2Templates(directory="templates")
+register_timezone_filters(templates.env)
+
+# require_any_module_access YA retorna Depends() (core/permissions.py). NO envolver en Depends().
+_editor = require_any_module_access(CFE_MODULE_SLUGS, min_role="editor")
+
+
+# ── UI principal ──────────────────────────────────────────────────────────────
+
+@router.get("/ui", response_class=HTMLResponse)
+async def cfe_ui(
+    request: Request,
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    servicios = await svc.listar_servicios(conn)
+    is_htmx = request.headers.get("hx-request")
+    is_restore = request.headers.get("hx-history-restore-request")
+    ctx = {"servicios": servicios, "user": user}
+    template = "cfe/partials/lista_servicios.html" if (is_htmx and not is_restore) else "cfe/index.html"
+    return templates.TemplateResponse(request, template, ctx)
+
+
+# ── Modal agregar ─────────────────────────────────────────────────────────────
+
+@router.get("/ui/modal-agregar", response_class=HTMLResponse)
+async def modal_agregar(request: Request, _=_editor):
+    return templates.TemplateResponse(request, "cfe/partials/modal_agregar_servicio.html", {})
+
+
+# ── Servicios ─────────────────────────────────────────────────────────────────
+
+@router.post("/servicios", response_class=HTMLResponse)
+async def crear_servicio(
+    request: Request,
+    numero_servicio: str = Form(...),
+    nombre: str = Form(...),
+    alias: str = Form(""),
+    lada: str = Form("55"),
+    telefono: str = Form(...),
+    email: str = Form(...),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    toast_type = "success"
+    toast_msg = f"Servicio {numero_servicio} registrado."
+    status_code = 200
+    try:
+        await svc.crear_servicio(
+            conn, numero_servicio=numero_servicio.strip(), nombre=nombre.strip(),
+            alias=alias.strip() or None, lada=lada.strip(), telefono=telefono.strip(),
+            email=email.strip(), usuario_id=user["user_db_id"],
+        )
+    except ValueError as exc:
+        toast_msg = str(exc)
+        toast_type = "error"
+        status_code = 400
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error de BD creando servicio CFE: {exc}")
+        toast_msg = "Error interno al registrar el servicio."
+        toast_type = "error"
+        status_code = 500
+    servicios = await svc.listar_servicios(conn)
+    return templates.TemplateResponse(
+        request, "cfe/partials/lista_servicios.html",
+        {"servicios": servicios, "user": user,
+         "_toast": {"message": toast_msg, "type": toast_type}},
+        status_code=status_code,
+    )
+
+
+# ── Descargas ─────────────────────────────────────────────────────────────────
+
+@router.get("/servicios/{servicio_id}/descargas", response_class=HTMLResponse)
+async def historial_descargas(
+    request: Request,
+    servicio_id: UUID,
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
+    if not servicio:
+        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    descargas = await svc.db.get_descargas_por_servicio(conn, servicio_id)
+    tiene_activo = any(d["estatus"] in ("pendiente", "descargando") for d in descargas)
+    return templates.TemplateResponse(
+        request, "cfe/partials/historial_descargas.html",
+        {"servicio": servicio, "descargas": descargas,
+         "tiene_activo": tiene_activo, "user": user},
+    )
+
+
+@router.post("/servicios/{servicio_id}/descargar", response_class=HTMLResponse)
+async def iniciar_descarga(
+    request: Request,
+    servicio_id: UUID,
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    tiene_activo = False
+    toast_type = "info"
+    toast_msg = ""
+    status_code = 200
+    try:
+        toast_msg = await svc.iniciar_descarga(conn, servicio_id, user["user_db_id"])
+        tiene_activo = True
+    except ValueError as exc:
+        toast_msg = str(exc)
+        toast_type = "error"
+        status_code = 400
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error de BD encolando descarga CFE para {servicio_id}: {exc}")
+        toast_msg = "Error interno al encolar la descarga."
+        toast_type = "error"
+        status_code = 500
+    servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
+    descargas = await svc.db.get_descargas_por_servicio(conn, servicio_id)
+    return templates.TemplateResponse(
+        request, "cfe/partials/historial_descargas.html",
+        {"servicio": servicio, "descargas": descargas, "tiene_activo": tiene_activo,
+         "user": user, "_toast": {"message": toast_msg, "type": toast_type}},
+        status_code=status_code,
+    )
+
+
+# ── Vista previa ──────────────────────────────────────────────────────────────
+
+@router.get("/servicios/{servicio_id}/descargas/{descarga_id}/preview")
+async def preview_descarga(
+    servicio_id: UUID,
+    descarga_id: UUID,
+    conn=Depends(get_db_connection),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    url = await svc.get_url_preview(conn, descarga_id, servicio_id)
+    if not url:
+        raise HTTPException(status_code=404, detail="Archivo no encontrado")
+    return RedirectResponse(url=url, status_code=303)
+
+
+# ── Modal Excel ───────────────────────────────────────────────────────────────
+
+@router.get("/servicios/{servicio_id}/modal-excel", response_class=HTMLResponse)
+async def modal_excel(
+    request: Request,
+    servicio_id: UUID,
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
+    descargas_xml = [
+        d for d in await svc.db.get_descargas_por_servicio(conn, servicio_id)
+        if d["tipo"] == "xml" and d["estatus"] == "completado"
+    ]
+    periodos = sorted({d["periodo"] for d in descargas_xml}, reverse=True)
+    return templates.TemplateResponse(
+        request, "cfe/partials/modal_excel.html",
+        {"servicio": servicio, "periodos": periodos},
+    )
+
+
+# ── Excel ─────────────────────────────────────────────────────────────────────
+
+@router.post("/servicios/{servicio_id}/excel")
+async def generar_excel(
+    servicio_id: UUID,
+    periodos: list[str] = Form(...),
+    perfil: str = Form("oym"),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
+    if not servicio:
+        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    try:
+        xlsx_bytes = await svc.generar_excel(conn, servicio_id, periodos, perfil)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    nombre = f"CFE_{servicio['numero_servicio']}.xlsx"
+    return Response(
+        content=xlsx_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )

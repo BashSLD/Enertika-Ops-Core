@@ -1,0 +1,103 @@
+{# templates/cfe/partials/historial_descargas.html #}
+{% if _toast is defined %}
+{% with message=_toast.message, type=_toast.type, title=_toast.title|default('Recibos CFE') %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+{% macro celda_descarga(row, servicio_id) %}
+<td class="py-2 text-center">
+    {% if row and row.estatus == 'completado' %}
+    <a href="/cfe/servicios/{{ servicio_id }}/descargas/{{ row.id }}/preview"
+       target="_blank" rel="noopener"
+       class="text-blue-600 hover:underline text-xs">Ver</a>
+    {% elif row and row.estatus == 'error' %}
+    <span class="text-red-500 text-xs" title="{{ row.error_mensaje }}">Error</span>
+    {% elif row %}
+    <span class="text-yellow-500 text-xs">Descargando...</span>
+    {% else %}
+    <span class="text-gray-300 text-xs">—</span>
+    {% endif %}
+</td>
+{% endmacro %}
+
+{% if tiene_activo %}
+<div hx-get="/cfe/servicios/{{ servicio.id }}/descargas"
+     hx-trigger="every 4s"
+     hx-swap="outerHTML">
+{% else %}
+<div>
+{% endif %}
+
+{% if not descargas %}
+<p class="text-sm text-gray-400 py-2">Sin descargas registradas para este servicio.</p>
+{% else %}
+{% set periodos_vistos = descargas | selectattr('tipo', 'equalto', 'xml') | map(attribute='periodo') | list %}
+
+<div class="mt-2 space-y-2">
+    <div class="flex items-center justify-between mb-3">
+        <span class="text-sm font-medium text-gray-700">Periodos descargados</span>
+        {% set completados = descargas | selectattr('estatus', 'equalto', 'completado') | selectattr('tipo', 'equalto', 'xml') | list %}
+        {% if completados %}
+        <button type="button"
+            hx-get="/cfe/servicios/{{ servicio.id }}/modal-excel"
+            hx-target="#cfe-modal-container"
+            hx-swap="innerHTML"
+            class="text-xs text-yellow-700 hover:text-yellow-900 font-medium border border-yellow-300 px-3 py-1 rounded-lg transition-colors">
+            Generar Excel
+        </button>
+        {% endif %}
+    </div>
+
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="text-left text-xs text-gray-500 border-b border-gray-100">
+                    <th class="pb-2 font-medium">Periodo</th>
+                    <th class="pb-2 font-medium text-center">XML</th>
+                    <th class="pb-2 font-medium text-center">PDF</th>
+                    <th class="pb-2 font-medium">Estado</th>
+                    <th class="pb-2 font-medium">Fecha</th>
+                    <th class="pb-2 font-medium"></th>
+                </tr>
+            </thead>
+            <tbody class="divide-y divide-gray-50">
+            {% for periodo in periodos_vistos | sort(reverse=true) %}
+            {% set xml_row = descargas | selectattr('periodo', 'equalto', periodo) | selectattr('tipo', 'equalto', 'xml') | first | default(none) %}
+            {% set pdf_row = descargas | selectattr('periodo', 'equalto', periodo) | selectattr('tipo', 'equalto', 'pdf') | first | default(none) %}
+            <tr class="hover:bg-gray-50">
+                <td class="py-2 font-mono text-gray-700">{{ periodo }}</td>
+                {{ celda_descarga(xml_row, servicio.id) }}
+                {{ celda_descarga(pdf_row, servicio.id) }}
+                <td class="py-2">
+                    {% if xml_row and xml_row.estatus == 'error' %}
+                    <div class="text-xs text-red-600 max-w-xs truncate" title="{{ xml_row.error_mensaje }}">
+                        {{ xml_row.error_mensaje }}
+                    </div>
+                    {% elif xml_row and xml_row.estatus == 'completado' %}
+                    <span class="text-xs text-green-600">Completado</span>
+                    {% elif xml_row %}
+                    <span class="text-xs text-yellow-600">En progreso</span>
+                    {% endif %}
+                </td>
+                <td class="py-2 text-xs text-gray-400">
+                    {% if xml_row and xml_row.descargado_en %}{{ xml_row.descargado_en | time_mx('%d/%m/%Y') }}{% endif %}
+                </td>
+                <td class="py-2 text-right">
+                    {% if xml_row and xml_row.estatus == 'error' %}
+                    <button type="button"
+                        hx-post="/cfe/servicios/{{ servicio.id }}/descargar"
+                        hx-target="closest div[id^='historial']"
+                        hx-swap="innerHTML"
+                        class="text-xs text-yellow-700 hover:text-yellow-900 font-medium">
+                        Reintentar
+                    </button>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+</div>

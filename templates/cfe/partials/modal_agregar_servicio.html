@@ -1,0 +1,64 @@
+{# templates/cfe/partials/modal_agregar_servicio.html #}
+<div class="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+     id="cfe-agregar-modal">
+    <div class="w-full max-w-lg bg-white rounded-xl shadow-2xl">
+        <div class="bg-yellow-600 px-6 py-4 rounded-t-xl flex items-center justify-between">
+            <h3 class="text-lg font-bold text-white">Agregar Servicio CFE</h3>
+            <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
+                class="text-white/80 hover:text-white p-1 rounded">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <form hx-post="/cfe/servicios"
+              hx-target="#cfe-lista"
+              hx-swap="outerHTML"
+              hx-on::after-request="if(event.detail.successful) document.getElementById('cfe-modal-container').innerHTML=''"
+              class="p-6 space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div class="col-span-2">
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Número de Servicio / RPU <span class="text-red-500">*</span></label>
+                    <input type="text" name="numero_servicio" required placeholder="Ej: 001000123456"
+                        class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500 font-mono">
+                    <p class="text-xs text-gray-400 mt-1">Como aparece en tu recibo CFE.</p>
+                </div>
+                <div class="col-span-2">
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Nombre del servicio <span class="text-red-500">*</span></label>
+                    <input type="text" name="nombre" required placeholder="Nombre exacto en el recibo CFE"
+                        class="w-full rounded-lg border-gray-300 px-3 py-2 uppercase placeholder:normal-case focus:ring-yellow-500 focus:border-yellow-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Alias / Nombre corto</label>
+                    <input type="text" name="alias" placeholder="Ej: Planta Norte"
+                        class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Lada <span class="text-red-500">*</span></label>
+                    <input type="text" name="lada" value="55" required maxlength="4"
+                        class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Teléfono <span class="text-red-500">*</span></label>
+                    <input type="text" name="telefono" required placeholder="55123456"
+                        class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Correo de contacto <span class="text-red-500">*</span></label>
+                    <input type="email" name="email" required placeholder="correo@empresa.com"
+                        class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
+                </div>
+            </div>
+            <div class="flex justify-end gap-3 pt-2">
+                <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
+                    class="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
+                    Cancelar
+                </button>
+                <button type="submit"
+                    class="px-4 py-2 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg">
+                    Registrar Servicio
+                </button>
+            </div>
+        </form>
+    </div>
+</div>

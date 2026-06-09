@@ -1,0 +1,94 @@
+{# templates/cfe/partials/lista_servicios.html #}
+{% if _toast is defined %}
+{% with message=_toast.message, type=_toast.type, title=_toast.title|default('Recibos CFE') %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+<div id="cfe-lista" class="p-6 space-y-4">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-xl font-bold text-gray-900">Recibos CFE</h1>
+            <p class="text-sm text-gray-500 mt-0.5">Descarga y gestión de recibos de luz por servicio</p>
+        </div>
+        <button type="button"
+            hx-get="/cfe/ui/modal-agregar"
+            hx-target="#cfe-modal-container"
+            hx-swap="innerHTML"
+            class="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+            </svg>
+            Agregar Servicio
+        </button>
+    </div>
+
+    <div id="cfe-modal-container"></div>
+
+    {% if not servicios %}
+    <div class="text-center py-16 text-gray-500">
+        <p class="font-medium">No hay servicios registrados.</p>
+        <p class="text-sm mt-1">Agrega el primer número de servicio CFE para comenzar.</p>
+    </div>
+    {% else %}
+    <div class="grid gap-4">
+        {% for s in servicios %}
+        <div class="bg-white border border-gray-100 rounded-xl shadow-sm p-5"
+             x-data="{ expanded: false }">
+            <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2">
+                        <span class="font-semibold text-gray-900 truncate">{{ s.nombre }}</span>
+                        {% if s.alias %}<span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded">{{ s.alias }}</span>{% endif %}
+                    </div>
+                    <p class="text-sm text-gray-500 mt-0.5 font-mono">{{ s.numero_servicio }}</p>
+                    <div class="mt-1 flex items-center gap-3 text-xs text-gray-400">
+                        {% if s.ultima_descarga %}
+                        <span>Última descarga: {{ s.ultima_descarga | time_mx('%d/%m/%Y') }}</span>
+                        {% endif %}
+                        {% if s.total_descargas %}<span>{{ s.total_descargas }} periodos descargados</span>{% endif %}
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    {% if s.tiene_pendiente %}
+                    <span class="flex items-center gap-1 text-xs text-yellow-700 bg-yellow-50 px-2 py-1 rounded">
+                        <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        Descargando...
+                    </span>
+                    {% endif %}
+                    <button type="button"
+                        hx-post="/cfe/servicios/{{ s.id }}/descargar"
+                        hx-target="#historial-{{ s.id }}"
+                        hx-swap="innerHTML"
+                        {% if s.tiene_pendiente %}disabled{% endif %}
+                        class="text-xs bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                        Descargar periodo actual
+                    </button>
+                    <button type="button"
+                        @click="expanded = !expanded"
+                        hx-get="/cfe/servicios/{{ s.id }}/descargas"
+                        hx-target="#historial-{{ s.id }}"
+                        hx-swap="innerHTML"
+                        hx-trigger="click[!expanded]"
+                        class="text-xs text-gray-600 hover:text-gray-900 px-3 py-1.5 border border-gray-200 rounded-lg transition-colors">
+                        Historial
+                    </button>
+                </div>
+            </div>
+
+            <div id="historial-{{ s.id }}"
+                 {% if s.tiene_pendiente %}
+                 hx-get="/cfe/servicios/{{ s.id }}/descargas"
+                 hx-trigger="every 4s"
+                 hx-swap="innerHTML"
+                 {% endif %}
+                 class="mt-4">
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>

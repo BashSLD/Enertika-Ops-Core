@@ -1,0 +1,67 @@
+{# templates/cfe/partials/modal_excel.html #}
+<div class="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+     id="cfe-excel-modal">
+    <div class="w-full max-w-md bg-white rounded-xl shadow-2xl">
+        <div class="bg-green-700 px-6 py-4 rounded-t-xl">
+            <h3 class="text-lg font-bold text-white">Generar Excel CFE</h3>
+        </div>
+        <div class="p-6">
+            <p class="text-sm text-gray-600 mb-4">
+                Selecciona los periodos a incluir en el Excel para
+                <strong>{{ servicio.nombre }}</strong>.
+            </p>
+            <form id="excel-form" action="/cfe/servicios/{{ servicio.id }}/excel" method="post">
+                <input type="hidden" name="perfil" value="oym">
+                <div class="space-y-2 max-h-64 overflow-y-auto mb-4">
+                    {% for periodo in periodos %}
+                    <label class="flex items-center gap-3 p-2 rounded-lg hover:bg-gray-50 cursor-pointer">
+                        <input type="checkbox" name="periodos" value="{{ periodo }}" checked
+                            class="text-green-600 focus:ring-green-500 rounded">
+                        <span class="text-sm text-gray-700 font-mono">{{ periodo }}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                <div class="flex justify-end gap-3">
+                    <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
+                        class="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
+                        Cancelar
+                    </button>
+                    <button type="submit" id="excel-submit-btn"
+                        class="px-4 py-2 text-sm font-medium text-white bg-green-700 hover:bg-green-800 rounded-lg">
+                        Descargar Excel
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    const form = document.getElementById('excel-form');
+    const btn = document.getElementById('excel-submit-btn');
+    form.addEventListener('submit', async function(e) {
+        e.preventDefault();
+        const checked = form.querySelectorAll('input[name="periodos"]:checked');
+        if (!checked.length) { alert('Selecciona al menos un periodo.'); return; }
+        btn.disabled = true;
+        btn.textContent = 'Generando...';
+        try {
+            const resp = await fetch(form.action, { method:'POST', body: new FormData(form), credentials:'same-origin' });
+            if (!resp.ok) { const t = await resp.text(); alert('Error: ' + t); return; }
+            const blob = await resp.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            const cd = resp.headers.get('content-disposition') || '';
+            const m = cd.match(/filename="?([^"]+)"?/i);
+            a.href = url; a.download = m ? m[1] : 'recibos_cfe.xlsx';
+            document.body.appendChild(a); a.click(); a.remove();
+            URL.revokeObjectURL(url);
+            document.getElementById('cfe-modal-container').innerHTML = '';
+        } catch(err) {
+            alert('No se pudo generar el Excel: ' + err);
+        } finally {
+            btn.disabled = false; btn.textContent = 'Descargar Excel';
+        }
+    });
+})();
+</script>
