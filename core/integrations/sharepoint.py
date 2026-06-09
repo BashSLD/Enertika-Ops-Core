@@ -63,26 +63,18 @@ class SharePointService:
         return config
 
     async def upload_file(
-        self, 
+        self,
         conn,
-        file: UploadFile, 
+        file: UploadFile,
         folder_path: str,
-        metadata: Optional[dict] = None
+        metadata: Optional[dict] = None,
+        *,
+        _config: Optional[dict] = None,
     ) -> Dict:
-        """
-        Sube un archivo a SharePoint en la ruta especificada.
-        
-        Args:
-            conn: Conexión a BD para leer configuración
-            file: Archivo UploadFile de FastAPI
-            folder_path: Ruta relativa
-            metadata: Metadata extra
-        """
         if not self.access_token:
             raise ValueError("Requiere token de acceso")
 
-        # Resolving Config
-        config = await self._resolve_config(conn)
+        config = _config if _config is not None else await self._resolve_config(conn)
         site_id = config.get("site_id")
         drive_id = config.get("drive_id")
 
@@ -388,9 +380,11 @@ class SharePointService:
         config = await self._resolve_config(conn)
         return await self._fetch_item_bytes(drive_item_id, config.get("drive_id"), config.get("site_id"))
 
-    async def delete_file_by_item_id(self, conn, drive_item_id: str) -> bool:
+    async def delete_file_by_item_id(
+        self, conn, drive_item_id: str, *, _config: Optional[dict] = None
+    ) -> bool:
         """Borra un archivo por drive_item_id. Retorna True si se borro o ya no existia."""
-        config = await self._resolve_config(conn)
+        config = _config if _config is not None else await self._resolve_config(conn)
         drive_id = config.get("drive_id")
         site_id = config.get("site_id")
         if drive_id:
@@ -411,7 +405,6 @@ class SharePointService:
                 resp.status_code,
                 resp.text[:200],
             )
-            resp.raise_for_status()
             return False
 
     async def download_bytes_direct_by_item_id(self, drive_item_id: str) -> bytes:

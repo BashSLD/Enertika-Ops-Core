@@ -5,8 +5,8 @@ import logging
 from uuid import UUID
 
 import asyncpg
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response, StreamingResponse
+from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
 
 from core.database import get_db_connection
@@ -40,10 +40,12 @@ async def cfe_ui(
     svc = get_cfe_service()
     await svc.limpiar_errores_invalidos(conn)
     servicios = await svc.listar_servicios(conn)
+    estado_sesion = await svc.get_estado_sesion(conn)
     is_htmx = request.headers.get("hx-request")
     is_restore = request.headers.get("hx-history-restore-request")
     ctx = {
         "servicios": servicios,
+        "estado_sesion": estado_sesion,
         "user": user,
         "user_name": user.get("user_name"),
         "role": user.get("role"),
@@ -79,6 +81,22 @@ async def modal_xml_excel(
             "post_url": "/cfe/xml-excel",
             "accent": "blue",
         },
+    )
+
+
+@router.get("/ui/modal-renovar-sesion", response_class=HTMLResponse)
+async def modal_renovar_sesion(
+    request: Request,
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    estado_sesion = await svc.get_estado_sesion(conn)
+    return templates.TemplateResponse(
+        request,
+        "cfe/partials/modal_renovar_sesion.html",
+        {"estado_sesion": estado_sesion, "user": user},
     )
 
 
@@ -247,7 +265,6 @@ async def iniciar_busqueda_periodos(
     toast_msg = ""
     status_code = 200
     busqueda = None
-    items: list[dict] = []
     try:
         toast_msg, servicio, busqueda = await svc.iniciar_busqueda_periodos(
             conn, servicio_id, max_periodos, user["user_db_id"]
@@ -271,7 +288,7 @@ async def iniciar_busqueda_periodos(
         {
             "servicio": servicio,
             "busqueda": busqueda,
-            "items": items,
+            "items": [],
             "user": user,
             "_toast": {"message": toast_msg, "type": toast_type},
         },
@@ -335,7 +352,10 @@ async def confirmar_busqueda_periodos(
     servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
     if not servicio:
         raise HTTPException(status_code=404, detail="Servicio no encontrado")
-    busqueda, items = await svc.get_busqueda_periodos(conn, servicio_id, busqueda_id)
+    try:
+        busqueda, items = await svc.get_busqueda_periodos(conn, servicio_id, busqueda_id)
+    except ValueError:
+        busqueda, items = None, []
     descargas = await svc.db.get_descargas_por_servicio(conn, servicio_id)
     tiene_activo = any(d["estatus"] in ("pendiente", "descargando") for d in descargas)
     return templates.TemplateResponse(
@@ -392,6 +412,34 @@ async def reintentar_pdf(
          "user": user, "_toast": {"message": toast_msg, "type": toast_type}},
         status_code=status_code,
     )
+
+
+# ── Renovacion de sesion (lanzador local) ──────────────────────────────────────
+
+@router.post("/sesion/subir", include_in_schema=False)
+async def subir_sesion(
+    request: Request,
+    x_cfe_token: str = Header("", alias="X-CFE-Token"),
+    conn=Depends(get_db_connection),
+):
+    """
+    Recibe el storage_state de MiEspacio desde el lanzador local que corre en la
+    PC del usuario. NO usa sesion Azure AD: se autentica con un token compartido
+    en la cabecera X-CFE-Token. El cuerpo es el JSON crudo del storage_state.
+    """
+    raw_body = (await request.body()).decode("utf-8", errors="replace")
+    svc = get_cfe_service()
+    try:
+        await svc.subir_sesion_con_token(conn, token=x_cfe_token, session_json=raw_body)
+    except PermissionError as exc:
+        logger.warning("cfe_subir_sesion_no_autorizado origen=%s", request.client.host if request.client else "?")
+        return JSONResponse(status_code=403, content={"ok": False, "error": str(exc)})
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc)})
+    except asyncpg.PostgresError as exc:
+        logger.error("Error de BD guardando sesion CFE via lanzador: %s", exc)
+        return JSONResponse(status_code=500, content={"ok": False, "error": "Error interno al guardar la sesion."})
+    return JSONResponse(content={"ok": True, "mensaje": "Sesion CFE MiEspacio renovada correctamente."})
 
 
 # ── Vista previa ──────────────────────────────────────────────────────────────

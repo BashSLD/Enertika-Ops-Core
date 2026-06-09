@@ -20,8 +20,10 @@ try:
     from playwright.async_api import Error as PlaywrightError
     from playwright.async_api import TimeoutError as PlaywrightTimeoutError
     _PLAYWRIGHT_ERRORS = (PlaywrightError, PlaywrightTimeoutError)
+    _SCRAPER_TIMEOUT_ERRORS = (asyncio.TimeoutError, PlaywrightTimeoutError)
 except ModuleNotFoundError:
     _PLAYWRIGHT_ERRORS = ()
+    _SCRAPER_TIMEOUT_ERRORS = (asyncio.TimeoutError,)
 
 _SCRAPER_ERRORS = (ValueError, RuntimeError, OSError, asyncio.TimeoutError) + _PLAYWRIGHT_ERRORS
 
@@ -66,6 +68,10 @@ _MESES_CFE = {
     "NOV": "11", "NOVIEMBRE": "11",
     "DIC": "12", "DICIEMBRE": "12",
 }
+_MESES_PUBLIC_RE = re.compile(
+    r"\b(" + "|".join(sorted(_MESES_CFE, key=len, reverse=True)) + r")\s+(20\d{2})\b",
+    re.I,
+)
 
 
 @dataclass
@@ -202,7 +208,7 @@ def _periodo_from_fecha_cfe(value: str) -> str:
     )
     if not m:
         return ""
-    month = {v: k for k, v in _MESES_ABREV.items()}.get(m.group(1).upper(), "")
+    month = _MESES_CFE.get(m.group(1).upper(), "")
     year = m.group(2)
     if len(year) == 2:
         year = f"20{year}"
@@ -210,8 +216,7 @@ def _periodo_from_fecha_cfe(value: str) -> str:
 
 
 def _periodo_from_public_text(value: str) -> str:
-    mes_pattern = "|".join(sorted(_MESES_CFE, key=len, reverse=True))
-    m = re.search(rf"\b({mes_pattern})\s+(20\d{{2}})\b", value or "", re.I)
+    m = _MESES_PUBLIC_RE.search(value or "")
     if not m:
         return ""
     month = _MESES_CFE.get(m.group(1).upper(), "")
@@ -326,21 +331,26 @@ async def _try_xml_candidate_download(page: Page, candidates: list[dict], timeou
     return None
 
 
-async def _public_portal_diagnostic(page: Page, candidates: list[dict]) -> str:
+_PAGE_SNAPSHOT_JS = """() => ({
+    url: location.href,
+    title: document.title || '',
+    lines: (document.body?.innerText || '')
+        .split(/\\r?\\n/)
+        .map(line => line.trim())
+        .filter(Boolean)
+        .slice(0, 12),
+})"""
+
+
+async def _page_snapshot(page: Page) -> dict:
     try:
-        snapshot = await page.evaluate(
-            """() => ({
-                url: location.href,
-                title: document.title || '',
-                lines: (document.body?.innerText || '')
-                    .split(/\\r?\\n/)
-                    .map(line => line.trim())
-                    .filter(Boolean)
-                    .slice(0, 12),
-            })"""
-        )
+        return await page.evaluate(_PAGE_SNAPSHOT_JS)
     except Exception:
-        snapshot = {"url": "", "title": "", "lines": []}
+        return {"url": "", "title": "", "lines": []}
+
+
+async def _public_portal_diagnostic(page: Page, candidates: list[dict]) -> str:
+    snapshot = await _page_snapshot(page)
 
     details = [
         "No se descargó el XML del portal público CFE.",
@@ -372,7 +382,7 @@ async def _open_public_history(page: Page, cfg: CfeScraperConfig) -> None:
     await page.click("#MainContent_btnContinuar", timeout=cfg.timeout_ms)
     try:
         await page.wait_for_load_state("networkidle", timeout=15_000)
-    except _SCRAPER_ERRORS:
+    except _SCRAPER_TIMEOUT_ERRORS:
         pass
     await page.wait_for_timeout(1500)
 
@@ -467,20 +477,7 @@ async def _find_public_period_row(page: Page, periodo: str) -> dict:
 
 
 async def _public_history_diagnostic(page: Page, rows: list[dict]) -> str:
-    try:
-        snapshot = await page.evaluate(
-            """() => ({
-                url: location.href,
-                title: document.title || '',
-                lines: (document.body?.innerText || '')
-                    .split(/\\r?\\n/)
-                    .map(line => line.trim())
-                    .filter(Boolean)
-                    .slice(0, 12),
-            })"""
-        )
-    except _SCRAPER_ERRORS:
-        snapshot = {"url": "", "title": "", "lines": []}
+    snapshot = await _page_snapshot(page)
     sample = " ; ".join(
         f"{r.get('periodo', 'N/D')} {r.get('text', '')[:120]}"
         for r in rows[:8]
@@ -509,8 +506,9 @@ async def _download_public_artifact(
         raise ValueError(f"No hay enlace {tipo.upper()} para el periodo {periodo}.")
 
     captured: list[tuple[bytes, str]] = []
+    pending_resps: list = []
 
-    async def _capture_artifact(resp):
+    def _capture_artifact(resp):
         ct = resp.headers.get("content-type", "")
         cd = resp.headers.get("content-disposition", "")
         url = resp.url
@@ -528,17 +526,8 @@ async def _download_public_artifact(
                 or ".pdf" in cd.lower()
                 or re.search(r"\.pdf(?:\?|$)", url, re.I)
             )
-        if not looks_match:
-            return
-        try:
-            body = await resp.body()
-        except _SCRAPER_ERRORS:
-            return
-        filename = url.split("/")[-1].split("?")[0] or f"{cfg.numero_servicio}-{periodo}.{tipo}"
-        if tipo == "xml" and _looks_like_xml_download(filename, body):
-            captured.append((body, filename))
-        elif tipo == "pdf" and _looks_like_pdf_download(filename, body):
-            captured.append((body, filename))
+        if looks_match:
+            pending_resps.append(resp)
 
     page.on("response", _capture_artifact)
     download_task = asyncio.create_task(page.wait_for_event("download", timeout=cfg.timeout_ms))
@@ -591,6 +580,20 @@ async def _download_public_artifact(
         except _SCRAPER_ERRORS:
             pass
         await page.wait_for_timeout(1000)
+
+        # await resp.body() here, outside the callback, so it completes before we check
+        for resp in pending_resps:
+            try:
+                body = await resp.body()
+            except _SCRAPER_ERRORS:
+                continue
+            url = resp.url
+            filename = url.split("/")[-1].split("?")[0] or f"{cfg.numero_servicio}-{periodo}.{tipo}"
+            if tipo == "xml" and _looks_like_xml_download(filename, body):
+                captured.append((body, filename))
+            elif tipo == "pdf" and _looks_like_pdf_download(filename, body):
+                captured.append((body, filename))
+
         if captured:
             return captured[0]
         raise ValueError(await _public_history_diagnostic(page, [row]))
@@ -925,7 +928,13 @@ async def _ensure_service_miespacio(page: Page, cfg: CfeScraperConfig, total_sin
     except Exception:
         pass
     await page.wait_for_timeout(3000)
-    await _select_service_miespacio(page, cfg)
+    try:
+        await _select_service_miespacio(page, cfg)
+    except MiEspacioServiceNotFound:
+        logger.warning(
+            "Servicio %s registrado en MiEspacio pero aun no visible (propagacion pendiente)",
+            cfg.numero_servicio,
+        )
 
 
 async def _collect_pdf_candidates(page: Page) -> list[dict]:
@@ -983,20 +992,7 @@ def _select_pdf_candidate(candidates: list[dict], periodo: str, servicio: str) -
 
 
 async def _pdf_download_diagnostic(page: Page, candidates: list[dict]) -> str:
-    try:
-        snapshot = await page.evaluate(
-            """() => ({
-                url: location.href,
-                title: document.title || '',
-                lines: (document.body?.innerText || '')
-                    .split(/\r?\n/)
-                    .map(line => line.trim())
-                    .filter(Boolean)
-                    .slice(0, 10),
-            })"""
-        )
-    except Exception:
-        snapshot = {"url": "", "title": "", "lines": []}
+    snapshot = await _page_snapshot(page)
     details = [
         "No se descargó el PDF de MiEspacio.",
         f"URL final: {snapshot.get('url') or 'N/D'}",
@@ -1297,10 +1293,19 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
                 try:
                     dl_task = asyncio.create_task(pub_page.wait_for_event("download", timeout=25_000))
                     await pub_page.click("#MainContent_btnContinuar", timeout=cfg.timeout_ms)
-                    maybe_download = await dl_task
-                    xml_download = await _save_xml_download(maybe_download)
-                    if xml_download:
-                        result.xml_content, result.xml_filename = xml_download
+                    done, pending = await asyncio.wait({dl_task}, timeout=25)
+                    for task in pending:
+                        task.cancel()
+                    maybe_download = None
+                    for task in done:
+                        try:
+                            maybe_download = task.result()
+                        except Exception:
+                            pass
+                    if maybe_download:
+                        xml_download = await _save_xml_download(maybe_download)
+                        if xml_download:
+                            result.xml_content, result.xml_filename = xml_download
                 except Exception as exc:
                     logger.info("Descarga directa XML CFE no disponible: %s", exc)
 

@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import json
 import logging
+import secrets
 from io import BytesIO
 from typing import Optional
 from uuid import UUID
@@ -49,6 +51,51 @@ class CfeService:
     async def _save_session(self, conn: asyncpg.Connection, session_json: str) -> None:
         await self._admin_db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_json"], session_json)
         ConfigService.invalidar_cache()
+
+    # ── Renovacion self-service de sesion (lanzador local) ─────────────────
+
+    async def get_estado_sesion(self, conn: asyncpg.Connection) -> dict:
+        """Estado de la sesion MiEspacio para mostrarlo a los usuarios en la UI CFE."""
+        sesion = await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["session_json"], "", str)
+        token = await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["upload_token"], "", str)
+        return {"sesion_activa": bool(sesion), "renovacion_habilitada": bool(token)}
+
+    async def subir_sesion_con_token(
+        self, conn: asyncpg.Connection, *, token: str, session_json: str
+    ) -> None:
+        """
+        Guarda el storage_state de MiEspacio enviado por el lanzador local.
+        Se autentica con un token compartido (no con sesion Azure AD) porque el
+        script corre en la PC del usuario sin cookie de sesion del app.
+        """
+        configurado = await ConfigService.get_global_config(
+            conn, CFE_CONFIG_KEYS["upload_token"], "", str
+        )
+        if not configurado:
+            raise PermissionError(
+                "La renovacion de sesion CFE no esta habilitada. "
+                "Un administrador debe generar el token en Admin > Configuracion Global > Recibos CFE."
+            )
+        if not token or not secrets.compare_digest(token, configurado):
+            raise PermissionError("Token de subida de sesion CFE invalido.")
+
+        self._validar_storage_state(session_json)
+        await self._save_session(conn, session_json.strip())
+        logger.info("[CFE] Sesion MiEspacio renovada via lanzador local")
+
+    @staticmethod
+    def _validar_storage_state(session_json: str) -> None:
+        raw = (session_json or "").strip()
+        if not raw:
+            raise ValueError("El contenido de la sesion esta vacio.")
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("El contenido de la sesion no es un JSON valido.") from exc
+        if not isinstance(data, dict) or "cookies" not in data or not isinstance(data["cookies"], list):
+            raise ValueError("El JSON no parece un storage_state de Playwright (falta 'cookies').")
+        if not data["cookies"]:
+            raise ValueError("La sesion no contiene cookies; el login no se completo correctamente.")
 
     def _build_scraper_config(self, servicio: dict, cfg_global: dict) -> CfeScraperConfig:
         return CfeScraperConfig(
@@ -315,22 +362,32 @@ class CfeService:
         await self.limpiar_busquedas_expiradas(pool)
 
     async def limpiar_busquedas_expiradas(self, pool: asyncpg.Pool) -> None:
+        # Fetch token first — if it fails, busquedas are NOT marked expirado yet
+        # so the next reaper cycle can retry.
+        ms_auth = get_ms_auth()
+        token = await ms_auth.get_application_token()
+        if not token:
+            logger.warning("[CFE] No se pudo obtener token para limpiar staging expirado")
+            return
+        sp = SharePointService(access_token=token)
+
         async with pool.acquire() as conn:
             expiradas = await self.db.reclamar_busquedas_expiradas(conn)
         if not expiradas:
             return
 
+        # Pre-fetch items + SP config in a single short conn block
         async with pool.acquire() as conn:
-            ms_auth = get_ms_auth()
-            token = await ms_auth.get_application_token()
-            if not token:
-                logger.warning("[CFE] No se pudo obtener token para limpiar staging expirado")
-                return
-            sp = SharePointService(access_token=token)
-            for busqueda in expiradas:
-                items = await self.db.get_busqueda_items(conn, busqueda["id"])
-                for item in items:
-                    await self._borrar_staging_item(conn, sp, item)
+            sp_cfg = await sp._resolve_config(conn)
+            all_items = {
+                b["id"]: await self.db.get_busqueda_items(conn, b["id"])
+                for b in expiradas
+            }
+
+        # SP deletions outside conn (slow HTTP)
+        for busqueda in expiradas:
+            for item in all_items[busqueda["id"]]:
+                await self._borrar_staging_item(None, sp, item, _sp_cfg=sp_cfg)
 
     async def _ejecutar_busqueda_periodos(self, pool: asyncpg.Pool, busqueda: dict) -> None:
         async with pool.acquire() as conn:
@@ -356,34 +413,53 @@ class CfeService:
                 )
             return
 
+        # Phase 1: fetch DB state + resolve SP config (short conn)
         async with pool.acquire() as conn:
             descargas_finales = await self.db.get_descargas_resumen_por_servicio(conn, servicio["id"])
+            ms_auth = get_ms_auth()
+            token = await ms_auth.get_application_token()
+            sp_cfg: dict = {}
+            if token:
+                sp_tmp = SharePointService(access_token=token)
+                sp_cfg = await sp_tmp._resolve_config(conn)
+
+        # Phase 2: SP uploads outside conn (slow HTTP)
+        upload_data = []
+        for result in resultados:
+            final_xml = descargas_finales.get(result.periodo, {}).get("xml", {})
+            final_pdf = descargas_finales.get(result.periodo, {}).get("pdf", {})
+            ya_xml = final_xml.get("estatus") == "completado"
+            ya_pdf = final_pdf.get("estatus") == "completado"
+            staging_folder = (
+                f"{SHAREPOINT_CFE_STAGING_ROOT}/{busqueda['id']}"
+                f"/{servicio['numero_servicio']}/{result.periodo}"
+            )
+            xml_upload, xml_upload_err = None, None
+            if result.xml_content and not ya_xml:
+                xml_upload, xml_upload_err = await self._upload_bytes_to_sharepoint(
+                    None,
+                    content=result.xml_content,
+                    filename=result.xml_filename or f"{servicio['numero_servicio']}-{result.periodo}.xml",
+                    folder_path=staging_folder,
+                    tipo="xml",
+                    _sp_cfg=sp_cfg,
+                )
+            pdf_upload, pdf_upload_err = None, None
+            if result.pdf_content and not ya_pdf:
+                pdf_upload, pdf_upload_err = await self._upload_bytes_to_sharepoint(
+                    None,
+                    content=result.pdf_content,
+                    filename=result.pdf_filename or f"{servicio['numero_servicio']}-{result.periodo}.pdf",
+                    folder_path=staging_folder,
+                    tipo="pdf",
+                    _sp_cfg=sp_cfg,
+                )
+            upload_data.append((result, ya_xml, ya_pdf, final_xml, final_pdf, xml_upload, xml_upload_err, pdf_upload, pdf_upload_err))
+
+        # Phase 3: DB writes (short conn)
+        async with pool.acquire() as conn:
             total_descargados = 0
-            for result in resultados:
-                final_xml = descargas_finales.get(result.periodo, {}).get("xml", {})
-                final_pdf = descargas_finales.get(result.periodo, {}).get("pdf", {})
-                ya_xml = final_xml.get("estatus") == "completado"
-                ya_pdf = final_pdf.get("estatus") == "completado"
-
-                xml_upload = None
-                pdf_upload = None
-                if result.xml_content and not ya_xml:
-                    xml_upload = await self._upload_bytes_to_sharepoint(
-                        conn,
-                        content=result.xml_content,
-                        filename=result.xml_filename or f"{servicio['numero_servicio']}-{result.periodo}.xml",
-                        folder_path=f"{SHAREPOINT_CFE_STAGING_ROOT}/{busqueda['id']}/{servicio['numero_servicio']}/{result.periodo}",
-                        tipo="xml",
-                    )
-                if result.pdf_content and not ya_pdf:
-                    pdf_upload = await self._upload_bytes_to_sharepoint(
-                        conn,
-                        content=result.pdf_content,
-                        filename=result.pdf_filename or f"{servicio['numero_servicio']}-{result.periodo}.pdf",
-                        folder_path=f"{SHAREPOINT_CFE_STAGING_ROOT}/{busqueda['id']}/{servicio['numero_servicio']}/{result.periodo}",
-                        tipo="pdf",
-                    )
-
+            for (result, ya_xml, ya_pdf, final_xml, final_pdf, xml_upload, xml_upload_err, pdf_upload, pdf_upload_err) in upload_data:
                 xml_estatus = self._estatus_staging_item(
                     ya_descargado=ya_xml,
                     upload=xml_upload,
@@ -399,7 +475,7 @@ class CfeService:
                 if xml_estatus in ("descargado", "ya_descargado") and pdf_estatus in ("descargado", "ya_descargado"):
                     total_descargados += 1
 
-                errores = [msg for msg in (result.xml_error, result.pdf_error) if msg]
+                errores = [msg for msg in (result.xml_error, result.pdf_error, xml_upload_err, pdf_upload_err) if msg]
                 decision = "no_aplica" if ya_xml and ya_pdf else "pendiente"
                 await self.db.upsert_busqueda_item(
                     conn,
@@ -439,9 +515,7 @@ class CfeService:
             return "ya_descargado"
         if upload:
             return "descargado"
-        if error:
-            return "error"
-        if contenido:
+        if error or contenido:
             return "error"
         return "no_disponible"
 
@@ -452,7 +526,7 @@ class CfeService:
         cfg_global: dict,
         job: dict,
     ) -> None:
-        if job["tipo"] == "pdf" and job["periodo"] != "pendiente":
+        if job["tipo"] == "pdf":
             await self._ejecutar_descarga_pdf(
                 pool=pool, servicio=servicio, cfg_global=cfg_global,
                 periodo=job["periodo"], usuario_id=job["descargado_por"],
@@ -477,18 +551,7 @@ class CfeService:
             servicio["numero_servicio"],
             servicio["nombre"],
         )
-        cfg = CfeScraperConfig(
-            nombre=servicio["nombre"],
-            numero_servicio=servicio["numero_servicio"],
-            lada=servicio["lada"],
-            telefono=servicio["telefono"],
-            email=servicio["email"],
-            alias=servicio.get("alias") or servicio["numero_servicio"][:20],
-            mi_user=cfg_global["mi_user"],
-            mi_pass=cfg_global["mi_pass"],
-            session_json=cfg_global["session_json"],
-        )
-
+        cfg = self._build_scraper_config(servicio, cfg_global)
         result = await descargar_recibo(cfg)
         logger.info(
             "[CFE] Scraper finalizado servicio=%s periodo=%s xml=%s pdf=%s error=%s pdf_error=%s",
@@ -595,18 +658,7 @@ class CfeService:
             servicio["numero_servicio"],
             periodo,
         )
-        cfg = CfeScraperConfig(
-            nombre=servicio["nombre"],
-            numero_servicio=servicio["numero_servicio"],
-            lada=servicio["lada"],
-            telefono=servicio["telefono"],
-            email=servicio["email"],
-            alias=servicio.get("alias") or servicio["numero_servicio"][:20],
-            mi_user=cfg_global["mi_user"],
-            mi_pass=cfg_global["mi_pass"],
-            session_json=cfg_global["session_json"],
-        )
-
+        cfg = self._build_scraper_config(servicio, cfg_global)
         result = await descargar_pdf_periodo(cfg, periodo)
         logger.info(
             "[CFE] Scraper PDF finalizado servicio=%s periodo=%s pdf=%s error=%s",
@@ -679,7 +731,7 @@ class CfeService:
 
         if item.get("xml_drive_item_id") and not ya_final_xml:
             xml_content = await sp.download_file_by_item_id(conn, item["xml_drive_item_id"])
-            xml_upload = await self._upload_bytes_to_sharepoint(
+            xml_upload, _ = await self._upload_bytes_to_sharepoint(
                 conn,
                 content=xml_content,
                 filename=item.get("xml_nombre_archivo") or f"{busqueda['numero_servicio']}-{periodo}.xml",
@@ -698,7 +750,7 @@ class CfeService:
 
         if item.get("pdf_drive_item_id") and not ya_final_pdf:
             pdf_content = await sp.download_file_by_item_id(conn, item["pdf_drive_item_id"])
-            pdf_upload = await self._upload_bytes_to_sharepoint(
+            pdf_upload, _ = await self._upload_bytes_to_sharepoint(
                 conn,
                 content=pdf_content,
                 filename=item.get("pdf_nombre_archivo") or f"{busqueda['numero_servicio']}-{periodo}.pdf",
@@ -717,16 +769,18 @@ class CfeService:
 
     async def _borrar_staging_item(
         self,
-        conn: asyncpg.Connection,
+        conn: Optional[asyncpg.Connection],
         sp: SharePointService,
         item: dict,
+        *,
+        _sp_cfg: Optional[dict] = None,
     ) -> None:
         for field in ("xml_drive_item_id", "pdf_drive_item_id"):
             drive_item_id = item.get(field)
             if not drive_item_id:
                 continue
             try:
-                await sp.delete_file_by_item_id(conn, drive_item_id)
+                await sp.delete_file_by_item_id(conn, drive_item_id, _config=_sp_cfg)
             except (ValueError, RuntimeError, httpx.HTTPError) as exc:
                 logger.warning(
                     "[CFE] No se pudo borrar staging item_id=%s periodo=%s error=%s",
@@ -737,13 +791,14 @@ class CfeService:
 
     async def _upload_bytes_to_sharepoint(
         self,
-        conn: asyncpg.Connection,
+        conn: Optional[asyncpg.Connection],
         *,
         content: bytes,
         filename: str,
         folder_path: str,
         tipo: str,
-    ) -> Optional[dict]:
+        _sp_cfg: Optional[dict] = None,
+    ) -> tuple[Optional[dict], Optional[str]]:
         try:
             ms_auth = get_ms_auth()
             token = await ms_auth.get_application_token()
@@ -751,7 +806,7 @@ class CfeService:
                 raise RuntimeError("No se pudo obtener token de Microsoft")
 
             sp = SharePointService(access_token=token)
-            sp_cfg = await sp._resolve_config(conn)
+            sp_cfg = _sp_cfg if _sp_cfg is not None else await sp._resolve_config(conn)
             if not sp_cfg.get("site_id") and not sp_cfg.get("drive_id"):
                 raise RuntimeError(
                     "SharePoint no configurado (SHAREPOINT_SITE_ID/DRIVE_ID). "
@@ -759,10 +814,12 @@ class CfeService:
                 )
 
             upload = UploadFile(filename=filename, file=BytesIO(content))
-            return await sp.upload_file(conn=conn, file=upload, folder_path=folder_path)
+            result = await sp.upload_file(conn=None, file=upload, folder_path=folder_path, _config=sp_cfg)
+            return result, None
         except (ValueError, RuntimeError, httpx.HTTPError, OSError) as exc:
-            logger.error("Error subiendo %s a SharePoint carpeta=%s archivo=%s: %s", tipo, folder_path, filename, exc)
-            return None
+            msg = str(exc)
+            logger.error("Error subiendo %s a SharePoint carpeta=%s archivo=%s: %s", tipo, folder_path, filename, msg)
+            return None, msg
 
     async def _upload_to_sharepoint(
         self,
@@ -774,32 +831,11 @@ class CfeService:
         periodo: str,
         tipo: str,
     ) -> Optional[str]:
-        """Uploads bytes to SharePoint. Returns webUrl or None on failure."""
-        try:
-            ms_auth = get_ms_auth()
-            token = await ms_auth.get_application_token()
-            if not token:
-                raise RuntimeError("No se pudo obtener token de Microsoft")
-
-            sp = SharePointService(access_token=token)
-            # Guard (patron proveedores): validar la config resuelta (BD > Settings) para NO caer
-            # silenciosamente a OneDrive personal. upload_file re-resuelve la config internamente
-            # via _resolve_config, asi que aqui solo validamos (no asignamos atributos: upload_file
-            # los ignora y usaria su propia resolucion).
-            sp_cfg = await sp._resolve_config(conn)
-            if not sp_cfg.get("site_id") and not sp_cfg.get("drive_id"):
-                raise RuntimeError(
-                    "SharePoint no configurado (SHAREPOINT_SITE_ID/DRIVE_ID). "
-                    "Configuralos en Admin antes de descargar recibos CFE."
-                )
-            folder = f"{SHAREPOINT_CFE_ROOT}/{servicio_numero}/{periodo}"
-
-            upload = UploadFile(filename=filename, file=BytesIO(content))
-            result = await sp.upload_file(conn=conn, file=upload, folder_path=folder)
-            return result.get("webUrl")
-        except (ValueError, RuntimeError, httpx.HTTPError, OSError) as exc:
-            logger.error(f"Error subiendo {tipo} a SharePoint para {servicio_numero}/{periodo}: {exc}")
-            return None
+        folder = f"{SHAREPOINT_CFE_ROOT}/{servicio_numero}/{periodo}"
+        result, _ = await self._upload_bytes_to_sharepoint(
+            conn, content=content, filename=filename, folder_path=folder, tipo=tipo
+        )
+        return result.get("webUrl") if result else None
 
     # ── Excel ─────────────────────────────────────────────────────────────
 
