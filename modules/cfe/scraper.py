@@ -674,20 +674,18 @@ async def _descargar_artefacto_con_reintento(
     return None, "", last_error
 
 
-def _total_sin_decimales(por_periodo: dict[str, DescargaPeriodoPublicoResult]) -> str:
-    """Total a pagar (sin decimales) del XML del periodo mas reciente disponible.
+def _total_recibo_sin_decimales(xml_content: Optional[bytes], xml_filename: str) -> str:
+    """Total a pagar (entero, como string) de un XML CFE; '0' si no se puede leer.
     Se usa para registrar el servicio en MiEspacio cuando aun no existe."""
-    for periodo in sorted(por_periodo, reverse=True):
-        res = por_periodo[periodo]
-        if not res.xml_content:
-            continue
-        try:
-            receipt = extraer_datos_xml(res.xml_content, res.xml_filename or "recibo.xml")
-            total_val = receipt.get("cfdi", {}).get("total", 0)
-            if total_val:
-                return str(round(float(total_val)))
-        except (ValueError, KeyError, TypeError):
-            continue
+    if not xml_content:
+        return "0"
+    try:
+        receipt = extraer_datos_xml(xml_content, xml_filename or "recibo.xml")
+        total_val = receipt.get("cfdi", {}).get("total", 0)
+        if total_val:
+            return str(round(float(total_val)))
+    except (ValueError, KeyError, TypeError):
+        pass
     return "0"
 
 
@@ -742,6 +740,8 @@ def _otras_facturas_por_periodo(rows: list[dict]) -> list[dict]:
             continue
         enriquecido = {**row, "periodo": periodo, "etiqueta": _periodo_public_label(periodo)}
         actual = por_periodo.get(periodo)
+        # Folios CFE son numericos zero-padded de igual longitud -> el mayor (mas
+        # reciente) gana con comparacion de string.
         if actual is None or enriquecido["folio"] > actual["folio"]:
             por_periodo[periodo] = enriquecido
     return sorted(por_periodo.values(), key=lambda r: r["periodo"], reverse=True)
@@ -814,8 +814,8 @@ async def _fase_miespacio_otras(
             for res in por_periodo.values():
                 if not res.pdf_content:
                     res.pdf_error = (
-                        "La sesion CFE MiEspacio expiro o no existe. "
-                        "Un administrador debe renovar la sesion en Admin > Configuracion Global > Recibos CFE."
+                        "La sesión CFE MiEspacio expiró o no existe. "
+                        "Un administrador debe renovar la sesión en Admin > Configuración Global > Recibos CFE."
                     )
             return -1
 
@@ -832,27 +832,23 @@ async def _fase_miespacio_otras(
             res = por_periodo.get(periodo) or DescargaPeriodoPublicoResult(
                 periodo=periodo, etiqueta=row["etiqueta"],
             )
-            try:
-                res.xml_content, res.xml_filename = await _descargar_otras_factura_reintento(mi_page, cfg, row, "xml")
-                res.xml_error = None
-            except _SCRAPER_ERRORS as exc:
-                logger.warning(
-                    "No se pudo descargar XML MiEspacio servicio=%s periodo=%s error=%s",
-                    cfg.numero_servicio, periodo, exc,
-                )
-                res.xml_error = str(exc)
-            try:
-                res.pdf_content, res.pdf_filename = await _descargar_otras_factura_reintento(mi_page, cfg, row, "pdf")
-                res.pdf_error = None
-            except _SCRAPER_ERRORS as exc:
-                logger.warning(
-                    "No se pudo descargar PDF MiEspacio servicio=%s periodo=%s error=%s",
-                    cfg.numero_servicio, periodo, exc,
-                )
-                res.pdf_error = str(exc)
+            for tipo in ("xml", "pdf"):
+                try:
+                    content, nombre = await _descargar_otras_factura_reintento(mi_page, cfg, row, tipo)
+                    setattr(res, f"{tipo}_content", content)
+                    setattr(res, f"{tipo}_filename", nombre)
+                    setattr(res, f"{tipo}_error", None)
+                except _SCRAPER_ERRORS as exc:
+                    logger.warning(
+                        "No se pudo descargar %s MiEspacio servicio=%s periodo=%s error=%s",
+                        tipo.upper(), cfg.numero_servicio, periodo, exc,
+                    )
+                    setattr(res, f"{tipo}_error", str(exc))
             por_periodo[periodo] = res
 
-        return len(facturas)
+        # Conteo capeado a max_periodos para comparar contra el publico en la
+        # misma ventana (si no, un historial largo dispara falsa discrepancia).
+        return len(facturas[:max_periodos])
     finally:
         try:
             await mi_ctx.close()
@@ -867,25 +863,37 @@ async def _fallback_xml_publico(
     pub_rows: dict[str, dict],
 ) -> None:
     """Para periodos detectados en publico que aun no tienen XML (no estaban en
-    MiEspacio o fallo su descarga), intenta el XML del portal publico."""
-    pendientes = [
-        periodo for periodo in pub_rows
-        if not (por_periodo.get(periodo) and por_periodo[periodo].xml_content)
-    ]
-    for indice, periodo in enumerate(sorted(pendientes, reverse=True)):
-        if indice:
-            await pub_page.wait_for_timeout(800)
-            if await _detect_block(pub_page):
-                break
-        content, name, err = await _descargar_artefacto_con_reintento(pub_page, cfg, periodo, "xml")
+    MiEspacio o fallo su descarga), intenta el XML del portal publico. Todo
+    periodo detectado queda representado aunque falle (no desaparece de la tabla);
+    si el portal bloquea, los restantes se anotan con el motivo."""
+    pendientes = sorted(
+        (
+            periodo for periodo in pub_rows
+            if not (por_periodo.get(periodo) and por_periodo[periodo].xml_content)
+        ),
+        reverse=True,
+    )
+    bloqueo: Optional[str] = None
+    for indice, periodo in enumerate(pendientes):
         res = por_periodo.get(periodo)
-        if not res:
+        if res is None:
             res = DescargaPeriodoPublicoResult(
                 periodo=periodo,
                 etiqueta=pub_rows[periodo].get("etiqueta") or _periodo_public_label(periodo),
             )
-            res.pdf_error = res.pdf_error or "No disponible en MiEspacio."
+            res.pdf_error = "No disponible en MiEspacio."
             por_periodo[periodo] = res
+
+        if bloqueo is None and indice:
+            await pub_page.wait_for_timeout(800)
+            bloqueo = await _detect_block(pub_page)
+
+        if bloqueo:
+            if not res.xml_error:
+                res.xml_error = bloqueo
+            continue
+
+        content, name, err = await _descargar_artefacto_con_reintento(pub_page, cfg, periodo, "xml")
         if content:
             res.xml_content, res.xml_filename, res.xml_error = content, name, None
         elif not res.xml_error:
@@ -957,7 +965,7 @@ async def descargar_periodos_busqueda(
                 )
                 seed.xml_content, seed.xml_filename, seed.xml_error = nx_content, nx_name, nx_err
                 por_periodo[nperiodo] = seed
-                total_sin_dec = _total_sin_decimales(por_periodo)
+                total_sin_dec = _total_recibo_sin_decimales(nx_content, nx_name)
 
                 # ── FASE 2: MiEspacio · Otras Facturas (XML + PDF) ───────────────
                 if cfg.mi_user and cfg.mi_pass:
@@ -1672,13 +1680,7 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
                     )
                     return result
 
-                try:
-                    receipt = extraer_datos_xml(result.xml_content, result.xml_filename)
-                    total_val = receipt.get("cfdi", {}).get("total", 0)
-                    total_sin_dec = str(round(float(total_val))) if total_val else "0"
-                except (ValueError, KeyError, TypeError):
-                    total_sin_dec = "0"
-
+                total_sin_dec = _total_recibo_sin_decimales(result.xml_content, result.xml_filename)
                 await _ensure_service_miespacio(mi_page, cfg, total_sin_dec)
 
                 try:

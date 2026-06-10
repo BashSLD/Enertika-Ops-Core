@@ -3,7 +3,7 @@ from modules.cfe.scraper import (
     ResultadoBusquedaPeriodos,
     _advertencia_discrepancia,
     _otras_facturas_por_periodo,
-    _total_sin_decimales,
+    _total_recibo_sin_decimales,
 )
 
 
@@ -43,22 +43,14 @@ def _xml_con_total(total: str) -> bytes:
     ).encode("utf-8")
 
 
-def test_total_sin_decimales_usa_periodo_mas_reciente_con_xml():
-    por_periodo = {
-        "2026-03": DescargaPeriodoPublicoResult(
-            periodo="2026-03", xml_content=_xml_con_total("1000.50"), xml_filename="a.xml"
-        ),
-        "2026-05": DescargaPeriodoPublicoResult(
-            periodo="2026-05", xml_content=_xml_con_total("2345.90"), xml_filename="b.xml"
-        ),
-        "2026-04": DescargaPeriodoPublicoResult(periodo="2026-04"),  # sin XML
-    }
-    assert _total_sin_decimales(por_periodo) == "2346"
+def test_total_recibo_sin_decimales_redondea():
+    assert _total_recibo_sin_decimales(_xml_con_total("2345.90"), "b.xml") == "2346"
+    assert _total_recibo_sin_decimales(_xml_con_total("1000.50"), "a.xml") == "1000"
 
 
-def test_total_sin_decimales_cero_si_no_hay_xml():
-    por_periodo = {"2026-05": DescargaPeriodoPublicoResult(periodo="2026-05")}
-    assert _total_sin_decimales(por_periodo) == "0"
+def test_total_recibo_sin_decimales_cero_si_no_hay_xml():
+    assert _total_recibo_sin_decimales(None, "x.xml") == "0"
+    assert _total_recibo_sin_decimales(b"no es xml", "x.xml") == "0"
 
 
 def test_otras_facturas_por_periodo_solo_filas_con_pdf_y_xml():
