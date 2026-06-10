@@ -32,6 +32,11 @@
         {{ busqueda.mensaje_error or 'No se pudo completar la busqueda.' }}
     </div>
     {% else %}
+    {% if busqueda.advertencia %}
+    <div class="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+        {{ busqueda.advertencia }}
+    </div>
+    {% endif %}
     <div class="mb-4">
         <p class="text-sm font-semibold text-gray-900">
             Periodos encontrados

@@ -25,7 +25,7 @@ from modules.shared.services.cfe.schemas import CfeXmlInput
 
 from .constants import CFE_CONFIG_KEYS, SHAREPOINT_CFE_ROOT, SHAREPOINT_CFE_STAGING_ROOT
 from .db_service import CfeDBService, get_cfe_db_service
-from .scraper import CfeScraperConfig, descargar_pdf_periodo, descargar_periodos_publicos, descargar_recibo
+from .scraper import CfeScraperConfig, descargar_pdf_periodo, descargar_periodos_busqueda, descargar_recibo
 
 logger = logging.getLogger("CfeService")
 
@@ -428,12 +428,13 @@ class CfeService:
 
         cfg = self._build_scraper_config(servicio, cfg_global)
         try:
-            resultados = await descargar_periodos_publicos(cfg, busqueda["max_periodos"])
+            resultado = await descargar_periodos_busqueda(cfg, busqueda["max_periodos"])
         except ValueError as exc:
             async with pool.acquire() as conn:
                 await self.db.marcar_busqueda_error(conn, busqueda["id"], str(exc))
             return
 
+        resultados = resultado.periodos
         if not resultados:
             async with pool.acquire() as conn:
                 await self.db.marcar_busqueda_error(
@@ -536,6 +537,7 @@ class CfeService:
                 busqueda["id"],
                 total_detectados=len(resultados),
                 total_descargados=total_descargados,
+                advertencia=resultado.advertencia,
             )
 
     @staticmethod
