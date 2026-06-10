@@ -15,9 +15,13 @@
         </div>
         <div class="p-6 flex-1 min-h-0 overflow-y-auto space-y-4">
             <div class="flex items-center gap-2 text-sm">
-                {% if estado_sesion.sesion_activa %}
+                {% if estado_sesion.sesion_estado == 'activa' %}
                 <span class="inline-flex items-center gap-1 text-green-600 font-medium">
                     <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>Sesión actualmente activa
+                </span>
+                {% elif estado_sesion.sesion_estado == 'expira_pronto' %}
+                <span class="inline-flex items-center gap-1 text-amber-600 font-medium">
+                    <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>Sesión expira pronto{% if estado_sesion.expira_en %} — {{ estado_sesion.expira_en | time_mx('%d/%m/%Y') }}{% endif %}
                 </span>
                 {% else %}
                 <span class="inline-flex items-center gap-1 text-red-500 font-medium">
@@ -60,6 +64,12 @@
                     class="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
                 Cerrar
             </button>
+            {% if estado_sesion.lanzador_disponible %}
+            <a href="/cfe/lanzador/descargar"
+               class="px-4 py-2 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg">
+                Descargar lanzador (.exe){% if estado_sesion.lanzador_version %} — v{{ estado_sesion.lanzador_version }}{% endif %}
+            </a>
+            {% endif %}
             <button type="button"
                     hx-get="/cfe/ui"
                     hx-target="#main-content"

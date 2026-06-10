@@ -58,6 +58,38 @@ async def cfe_ui(
     return templates.TemplateResponse(request, template, ctx)
 
 
+@router.get("/servicios/{servicio_id}/analisis", response_class=HTMLResponse)
+async def analisis_servicio(
+    request: Request,
+    servicio_id: UUID,
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    try:
+        analisis = await svc.get_analisis_servicio(conn, servicio_id)
+    except ValueError as exc:
+        if str(exc) == "Servicio no encontrado.":
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except asyncpg.PostgresError as exc:
+        logger.error("Error de BD generando analisis CFE para %s: %s", servicio_id, exc)
+        raise HTTPException(status_code=500, detail="Error interno al generar el análisis.") from exc
+
+    is_htmx = request.headers.get("hx-request")
+    is_restore = request.headers.get("hx-history-restore-request")
+    ctx = {
+        "analisis": analisis,
+        "user": user,
+        "user_name": user.get("user_name"),
+        "role": user.get("role"),
+        "module_roles": user.get("module_roles", {}),
+    }
+    template = "cfe/partials/analisis_servicio.html" if (is_htmx and not is_restore) else "cfe/analisis.html"
+    return templates.TemplateResponse(request, template, ctx)
+
+
 # ── Modal agregar ─────────────────────────────────────────────────────────────
 
 @router.get("/ui/modal-agregar", response_class=HTMLResponse)
@@ -473,6 +505,27 @@ async def subir_sesion(
         logger.error("Error de BD guardando sesion CFE via lanzador: %s", exc)
         return JSONResponse(status_code=500, content={"ok": False, "error": "Error interno al guardar la sesion."})
     return JSONResponse(content={"ok": True, "mensaje": "Sesion CFE MiEspacio renovada correctamente."})
+
+
+@router.get("/lanzador/descargar", include_in_schema=False)
+async def descargar_lanzador_cfe(
+    conn=Depends(get_db_connection),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    try:
+        content, version = await svc.get_lanzador_bytes(conn)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.error("Error descargando lanzador CFE de SharePoint: %s", exc)
+        raise HTTPException(status_code=503, detail="No se pudo obtener el ejecutable. Intenta de nuevo.")
+    filename = f"RenovarSesionCFE_{version}.exe" if version else "RenovarSesionCFE.exe"
+    return Response(
+        content=content,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ── Vista previa ──────────────────────────────────────────────────────────────

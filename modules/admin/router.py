@@ -1,6 +1,6 @@
 import logging
 from datetime import date, timedelta
-from fastapi import APIRouter, Request, Depends, HTTPException, Form, Header
+from fastapi import APIRouter, Request, Depends, File, HTTPException, Form, Header, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from typing import Optional
 from core.database import get_db_connection
@@ -1665,6 +1665,36 @@ async def regenerar_token_cfe(
             request, "admin/partials/cfe_token.html",
             {"token": token_actual,
              "_toast": {"title": "Token CFE", "message": "Error al generar el token.", "type": "error"}},
+        )
+
+
+@router.post("/config/cfe/lanzador", include_in_schema=False, response_class=HTMLResponse)
+async def subir_lanzador_cfe(
+    request: Request,
+    archivo: UploadFile = File(...),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    _user=require_role(["ADMIN"]),
+):
+    try:
+        version = await service.upload_cfe_lanzador(conn, file=archivo)
+        return templates.TemplateResponse(
+            request, "admin/partials/cfe_lanzador.html",
+            {"lanzador_version": version,
+             "_toast": {"message": f"Ejecutable del lanzador subido (v{version}).", "type": "success"}},
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request, "admin/partials/cfe_lanzador.html",
+            {"lanzador_version": "",
+             "_toast": {"message": str(exc), "type": "error"}},
+        )
+    except asyncpg.PostgresError as exc:
+        logger.error("Error guardando lanzador CFE en BD: %s", exc)
+        return templates.TemplateResponse(
+            request, "admin/partials/cfe_lanzador.html",
+            {"lanzador_version": "",
+             "_toast": {"message": "Error interno al guardar.", "type": "error"}},
         )
 
 

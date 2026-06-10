@@ -1,10 +1,13 @@
 # modules/cfe/constants.py
 
 CFE_CONFIG_KEYS = {
-    "mi_user":       "CFE_MIESPACIO_USER",
-    "mi_pass":       "CFE_MIESPACIO_PASS",
-    "session_json":  "CFE_MIESPACIO_SESSION_JSON",
-    "upload_token":  "CFE_SESSION_UPLOAD_TOKEN",
+    "mi_user":          "CFE_MIESPACIO_USER",
+    "mi_pass":          "CFE_MIESPACIO_PASS",
+    "session_json":     "CFE_MIESPACIO_SESSION_JSON",
+    "upload_token":     "CFE_SESSION_UPLOAD_TOKEN",
+    "session_invalida": "CFE_MIESPACIO_SESSION_INVALIDA",
+    "lanzador_item_id": "CFE_LANZADOR_ITEM_ID",
+    "lanzador_version": "CFE_LANZADOR_VERSION",
 }
 
 CFE_PUBLIC_FORM_DEFAULTS = {

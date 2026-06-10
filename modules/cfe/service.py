@@ -6,8 +6,11 @@ import base64
 import json
 import logging
 import secrets
+import time
+from datetime import datetime, timezone
 from io import BytesIO
-from typing import Optional
+from collections.abc import Sequence
+from typing import Any, Optional
 from uuid import UUID
 
 import asyncpg
@@ -21,8 +24,9 @@ from core.microsoft import get_ms_auth
 from modules.admin.db_service import AdminDBService
 from modules.shared.services.cfe.extractor import extraer_datos_xml
 from modules.shared.services.cfe.excel import generar_excel_cfe
-from modules.shared.services.cfe.schemas import CfeXmlInput
+from modules.shared.services.cfe.schemas import CfeReceipt, CfeXmlInput
 
+from .analysis import analisis_sin_datos, construir_analisis_recibos, filtrar_xmls_completados
 from .constants import CFE_CONFIG_KEYS, SHAREPOINT_CFE_ROOT, SHAREPOINT_CFE_STAGING_ROOT
 from .db_service import CfeDBService, get_cfe_db_service
 from .scraper import CfeScraperConfig, descargar_pdf_periodo, descargar_periodos_busqueda, descargar_recibo
@@ -56,9 +60,64 @@ class CfeService:
 
     async def get_estado_sesion(self, conn: asyncpg.Connection) -> dict:
         """Estado de la sesion MiEspacio para mostrarlo a los usuarios en la UI CFE."""
-        sesion = await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["session_json"], "", str)
-        token = await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["upload_token"], "", str)
-        return {"sesion_activa": bool(sesion), "renovacion_habilitada": bool(token)}
+        cfg = await ConfigService.get_global_configs_bulk(conn, {
+            CFE_CONFIG_KEYS["session_json"]:     ("", str),
+            CFE_CONFIG_KEYS["upload_token"]:     ("", str),
+            CFE_CONFIG_KEYS["session_invalida"]: ("", str),
+            CFE_CONFIG_KEYS["lanzador_item_id"]: ("", str),
+            CFE_CONFIG_KEYS["lanzador_version"]: ("", str),
+        })
+        sesion          = cfg[CFE_CONFIG_KEYS["session_json"]]
+        token           = cfg[CFE_CONFIG_KEYS["upload_token"]]
+        session_invalida = cfg[CFE_CONFIG_KEYS["session_invalida"]]
+
+        sesion_estado = "sin_sesion"
+        expira_en: Optional[datetime] = None
+
+        if sesion:
+            if session_invalida == "1":
+                sesion_estado = "expirada"
+            else:
+                try:
+                    data = json.loads(sesion)
+                    cfe_cookies = [
+                        c for c in data.get("cookies", [])
+                        if "cfe.mx" in (c.get("domain") or "")
+                    ]
+                    if not cfe_cookies:
+                        sesion_estado = "invalida"
+                    else:
+                        now_ts = time.time()
+                        expiring = [c for c in cfe_cookies if (c.get("expires") or -1) > now_ts]
+                        if not expiring:
+                            has_expiry = any((c.get("expires") or -1) > 0 for c in cfe_cookies)
+                            sesion_estado = "expirada" if has_expiry else "activa"
+                        else:
+                            nearest = min(c["expires"] for c in expiring)
+                            expira_en = datetime.fromtimestamp(nearest, tz=timezone.utc)
+                            sesion_estado = "expira_pronto" if (nearest - now_ts < 86400) else "activa"
+                except (json.JSONDecodeError, TypeError, KeyError, OSError, OverflowError):
+                    sesion_estado = "invalida"
+
+        return {
+            "sesion_activa": sesion_estado in ("activa", "expira_pronto"),
+            "sesion_estado": sesion_estado,
+            "expira_en": expira_en,
+            "renovacion_habilitada": bool(token),
+            "lanzador_disponible": bool(cfg[CFE_CONFIG_KEYS["lanzador_item_id"]]),
+            "lanzador_version": cfg[CFE_CONFIG_KEYS["lanzador_version"]],
+        }
+
+    async def get_lanzador_bytes(self, conn: asyncpg.Connection) -> tuple[bytes, str]:
+        """Descarga el ejecutable del lanzador desde SharePoint. Retorna (bytes, version)."""
+        item_id = await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["lanzador_item_id"], "", str)
+        if not item_id:
+            raise ValueError("El ejecutable del lanzador no está disponible todavía.")
+        version = await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["lanzador_version"], "", str)
+        app_token = await get_ms_auth().get_application_token()
+        sp = SharePointService(access_token=app_token)
+        content = await sp.download_file_by_item_id(conn, item_id)
+        return content, version
 
     async def subir_sesion_con_token(
         self, conn: asyncpg.Connection, *, token: str, session_json: str
@@ -82,7 +141,10 @@ class CfeService:
             raise PermissionError("Token de subida de sesion CFE invalido.")
 
         self._validar_storage_state(session_json)
-        await self._save_session(conn, session_json.strip())
+        async with conn.transaction():
+            await self._save_session(conn, session_json.strip())
+            await self._admin_db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_invalida"], "")
+        ConfigService.invalidar_cache()
         logger.info("[CFE] Sesion MiEspacio renovada via lanzador local")
 
     @staticmethod
@@ -110,6 +172,18 @@ class CfeService:
             return None
         tipo_recibo = recibo.get("servicio", {}).get("tarifa")
         return str(tipo_recibo).strip() or None
+
+    @staticmethod
+    def _es_error_sesion(mensaje: Optional[str]) -> bool:
+        """True si el mensaje indica que la sesion MiEspacio expiro (no errores transitorios del portal)."""
+        if not mensaje:
+            return False
+        m = mensaje.lower()
+        return "expir" in m and "sesi" in m
+
+    async def _marcar_sesion_invalida(self, conn: asyncpg.Connection) -> None:
+        await self._admin_db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_invalida"], "1")
+        ConfigService.invalidar_cache()
 
     def _build_scraper_config(self, servicio: dict, cfg_global: dict) -> CfeScraperConfig:
         return CfeScraperConfig(
@@ -434,6 +508,10 @@ class CfeService:
                 await self.db.marcar_busqueda_error(conn, busqueda["id"], str(exc))
             return
 
+        if any(self._es_error_sesion(r.pdf_error) for r in resultado.periodos):
+            async with pool.acquire() as conn:
+                await self._marcar_sesion_invalida(conn)
+
         resultados = resultado.periodos
         if not resultados:
             async with pool.acquire() as conn:
@@ -676,6 +754,8 @@ class CfeService:
                     tipo="pdf", estatus="error", error_mensaje=result.pdf_error,
                     descargado_por=usuario_id, tipo_recibo=tipo_recibo,
                 )
+                if self._es_error_sesion(result.pdf_error):
+                    await self._marcar_sesion_invalida(conn)
 
             await self.db.borrar_descarga_pendiente(conn, servicio["id"])
 
@@ -718,6 +798,8 @@ class CfeService:
                     tipo="pdf", estatus="error", error_mensaje=error_mensaje,
                     descargado_por=usuario_id, tipo_recibo=tipo_recibo,
                 )
+                if self._es_error_sesion(error_mensaje):
+                    await self._marcar_sesion_invalida(conn)
             elif result.pdf_content:
                 pdf_sp_url = await self._upload_to_sharepoint(
                     conn, content=result.pdf_content, filename=result.pdf_filename,
@@ -887,6 +969,116 @@ class CfeService:
         )
         return result.get("webUrl") if result else None
 
+    async def get_analisis_servicio(
+        self,
+        conn: asyncpg.Connection,
+        servicio_id: UUID,
+    ) -> dict[str, Any]:
+        servicio = await self.db.get_servicio_by_id(conn, servicio_id)
+        if not servicio:
+            raise ValueError("Servicio no encontrado.")
+
+        descargas = await self.db.get_descargas_por_servicio(conn, servicio_id)
+        xml_rows = filtrar_xmls_completados(descargas)
+        if not xml_rows:
+            return analisis_sin_datos(
+                servicio,
+                "No hay XMLs completados para analizar este servicio.",
+            )
+
+        xml_descargados = await self._descargar_xmls_sharepoint(xml_rows)
+        if not xml_descargados:
+            return analisis_sin_datos(
+                servicio,
+                "No se pudieron obtener los XMLs desde SharePoint.",
+            )
+
+        recibos: list[tuple[dict, CfeReceipt]] = []
+        for row, xml_input in xml_descargados:
+            try:
+                recibos.append((
+                    row,
+                    extraer_datos_xml(xml_input.content, xml_input.filename),
+                ))
+            except ValueError as exc:
+                logger.warning(
+                    "cfe_analisis_xml_omitido servicio_id=%s periodo=%s archivo=%s motivo=%s",
+                    servicio_id,
+                    row.get("periodo"),
+                    xml_input.filename,
+                    exc,
+                )
+
+        if not recibos:
+            return analisis_sin_datos(
+                servicio,
+                "Los XMLs descargados no contienen recibos CFE válidos.",
+            )
+
+        return construir_analisis_recibos(servicio, recibos)
+
+    async def _descargar_xmls_sharepoint(
+        self,
+        xml_rows: Sequence[dict],
+    ) -> list[tuple[dict, CfeXmlInput]]:
+        if not xml_rows:
+            return []
+
+        ms_auth = get_ms_auth()
+        token = await ms_auth.get_application_token()
+        if not token:
+            raise ValueError("No se pudo obtener token de Microsoft para leer SharePoint.")
+
+        async def _fetch_xml(
+            client: httpx.AsyncClient,
+            row: dict,
+        ) -> Optional[tuple[dict, CfeXmlInput]]:
+            url = row.get("ruta_sharepoint")
+            if not url:
+                return None
+
+            try:
+                download_url = await _resolve_sharepoint_download_url(client, token, url)
+                if not download_url:
+                    logger.warning(
+                        "cfe_sharepoint_download_url_no_resuelta descarga_id=%s periodo=%s",
+                        row.get("id"),
+                        row.get("periodo"),
+                    )
+                    return None
+
+                resp = await client.get(download_url, headers={"Authorization": f"Bearer {token}"})
+            except httpx.HTTPError as exc:
+                logger.warning(
+                    "cfe_sharepoint_xml_error descarga_id=%s periodo=%s error=%s",
+                    row.get("id"),
+                    row.get("periodo"),
+                    exc,
+                )
+                return None
+
+            if resp.status_code != 200:
+                logger.warning(
+                    "cfe_sharepoint_xml_status descarga_id=%s periodo=%s status=%s",
+                    row.get("id"),
+                    row.get("periodo"),
+                    resp.status_code,
+                )
+                return None
+
+            return (
+                row,
+                CfeXmlInput(
+                    filename=row.get("nombre_archivo") or "recibo.xml",
+                    content=resp.content,
+                ),
+            )
+
+        async with httpx.AsyncClient(timeout=30) as client:
+            results = await asyncio.gather(*[_fetch_xml(client, row) for row in xml_rows])
+
+        return [result for result in results if result is not None]
+
     # ── Excel ─────────────────────────────────────────────────────────────
 
     async def generar_excel(
@@ -909,27 +1101,8 @@ class CfeService:
         if not xml_rows:
             raise ValueError("No hay XMLs descargados para los periodos seleccionados.")
 
-        ms_auth = get_ms_auth()
-        token = await ms_auth.get_application_token()
-        if not token:
-            raise ValueError("No se pudo obtener token de Microsoft para leer SharePoint.")
-
-        async def _fetch_xml(client: httpx.AsyncClient, row: dict) -> Optional[CfeXmlInput]:
-            url = row["ruta_sharepoint"]
-            if not url:
-                return None
-            download_url = await _resolve_sharepoint_download_url(client, token, url)
-            if not download_url:
-                return None
-            resp = await client.get(download_url, headers={"Authorization": f"Bearer {token}"})
-            if resp.status_code == 200:
-                return CfeXmlInput(filename=row["nombre_archivo"] or "recibo.xml", content=resp.content)
-            return None
-
-        async with httpx.AsyncClient(timeout=30) as client:
-            results = await asyncio.gather(*[_fetch_xml(client, row) for row in xml_rows])
-
-        inputs = [r for r in results if r is not None]
+        xml_descargados = await self._descargar_xmls_sharepoint(xml_rows)
+        inputs = [xml_input for _, xml_input in xml_descargados]
         if not inputs:
             raise ValueError("No se pudieron obtener los XMLs desde SharePoint.")
 

@@ -676,6 +676,19 @@
                 {% include "admin/partials/cfe_token.html" %}
                 {% endwith %}
             </div>
+
+            {# ── Ejecutable del lanzador ── #}
+            <div class="mt-6 border-t border-gray-100 pt-4">
+                <label class="block text-sm font-bold text-gray-700 mb-1">Ejecutable del lanzador</label>
+                <p class="text-xs text-gray-400 mb-2">
+                    Sube el <code>.exe</code> generado con <code>build_exe.bat</code> en
+                    <code>tools/cfe/</code>. Los usuarios lo descargarán desde el modal
+                    de renovación de sesión cuando la sesión esté expirada.
+                </p>
+                {% with lanzador_version=config_global.cfe_lanzador_version %}
+                {% include "admin/partials/cfe_lanzador.html" %}
+                {% endwith %}
+            </div>
         </div>
     </section>
 

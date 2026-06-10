@@ -11,11 +11,14 @@ import logging
 import secrets
 import time
 
+from fastapi import UploadFile
 from .schemas import ConfiguracionGlobalUpdate, EmailRuleCreate
 from .db_service import AdminDBService
 from .constants import ROLES_ORGANIZACIONALES_VALIDOS
 from core.config_service import ConfigService
-from core.microsoft import MicrosoftAuth
+from core.integrations.sharepoint import SharePointService
+from core.microsoft import MicrosoftAuth, get_ms_auth
+from core.timezone import now_mx
 from modules.asistencia.constants import BIOTIME_CONFIG_KEYS
 from modules.cfe.constants import CFE_CONFIG_KEYS
 from .permission_utils import validate_module_roles
@@ -216,6 +219,8 @@ class AdminService:
             "vacaciones_anticipo_meses_semestre": int(config_dict.get("VACACIONES_ANTICIPO_MESES_SEMESTRE", "6")),
             "vacaciones_anticipo_porcentaje_liberacion": int(config_dict.get("VACACIONES_ANTICIPO_PORCENTAJE_LIBERACION", "50")),
             "vacaciones_anticipo_maximo_dias": int(config_dict.get("VACACIONES_ANTICIPO_MAXIMO_DIAS", "7")),
+            # CFE Lanzador local
+            "cfe_lanzador_version": config_dict.get(CFE_CONFIG_KEYS["lanzador_version"], ""),
         }
 
     async def update_global_config(self, conn, datos: ConfiguracionGlobalUpdate) -> None:
@@ -945,6 +950,7 @@ class AdminService:
         except json.JSONDecodeError:
             raise ValueError("El contenido pegado no es un JSON valido.")
         await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_json"], raw)
+        await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_invalida"], "")
         ConfigService.invalidar_cache()
         logger.info("Sesion CFE MiEspacio actualizada manualmente")
 
@@ -955,6 +961,19 @@ class AdminService:
         ConfigService.invalidar_cache()
         logger.info("Token de subida de sesion CFE regenerado")
         return token
+
+    async def upload_cfe_lanzador(self, conn, *, file: UploadFile) -> str:
+        """Sube el ejecutable del lanzador a SharePoint y guarda item_id + version en config global."""
+        app_token = await get_ms_auth().get_application_token()
+        sp = SharePointService(access_token=app_token)
+        base_folder = await ConfigService.get_global_config(conn, "SHAREPOINT_BASE_FOLDER", "APP_ENERTIKA_OPS_CORE", str)
+        result = await sp.upload_file(conn, file, f"{base_folder}/herramientas")
+        version = now_mx().strftime("%Y-%m-%d")
+        await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["lanzador_item_id"], result["id"])
+        await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["lanzador_version"], version)
+        ConfigService.invalidar_cache()
+        logger.info("Lanzador CFE subido a SharePoint item_id=%s version=%s", result["id"], version)
+        return version
 
 
 def get_admin_service():
