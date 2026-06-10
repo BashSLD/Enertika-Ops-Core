@@ -8,6 +8,7 @@ from typing import List, Dict, Optional
 from uuid import UUID
 import json
 import logging
+import secrets
 import time
 
 from .schemas import ConfiguracionGlobalUpdate, EmailRuleCreate
@@ -917,7 +918,13 @@ class AdminService:
         has_session = bool(
             await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["session_json"], "", str)
         )
-        return {"cfe_user": user, "cfe_has_pass": has_pass, "cfe_has_session": has_session}
+        token = await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["upload_token"], "", str)
+        return {
+            "cfe_user": user,
+            "cfe_has_pass": has_pass,
+            "cfe_has_session": has_session,
+            "cfe_session_token": token,
+        }
 
     async def update_cfe_config(self, conn, *, user: str, password: str) -> None:
         updates = [(CFE_CONFIG_KEYS["mi_user"], user.strip())]
@@ -940,6 +947,14 @@ class AdminService:
         await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_json"], raw)
         ConfigService.invalidar_cache()
         logger.info("Sesion CFE MiEspacio actualizada manualmente")
+
+    async def regenerate_cfe_token(self, conn) -> str:
+        """Genera y guarda un nuevo token compartido para el lanzador local de renovacion."""
+        token = secrets.token_urlsafe(32)
+        await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["upload_token"], token)
+        ConfigService.invalidar_cache()
+        logger.info("Token de subida de sesion CFE regenerado")
+        return token
 
 
 def get_admin_service():

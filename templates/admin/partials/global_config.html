@@ -664,6 +664,18 @@
                     </button>
                 </div>
             </div>
+
+            {# ── Token del lanzador local (renovación self-service) ── #}
+            <div class="mt-6 border-t border-gray-100 pt-4">
+                <label class="block text-sm font-bold text-gray-700 mb-1">Token del lanzador local de renovación</label>
+                <p class="text-xs text-gray-400 mb-2">
+                    Autentica al lanzador <code>Renovar sesión CFE</code> que los usuarios corren desde su PC
+                    para renovar la sesión tras resolver el CAPTCHA, sin depender del administrador.
+                </p>
+                {% with token=config_global.cfe_session_token %}
+                {% include "admin/partials/cfe_token.html" %}
+                {% endwith %}
+            </div>
         </div>
     </section>
 

@@ -1638,6 +1638,36 @@ async def actualizar_config_cfe(
         )
 
 
+@router.post("/config/cfe/token", include_in_schema=False, response_class=HTMLResponse)
+async def regenerar_token_cfe(
+    request: Request,
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    _user=require_role(["ADMIN"]),
+):
+    try:
+        token = await service.regenerate_cfe_token(conn)
+        return templates.TemplateResponse(
+            request, "admin/partials/cfe_token.html",
+            {"token": token,
+             "_toast": {"message": "Token de subida de sesión CFE generado.", "type": "success"}},
+        )
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error generando token CFE: {exc}")
+        # Re-render el partial completo (status 200) para conservar la UI del token
+        # y mostrar el toast: con 500 + outerHTML, HTMX no hace swap y el admin no ve feedback.
+        token_actual = ""
+        try:
+            token_actual = (await service.get_cfe_config(conn)).get("cfe_session_token", "")
+        except asyncpg.PostgresError:
+            pass
+        return templates.TemplateResponse(
+            request, "admin/partials/cfe_token.html",
+            {"token": token_actual,
+             "_toast": {"title": "Token CFE", "message": "Error al generar el token.", "type": "error"}},
+        )
+
+
 @router.post("/config/cfe/session", include_in_schema=False, response_class=HTMLResponse)
 async def actualizar_session_cfe(
     request: Request,
