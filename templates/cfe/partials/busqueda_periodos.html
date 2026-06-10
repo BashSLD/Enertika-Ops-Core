@@ -66,6 +66,9 @@
                         {% if item.etiqueta_periodo %}
                         <span class="text-xs text-gray-500">{{ item.etiqueta_periodo }}</span>
                         {% endif %}
+                        {% if item.tipo_recibo %}
+                        <span class="text-xs font-medium text-[#007A7B] bg-[#E0F7F7] px-2 py-0.5 rounded">{{ item.tipo_recibo }}</span>
+                        {% endif %}
                     </div>
                     <div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
                         <span class="{% if item.xml_estatus in ['descargado','ya_descargado'] %}text-green-700 bg-green-50{% elif item.xml_estatus == 'error' %}text-red-700 bg-red-50{% else %}text-gray-600 bg-gray-100{% endif %} px-2 py-0.5 rounded">

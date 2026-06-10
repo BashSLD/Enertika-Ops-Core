@@ -264,6 +264,7 @@ class CfeDBService:
         ya_descargado_pdf: bool = False,
         error_mensaje: Optional[str] = None,
         decision: str = "pendiente",
+        tipo_recibo: Optional[str] = None,
     ) -> dict:
         row = await conn.fetchrow(
             """
@@ -271,8 +272,9 @@ class CfeDBService:
                 (busqueda_id, periodo, etiqueta_periodo, xml_estatus, pdf_estatus,
                  xml_nombre_archivo, pdf_nombre_archivo, xml_staging_url, pdf_staging_url,
                  xml_drive_item_id, pdf_drive_item_id, ya_descargado_xml, ya_descargado_pdf,
-                 error_mensaje, decision)
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+                 error_mensaje, decision, tipo_recibo)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
+                    NULLIF($16, ''))
             ON CONFLICT (busqueda_id, periodo)
             DO UPDATE SET
                 etiqueta_periodo = EXCLUDED.etiqueta_periodo,
@@ -288,13 +290,14 @@ class CfeDBService:
                 ya_descargado_pdf = EXCLUDED.ya_descargado_pdf,
                 error_mensaje = EXCLUDED.error_mensaje,
                 decision = EXCLUDED.decision,
+                tipo_recibo = COALESCE(EXCLUDED.tipo_recibo, tb_cfe_busqueda_items.tipo_recibo),
                 actualizado_en = now()
             RETURNING *
             """,
             busqueda_id, periodo, etiqueta_periodo, xml_estatus, pdf_estatus,
             xml_nombre_archivo, pdf_nombre_archivo, xml_staging_url, pdf_staging_url,
             xml_drive_item_id, pdf_drive_item_id, ya_descargado_xml, ya_descargado_pdf,
-            error_mensaje, decision,
+            error_mensaje, decision, tipo_recibo,
         )
         return dict(row)
 

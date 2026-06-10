@@ -31,7 +31,12 @@
                 {% set tiene_error = item.xml_estatus == 'error' or item.pdf_estatus == 'error' %}
                 <div class="p-3 flex items-center justify-between gap-4">
                     <div>
-                        <p class="font-mono text-sm text-gray-900">{{ item.periodo }}</p>
+                        <div class="flex items-center gap-2">
+                            <p class="font-mono text-sm text-gray-900">{{ item.periodo }}</p>
+                            {% if item.tipo_recibo %}
+                            <span class="text-xs font-medium text-[#007A7B] bg-[#E0F7F7] px-2 py-0.5 rounded">{{ item.tipo_recibo }}</span>
+                            {% endif %}
+                        </div>
                         {% if item.etiqueta_periodo %}
                         <p class="text-xs text-gray-500">{{ item.etiqueta_periodo }}</p>
                         {% endif %}

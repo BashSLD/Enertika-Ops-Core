@@ -275,7 +275,8 @@ class CfeService:
                 try:
                     await self._conservar_busqueda_item(
                         conn, sp, item, busqueda, usuario_id, ya_final_xml, ya_final_pdf,
-                        descargas_finales.get(periodo, {}).get("xml", {}).get("tipo_recibo"),
+                        item.get("tipo_recibo")
+                        or descargas_finales.get(periodo, {}).get("xml", {}).get("tipo_recibo"),
                     )
                 except (ValueError, RuntimeError, httpx.HTTPError, OSError) as exc:
                     raise ValueError(f"No se pudo conservar el periodo {periodo}: {exc}") from exc
@@ -502,6 +503,10 @@ class CfeService:
                 if xml_estatus in ("descargado", "ya_descargado") and pdf_estatus in ("descargado", "ya_descargado"):
                     total_descargados += 1
 
+                tipo_recibo = (
+                    self._extraer_tipo_recibo(result.xml_content, result.xml_filename)
+                    or final_xml.get("tipo_recibo")
+                )
                 errores = [msg for msg in (result.xml_error, result.pdf_error, xml_upload_err, pdf_upload_err) if msg]
                 decision = "no_aplica" if ya_xml and ya_pdf else "pendiente"
                 await self.db.upsert_busqueda_item(
@@ -509,6 +514,7 @@ class CfeService:
                     busqueda_id=busqueda["id"],
                     periodo=result.periodo,
                     etiqueta_periodo=result.etiqueta,
+                    tipo_recibo=tipo_recibo,
                     xml_estatus=xml_estatus,
                     pdf_estatus=pdf_estatus,
                     xml_nombre_archivo=result.xml_filename or final_xml.get("nombre_archivo"),
