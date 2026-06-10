@@ -27,7 +27,7 @@
                   hx-target="#cfe-busqueda-body"
                   hx-swap="outerHTML"
                   x-data="{ enviando: false }"
-                  @submit="enviando = true"
+                  @submit="$nextTick(() => { enviando = true })"
                   :aria-busy="enviando.toString()"
                   class="space-y-4">
                 <div>

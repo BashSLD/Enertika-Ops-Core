@@ -56,7 +56,7 @@
           hx-target="#cfe-modal-container"
           hx-swap="innerHTML"
           x-data="{ procesando: false }"
-          @submit="procesando = true"
+          @submit="$nextTick(() => { procesando = true })"
           :aria-busy="procesando.toString()">
         <div class="max-h-96 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
             {% for item in items %}
