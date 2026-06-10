@@ -96,6 +96,14 @@
               @click="tab = 'firma'"
               class="text-xs text-sky-600 hover:underline">Firmar</button>
             {% endif %}
+            {% if s.estado == 'pendiente' and not s.firma_solicitante_pendiente %}
+            <button
+              hx-post="/vacaciones/solicitudes/{{ s.id }}/recordar"
+              hx-target="#tab-content"
+              hx-swap="innerHTML"
+              hx-confirm="¿Enviar un recordatorio de aprobación al responsable?"
+              class="text-xs text-amber-600 hover:underline">Recordar</button>
+            {% endif %}
             {% if s.estado == 'pendiente' %}
             <button
               hx-post="/vacaciones/solicitudes/{{ s.id }}/cancelar"

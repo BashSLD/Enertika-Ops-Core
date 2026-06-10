@@ -8,7 +8,7 @@ from uuid import UUID
 
 from core.config_service import ConfigService
 from core.permissions import user_has_module_access
-from core.timezone import fmt_time_mx, today_mx
+from core.timezone import fmt_time_mx, now_mx, today_mx
 from modules.asistencia import db_service as asistencia_db
 from modules.asistencia.service import recalcular_asistencia
 from modules.shared import signatures_db_service as signatures_db
@@ -344,6 +344,53 @@ async def activar_solicitud_tras_firma(
     )
     await db.completar_firma_solicitante(conn, solicitud_id)
     await _notificar_aprobadores(conn, solicitud_id, solicitud)
+
+
+_RECORDATORIO_COOLDOWN_HORAS = 4
+
+
+async def enviar_recordatorio_manual(conn, solicitud_id: UUID, usuario_id: UUID) -> int:
+    """
+    Reenvia manualmente al/los aprobador(es) el mismo recordatorio de aprobacion
+    pendiente que dispara el worker automatico. Devuelve el numero de destinatarios.
+
+    Reglas: solo el dueno de la solicitud, en estado 'pendiente' y sin firma
+    pendiente, con un cooldown de 4 horas reusando ultima_notificacion_aprobador.
+    """
+    solicitud = await db.get_solicitud(conn, solicitud_id)
+    if not solicitud:
+        raise ValueError("Solicitud no encontrada")
+    if solicitud["usuario_id"] != usuario_id:
+        raise ValueError("Solo puedes recordar tus propias solicitudes")
+    if solicitud.get("firma_solicitante_pendiente"):
+        raise ValueError("Primero firma la solicitud para que pueda aprobarse")
+    if solicitud["estado"] != "pendiente":
+        raise ValueError("Solo puedes recordar solicitudes pendientes de aprobacion")
+
+    ultima = solicitud.get("ultima_notificacion_aprobador")
+    if ultima is not None and now_mx() - ultima < timedelta(hours=_RECORDATORIO_COOLDOWN_HORAS):
+        raise ValueError(
+            f"Ya enviaste un recordatorio en las ultimas {_RECORDATORIO_COOLDOWN_HORAS} horas. Intenta mas tarde."
+        )
+
+    to_emails = {email for email in await db.get_aprobador_emails(conn, solicitud_id) if email}
+    if not to_emails:
+        raise ValueError("No hay un aprobador asignado para notificar")
+
+    if solicitud.get("fecha_presentarse") is None:
+        solicitud["fecha_presentarse"] = solicitud["fecha_fin"]
+
+    from core.workflow.notification_service import get_notification_service
+
+    notif = get_notification_service()
+    await notif.notify_pending_vacation_approval(
+        conn, solicitud, to_emails=to_emails, cc_emails=set(), hito="manual"
+    )
+    await db.update_ultima_notificacion_aprobador(conn, solicitud_id)
+    logger.info(
+        "Recordatorio manual enviado: sol=%s destinatarios=%d", solicitud_id, len(to_emails)
+    )
+    return len(to_emails)
 
 
 async def _notificar_aprobadores(conn, solicitud_id: UUID, solicitud: dict) -> None:

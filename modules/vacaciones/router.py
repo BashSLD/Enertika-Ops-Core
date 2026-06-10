@@ -335,6 +335,32 @@ async def cancelar_solicitud(
     )
 
 
+@router.post("/solicitudes/{solicitud_id}/recordar")
+async def recordar_aprobacion(
+    request: Request,
+    solicitud_id: UUID,
+    conn=Depends(get_db_connection),
+    context=Depends(get_current_user_context),
+):
+    usuario_id = UUID(str(context["user_db_id"]))
+    try:
+        await service.enviar_recordatorio_manual(conn, solicitud_id, usuario_id)
+    except ValueError as exc:
+        return toast_error(request, str(exc), status_code=200)
+
+    solicitudes = await db.get_solicitudes_usuario(conn, usuario_id)
+    return templates.TemplateResponse(
+        request,
+        "vacaciones/partials/mis_solicitudes.html",
+        {
+            "solicitudes": solicitudes,
+            "context": context,
+            "toast_msg": "Recordatorio enviado al aprobador.",
+            "toast_type": "success",
+        },
+    )
+
+
 @router.get("/solicitudes/{solicitud_id}/pdf")
 async def descargar_pdf(
     solicitud_id: UUID,

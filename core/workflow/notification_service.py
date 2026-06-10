@@ -921,6 +921,7 @@ class NotificationService:
         labels = {
             "t2": "dos dias habiles",
             "t1": "un dia habil",
+            "manual": "breve",
         }
         return labels.get(hito, "pocos dias")
 
