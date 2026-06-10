@@ -8,6 +8,7 @@ from fastapi.responses import JSONResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 from core.database import get_db_connection
+from core.jinja_filters import register_timezone_filters
 from core.permissions import user_has_module_access
 from core.security import get_current_user_context
 from core.timezone import fmt_time_mx, today_mx
@@ -20,6 +21,7 @@ from modules.vacaciones.logic import contar_dias_habiles, siguiente_dia_habil
 
 router = APIRouter(prefix="/vacaciones", tags=["vacaciones"])
 templates = Jinja2Templates(directory="templates")
+register_timezone_filters(templates.env)
 
 
 def _get_usuario_id(context: dict) -> UUID | None:
