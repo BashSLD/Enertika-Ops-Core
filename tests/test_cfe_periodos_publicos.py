@@ -37,6 +37,8 @@ def test_templates_busqueda_cfe_compilan():
     env.filters["time_mx"] = lambda value, fmt="%d/%m/%Y": ""
 
     for template_name in [
+        "cfe/analisis.html",
+        "cfe/partials/analisis_servicio.html",
         "cfe/partials/modal_buscar_periodos.html",
         "cfe/partials/busqueda_periodos.html",
         "cfe/partials/busqueda_confirmada.html",
@@ -44,6 +46,114 @@ def test_templates_busqueda_cfe_compilan():
         "cfe/partials/lista_servicios.html",
     ]:
         assert env.get_template(template_name)
+
+
+def test_analisis_cfe_sin_datos_renderiza_estado_vacio():
+    env = Environment(loader=FileSystemLoader("templates"))
+
+    html = env.get_template("cfe/partials/analisis_servicio.html").render(
+        analisis={
+            "servicio": {
+                "id": "servicio-1",
+                "nombre": "SERVICIO PRUEBA",
+                "numero_servicio": "123",
+                "alias": None,
+            },
+            "hay_datos": False,
+            "mensaje": "No hay XMLs completados para analizar este servicio.",
+        },
+        user={"user_name": "QA"},
+    )
+
+    assert "Volver a servicios" in html
+    assert "No hay XMLs completados" in html
+    assert 'hx-get="/cfe/ui"' in html
+
+
+def test_analisis_cfe_con_datos_renderiza_dashboard():
+    env = Environment(loader=FileSystemLoader("templates"))
+    analisis = {
+        "servicio": {
+            "id": "servicio-1",
+            "nombre": "SERVICIO PRUEBA",
+            "numero_servicio": "123",
+            "alias": "Planta",
+        },
+        "hay_datos": True,
+        "mensaje": "",
+        "ultimo": {
+            "label": "Feb-25",
+            "tarifa": "GDMTH",
+            "total_facturado": 5208.4,
+            "subtotal": 4490.0,
+            "consumo": 6000.0,
+            "costo_kwh": 0.868,
+            "kwmax": 22.0,
+            "fp": 95.5,
+            "consumo_punta_pct": 50.0,
+            "perfil_horario": [{"nombre": "Punta", "consumo": 3000.0, "costo": 300.0}],
+            "componentes": [{"nombre": "Generacion P", "importe": 300.0}],
+        },
+        "total_periodos": 2,
+        "baseline_periodos": 1,
+        "comparativos": [
+            {
+                "key": "consumo",
+                "label": "Consumo",
+                "unidad": "kWh",
+                "decimales": 0,
+                "actual": 6000.0,
+                "anterior": {"disponible": True, "valor": 5000.0, "delta": 1000.0, "delta_pct": 20.0},
+                "promedio_12": {"disponible": True, "valor": 5000.0, "delta": 1000.0, "delta_pct": 20.0, "periodos": 1},
+                "anio_anterior": {"disponible": False, "valor": None, "delta": None, "delta_pct": None},
+            }
+        ],
+        "alertas": [
+            {"tipo": "warning", "titulo": "Consumo arriba del promedio", "detalle": "20.0% contra el promedio."}
+        ],
+        "ahorro_estimado": {
+            "disponible": True,
+            "ahorro_estimado": 100.0,
+            "costo_esperado": 5308.4,
+            "costo_kwh_baseline": 0.884,
+            "consumo_baseline": 5000.0,
+            "variacion_consumo": 1000.0,
+        },
+        "historial_extendido": {
+            "disponible": True,
+            "origen_label": "Feb-25",
+            "items": [
+                {
+                    "mes": "FEB",
+                    "consumo_kwh": 6000.0,
+                    "demanda_kw": 22.0,
+                    "factor_potencia_pct": 95.5,
+                    "precio_medio_mxn": 0.86,
+                }
+            ],
+        },
+        "graficas": {
+            "labels": ["Ene-25", "Feb-25"],
+            "metricas": {
+                "consumo": {"label": "Consumo", "unidad": "kWh", "decimales": 0, "data": [5000.0, 6000.0], "promedio": 5500.0},
+                "total_facturado": {"label": "Total", "unidad": "MXN", "decimales": 0, "data": [4300.0, 5208.4], "promedio": 4754.2},
+                "costo_kwh": {"label": "Costo/kWh", "unidad": "MXN/kWh", "decimales": 2, "data": [0.86, 0.868], "promedio": 0.864},
+                "kwmax": {"label": "Demanda", "unidad": "kW", "decimales": 1, "data": [20.0, 22.0], "promedio": 21.0},
+            },
+            "perfil_horario": {"labels": ["Punta"], "consumo": [3000.0], "costo": [300.0]},
+            "desglose": {"labels": ["Generacion P"], "data": [300.0]},
+        },
+    }
+
+    html = env.get_template("cfe/partials/analisis_servicio.html").render(
+        analisis=analisis,
+        user={"user_name": "QA"},
+    )
+
+    assert "Total facturado" in html
+    assert "Comparativo del último periodo" in html
+    assert "cfe-analisis-main-chart" in html
+    assert "Generacion P" in html
 
 
 def test_historial_cfe_xml_completo_sin_pdf_muestra_reintento_pdf():
@@ -157,5 +267,7 @@ def test_lista_servicios_cfe_muestra_trabajos_activos():
     assert "Búsqueda en curso" in html
     assert "Ver búsqueda" in html
     assert "/cfe/servicios/servicio-busqueda/modal-busqueda-activa" in html
+    assert "/cfe/servicios/servicio-busqueda/analisis" in html
+    assert "Análisis" in html
     assert "Descarga en curso" in html
     assert 'hx-trigger="load, every 4s"' in html

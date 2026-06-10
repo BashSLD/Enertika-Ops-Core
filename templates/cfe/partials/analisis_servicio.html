@@ -1,0 +1,447 @@
+{# templates/cfe/partials/analisis_servicio.html #}
+{% macro numero(valor, dec=0) -%}
+{% if valor is number %}
+    {% if dec == 0 %}{{ "{:,.0f}".format(valor) }}{% elif dec == 1 %}{{ "{:,.1f}".format(valor) }}{% else %}{{ "{:,.2f}".format(valor) }}{% endif %}
+{% else %}
+    <span class="text-gray-400">N/D</span>
+{% endif %}
+{%- endmacro %}
+
+{% macro dinero(valor, dec=0) -%}
+{% if valor is number %}${{ numero(valor, dec) }}{% else %}<span class="text-gray-400">N/D</span>{% endif %}
+{%- endmacro %}
+
+{% macro referencia(ref, dec=0, unidad='', dinero_flag=false) -%}
+{% if ref.disponible %}
+<div class="flex flex-col gap-0.5">
+    <span class="font-medium text-gray-900">
+        {% if dinero_flag %}{{ dinero(ref.valor, dec) }}{% else %}{{ numero(ref.valor, dec) }}{% if unidad %} {{ unidad }}{% endif %}{% endif %}
+    </span>
+    {% if ref.delta_pct is number %}
+    <span class="text-xs {% if ref.delta_pct > 0 %}text-red-600{% elif ref.delta_pct < 0 %}text-green-600{% else %}text-gray-500{% endif %}">
+        {% if ref.delta_pct > 0 %}+{% endif %}{{ numero(ref.delta_pct, 1) }}%
+    </span>
+    {% endif %}
+</div>
+{% else %}
+<span class="text-gray-400">N/D</span>
+{% endif %}
+{%- endmacro %}
+
+{% set servicio = analisis.servicio %}
+
+<div id="cfe-analisis-servicio" class="p-6 space-y-6">
+    <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div class="min-w-0">
+            <button type="button"
+                    hx-get="/cfe/ui"
+                    hx-target="#main-content"
+                    hx-swap="innerHTML"
+                    hx-push-url="true"
+                    class="mb-3 inline-flex items-center gap-2 text-sm font-medium text-gray-500 hover:text-gray-900 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7"/>
+                </svg>
+                Volver a servicios
+            </button>
+            <div class="flex flex-wrap items-center gap-2">
+                <h1 class="text-xl font-bold text-gray-900">Análisis CFE</h1>
+                {% if servicio.alias %}
+                <span class="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">{{ servicio.alias }}</span>
+                {% endif %}
+            </div>
+            <p class="mt-1 text-sm text-gray-500">
+                {{ servicio.nombre }} · <span class="font-mono">{{ servicio.numero_servicio }}</span>
+            </p>
+        </div>
+
+        {% if analisis.hay_datos %}
+        <div class="rounded-lg border border-gray-200 bg-white px-4 py-3 text-right shadow-sm">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Último periodo</p>
+            <p class="mt-1 text-lg font-bold text-gray-900">{{ analisis.ultimo.label }}</p>
+            <p class="text-xs text-gray-500">{{ analisis.total_periodos }} periodos analizados</p>
+        </div>
+        {% endif %}
+    </div>
+
+    {% if not analisis.hay_datos %}
+    <div class="rounded-lg border border-dashed border-gray-300 bg-white p-10 text-center">
+        <div class="mx-auto mb-3 flex h-11 w-11 items-center justify-center rounded-full bg-yellow-50 text-yellow-700">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                      d="M13 16h-1v-4h-1m1-4h.01M12 3a9 9 0 110 18 9 9 0 010-18z"/>
+            </svg>
+        </div>
+        <p class="font-semibold text-gray-900">{{ analisis.mensaje }}</p>
+        <p class="mt-1 text-sm text-gray-500">Descarga al menos un XML completado para habilitar el análisis.</p>
+    </div>
+    {% else %}
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+        <div class="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Total facturado</p>
+            <p class="mt-2 text-2xl font-bold text-gray-900">{{ dinero(analisis.ultimo.total_facturado) }}</p>
+            <p class="mt-1 text-xs text-gray-500">Subtotal {{ dinero(analisis.ultimo.subtotal) }}</p>
+        </div>
+        <div class="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Consumo</p>
+            <p class="mt-2 text-2xl font-bold text-gray-900">{{ numero(analisis.ultimo.consumo) }}</p>
+            <p class="mt-1 text-xs text-gray-500">kWh</p>
+        </div>
+        <div class="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Costo promedio</p>
+            <p class="mt-2 text-2xl font-bold text-gray-900">{{ dinero(analisis.ultimo.costo_kwh, 2) }}</p>
+            <p class="mt-1 text-xs text-gray-500">por kWh</p>
+        </div>
+        <div class="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Demanda máxima</p>
+            <p class="mt-2 text-2xl font-bold text-gray-900">{{ numero(analisis.ultimo.kwmax, 1) }}</p>
+            <p class="mt-1 text-xs text-gray-500">kW</p>
+        </div>
+        <div class="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Factor potencia</p>
+            <p class="mt-2 text-2xl font-bold text-gray-900">{{ numero(analisis.ultimo.fp, 2) }}</p>
+            <p class="mt-1 text-xs text-gray-500">%</p>
+        </div>
+        <div class="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Punta</p>
+            <p class="mt-2 text-2xl font-bold text-gray-900">{{ numero(analisis.ultimo.consumo_punta_pct, 1) }}</p>
+            <p class="mt-1 text-xs text-gray-500">% del consumo</p>
+        </div>
+    </div>
+
+    <div class="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.55fr)]">
+        <section class="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
+            <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                    <h2 class="text-base font-bold text-gray-900">Evolución histórica</h2>
+                    <p class="text-sm text-gray-500">Promedio calculado sobre los últimos {{ [analisis.total_periodos, 12] | min }} periodos disponibles</p>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                    <button type="button" data-cfe-metric="consumo" class="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors">Consumo</button>
+                    <button type="button" data-cfe-metric="total_facturado" class="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors">Total</button>
+                    <button type="button" data-cfe-metric="costo_kwh" class="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors">Costo/kWh</button>
+                    <button type="button" data-cfe-metric="kwmax" class="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors">Demanda</button>
+                </div>
+            </div>
+            <div class="h-80">
+                <canvas id="cfe-analisis-main-chart"></canvas>
+            </div>
+        </section>
+
+        <section class="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
+            <h2 class="text-base font-bold text-gray-900">Alertas</h2>
+            <div class="mt-4 space-y-3">
+                {% for alerta in analisis.alertas %}
+                {% set alerta_class = "border-gray-200 bg-gray-50 text-gray-800" %}
+                {% if alerta.tipo == "danger" %}
+                    {% set alerta_class = "border-red-200 bg-red-50 text-red-900" %}
+                {% elif alerta.tipo == "warning" %}
+                    {% set alerta_class = "border-yellow-200 bg-yellow-50 text-yellow-900" %}
+                {% elif alerta.tipo == "info" %}
+                    {% set alerta_class = "border-blue-200 bg-blue-50 text-blue-900" %}
+                {% elif alerta.tipo == "success" %}
+                    {% set alerta_class = "border-green-200 bg-green-50 text-green-900" %}
+                {% endif %}
+                <div class="rounded-lg border p-3 {{ alerta_class }}">
+                    <p class="text-sm font-semibold">{{ alerta.titulo }}</p>
+                    <p class="mt-1 text-xs leading-5 opacity-80">{{ alerta.detalle }}</p>
+                </div>
+                {% endfor %}
+            </div>
+        </section>
+    </div>
+
+    <section class="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
+        <div class="mb-4 flex items-center justify-between gap-4">
+            <div>
+                <h2 class="text-base font-bold text-gray-900">Comparativo del último periodo</h2>
+                <p class="text-sm text-gray-500">Referencias contra periodo anterior, baseline y mismo mes del año previo</p>
+            </div>
+            <span class="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                Baseline: {{ analisis.baseline_periodos }} periodos
+            </span>
+        </div>
+        <div class="overflow-x-auto">
+            <table class="min-w-full divide-y divide-gray-100 text-sm">
+                <thead>
+                    <tr class="text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+                        <th class="py-2 pr-4">Métrica</th>
+                        <th class="py-2 px-4">Actual</th>
+                        <th class="py-2 px-4">Anterior</th>
+                        <th class="py-2 px-4">Promedio 12</th>
+                        <th class="py-2 pl-4">Año anterior</th>
+                    </tr>
+                </thead>
+                <tbody class="divide-y divide-gray-50">
+                    {% for comp in analisis.comparativos %}
+                    {% set es_dinero = comp.key in ["total_facturado", "costo_kwh"] %}
+                    <tr>
+                        <td class="py-3 pr-4 font-medium text-gray-900">{{ comp.label }}</td>
+                        <td class="py-3 px-4 text-gray-900">
+                            {% if es_dinero %}{{ dinero(comp.actual, comp.decimales) }}{% else %}{{ numero(comp.actual, comp.decimales) }} {{ comp.unidad }}{% endif %}
+                        </td>
+                        <td class="py-3 px-4">{{ referencia(comp.anterior, comp.decimales, comp.unidad, es_dinero) }}</td>
+                        <td class="py-3 px-4">{{ referencia(comp.promedio_12, comp.decimales, comp.unidad, es_dinero) }}</td>
+                        <td class="py-3 pl-4">{{ referencia(comp.anio_anterior, comp.decimales, comp.unidad, es_dinero) }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <div class="grid gap-6 xl:grid-cols-2">
+        <section class="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
+            <div class="mb-4 flex items-center justify-between">
+                <h2 class="text-base font-bold text-gray-900">Perfil horario</h2>
+                <span class="text-xs font-medium text-gray-500">{{ analisis.ultimo.tarifa }}</span>
+            </div>
+            {% if analisis.ultimo.perfil_horario %}
+            <div class="h-72">
+                <canvas id="cfe-analisis-perfil-chart"></canvas>
+            </div>
+            {% else %}
+            <p class="py-10 text-center text-sm text-gray-500">No hay perfil horario detallado en este XML.</p>
+            {% endif %}
+        </section>
+
+        <section class="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
+            <h2 class="text-base font-bold text-gray-900">Desglose del recibo</h2>
+            {% if analisis.ultimo.componentes %}
+            <div class="mt-4 h-72">
+                <canvas id="cfe-analisis-desglose-chart"></canvas>
+            </div>
+            {% else %}
+            <p class="py-10 text-center text-sm text-gray-500">No hay componentes tarifarios disponibles.</p>
+            {% endif %}
+        </section>
+    </div>
+
+    <div class="grid gap-6 xl:grid-cols-[minmax(360px,0.75fr)_minmax(0,1.25fr)]">
+        <section class="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
+            <h2 class="text-base font-bold text-gray-900">Variación contra baseline</h2>
+            {% if analisis.ahorro_estimado.disponible %}
+            <div class="mt-4 space-y-4">
+                <div>
+                    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Ahorro estimado</p>
+                    <p class="mt-1 text-3xl font-bold {% if analisis.ahorro_estimado.ahorro_estimado >= 0 %}text-green-700{% else %}text-red-700{% endif %}">
+                        {{ dinero(analisis.ahorro_estimado.ahorro_estimado) }}
+                    </p>
+                    <p class="mt-1 text-sm text-gray-500">
+                        Esperado {{ dinero(analisis.ahorro_estimado.costo_esperado) }} con costo/kWh histórico de {{ dinero(analisis.ahorro_estimado.costo_kwh_baseline, 2) }}
+                    </p>
+                </div>
+                <div class="grid grid-cols-2 gap-3 text-sm">
+                    <div class="rounded-lg bg-gray-50 p-3">
+                        <p class="text-xs font-medium text-gray-500">Consumo baseline</p>
+                        <p class="mt-1 font-semibold text-gray-900">{{ numero(analisis.ahorro_estimado.consumo_baseline) }} kWh</p>
+                    </div>
+                    <div class="rounded-lg bg-gray-50 p-3">
+                        <p class="text-xs font-medium text-gray-500">Variación consumo</p>
+                        <p class="mt-1 font-semibold text-gray-900">{{ numero(analisis.ahorro_estimado.variacion_consumo) }} kWh</p>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <p class="mt-4 text-sm text-gray-500">Se requieren periodos históricos con consumo y costo/kWh para estimar variación contra baseline.</p>
+            {% endif %}
+        </section>
+
+        <section class="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
+            <div class="mb-4 flex items-center justify-between">
+                <div>
+                    <h2 class="text-base font-bold text-gray-900">Histórico CFE embebido</h2>
+                    {% if analisis.historial_extendido.disponible %}
+                    <p class="text-sm text-gray-500">Origen: XML {{ analisis.historial_extendido.origen_label }}</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% if analisis.historial_extendido.disponible %}
+            <div class="max-h-80 overflow-auto">
+                <table class="min-w-full divide-y divide-gray-100 text-sm">
+                    <thead class="sticky top-0 bg-white">
+                        <tr class="text-left text-xs font-semibold uppercase tracking-wide text-gray-400">
+                            <th class="py-2 pr-4">Mes</th>
+                            <th class="py-2 px-4">Consumo</th>
+                            <th class="py-2 px-4">Demanda</th>
+                            <th class="py-2 px-4">FP</th>
+                            <th class="py-2 pl-4">Precio medio</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-50">
+                        {% for item in analisis.historial_extendido["items"] %}
+                        <tr>
+                            <td class="py-2 pr-4 font-medium text-gray-900">{{ item.mes }}</td>
+                            <td class="py-2 px-4 text-gray-700">{{ numero(item.consumo_kwh) }} kWh</td>
+                            <td class="py-2 px-4 text-gray-700">{{ numero(item.demanda_kw, 1) }} kW</td>
+                            <td class="py-2 px-4 text-gray-700">{{ numero(item.factor_potencia_pct, 2) }}%</td>
+                            <td class="py-2 pl-4 text-gray-700">{{ dinero(item.precio_medio_mxn, 2) }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <p class="py-10 text-center text-sm text-gray-500">Este XML no incluye historial CFE embebido.</p>
+            {% endif %}
+        </section>
+    </div>
+
+    <script id="cfe-analisis-data" type="application/json">{{ analisis.graficas | tojson }}</script>
+    <script>
+    (function initCfeAnalisisCharts() {
+        var dataEl = document.getElementById('cfe-analisis-data');
+        if (!dataEl || typeof Chart === 'undefined') return;
+
+        var graficas = JSON.parse(dataEl.textContent || '{}');
+        var mainCanvas = document.getElementById('cfe-analisis-main-chart');
+        var perfilCanvas = document.getElementById('cfe-analisis-perfil-chart');
+        var desgloseCanvas = document.getElementById('cfe-analisis-desglose-chart');
+        var metricButtons = Array.prototype.slice.call(document.querySelectorAll('[data-cfe-metric]'));
+        var colors = {
+            consumo: { border: '#0f766e', fill: 'rgba(15, 118, 110, 0.16)' },
+            total_facturado: { border: '#b45309', fill: 'rgba(180, 83, 9, 0.16)' },
+            costo_kwh: { border: '#2563eb', fill: 'rgba(37, 99, 235, 0.14)' },
+            kwmax: { border: '#dc2626', fill: 'rgba(220, 38, 38, 0.12)' }
+        };
+
+        function destroyChart(canvas) {
+            if (!canvas) return;
+            var current = Chart.getChart(canvas);
+            if (current) current.destroy();
+        }
+
+        function renderMainChart(key) {
+            if (!mainCanvas || !graficas.metricas || !graficas.metricas[key]) return;
+            var meta = graficas.metricas[key];
+            var values = (meta.data || []).map(function (value) {
+                return value === null ? null : Number(value);
+            });
+            var promedio = meta.promedio === null ? null : Number(meta.promedio);
+            var color = colors[key] || colors.consumo;
+
+            destroyChart(mainCanvas);
+            new Chart(mainCanvas, {
+                type: 'line',
+                data: {
+                    labels: graficas.labels || [],
+                    datasets: [
+                        {
+                            label: meta.label,
+                            data: values,
+                            borderColor: color.border,
+                            backgroundColor: color.fill,
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.35,
+                            pointRadius: values.map(function (_, index) {
+                                return index === values.length - 1 ? 5 : 2;
+                            }),
+                            pointBackgroundColor: values.map(function (_, index) {
+                                return index === values.length - 1 ? '#111827' : color.border;
+                            })
+                        },
+                        {
+                            label: 'Promedio',
+                            data: values.map(function () { return promedio; }),
+                            borderColor: '#64748b',
+                            borderDash: [6, 6],
+                            borderWidth: 1.5,
+                            pointRadius: 0,
+                            fill: false
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: { mode: 'index', intersect: false },
+                    plugins: {
+                        legend: { labels: { boxWidth: 10, color: '#475569' } }
+                    },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#64748b' } },
+                        y: { beginAtZero: false, grid: { color: '#f1f5f9' }, ticks: { color: '#64748b' } }
+                    }
+                }
+            });
+
+            metricButtons.forEach(function (button) {
+                var active = button.getAttribute('data-cfe-metric') === key;
+                button.className = 'text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors ' + (
+                    active
+                        ? 'bg-yellow-600 border-yellow-600 text-white'
+                        : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                );
+            });
+        }
+
+        metricButtons.forEach(function (button) {
+            button.addEventListener('click', function () {
+                renderMainChart(button.getAttribute('data-cfe-metric'));
+            });
+        });
+        renderMainChart('consumo');
+
+        if (perfilCanvas && graficas.perfil_horario && graficas.perfil_horario.labels.length) {
+            destroyChart(perfilCanvas);
+            new Chart(perfilCanvas, {
+                type: 'bar',
+                data: {
+                    labels: graficas.perfil_horario.labels,
+                    datasets: [
+                        {
+                            label: 'Consumo kWh',
+                            data: graficas.perfil_horario.consumo,
+                            backgroundColor: '#0f766e',
+                            yAxisID: 'y'
+                        },
+                        {
+                            label: 'Costo MXN',
+                            data: graficas.perfil_horario.costo,
+                            backgroundColor: '#f59e0b',
+                            yAxisID: 'y1'
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { labels: { boxWidth: 10, color: '#475569' } } },
+                    scales: {
+                        x: { grid: { display: false }, ticks: { color: '#64748b' } },
+                        y: { beginAtZero: true, position: 'left', grid: { color: '#f1f5f9' }, ticks: { color: '#64748b' } },
+                        y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#64748b' } }
+                    }
+                }
+            });
+        }
+
+        if (desgloseCanvas && graficas.desglose && graficas.desglose.labels.length) {
+            destroyChart(desgloseCanvas);
+            new Chart(desgloseCanvas, {
+                type: 'bar',
+                data: {
+                    labels: graficas.desglose.labels,
+                    datasets: [{
+                        label: 'Importe',
+                        data: graficas.desglose.data,
+                        backgroundColor: ['#0f766e', '#f59e0b', '#2563eb', '#dc2626', '#7c3aed', '#475569', '#16a34a', '#ea580c']
+                    }]
+                },
+                options: {
+                    indexAxis: 'y',
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { beginAtZero: true, grid: { color: '#f1f5f9' }, ticks: { color: '#64748b' } },
+                        y: { grid: { display: false }, ticks: { color: '#475569' } }
+                    }
+                }
+            });
+        }
+    })();
+    </script>
+    {% endif %}
+</div>
