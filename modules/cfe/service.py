@@ -76,7 +76,9 @@ class CfeService:
                 "La renovacion de sesion CFE no esta habilitada. "
                 "Un administrador debe generar el token en Admin > Configuracion Global > Recibos CFE."
             )
-        if not token or not secrets.compare_digest(token, configurado):
+        # compare_digest en bytes: con str lanza TypeError si el token entrante
+        # trae caracteres no-ASCII (los headers llegan en latin-1).
+        if not token or not secrets.compare_digest(token.encode("utf-8"), configurado.encode("utf-8")):
             raise PermissionError("Token de subida de sesion CFE invalido.")
 
         self._validar_storage_state(session_json)

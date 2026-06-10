@@ -4,6 +4,7 @@ CFE_CONFIG_KEYS = {
     "mi_user":       "CFE_MIESPACIO_USER",
     "mi_pass":       "CFE_MIESPACIO_PASS",
     "session_json":  "CFE_MIESPACIO_SESSION_JSON",
+    "upload_token":  "CFE_SESSION_UPLOAD_TOKEN",
 }
 
 CFE_PUBLIC_FORM_DEFAULTS = {

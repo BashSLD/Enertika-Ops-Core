@@ -27,6 +27,9 @@ register_timezone_filters(templates.env)
 # require_any_module_access YA retorna Depends() (core/permissions.py). NO envolver en Depends().
 _editor = require_any_module_access(CFE_MODULE_SLUGS, min_role="editor")
 
+# Tope del body en /sesion/subir: un storage_state real son pocos KB; 2 MB es holgado.
+_MAX_SESION_BODY_BYTES = 2 * 1024 * 1024
+
 
 # ── UI principal ──────────────────────────────────────────────────────────────
 
@@ -427,7 +430,17 @@ async def subir_sesion(
     PC del usuario. NO usa sesion Azure AD: se autentica con un token compartido
     en la cabecera X-CFE-Token. El cuerpo es el JSON crudo del storage_state.
     """
-    raw_body = (await request.body()).decode("utf-8", errors="replace")
+    # Cota de tamano antes de leer el body: un storage_state real pesa pocos KB.
+    # Evita que una peticion sin token cargue un cuerpo arbitrariamente grande.
+    excede_413 = JSONResponse(status_code=413, content={"ok": False, "error": "El cuerpo excede el tamano permitido."})
+    declarado = request.headers.get("content-length")
+    if declarado and declarado.isdigit() and int(declarado) > _MAX_SESION_BODY_BYTES:
+        return excede_413
+
+    body_bytes = await request.body()
+    if len(body_bytes) > _MAX_SESION_BODY_BYTES:
+        return excede_413
+    raw_body = body_bytes.decode("utf-8", errors="replace")
     svc = get_cfe_service()
     try:
         await svc.subir_sesion_con_token(conn, token=x_cfe_token, session_json=raw_body)
