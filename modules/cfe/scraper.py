@@ -159,6 +159,8 @@ async def _detect_block(page: Page) -> Optional[str]:
         return "Portal CFE bloqueado por protección Imperva/Incapsula. Intenta en unos minutos."
     if re.search(r"access denied|request blocked", haystack, re.I):
         return "Acceso denegado por el portal CFE. Intenta en unos minutos."
+    if re.search(r"por el momento no se encuentra disponible", haystack, re.I):
+        return "Portal CFE MiEspacio no disponible temporalmente (sesión posiblemente inactiva). Renueva la sesión en Recibos CFE."
     return None
 
 
@@ -756,18 +758,80 @@ async def _descargar_otras_factura(
     locator = page.locator(f"#{link_id}")
     if not await locator.count():
         raise ValueError(f"No se localizo el enlace {tipo.upper()} en OtrasFacturas.")
-    dl_promise = page.wait_for_event("download", timeout=cfg.timeout_ms)
-    await locator.first.click(timeout=cfg.timeout_ms)
-    download = await dl_promise
+
     if tipo == "xml":
+        dl_promise = page.wait_for_event("download", timeout=cfg.timeout_ms)
+        await locator.first.click(timeout=cfg.timeout_ms)
+        download = await dl_promise
         saved = await _save_xml_download(download)
         if not saved:
             raise ValueError("La descarga XML de OtrasFacturas no parece un XML valido.")
         return saved
-    saved = await _read_download(download)
-    if not saved or not _looks_like_pdf_download(saved[1], saved[0]):
-        raise ValueError("La descarga PDF de OtrasFacturas no parece un PDF valido.")
-    return saved
+
+    # PDF: el portal puede disparar un download directo o abrir un popup/visor.
+    # Se escuchan ambos eventos en paralelo, igual que en _download_pdf_candidate.
+    pdf_responses: list[tuple[bytes, str]] = []
+
+    async def _capture_pdf(resp):
+        ct = resp.headers.get("content-type", "")
+        cd = resp.headers.get("content-disposition", "")
+        url = resp.url
+        looks_pdf = (
+            "application/pdf" in ct.lower()
+            or ".pdf" in cd.lower()
+            or re.search(r"\.pdf(?:\?|$)", url, re.I)
+        )
+        if looks_pdf and "cfe.mx" in url:
+            try:
+                body = await resp.body()
+                if body and body[:4] == b"%PDF":
+                    name = url.split("/")[-1].split("?")[0] or f"{cfg.numero_servicio}.pdf"
+                    pdf_responses.append((body, name))
+            except Exception:
+                pass
+
+    page.on("response", _capture_pdf)
+    download_task = asyncio.create_task(page.wait_for_event("download", timeout=cfg.timeout_ms))
+    popup_task = asyncio.create_task(page.wait_for_event("popup", timeout=cfg.timeout_ms))
+    try:
+        await locator.first.click(timeout=cfg.timeout_ms)
+        done, pending = await asyncio.wait(
+            {download_task, popup_task},
+            timeout=cfg.timeout_ms / 1000,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        for task in pending:
+            task.cancel()
+        for task in done:
+            try:
+                event_value = task.result()
+            except Exception:
+                continue
+            if hasattr(event_value, "suggested_filename"):
+                saved = await _read_download(event_value)
+                if saved and _looks_like_pdf_download(saved[1], saved[0]):
+                    return saved
+            if hasattr(event_value, "url"):
+                event_value.on("response", _capture_pdf)
+                try:
+                    await event_value.wait_for_load_state("domcontentloaded", timeout=10_000)
+                except Exception:
+                    pass
+                logger.info("PDF OtrasFacturas abrio popup url=%s", event_value.url)
+    except Exception as exc:
+        for task in (download_task, popup_task):
+            if not task.done():
+                task.cancel()
+        if pdf_responses:
+            return pdf_responses[0]
+        raise ValueError(f"No se pudo descargar PDF de OtrasFacturas. Detalle: {exc}") from exc
+    finally:
+        page.remove_listener("response", _capture_pdf)
+
+    await page.wait_for_timeout(1500)
+    if pdf_responses:
+        return pdf_responses[0]
+    raise ValueError("La descarga PDF de OtrasFacturas no se completo (sin download ni respuesta valida).")
 
 
 async def _descargar_otras_factura_reintento(
@@ -809,6 +873,13 @@ async def _fase_miespacio_otras(
         mi_page.set_default_timeout(cfg.timeout_ms)
         await mi_page.goto(CFE_MIESPACIO_ADD_URL, wait_until="domcontentloaded", timeout=cfg.timeout_ms)
         await mi_page.wait_for_timeout(2000)
+
+        block_msg = await _detect_block(mi_page)
+        if block_msg:
+            for res in por_periodo.values():
+                if not res.pdf_content:
+                    res.pdf_error = block_msg
+            return -1
 
         if not await _is_logged_in(mi_page):
             for res in por_periodo.values():
@@ -1484,6 +1555,11 @@ async def descargar_pdf_periodo(cfg: CfeScraperConfig, periodo: str) -> Descarga
                     await mi_page.goto(CFE_MIESPACIO_ADD_URL, wait_until="domcontentloaded", timeout=cfg.timeout_ms)
                     await mi_page.wait_for_timeout(2000)
 
+                    block_msg = await _detect_block(mi_page)
+                    if block_msg:
+                        result.pdf_error = block_msg
+                        return result
+
                     if not await _is_logged_in(mi_page):
                         result.pdf_error = (
                             "La sesión CFE MiEspacio expiró o no existe. "
@@ -1672,6 +1748,11 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
 
                 await mi_page.goto(CFE_MIESPACIO_ADD_URL, wait_until="domcontentloaded", timeout=cfg.timeout_ms)
                 await mi_page.wait_for_timeout(2000)
+
+                block_msg = await _detect_block(mi_page)
+                if block_msg:
+                    result.pdf_error = block_msg
+                    return result
 
                 if not await _is_logged_in(mi_page):
                     result.pdf_error = (
