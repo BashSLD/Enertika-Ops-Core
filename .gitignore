@@ -11,6 +11,9 @@ pip-log.txt
 pip-delete-this-directory.txt
 requirements-dev.txt
 
+# Lanzador local CFE (secreto: URL + token)
+tools/cfe/cfe_config.json
+
 # Environments
 .env
 .env.local
