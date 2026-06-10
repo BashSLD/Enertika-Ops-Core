@@ -371,7 +371,28 @@ async def _public_portal_diagnostic(page: Page, candidates: list[dict]) -> str:
     return " ".join(details)
 
 
-async def _open_public_history(page: Page, cfg: CfeScraperConfig) -> None:
+async def _wait_for_public_rows(page: Page, timeout_ms: int) -> list[dict]:
+    """
+    Espera a que el historial publico termine de renderizar filas con periodo.
+    Tras el login el portal tarda unos segundos en pintar la tabla; leerla antes
+    devuelve cero filas y provoca descargas fallidas. Si detecta bloqueo, corta.
+    """
+    interval = 700
+    elapsed = 0
+    rows: list[dict] = []
+    while elapsed < timeout_ms:
+        rows = await _collect_public_period_rows(page)
+        if rows:
+            return rows
+        block_msg = await _detect_block(page)
+        if block_msg:
+            raise ValueError(block_msg)
+        await page.wait_for_timeout(interval)
+        elapsed += interval
+    return await _collect_public_period_rows(page)
+
+
+async def _open_public_history(page: Page, cfg: CfeScraperConfig) -> list[dict]:
     await page.goto(CFE_PUBLIC_URL, wait_until="networkidle", timeout=cfg.timeout_ms)
 
     block_msg = await _detect_block(page)
@@ -384,11 +405,13 @@ async def _open_public_history(page: Page, cfg: CfeScraperConfig) -> None:
         await page.wait_for_load_state("networkidle", timeout=15_000)
     except _SCRAPER_TIMEOUT_ERRORS:
         pass
-    await page.wait_for_timeout(1500)
+
+    rows = await _wait_for_public_rows(page, 15_000)
 
     block_msg = await _detect_block(page)
     if block_msg:
         raise ValueError(block_msg)
+    return rows
 
 
 async def _collect_public_period_rows(page: Page) -> list[dict]:
@@ -606,6 +629,34 @@ async def _download_public_artifact(
             pass
 
 
+async def _descargar_artefacto_con_reintento(
+    page: Page,
+    cfg: CfeScraperConfig,
+    periodo: str,
+    tipo: str,
+) -> tuple[Optional[bytes], str, Optional[str]]:
+    """Descarga un artefacto del portal publico con un reintento. Devuelve
+    (contenido, nombre, error); error es None si se descargo correctamente."""
+    last_error = ""
+    for intento in range(2):
+        try:
+            content, filename = await _download_public_artifact(page, cfg, periodo, tipo)
+            return content, filename, None
+        except _SCRAPER_ERRORS as exc:
+            last_error = str(exc)
+            if intento == 0:
+                logger.info(
+                    "Reintentando %s publico CFE servicio=%s periodo=%s",
+                    tipo.upper(), cfg.numero_servicio, periodo,
+                )
+                await page.wait_for_timeout(1200)
+    logger.warning(
+        "No se pudo descargar %s publico CFE servicio=%s periodo=%s error=%s",
+        tipo.upper(), cfg.numero_servicio, periodo, last_error,
+    )
+    return None, "", last_error
+
+
 async def descargar_periodos_publicos(
     cfg: CfeScraperConfig,
     max_periodos: int,
@@ -643,42 +694,41 @@ async def descargar_periodos_publicos(
             try:
                 page = await ctx.new_page()
                 page.set_default_timeout(cfg.timeout_ms)
-                await _open_public_history(page, cfg)
-                rows = await _collect_public_period_rows(page)
+                rows = await _open_public_history(page, cfg)
                 if not rows:
                     raise ValueError(await _public_history_diagnostic(page, rows))
 
-                for row in rows[:max_periodos]:
+                objetivo = rows[:max_periodos]
+                for indice, row in enumerate(objetivo):
+                    if indice:
+                        # Pausa entre periodos: descargas demasiado seguidas gatillan
+                        # el bloqueo Imperva del portal publico.
+                        await page.wait_for_timeout(800)
+                        block_msg = await _detect_block(page)
+                        if block_msg:
+                            logger.warning(
+                                "Portal publico CFE bloqueo tras %s periodos servicio=%s: %s",
+                                indice, cfg.numero_servicio, block_msg,
+                            )
+                            for restante in objetivo[indice:]:
+                                resultados.append(DescargaPeriodoPublicoResult(
+                                    periodo=restante["periodo"],
+                                    etiqueta=restante.get("etiqueta") or _periodo_public_label(restante["periodo"]),
+                                    xml_error=block_msg,
+                                    pdf_error=block_msg,
+                                ))
+                            break
+
                     result = DescargaPeriodoPublicoResult(
                         periodo=row["periodo"],
                         etiqueta=row.get("etiqueta") or _periodo_public_label(row["periodo"]),
                     )
-                    try:
-                        result.xml_content, result.xml_filename = await _download_public_artifact(
-                            page, cfg, row["periodo"], "xml"
-                        )
-                    except _SCRAPER_ERRORS as exc:
-                        logger.warning(
-                            "No se pudo descargar XML publico CFE servicio=%s periodo=%s error=%s",
-                            cfg.numero_servicio,
-                            row["periodo"],
-                            exc,
-                        )
-                        result.xml_error = str(exc)
-
-                    try:
-                        result.pdf_content, result.pdf_filename = await _download_public_artifact(
-                            page, cfg, row["periodo"], "pdf"
-                        )
-                    except _SCRAPER_ERRORS as exc:
-                        logger.warning(
-                            "No se pudo descargar PDF publico CFE servicio=%s periodo=%s error=%s",
-                            cfg.numero_servicio,
-                            row["periodo"],
-                            exc,
-                        )
-                        result.pdf_error = str(exc)
-
+                    result.xml_content, result.xml_filename, result.xml_error = (
+                        await _descargar_artefacto_con_reintento(page, cfg, row["periodo"], "xml")
+                    )
+                    result.pdf_content, result.pdf_filename, result.pdf_error = (
+                        await _descargar_artefacto_con_reintento(page, cfg, row["periodo"], "pdf")
+                    )
                     resultados.append(result)
             finally:
                 try:
