@@ -62,6 +62,18 @@
 
     <div id="cfe-modal-container"></div>
 
+    {# Mientras una busqueda corra en segundo plano, refresca la lista para que el
+       badge pase a "Resultados listos" sin recargar a mano. El guard evita pisar
+       un modal abierto (la busqueda activa ya se ve dentro del modal). #}
+    {% set busquedas_activas = servicios | selectattr('busqueda_activa_estatus', 'in', ['pendiente', 'descargando']) | list %}
+    {% if busquedas_activas %}
+    <div hx-get="/cfe/ui"
+         hx-target="#main-content"
+         hx-swap="innerHTML"
+         hx-trigger="every 7s"
+         hx-on::before-request="if (document.getElementById('cfe-modal-container')?.childElementCount) event.preventDefault()"></div>
+    {% endif %}
+
     {% if not servicios %}
     <div class="text-center py-16 text-gray-500">
         <p class="font-medium">No hay servicios registrados.</p>

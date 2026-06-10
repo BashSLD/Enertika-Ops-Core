@@ -5,7 +5,9 @@
         <div class="bg-[#123456] px-6 py-4 flex items-center justify-between">
             <h3 class="text-lg font-bold text-white">Buscar periodos CFE</h3>
             <button type="button"
-                    onclick="document.getElementById('cfe-modal-container').innerHTML=''"
+                    hx-get="/cfe/ui"
+                    hx-target="#main-content"
+                    hx-swap="innerHTML"
                     class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white hover:bg-white/10 transition-colors">
                 <span class="sr-only">Cerrar</span>
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">

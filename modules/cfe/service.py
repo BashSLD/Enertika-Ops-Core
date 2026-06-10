@@ -500,7 +500,9 @@ class CfeService:
                     contenido=bool(result.pdf_content),
                     error=result.pdf_error,
                 )
-                if xml_estatus in ("descargado", "ya_descargado") and pdf_estatus in ("descargado", "ya_descargado"):
+                # "Nuevos" = periodos con al menos un artefacto recien staged.
+                # No cuenta 'ya_descargado' (ya existian) para no inflar la cifra.
+                if xml_estatus == "descargado" or pdf_estatus == "descargado":
                     total_descargados += 1
 
                 tipo_recibo = (

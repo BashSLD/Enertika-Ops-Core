@@ -24,7 +24,7 @@
         </svg>
         <div>
             <p class="text-sm font-semibold text-[#123456]">Descargando periodos detectados...</p>
-            <p class="text-xs text-[#007A7B] mt-0.5">Buscando hasta {{ busqueda.max_periodos }} periodos para {{ servicio.nombre }}.</p>
+            <p class="text-xs text-[#007A7B] mt-0.5">Buscando los periodos mas recientes (hasta {{ busqueda.max_periodos }}) para {{ servicio.nombre }}.</p>
         </div>
     </div>
     {% elif busqueda.estatus == 'error' %}
@@ -33,7 +33,10 @@
     </div>
     {% else %}
     <div class="mb-4">
-        <p class="text-sm font-semibold text-gray-900">Periodos encontrados</p>
+        <p class="text-sm font-semibold text-gray-900">
+            Periodos encontrados
+            <span class="font-normal text-gray-500">({{ items | length }} detectados{% if busqueda.total_descargados %}, {{ busqueda.total_descargados }} nuevos{% endif %})</span>
+        </p>
         <p class="text-xs text-gray-500 mt-0.5">
             Selecciona los periodos que quieres conservar. Los que ya existen no se pueden seleccionar.
         </p>
