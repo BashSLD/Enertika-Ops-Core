@@ -16,32 +16,20 @@
     <div class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
         No se pudo iniciar la busqueda.
     </div>
-    <div class="flex justify-end mt-4">
-        <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
-                class="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
-            Cerrar
-        </button>
-    </div>
     {% elif busqueda.estatus in ['pendiente', 'descargando'] %}
-    <div class="flex items-center gap-3 rounded-lg border border-yellow-200 bg-yellow-50 p-4">
-        <svg class="animate-spin h-5 w-5 text-yellow-700" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+    <div class="flex items-center gap-3 rounded-lg border border-[#00BABB]/30 bg-[#E0F7F7] p-4">
+        <svg class="animate-spin h-5 w-5 text-[#007A7B]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
         </svg>
         <div>
-            <p class="text-sm font-semibold text-yellow-900">Descargando periodos detectados...</p>
-            <p class="text-xs text-yellow-700 mt-0.5">Buscando hasta {{ busqueda.max_periodos }} periodos para {{ servicio.nombre }}.</p>
+            <p class="text-sm font-semibold text-[#123456]">Descargando periodos detectados...</p>
+            <p class="text-xs text-[#007A7B] mt-0.5">Buscando hasta {{ busqueda.max_periodos }} periodos para {{ servicio.nombre }}.</p>
         </div>
     </div>
     {% elif busqueda.estatus == 'error' %}
     <div class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
         {{ busqueda.mensaje_error or 'No se pudo completar la busqueda.' }}
-    </div>
-    <div class="flex justify-end mt-4">
-        <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
-                class="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
-            Cerrar
-        </button>
     </div>
     {% else %}
     <div class="mb-4">
@@ -58,7 +46,10 @@
     {% else %}
     <form hx-post="/cfe/servicios/{{ servicio.id }}/busquedas/{{ busqueda.id }}/confirmar"
           hx-target="#cfe-modal-container"
-          hx-swap="innerHTML">
+          hx-swap="innerHTML"
+          x-data="{ procesando: false }"
+          @submit="procesando = true"
+          :aria-busy="procesando.toString()">
         <div class="max-h-96 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
             {% for item in items %}
             {% set ya_completo = item.ya_descargado_xml and item.ya_descargado_pdf %}
@@ -67,7 +58,8 @@
             <label class="flex items-start gap-3 p-3 {% if seleccionable %}hover:bg-gray-50 cursor-pointer{% else %}bg-gray-50 cursor-not-allowed{% endif %}">
                 <input type="checkbox" name="periodos" value="{{ item.periodo }}"
                        {% if not seleccionable %}disabled{% else %}checked{% endif %}
-                       class="mt-1 text-yellow-700 focus:ring-yellow-600 rounded">
+                       :disabled="procesando || {{ 'true' if not seleccionable else 'false' }}"
+                       class="mt-1 text-[#00BABB] focus:ring-[#00BABB] rounded disabled:opacity-50">
                 <div class="flex-1 min-w-0">
                     <div class="flex items-center gap-2">
                         <span class="font-mono text-sm text-gray-900">{{ item.periodo }}</span>
@@ -94,14 +86,16 @@
             {% endfor %}
         </div>
 
-        <div class="flex justify-end gap-3 mt-5">
-            <button type="button" onclick="document.getElementById('cfe-modal-container').innerHTML=''"
-                    class="px-4 py-2 text-sm text-gray-700 border border-gray-300 rounded-lg hover:bg-gray-50">
-                Cancelar
-            </button>
+        <div class="flex justify-end mt-5">
             <button type="submit"
-                    class="px-4 py-2 text-sm font-medium text-white bg-yellow-700 hover:bg-yellow-800 rounded-lg">
-                Conservar seleccionados
+                    :disabled="procesando"
+                    class="inline-flex min-w-[180px] items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#123456] hover:bg-gray-700 disabled:opacity-70 disabled:cursor-not-allowed rounded-lg transition-colors">
+                <svg x-show="procesando" x-cloak class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+                <span x-show="!procesando">Conservar seleccionados</span>
+                <span x-show="procesando" x-cloak>Procesando XML...</span>
             </button>
         </div>
     </form>

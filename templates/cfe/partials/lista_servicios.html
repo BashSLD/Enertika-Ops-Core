@@ -71,7 +71,7 @@
     <div class="grid gap-4">
         {% for s in servicios %}
         <div class="bg-white border border-gray-100 rounded-xl shadow-sm p-5"
-             x-data="{ expanded: false }">
+             x-data="{ expanded: {{ 'true' if s.descarga_activa and not s.busqueda_activa_id else 'false' }} }">
             <div class="flex items-start justify-between gap-4">
                 <div class="min-w-0 flex-1">
                     <div class="flex items-center gap-2">
@@ -87,14 +87,34 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-2 flex-shrink-0">
-                    {% if s.tiene_pendiente %}
+                    {% if s.descarga_activa %}
                     <span class="flex items-center gap-1 text-xs text-yellow-700 bg-yellow-50 px-2 py-1 rounded">
                         <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
                             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
                         </svg>
-                        Descargando...
+                        Descarga en curso
                     </span>
+                    {% endif %}
+                    {% if s.busqueda_activa_id %}
+                    <span class="flex items-center gap-1 text-xs {% if s.busqueda_activa_estatus == 'completado' %}text-blue-700 bg-blue-50{% else %}text-yellow-700 bg-yellow-50{% endif %} px-2 py-1 rounded">
+                        {% if s.busqueda_activa_estatus in ['pendiente', 'descargando'] %}
+                        <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        Búsqueda en curso
+                        {% else %}
+                        Resultados listos
+                        {% endif %}
+                    </span>
+                    <button type="button"
+                        hx-get="/cfe/servicios/{{ s.id }}/modal-busqueda-activa"
+                        hx-target="#cfe-modal-container"
+                        hx-swap="innerHTML"
+                        class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                        Ver búsqueda
+                    </button>
                     {% endif %}
                     <button type="button"
                         hx-get="/cfe/servicios/{{ s.id }}/modal-buscar-periodos"
@@ -109,17 +129,24 @@
                         hx-get="/cfe/servicios/{{ s.id }}/descargas"
                         hx-target="#historial-{{ s.id }}"
                         hx-swap="innerHTML"
-                        hx-trigger="click[!expanded]"
-                        class="text-xs text-gray-600 hover:text-gray-900 px-3 py-1.5 border border-gray-200 rounded-lg transition-colors">
-                        Historial
+                        hx-trigger="click once"
+                        class="inline-flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-900 px-3 py-1.5 border border-gray-200 rounded-lg transition-colors">
+                        <span x-text="expanded ? 'Ocultar historial' : 'Historial'">Historial</span>
+                        <svg class="h-3.5 w-3.5 transition-transform"
+                             :class="expanded ? 'rotate-180' : ''"
+                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
                     </button>
                 </div>
             </div>
 
             <div id="historial-{{ s.id }}"
-                 {% if s.tiene_pendiente %}
+                 x-show="expanded"
+                 x-cloak
+                 {% if s.descarga_activa %}
                  hx-get="/cfe/servicios/{{ s.id }}/descargas"
-                 hx-trigger="every 4s"
+                 hx-trigger="load, every 4s"
                  hx-swap="innerHTML"
                  {% endif %}
                  class="mt-4">

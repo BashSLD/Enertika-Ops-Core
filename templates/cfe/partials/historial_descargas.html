@@ -31,7 +31,7 @@
 {% if not descargas %}
 <p class="text-sm text-gray-400 py-2">Sin descargas registradas para este servicio.</p>
 {% else %}
-{% set periodos_vistos = descargas | selectattr('tipo', 'equalto', 'xml') | map(attribute='periodo') | list %}
+{% set periodos_vistos = descargas | map(attribute='periodo') | unique | list %}
 
 <div class="mt-2 space-y-2">
     <div class="flex items-center justify-between mb-3">
@@ -53,6 +53,7 @@
             <thead>
                 <tr class="text-left text-xs text-gray-500 border-b border-gray-100">
                     <th class="pb-2 font-medium">Periodo</th>
+                    <th class="pb-2 font-medium">Tipo</th>
                     <th class="pb-2 font-medium text-center">XML</th>
                     <th class="pb-2 font-medium text-center">PDF</th>
                     <th class="pb-2 font-medium">Estado</th>
@@ -61,11 +62,17 @@
                 </tr>
             </thead>
             <tbody class="divide-y divide-gray-50">
-            {% for periodo in periodos_vistos | sort(reverse=true) %}
+            {% for periodo in periodos_vistos | sort(reverse=true) if periodo != 'pendiente' %}
             {% set xml_row = descargas | selectattr('periodo', 'equalto', periodo) | selectattr('tipo', 'equalto', 'xml') | first | default(none) %}
             {% set pdf_row = descargas | selectattr('periodo', 'equalto', periodo) | selectattr('tipo', 'equalto', 'pdf') | first | default(none) %}
+            {% set xml_completo = xml_row and xml_row.estatus == 'completado' %}
+            {% set pdf_completo = pdf_row and pdf_row.estatus == 'completado' %}
+            {% set pdf_activo = pdf_row and pdf_row.estatus in ['pendiente', 'descargando'] %}
+            {% set puede_reintentar_pdf = xml_completo and (not pdf_row or pdf_row.estatus == 'error') %}
+            {% set tipo_recibo = (xml_row.tipo_recibo if xml_row else none) or (pdf_row.tipo_recibo if pdf_row else none) %}
             <tr class="hover:bg-gray-50">
                 <td class="py-2 font-mono text-gray-700">{{ periodo }}</td>
+                <td class="py-2 text-xs text-gray-600">{{ tipo_recibo or '-' }}</td>
                 {{ celda_descarga(xml_row, servicio.id) }}
                 {{ celda_descarga(pdf_row, servicio.id) }}
                 <td class="py-2">
@@ -77,10 +84,16 @@
                     <div class="text-xs text-red-600 max-w-xs truncate" title="{{ pdf_row.error_mensaje }}">
                         {{ pdf_row.error_mensaje }}
                     </div>
-                    {% elif xml_row and xml_row.estatus == 'completado' %}
+                    {% elif xml_completo and pdf_completo %}
                     <span class="text-xs text-green-600">Completado</span>
-                    {% elif xml_row %}
+                    {% elif xml_completo and pdf_activo %}
+                    <span class="text-xs text-yellow-600">PDF en progreso</span>
+                    {% elif xml_completo %}
+                    <span class="text-xs text-yellow-600">Falta PDF</span>
+                    {% elif (xml_row and xml_row.estatus in ['pendiente', 'descargando']) or (pdf_row and pdf_row.estatus in ['pendiente', 'descargando']) %}
                     <span class="text-xs text-yellow-600">En progreso</span>
+                    {% else %}
+                    <span class="text-xs text-gray-400">Sin estado</span>
                     {% endif %}
                 </td>
                 <td class="py-2 text-xs text-gray-400">
@@ -95,7 +108,7 @@
                         class="text-xs text-yellow-700 hover:text-yellow-900 font-medium">
                         Reintentar XML
                     </button>
-                    {% elif pdf_row and pdf_row.estatus == 'error' %}
+                    {% elif puede_reintentar_pdf %}
                     <button type="button"
                         hx-post="/cfe/servicios/{{ servicio.id }}/descargas/{{ periodo }}/reintentar-pdf"
                         hx-target="closest div[id^='historial']"

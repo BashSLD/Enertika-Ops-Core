@@ -99,6 +99,18 @@ class CfeService:
         if not data["cookies"]:
             raise ValueError("La sesion no contiene cookies; el login no se completo correctamente.")
 
+    @staticmethod
+    def _extraer_tipo_recibo(xml_content: Optional[bytes], filename: str) -> Optional[str]:
+        if not xml_content:
+            return None
+        try:
+            recibo = extraer_datos_xml(xml_content, filename or "recibo_cfe.xml")
+        except ValueError as exc:
+            logger.warning("No se pudo extraer tipo de recibo CFE archivo=%s error=%s", filename, exc)
+            return None
+        tipo_recibo = recibo.get("servicio", {}).get("tarifa")
+        return str(tipo_recibo).strip() or None
+
     def _build_scraper_config(self, servicio: dict, cfg_global: dict) -> CfeScraperConfig:
         return CfeScraperConfig(
             nombre=servicio["nombre"],
@@ -212,6 +224,17 @@ class CfeService:
         items = await self.db.get_busqueda_items(conn, busqueda_id)
         return busqueda, items
 
+    async def get_busqueda_activa_periodos(
+        self,
+        conn: asyncpg.Connection,
+        servicio_id: UUID,
+    ) -> tuple[Optional[dict], list[dict]]:
+        busqueda = await self.db.get_busqueda_activa_por_servicio(conn, servicio_id)
+        if not busqueda:
+            return None, []
+        items = await self.db.get_busqueda_items(conn, busqueda["id"])
+        return busqueda, items
+
     async def confirmar_busqueda_periodos(
         self,
         conn: asyncpg.Connection,
@@ -241,22 +264,24 @@ class CfeService:
             es_seleccionado = periodo in seleccionados
             ya_final_xml = descargas_finales.get(periodo, {}).get("xml", {}).get("estatus") == "completado"
             ya_final_pdf = descargas_finales.get(periodo, {}).get("pdf", {}).get("estatus") == "completado"
+            tiene_staging = bool(item.get("xml_drive_item_id") or item.get("pdf_drive_item_id"))
             puede_conservar = (
                 es_seleccionado
                 and not (ya_final_xml and ya_final_pdf)
-                and (item.get("xml_drive_item_id") or item.get("pdf_drive_item_id"))
+                and tiene_staging
             )
 
             if puede_conservar:
                 try:
                     await self._conservar_busqueda_item(
-                        conn, sp, item, busqueda, usuario_id, ya_final_xml, ya_final_pdf
+                        conn, sp, item, busqueda, usuario_id, ya_final_xml, ya_final_pdf,
+                        descargas_finales.get(periodo, {}).get("xml", {}).get("tipo_recibo"),
                     )
                 except (ValueError, RuntimeError, httpx.HTTPError, OSError) as exc:
                     raise ValueError(f"No se pudo conservar el periodo {periodo}: {exc}") from exc
                 await self.db.marcar_item_decision(conn, item["id"], "conservado")
             else:
-                decision = "no_aplica" if ya_final_xml and ya_final_pdf else "descartado"
+                decision = "descartado" if (tiene_staging and not es_seleccionado) else "no_aplica"
                 await self.db.marcar_item_decision(conn, item["id"], decision)
 
             await self._borrar_staging_item(conn, sp, item)
@@ -594,6 +619,7 @@ class CfeService:
                 return
 
             # Upload XML to SharePoint
+            tipo_recibo = self._extraer_tipo_recibo(result.xml_content, result.xml_filename)
             xml_sp_url = await self._upload_to_sharepoint(
                 conn, content=result.xml_content, filename=result.xml_filename,
                 servicio_numero=servicio["numero_servicio"], periodo=result.periodo, tipo="xml",
@@ -608,6 +634,7 @@ class CfeService:
             await self._registrar_descarga_sp(
                 conn, servicio_id=servicio["id"], periodo=result.periodo, tipo="xml",
                 nombre_archivo=result.xml_filename, sp_url=xml_sp_url, usuario_id=usuario_id,
+                tipo_recibo=tipo_recibo,
             )
 
             if result.pdf_content:
@@ -625,6 +652,7 @@ class CfeService:
                 await self._registrar_descarga_sp(
                     conn, servicio_id=servicio["id"], periodo=result.periodo, tipo="pdf",
                     nombre_archivo=result.pdf_filename, sp_url=pdf_sp_url, usuario_id=usuario_id,
+                    tipo_recibo=tipo_recibo,
                 )
             elif result.pdf_error:
                 logger.warning(
@@ -636,7 +664,7 @@ class CfeService:
                 await self.db.upsert_descarga(
                     conn, servicio_id=servicio["id"], periodo=result.periodo,
                     tipo="pdf", estatus="error", error_mensaje=result.pdf_error,
-                    descargado_por=usuario_id,
+                    descargado_por=usuario_id, tipo_recibo=tipo_recibo,
                 )
 
             await self.db.borrar_descarga_pendiente(conn, servicio["id"])
@@ -671,12 +699,14 @@ class CfeService:
         )
 
         async with pool.acquire() as conn:
+            xml_row = await self.db.get_descarga_por_tipo(conn, servicio["id"], periodo, "xml")
+            tipo_recibo = xml_row.get("tipo_recibo") if xml_row else None
             error_mensaje = result.error or result.pdf_error
             if error_mensaje:
                 await self.db.upsert_descarga(
                     conn, servicio_id=servicio["id"], periodo=periodo,
                     tipo="pdf", estatus="error", error_mensaje=error_mensaje,
-                    descargado_por=usuario_id,
+                    descargado_por=usuario_id, tipo_recibo=tipo_recibo,
                 )
             elif result.pdf_content:
                 pdf_sp_url = await self._upload_to_sharepoint(
@@ -693,13 +723,14 @@ class CfeService:
                 await self._registrar_descarga_sp(
                     conn, servicio_id=servicio["id"], periodo=periodo, tipo="pdf",
                     nombre_archivo=result.pdf_filename, sp_url=pdf_sp_url, usuario_id=usuario_id,
+                    tipo_recibo=tipo_recibo,
                 )
             else:
                 await self.db.upsert_descarga(
                     conn, servicio_id=servicio["id"], periodo=periodo,
                     tipo="pdf", estatus="error",
                     error_mensaje="No se descargó el PDF de MiEspacio.",
-                    descargado_por=usuario_id,
+                    descargado_por=usuario_id, tipo_recibo=tipo_recibo,
                 )
 
             if result.session_json_nuevo:
@@ -709,13 +740,14 @@ class CfeService:
     async def _registrar_descarga_sp(
         self, conn: asyncpg.Connection, *, servicio_id: UUID, periodo: str,
         tipo: str, nombre_archivo: str, sp_url: Optional[str], usuario_id: Optional[UUID],
+        tipo_recibo: Optional[str] = None,
     ) -> None:
         await self.db.upsert_descarga(
             conn, servicio_id=servicio_id, periodo=periodo, tipo=tipo,
             estatus="completado" if sp_url else "error",
             nombre_archivo=nombre_archivo, ruta_sharepoint=sp_url,
             error_mensaje=None if sp_url else f"Error subiendo {tipo.upper()} a SharePoint",
-            descargado_por=usuario_id,
+            descargado_por=usuario_id, tipo_recibo=tipo_recibo,
         )
 
     async def _conservar_busqueda_item(
@@ -727,16 +759,20 @@ class CfeService:
         usuario_id: UUID,
         ya_final_xml: bool,
         ya_final_pdf: bool,
+        tipo_recibo_final: Optional[str] = None,
     ) -> None:
         periodo = item["periodo"]
         folder = f"{SHAREPOINT_CFE_ROOT}/{busqueda['numero_servicio']}/{periodo}"
+        tipo_recibo = tipo_recibo_final
 
         if item.get("xml_drive_item_id") and not ya_final_xml:
             xml_content = await sp.download_file_by_item_id(conn, item["xml_drive_item_id"])
+            xml_filename = item.get("xml_nombre_archivo") or f"{busqueda['numero_servicio']}-{periodo}.xml"
+            tipo_recibo = self._extraer_tipo_recibo(xml_content, xml_filename) or tipo_recibo
             xml_upload, _ = await self._upload_bytes_to_sharepoint(
                 conn,
                 content=xml_content,
-                filename=item.get("xml_nombre_archivo") or f"{busqueda['numero_servicio']}-{periodo}.xml",
+                filename=xml_filename,
                 folder_path=folder,
                 tipo="xml",
             )
@@ -745,9 +781,10 @@ class CfeService:
                 servicio_id=busqueda["servicio_id"],
                 periodo=periodo,
                 tipo="xml",
-                nombre_archivo=item.get("xml_nombre_archivo") or f"{busqueda['numero_servicio']}-{periodo}.xml",
+                nombre_archivo=xml_filename,
                 sp_url=xml_upload.get("webUrl") if xml_upload else None,
                 usuario_id=usuario_id,
+                tipo_recibo=tipo_recibo,
             )
 
         if item.get("pdf_drive_item_id") and not ya_final_pdf:
@@ -767,6 +804,7 @@ class CfeService:
                 nombre_archivo=item.get("pdf_nombre_archivo") or f"{busqueda['numero_servicio']}-{periodo}.pdf",
                 sp_url=pdf_upload.get("webUrl") if pdf_upload else None,
                 usuario_id=usuario_id,
+                tipo_recibo=tipo_recibo,
             )
 
     async def _borrar_staging_item(

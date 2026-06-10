@@ -124,6 +124,26 @@ async def modal_buscar_periodos(
 
 # ── Servicios ─────────────────────────────────────────────────────────────────
 
+@router.get("/servicios/{servicio_id}/modal-busqueda-activa", response_class=HTMLResponse)
+async def modal_busqueda_activa(
+    request: Request,
+    servicio_id: UUID,
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    servicio = await svc.db.get_servicio_by_id(conn, servicio_id)
+    if not servicio:
+        raise HTTPException(status_code=404, detail="Servicio no encontrado")
+    busqueda, items = await svc.get_busqueda_activa_periodos(conn, servicio_id)
+    return templates.TemplateResponse(
+        request,
+        "cfe/partials/modal_buscar_periodos.html",
+        {"servicio": servicio, "busqueda": busqueda, "items": items, "user": user},
+    )
+
+
 @router.post("/servicios", response_class=HTMLResponse)
 async def crear_servicio(
     request: Request,

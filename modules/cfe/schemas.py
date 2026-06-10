@@ -32,6 +32,7 @@ class CfeDescargaRow(BaseModel):
     estatus: str
     nombre_archivo: Optional[str]
     ruta_sharepoint: Optional[str]
+    tipo_recibo: Optional[str] = None
     error_mensaje: Optional[str]
     descargado_en: Optional[datetime]
 

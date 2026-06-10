@@ -9,29 +9,53 @@ import asyncpg
 
 logger = logging.getLogger("CfeDBService")
 
+# Regla unica "busqueda activa de un servicio": filtro de estatus + prioridad.
+# La usan get_all_servicios (LATERAL) y get_busqueda_activa_por_servicio; ambas
+# deben quedar en lockstep, por eso viven en una sola definicion. Es SQL estatico
+# (sin valores de usuario), seguro de interpolar.
+_BUSQUEDA_ACTIVA_FILTRO_ORDEN = """
+              AND b.estatus IN ('pendiente','descargando','completado')
+            ORDER BY
+                CASE b.estatus
+                    WHEN 'pendiente' THEN 1
+                    WHEN 'descargando' THEN 2
+                    ELSE 3
+                END,
+                b.creado_en DESC
+            LIMIT 1
+"""
+
 
 class CfeDBService:
 
     async def get_all_servicios(self, conn: asyncpg.Connection) -> list[dict]:
         rows = await conn.fetch(
-            """
+            f"""
             SELECT s.id, s.numero_servicio, s.nombre, s.alias, s.lada, s.telefono,
                    s.email, s.activo, s.creado_en,
-                   COUNT(d.id) FILTER (WHERE d.estatus = 'completado') AS total_descargas,
+                   COUNT(DISTINCT d.periodo) FILTER (
+                       WHERE d.estatus = 'completado'
+                         AND d.tipo = 'xml'
+                         AND d.periodo <> 'pendiente'
+                   ) AS total_descargas,
                    MAX(d.descargado_en) AS ultima_descarga,
+                   COALESCE(BOOL_OR(d.estatus IN ('pendiente','descargando')), false) AS descarga_activa,
+                   ba.id AS busqueda_activa_id,
+                   ba.estatus AS busqueda_activa_estatus,
+                   ba.max_periodos AS busqueda_activa_max_periodos,
                    (
                      COALESCE(BOOL_OR(d.estatus IN ('pendiente','descargando')), false)
-                     OR EXISTS (
-                         SELECT 1
-                         FROM tb_cfe_busquedas b
-                         WHERE b.servicio_id = s.id
-                           AND b.estatus IN ('pendiente','descargando')
-                     )
+                     OR ba.id IS NOT NULL
                    ) AS tiene_pendiente
             FROM tb_cfe_servicios s
             LEFT JOIN tb_cfe_descargas d ON d.servicio_id = s.id
+            LEFT JOIN LATERAL (
+                SELECT b.id, b.estatus, b.max_periodos
+                FROM tb_cfe_busquedas b
+                WHERE b.servicio_id = s.id{_BUSQUEDA_ACTIVA_FILTRO_ORDEN}
+            ) ba ON true
             WHERE s.activo = true
-            GROUP BY s.id
+            GROUP BY s.id, ba.id, ba.estatus, ba.max_periodos
             ORDER BY s.nombre
             """
         )
@@ -96,7 +120,7 @@ class CfeDBService:
     ) -> dict[str, dict[str, dict]]:
         rows = await conn.fetch(
             """
-            SELECT periodo, tipo, estatus, nombre_archivo, ruta_sharepoint
+            SELECT periodo, tipo, estatus, nombre_archivo, ruta_sharepoint, tipo_recibo
             FROM tb_cfe_descargas
             WHERE servicio_id = $1
             """,
@@ -153,6 +177,20 @@ class CfeDBService:
               AND ($2::uuid IS NULL OR b.servicio_id = $2)
             """,
             busqueda_id, servicio_id,
+        )
+        return dict(row) if row else None
+
+    async def get_busqueda_activa_por_servicio(
+        self, conn: asyncpg.Connection, servicio_id: UUID
+    ) -> Optional[dict]:
+        row = await conn.fetchrow(
+            f"""
+            SELECT b.*, s.numero_servicio, s.nombre, s.alias
+            FROM tb_cfe_busquedas b
+            JOIN tb_cfe_servicios s ON s.id = b.servicio_id
+            WHERE b.servicio_id = $1{_BUSQUEDA_ACTIVA_FILTRO_ORDEN}
+            """,
+            servicio_id,
         )
         return dict(row) if row else None
 
@@ -362,14 +400,15 @@ class CfeDBService:
         self, conn: asyncpg.Connection, *, servicio_id: UUID, periodo: str, tipo: str,
         estatus: str, nombre_archivo: Optional[str] = None,
         ruta_sharepoint: Optional[str] = None, error_mensaje: Optional[str] = None,
-        descargado_por: Optional[UUID] = None,
+        descargado_por: Optional[UUID] = None, tipo_recibo: Optional[str] = None,
     ) -> dict:
         row = await conn.fetchrow(
             """
             INSERT INTO tb_cfe_descargas
                 (servicio_id, periodo, tipo, estatus, nombre_archivo,
-                 ruta_sharepoint, error_mensaje, descargado_por, descargado_en)
+                 ruta_sharepoint, error_mensaje, descargado_por, tipo_recibo, descargado_en)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                    NULLIF($9, ''),
                     CASE WHEN $4 = 'completado' THEN now() ELSE NULL END)
             ON CONFLICT (servicio_id, periodo, tipo)
             DO UPDATE SET
@@ -378,12 +417,13 @@ class CfeDBService:
                 ruta_sharepoint= COALESCE(EXCLUDED.ruta_sharepoint, tb_cfe_descargas.ruta_sharepoint),
                 error_mensaje  = EXCLUDED.error_mensaje,
                 descargado_por = COALESCE(EXCLUDED.descargado_por, tb_cfe_descargas.descargado_por),
+                tipo_recibo    = COALESCE(EXCLUDED.tipo_recibo, tb_cfe_descargas.tipo_recibo),
                 descargado_en  = CASE WHEN EXCLUDED.estatus = 'completado' THEN now()
                                       ELSE tb_cfe_descargas.descargado_en END
             RETURNING *
             """,
             servicio_id, periodo, tipo, estatus, nombre_archivo,
-            ruta_sharepoint, error_mensaje, descargado_por,
+            ruta_sharepoint, error_mensaje, descargado_por, tipo_recibo,
         )
         return dict(row)
 
