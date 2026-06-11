@@ -8,10 +8,12 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
+from urllib.parse import urlparse
 
 if TYPE_CHECKING:
     from playwright.async_api import BrowserContext, Page
@@ -30,6 +32,20 @@ _SCRAPER_ERRORS = (ValueError, RuntimeError, OSError, asyncio.TimeoutError) + _P
 from modules.shared.services.cfe.extractor import extraer_datos_xml
 
 logger = logging.getLogger("CfeScraper")
+
+
+def _build_proxy_kwargs() -> dict:
+    raw = os.environ.get("CFE_PROXY_URL", "").strip()
+    if not raw:
+        return {}
+    parsed = urlparse(raw)
+    proxy: dict = {"server": f"{parsed.scheme}://{parsed.hostname}:{parsed.port}"}
+    if parsed.username:
+        proxy["username"] = parsed.username
+    if parsed.password:
+        proxy["password"] = parsed.password
+    logger.info("[CFE] Usando proxy %s://%s:%s", parsed.scheme, parsed.hostname, parsed.port)
+    return {"proxy": proxy}
 
 CFE_PUBLIC_URL = "https://app.cfe.mx/Aplicaciones/CCFE/ReciboDeLuzGMX/Consulta"
 CFE_MIESPACIO_ADD_URL = "https://app.cfe.mx/Aplicaciones/CCFE/MiEspacio/AgregarServicio.aspx"
@@ -1078,6 +1094,7 @@ async def descargar_periodos_busqueda(
     }
     if browser_path:
         launch_kwargs["executable_path"] = browser_path
+    launch_kwargs.update(_build_proxy_kwargs())
 
     max_periodos = max(1, min(int(max_periodos or 12), 60))
     por_periodo: dict[str, DescargaPeriodoPublicoResult] = {}
@@ -1380,6 +1397,7 @@ async def descargar_pdf_periodo(cfg: CfeScraperConfig, periodo: str) -> Descarga
     }
     if browser_path:
         launch_kwargs["executable_path"] = browser_path
+    launch_kwargs.update(_build_proxy_kwargs())
 
     try:
         async with async_playwright() as pw:
@@ -1474,6 +1492,7 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
     }
     if browser_path:
         launch_kwargs["executable_path"] = browser_path
+    launch_kwargs.update(_build_proxy_kwargs())
 
     try:
         async with async_playwright() as pw:
