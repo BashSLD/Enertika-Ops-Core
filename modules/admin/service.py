@@ -8,14 +8,19 @@ from typing import List, Dict, Optional
 from uuid import UUID
 import json
 import logging
+import secrets
 import time
 
+from fastapi import UploadFile
 from .schemas import ConfiguracionGlobalUpdate, EmailRuleCreate
 from .db_service import AdminDBService
 from .constants import ROLES_ORGANIZACIONALES_VALIDOS
 from core.config_service import ConfigService
-from core.microsoft import MicrosoftAuth
+from core.integrations.sharepoint import SharePointService
+from core.microsoft import MicrosoftAuth, get_ms_auth
+from core.timezone import now_mx
 from modules.asistencia.constants import BIOTIME_CONFIG_KEYS
+from modules.cfe.constants import CFE_CONFIG_KEYS, SHAREPOINT_CFE_TOOLS_FOLDER
 from .permission_utils import validate_module_roles
 
 logger = logging.getLogger("AdminModule")
@@ -214,6 +219,8 @@ class AdminService:
             "vacaciones_anticipo_meses_semestre": int(config_dict.get("VACACIONES_ANTICIPO_MESES_SEMESTRE", "6")),
             "vacaciones_anticipo_porcentaje_liberacion": int(config_dict.get("VACACIONES_ANTICIPO_PORCENTAJE_LIBERACION", "50")),
             "vacaciones_anticipo_maximo_dias": int(config_dict.get("VACACIONES_ANTICIPO_MAXIMO_DIAS", "7")),
+            # CFE Lanzador local
+            "cfe_lanzador_version": config_dict.get(CFE_CONFIG_KEYS["lanzador_version"], ""),
         }
 
     async def update_global_config(self, conn, datos: ConfiguracionGlobalUpdate) -> None:
@@ -906,6 +913,67 @@ class AdminService:
             "enviados_total": int(data.get("enviados_total", 0) or 0),
             "no_enviados_total": int(data.get("no_enviados_total", 0) or 0),
         }
+
+
+    async def get_cfe_config(self, conn) -> dict:
+        user = await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["mi_user"], "", str)
+        has_pass = bool(
+            await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["mi_pass"], "", str)
+        )
+        has_session = bool(
+            await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["session_json"], "", str)
+        )
+        token = await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["upload_token"], "", str)
+        return {
+            "cfe_user": user,
+            "cfe_has_pass": has_pass,
+            "cfe_has_session": has_session,
+            "cfe_session_token": token,
+        }
+
+    async def update_cfe_config(self, conn, *, user: str, password: str) -> None:
+        updates = [(CFE_CONFIG_KEYS["mi_user"], user.strip())]
+        if password.strip():
+            updates.append((CFE_CONFIG_KEYS["mi_pass"], password.strip()))
+        for clave, valor in updates:
+            await self.db.upsert_global_config(conn, clave, valor)
+        ConfigService.invalidar_cache()
+        logger.info("Configuración CFE MiEspacio actualizada")
+
+    async def update_cfe_session(self, conn, *, session_json: str) -> None:
+        """Guarda el state.json de MiEspacio pegado por un admin (renovacion manual de sesion)."""
+        raw = session_json.strip()
+        if not raw:
+            raise ValueError("Pega el contenido del state.json de la sesion.")
+        try:
+            json.loads(raw)
+        except json.JSONDecodeError:
+            raise ValueError("El contenido pegado no es un JSON valido.")
+        await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_json"], raw)
+        await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["session_invalida"], "")
+        ConfigService.invalidar_cache()
+        logger.info("Sesion CFE MiEspacio actualizada manualmente")
+
+    async def regenerate_cfe_token(self, conn) -> str:
+        """Genera y guarda un nuevo token compartido para el lanzador local de renovacion."""
+        token = secrets.token_urlsafe(32)
+        await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["upload_token"], token)
+        ConfigService.invalidar_cache()
+        logger.info("Token de subida de sesion CFE regenerado")
+        return token
+
+    async def upload_cfe_lanzador(self, conn, *, file: UploadFile) -> str:
+        """Sube el ejecutable del lanzador a SharePoint y guarda item_id + version en config global."""
+        app_token = await get_ms_auth().get_application_token()
+        sp = SharePointService(access_token=app_token)
+        base_folder = await ConfigService.get_global_config(conn, "SHAREPOINT_BASE_FOLDER", "APP_ENERTIKA_OPS_CORE", str)
+        result = await sp.upload_file(conn, file, f"{base_folder}/{SHAREPOINT_CFE_TOOLS_FOLDER}")
+        version = now_mx().strftime("%Y-%m-%d")
+        await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["lanzador_item_id"], result["id"])
+        await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["lanzador_version"], version)
+        ConfigService.invalidar_cache()
+        logger.info("Lanzador CFE subido a SharePoint item_id=%s version=%s", result["id"], version)
+        return version
 
 
 def get_admin_service():

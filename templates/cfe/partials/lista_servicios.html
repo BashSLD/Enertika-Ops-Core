@@ -1,0 +1,219 @@
+{# templates/cfe/partials/lista_servicios.html #}
+{% if _toast is defined %}
+{% with message=_toast.message, type=_toast.type, title=_toast.title|default('Recibos CFE') %}
+{% include "shared/toast.html" %}
+{% endwith %}
+{% endif %}
+
+<div id="cfe-lista" class="p-6 space-y-4">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-xl font-bold text-gray-900">Recibos CFE</h1>
+            <p class="text-sm text-gray-500 mt-0.5">Descarga y gestión de recibos de luz por servicio</p>
+            {% if estado_sesion is defined %}
+            <div class="mt-1.5 flex items-center gap-2 text-xs">
+                {% if estado_sesion.sesion_estado == 'activa' %}
+                <span class="inline-flex items-center gap-1 text-green-600 font-medium">
+                    <span class="h-1.5 w-1.5 rounded-full bg-green-500"></span>Sesión MiEspacio activa
+                </span>
+                {% elif estado_sesion.sesion_estado == 'expira_pronto' %}
+                <span class="inline-flex items-center gap-1 text-amber-600 font-medium">
+                    <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>Sesión expira pronto{% if estado_sesion.expira_en %} ({{ estado_sesion.expira_en | time_mx('%d/%m/%Y') }}){% endif %}
+                </span>
+                {% elif estado_sesion.sesion_estado == 'sin_sesion' %}
+                <span class="inline-flex items-center gap-1 text-gray-400 font-medium">
+                    <span class="h-1.5 w-1.5 rounded-full bg-gray-400"></span>Sesión MiEspacio no configurada
+                </span>
+                {% else %}
+                <span class="inline-flex items-center gap-1 text-red-500 font-medium">
+                    <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>Sesión MiEspacio expirada — renueva para descargar PDFs
+                </span>
+                {% endif %}
+            </div>
+            {% endif %}
+        </div>
+        <div class="flex items-center gap-2">
+            {% if estado_sesion is defined and estado_sesion.sesion_estado != 'activa' %}
+            {% set _expira_pronto = estado_sesion.sesion_estado == 'expira_pronto' %}
+            <button type="button"
+                hx-get="/cfe/ui/modal-renovar-sesion{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                hx-target="#cfe-modal-container"
+                hx-swap="innerHTML"
+                class="flex items-center gap-2 {% if _expira_pronto %}bg-amber-50 hover:bg-amber-100 text-amber-700 border-amber-200{% else %}bg-red-50 hover:bg-red-100 text-red-700 border-red-200{% endif %} font-semibold px-4 py-2 rounded-lg text-sm transition-colors border">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+                Renovar sesión
+            </button>
+            {% endif %}
+            <button type="button"
+                hx-get="/cfe/ui/modal-xml-excel"
+                hx-target="#cfe-modal-container"
+                hx-swap="innerHTML"
+                class="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                          d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"/>
+                </svg>
+                XML a Excel
+            </button>
+            <button type="button"
+                hx-get="/cfe/ui/modal-agregar{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                hx-target="#cfe-modal-container"
+                hx-swap="innerHTML"
+                class="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
+                </svg>
+                Agregar Servicio
+            </button>
+        </div>
+    </div>
+
+    <div id="cfe-modal-container"></div>
+
+    {% set busquedas_listas = servicios | selectattr('busqueda_activa_estatus', 'equalto', 'completado') | list %}
+    {% if busquedas_listas %}
+    <div class="rounded-xl border border-blue-200 bg-blue-50 p-4 flex items-start gap-3">
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+        </svg>
+        <div class="flex-1">
+            <p class="text-sm font-semibold text-blue-800">{{ busquedas_listas | length }} búsqueda(s) lista(s) para revisar</p>
+            <p class="text-xs text-blue-600 mt-0.5">Los periodos fueron descargados temporalmente. Revisa y confirma cuáles conservar.</p>
+            <div class="mt-2 flex flex-wrap gap-2">
+                {% for s in busquedas_listas %}
+                <button type="button"
+                        hx-get="/cfe/servicios/{{ s.id }}/modal-busqueda-activa{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                        hx-target="#cfe-modal-container"
+                        hx-swap="innerHTML"
+                        class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                    {{ s.nombre }}
+                </button>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {# Mientras una busqueda corra en segundo plano, refresca la lista para que el
+       badge pase a "Resultados listos" sin recargar a mano. El guard evita pisar
+       un modal abierto (la busqueda activa ya se ve dentro del modal). #}
+    {% set busquedas_activas = servicios | selectattr('busqueda_activa_estatus', 'in', ['pendiente', 'descargando']) | list %}
+    {% if busquedas_activas %}
+    <div hx-get="/cfe/ui{% if modulo %}?modulo={{ modulo }}{% endif %}"
+         hx-target="#main-content"
+         hx-swap="innerHTML"
+         hx-trigger="every 7s"
+         hx-on::before-request="if (document.getElementById('cfe-modal-container')?.childElementCount) event.preventDefault()"></div>
+    {% endif %}
+
+    {% if not servicios %}
+    <div class="text-center py-16 text-gray-500">
+        <p class="font-medium">No hay servicios registrados.</p>
+        <p class="text-sm mt-1">Agrega el primer número de servicio CFE para comenzar.</p>
+    </div>
+    {% else %}
+    <div class="grid gap-4">
+        {% for s in servicios %}
+        <div class="bg-white border border-gray-100 rounded-xl shadow-sm p-5"
+             x-data="{ expanded: {{ 'true' if s.descarga_activa and not s.busqueda_activa_id else 'false' }} }">
+            <div class="flex items-start justify-between gap-4">
+                <div class="min-w-0 flex-1">
+                    <div class="flex items-center gap-2">
+                        <span class="font-semibold text-gray-900 truncate">{{ s.nombre }}</span>
+                        {% if s.alias %}<span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded">{{ s.alias }}</span>{% endif %}
+                    </div>
+                    <p class="text-sm text-gray-500 mt-0.5 font-mono">{{ s.numero_servicio }}</p>
+                    <div class="mt-1 flex items-center gap-3 text-xs text-gray-400">
+                        {% if s.ultima_descarga %}
+                        <span>Última descarga: {{ s.ultima_descarga | time_mx('%d/%m/%Y') }}</span>
+                        {% endif %}
+                        {% if s.total_descargas %}<span>{{ s.total_descargas }} periodos descargados</span>{% endif %}
+                    </div>
+                </div>
+                <div class="flex items-center gap-2 flex-shrink-0">
+                    {% if s.descarga_activa %}
+                    <span class="flex items-center gap-1 text-xs text-yellow-700 bg-yellow-50 px-2 py-1 rounded">
+                        <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        Descarga en curso
+                    </span>
+                    {% endif %}
+                    {% if s.busqueda_activa_id %}
+                    <span class="flex items-center gap-1 text-xs {% if s.busqueda_activa_estatus == 'completado' %}text-blue-700 bg-blue-50{% else %}text-yellow-700 bg-yellow-50{% endif %} px-2 py-1 rounded">
+                        {% if s.busqueda_activa_estatus in ['pendiente', 'descargando'] %}
+                        <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        Búsqueda en curso
+                        {% else %}
+                        Resultados listos
+                        {% endif %}
+                    </span>
+                    <button type="button"
+                        hx-get="/cfe/servicios/{{ s.id }}/modal-busqueda-activa{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                        hx-target="#cfe-modal-container"
+                        hx-swap="innerHTML"
+                        class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                        Ver búsqueda
+                    </button>
+                    {% endif %}
+                    {% if s.total_descargas %}
+                    <a href="/cfe/servicios/{{ s.id }}/zip"
+                       class="text-xs bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                        Descargar ZIP
+                    </a>
+                    {% endif %}
+                    <button type="button"
+                        hx-get="/cfe/servicios/{{ s.id }}/modal-buscar-periodos{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                        hx-target="#cfe-modal-container"
+                        hx-swap="innerHTML"
+                        {% if s.tiene_pendiente %}disabled{% endif %}
+                        class="text-xs bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                        Buscar periodos
+                    </button>
+                    <button type="button"
+                        hx-get="/cfe/servicios/{{ s.id }}/analisis{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                        hx-target="#main-content"
+                        hx-swap="innerHTML"
+                        hx-push-url="true"
+                        class="text-xs bg-gray-900 hover:bg-gray-800 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                        Análisis
+                    </button>
+                    <button type="button"
+                        @click="expanded = !expanded"
+                        hx-get="/cfe/servicios/{{ s.id }}/descargas"
+                        hx-target="#historial-{{ s.id }}"
+                        hx-swap="innerHTML"
+                        hx-trigger="click once"
+                        class="inline-flex items-center gap-1.5 text-xs text-gray-600 hover:text-gray-900 px-3 py-1.5 border border-gray-200 rounded-lg transition-colors">
+                        <span x-text="expanded ? 'Ocultar historial' : 'Historial'">Historial</span>
+                        <svg class="h-3.5 w-3.5 transition-transform"
+                             :class="expanded ? 'rotate-180' : ''"
+                             xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div id="historial-{{ s.id }}"
+                 x-show="expanded"
+                 x-cloak
+                 {% if s.descarga_activa %}
+                 hx-get="/cfe/servicios/{{ s.id }}/descargas"
+                 hx-trigger="load, every 4s"
+                 hx-swap="innerHTML"
+                 {% endif %}
+                 class="mt-4">
+            </div>
+        </div>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>

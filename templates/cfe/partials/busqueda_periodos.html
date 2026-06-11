@@ -1,0 +1,142 @@
+{# templates/cfe/partials/busqueda_periodos.html #}
+<div id="cfe-busqueda-body"
+     {% if busqueda and busqueda.estatus in ['pendiente', 'descargando'] %}
+     hx-get="/cfe/servicios/{{ servicio.id }}/busquedas/{{ busqueda.id }}{% if modulo %}?modulo={{ modulo }}{% endif %}"
+     hx-trigger="every 4s"
+     hx-swap="outerHTML"
+     {% endif %}
+     class="p-6">
+    {% if _toast is defined %}
+    {% with message=_toast.message, type=_toast.type, title=_toast.title|default('Recibos CFE') %}
+    {% include "shared/toast.html" %}
+    {% endwith %}
+    {% endif %}
+
+    {% if not busqueda %}
+    <div class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        No se pudo iniciar la busqueda.
+    </div>
+    {% elif busqueda.estatus in ['pendiente', 'descargando'] %}
+    <div class="flex items-center gap-3 rounded-lg border border-[#00BABB]/30 bg-[#E0F7F7] p-4">
+        <svg class="animate-spin h-5 w-5 text-[#007A7B]" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+        </svg>
+        <div>
+            <p class="text-sm font-semibold text-[#123456]">Descargando periodos detectados...</p>
+            <p class="text-xs text-[#007A7B] mt-0.5">Buscando los periodos mas recientes (hasta {{ busqueda.max_periodos }}) para {{ servicio.nombre }}.</p>
+        </div>
+    </div>
+    {% elif busqueda.estatus == 'error' %}
+    <div class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+        {{ busqueda.mensaje_error or 'No se pudo completar la busqueda.' }}
+    </div>
+    <form hx-post="/cfe/servicios/{{ servicio.id }}/buscar-periodos"
+          hx-target="#cfe-busqueda-body"
+          hx-swap="outerHTML"
+          x-data="{ enviando: false }"
+          @submit="$nextTick(() => { enviando = true })"
+          class="mt-3 flex justify-end">
+        <input type="hidden" name="max_periodos" value="{{ busqueda.max_periodos }}">
+        <button type="submit"
+                :disabled="enviando"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#123456] hover:bg-gray-700 disabled:opacity-70 disabled:cursor-not-allowed rounded-lg transition-colors">
+            <svg x-show="enviando" x-cloak class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span x-show="!enviando">Reintentar busqueda</span>
+            <span x-show="enviando" x-cloak>Buscando...</span>
+        </button>
+    </form>
+    {% else %}
+    {% if busqueda.advertencia %}
+    <div class="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+        {{ busqueda.advertencia }}
+    </div>
+    {% endif %}
+    <div class="mb-4">
+        <p class="text-sm font-semibold text-gray-900">
+            Periodos encontrados
+            <span class="font-normal text-gray-500">({{ items | length }} detectados{% if busqueda.total_descargados %}, {{ busqueda.total_descargados }} nuevos{% endif %})</span>
+        </p>
+        <p class="text-xs text-gray-500 mt-0.5">
+            Selecciona los periodos que quieres conservar. Los que ya existen no se pueden seleccionar.
+        </p>
+    </div>
+
+    {% if not items %}
+    <div class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-600">
+        No se encontraron periodos para revisar.
+    </div>
+    {% else %}
+    <form hx-post="/cfe/servicios/{{ servicio.id }}/busquedas/{{ busqueda.id }}/confirmar{% if modulo %}?modulo={{ modulo }}{% endif %}"
+          hx-target="#cfe-modal-container"
+          hx-swap="innerHTML"
+          x-data="{ procesando: false }"
+          @submit="$nextTick(() => { procesando = true })"
+          :aria-busy="procesando.toString()">
+        <div class="max-h-96 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
+            {% for item in items %}
+            {% set ya_completo = item.ya_descargado_xml and item.ya_descargado_pdf %}
+            {% set tiene_staging = item.xml_estatus == 'descargado' or item.pdf_estatus == 'descargado' %}
+            {% set seleccionable = tiene_staging and not ya_completo %}
+            <label class="flex items-start gap-3 p-3 {% if seleccionable %}hover:bg-gray-50 cursor-pointer{% else %}bg-gray-50 cursor-not-allowed{% endif %}">
+                <input type="checkbox" name="periodos" value="{{ item.periodo }}"
+                       {% if not seleccionable %}disabled{% else %}checked{% endif %}
+                       :disabled="procesando || {{ 'true' if not seleccionable else 'false' }}"
+                       class="mt-1 text-[#00BABB] focus:ring-[#00BABB] rounded disabled:opacity-50">
+                <div class="flex-1 min-w-0">
+                    <div class="flex items-center gap-2">
+                        <span class="font-mono text-sm text-gray-900">{{ item.periodo }}</span>
+                        {% if item.etiqueta_periodo %}
+                        <span class="text-xs text-gray-500">{{ item.etiqueta_periodo }}</span>
+                        {% endif %}
+                        {% if item.tipo_recibo %}
+                        <span class="text-xs font-medium text-[#007A7B] bg-[#E0F7F7] px-2 py-0.5 rounded">{{ item.tipo_recibo }}</span>
+                        {% endif %}
+                    </div>
+                    <div class="mt-1 flex flex-wrap items-center gap-2 text-xs">
+                        <span class="{% if item.xml_estatus in ['descargado','ya_descargado'] %}text-green-700 bg-green-50{% elif item.xml_estatus == 'error' %}text-red-700 bg-red-50{% else %}text-gray-600 bg-gray-100{% endif %} px-2 py-0.5 rounded">
+                            XML: {% if item.xml_estatus == 'ya_descargado' %}ya descargado{% elif item.xml_estatus == 'descargado' %}descargado{% elif item.xml_estatus == 'error' %}error{% else %}no disponible{% endif %}
+                        </span>
+                        <span class="{% if item.pdf_estatus in ['descargado','ya_descargado'] %}text-green-700 bg-green-50{% elif item.pdf_estatus == 'error' %}text-red-700 bg-red-50{% else %}text-gray-600 bg-gray-100{% endif %} px-2 py-0.5 rounded">
+                            PDF: {% if item.pdf_estatus == 'ya_descargado' %}ya descargado{% elif item.pdf_estatus == 'descargado' %}descargado{% elif item.pdf_estatus == 'error' %}error{% else %}no disponible{% endif %}
+                        </span>
+                        {% if ya_completo %}
+                        <span class="text-gray-600 bg-gray-100 px-2 py-0.5 rounded">Registrado</span>
+                        {% endif %}
+                    </div>
+                    {% if item.error_mensaje %}
+                    <p class="text-xs text-red-600 mt-1 truncate" title="{{ item.error_mensaje }}">{{ item.error_mensaje }}</p>
+                    {% endif %}
+                </div>
+            </label>
+            {% endfor %}
+        </div>
+
+        <div class="flex items-center justify-between mt-5">
+            <button type="button"
+                    :disabled="procesando"
+                    hx-post="/cfe/servicios/{{ servicio.id }}/buscar-periodos"
+                    hx-target="#cfe-busqueda-body"
+                    hx-swap="outerHTML"
+                    hx-vals='{"max_periodos": "{{ busqueda.max_periodos }}"}'
+                    class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors">
+                Reintentar busqueda
+            </button>
+            <button type="submit"
+                    :disabled="procesando"
+                    class="inline-flex min-w-[180px] items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#123456] hover:bg-gray-700 disabled:opacity-70 disabled:cursor-not-allowed rounded-lg transition-colors">
+                <svg x-show="procesando" x-cloak class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                </svg>
+                <span x-show="!procesando">Conservar seleccionados</span>
+                <span x-show="procesando" x-cloak>Procesando XML...</span>
+            </button>
+        </div>
+    </form>
+    {% endif %}
+    {% endif %}
+</div>

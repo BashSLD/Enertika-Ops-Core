@@ -1,6 +1,6 @@
 import logging
 from datetime import date, timedelta
-from fastapi import APIRouter, Request, Depends, HTTPException, Form, Header
+from fastapi import APIRouter, Request, Depends, File, HTTPException, Form, Header, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from typing import Optional
 from core.database import get_db_connection
@@ -85,6 +85,8 @@ async def admin_dashboard(
     catalogos = await service.get_catalogos_reglas(conn)
     ubicaciones = await service.get_ubicaciones(conn)
     global_config = await service.get_global_config(conn)
+    cfe_cfg = await service.get_cfe_config(conn)
+    global_config.update(cfe_cfg)
     fiel_config = await service.db.fetch_fiel_config(conn)
     reporte = await service.generar_reporte_semanal(conn)
     recordatorios_monitor = await service.get_recordatorios_oportunidad_monitor(conn)
@@ -1610,3 +1612,111 @@ async def probar_fiel(
         {"message": message, "type": type_},
         headers={"HX-Reswap": "none"},
     )
+
+
+@router.post("/config/cfe", include_in_schema=False, response_class=HTMLResponse)
+async def actualizar_config_cfe(
+    request: Request,
+    cfe_miespacio_user: str = Form(""),
+    cfe_miespacio_pass: str = Form(""),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    _user=require_role(["ADMIN"]),
+):
+    try:
+        await service.update_cfe_config(conn, user=cfe_miespacio_user, password=cfe_miespacio_pass)
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"title": "Configuración CFE", "message": "Configuración CFE MiEspacio guardada.", "type": "success"},
+        )
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error guardando config CFE: {exc}")
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"title": "Configuración CFE", "message": "Error al guardar la configuración.", "type": "error"},
+            status_code=500,
+        )
+
+
+@router.post("/config/cfe/token", include_in_schema=False, response_class=HTMLResponse)
+async def regenerar_token_cfe(
+    request: Request,
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    _user=require_role(["ADMIN"]),
+):
+    try:
+        token = await service.regenerate_cfe_token(conn)
+        return templates.TemplateResponse(
+            request, "admin/partials/cfe_token.html",
+            {"token": token,
+             "_toast": {"message": "Token de subida de sesión CFE generado.", "type": "success"}},
+        )
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error generando token CFE: {exc}")
+        # Re-render el partial completo (status 200) para conservar la UI del token
+        # y mostrar el toast: con 500 + outerHTML, HTMX no hace swap y el admin no ve feedback.
+        token_actual = ""
+        try:
+            token_actual = (await service.get_cfe_config(conn)).get("cfe_session_token", "")
+        except asyncpg.PostgresError:
+            pass
+        return templates.TemplateResponse(
+            request, "admin/partials/cfe_token.html",
+            {"token": token_actual,
+             "_toast": {"title": "Token CFE", "message": "Error al generar el token.", "type": "error"}},
+        )
+
+
+@router.post("/config/cfe/lanzador", include_in_schema=False, response_class=HTMLResponse)
+async def subir_lanzador_cfe(
+    request: Request,
+    archivo: UploadFile = File(...),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    _user=require_role(["ADMIN"]),
+):
+    version = ""
+    toast_msg = "Error interno al guardar."
+    toast_type = "error"
+    try:
+        version = await service.upload_cfe_lanzador(conn, file=archivo)
+        toast_msg = f"Ejecutable del lanzador subido (v{version})."
+        toast_type = "success"
+    except ValueError as exc:
+        toast_msg = str(exc)
+    except asyncpg.PostgresError as exc:
+        logger.error("Error guardando lanzador CFE en BD: %s", exc)
+    return templates.TemplateResponse(
+        request, "admin/partials/cfe_lanzador.html",
+        {"lanzador_version": version, "_toast": {"message": toast_msg, "type": toast_type}},
+    )
+
+
+@router.post("/config/cfe/session", include_in_schema=False, response_class=HTMLResponse)
+async def actualizar_session_cfe(
+    request: Request,
+    cfe_session_json: str = Form(""),
+    service: AdminService = Depends(get_admin_service),
+    conn=Depends(get_db_connection),
+    _user=require_role(["ADMIN"]),
+):
+    try:
+        await service.update_cfe_session(conn, session_json=cfe_session_json)
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"title": "Sesión CFE", "message": "Sesión CFE MiEspacio actualizada.", "type": "success"},
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"title": "Sesión CFE", "message": str(exc), "type": "error"},
+            status_code=400,
+        )
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error guardando sesión CFE: {exc}")
+        return templates.TemplateResponse(
+            request, "shared/toast.html",
+            {"title": "Sesión CFE", "message": "Error al guardar la sesión.", "type": "error"},
+            status_code=500,
+        )

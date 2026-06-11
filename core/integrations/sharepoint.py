@@ -63,26 +63,18 @@ class SharePointService:
         return config
 
     async def upload_file(
-        self, 
+        self,
         conn,
-        file: UploadFile, 
+        file: UploadFile,
         folder_path: str,
-        metadata: Optional[dict] = None
+        metadata: Optional[dict] = None,
+        *,
+        _config: Optional[dict] = None,
     ) -> Dict:
-        """
-        Sube un archivo a SharePoint en la ruta especificada.
-        
-        Args:
-            conn: Conexión a BD para leer configuración
-            file: Archivo UploadFile de FastAPI
-            folder_path: Ruta relativa
-            metadata: Metadata extra
-        """
         if not self.access_token:
             raise ValueError("Requiere token de acceso")
 
-        # Resolving Config
-        config = await self._resolve_config(conn)
+        config = _config if _config is not None else await self._resolve_config(conn)
         site_id = config.get("site_id")
         drive_id = config.get("drive_id")
 
@@ -387,6 +379,33 @@ class SharePointService:
         """Descarga el contenido de un archivo por su drive_item_id vía Graph API."""
         config = await self._resolve_config(conn)
         return await self._fetch_item_bytes(drive_item_id, config.get("drive_id"), config.get("site_id"))
+
+    async def delete_file_by_item_id(
+        self, conn, drive_item_id: str, *, _config: Optional[dict] = None
+    ) -> bool:
+        """Borra un archivo por drive_item_id. Retorna True si se borro o ya no existia."""
+        config = _config if _config is not None else await self._resolve_config(conn)
+        drive_id = config.get("drive_id")
+        site_id = config.get("site_id")
+        if drive_id:
+            url = f"{self.BASE_URL}/drives/{drive_id}/items/{drive_item_id}"
+        elif site_id:
+            url = f"{self.BASE_URL}/sites/{site_id}/drive/items/{drive_item_id}"
+        else:
+            raise ValueError("drive_id o site_id requerido en SharePointService")
+
+        headers = {"Authorization": f"Bearer {self.access_token}"}
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.delete(url, headers=headers)
+            if resp.status_code in (204, 404):
+                return True
+            logger.error(
+                "Error borrando archivo SP item_id=%s: %s %s",
+                drive_item_id,
+                resp.status_code,
+                resp.text[:200],
+            )
+            return False
 
     async def download_bytes_direct_by_item_id(self, drive_item_id: str) -> bytes:
         """Descarga por item_id usando self.drive_id / self.site_id ya resueltos (sin conn)."""

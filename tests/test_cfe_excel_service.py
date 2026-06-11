@@ -1,10 +1,16 @@
+import zipfile
+from io import BytesIO
 from pathlib import Path
+import sys
+import types
+from uuid import uuid4
 
 import pytest
 from jinja2 import Environment, FileSystemLoader
 from openpyxl import load_workbook
 
-from modules.shared.services.cfe import CfeXmlInput, generar_excel_cfe
+from modules.cfe.analysis import construir_analisis_recibos
+from modules.shared.services.cfe import CfeXmlInput, construir_datos_recibo_cfe, generar_excel_cfe
 from modules.shared.services.cfe.extractor import extraer_datos_xml
 from modules.shared.services.cfe.profiles import obtener_perfil_cfe
 
@@ -91,6 +97,32 @@ NON_CFE_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
   </cfdi:Complemento>
 </cfdi:Comprobante>
 """
+
+
+def _cfe_xml_con_metricas(
+    *,
+    subtotal: str = "4490.00",
+    total: str = "5208.40",
+    consumo_base: str = "1000",
+    consumo_intermedio: str = "2000",
+    consumo_punta: str = "3000",
+    demanda: str = "22",
+    fp: str = "95.5",
+) -> bytes:
+    xml = CFE_XML
+    reemplazos = [
+        (b'SubTotal="4490.00"', f'SubTotal="{subtotal}"'.encode()),
+        (b'Total="5208.40"', f'Total="{total}"'.encode()),
+        (b"<CONSUMO3F>1000</CONSUMO3F>", f"<CONSUMO3F>{consumo_base}</CONSUMO3F>".encode()),
+        (b"<CONSUMO2F>2000</CONSUMO2F>", f"<CONSUMO2F>{consumo_intermedio}</CONSUMO2F>".encode()),
+        (b"<CONSUMO1F>3000</CONSUMO1F>", f"<CONSUMO1F>{consumo_punta}</CONSUMO1F>".encode()),
+        (b"<DEMANDA>22</DEMANDA>", f"<DEMANDA>{demanda}</DEMANDA>".encode()),
+        (b"<FacPot>95.5</FacPot>", f"<FacPot>{fp}</FacPot>".encode()),
+        (b"<Importe3>4490.00</Importe3>", f"<Importe3>{subtotal}</Importe3>".encode()),
+    ]
+    for original, nuevo in reemplazos:
+        xml = xml.replace(original, nuevo)
+    return xml
 
 
 CFE_GDMTO_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
@@ -226,6 +258,92 @@ def _valor_en_fila(ws, header: str, row: int = 2):
     return ws.cell(row=row, column=headers.index(header) + 1).value
 
 
+class _FakeCfeZipDB:
+    def __init__(self, servicio: dict, descargas: list[dict]):
+        self.servicio = servicio
+        self.descargas = descargas
+
+    async def get_servicio_by_id(self, conn, servicio_id):
+        return self.servicio if self.servicio["id"] == servicio_id else None
+
+    async def get_descargas_por_servicio(self, conn, servicio_id):
+        return self.descargas if self.servicio["id"] == servicio_id else []
+
+
+def _install_fake_redis(monkeypatch):
+    redis_module = types.ModuleType("redis")
+    redis_asyncio_module = types.ModuleType("redis.asyncio")
+    redis_exceptions_module = types.ModuleType("redis.exceptions")
+
+    class FakeRedis:
+        pass
+
+    class FakeRedisError(Exception):
+        pass
+
+    redis_asyncio_module.Redis = FakeRedis
+    redis_asyncio_module.from_url = lambda *args, **kwargs: FakeRedis()
+    redis_exceptions_module.RedisError = FakeRedisError
+    redis_module.asyncio = redis_asyncio_module
+    redis_module.exceptions = redis_exceptions_module
+
+    monkeypatch.setitem(sys.modules, "redis", redis_module)
+    monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio_module)
+    monkeypatch.setitem(sys.modules, "redis.exceptions", redis_exceptions_module)
+
+
+@pytest.mark.asyncio
+async def test_generar_zip_servicio_incluye_xml_pdf_y_excel(monkeypatch):
+    _install_fake_redis(monkeypatch)
+    from modules.cfe.service import CfeService
+
+    servicio_id = uuid4()
+    servicio = {
+        "id": servicio_id,
+        "numero_servicio": "123456789012",
+        "nombre": "SERVICIO PRUEBA",
+    }
+    descargas = [
+        {
+            "id": uuid4(),
+            "periodo": "2026-05",
+            "tipo": "xml",
+            "estatus": "completado",
+            "nombre_archivo": "recibo.xml",
+            "ruta_sharepoint": "https://sharepoint.test/recibo.xml",
+        },
+        {
+            "id": uuid4(),
+            "periodo": "2026-05",
+            "tipo": "pdf",
+            "estatus": "completado",
+            "nombre_archivo": "recibo.pdf",
+            "ruta_sharepoint": "https://sharepoint.test/recibo.pdf",
+        },
+    ]
+    service = CfeService(_FakeCfeZipDB(servicio, descargas))
+
+    async def fake_descargar_archivos(rows):
+        contenidos = {"xml": CFE_XML, "pdf": b"%PDF-1.4\n"}
+        return [(row, contenidos[row["tipo"]]) for row in rows]
+
+    monkeypatch.setattr(service, "_descargar_archivos_sharepoint", fake_descargar_archivos)
+
+    zip_bytes, filename = await service.generar_zip_servicio(None, servicio_id)
+
+    assert filename == "CFE_123456789012.zip"
+    with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
+        names = set(zf.namelist())
+        assert "CFE_123456789012/XML/2026-05_recibo.xml" in names
+        assert "CFE_123456789012/PDF/2026-05_recibo.pdf" in names
+        assert "CFE_123456789012/CFE_123456789012.xlsx" in names
+        assert zf.read("CFE_123456789012/XML/2026-05_recibo.xml") == CFE_XML
+        assert zf.read("CFE_123456789012/PDF/2026-05_recibo.pdf") == b"%PDF-1.4\n"
+
+        workbook = load_workbook(BytesIO(zf.read("CFE_123456789012/CFE_123456789012.xlsx")))
+        assert workbook.active.max_row == 2
+
+
 def test_extrae_datos_cfe_para_excel():
     datos = extraer_datos_xml(CFE_XML, "recibo.xml")
 
@@ -235,6 +353,146 @@ def test_extrae_datos_cfe_para_excel():
     assert importes["kWh base"] == 1000
     assert importes["Generación B"] == 100
     assert importes["Subtotal"] == 4490
+
+
+def test_construir_datos_recibo_cfe_publico_expone_normalizacion_excel():
+    recibo = extraer_datos_xml(CFE_XML, "recibo.xml")
+
+    datos = construir_datos_recibo_cfe(recibo)
+
+    assert datos["mes"] == "Feb-25"
+    assert datos["consumo"] == 6000
+    assert datos["kwmax"] == 22
+    assert datos["total"] == 4490
+    assert "Tarifa: GDMTH" in datos["observaciones"]
+
+
+def test_construir_analisis_recibos_calcula_ultimo_comparativos_y_alertas():
+    recibo_anterior = extraer_datos_xml(
+        _cfe_xml_con_metricas(
+            subtotal="3000.00",
+            total="3480.00",
+            consumo_base="1000",
+            consumo_intermedio="1000",
+            consumo_punta="1000",
+            demanda="12",
+            fp="96.0",
+        ),
+        "ene.xml",
+    )
+    recibo_ultimo = extraer_datos_xml(
+        _cfe_xml_con_metricas(
+            subtotal="6000.00",
+            total="6960.00",
+            consumo_base="1000",
+            consumo_intermedio="2000",
+            consumo_punta="3000",
+            demanda="22",
+            fp="89.0",
+        ),
+        "feb.xml",
+    )
+
+    analisis = construir_analisis_recibos(
+        {"id": "servicio-1", "nombre": "SERVICIO PRUEBA", "numero_servicio": "123"},
+        [
+            ({"periodo": "2025-01"}, recibo_anterior),
+            ({"periodo": "2025-02"}, recibo_ultimo),
+        ],
+    )
+
+    assert analisis["hay_datos"] is True
+    assert analisis["ultimo"]["periodo"] == "2025-02"
+    assert analisis["ultimo"]["consumo"] == 6000
+    assert analisis["ultimo"]["total_facturado"] == 6960
+    assert analisis["ultimo"]["costo_kwh"] == pytest.approx(1.16)
+    assert analisis["baseline_periodos"] == 1
+
+    consumo = next(item for item in analisis["comparativos"] if item["key"] == "consumo")
+    assert consumo["promedio_12"]["disponible"] is True
+    assert consumo["promedio_12"]["valor"] == 3000
+    assert consumo["promedio_12"]["delta_pct"] == pytest.approx(100)
+
+    assert analisis["variacion_historico"]["disponible"] is True
+    assert analisis["variacion_historico"]["costo_esperado"] == pytest.approx(6960)
+    assert any(alerta["titulo"] == "Factor de potencia bajo" for alerta in analisis["alertas"])
+
+    kpi_total = next(item for item in analisis["kpis"] if item["key"] == "total_facturado")
+    assert kpi_total["subtexto"]["label"] == "Subtotal"
+    assert kpi_total["subtexto"]["valor"] == analisis["ultimo"]["subtotal"]
+
+
+def test_construir_analisis_recibos_gdmto_no_infiere_perfil_horario_ni_punta():
+    recibo_anterior = extraer_datos_xml(CFE_GDMTO_XML, "gdmto-ene.xml")
+    recibo_ultimo = extraer_datos_xml(CFE_GDMTO_XML, "gdmto-feb.xml")
+
+    analisis = construir_analisis_recibos(
+        {"id": "servicio-1", "nombre": "SERVICIO GDMTO", "numero_servicio": "123"},
+        [
+            ({"periodo": "2026-02"}, recibo_anterior),
+            ({"periodo": "2026-03"}, recibo_ultimo),
+        ],
+    )
+
+    assert analisis["perfil_analisis"]["key"] == "GDMTO"
+    assert analisis["secciones"]["perfil_horario"] is False
+    assert analisis["ultimo"]["perfil_horario"] == []
+    assert [kpi["key"] for kpi in analisis["kpis"]] == [
+        "total_facturado",
+        "consumo",
+        "costo_kwh",
+        "kwmax",
+        "kw_cap",
+        "kw_dist",
+        "fp",
+    ]
+    assert "consumo_punta" not in analisis["graficas"]["metricas"]
+    assert not any(alerta["titulo"] == "Consumo punta elevado" for alerta in analisis["alertas"])
+    assert "GDMTO no se analiza con perfil horario base/intermedia/punta." in analisis["calidad_datos"]["limitaciones"]
+
+
+def test_construir_analisis_recibos_excluye_baseline_con_tarifa_distinta():
+    recibo_gdmth = extraer_datos_xml(CFE_XML, "gdmth.xml")
+    recibo_gdmto = extraer_datos_xml(CFE_GDMTO_XML, "gdmto.xml")
+
+    analisis = construir_analisis_recibos(
+        {"id": "servicio-1", "nombre": "SERVICIO MIXTO", "numero_servicio": "123"},
+        [
+            ({"periodo": "2026-02"}, recibo_gdmth),
+            ({"periodo": "2026-03"}, recibo_gdmto),
+        ],
+    )
+
+    assert analisis["perfil_analisis"]["key"] == "GDMTO"
+    assert analisis["baseline_periodos"] == 0
+    assert analisis["periodos_comparables"] == 1
+    assert analisis["periodos_excluidos_tarifa"] == 1
+    assert any(alerta["titulo"] == "Baseline filtrado por tarifa" for alerta in analisis["alertas"])
+
+
+def test_construir_analisis_recibos_tarifa_no_soportada_usa_basico():
+    xml_pdbt = CFE_XML.replace(b"<TARIFA_REG>GDMTH</TARIFA_REG>", b"<TARIFA_REG>PDBT</TARIFA_REG>")
+    xml_pdbt = xml_pdbt.replace(b"<TARIFA>GDMTH</TARIFA>", b"<TARIFA>PDBT</TARIFA>")
+    recibo = extraer_datos_xml(xml_pdbt, "pdbt.xml")
+
+    analisis = construir_analisis_recibos(
+        {"id": "servicio-1", "nombre": "SERVICIO PDBT", "numero_servicio": "123"},
+        [({"periodo": "2026-03"}, recibo)],
+    )
+
+    assert analisis["perfil_analisis"]["key"] == "NO_SOPORTADA"
+    assert analisis["secciones"]["perfil_horario"] is False
+    assert [kpi["key"] for kpi in analisis["kpis"]] == [
+        "total_facturado",
+        "consumo",
+        "costo_kwh",
+    ]
+    assert [item["key"] for item in analisis["comparativos"]] == [
+        "consumo",
+        "total_facturado",
+        "costo_kwh",
+    ]
+    assert any("La tarifa PDBT no tiene reglas especificas" in item for item in analisis["calidad_datos"]["limitaciones"])
 
 
 def test_extrae_gdmto_demandas_historial_y_campos_dinamicos():

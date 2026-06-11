@@ -57,6 +57,10 @@ class ConfiguracionGlobalUpdate(AdminBaseSchema):
     sp_sat_drive_id: Optional[str] = Field(None)
     sp_sat_base_folder: Optional[str] = Field(None)
 
+    # 9. Recibos CFE — MiEspacio
+    cfe_miespacio_user: Optional[str] = Field(None, description="Usuario CFE MiEspacio")
+    cfe_miespacio_pass: Optional[str] = Field(None, description="Contraseña CFE MiEspacio (vacío = no modificar)")
+
     @field_validator('dias_fin_semana')
     @classmethod
     def validar_dias(cls, v):

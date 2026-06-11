@@ -367,6 +367,11 @@ def _observacion_tarifa(servicio: dict[str, Any]) -> str:
     return f"Tarifa: {tarifa}; Tipo tarifa: {tipo_tarifa}"
 
 
+def construir_datos_recibo_cfe(recibo: CfeReceipt) -> dict[str, Any]:
+    """Normaliza un recibo CFE al mismo modelo de datos que alimenta el Excel."""
+    return _construir_datos_fila(recibo)
+
+
 def _construir_datos_fila(recibo: CfeReceipt) -> dict[str, Any]:
     importes = {
         linea["concepto"]: linea["importe"]

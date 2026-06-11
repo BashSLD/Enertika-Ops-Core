@@ -1,0 +1,65 @@
+{# templates/cfe/partials/busqueda_confirmada.html #}
+<div id="historial-{{ servicio.id }}" hx-swap-oob="innerHTML" class="mt-4">
+    {% include "cfe/partials/historial_descargas.html" %}
+</div>
+
+<div class="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+     id="cfe-busqueda-confirmada-modal">
+    <div class="w-full max-w-xl bg-white rounded-lg shadow-2xl overflow-hidden">
+        <div class="{% if _toast.type == 'error' %}bg-red-700{% else %}bg-[#123456]{% endif %} px-6 py-4 flex items-center justify-between">
+            <h3 class="text-lg font-bold text-white">Resultado de busqueda CFE</h3>
+            <button type="button"
+                    hx-get="/cfe/ui{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                    hx-target="#main-content"
+                    hx-swap="innerHTML"
+                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white hover:bg-white/10 transition-colors">
+                <span class="sr-only">Cerrar</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        <div class="p-6">
+            {% if _toast is defined %}
+            <div class="{% if _toast.type == 'error' %}border-red-200 bg-red-50 text-red-700{% else %}border-green-200 bg-green-50 text-green-700{% endif %} rounded-lg border p-3 text-sm">
+                {{ _toast.message }}
+            </div>
+            {% endif %}
+
+            <div class="mt-4 max-h-64 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
+                {% for item in items %}
+                {% set ya_registrado = item.ya_descargado_xml and item.ya_descargado_pdf %}
+                {% set tiene_staging = item.xml_estatus == 'descargado' or item.pdf_estatus == 'descargado' %}
+                {% set tiene_error = item.xml_estatus == 'error' or item.pdf_estatus == 'error' %}
+                <div class="p-3 flex items-center justify-between gap-4">
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <p class="font-mono text-sm text-gray-900">{{ item.periodo }}</p>
+                            {% if item.tipo_recibo %}
+                            <span class="text-xs font-medium text-[#007A7B] bg-[#E0F7F7] px-2 py-0.5 rounded">{{ item.tipo_recibo }}</span>
+                            {% endif %}
+                        </div>
+                        {% if item.etiqueta_periodo %}
+                        <p class="text-xs text-gray-500">{{ item.etiqueta_periodo }}</p>
+                        {% endif %}
+                    </div>
+                    <span class="text-xs px-2 py-1 rounded
+                        {% if item.decision == 'conservado' %}bg-green-50 text-green-700
+                        {% elif ya_registrado %}bg-blue-50 text-blue-700
+                        {% elif tiene_error %}bg-red-50 text-red-700
+                        {% elif item.decision == 'descartado' and tiene_staging %}bg-gray-100 text-gray-600
+                        {% elif not tiene_staging %}bg-gray-100 text-gray-600
+                        {% else %}bg-yellow-50 text-yellow-700{% endif %}">
+                        {% if item.decision == 'conservado' %}Conservado
+                        {% elif ya_registrado %}Ya registrado
+                        {% elif tiene_error %}Con error
+                        {% elif item.decision == 'descartado' and tiene_staging %}No seleccionado
+                        {% elif not tiene_staging %}No disponible
+                        {% else %}Pendiente{% endif %}
+                    </span>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>

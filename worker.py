@@ -30,6 +30,7 @@ from core.tasks import (
     verificar_solicitudes_vencidas_periodically,
 )
 from modules.asistencia.service import sync_biotime_periodically
+from modules.cfe.service import procesar_descargas_cfe_periodically
 
 logging.basicConfig(
     level=logging.INFO,
@@ -88,6 +89,7 @@ async def main():
         asyncio.create_task(verificar_periodos_por_expirar_periodically()),
         asyncio.create_task(verificar_solicitudes_vencidas_periodically()),
         asyncio.create_task(sync_biotime_periodically()),
+        asyncio.create_task(procesar_descargas_cfe_periodically()),
     ]
 
     logger.info("[WORKER] %d tareas activas", len(tasks))

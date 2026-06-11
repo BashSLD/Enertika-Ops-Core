@@ -1,0 +1,58 @@
+{# templates/cfe/partials/modal_buscar_periodos.html #}
+<div class="fixed inset-0 z-50 bg-gray-900 bg-opacity-60 backdrop-blur-sm flex items-center justify-center p-4"
+     id="cfe-busqueda-modal">
+    <div class="w-full max-w-2xl bg-white rounded-lg shadow-2xl overflow-hidden">
+        <div class="bg-[#123456] px-6 py-4 flex items-center justify-between">
+            <h3 class="text-lg font-bold text-white">Buscar periodos CFE</h3>
+            <button type="button"
+                    hx-get="/cfe/ui{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                    hx-target="#main-content"
+                    hx-swap="innerHTML"
+                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white hover:bg-white/10 transition-colors">
+                <span class="sr-only">Cerrar</span>
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+                </svg>
+            </button>
+        </div>
+        {% if busqueda is defined and busqueda %}
+        {% include "cfe/partials/busqueda_periodos.html" %}
+        {% else %}
+        <div id="cfe-busqueda-body" class="p-6">
+            <p class="text-sm text-gray-600 mb-4">
+                Se buscaran y descargaran temporalmente los periodos disponibles para
+                <strong>{{ servicio.nombre }}</strong>.
+            </p>
+            <form hx-post="/cfe/servicios/{{ servicio.id }}/buscar-periodos{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                  hx-target="#cfe-busqueda-body"
+                  hx-swap="outerHTML"
+                  x-data="{ enviando: false }"
+                  @submit="$nextTick(() => { enviando = true })"
+                  :aria-busy="enviando.toString()"
+                  class="space-y-4">
+                <div>
+                    <label for="cfe-max-periodos" class="block text-sm font-medium text-gray-700 mb-1">
+                        Periodos a buscar
+                    </label>
+                    <input id="cfe-max-periodos" type="number" name="max_periodos"
+                           value="12" min="1" max="60"
+                           :disabled="enviando"
+                           class="w-32 rounded-lg border-gray-300 text-sm focus:border-[#00BABB] focus:ring-[#00BABB] disabled:bg-gray-100 disabled:text-gray-500">
+                </div>
+                <div class="flex justify-end pt-2">
+                    <button type="submit"
+                            :disabled="enviando"
+                            class="inline-flex min-w-[180px] items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#123456] hover:bg-gray-700 disabled:opacity-70 disabled:cursor-not-allowed rounded-lg transition-colors">
+                        <svg x-show="enviando" x-cloak class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        <span x-show="!enviando">Buscar y descargar</span>
+                        <span x-show="enviando" x-cloak>Buscando periodos...</span>
+                    </button>
+                </div>
+            </form>
+        </div>
+        {% endif %}
+    </div>
+</div>
