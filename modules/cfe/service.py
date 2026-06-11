@@ -519,8 +519,23 @@ class CfeService:
         try:
             resultado = await descargar_periodos_busqueda(cfg, busqueda["max_periodos"])
         except ValueError as exc:
+            logger.warning(
+                "[CFE] Busqueda fallo servicio_id=%s busqueda_id=%s error=%s",
+                busqueda["servicio_id"],
+                busqueda["id"],
+                exc,
+            )
             async with pool.acquire() as conn:
                 await self.db.marcar_busqueda_error(conn, busqueda["id"], str(exc))
+            return
+        except Exception as exc:
+            logger.exception(
+                "[CFE] Error inesperado en busqueda servicio_id=%s busqueda_id=%s",
+                busqueda["servicio_id"],
+                busqueda["id"],
+            )
+            async with pool.acquire() as conn:
+                await self.db.marcar_busqueda_error(conn, busqueda["id"], f"Error inesperado: {exc}")
             return
 
         if any(self._es_error_sesion(r.pdf_error) for r in resultado.periodos):

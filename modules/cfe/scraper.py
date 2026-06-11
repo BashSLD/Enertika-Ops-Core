@@ -1061,7 +1061,12 @@ async def descargar_periodos_busqueda(
     browser_path = _pick_browser()
     launch_kwargs: dict = {
         "headless": True,
-        "args": ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
+        "args": [
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+        ],
     }
     if browser_path:
         launch_kwargs["executable_path"] = browser_path
@@ -1084,6 +1089,15 @@ async def descargar_periodos_busqueda(
                 # ── FASE 1: portal publico (deteccion + XML del ultimo periodo) ──
                 rows = await _open_public_history(pub_page, cfg)
                 if not rows:
+                    try:
+                        body_len = await pub_page.evaluate("() => (document.body?.innerHTML || '').length")
+                        page_title = await pub_page.title()
+                        logger.warning(
+                            "[CFE] Portal sin filas servicio=%s url=%s title=%r body_len=%s",
+                            cfg.numero_servicio, pub_page.url, page_title, body_len,
+                        )
+                    except Exception:
+                        pass
                     raise ValueError(await _public_history_diagnostic(pub_page, rows))
 
                 objetivo = rows[:max_periodos]
@@ -1349,7 +1363,12 @@ async def descargar_pdf_periodo(cfg: CfeScraperConfig, periodo: str) -> Descarga
     browser_path = _pick_browser()
     launch_kwargs: dict = {
         "headless": True,
-        "args": ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
+        "args": [
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+        ],
     }
     if browser_path:
         launch_kwargs["executable_path"] = browser_path
@@ -1438,7 +1457,12 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
     browser_path = _pick_browser()
     launch_kwargs: dict = {
         "headless": True,
-        "args": ["--disable-blink-features=AutomationControlled", "--no-sandbox", "--disable-dev-shm-usage"],
+        "args": [
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+        ],
     }
     if browser_path:
         launch_kwargs["executable_path"] = browser_path
