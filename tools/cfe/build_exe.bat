@@ -11,7 +11,7 @@ REM Subelo en Admin > Configuracion Global > Recibos CFE > Ejecutable del lanzad
 cd /d "%~dp0"
 
 echo [1/2] Compilando con PyInstaller...
-pyinstaller --onefile --console --name renovar_sesion --collect-all playwright renovar_sesion.py
+python -m PyInstaller --onefile --console --name renovar_sesion --collect-all playwright renovar_sesion.py
 
 echo.
 if exist dist\renovar_sesion.exe (
