@@ -31,6 +31,24 @@
     <div class="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
         {{ busqueda.mensaje_error or 'No se pudo completar la busqueda.' }}
     </div>
+    <form hx-post="/cfe/servicios/{{ servicio.id }}/buscar-periodos"
+          hx-target="#cfe-busqueda-body"
+          hx-swap="outerHTML"
+          x-data="{ enviando: false }"
+          @submit="$nextTick(() => { enviando = true })"
+          class="mt-3 flex justify-end">
+        <input type="hidden" name="max_periodos" value="{{ busqueda.max_periodos }}">
+        <button type="submit"
+                :disabled="enviando"
+                class="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#123456] hover:bg-gray-700 disabled:opacity-70 disabled:cursor-not-allowed rounded-lg transition-colors">
+            <svg x-show="enviando" x-cloak class="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+            </svg>
+            <span x-show="!enviando">Reintentar busqueda</span>
+            <span x-show="enviando" x-cloak>Buscando...</span>
+        </button>
+    </form>
     {% else %}
     {% if busqueda.advertencia %}
     <div class="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
@@ -97,7 +115,16 @@
             {% endfor %}
         </div>
 
-        <div class="flex justify-end mt-5">
+        <div class="flex items-center justify-between mt-5">
+            <button type="button"
+                    :disabled="procesando"
+                    hx-post="/cfe/servicios/{{ servicio.id }}/buscar-periodos"
+                    hx-target="#cfe-busqueda-body"
+                    hx-swap="outerHTML"
+                    hx-vals='{"max_periodos": "{{ busqueda.max_periodos }}"}'
+                    class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-gray-600 border border-gray-300 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition-colors">
+                Reintentar busqueda
+            </button>
             <button type="submit"
                     :disabled="procesando"
                     class="inline-flex min-w-[180px] items-center justify-center gap-2 px-4 py-2 text-sm font-medium text-white bg-[#123456] hover:bg-gray-700 disabled:opacity-70 disabled:cursor-not-allowed rounded-lg transition-colors">

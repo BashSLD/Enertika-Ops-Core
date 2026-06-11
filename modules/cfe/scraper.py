@@ -416,6 +416,22 @@ async def _wait_for_public_rows(page: Page, timeout_ms: int) -> list[dict]:
     return await _collect_public_period_rows(page)
 
 
+async def _wait_for_otras_facturas_rows(page: Page, timeout_ms: int) -> list[dict]:
+    """Espera a que gvFacturasUsuario tenga filas; el portal puede renderizar el grid vacio antes de poblarlo via PostBack."""
+    interval = 700
+    elapsed = 0
+    while elapsed < timeout_ms:
+        rows = await _collect_otras_facturas(page)
+        if rows:
+            return rows
+        block_msg = await _detect_block(page)
+        if block_msg:
+            raise ValueError(block_msg)
+        await page.wait_for_timeout(interval)
+        elapsed += interval
+    return await _collect_otras_facturas(page)
+
+
 async def _open_public_history(page: Page, cfg: CfeScraperConfig) -> list[dict]:
     await page.goto(CFE_PUBLIC_URL, wait_until="networkidle", timeout=cfg.timeout_ms)
 
@@ -701,8 +717,8 @@ def _total_recibo_sin_decimales(xml_content: Optional[bytes], xml_filename: str)
 # lnkDescargaPDF / lnkDescargaXML, columna Serie. Una fila por (serie, periodo);
 # solo el recibo real trae PDF y XML (las complementarias traen solo XML).
 
-async def _abrir_otras_facturas(page: Page, cfg: CfeScraperConfig) -> None:
-    """Desde el historial de un servicio ya seleccionado, abre 'Otras facturas'."""
+async def _abrir_otras_facturas(page: Page, cfg: CfeScraperConfig) -> list[dict]:
+    """Desde el historial de un servicio ya seleccionado, abre 'Otras facturas' y espera a que la grilla tenga datos."""
     link = page.locator('a[id$="hplMasFacturaciones"]').first
     if not await link.count():
         raise ValueError("No se encontro el enlace 'Otras facturas' en MiEspacio.")
@@ -711,7 +727,7 @@ async def _abrir_otras_facturas(page: Page, cfg: CfeScraperConfig) -> None:
         await page.wait_for_selector("#ctl00_MainContent_gvFacturasUsuario", timeout=15_000)
     except _SCRAPER_TIMEOUT_ERRORS:
         pass
-    await page.wait_for_timeout(1500)
+    return await _wait_for_otras_facturas_rows(page, 10_000)
 
 
 async def _collect_otras_facturas(page: Page) -> list[dict]:
@@ -931,8 +947,7 @@ async def _fase_miespacio_otras(
         except MiEspacioServiceNotFound:
             await _ensure_service_miespacio(mi_page, cfg, total_sin_dec)
 
-        await _abrir_otras_facturas(mi_page, cfg)
-        rows_raw = await _collect_otras_facturas(mi_page)
+        rows_raw = await _abrir_otras_facturas(mi_page, cfg)
         if await _otras_facturas_tiene_pager(mi_page):
             logger.warning(
                 "OtrasFacturas tiene paginacion; solo se leyo la primera pagina servicio=%s",
