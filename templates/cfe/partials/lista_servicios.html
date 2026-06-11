@@ -162,6 +162,12 @@
                         Ver búsqueda
                     </button>
                     {% endif %}
+                    {% if s.total_descargas %}
+                    <a href="/cfe/servicios/{{ s.id }}/zip"
+                       class="text-xs bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                        Descargar ZIP
+                    </a>
+                    {% endif %}
                     <button type="button"
                         hx-get="/cfe/servicios/{{ s.id }}/modal-buscar-periodos"
                         hx-target="#cfe-modal-container"

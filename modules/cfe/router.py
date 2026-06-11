@@ -5,6 +5,7 @@ import logging
 from uuid import UUID
 
 import asyncpg
+import httpx
 from fastapi import APIRouter, Depends, File, Form, Header, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response, StreamingResponse
 from fastapi.templating import Jinja2Templates
@@ -591,5 +592,32 @@ async def generar_excel(
     return Response(
         content=xlsx_bytes,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
+    )
+
+
+@router.get("/servicios/{servicio_id}/zip")
+async def descargar_zip_servicio(
+    servicio_id: UUID,
+    conn=Depends(get_db_connection),
+    _=_editor,
+):
+    svc = get_cfe_service()
+    try:
+        zip_bytes, nombre = await svc.generar_zip_servicio(conn, servicio_id)
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except httpx.HTTPError as exc:
+        logger.error("Error de SharePoint generando ZIP CFE para %s: %s", servicio_id, exc)
+        raise HTTPException(status_code=503, detail="No se pudo obtener los archivos. Intenta de nuevo.") from exc
+    except asyncpg.PostgresError as exc:
+        logger.error("Error de BD generando ZIP CFE para %s: %s", servicio_id, exc)
+        raise HTTPException(status_code=500, detail="Error interno al generar el ZIP.") from exc
+
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
         headers={"Content-Disposition": f'attachment; filename="{nombre}"'},
     )

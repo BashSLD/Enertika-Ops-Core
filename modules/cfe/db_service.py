@@ -37,6 +37,7 @@ class CfeDBService:
                        WHERE d.estatus = 'completado'
                          AND d.tipo = 'xml'
                          AND d.periodo <> 'pendiente'
+                         AND d.ruta_sharepoint IS NOT NULL
                    ) AS total_descargas,
                    MAX(d.descargado_en) AS ultima_descarga,
                    COALESCE(BOOL_OR(d.estatus IN ('pendiente','descargando')), false) AS descarga_activa,

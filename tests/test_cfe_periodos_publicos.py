@@ -356,7 +356,7 @@ def test_lista_servicios_cfe_muestra_trabajos_activos():
                 "alias": None,
                 "numero_servicio": "200",
                 "ultima_descarga": None,
-                "total_descargas": 0,
+                "total_descargas": 2,
                 "tiene_pendiente": True,
                 "descarga_activa": True,
                 "busqueda_activa_id": None,
@@ -373,4 +373,6 @@ def test_lista_servicios_cfe_muestra_trabajos_activos():
     assert "/cfe/servicios/servicio-busqueda/analisis" in html
     assert "Análisis" in html
     assert "Descarga en curso" in html
+    assert "/cfe/servicios/servicio-descarga/zip" in html
+    assert "Descargar ZIP" in html
     assert 'hx-trigger="load, every 4s"' in html

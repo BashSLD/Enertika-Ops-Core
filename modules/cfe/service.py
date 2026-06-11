@@ -7,6 +7,7 @@ import json
 import logging
 import secrets
 import time
+import zipfile
 from datetime import datetime, timezone
 from io import BytesIO
 from collections.abc import Sequence
@@ -110,10 +111,14 @@ class CfeService:
 
     async def get_lanzador_bytes(self, conn: asyncpg.Connection) -> tuple[bytes, str]:
         """Descarga el ejecutable del lanzador desde SharePoint. Retorna (bytes, version)."""
-        item_id = await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["lanzador_item_id"], "", str)
+        cfg = await ConfigService.get_global_configs_bulk(conn, {
+            CFE_CONFIG_KEYS["lanzador_item_id"]: ("", str),
+            CFE_CONFIG_KEYS["lanzador_version"]: ("", str),
+        })
+        item_id = cfg[CFE_CONFIG_KEYS["lanzador_item_id"]]
         if not item_id:
             raise ValueError("El ejecutable del lanzador no está disponible todavía.")
-        version = await ConfigService.get_global_config(conn, CFE_CONFIG_KEYS["lanzador_version"], "", str)
+        version = cfg[CFE_CONFIG_KEYS["lanzador_version"]]
         app_token = await get_ms_auth().get_application_token()
         sp = SharePointService(access_token=app_token)
         content = await sp.download_file_by_item_id(conn, item_id)
@@ -1021,7 +1026,23 @@ class CfeService:
         self,
         xml_rows: Sequence[dict],
     ) -> list[tuple[dict, CfeXmlInput]]:
-        if not xml_rows:
+        archivos = await self._descargar_archivos_sharepoint(xml_rows)
+        return [
+            (
+                row,
+                CfeXmlInput(
+                    filename=row.get("nombre_archivo") or "recibo.xml",
+                    content=content,
+                ),
+            )
+            for row, content in archivos
+        ]
+
+    async def _descargar_archivos_sharepoint(
+        self,
+        rows: Sequence[dict],
+    ) -> list[tuple[dict, bytes]]:
+        if not rows:
             return []
 
         ms_auth = get_ms_auth()
@@ -1029,10 +1050,10 @@ class CfeService:
         if not token:
             raise ValueError("No se pudo obtener token de Microsoft para leer SharePoint.")
 
-        async def _fetch_xml(
+        async def _fetch_archivo(
             client: httpx.AsyncClient,
             row: dict,
-        ) -> Optional[tuple[dict, CfeXmlInput]]:
+        ) -> Optional[tuple[dict, bytes]]:
             url = row.get("ruta_sharepoint")
             if not url:
                 return None
@@ -1041,41 +1062,38 @@ class CfeService:
                 download_url = await _resolve_sharepoint_download_url(client, token, url)
                 if not download_url:
                     logger.warning(
-                        "cfe_sharepoint_download_url_no_resuelta descarga_id=%s periodo=%s",
+                        "cfe_sharepoint_download_url_no_resuelta descarga_id=%s periodo=%s tipo=%s",
                         row.get("id"),
                         row.get("periodo"),
+                        row.get("tipo"),
                     )
                     return None
 
                 resp = await client.get(download_url, headers={"Authorization": f"Bearer {token}"})
             except httpx.HTTPError as exc:
                 logger.warning(
-                    "cfe_sharepoint_xml_error descarga_id=%s periodo=%s error=%s",
+                    "cfe_sharepoint_archivo_error descarga_id=%s periodo=%s tipo=%s error=%s",
                     row.get("id"),
                     row.get("periodo"),
+                    row.get("tipo"),
                     exc,
                 )
                 return None
 
             if resp.status_code != 200:
                 logger.warning(
-                    "cfe_sharepoint_xml_status descarga_id=%s periodo=%s status=%s",
+                    "cfe_sharepoint_archivo_status descarga_id=%s periodo=%s tipo=%s status=%s",
                     row.get("id"),
                     row.get("periodo"),
+                    row.get("tipo"),
                     resp.status_code,
                 )
                 return None
 
-            return (
-                row,
-                CfeXmlInput(
-                    filename=row.get("nombre_archivo") or "recibo.xml",
-                    content=resp.content,
-                ),
-            )
+            return row, resp.content
 
         async with httpx.AsyncClient(timeout=30) as client:
-            results = await asyncio.gather(*[_fetch_xml(client, row) for row in xml_rows])
+            results = await asyncio.gather(*[_fetch_archivo(client, row) for row in rows])
 
         return [result for result in results if result is not None]
 
@@ -1108,6 +1126,89 @@ class CfeService:
 
         return generar_excel_cfe(inputs, perfil_slug).getvalue()
 
+    async def generar_zip_servicio(
+        self,
+        conn: asyncpg.Connection,
+        servicio_id: UUID,
+        perfil_slug: str = "oym",
+    ) -> tuple[bytes, str]:
+        servicio = await self.db.get_servicio_by_id(conn, servicio_id)
+        if not servicio:
+            raise LookupError("Servicio no encontrado.")
+
+        servicio_numero = servicio["numero_servicio"]
+        descargas = await self.db.get_descargas_por_servicio(conn, servicio_id)
+        rows = [
+            d for d in descargas
+            if d["estatus"] == "completado"
+            and d["tipo"] in ("xml", "pdf")
+            and d.get("ruta_sharepoint")
+        ]
+        if not any(row["tipo"] == "xml" for row in rows):
+            raise ValueError("No hay XMLs descargados para generar el ZIP con Excel.")
+
+        archivos = await self._descargar_archivos_sharepoint(rows)
+        if not archivos:
+            raise ValueError("No se pudieron obtener los archivos desde SharePoint.")
+        # Validar XMLs antes de construir el ZIP: si todos fallaron al bajar (aunque
+        # sobreviva un PDF), abortamos sin escribir un ZIP a medias ni generar Excel.
+        if not any(row["tipo"] == "xml" for row, _ in archivos):
+            raise ValueError("No se pudieron obtener XMLs desde SharePoint para generar el Excel.")
+
+        zip_buffer = BytesIO()
+        nombre_servicio = _sanitize_zip_component(
+            f"CFE_{servicio_numero}",
+            "CFE_servicio",
+        )
+        nombre_excel = _sanitize_zip_component(
+            f"CFE_{servicio_numero}.xlsx",
+            "recibos_cfe.xlsx",
+        )
+        nombre_zip = _sanitize_zip_component(
+            f"CFE_{servicio_numero}.zip",
+            "recibos_cfe.zip",
+        )
+        usados: set[str] = set()
+        xml_inputs: list[CfeXmlInput] = []
+
+        with zipfile.ZipFile(zip_buffer, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for row, content in sorted(
+                archivos,
+                key=lambda item: (
+                    item[0].get("periodo") or "",
+                    item[0].get("tipo") or "",
+                    item[0].get("nombre_archivo") or "",
+                ),
+                reverse=True,
+            ):
+                tipo = row["tipo"]
+                periodo = _sanitize_zip_component(row.get("periodo") or "sin_periodo", "sin_periodo")
+                nombre_archivo = _sanitize_zip_component(
+                    row.get("nombre_archivo") or f"{servicio_numero}_{periodo}.{tipo}",
+                    f"recibo.{tipo}",
+                )
+                zip_path = _dedupe_zip_path(
+                    usados,
+                    f"{nombre_servicio}/{tipo.upper()}/{periodo}_{nombre_archivo}",
+                )
+                zf.writestr(zip_path, content)
+
+                if tipo == "xml":
+                    xml_inputs.append(
+                        CfeXmlInput(
+                            filename=row.get("nombre_archivo") or f"{servicio_numero}_{periodo}.xml",
+                            content=content,
+                        )
+                    )
+
+            excel_bytes = generar_excel_cfe(xml_inputs, perfil_slug).getvalue()
+            zf.writestr(
+                _dedupe_zip_path(usados, f"{nombre_servicio}/{nombre_excel}"),
+                excel_bytes,
+            )
+
+        return zip_buffer.getvalue(), nombre_zip
+
     # ── Vista previa ──────────────────────────────────────────────────────
 
     async def get_url_preview(
@@ -1118,6 +1219,31 @@ class CfeService:
             descarga_id, servicio_id,
         )
         return row["ruta_sharepoint"] if row else None
+
+
+def _sanitize_zip_component(value: object, fallback: str) -> str:
+    raw = str(value or "").replace("\\", "/").split("/")[-1].strip()
+    invalid_chars = '<>:"/\\|?*'
+    clean = "".join(
+        "_" if char in invalid_chars or ord(char) < 32 else char
+        for char in raw
+    ).strip(" .")
+    return clean or fallback
+
+
+def _dedupe_zip_path(used: set[str], path: str) -> str:
+    if path not in used:
+        used.add(path)
+        return path
+
+    base, dot, ext = path.rpartition(".")
+    for index in range(2, 10_000):
+        candidate = f"{base}_{index}{dot}{ext}" if dot else f"{path}_{index}"
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+
+    raise RuntimeError("No se pudo generar un nombre unico dentro del ZIP.")
 
 
 async def _resolve_sharepoint_download_url(

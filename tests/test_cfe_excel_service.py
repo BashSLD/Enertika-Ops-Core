@@ -1,4 +1,9 @@
+import zipfile
+from io import BytesIO
 from pathlib import Path
+import sys
+import types
+from uuid import uuid4
 
 import pytest
 from jinja2 import Environment, FileSystemLoader
@@ -251,6 +256,92 @@ CFE_GDMTO_XML = b"""<?xml version="1.0" encoding="UTF-8"?>
 def _valor_en_fila(ws, header: str, row: int = 2):
     headers = [cell.value for cell in ws[1]]
     return ws.cell(row=row, column=headers.index(header) + 1).value
+
+
+class _FakeCfeZipDB:
+    def __init__(self, servicio: dict, descargas: list[dict]):
+        self.servicio = servicio
+        self.descargas = descargas
+
+    async def get_servicio_by_id(self, conn, servicio_id):
+        return self.servicio if self.servicio["id"] == servicio_id else None
+
+    async def get_descargas_por_servicio(self, conn, servicio_id):
+        return self.descargas if self.servicio["id"] == servicio_id else []
+
+
+def _install_fake_redis(monkeypatch):
+    redis_module = types.ModuleType("redis")
+    redis_asyncio_module = types.ModuleType("redis.asyncio")
+    redis_exceptions_module = types.ModuleType("redis.exceptions")
+
+    class FakeRedis:
+        pass
+
+    class FakeRedisError(Exception):
+        pass
+
+    redis_asyncio_module.Redis = FakeRedis
+    redis_asyncio_module.from_url = lambda *args, **kwargs: FakeRedis()
+    redis_exceptions_module.RedisError = FakeRedisError
+    redis_module.asyncio = redis_asyncio_module
+    redis_module.exceptions = redis_exceptions_module
+
+    monkeypatch.setitem(sys.modules, "redis", redis_module)
+    monkeypatch.setitem(sys.modules, "redis.asyncio", redis_asyncio_module)
+    monkeypatch.setitem(sys.modules, "redis.exceptions", redis_exceptions_module)
+
+
+@pytest.mark.asyncio
+async def test_generar_zip_servicio_incluye_xml_pdf_y_excel(monkeypatch):
+    _install_fake_redis(monkeypatch)
+    from modules.cfe.service import CfeService
+
+    servicio_id = uuid4()
+    servicio = {
+        "id": servicio_id,
+        "numero_servicio": "123456789012",
+        "nombre": "SERVICIO PRUEBA",
+    }
+    descargas = [
+        {
+            "id": uuid4(),
+            "periodo": "2026-05",
+            "tipo": "xml",
+            "estatus": "completado",
+            "nombre_archivo": "recibo.xml",
+            "ruta_sharepoint": "https://sharepoint.test/recibo.xml",
+        },
+        {
+            "id": uuid4(),
+            "periodo": "2026-05",
+            "tipo": "pdf",
+            "estatus": "completado",
+            "nombre_archivo": "recibo.pdf",
+            "ruta_sharepoint": "https://sharepoint.test/recibo.pdf",
+        },
+    ]
+    service = CfeService(_FakeCfeZipDB(servicio, descargas))
+
+    async def fake_descargar_archivos(rows):
+        contenidos = {"xml": CFE_XML, "pdf": b"%PDF-1.4\n"}
+        return [(row, contenidos[row["tipo"]]) for row in rows]
+
+    monkeypatch.setattr(service, "_descargar_archivos_sharepoint", fake_descargar_archivos)
+
+    zip_bytes, filename = await service.generar_zip_servicio(None, servicio_id)
+
+    assert filename == "CFE_123456789012.zip"
+    with zipfile.ZipFile(BytesIO(zip_bytes)) as zf:
+        names = set(zf.namelist())
+        assert "CFE_123456789012/XML/2026-05_recibo.xml" in names
+        assert "CFE_123456789012/PDF/2026-05_recibo.pdf" in names
+        assert "CFE_123456789012/CFE_123456789012.xlsx" in names
+        assert zf.read("CFE_123456789012/XML/2026-05_recibo.xml") == CFE_XML
+        assert zf.read("CFE_123456789012/PDF/2026-05_recibo.pdf") == b"%PDF-1.4\n"
+
+        workbook = load_workbook(BytesIO(zf.read("CFE_123456789012/CFE_123456789012.xlsx")))
+        assert workbook.active.max_row == 2
 
 
 def test_extrae_datos_cfe_para_excel():
