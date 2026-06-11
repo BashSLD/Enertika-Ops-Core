@@ -19,6 +19,7 @@ CFE_PUBLIC_FORM_DEFAULTS = {
 # SharePoint: Recibos CFE/{numero_servicio}/{periodo}/
 SHAREPOINT_CFE_ROOT = "Recibos CFE"
 SHAREPOINT_CFE_STAGING_ROOT = f"{SHAREPOINT_CFE_ROOT}/_staging"
+SHAREPOINT_CFE_TOOLS_FOLDER = "herramientas"
 
 # Módulos con acceso a esta funcionalidad
 CFE_MODULE_SLUGS = ["oym", "simulacion"]

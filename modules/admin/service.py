@@ -20,7 +20,7 @@ from core.integrations.sharepoint import SharePointService
 from core.microsoft import MicrosoftAuth, get_ms_auth
 from core.timezone import now_mx
 from modules.asistencia.constants import BIOTIME_CONFIG_KEYS
-from modules.cfe.constants import CFE_CONFIG_KEYS
+from modules.cfe.constants import CFE_CONFIG_KEYS, SHAREPOINT_CFE_TOOLS_FOLDER
 from .permission_utils import validate_module_roles
 
 logger = logging.getLogger("AdminModule")
@@ -967,7 +967,7 @@ class AdminService:
         app_token = await get_ms_auth().get_application_token()
         sp = SharePointService(access_token=app_token)
         base_folder = await ConfigService.get_global_config(conn, "SHAREPOINT_BASE_FOLDER", "APP_ENERTIKA_OPS_CORE", str)
-        result = await sp.upload_file(conn, file, f"{base_folder}/herramientas")
+        result = await sp.upload_file(conn, file, f"{base_folder}/{SHAREPOINT_CFE_TOOLS_FOLDER}")
         version = now_mx().strftime("%Y-%m-%d")
         await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["lanzador_item_id"], result["id"])
         await self.db.upsert_global_config(conn, CFE_CONFIG_KEYS["lanzador_version"], version)

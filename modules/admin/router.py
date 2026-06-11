@@ -1676,26 +1676,21 @@ async def subir_lanzador_cfe(
     conn=Depends(get_db_connection),
     _user=require_role(["ADMIN"]),
 ):
+    version = ""
+    toast_msg = "Error interno al guardar."
+    toast_type = "error"
     try:
         version = await service.upload_cfe_lanzador(conn, file=archivo)
-        return templates.TemplateResponse(
-            request, "admin/partials/cfe_lanzador.html",
-            {"lanzador_version": version,
-             "_toast": {"message": f"Ejecutable del lanzador subido (v{version}).", "type": "success"}},
-        )
+        toast_msg = f"Ejecutable del lanzador subido (v{version})."
+        toast_type = "success"
     except ValueError as exc:
-        return templates.TemplateResponse(
-            request, "admin/partials/cfe_lanzador.html",
-            {"lanzador_version": "",
-             "_toast": {"message": str(exc), "type": "error"}},
-        )
+        toast_msg = str(exc)
     except asyncpg.PostgresError as exc:
         logger.error("Error guardando lanzador CFE en BD: %s", exc)
-        return templates.TemplateResponse(
-            request, "admin/partials/cfe_lanzador.html",
-            {"lanzador_version": "",
-             "_toast": {"message": "Error interno al guardar.", "type": "error"}},
-        )
+    return templates.TemplateResponse(
+        request, "admin/partials/cfe_lanzador.html",
+        {"lanzador_version": version, "_toast": {"message": toast_msg, "type": toast_type}},
+    )
 
 
 @router.post("/config/cfe/session", include_in_schema=False, response_class=HTMLResponse)

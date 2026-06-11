@@ -518,7 +518,7 @@ async def descargar_lanzador_cfe(
         content, version = await svc.get_lanzador_bytes(conn)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
-    except Exception as exc:
+    except (httpx.HTTPError, asyncpg.PostgresError) as exc:
         logger.error("Error descargando lanzador CFE de SharePoint: %s", exc)
         raise HTTPException(status_code=503, detail="No se pudo obtener el ejecutable. Intenta de nuevo.")
     filename = f"RenovarSesionCFE_{version}.exe" if version else "RenovarSesionCFE.exe"

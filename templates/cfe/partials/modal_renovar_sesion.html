@@ -65,7 +65,7 @@
                 Cerrar
             </button>
             {% if estado_sesion.lanzador_disponible %}
-            <a href="/cfe/lanzador/descargar"
+            <a href="/cfe/lanzador/descargar" target="_blank" rel="noopener"
                class="px-4 py-2 text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700 rounded-lg">
                 Descargar lanzador (.exe){% if estado_sesion.lanzador_version %} — v{{ estado_sesion.lanzador_version }}{% endif %}
             </a>
