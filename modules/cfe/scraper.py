@@ -902,6 +902,22 @@ async def _descargar_otras_factura_reintento(
     )
 
 
+async def _setup_miespacio_page(browser, cfg: CfeScraperConfig) -> tuple:
+    """Crea contexto + pagina MiEspacio con sesion guardada (si existe) y navega al home."""
+    ctx_opts: dict = {"accept_downloads": True, "ignore_https_errors": True, "user_agent": _USER_AGENT}
+    if cfg.session_json:
+        try:
+            ctx_opts["storage_state"] = json.loads(cfg.session_json)
+        except (ValueError, TypeError):
+            logger.warning("Session JSON invalido, ignorando sesion guardada")
+    mi_ctx = await browser.new_context(**ctx_opts)
+    mi_page = await mi_ctx.new_page()
+    mi_page.set_default_timeout(cfg.timeout_ms)
+    await mi_page.goto(CFE_MIESPACIO_ADD_URL, wait_until="domcontentloaded", timeout=cfg.timeout_ms)
+    await mi_page.wait_for_timeout(2000)
+    return mi_ctx, mi_page
+
+
 async def _fase_miespacio_otras(
     browser,
     cfg: CfeScraperConfig,
@@ -912,19 +928,8 @@ async def _fase_miespacio_otras(
     """Abre MiEspacio con la sesion guardada, registra el servicio si hace falta y
     baja XML + PDF de cada periodo desde OtrasFacturas. Devuelve el numero de
     periodos con recibo real en MiEspacio (-1 si la sesion no esta activa)."""
-    ctx_opts: dict = {"accept_downloads": True, "ignore_https_errors": True, "user_agent": _USER_AGENT}
-    if cfg.session_json:
-        try:
-            ctx_opts["storage_state"] = json.loads(cfg.session_json)
-        except (ValueError, TypeError):
-            logger.warning("Session JSON invalido, ignorando sesion guardada")
-
-    mi_ctx = await browser.new_context(**ctx_opts)
+    mi_ctx, mi_page = await _setup_miespacio_page(browser, cfg)
     try:
-        mi_page = await mi_ctx.new_page()
-        mi_page.set_default_timeout(cfg.timeout_ms)
-        await mi_page.goto(CFE_MIESPACIO_ADD_URL, wait_until="domcontentloaded", timeout=cfg.timeout_ms)
-        await mi_page.wait_for_timeout(2000)
 
         block_msg = await _detect_block(mi_page)
         if block_msg:
@@ -1207,70 +1212,6 @@ async def _ensure_service_miespacio_legacy(page: Page, cfg: CfeScraperConfig, to
     await page.wait_for_timeout(3000)
 
 
-async def _download_period_pdf_legacy(page: Page, cfg: CfeScraperConfig, periodo: str) -> tuple[bytes, str]:
-    digits = re.sub(r"\D", "", cfg.numero_servicio)
-
-    await page.goto(CFE_MIESPACIO_DEFAULT_URL, wait_until="domcontentloaded", timeout=cfg.timeout_ms)
-    await page.wait_for_timeout(2000)
-
-    await page.evaluate(
-        f"""() => {{
-            const sel = document.querySelector('#ctl00_MainContent_ddlServicios');
-            if (!sel) return;
-            const opt = [...sel.options].find(o => (o.value+' '+o.text).replace(/\\D/g,'').includes('{digits}'));
-            if (opt && sel.value !== opt.value) {{
-                sel.value = opt.value;
-                sel.dispatchEvent(new Event('change', {{bubbles:true}}));
-            }}
-        }}"""
-    )
-    await page.wait_for_timeout(2000)
-
-    candidates = await page.evaluate(
-        """() => {
-            const rows = [...document.querySelectorAll('#ctl00_MainContent_GVHistorial tr')].slice(1);
-            return rows.map((r,i) => {
-                const link = r.querySelector('a[id$="DescargaPDF"],a[href*="DescargaPDF"]');
-                const text = r.innerText?.replace(/\\s+/g,' ').trim()||'';
-                const pm = text.match(/\\b(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)\\s+\\d{4}\\b/i);
-                return {index:i, id:link?.id||'', href:link?.href||'', periodText: pm?pm[0].toUpperCase():''};
-            }).filter(c => c.id || c.href);
-        }"""
-    )
-
-    if not candidates:
-        raise ValueError(
-            f"No hay PDFs en el historial de MiEspacio para el servicio {cfg.numero_servicio}. "
-            "Verifica que el servicio esté registrado correctamente."
-        )
-
-    target = ""
-    if len(periodo) == 7:
-        year, month = periodo.split("-")
-        target = f"{_MESES_ABREV.get(month, '')} {year}"
-
-    candidate = next((c for c in candidates if target and target in c["periodText"]), candidates[0])
-
-    locator = (
-        page.locator(f"#{candidate['id'].replace('$', r'\$')}")
-        if candidate["id"]
-        else page.locator(f'a[href="{candidate["href"]}"]')
-    )
-
-    if not await locator.count():
-        raise ValueError("No se pudo localizar el enlace PDF en la página de MiEspacio.")
-
-    dl_promise = page.wait_for_event("download", timeout=cfg.timeout_ms)
-    await locator.first.click(timeout=cfg.timeout_ms)
-    download = await dl_promise
-
-    tmp_path = await download.path()
-    if not tmp_path:
-        raise ValueError("La descarga del PDF no se completó. Intenta nuevamente.")
-
-    content = Path(tmp_path).read_bytes()
-    return content, download.suggested_filename or f"{cfg.numero_servicio}-{periodo}.pdf"
-
 
 async def _select_service_miespacio(page: Page, cfg: CfeScraperConfig) -> dict:
     digits = re.sub(r"\D", "", cfg.numero_servicio)
@@ -1374,73 +1315,6 @@ async def _ensure_service_miespacio(page: Page, cfg: CfeScraperConfig, total_sin
         )
 
 
-async def _collect_pdf_candidates(page: Page) -> list[dict]:
-    return await page.evaluate(
-        """() => {
-            const rows = [...document.querySelectorAll('#ctl00_MainContent_GVHistorial tr')].slice(1);
-            return rows.map((r,i) => {
-                const link = r.querySelector('a[id$="DescargaPDF"],a[href*="DescargaPDF"]');
-                const text = r.innerText?.replace(/\\s+/g,' ').trim()||'';
-                const pm = text.match(/\\b(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)\\s+\\d{4}\\b/i);
-                return {index:i, id:link?.id||'', href:link?.href||'', text, periodText: pm?pm[0].toUpperCase():''};
-            }).filter(c => c.id || c.href);
-        }"""
-    )
-
-
-def _pdf_target_from_periodo(periodo: str) -> str:
-    if len(periodo) != 7:
-        return ""
-    year, month = periodo.split("-")
-    return f"{_MESES_ABREV.get(month, '')} {year}".strip()
-
-
-def _format_pdf_candidates(candidates: list[dict]) -> str:
-    sample = [
-        " / ".join(
-            filter(None, [str(c.get("index", "")), c.get("periodText", ""), c.get("id", ""), c.get("text", "")])
-        )[:160]
-        for c in candidates[:8]
-    ]
-    return " ; ".join(sample) or "N/D"
-
-
-def _select_pdf_candidate(candidates: list[dict], periodo: str, servicio: str) -> dict:
-    if not candidates:
-        raise ValueError(
-            f"No hay PDFs en el historial de MiEspacio para el servicio {servicio}. "
-            "Verifica que el servicio esté registrado correctamente."
-        )
-
-    target = _pdf_target_from_periodo(periodo)
-    if not target:
-        raise ValueError(f"No se puede seleccionar PDF porque el periodo '{periodo}' no es válido.")
-
-    candidate = next(
-        (c for c in candidates if target in f"{c.get('periodText', '')} {c.get('text', '')}".upper()),
-        None,
-    )
-    if not candidate:
-        raise ValueError(
-            f"No encontré PDF {target} en MiEspacio para el servicio {servicio}. "
-            f"Candidatos: {_format_pdf_candidates(candidates)}"
-        )
-    return candidate
-
-
-async def _pdf_download_diagnostic(page: Page, candidates: list[dict]) -> str:
-    snapshot = await _page_snapshot(page)
-    details = [
-        "No se descargó el PDF de MiEspacio.",
-        f"URL final: {snapshot.get('url') or 'N/D'}",
-    ]
-    if snapshot.get("title"):
-        details.append(f"Título: {snapshot['title']}")
-    if snapshot.get("lines"):
-        details.append("Texto visible: " + " | ".join(snapshot["lines"][:6]))
-    details.append("Candidatos PDF: " + _format_pdf_candidates(candidates))
-    return " ".join(details)
-
 
 async def _read_download(download) -> tuple[bytes, str] | None:
     tmp_path = await download.path()
@@ -1448,119 +1322,6 @@ async def _read_download(download) -> tuple[bytes, str] | None:
         return None
     return Path(tmp_path).read_bytes(), download.suggested_filename or "recibo.pdf"
 
-
-async def _download_pdf_candidate(
-    page: Page, cfg: CfeScraperConfig, periodo: str, candidate: dict, candidates: list[dict]
-) -> tuple[bytes, str]:
-    pdf_responses: list[tuple[bytes, str]] = []
-
-    async def _capture_pdf(resp):
-        ct = resp.headers.get("content-type", "")
-        cd = resp.headers.get("content-disposition", "")
-        url = resp.url
-        looks_pdf = "application/pdf" in ct.lower() or ".pdf" in cd.lower() or re.search(r"\.pdf(?:\?|$)", url, re.I)
-        if looks_pdf and "cfe.mx" in url:
-            try:
-                body = await resp.body()
-                if body and body[:4] == b"%PDF":
-                    name = url.split("/")[-1].split("?")[0] or f"{cfg.numero_servicio}-{periodo}.pdf"
-                    pdf_responses.append((body, name))
-            except Exception:
-                pass
-
-    page.on("response", _capture_pdf)
-
-    locator = (
-        page.locator(f"#{candidate['id'].replace('$', r'\$')}")
-        if candidate["id"]
-        else page.locator(f'a[href="{candidate["href"]}"]')
-    )
-
-    if not await locator.count():
-        raise ValueError("No se pudo localizar el enlace PDF en la página de MiEspacio.")
-
-    logger.info(
-        "Descargando PDF MiEspacio servicio=%s periodo=%s candidato=%s texto=%s",
-        cfg.numero_servicio,
-        periodo,
-        candidate.get("id") or candidate.get("href") or candidate.get("index"),
-        candidate.get("periodText") or candidate.get("text", "")[:80],
-    )
-
-    download_task = asyncio.create_task(page.wait_for_event("download", timeout=cfg.timeout_ms))
-    popup_task = asyncio.create_task(page.wait_for_event("popup", timeout=cfg.timeout_ms))
-    try:
-        await locator.first.click(timeout=cfg.timeout_ms)
-        done, pending = await asyncio.wait(
-            {download_task, popup_task},
-            timeout=cfg.timeout_ms / 1000,
-            return_when=asyncio.FIRST_COMPLETED,
-        )
-        for task in pending:
-            task.cancel()
-
-        for task in done:
-            try:
-                event_value = task.result()
-            except Exception:
-                continue
-            if hasattr(event_value, "suggested_filename"):
-                downloaded = await _read_download(event_value)
-                if downloaded:
-                    return downloaded
-            if hasattr(event_value, "url"):
-                try:
-                    await event_value.wait_for_load_state("domcontentloaded", timeout=10_000)
-                except Exception:
-                    pass
-                logger.info("PDF MiEspacio abrió popup url=%s", event_value.url)
-
-        try:
-            await page.wait_for_load_state("domcontentloaded", timeout=10_000)
-        except Exception:
-            pass
-    except Exception as exc:
-        for task in (download_task, popup_task):
-            if not task.done():
-                task.cancel()
-        if pdf_responses:
-            return pdf_responses[0]
-        raise ValueError(f"{await _pdf_download_diagnostic(page, candidates)} Detalle: {exc}") from exc
-
-    await page.wait_for_timeout(1500)
-    if pdf_responses:
-        return pdf_responses[0]
-    raise ValueError(await _pdf_download_diagnostic(page, candidates))
-
-
-async def _download_period_pdf(page: Page, cfg: CfeScraperConfig, periodo: str) -> tuple[bytes, str]:
-    last_error: Optional[Exception] = None
-    for attempt in range(2):
-        await _select_service_miespacio(page, cfg)
-        candidates = await _collect_pdf_candidates(page)
-        logger.info(
-            "Candidatos PDF MiEspacio servicio=%s periodo=%s intento=%s candidatos=%s",
-            cfg.numero_servicio,
-            periodo,
-            attempt + 1,
-            _format_pdf_candidates(candidates),
-        )
-        try:
-            candidate = _select_pdf_candidate(candidates, periodo, cfg.numero_servicio)
-            return await _download_pdf_candidate(page, cfg, periodo, candidate, candidates)
-        except ValueError as exc:
-            last_error = exc
-            if attempt == 0:
-                logger.warning(
-                    "Primer intento PDF MiEspacio falló servicio=%s periodo=%s error=%s",
-                    cfg.numero_servicio,
-                    periodo,
-                    exc,
-                )
-                await page.wait_for_timeout(2000)
-                continue
-            raise
-    raise ValueError(str(last_error) if last_error else "No se descargó el PDF de MiEspacio.")
 
 
 async def descargar_pdf_periodo(cfg: CfeScraperConfig, periodo: str) -> DescargaResult:
@@ -1597,25 +1358,8 @@ async def descargar_pdf_periodo(cfg: CfeScraperConfig, periodo: str) -> Descarga
         async with async_playwright() as pw:
             browser = await pw.chromium.launch(**launch_kwargs)
             try:
-                ctx_opts: dict = {
-                    "accept_downloads": True,
-                    "ignore_https_errors": True,
-                    "user_agent": _USER_AGENT,
-                }
-                if cfg.session_json:
-                    try:
-                        ctx_opts["storage_state"] = json.loads(cfg.session_json)
-                    except Exception:
-                        logger.warning("Session JSON inválido, ignorando sesión guardada")
-
-                mi_ctx: BrowserContext = await browser.new_context(**ctx_opts)
+                mi_ctx, mi_page = await _setup_miespacio_page(browser, cfg)
                 try:
-                    mi_page = await mi_ctx.new_page()
-                    mi_page.set_default_timeout(cfg.timeout_ms)
-
-                    await mi_page.goto(CFE_MIESPACIO_ADD_URL, wait_until="domcontentloaded", timeout=cfg.timeout_ms)
-                    await mi_page.wait_for_timeout(2000)
-
                     block_msg = await _detect_block(mi_page)
                     if block_msg:
                         result.pdf_error = block_msg
@@ -1631,8 +1375,16 @@ async def descargar_pdf_periodo(cfg: CfeScraperConfig, periodo: str) -> Descarga
                     await _select_service_miespacio(mi_page, cfg)
 
                     try:
-                        result.pdf_content, result.pdf_filename = await _download_period_pdf(
-                            mi_page, cfg, periodo
+                        rows_raw = await _abrir_otras_facturas(mi_page, cfg)
+                        rows_by_periodo = {r["periodo"]: r for r in _otras_facturas_por_periodo(rows_raw)}
+                        row = rows_by_periodo.get(periodo)
+                        if not row:
+                            raise ValueError(
+                                f"Periodo {periodo} no encontrado en Otras Facturas de MiEspacio "
+                                f"para el servicio {cfg.numero_servicio}."
+                            )
+                        result.pdf_content, result.pdf_filename = await _descargar_otras_factura_reintento(
+                            mi_page, cfg, row, "pdf"
                         )
                     except Exception as exc:
                         logger.warning(
@@ -1792,55 +1544,51 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
                     )
                     return result
 
-                ctx_opts: dict = {
-                    "accept_downloads": True,
-                    "ignore_https_errors": True,
-                    "user_agent": _USER_AGENT,
-                }
-                if cfg.session_json:
-                    try:
-                        ctx_opts["storage_state"] = json.loads(cfg.session_json)
-                    except Exception:
-                        logger.warning("Session JSON inválido, ignorando sesión guardada")
-
-                mi_ctx: BrowserContext = await browser.new_context(**ctx_opts)
-                mi_page = await mi_ctx.new_page()
-                mi_page.set_default_timeout(cfg.timeout_ms)
-
-                await mi_page.goto(CFE_MIESPACIO_ADD_URL, wait_until="domcontentloaded", timeout=cfg.timeout_ms)
-                await mi_page.wait_for_timeout(2000)
-
-                block_msg = await _detect_block(mi_page)
-                if block_msg:
-                    result.pdf_error = block_msg
-                    return result
-
-                if not await _is_logged_in(mi_page):
-                    result.pdf_error = (
-                        "La sesión CFE MiEspacio expiró o no existe. "
-                        "Un administrador debe renovar la sesión en Admin > Configuración Global > Recibos CFE."
-                    )
-                    return result
-
-                total_sin_dec = _total_recibo_sin_decimales(result.xml_content, result.xml_filename)
-                await _ensure_service_miespacio(mi_page, cfg, total_sin_dec)
-
+                mi_ctx, mi_page = await _setup_miespacio_page(browser, cfg)
                 try:
-                    result.pdf_content, result.pdf_filename = await _download_period_pdf(
-                        mi_page, cfg, result.periodo
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "No se pudo descargar PDF CFE servicio=%s periodo=%s error=%s",
-                        cfg.numero_servicio,
-                        result.periodo,
-                        exc,
-                    )
-                    result.pdf_error = f"No se pudo descargar el PDF de MiEspacio: {exc}"
+                    block_msg = await _detect_block(mi_page)
+                    if block_msg:
+                        result.pdf_error = block_msg
+                        return result
 
-                state = await mi_ctx.storage_state()
-                result.session_json_nuevo = json.dumps(state)
-                await mi_ctx.close()
+                    if not await _is_logged_in(mi_page):
+                        result.pdf_error = (
+                            "La sesión CFE MiEspacio expiró o no existe. "
+                            "Un administrador debe renovar la sesión en Admin > Configuración Global > Recibos CFE."
+                        )
+                        return result
+
+                    total_sin_dec = _total_recibo_sin_decimales(result.xml_content, result.xml_filename)
+                    await _ensure_service_miespacio(mi_page, cfg, total_sin_dec)
+
+                    try:
+                        rows_raw = await _abrir_otras_facturas(mi_page, cfg)
+                        rows_by_periodo = {r["periodo"]: r for r in _otras_facturas_por_periodo(rows_raw)}
+                        row = rows_by_periodo.get(result.periodo)
+                        if not row:
+                            raise ValueError(
+                                f"Periodo {result.periodo} no encontrado en Otras Facturas de MiEspacio "
+                                f"para el servicio {cfg.numero_servicio}."
+                            )
+                        result.pdf_content, result.pdf_filename = await _descargar_otras_factura_reintento(
+                            mi_page, cfg, row, "pdf"
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "No se pudo descargar PDF CFE servicio=%s periodo=%s error=%s",
+                            cfg.numero_servicio,
+                            result.periodo,
+                            exc,
+                        )
+                        result.pdf_error = f"No se pudo descargar el PDF de MiEspacio: {exc}"
+
+                    state = await mi_ctx.storage_state()
+                    result.session_json_nuevo = json.dumps(state)
+                finally:
+                    try:
+                        await mi_ctx.close()
+                    except Exception:
+                        pass
 
             finally:
                 try:
