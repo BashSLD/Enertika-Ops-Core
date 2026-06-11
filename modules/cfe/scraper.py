@@ -1352,6 +1352,7 @@ async def _ensure_service_miespacio(page: Page, cfg: CfeScraperConfig, total_sin
             "Servicio %s registrado en MiEspacio pero aun no visible (propagacion pendiente)",
             cfg.numero_servicio,
         )
+        raise
 
 
 
