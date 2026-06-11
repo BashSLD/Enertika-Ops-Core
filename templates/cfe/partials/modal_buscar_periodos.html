@@ -5,7 +5,7 @@
         <div class="bg-[#123456] px-6 py-4 flex items-center justify-between">
             <h3 class="text-lg font-bold text-white">Buscar periodos CFE</h3>
             <button type="button"
-                    hx-get="/cfe/ui"
+                    hx-get="/cfe/ui{% if modulo %}?modulo={{ modulo }}{% endif %}"
                     hx-target="#main-content"
                     hx-swap="innerHTML"
                     class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-white hover:bg-white/10 transition-colors">
@@ -23,7 +23,7 @@
                 Se buscaran y descargaran temporalmente los periodos disponibles para
                 <strong>{{ servicio.nombre }}</strong>.
             </p>
-            <form hx-post="/cfe/servicios/{{ servicio.id }}/buscar-periodos"
+            <form hx-post="/cfe/servicios/{{ servicio.id }}/buscar-periodos{% if modulo %}?modulo={{ modulo }}{% endif %}"
                   hx-target="#cfe-busqueda-body"
                   hx-swap="outerHTML"
                   x-data="{ enviando: false }"

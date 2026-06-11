@@ -3,7 +3,7 @@
 
     {# MOVIL: template de acciones para el header #}
     <div id="mobile-actions-template" style="display:none">
-        <button hx-get="/cfe/ui"
+        <button hx-get="/cfe/ui?modulo=oym"
            hx-target="#main-content" hx-swap="innerHTML"
            hx-push-url="true"
            class="flex items-center gap-2 w-full px-4 py-3 text-sm text-gray-700 hover:bg-gray-50 rounded-lg cursor-pointer">
@@ -96,7 +96,7 @@
             <p class="text-gray-500 text-xs mt-0.5">Operación y mantenimiento de plantas</p>
         </div>
         <div class="flex items-center gap-2">
-            <button hx-get="/cfe/ui"
+            <button hx-get="/cfe/ui?modulo=oym"
                hx-target="#main-content" hx-swap="innerHTML"
                hx-push-url="true"
                class="btn-secondary text-xs px-2.5 py-1.5 rounded-lg flex items-center gap-1.5 whitespace-nowrap flex-shrink-0 cursor-pointer">

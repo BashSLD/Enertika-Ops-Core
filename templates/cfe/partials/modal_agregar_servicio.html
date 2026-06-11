@@ -33,6 +33,20 @@
                     <input type="text" name="alias" placeholder="Ej: Planta Norte"
                         class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
                 </div>
+                {% if modulos_accesibles | length > 1 %}
+                <div class="col-span-2">
+                    <label class="block text-sm font-bold text-gray-700 mb-1">Departamento <span class="text-red-500">*</span></label>
+                    <select name="modulo" class="w-full rounded-lg border-gray-300 px-3 py-2 focus:ring-yellow-500 focus:border-yellow-500">
+                        {% for m in modulos_accesibles %}
+                        <option value="{{ m }}" {% if m == modulo %}selected{% endif %}>
+                            {% if m == 'oym' %}O&M{% elif m == 'simulacion' %}Simulación{% else %}{{ m }}{% endif %}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% else %}
+                <input type="hidden" name="modulo" value="{{ modulo or (modulos_accesibles[0] if modulos_accesibles else 'oym') }}">
+                {% endif %}
                 <input type="hidden" name="lada" value="{{ contacto_defaults.lada }}">
                 <div class="hidden">
                     <label class="block text-sm font-bold text-gray-700 mb-1">Teléfono <span class="text-red-500">*</span></label>

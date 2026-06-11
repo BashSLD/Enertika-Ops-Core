@@ -71,7 +71,7 @@
             </a>
             {% endif %}
             <button type="button"
-                    hx-get="/cfe/ui"
+                    hx-get="/cfe/ui{% if modulo %}?modulo={{ modulo }}{% endif %}"
                     hx-target="#main-content"
                     hx-swap="innerHTML"
                     hx-push-url="true"

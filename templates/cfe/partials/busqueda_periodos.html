@@ -1,7 +1,7 @@
 {# templates/cfe/partials/busqueda_periodos.html #}
 <div id="cfe-busqueda-body"
      {% if busqueda and busqueda.estatus in ['pendiente', 'descargando'] %}
-     hx-get="/cfe/servicios/{{ servicio.id }}/busquedas/{{ busqueda.id }}"
+     hx-get="/cfe/servicios/{{ servicio.id }}/busquedas/{{ busqueda.id }}{% if modulo %}?modulo={{ modulo }}{% endif %}"
      hx-trigger="every 4s"
      hx-swap="outerHTML"
      {% endif %}
@@ -52,7 +52,7 @@
         No se encontraron periodos para revisar.
     </div>
     {% else %}
-    <form hx-post="/cfe/servicios/{{ servicio.id }}/busquedas/{{ busqueda.id }}/confirmar"
+    <form hx-post="/cfe/servicios/{{ servicio.id }}/busquedas/{{ busqueda.id }}/confirmar{% if modulo %}?modulo={{ modulo }}{% endif %}"
           hx-target="#cfe-modal-container"
           hx-swap="innerHTML"
           x-data="{ procesando: false }"

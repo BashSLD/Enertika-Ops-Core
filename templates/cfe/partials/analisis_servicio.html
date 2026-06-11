@@ -48,7 +48,7 @@
     <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div class="min-w-0">
             <button type="button"
-                    hx-get="/cfe/ui"
+                    hx-get="/cfe/ui{% if modulo %}?modulo={{ modulo }}{% endif %}"
                     hx-target="#main-content"
                     hx-swap="innerHTML"
                     hx-push-url="true"

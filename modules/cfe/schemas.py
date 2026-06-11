@@ -14,6 +14,7 @@ class CfeServicioCreate(BaseModel):
     lada: str = "55"
     telefono: str
     email: str
+    modulos: list[str] = ["oym"]
 
 
 class CfeServicioRow(CfeServicioCreate):

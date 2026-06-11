@@ -28,11 +28,13 @@ _BUSQUEDA_ACTIVA_FILTRO_ORDEN = """
 
 class CfeDBService:
 
-    async def get_all_servicios(self, conn: asyncpg.Connection) -> list[dict]:
+    async def get_all_servicios(
+        self, conn: asyncpg.Connection, modulos: list[str] | None = None
+    ) -> list[dict]:
         rows = await conn.fetch(
             f"""
             SELECT s.id, s.numero_servicio, s.nombre, s.alias, s.lada, s.telefono,
-                   s.email, s.activo, s.creado_en,
+                   s.email, s.activo, s.creado_en, s.modulos,
                    COUNT(DISTINCT d.periodo) FILTER (
                        WHERE d.estatus = 'completado'
                          AND d.tipo = 'xml'
@@ -56,9 +58,11 @@ class CfeDBService:
                 WHERE b.servicio_id = s.id{_BUSQUEDA_ACTIVA_FILTRO_ORDEN}
             ) ba ON true
             WHERE s.activo = true
+              AND ($1::text[] IS NULL OR s.modulos && $1::text[])
             GROUP BY s.id, ba.id, ba.estatus, ba.max_periodos
             ORDER BY s.nombre
-            """
+            """,
+            modulos or None,
         )
         return [dict(r) for r in rows]
 
@@ -77,17 +81,33 @@ class CfeDBService:
     async def crear_servicio(
         self, conn: asyncpg.Connection, *, numero_servicio: str, nombre: str,
         alias: Optional[str], lada: str, telefono: str, email: str, creado_por: UUID,
+        modulos: list[str] | None = None,
     ) -> dict:
         row = await conn.fetchrow(
             """
             INSERT INTO tb_cfe_servicios
-                (numero_servicio, nombre, alias, lada, telefono, email, creado_por)
-            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                (numero_servicio, nombre, alias, lada, telefono, email, creado_por, modulos)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
             RETURNING *
             """,
             numero_servicio, nombre, alias, lada, telefono, email, creado_por,
+            modulos or ["oym"],
         )
         return dict(row)
+
+    async def agregar_modulo_a_servicio(
+        self, conn: asyncpg.Connection, servicio_id: UUID, modulo: str
+    ) -> dict:
+        row = await conn.fetchrow(
+            """
+            UPDATE tb_cfe_servicios
+            SET modulos = array_append(modulos, $2)
+            WHERE id = $1 AND NOT ($2 = ANY(modulos))
+            RETURNING *
+            """,
+            servicio_id, modulo,
+        )
+        return dict(row) if row else {}
 
     async def get_descargas_por_servicio(
         self, conn: asyncpg.Connection, servicio_id: UUID

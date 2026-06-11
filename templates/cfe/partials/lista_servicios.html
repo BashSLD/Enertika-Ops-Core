@@ -35,7 +35,7 @@
         <div class="flex items-center gap-2">
             {% if estado_sesion is defined and not estado_sesion.sesion_activa %}
             <button type="button"
-                hx-get="/cfe/ui/modal-renovar-sesion"
+                hx-get="/cfe/ui/modal-renovar-sesion{% if modulo %}?modulo={{ modulo }}{% endif %}"
                 hx-target="#cfe-modal-container"
                 hx-swap="innerHTML"
                 class="flex items-center gap-2 bg-red-50 hover:bg-red-100 text-red-700 font-semibold px-4 py-2 rounded-lg text-sm transition-colors border border-red-200">
@@ -58,7 +58,7 @@
                 XML a Excel
             </button>
             <button type="button"
-                hx-get="/cfe/ui/modal-agregar"
+                hx-get="/cfe/ui/modal-agregar{% if modulo %}?modulo={{ modulo }}{% endif %}"
                 hx-target="#cfe-modal-container"
                 hx-swap="innerHTML"
                 class="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
@@ -84,7 +84,7 @@
             <div class="mt-2 flex flex-wrap gap-2">
                 {% for s in busquedas_listas %}
                 <button type="button"
-                        hx-get="/cfe/servicios/{{ s.id }}/modal-busqueda-activa"
+                        hx-get="/cfe/servicios/{{ s.id }}/modal-busqueda-activa{% if modulo %}?modulo={{ modulo }}{% endif %}"
                         hx-target="#cfe-modal-container"
                         hx-swap="innerHTML"
                         class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
@@ -101,7 +101,7 @@
        un modal abierto (la busqueda activa ya se ve dentro del modal). #}
     {% set busquedas_activas = servicios | selectattr('busqueda_activa_estatus', 'in', ['pendiente', 'descargando']) | list %}
     {% if busquedas_activas %}
-    <div hx-get="/cfe/ui"
+    <div hx-get="/cfe/ui{% if modulo %}?modulo={{ modulo }}{% endif %}"
          hx-target="#main-content"
          hx-swap="innerHTML"
          hx-trigger="every 7s"
@@ -155,7 +155,7 @@
                         {% endif %}
                     </span>
                     <button type="button"
-                        hx-get="/cfe/servicios/{{ s.id }}/modal-busqueda-activa"
+                        hx-get="/cfe/servicios/{{ s.id }}/modal-busqueda-activa{% if modulo %}?modulo={{ modulo }}{% endif %}"
                         hx-target="#cfe-modal-container"
                         hx-swap="innerHTML"
                         class="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
@@ -169,7 +169,7 @@
                     </a>
                     {% endif %}
                     <button type="button"
-                        hx-get="/cfe/servicios/{{ s.id }}/modal-buscar-periodos"
+                        hx-get="/cfe/servicios/{{ s.id }}/modal-buscar-periodos{% if modulo %}?modulo={{ modulo }}{% endif %}"
                         hx-target="#cfe-modal-container"
                         hx-swap="innerHTML"
                         {% if s.tiene_pendiente %}disabled{% endif %}
@@ -177,7 +177,7 @@
                         Buscar periodos
                     </button>
                     <button type="button"
-                        hx-get="/cfe/servicios/{{ s.id }}/analisis"
+                        hx-get="/cfe/servicios/{{ s.id }}/analisis{% if modulo %}?modulo={{ modulo }}{% endif %}"
                         hx-target="#main-content"
                         hx-swap="innerHTML"
                         hx-push-url="true"
