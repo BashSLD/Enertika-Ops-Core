@@ -42,14 +42,19 @@ _EDGE_PATHS = [
 ]
 
 
+APP_BASE_URL = "https://eco.enertika.mx"
+
+
 def cargar_config() -> dict:
     if CONFIG_PATH.exists():
         try:
             return json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError):
             print(f"Aviso: no se pudo leer {CONFIG_PATH.name}, se pedira de nuevo.")
+    print(f"\nURL del app: {APP_BASE_URL}")
+    print("Token: obtenlo en Admin > Configuracion Global > Recibos CFE")
     cfg = {
-        "app_base_url": input("URL del app (ej. https://opscore.enertika.mx): ").strip().rstrip("/"),
+        "app_base_url": APP_BASE_URL,
         "token": input("Token de renovacion CFE: ").strip(),
     }
     try:
@@ -61,14 +66,8 @@ def cargar_config() -> dict:
 
 
 def esta_logueado(page) -> bool:
-    """Replica core/scraper _is_logged_in: fuera de Login.aspx y sin CAPTCHA visible."""
-    if re.search(r"Login\.aspx", page.url, re.I):
-        return False
-    try:
-        body = page.evaluate("() => document.body ? document.body.innerText : ''")
-    except Exception:
-        return False
-    return not re.search(r"USUARIO:\s*|CONTRASEÑA:\s*|CAPTCHA", body, re.I)
+    """CFE siempre redirige a Login.aspx cuando no hay sesion activa."""
+    return not re.search(r"Login\.aspx", page.url, re.I)
 
 
 def lanzar_edge(pw):
