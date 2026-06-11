@@ -166,6 +166,14 @@ async def _detect_block(page: Page) -> Optional[str]:
         return "Acceso denegado por el portal CFE. Intenta en unos minutos."
     if re.search(r"por el momento no se encuentra disponible", haystack, re.I):
         return "Portal CFE MiEspacio no disponible temporalmente (sesión posiblemente inactiva). Renueva la sesión en Recibos CFE."
+    # Página casi vacía después de una navegación: bloqueo silencioso por IP de datacenter.
+    body_html_len = len(await page.evaluate("() => document.body?.innerHTML || ''"))
+    if body_html_len < 600 and not info["title"]:
+        return (
+            "Portal CFE devolvió página vacía. "
+            "Probable bloqueo por IP de servidor (Railway). "
+            "El portal público CFE requiere IP residencial o corporativa."
+        )
     return None
 
 
