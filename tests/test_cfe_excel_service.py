@@ -322,9 +322,86 @@ def test_construir_analisis_recibos_calcula_ultimo_comparativos_y_alertas():
     assert consumo["promedio_12"]["valor"] == 3000
     assert consumo["promedio_12"]["delta_pct"] == pytest.approx(100)
 
-    assert analisis["ahorro_estimado"]["disponible"] is True
-    assert analisis["ahorro_estimado"]["costo_esperado"] == pytest.approx(6960)
+    assert analisis["variacion_historico"]["disponible"] is True
+    assert analisis["variacion_historico"]["costo_esperado"] == pytest.approx(6960)
     assert any(alerta["titulo"] == "Factor de potencia bajo" for alerta in analisis["alertas"])
+
+    kpi_total = next(item for item in analisis["kpis"] if item["key"] == "total_facturado")
+    assert kpi_total["subtexto"]["label"] == "Subtotal"
+    assert kpi_total["subtexto"]["valor"] == analisis["ultimo"]["subtotal"]
+
+
+def test_construir_analisis_recibos_gdmto_no_infiere_perfil_horario_ni_punta():
+    recibo_anterior = extraer_datos_xml(CFE_GDMTO_XML, "gdmto-ene.xml")
+    recibo_ultimo = extraer_datos_xml(CFE_GDMTO_XML, "gdmto-feb.xml")
+
+    analisis = construir_analisis_recibos(
+        {"id": "servicio-1", "nombre": "SERVICIO GDMTO", "numero_servicio": "123"},
+        [
+            ({"periodo": "2026-02"}, recibo_anterior),
+            ({"periodo": "2026-03"}, recibo_ultimo),
+        ],
+    )
+
+    assert analisis["perfil_analisis"]["key"] == "GDMTO"
+    assert analisis["secciones"]["perfil_horario"] is False
+    assert analisis["ultimo"]["perfil_horario"] == []
+    assert [kpi["key"] for kpi in analisis["kpis"]] == [
+        "total_facturado",
+        "consumo",
+        "costo_kwh",
+        "kwmax",
+        "kw_cap",
+        "kw_dist",
+        "fp",
+    ]
+    assert "consumo_punta" not in analisis["graficas"]["metricas"]
+    assert not any(alerta["titulo"] == "Consumo punta elevado" for alerta in analisis["alertas"])
+    assert "GDMTO no se analiza con perfil horario base/intermedia/punta." in analisis["calidad_datos"]["limitaciones"]
+
+
+def test_construir_analisis_recibos_excluye_baseline_con_tarifa_distinta():
+    recibo_gdmth = extraer_datos_xml(CFE_XML, "gdmth.xml")
+    recibo_gdmto = extraer_datos_xml(CFE_GDMTO_XML, "gdmto.xml")
+
+    analisis = construir_analisis_recibos(
+        {"id": "servicio-1", "nombre": "SERVICIO MIXTO", "numero_servicio": "123"},
+        [
+            ({"periodo": "2026-02"}, recibo_gdmth),
+            ({"periodo": "2026-03"}, recibo_gdmto),
+        ],
+    )
+
+    assert analisis["perfil_analisis"]["key"] == "GDMTO"
+    assert analisis["baseline_periodos"] == 0
+    assert analisis["periodos_comparables"] == 1
+    assert analisis["periodos_excluidos_tarifa"] == 1
+    assert any(alerta["titulo"] == "Baseline filtrado por tarifa" for alerta in analisis["alertas"])
+
+
+def test_construir_analisis_recibos_tarifa_no_soportada_usa_basico():
+    xml_pdbt = CFE_XML.replace(b"<TARIFA_REG>GDMTH</TARIFA_REG>", b"<TARIFA_REG>PDBT</TARIFA_REG>")
+    xml_pdbt = xml_pdbt.replace(b"<TARIFA>GDMTH</TARIFA>", b"<TARIFA>PDBT</TARIFA>")
+    recibo = extraer_datos_xml(xml_pdbt, "pdbt.xml")
+
+    analisis = construir_analisis_recibos(
+        {"id": "servicio-1", "nombre": "SERVICIO PDBT", "numero_servicio": "123"},
+        [({"periodo": "2026-03"}, recibo)],
+    )
+
+    assert analisis["perfil_analisis"]["key"] == "NO_SOPORTADA"
+    assert analisis["secciones"]["perfil_horario"] is False
+    assert [kpi["key"] for kpi in analisis["kpis"]] == [
+        "total_facturado",
+        "consumo",
+        "costo_kwh",
+    ]
+    assert [item["key"] for item in analisis["comparativos"]] == [
+        "consumo",
+        "total_facturado",
+        "costo_kwh",
+    ]
+    assert any("La tarifa PDBT no tiene reglas especificas" in item for item in analisis["calidad_datos"]["limitaciones"])
 
 
 def test_extrae_gdmto_demandas_historial_y_campos_dinamicos():

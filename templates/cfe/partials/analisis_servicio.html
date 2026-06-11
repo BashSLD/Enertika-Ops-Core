@@ -28,7 +28,21 @@
 {% endif %}
 {%- endmacro %}
 
+{% macro valor_metrica(valor, dec=0, unidad='', tipo='numero') -%}
+{% if tipo == 'dinero' %}
+    {{ dinero(valor, dec) }}
+{% else %}
+    {{ numero(valor, dec) }}{% if valor is number and unidad %} {{ unidad }}{% endif %}
+{% endif %}
+{%- endmacro %}
+
 {% set servicio = analisis.servicio %}
+{% set perfil = analisis.perfil_analisis | default({"nombre": "Analisis CFE", "descripcion": ""}) %}
+{% set kpis = analisis.kpis | default([]) %}
+{% set metricas_grafica = analisis.metricas_grafica | default([]) %}
+{% set secciones = analisis.secciones | default({}) %}
+{% set calidad_datos = analisis.calidad_datos | default({"disponibles": [], "faltantes": [], "limitaciones": []}) %}
+{% set variacion = analisis.variacion_historico | default({"disponible": false}) %}
 
 <div id="cfe-analisis-servicio" class="p-6 space-y-6">
     <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -46,6 +60,9 @@
             </button>
             <div class="flex flex-wrap items-center gap-2">
                 <h1 class="text-xl font-bold text-gray-900">Análisis CFE</h1>
+                {% if analisis.hay_datos %}
+                <span class="rounded bg-teal-50 px-2 py-0.5 text-xs font-semibold text-teal-700">{{ perfil.nombre }}</span>
+                {% endif %}
                 {% if servicio.alias %}
                 <span class="rounded bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-500">{{ servicio.alias }}</span>
                 {% endif %}
@@ -76,37 +93,18 @@
         <p class="mt-1 text-sm text-gray-500">Descarga al menos un XML completado para habilitar el análisis.</p>
     </div>
     {% else %}
-    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
+    <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4 2xl:grid-cols-7">
+        {% for kpi in kpis %}
         <div class="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Total facturado</p>
-            <p class="mt-2 text-2xl font-bold text-gray-900">{{ dinero(analisis.ultimo.total_facturado) }}</p>
-            <p class="mt-1 text-xs text-gray-500">Subtotal {{ dinero(analisis.ultimo.subtotal) }}</p>
+            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">{{ kpi.label }}</p>
+            <p class="mt-2 text-2xl font-bold text-gray-900">{{ valor_metrica(kpi.valor, kpi.decimales, '', kpi.tipo) }}</p>
+            {% if kpi.subtexto and kpi.subtexto.valor is number %}
+            <p class="mt-1 text-xs text-gray-500">{{ kpi.subtexto.label }} {{ valor_metrica(kpi.subtexto.valor, kpi.subtexto.decimales, '', kpi.subtexto.tipo) }}</p>
+            {% else %}
+            <p class="mt-1 text-xs text-gray-500">{{ kpi.unidad }}</p>
+            {% endif %}
         </div>
-        <div class="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Consumo</p>
-            <p class="mt-2 text-2xl font-bold text-gray-900">{{ numero(analisis.ultimo.consumo) }}</p>
-            <p class="mt-1 text-xs text-gray-500">kWh</p>
-        </div>
-        <div class="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Costo promedio</p>
-            <p class="mt-2 text-2xl font-bold text-gray-900">{{ dinero(analisis.ultimo.costo_kwh, 2) }}</p>
-            <p class="mt-1 text-xs text-gray-500">por kWh</p>
-        </div>
-        <div class="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Demanda máxima</p>
-            <p class="mt-2 text-2xl font-bold text-gray-900">{{ numero(analisis.ultimo.kwmax, 1) }}</p>
-            <p class="mt-1 text-xs text-gray-500">kW</p>
-        </div>
-        <div class="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Factor potencia</p>
-            <p class="mt-2 text-2xl font-bold text-gray-900">{{ numero(analisis.ultimo.fp, 2) }}</p>
-            <p class="mt-1 text-xs text-gray-500">%</p>
-        </div>
-        <div class="rounded-lg border border-gray-100 bg-white p-4 shadow-sm">
-            <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Punta</p>
-            <p class="mt-2 text-2xl font-bold text-gray-900">{{ numero(analisis.ultimo.consumo_punta_pct, 1) }}</p>
-            <p class="mt-1 text-xs text-gray-500">% del consumo</p>
-        </div>
+        {% endfor %}
     </div>
 
     <div class="grid gap-6 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,0.55fr)]">
@@ -114,13 +112,12 @@
             <div class="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                     <h2 class="text-base font-bold text-gray-900">Evolución histórica</h2>
-                    <p class="text-sm text-gray-500">Promedio calculado sobre los últimos {{ [analisis.total_periodos, 12] | min }} periodos disponibles</p>
+                    <p class="text-sm text-gray-500">Promedio calculado sobre los ultimos {{ [analisis.periodos_comparables | default(analisis.total_periodos), 12] | min }} periodos comparables</p>
                 </div>
                 <div class="flex flex-wrap gap-2">
-                    <button type="button" data-cfe-metric="consumo" class="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors">Consumo</button>
-                    <button type="button" data-cfe-metric="total_facturado" class="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors">Total</button>
-                    <button type="button" data-cfe-metric="costo_kwh" class="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors">Costo/kWh</button>
-                    <button type="button" data-cfe-metric="kwmax" class="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors">Demanda</button>
+                    {% for metrica in metricas_grafica %}
+                    <button type="button" data-cfe-metric="{{ metrica.key }}" class="text-xs font-semibold px-3 py-1.5 rounded-lg border transition-colors">{{ metrica.label }}</button>
+                    {% endfor %}
                 </div>
             </div>
             <div class="h-80">
@@ -150,6 +147,52 @@
             </div>
         </section>
     </div>
+
+    {% if calidad_datos.disponibles or calidad_datos.faltantes or calidad_datos.limitaciones %}
+    <section class="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
+        <div class="mb-4 flex items-center justify-between gap-4">
+            <div>
+                <h2 class="text-base font-bold text-gray-900">Calidad de datos</h2>
+                <p class="text-sm text-gray-500">{{ perfil.descripcion }}</p>
+            </div>
+            <span class="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-600">
+                {{ analisis.periodos_comparables | default(analisis.total_periodos) }} periodos comparables
+            </span>
+        </div>
+        <div class="grid gap-4 md:grid-cols-3">
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Disponibles</p>
+                <div class="mt-2 flex flex-wrap gap-2">
+                    {% for item in calidad_datos.disponibles[:8] %}
+                    <span class="rounded bg-green-50 px-2 py-1 text-xs font-medium text-green-700">{{ item }}</span>
+                    {% else %}
+                    <span class="text-sm text-gray-400">N/D</span>
+                    {% endfor %}
+                </div>
+            </div>
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Faltantes</p>
+                <div class="mt-2 flex flex-wrap gap-2">
+                    {% for item in calidad_datos.faltantes[:8] %}
+                    <span class="rounded bg-yellow-50 px-2 py-1 text-xs font-medium text-yellow-800">{{ item }}</span>
+                    {% else %}
+                    <span class="text-sm text-gray-400">Sin faltantes relevantes</span>
+                    {% endfor %}
+                </div>
+            </div>
+            <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Limitaciones</p>
+                <div class="mt-2 space-y-1">
+                    {% for item in calidad_datos.limitaciones %}
+                    <p class="text-sm text-gray-600">{{ item }}</p>
+                    {% else %}
+                    <p class="text-sm text-gray-400">Sin limitaciones por tarifa</p>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+    </section>
+    {% endif %}
 
     <section class="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
         <div class="mb-4 flex items-center justify-between gap-4">
@@ -191,6 +234,7 @@
     </section>
 
     <div class="grid gap-6 xl:grid-cols-2">
+        {% if secciones.perfil_horario | default(false) %}
         <section class="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
             <div class="mb-4 flex items-center justify-between">
                 <h2 class="text-base font-bold text-gray-900">Perfil horario</h2>
@@ -204,6 +248,7 @@
             <p class="py-10 text-center text-sm text-gray-500">No hay perfil horario detallado en este XML.</p>
             {% endif %}
         </section>
+        {% endif %}
 
         <section class="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
             <h2 class="text-base font-bold text-gray-900">Desglose del recibo</h2>
@@ -219,31 +264,31 @@
 
     <div class="grid gap-6 xl:grid-cols-[minmax(360px,0.75fr)_minmax(0,1.25fr)]">
         <section class="rounded-lg border border-gray-100 bg-white p-5 shadow-sm">
-            <h2 class="text-base font-bold text-gray-900">Variación contra baseline</h2>
-            {% if analisis.ahorro_estimado.disponible %}
+            <h2 class="text-base font-bold text-gray-900">Variacion contra historico</h2>
+            {% if variacion.disponible %}
             <div class="mt-4 space-y-4">
                 <div>
-                    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Ahorro estimado</p>
-                    <p class="mt-1 text-3xl font-bold {% if analisis.ahorro_estimado.ahorro_estimado >= 0 %}text-green-700{% else %}text-red-700{% endif %}">
-                        {{ dinero(analisis.ahorro_estimado.ahorro_estimado) }}
+                    <p class="text-xs font-semibold uppercase tracking-wide text-gray-400">Diferencia estimada</p>
+                    <p class="mt-1 text-3xl font-bold {% if variacion.diferencia_estimada >= 0 %}text-green-700{% else %}text-red-700{% endif %}">
+                        {{ dinero(variacion.diferencia_estimada) }}
                     </p>
                     <p class="mt-1 text-sm text-gray-500">
-                        Esperado {{ dinero(analisis.ahorro_estimado.costo_esperado) }} con costo/kWh histórico de {{ dinero(analisis.ahorro_estimado.costo_kwh_baseline, 2) }}
+                        Esperado {{ dinero(variacion.costo_esperado) }} con costo/kWh historico de {{ dinero(variacion.costo_kwh_baseline, 2) }}
                     </p>
                 </div>
                 <div class="grid grid-cols-2 gap-3 text-sm">
                     <div class="rounded-lg bg-gray-50 p-3">
                         <p class="text-xs font-medium text-gray-500">Consumo baseline</p>
-                        <p class="mt-1 font-semibold text-gray-900">{{ numero(analisis.ahorro_estimado.consumo_baseline) }} kWh</p>
+                        <p class="mt-1 font-semibold text-gray-900">{{ numero(variacion.consumo_baseline) }} kWh</p>
                     </div>
                     <div class="rounded-lg bg-gray-50 p-3">
-                        <p class="text-xs font-medium text-gray-500">Variación consumo</p>
-                        <p class="mt-1 font-semibold text-gray-900">{{ numero(analisis.ahorro_estimado.variacion_consumo) }} kWh</p>
+                        <p class="text-xs font-medium text-gray-500">Variacion consumo</p>
+                        <p class="mt-1 font-semibold text-gray-900">{{ numero(variacion.variacion_consumo) }} kWh</p>
                     </div>
                 </div>
             </div>
             {% else %}
-            <p class="mt-4 text-sm text-gray-500">Se requieren periodos históricos con consumo y costo/kWh para estimar variación contra baseline.</p>
+            <p class="mt-4 text-sm text-gray-500">Se requieren periodos historicos comparables con consumo y costo/kWh para estimar variacion contra baseline.</p>
             {% endif %}
         </section>
 
@@ -302,7 +347,10 @@
             consumo: { border: '#0f766e', fill: 'rgba(15, 118, 110, 0.16)' },
             total_facturado: { border: '#b45309', fill: 'rgba(180, 83, 9, 0.16)' },
             costo_kwh: { border: '#2563eb', fill: 'rgba(37, 99, 235, 0.14)' },
-            kwmax: { border: '#dc2626', fill: 'rgba(220, 38, 38, 0.12)' }
+            kwmax: { border: '#dc2626', fill: 'rgba(220, 38, 38, 0.12)' },
+            kw_cap: { border: '#7c3aed', fill: 'rgba(124, 58, 237, 0.12)' },
+            kw_dist: { border: '#475569', fill: 'rgba(71, 85, 105, 0.12)' },
+            fp: { border: '#16a34a', fill: 'rgba(22, 163, 74, 0.12)' }
         };
 
         function destroyChart(canvas) {
@@ -381,7 +429,7 @@
                 renderMainChart(button.getAttribute('data-cfe-metric'));
             });
         });
-        renderMainChart('consumo');
+        renderMainChart(metricButtons[0] ? metricButtons[0].getAttribute('data-cfe-metric') : 'consumo');
 
         if (perfilCanvas && graficas.perfil_horario && graficas.perfil_horario.labels.length) {
             destroyChart(perfilCanvas);

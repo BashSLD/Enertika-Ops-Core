@@ -81,6 +81,12 @@ def test_analisis_cfe_con_datos_renderiza_dashboard():
         },
         "hay_datos": True,
         "mensaje": "",
+        "perfil_analisis": {
+            "key": "GDMTH",
+            "nombre": "GDMTH",
+            "descripcion": "Analisis horario con base, intermedia y punta.",
+        },
+        "secciones": {"perfil_horario": True, "desglose": True, "historial_extendido": True},
         "ultimo": {
             "label": "Feb-25",
             "tarifa": "GDMTH",
@@ -95,7 +101,16 @@ def test_analisis_cfe_con_datos_renderiza_dashboard():
             "componentes": [{"nombre": "Generacion P", "importe": 300.0}],
         },
         "total_periodos": 2,
+        "periodos_comparables": 2,
         "baseline_periodos": 1,
+        "kpis": [
+            {"key": "total_facturado", "label": "Total facturado", "valor": 5208.4, "tipo": "dinero", "unidad": "MXN", "decimales": 0},
+            {"key": "consumo", "label": "Consumo", "valor": 6000.0, "tipo": "numero", "unidad": "kWh", "decimales": 0},
+        ],
+        "metricas_grafica": [
+            {"key": "consumo", "label": "Consumo", "unidad": "kWh", "decimales": 0},
+            {"key": "total_facturado", "label": "Total facturado", "unidad": "MXN", "decimales": 0},
+        ],
         "comparativos": [
             {
                 "key": "consumo",
@@ -111,9 +126,14 @@ def test_analisis_cfe_con_datos_renderiza_dashboard():
         "alertas": [
             {"tipo": "warning", "titulo": "Consumo arriba del promedio", "detalle": "20.0% contra el promedio."}
         ],
-        "ahorro_estimado": {
+        "calidad_datos": {
+            "disponibles": ["Consumo", "Total facturado"],
+            "faltantes": [],
+            "limitaciones": [],
+        },
+        "variacion_historico": {
             "disponible": True,
-            "ahorro_estimado": 100.0,
+            "diferencia_estimada": 100.0,
             "costo_esperado": 5308.4,
             "costo_kwh_baseline": 0.884,
             "consumo_baseline": 5000.0,
@@ -154,6 +174,89 @@ def test_analisis_cfe_con_datos_renderiza_dashboard():
     assert "Comparativo del último periodo" in html
     assert "cfe-analisis-main-chart" in html
     assert "Generacion P" in html
+
+
+def test_analisis_cfe_gdmto_renderiza_metricas_dinamicas_sin_seccion_horaria():
+    env = Environment(loader=FileSystemLoader("templates"))
+    analisis = {
+        "servicio": {
+            "id": "servicio-1",
+            "nombre": "SERVICIO GDMTO",
+            "numero_servicio": "123",
+            "alias": None,
+        },
+        "hay_datos": True,
+        "mensaje": "",
+        "perfil_analisis": {
+            "key": "GDMTO",
+            "nombre": "GDMTO",
+            "descripcion": "Analisis ordinario sin inferir perfil horario.",
+        },
+        "secciones": {"perfil_horario": False, "desglose": True, "historial_extendido": True},
+        "ultimo": {
+            "label": "Mar-26",
+            "tarifa": "GDMTO",
+            "total_facturado": 5220.0,
+            "subtotal": 4500.0,
+            "consumo": 4500.0,
+            "costo_kwh": 1.16,
+            "kwmax": 28.0,
+            "kw_cap": 30.0,
+            "kw_dist": 31.0,
+            "fp": 97.1,
+            "perfil_horario": [],
+            "componentes": [{"nombre": "Energia", "importe": 4200.24}],
+        },
+        "total_periodos": 2,
+        "periodos_comparables": 2,
+        "baseline_periodos": 1,
+        "kpis": [
+            {"key": "total_facturado", "label": "Total facturado", "valor": 5220.0, "tipo": "dinero", "unidad": "MXN", "decimales": 0},
+            {"key": "kw_cap", "label": "KW CAP", "valor": 30.0, "tipo": "numero", "unidad": "kW", "decimales": 1},
+            {"key": "kw_dist", "label": "kW DIST", "valor": 31.0, "tipo": "numero", "unidad": "kW", "decimales": 1},
+        ],
+        "metricas_grafica": [
+            {"key": "consumo", "label": "Consumo", "unidad": "kWh", "decimales": 0},
+            {"key": "kw_cap", "label": "KW CAP", "unidad": "kW", "decimales": 1},
+        ],
+        "comparativos": [],
+        "alertas": [{"tipo": "success", "titulo": "Sin alertas relevantes", "detalle": "OK"}],
+        "calidad_datos": {
+            "disponibles": ["Consumo", "KW CAP", "kW DIST"],
+            "faltantes": [],
+            "limitaciones": ["GDMTO no se analiza con perfil horario base/intermedia/punta."],
+        },
+        "variacion_historico": {
+            "disponible": True,
+            "diferencia_estimada": 100.0,
+            "costo_esperado": 5320.0,
+            "costo_kwh_baseline": 1.18,
+            "consumo_baseline": 4400.0,
+            "variacion_consumo": 100.0,
+        },
+        "historial_extendido": {"disponible": False, "items": []},
+        "graficas": {
+            "labels": ["Feb-26", "Mar-26"],
+            "metricas": {
+                "consumo": {"label": "Consumo", "unidad": "kWh", "decimales": 0, "data": [4400.0, 4500.0], "promedio": 4450.0},
+                "kw_cap": {"label": "KW CAP", "unidad": "kW", "decimales": 1, "data": [29.0, 30.0], "promedio": 29.5},
+            },
+            "perfil_horario": {"labels": [], "consumo": [], "costo": []},
+            "desglose": {"labels": ["Energia"], "data": [4200.24]},
+        },
+    }
+
+    html = env.get_template("cfe/partials/analisis_servicio.html").render(
+        analisis=analisis,
+        user={"user_name": "QA"},
+    )
+
+    assert "KW CAP" in html
+    assert "kW DIST" in html
+    assert "GDMTO no se analiza con perfil horario" in html
+    assert ">Perfil horario</h2>" not in html
+    assert "Diferencia estimada" in html
+    assert "Ahorro estimado" not in html
 
 
 def test_historial_cfe_xml_completo_sin_pdf_muestra_reintento_pdf():
