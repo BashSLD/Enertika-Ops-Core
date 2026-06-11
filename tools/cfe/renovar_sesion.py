@@ -66,8 +66,19 @@ def cargar_config() -> dict:
 
 
 def esta_logueado(page) -> bool:
-    """CFE siempre redirige a Login.aspx cuando no hay sesion activa."""
-    return not re.search(r"Login\.aspx", page.url, re.I)
+    """
+    CFE puede hacer el login en-lugar (JS) sin cambiar la URL de Login.aspx.
+    Se considera logueado cuando la URL ya no es Login.aspx O cuando los
+    campos de usuario/contrasena desaparecieron del DOM.
+    """
+    try:
+        url = page.evaluate("() => location.href")
+        if not re.search(r"Login\.aspx", url, re.I):
+            return True
+        body = page.evaluate("() => document.body?.innerText || ''")
+        return not re.search(r"USUARIO:\s*|CONTRASEÑA:\s*", body, re.I)
+    except Exception:
+        return False
 
 
 def lanzar_edge(pw):
