@@ -48,6 +48,11 @@ _USER_AGENT = (
     "(KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 )
 
+# Politeness anti-Imperva: pausa entre descargas de periodos consecutivos en
+# MiEspacio (analisis web scraping §8/§10). Evita el challenge de Incapsula en
+# historicos largos.
+_DELAY_ENTRE_PERIODOS_MS = 1200
+
 _MESES_ABREV = {
     "01": "ENE", "02": "FEB", "03": "MAR", "04": "ABR",
     "05": "MAY", "06": "JUN", "07": "JUL", "08": "AGO",
@@ -729,23 +734,54 @@ async def _collect_otras_facturas(page: Page) -> list[dict]:
     )
 
 
+async def _otras_facturas_tiene_pager(page: Page) -> bool:
+    """Detecta si gvFacturasUsuario tiene paginacion (footer con PostBack Page$N).
+    Si la hay, solo se leyo la primera pagina (analisis web scraping §14.2). Hoy
+    no iteramos paginas; logueamos para confirmar con datos reales si hace falta."""
+    try:
+        return await page.evaluate(
+            """() => {
+                const grid = document.querySelector('#ctl00_MainContent_gvFacturasUsuario');
+                if (!grid) return false;
+                return [...grid.querySelectorAll('a')].some(a =>
+                    /Page\\$/i.test(a.getAttribute('href') || '') ||
+                    /Page\\$/i.test(a.getAttribute('name') || ''));
+            }"""
+        )
+    except Exception:
+        return False
+
+
 def _otras_facturas_por_periodo(rows: list[dict]) -> list[dict]:
     """Filas de OtrasFacturas que tienen PDF y XML (el recibo real), una por
     periodo (folio mas reciente), de mas reciente a mas antiguo. Las series solo
     con XML (complementarias) se descartan."""
     por_periodo: dict[str, dict] = {}
+    ocr_por_periodo: dict[str, list[str]] = {}
     for row in rows:
         if not (row.get("pdf_id") and row.get("xml_id")):
             continue
         periodo = _periodo_from_public_text(row.get("anio_mes", ""))
         if not periodo:
             continue
+        ocr_por_periodo.setdefault(periodo, []).append(row.get("folio", ""))
         enriquecido = {**row, "periodo": periodo, "etiqueta": _periodo_public_label(periodo)}
         actual = por_periodo.get(periodo)
         # Folios CFE son numericos zero-padded de igual longitud -> el mayor (mas
         # reciente) gana con comparacion de string.
         if actual is None or enriquecido["folio"] > actual["folio"]:
             por_periodo[periodo] = enriquecido
+    # Telemetria: si un periodo trae mas de un recibo OCR (PDF+XML), hoy solo se
+    # conserva el folio mayor (analisis web scraping §7.6/§14.1). Logueamos para
+    # decidir con datos reales si algun dia hace falta indexar por folio.
+    for periodo, folios in ocr_por_periodo.items():
+        if len(folios) > 1:
+            conservado = por_periodo[periodo]["folio"]
+            omitidos = [f for f in folios if f != conservado]
+            logger.warning(
+                "Periodo %s tiene %d recibos OCR; se conserva folio=%s, se omiten=%s",
+                periodo, len(folios), conservado, omitidos,
+            )
     return sorted(por_periodo.values(), key=lambda r: r["periodo"], reverse=True)
 
 
@@ -896,9 +932,16 @@ async def _fase_miespacio_otras(
             await _ensure_service_miespacio(mi_page, cfg, total_sin_dec)
 
         await _abrir_otras_facturas(mi_page, cfg)
-        facturas = _otras_facturas_por_periodo(await _collect_otras_facturas(mi_page))
+        rows_raw = await _collect_otras_facturas(mi_page)
+        if await _otras_facturas_tiene_pager(mi_page):
+            logger.warning(
+                "OtrasFacturas tiene paginacion; solo se leyo la primera pagina servicio=%s",
+                cfg.numero_servicio,
+            )
+        facturas = _otras_facturas_por_periodo(rows_raw)
 
-        for row in facturas[:max_periodos]:
+        objetivo = facturas[:max_periodos]
+        for indice, row in enumerate(objetivo):
             periodo = row["periodo"]
             res = por_periodo.get(periodo) or DescargaPeriodoPublicoResult(
                 periodo=periodo, etiqueta=row["etiqueta"],
@@ -916,10 +959,13 @@ async def _fase_miespacio_otras(
                     )
                     setattr(res, f"{tipo}_error", str(exc))
             por_periodo[periodo] = res
+            # Pausa anti-Imperva entre periodos, salvo tras el ultimo.
+            if indice < len(objetivo) - 1:
+                await mi_page.wait_for_timeout(_DELAY_ENTRE_PERIODOS_MS)
 
         # Conteo capeado a max_periodos para comparar contra el publico en la
         # misma ventana (si no, un historial largo dispara falsa discrepancia).
-        return len(facturas[:max_periodos])
+        return len(objetivo)
     finally:
         try:
             await mi_ctx.close()
