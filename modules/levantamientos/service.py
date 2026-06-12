@@ -168,25 +168,16 @@ class LevantamientoService:
         """
         # Query optimizada con Common Table Expressions (CTEs)
         query = """
-            WITH comentarios_count AS (
-                -- Contar comentarios por cadena completa (padre + hermanos)
-                SELECT o.id_oportunidad, COUNT(cw.id) as total_comentarios
+            WITH comentarios_familia AS (
+                -- Conteo de comentarios por familia (padre + hijos + hermanos).
+                -- La raiz de la familia es parent_id (si es hijo) o la propia op.
+                -- Equivale a la cadena completa sin subconsulta correlacionada:
+                -- una sola pasada agrupando comentarios por raiz.
+                SELECT COALESCE(o.parent_id, o.id_oportunidad) AS familia_id,
+                       COUNT(cw.id) AS total_comentarios
                 FROM tb_oportunidades o
-                LEFT JOIN tb_comentarios_workflow cw ON cw.id_oportunidad IN (
-                    -- La propia oportunidad
-                    SELECT o.id_oportunidad
-                    UNION
-                    -- Sus hijos (si es padre)
-                    SELECT child.id_oportunidad FROM tb_oportunidades child WHERE child.parent_id = o.id_oportunidad
-                    UNION
-                    -- Su padre (si es hijo)
-                    SELECT o.parent_id WHERE o.parent_id IS NOT NULL
-                    UNION
-                    -- Sus hermanos (si es hijo)
-                    SELECT sib.id_oportunidad FROM tb_oportunidades sib 
-                    WHERE sib.parent_id = o.parent_id AND o.parent_id IS NOT NULL
-                )
-                GROUP BY o.id_oportunidad
+                LEFT JOIN tb_comentarios_workflow cw ON cw.id_oportunidad = o.id_oportunidad
+                GROUP BY COALESCE(o.parent_id, o.id_oportunidad)
             ),
             tiempo_en_estado AS (
                 -- Calcular tiempo en estado actual (una sola pasada)
@@ -228,7 +219,7 @@ class LevantamientoService:
                    u_jefe.id_usuario as jefe_id,
                    u_sol.nombre as solicitado_por_nombre,
                    -- Comentarios count desde CTE
-                   COALESCE(cc.total_comentarios, 0) as comentarios_count,
+                   COALESCE(cf.total_comentarios, 0) as comentarios_count,
                    -- Tiempo en estado desde CTE
                    EXTRACT(EPOCH FROM (
                        NOW() - COALESCE(te.ultima_transicion, l.created_at)
@@ -247,7 +238,7 @@ class LevantamientoService:
             LEFT JOIN tb_usuarios u_jefe ON l.jefe_area_id = u_jefe.id_usuario
             LEFT JOIN tb_usuarios u_sol ON l.solicitado_por_id = u_sol.id_usuario
             -- JOIN con CTEs para optimización
-            LEFT JOIN comentarios_count cc ON l.id_oportunidad = cc.id_oportunidad
+            LEFT JOIN comentarios_familia cf ON cf.familia_id = COALESCE(o.parent_id, o.id_oportunidad)
             LEFT JOIN tiempo_en_estado te ON l.id_levantamiento = te.id_levantamiento
             LEFT JOIN asignaciones_check a_check ON l.id_levantamiento = a_check.id_levantamiento
             LEFT JOIN LATERAL (
