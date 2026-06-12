@@ -22,7 +22,7 @@
         {% elif _status in ['cancelado', 'error', 'perdida', 'perdido'] %}{% set header_gradient = 'from-red-400 to-rose-600' %}
         {% else %}{% set header_gradient = 'from-gray-500 to-gray-700' %}
         {% endif %}
-        <div class="px-6 py-4 bg-gradient-to-r {{ header_gradient }} flex justify-between items-center"
+        <div class="px-6 py-4 rounded-t-xl bg-gradient-to-r {{ header_gradient }} flex justify-between items-center"
              x-data x-init="if('{{ op.status_global|lower }}' == 'ganada') {
                 await new Promise(resolve => setTimeout(resolve, 500)); 
                 confetti({
