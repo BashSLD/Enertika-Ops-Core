@@ -260,7 +260,7 @@
                                 {% set is_entregado = st.nombre == 'Entregado' %}
                                 {% set es_monitoreo = st.nombre == 'Monitoreo de Cotización' %}
                                 {% set salida_terminal = st.es_estatus_final and not is_entregado %}
-                                {% set entrega_valida = is_entregado and current_status.nombre == 'Comentarios Recibidos' %}
+                                {% set entrega_valida = is_entregado and current_status.nombre in ('Comentarios Recibidos', 'Monitoreo de Cotización') %}
                                 {% set flujo_valido = (diff == 1 or diff == -1) and not st.es_estatus_final and not es_monitoreo %}
                                 {% set salida_monitoreo = current_status.nombre == 'Monitoreo de Cotización' and not st.es_estatus_final %}
                                 {% set is_valid = is_current or ((not current_status.final) and (salida_terminal or entrega_valida or flujo_valido or es_monitoreo or salida_monitoreo)) %}
