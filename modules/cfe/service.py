@@ -5,6 +5,7 @@ import asyncio
 import base64
 import json
 import logging
+import re
 import secrets
 import time
 import zipfile
@@ -23,7 +24,7 @@ from core.config_service import ConfigService
 from core.integrations.sharepoint import SharePointService
 from core.microsoft import get_ms_auth
 from modules.admin.db_service import AdminDBService
-from modules.shared.services.cfe.extractor import extraer_datos_xml
+from modules.shared.services.cfe.extractor import extraer_datos_xml, rpu_del_xml
 from modules.shared.services.cfe.excel import generar_excel_cfe
 from modules.shared.services.cfe.schemas import CfeReceipt, CfeXmlInput
 
@@ -183,6 +184,26 @@ class CfeService:
             return None
         tipo_recibo = recibo.get("servicio", {}).get("tarifa")
         return str(tipo_recibo).strip() or None
+
+    @staticmethod
+    def _rpu_no_coincide(xml_content: Optional[bytes], filename: str, numero_servicio: str) -> Optional[str]:
+        """Si el XML trae un RPU presente y distinto al numero_servicio, devuelve un
+        mensaje de error (el XML es de otro cliente). None si coincide, esta ausente
+        o no se puede parsear (permisivo ante campo faltante: no bloquea de mas).
+
+        Guardia de defensa en profundidad: el bug que mezclo recibos de servicios
+        distintos se previene de raiz al separar el alta de la descarga, pero esta
+        validacion impide persistir un XML ajeno aunque algo vuelva a fallar."""
+        if not xml_content:
+            return None
+        try:
+            rpu = rpu_del_xml(xml_content, filename or "recibo_cfe.xml")
+        except ValueError:
+            return None
+        esperado = re.sub(r"\D", "", numero_servicio or "")
+        if rpu and esperado and rpu != esperado:
+            return f"El XML pertenece a otro servicio (RPU {rpu} != {esperado}); se descarto."
+        return None
 
     @staticmethod
     def _es_error_sesion(mensaje: Optional[str]) -> bool:
@@ -654,6 +675,20 @@ class CfeService:
                 f"{SHAREPOINT_CFE_STAGING_ROOT}/{busqueda['id']}"
                 f"/{servicio['numero_servicio']}/{result.periodo}"
             )
+            # Guardia anti-contaminacion: si el XML es de otro servicio, no se
+            # stagea ese periodo (ni XML ni PDF) y se marca con el error de RPU.
+            rpu_error = self._rpu_no_coincide(
+                result.xml_content, result.xml_filename, servicio["numero_servicio"]
+            )
+            if rpu_error:
+                logger.warning(
+                    "[CFE] %s servicio=%s periodo=%s", rpu_error,
+                    servicio["numero_servicio"], result.periodo,
+                )
+                result.xml_content = None
+                result.pdf_content = None
+                result.xml_error = result.xml_error or rpu_error
+                result.pdf_error = result.pdf_error or rpu_error
             xml_upload, xml_upload_err = None, None
             if result.xml_content and not ya_xml:
                 xml_upload, xml_upload_err = await self._upload_bytes_to_sharepoint(
@@ -729,6 +764,14 @@ class CfeService:
                 total_detectados=len(resultados),
                 total_descargados=total_descargados,
                 advertencia=resultado.advertencia,
+                total_disponible_publico=(
+                    resultado.total_disponible_publico
+                    if resultado.total_disponible_publico >= 0 else None
+                ),
+                total_disponible_miespacio=(
+                    resultado.total_disponible_miespacio
+                    if resultado.total_disponible_miespacio >= 0 else None
+                ),
             )
 
     @staticmethod
@@ -816,6 +859,23 @@ class CfeService:
                 )
                 # Limpiar el placeholder 'pendiente' (reclamar_trabajo lo dejo en 'descargando').
                 # Sin esto, tiene_descarga_en_progreso bloquea el reintento hasta el reaper (15 min).
+                await self.db.borrar_descarga_pendiente(conn, servicio["id"])
+                return
+
+            # Guardia anti-contaminacion: el XML debe ser del servicio esperado.
+            rpu_error = self._rpu_no_coincide(
+                result.xml_content, result.xml_filename, servicio["numero_servicio"]
+            )
+            if rpu_error:
+                logger.warning(
+                    "[CFE] %s servicio=%s periodo=%s", rpu_error,
+                    servicio["numero_servicio"], result.periodo or "desconocido",
+                )
+                await self.db.upsert_descarga(
+                    conn, servicio_id=servicio["id"], periodo=result.periodo or "desconocido",
+                    tipo="xml", estatus="error", error_mensaje=rpu_error,
+                    descargado_por=usuario_id,
+                )
                 await self.db.borrar_descarga_pendiente(conn, servicio["id"])
                 return
 

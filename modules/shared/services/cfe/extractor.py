@@ -274,6 +274,20 @@ def _entero_sin_decimales(valor: str) -> str:
         return ""
 
 
+def _reg_de_xml(content: bytes, filename: str) -> ET.Element:
+    """Valida y parsea el XML CFE, devolviendo el nodo clsRegArchFact (el bloque
+    del recibo). Lanza ValueError si el XML es invalido o no contiene el bloque."""
+    validar_xml_cfe(content, filename)
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError as exc:
+        raise ValueError(f"XML mal formado en {filename}: {exc}") from exc
+    reg = find_reg_fact(root)
+    if reg is None:
+        raise ValueError(f"No se encontro clsRegArchFact en {filename}")
+    return reg
+
+
 def candidatos_total_a_pagar(content: bytes, filename: str) -> list[str]:
     """
     Candidatos de "Total a pagar (sin decimales)" de un recibo CFE, en orden de
@@ -283,14 +297,7 @@ def candidatos_total_a_pagar(content: bytes, filename: str) -> list[str]:
     aplique depende de si el recibo trae adeudo; por eso se prueban en orden hasta
     que CFE acepte el alta. Lista vacia si el XML no expone ninguno.
     """
-    validar_xml_cfe(content, filename)
-    try:
-        root = ET.fromstring(content)
-    except ET.ParseError as exc:
-        raise ValueError(f"XML mal formado en {filename}: {exc}") from exc
-    reg = find_reg_fact(root)
-    if reg is None:
-        raise ValueError(f"No se encontro clsRegArchFact en {filename}")
+    reg = _reg_de_xml(content, filename)
 
     candidatos: list[str] = []
     for campo in _CAMPOS_TOTAL_A_PAGAR:
@@ -298,6 +305,18 @@ def candidatos_total_a_pagar(content: bytes, filename: str) -> list[str]:
         if entero and entero not in candidatos:
             candidatos.append(entero)
     return candidatos
+
+
+def rpu_del_xml(content: bytes, filename: str) -> str:
+    """
+    RPU (numero de servicio) del recibo CFE, normalizado a solo digitos.
+
+    Sirve para validar que un XML descargado pertenece al servicio esperado: el
+    portal publico se busca por RPU, asi que el RPU del XML debe coincidir con el
+    numero_servicio. Cadena vacia si el XML no expone el campo.
+    """
+    reg = _reg_de_xml(content, filename)
+    return re.sub(r"\D", "", text_of(reg, "RPU"))
 
 
 def _calcular_mes(fecha_hasta: str) -> str:

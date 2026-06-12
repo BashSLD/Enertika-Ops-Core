@@ -144,6 +144,10 @@ class DescargaPeriodoPublicoResult:
 class ResultadoBusquedaPeriodos:
     periodos: list[DescargaPeriodoPublicoResult]
     advertencia: Optional[str] = None
+    # Totales SIN capar a max_periodos: cuantos recibos hay realmente disponibles
+    # en cada fuente (para informar al usuario). -1 = no se pudo determinar.
+    total_disponible_publico: int = -1
+    total_disponible_miespacio: int = -1
 
 
 @dataclass
@@ -978,10 +982,10 @@ async def _fase_miespacio_otras(
     cfg: CfeScraperConfig,
     max_periodos: int,
     por_periodo: dict[str, DescargaPeriodoPublicoResult],
-) -> int:
-    """Abre MiEspacio con la sesion guardada, registra el servicio si hace falta y
-    baja XML + PDF de cada periodo desde OtrasFacturas. Devuelve el numero de
-    periodos con recibo real en MiEspacio (-1 si la sesion no esta activa)."""
+) -> tuple[int, int]:
+    """Abre MiEspacio con la sesion guardada y baja XML + PDF de cada periodo desde
+    OtrasFacturas. Devuelve (procesados_en_la_ventana, total_recibos_disponibles);
+    (-1, -1) si la sesion no esta activa o el servicio no esta registrado."""
     mi_ctx, mi_page = await _setup_miespacio_page(browser, cfg)
     try:
 
@@ -990,7 +994,7 @@ async def _fase_miespacio_otras(
             for res in por_periodo.values():
                 if not res.pdf_content:
                     res.pdf_error = block_msg
-            return -1
+            return -1, -1
 
         if not await _is_logged_in(mi_page):
             for res in por_periodo.values():
@@ -999,7 +1003,7 @@ async def _fase_miespacio_otras(
                         "La sesión CFE MiEspacio expiró o no existe. "
                         "Un administrador debe renovar la sesión en Admin > Configuración Global > Recibos CFE."
                     )
-            return -1
+            return -1, -1
 
         try:
             await _select_service_miespacio(mi_page, cfg)
@@ -1010,7 +1014,7 @@ async def _fase_miespacio_otras(
             for res in por_periodo.values():
                 if not res.pdf_content:
                     res.pdf_error = _MSG_SERVICIO_NO_REGISTRADO
-            return -1
+            return -1, -1
 
         rows_raw = await _abrir_otras_facturas(mi_page, cfg)
         if await _otras_facturas_tiene_pager(mi_page):
@@ -1043,9 +1047,9 @@ async def _fase_miespacio_otras(
             if indice < len(objetivo) - 1:
                 await mi_page.wait_for_timeout(_DELAY_ENTRE_PERIODOS_MS)
 
-        # Conteo capeado a max_periodos para comparar contra el publico en la
-        # misma ventana (si no, un historial largo dispara falsa discrepancia).
-        return len(objetivo)
+        # (capeado para comparar contra el publico en la misma ventana; total real
+        # disponible para informar al usuario cuantos recibos hay en MiEspacio).
+        return len(objetivo), len(facturas)
     finally:
         try:
             await mi_ctx.close()
@@ -1124,6 +1128,8 @@ async def descargar_periodos_busqueda(
     por_periodo: dict[str, DescargaPeriodoPublicoResult] = {}
     publico_count = 0
     miespacio_count = -1
+    total_publico = -1
+    total_miespacio = -1
 
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(**launch_kwargs)
@@ -1149,6 +1155,7 @@ async def descargar_periodos_busqueda(
 
                 objetivo = rows[:max_periodos]
                 publico_count = len(objetivo)
+                total_publico = len(rows)
                 pub_rows = {row["periodo"]: row for row in objetivo}
 
                 # El XML del periodo mas reciente da el total para registrar el
@@ -1167,7 +1174,7 @@ async def descargar_periodos_busqueda(
                 # ── FASE 2: MiEspacio · Otras Facturas (XML + PDF) ───────────────
                 if cfg.mi_user and cfg.mi_pass:
                     try:
-                        miespacio_count = await _fase_miespacio_otras(
+                        miespacio_count, total_miespacio = await _fase_miespacio_otras(
                             browser, cfg, max_periodos, por_periodo,
                         )
                     except _SCRAPER_ERRORS as exc:
@@ -1193,7 +1200,12 @@ async def descargar_periodos_busqueda(
 
     periodos = sorted(por_periodo.values(), key=lambda r: r.periodo, reverse=True)
     advertencia = _advertencia_discrepancia(publico=publico_count, miespacio=miespacio_count)
-    return ResultadoBusquedaPeriodos(periodos=periodos, advertencia=advertencia)
+    return ResultadoBusquedaPeriodos(
+        periodos=periodos,
+        advertencia=advertencia,
+        total_disponible_publico=total_publico,
+        total_disponible_miespacio=total_miespacio,
+    )
 
 
 async def _select_service_miespacio(page: Page, cfg: CfeScraperConfig) -> dict:

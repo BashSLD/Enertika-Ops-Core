@@ -326,6 +326,8 @@ class CfeDBService:
         total_detectados: int,
         total_descargados: int,
         advertencia: Optional[str] = None,
+        total_disponible_publico: Optional[int] = None,
+        total_disponible_miespacio: Optional[int] = None,
     ) -> None:
         await conn.execute(
             """
@@ -334,10 +336,13 @@ class CfeDBService:
                 total_detectados = $2,
                 total_descargados = $3,
                 advertencia = $4,
+                total_disponible_publico = $5,
+                total_disponible_miespacio = $6,
                 actualizado_en = now()
             WHERE id = $1
             """,
             busqueda_id, total_detectados, total_descargados, advertencia,
+            total_disponible_publico, total_disponible_miespacio,
         )
 
     async def upsert_busqueda_item(

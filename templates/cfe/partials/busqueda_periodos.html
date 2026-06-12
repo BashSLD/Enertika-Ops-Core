@@ -55,6 +55,15 @@
         {{ busqueda.advertencia }}
     </div>
     {% endif %}
+    {% if busqueda.total_disponible_publico is not none or busqueda.total_disponible_miespacio is not none %}
+    <div class="mb-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-xs text-sky-800">
+        Recibos disponibles en CFE:
+        {% if busqueda.total_disponible_publico is not none %}<span class="font-semibold">{{ busqueda.total_disponible_publico }}</span> en el portal público{% endif %}{% if busqueda.total_disponible_miespacio is not none and busqueda.total_disponible_miespacio >= 0 %}{% if busqueda.total_disponible_publico is not none %} · {% endif %}<span class="font-semibold">{{ busqueda.total_disponible_miespacio }}</span> en MiEspacio{% endif %}.
+        {% if busqueda.total_disponible_publico is not none and busqueda.total_disponible_publico > busqueda.max_periodos %}
+        <span class="block mt-0.5 text-sky-600">Buscaste los últimos {{ busqueda.max_periodos }}; vuelve a buscar con un número mayor para traer más historial.</span>
+        {% endif %}
+    </div>
+    {% endif %}
     <div class="mb-4">
         <p class="text-sm font-semibold text-gray-900">
             Periodos encontrados
