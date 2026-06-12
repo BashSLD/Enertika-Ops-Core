@@ -18,7 +18,7 @@
                 </span>
                 {% elif estado_sesion.sesion_estado == 'expira_pronto' %}
                 <span class="inline-flex items-center gap-1 text-amber-600 font-medium">
-                    <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>Sesión expira pronto{% if estado_sesion.expira_en %} ({{ estado_sesion.expira_en | time_mx('%d/%m/%Y') }}){% endif %}
+                    <span class="h-1.5 w-1.5 rounded-full bg-amber-500"></span>Sesión expira pronto{% if estado_sesion.expira_en %} ({{ estado_sesion.expira_en | time_mx('%d/%m/%Y %H:%M') }}){% endif %}
                 </span>
                 {% elif estado_sesion.sesion_estado == 'sin_sesion' %}
                 <span class="inline-flex items-center gap-1 text-gray-400 font-medium">
@@ -62,7 +62,7 @@
                 hx-get="/cfe/ui/modal-agregar{% if modulo %}?modulo={{ modulo }}{% endif %}"
                 hx-target="#cfe-modal-container"
                 hx-swap="innerHTML"
-                class="flex items-center gap-2 bg-yellow-600 hover:bg-yellow-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
+                class="flex items-center gap-2 bg-teal-600 hover:bg-teal-700 text-white font-semibold px-4 py-2 rounded-lg text-sm transition-colors">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
                 </svg>
@@ -197,7 +197,7 @@
                         hx-target="#cfe-modal-container"
                         hx-swap="innerHTML"
                         {% if s.tiene_pendiente %}disabled{% endif %}
-                        class="text-xs bg-yellow-600 hover:bg-yellow-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                        class="text-xs bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
                         Buscar periodos
                     </button>
                     <button type="button"
