@@ -321,11 +321,11 @@
         </div>
 
         <!-- BODY - Información Principal -->
-        <div class="flex-1 overflow-y-auto custom-scrollbar p-6 space-y-6">
+        <div class="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-4">
 
             <!-- Sección: Recordatorio de Proyecto (Visible solo cuando status=Ganada y can_edit_comercial) -->
             {% if can_edit_comercial and op.status_global|lower == 'ganada' %}
-            <div class="bg-green-50 rounded-lg p-5 border border-green-100 border-l-4 border-l-green-500 shadow-sm">
+            <div class="bg-green-50 rounded-lg p-4 border border-green-100 border-l-4 border-l-green-500 shadow-sm">
                 <div class="flex items-start justify-between mb-3">
                     <h4 class="text-sm font-bold text-green-800 uppercase tracking-wide flex items-center gap-2">
                         <svg class="w-5 h-5 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -396,8 +396,8 @@
 
             <!-- Sección: Información del Proyecto -->
             <div
-                class="bg-gradient-to-br from-[#E0F7F7] to-white rounded-lg p-5 border border-[#00BABB]/20 shadow-sm hover-lift transition-all duration-300">
-                <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
+                class="bg-gradient-to-br from-[#E0F7F7] to-white rounded-lg p-4 border border-[#00BABB]/20 shadow-sm hover-lift transition-all duration-300">
+                <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-3 flex items-center gap-2">
                     <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
@@ -405,15 +405,14 @@
                     Información del Proyecto
                 </h4>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
                     <!-- Título del Proyecto -->
                     <div class="sm:col-span-2">
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                             Título del Proyecto
                         </label>
-                        <p
-                            class="text-sm font-bold text-[#123456] bg-white px-3 py-2 rounded-md border border-gray-200 break-words">
+                        <p class="text-sm font-bold text-[#123456] break-words pt-0.5">
                             {{ op.titulo_proyecto or op.nombre_proyecto or 'Sin título' }}
                         </p>
                     </div>
@@ -423,8 +422,7 @@
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                             Empresa
                         </label>
-                        <p
-                            class="text-sm font-medium text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200 flex items-start gap-2">
+                        <p class="text-sm font-medium text-gray-800 flex items-start gap-2 pt-0.5">
                             <svg class="w-4 h-4 text-[#00BABB] flex-shrink-0 mt-0.5" fill="none" stroke="currentColor"
                                 viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -439,8 +437,7 @@
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                             Tecnología
                         </label>
-                        <p
-                            class="text-sm font-medium text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200 flex items-center gap-2">
+                        <p class="text-sm font-medium text-gray-800 flex items-center gap-2 pt-0.5">
                             <svg class="w-4 h-4 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                     d="M13 10V3L4 14h7v7l9-11h-7z" />
@@ -454,7 +451,7 @@
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                             Creado por
                         </label>
-                        <p class="text-sm text-gray-700 bg-white px-3 py-2 rounded-md border border-gray-200 truncate">
+                        <p class="text-sm text-gray-700 truncate pt-0.5">
                             {{ op.creador_nombre or op.creador_email or '-' }}
                         </p>
                     </div>
@@ -465,7 +462,7 @@
                             Responsable actual
                         </label>
                         <div class="flex items-center gap-2">
-                            <p class="text-sm text-gray-700 bg-white px-3 py-2 rounded-md border border-gray-200 truncate flex-1">
+                            <p class="text-sm text-gray-700 truncate flex-1 pt-0.5">
                                 {{ op.responsable_comercial_nombre or '-' }}
                             </p>
                             {% if can_reassign and show_solicitar_actions %}
@@ -485,8 +482,8 @@
 
             <!-- Sección: Estado y Seguimiento -->
             <div
-                class="bg-white rounded-lg p-5 border border-gray-200 shadow-sm hover-lift transition-all duration-300">
-                <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
+                class="bg-white rounded-lg p-4 border border-gray-200 shadow-sm hover-lift transition-all duration-300">
+                <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-3 flex items-center gap-2">
                     <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
@@ -494,22 +491,21 @@
                     Estado y Seguimiento
                 </h4>
 
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
                     <!-- ID Interno Simulación -->
                     <div class="sm:col-span-2">
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                             ID Interno Simulación
                         </label>
-                        <p
-                            class="text-sm font-mono font-bold text-[#00BABB] bg-[#E0F7F7] px-3 py-2 rounded-md border border-[#00BABB]/30">
+                        <p class="text-sm font-mono font-bold text-[#00BABB] bg-[#E0F7F7] px-2 py-0.5 rounded border border-[#00BABB]/30 inline-block mt-0.5">
                             {{ op.id_interno_simulacion or 'No asignado' }}
                         </p>
                     </div>
 
                     <!-- Status Global -->
                     <!-- STATUS TIMELINE COMPONENT (Replaces simple badge) -->
-                    <div class="sm:col-span-2 mt-2 mb-8" x-data="{
+                    <div class="sm:col-span-2 mt-2 mb-5" x-data="{
                         status: '{{ op.status_global | default('pendiente') | lower }}'.trim(),
                         steps: ['pendiente', 'en proceso', 'en revisión', 'comentarios recibidos', 'finalizado'],
                         get currentStep() {
@@ -546,11 +542,11 @@
                         <div x-show="!isTerminated()" class="relative flex items-center justify-between w-full mt-2">
                             <!-- Background Line -->
                             <div
-                                class="absolute left-0 top-1/2 transform -translate-y-1/2 w-full h-1 bg-gray-200 -z-10 rounded-full">
+                                class="absolute left-0 top-1/2 transform -translate-y-1/2 w-full h-1 bg-gray-200 z-0 rounded-full">
                             </div>
 
                             <!-- Active Progress Line -->
-                            <div class="absolute left-0 top-1/2 transform -translate-y-1/2 h-1 bg-[#00BABB] transition-all duration-1000 ease-out -z-10 rounded-full"
+                            <div class="absolute left-0 top-1/2 transform -translate-y-1/2 h-1 bg-[#00BABB] transition-all duration-1000 ease-out z-0 rounded-full"
                                 :style="'width: ' + (currentStep * 25) + '%'"></div>
 
                             <!-- Step 1: Pendiente -->
@@ -669,8 +665,7 @@
                         <label class="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">
                             Responsable Simulación
                         </label>
-                        <p
-                            class="text-sm font-medium text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200 flex items-center gap-2">
+                        <p class="text-sm font-medium text-gray-800 flex items-center gap-2 pt-0.5">
                             {% if op.responsable_simulacion %}
                             <svg class="w-4 h-4 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
@@ -694,8 +689,8 @@
             <!-- Visible solo en estatus: Entregado, Perdido, Cancelado -->
             {% if can_edit_comercial and show_solicitar_actions and op.status_global|lower in ['entregado', 'perdido',
             'cancelado'] %}
-            <div class="bg-blue-50 rounded-lg p-5 border border-blue-100 border-l-4 border-l-[#00BABB] shadow-sm">
-                <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
+            <div class="bg-blue-50 rounded-lg p-4 border border-blue-100 border-l-4 border-l-[#00BABB] shadow-sm">
+                <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-3 flex items-center gap-2">
                     <svg class="w-5 h-5 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M15 15l-2 5L9 9l11 4-5 2zm0 0l5 5M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122" />
@@ -820,8 +815,8 @@
             <!-- Sección: Información Adicional (Opcional - Si existe) -->
             {% if op.fecha_solicitud or op.fecha_ideal_usuario or op.deadline_calculado or op.deadline_negociado or
             op.fecha_entrega_simulacion or op.cantidad_sitios %}
-            <div class="bg-gray-50 rounded-lg p-5 border border-gray-200">
-                <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
+            <div class="bg-gray-50 rounded-lg p-4 border border-gray-200">
+                <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-3 flex items-center gap-2">
                     <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -829,7 +824,7 @@
                     Información Adicional
                 </h4>
 
-                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-sm">
 
                     {% if op.fecha_solicitud %}
                     <div>
@@ -903,8 +898,8 @@
 
             <!-- Sección: Ubicación (Opcional - Si existe) -->
             {% if op.direccion_obra or op.coordenadas_gps or op.google_maps_link %}
-            <div class="bg-blue-50 rounded-lg p-5 border border-blue-100 shadow-sm">
-                <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-4 flex items-center gap-2">
+            <div class="bg-blue-50 rounded-lg p-4 border border-blue-100 shadow-sm">
+                <h4 class="text-sm font-bold text-[#123456] uppercase tracking-wide mb-3 flex items-center gap-2">
                     <svg class="w-5 h-5 text-[#00BABB]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                             d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
@@ -917,14 +912,14 @@
                     {% if op.direccion_obra %}
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Dirección</label>
-                        <p class="text-gray-800 bg-white px-3 py-2 rounded-md border border-gray-200">{{
+                        <p class="text-gray-800 bg-white px-2 py-1 rounded border border-gray-200 text-sm">{{
                             op.direccion_obra }}</p>
                     </div>
                     {% endif %}
                     {% if op.coordenadas_gps %}
                     <div>
                         <label class="block text-xs font-semibold text-gray-500 uppercase mb-1">Coordenadas GPS</label>
-                        <p class="text-gray-800 font-mono bg-white px-3 py-2 rounded-md border border-gray-200">{{
+                        <p class="text-gray-800 font-mono bg-white px-2 py-1 rounded border border-gray-200 text-sm">{{
                             op.coordenadas_gps }}</p>
                     </div>
                     {% endif %}
