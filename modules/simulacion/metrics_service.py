@@ -365,17 +365,17 @@ class MetricsService:
                   AND (inicio AT TIME ZONE 'America/Mexico_City')::date <= $2
             ),
             tiempo_revision AS (
-                -- orden=3: En Revisión
+                -- orden=3: En Revisión (solo horas hábiles, excluye sábado/domingo)
                 SELECT id_oportunidad,
-                       SUM(EXTRACT(EPOCH FROM (fin - inicio)) / 86400.0) AS dias
+                       SUM(fn_segundos_habiles_mx(inicio, fin) / 86400.0) AS dias
                 FROM transiciones
                 WHERE orden = 3 AND fin IS NOT NULL
                 GROUP BY id_oportunidad
             ),
             tiempo_retrabajo AS (
-                -- orden=4: Comentarios Recibidos
+                -- orden=4: Comentarios Recibidos (solo horas hábiles, excluye sábado/domingo)
                 SELECT id_oportunidad,
-                       SUM(EXTRACT(EPOCH FROM (fin - inicio)) / 86400.0) AS dias
+                       SUM(fn_segundos_habiles_mx(inicio, fin) / 86400.0) AS dias
                 FROM transiciones
                 WHERE orden = 4 AND fin IS NOT NULL
                 GROUP BY id_oportunidad
@@ -474,9 +474,9 @@ class MetricsService:
                 SELECT
                     t.id_oportunidad,
                     SUM(
-                        EXTRACT(EPOCH FROM (
-                            LEAST(t.fin, er.fecha_entrega_sla) - t.inicio
-                        )) / 86400.0
+                        fn_segundos_habiles_mx(
+                            t.inicio, LEAST(t.fin, er.fecha_entrega_sla)
+                        ) / 86400.0
                     ) AS dias_revision
                 FROM transiciones t
                 JOIN entregas_en_rango er ON t.id_oportunidad = er.id_oportunidad

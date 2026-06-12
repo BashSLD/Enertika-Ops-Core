@@ -829,6 +829,25 @@ class ReportesSimulacionService:
     ) -> List[Dict]:
         return await self.db.get_clientes_alta_iteracion(conn, asdict(filtros), umbral)
 
+    async def get_oportunidades_tarde_revision(
+        self, conn, filtros: FiltrosReporte
+    ) -> Dict[str, Any]:
+        """
+        Oportunidades tarde cuya espera en 'En Revisión' supera el umbral configurado
+        (en horas hábiles). El umbral es configurable vía UMBRAL_HORAS_REVISION_TARDE.
+        """
+        umbral_horas = await ConfigService.get_global_config(
+            conn, "UMBRAL_HORAS_REVISION_TARDE", 24, int
+        )
+        rows = await self.db.get_oportunidades_tarde_revision(conn, asdict(filtros), umbral_horas)
+        return {
+            "umbral_horas": umbral_horas,
+            "oportunidades": [
+                {**row, "horas_revision": round(float(row["horas_revision"]), 1)}
+                for row in rows
+            ],
+        }
+
     async def get_all_report_data(self, conn, filtros: FiltrosReporte) -> dict:
         return {
             'metricas': await self.get_metricas_generales(conn, filtros),
@@ -838,6 +857,7 @@ class ReportesSimulacionService:
             'mensual': await self.get_resumen_mensual(conn, filtros),
             'motivos_cierre': await self.db.get_chart_motivos_cierre(conn, asdict(filtros)),
             'alta_iteracion': await self.get_clientes_alta_iteracion(conn, filtros),
+            'tarde_revision': await self.get_oportunidades_tarde_revision(conn, filtros),
         }
 
     async def get_datos_graficas(

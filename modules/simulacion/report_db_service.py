@@ -992,6 +992,70 @@ class ReportDBService:
         rows = await conn.fetch(query, fecha_inicio, fecha_fin, umbral)
         return [dict(r) for r in rows]
 
+    async def get_oportunidades_tarde_revision(
+        self, conn, filters: Dict[str, Any], umbral_horas: float
+    ) -> List[Dict[str, Any]]:
+        """
+        Oportunidades marcadas tarde (compromiso) cuya espera en 'En Revisión'
+        (orden=3) supera el umbral, contando solo horas hábiles (excluye fines de
+        semana via fn_segundos_habiles_mx). Sirve para distinguir el retraso
+        atribuible a la espera de Dirección del atribuible a Simulación.
+        """
+        where_clause, params = self._build_report_where_clause(filters)
+        params.append(umbral_horas)
+        idx_umbral = len(params)
+
+        query = f"""
+            WITH opp AS (
+                SELECT
+                    o.id_oportunidad,
+                    o.op_id_estandar,
+                    o.cliente_nombre,
+                    o.titulo_proyecto,
+                    u.nombre AS responsable
+                FROM tb_oportunidades o
+                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
+                LEFT JOIN tb_usuarios u ON o.responsable_simulacion_id = u.id_usuario
+                {where_clause}
+                  AND o.kpi_status_compromiso = 'Entrega tarde'
+            ),
+            segmentos AS (
+                SELECT
+                    h.id_oportunidad,
+                    e.orden,
+                    h.fecha_cambio_sla AS inicio,
+                    LEAD(h.fecha_cambio_sla) OVER (
+                        PARTITION BY h.id_oportunidad
+                        ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
+                    ) AS fin
+                FROM tb_historial_estatus h
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+                WHERE h.id_oportunidad IN (SELECT id_oportunidad FROM opp)
+            ),
+            revision AS (
+                SELECT
+                    id_oportunidad,
+                    SUM(fn_segundos_habiles_mx(inicio, fin)) / 3600.0 AS horas_revision,
+                    COUNT(*) AS rondas
+                FROM segmentos
+                WHERE orden = 3 AND fin IS NOT NULL
+                GROUP BY id_oportunidad
+            )
+            SELECT
+                opp.op_id_estandar,
+                opp.cliente_nombre,
+                opp.titulo_proyecto,
+                opp.responsable,
+                r.horas_revision,
+                r.rondas
+            FROM opp
+            JOIN revision r ON opp.id_oportunidad = r.id_oportunidad
+            WHERE r.horas_revision > ${idx_umbral}
+            ORDER BY r.horas_revision DESC
+        """
+        rows = await conn.fetch(query, *params)
+        return [dict(r) for r in rows]
+
 
 def get_report_db_service() -> ReportDBService:
     return ReportDBService()

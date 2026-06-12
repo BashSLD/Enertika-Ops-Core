@@ -989,6 +989,59 @@
     </div>
     {% endif %}
 
+    {# ================================================================
+       SECCION: OPORTUNIDADES TARDE CON ESPERA DE DIRECCION
+    ================================================================ #}
+    {% if tablas.tarde_revision %}
+    <div style="page-break-before: avoid; margin-top: 28px;">
+        <h2 style="font-size:10pt;font-weight:700;color:#0A2463;margin:0 0 4px 0;letter-spacing:0.03em;">
+            Oportunidades Tarde con Espera de Direccion &gt; {{ tablas.tarde_revision.umbral_horas }} h Habiles
+        </h2>
+        <p style="font-size:7.5pt;color:#64748b;margin:0 0 10px 0;">
+            Las siguientes oportunidades se marcaron como <em>Entrega tarde</em> pero
+            permanecieron mas de {{ tablas.tarde_revision.umbral_horas }} horas habiles en
+            <em>En Revision</em> (espera de Direccion). El tiempo excluye sabados y domingos:
+            si una oferta entra a revision el viernes y se devuelve el lunes, el fin de semana
+            no cuenta. Sirve para distinguir el retraso atribuible a la espera de revision del
+            atribuible a Simulacion.
+        </p>
+        {% if tablas.tarde_revision.oportunidades %}
+        <table style="width:100%;border-collapse:collapse;font-size:7.5pt;">
+            <thead>
+                <tr style="background:#0A2463;color:#ffffff;">
+                    <th style="padding:5px 8px;text-align:left;font-weight:600;">Oportunidad</th>
+                    <th style="padding:5px 8px;text-align:left;font-weight:600;">Cliente</th>
+                    <th style="padding:5px 8px;text-align:left;font-weight:600;">Proyecto</th>
+                    <th style="padding:5px 8px;text-align:left;font-weight:600;">Responsable</th>
+                    <th style="padding:5px 8px;text-align:center;font-weight:600;width:80px;">Horas habiles en revision</th>
+                    <th style="padding:5px 8px;text-align:center;font-weight:600;width:44px;">Rondas</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in tablas.tarde_revision.oportunidades %}
+                <tr style="background:{% if loop.index is odd %}#fff7ed{% else %}#ffffff{% endif %};border-bottom:1px solid #fed7aa;">
+                    <td style="padding:5px 8px;font-weight:600;color:#1e293b;">{{ row.op_id_estandar or '—' }}</td>
+                    <td style="padding:5px 8px;color:#334155;">{{ row.cliente_nombre or '—' }}</td>
+                    <td style="padding:5px 8px;color:#334155;">{{ row.titulo_proyecto or '—' }}</td>
+                    <td style="padding:5px 8px;color:#475569;">{{ row.responsable or 'Sin asignar' }}</td>
+                    <td style="padding:5px 8px;text-align:center;">
+                        <span style="background:#dc2626;color:#ffffff;padding:2px 7px;border-radius:10px;font-weight:700;font-size:8pt;">
+                            {{ row.horas_revision }} h
+                        </span>
+                    </td>
+                    <td style="padding:5px 8px;text-align:center;color:#475569;">{{ row.rondas }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p style="font-size:8pt;color:#16a34a;margin:0;font-weight:600;">
+            Ninguna oportunidad tarde estuvo mas de {{ tablas.tarde_revision.umbral_horas }} horas habiles en revision en este periodo.
+        </p>
+        {% endif %}
+    </div>
+    {% endif %}
+
 </body>
 
 </html>
