@@ -139,6 +139,10 @@
                     <span class="mt-1 inline-flex items-center gap-1 text-xs text-red-600 font-medium" title="{{ s.miespacio_error }}">
                         <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>No registrado en MiEspacio
                     </span>
+                    {% elif s.miespacio_estatus != 'registrado' %}
+                    <span class="mt-1 inline-flex items-center gap-1 text-xs text-gray-500 font-medium" title="Registra el servicio en MiEspacio para poder buscar periodos.">
+                        <span class="h-1.5 w-1.5 rounded-full bg-gray-400"></span>Sin verificar en MiEspacio
+                    </span>
                     {% endif %}
                     <div class="mt-1 flex items-center gap-3 text-xs text-gray-400">
                         {% if s.ultima_descarga %}
@@ -183,21 +187,23 @@
                         Descargar ZIP
                     </a>
                     {% endif %}
-                    {% if s.miespacio_estatus == 'error' %}
+                    {% if s.miespacio_estatus in ['error', 'no_verificado'] %}
                     <button type="button"
                         hx-post="/cfe/servicios/{{ s.id }}/reintentar-alta{% if modulo %}?modulo={{ modulo }}{% endif %}"
                         hx-target="#cfe-lista"
                         hx-swap="outerHTML"
-                        class="text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
-                        Reintentar registro
+                        class="text-xs {% if s.miespacio_estatus == 'error' %}bg-red-600 hover:bg-red-700{% else %}bg-amber-600 hover:bg-amber-700{% endif %} text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                        {% if s.miespacio_estatus == 'error' %}Reintentar registro{% else %}Registrar en MiEspacio{% endif %}
                     </button>
                     {% endif %}
+                    {% set _ms_registrado = s.miespacio_estatus == 'registrado' %}
                     <button type="button"
                         hx-get="/cfe/servicios/{{ s.id }}/modal-buscar-periodos{% if modulo %}?modulo={{ modulo }}{% endif %}"
                         hx-target="#cfe-modal-container"
                         hx-swap="innerHTML"
-                        {% if s.tiene_pendiente %}disabled{% endif %}
-                        class="text-xs bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                        {% if s.tiene_pendiente or not _ms_registrado %}disabled{% endif %}
+                        {% if not _ms_registrado %}title="Registra el servicio en MiEspacio antes de buscar periodos."{% endif %}
+                        class="text-xs bg-teal-600 hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
                         Buscar periodos
                     </button>
                     <button type="button"
