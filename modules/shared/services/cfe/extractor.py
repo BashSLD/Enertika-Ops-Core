@@ -255,6 +255,51 @@ def extraer_datos_xml(content: bytes, filename: str) -> CfeReceipt:
     return datos
 
 
+# Campos del XML CFE que contienen el "Total a pagar" del recibo como entero
+# (sin decimales). CFE valida el alta de servicios en MiEspacio contra ESTE valor,
+# NO contra el Total fiscal del CFDI (que trae centavos). Verificado con recibos
+# reales: coinciden cuando no hay adeudo; difieren cuando el recibo trae adeudo
+# anterior (IMPTOTAL con adeudo vs TOTAL_SIN_ADE sin el). Orden = prioridad de intento.
+_CAMPOS_TOTAL_A_PAGAR = ("IMPTOTAL", "IMPTOTALXML", "TOTAL_SIN_ADE")
+
+
+def _entero_sin_decimales(valor: str) -> str:
+    """'244015' o '244015.57' -> '244015'; vacio o no numerico -> ''."""
+    valor = (valor or "").strip()
+    if not valor:
+        return ""
+    try:
+        return str(int(float(valor)))
+    except (ValueError, TypeError):
+        return ""
+
+
+def candidatos_total_a_pagar(content: bytes, filename: str) -> list[str]:
+    """
+    Candidatos de "Total a pagar (sin decimales)" de un recibo CFE, en orden de
+    prioridad y sin duplicados, para registrar el servicio en MiEspacio.
+
+    Devuelve los valores enteros de IMPTOTAL / IMPTOTALXML / TOTAL_SIN_ADE. El que
+    aplique depende de si el recibo trae adeudo; por eso se prueban en orden hasta
+    que CFE acepte el alta. Lista vacia si el XML no expone ninguno.
+    """
+    validar_xml_cfe(content, filename)
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError as exc:
+        raise ValueError(f"XML mal formado en {filename}: {exc}") from exc
+    reg = find_reg_fact(root)
+    if reg is None:
+        raise ValueError(f"No se encontro clsRegArchFact en {filename}")
+
+    candidatos: list[str] = []
+    for campo in _CAMPOS_TOTAL_A_PAGAR:
+        entero = _entero_sin_decimales(text_of(reg, campo))
+        if entero and entero not in candidatos:
+            candidatos.append(entero)
+    return candidatos
+
+
 def _calcular_mes(fecha_hasta: str) -> str:
     partes = fecha_hasta.split()
     for parte in partes:
