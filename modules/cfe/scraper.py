@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Optional
 from urllib.parse import urlparse
 
 if TYPE_CHECKING:
-    from playwright.async_api import BrowserContext, Page
+    from playwright.async_api import Page
 
 try:
     from playwright.async_api import Error as PlaywrightError
@@ -29,7 +29,7 @@ except ModuleNotFoundError:
 
 _SCRAPER_ERRORS = (ValueError, RuntimeError, OSError, asyncio.TimeoutError) + _PLAYWRIGHT_ERRORS
 
-from modules.shared.services.cfe.extractor import extraer_datos_xml
+from modules.shared.services.cfe.extractor import candidatos_total_a_pagar
 
 logger = logging.getLogger("CfeScraper")
 
@@ -68,6 +68,13 @@ _USER_AGENT = (
 # MiEspacio (analisis web scraping §8/§10). Evita el challenge de Incapsula en
 # historicos largos.
 _DELAY_ENTRE_PERIODOS_MS = 1200
+
+# Aviso cuando la descarga encuentra un servicio aun no dado de alta en MiEspacio
+# (el alta es responsabilidad del job alta_miespacio, no de la descarga).
+_MSG_SERVICIO_NO_REGISTRADO = (
+    "El servicio no esta registrado en MiEspacio. "
+    "Registralo primero (boton Agregar / Reintentar registro)."
+)
 
 _MESES_ABREV = {
     "01": "ENE", "02": "FEB", "03": "MAR", "04": "ABR",
@@ -139,6 +146,20 @@ class ResultadoBusquedaPeriodos:
     advertencia: Optional[str] = None
 
 
+@dataclass
+class ResultadoAlta:
+    """Resultado del alta de un servicio en MiEspacio (flujo independiente de la descarga).
+
+    estado: ya_existia | registrado | total_no_coincide | sesion_invalida |
+            bloqueado | sin_total | error
+    """
+    estado: str
+    mensaje: str = ""
+    total_usado: Optional[str] = None
+    session_json_nuevo: Optional[str] = None
+    candidatos_probados: Optional[list[str]] = None
+
+
 def _advertencia_discrepancia(*, publico: int, miespacio: int) -> Optional[str]:
     """Avisa si el conteo de periodos difiere entre portal publico y MiEspacio.
     miespacio == -1 significa que no se pudo abrir/contar MiEspacio: sin aviso."""
@@ -165,6 +186,31 @@ def _pick_browser() -> Optional[str]:
                 _cached_browser_path = p
                 break
     return _cached_browser_path
+
+
+def _chromium_launch_kwargs() -> dict:
+    """kwargs de chromium.launch comunes a todos los flujos (headless + flags Railway + proxy)."""
+    browser_path = _pick_browser()
+    launch_kwargs: dict = {
+        "headless": True,
+        "args": [
+            "--disable-blink-features=AutomationControlled",
+            "--no-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-gpu",
+        ],
+    }
+    if browser_path:
+        launch_kwargs["executable_path"] = browser_path
+    launch_kwargs.update(_build_proxy_kwargs())
+    return launch_kwargs
+
+
+async def _new_public_context(browser):
+    """Contexto del portal publico (sin sesion MiEspacio), con descargas habilitadas."""
+    return await browser.new_context(
+        accept_downloads=True, ignore_https_errors=True, user_agent=_USER_AGENT,
+    )
 
 
 async def _detect_block(page: Page) -> Optional[str]:
@@ -721,21 +767,6 @@ async def _descargar_artefacto_con_reintento(
     return None, "", last_error
 
 
-def _total_recibo_sin_decimales(xml_content: Optional[bytes], xml_filename: str) -> str:
-    """Total a pagar (entero, como string) de un XML CFE; '0' si no se puede leer.
-    Se usa para registrar el servicio en MiEspacio cuando aun no existe."""
-    if not xml_content:
-        return "0"
-    try:
-        receipt = extraer_datos_xml(xml_content, xml_filename or "recibo.xml")
-        total_val = receipt.get("cfdi", {}).get("total", 0)
-        if total_val:
-            return str(round(float(total_val)))
-    except (ValueError, KeyError, TypeError):
-        pass
-    return "0"
-
-
 # ── MiEspacio · Otras Facturas (XML + PDF por periodo y serie) ──────────────────
 # Selectores verificados contra el portal: tabla gvFacturasUsuario, links
 # lnkDescargaPDF / lnkDescargaXML, columna Serie. Una fila por (serie, periodo);
@@ -945,7 +976,6 @@ async def _setup_miespacio_page(browser, cfg: CfeScraperConfig) -> tuple:
 async def _fase_miespacio_otras(
     browser,
     cfg: CfeScraperConfig,
-    total_sin_dec: str,
     max_periodos: int,
     por_periodo: dict[str, DescargaPeriodoPublicoResult],
 ) -> int:
@@ -974,7 +1004,13 @@ async def _fase_miespacio_otras(
         try:
             await _select_service_miespacio(mi_page, cfg)
         except MiEspacioServiceNotFound:
-            await _ensure_service_miespacio(mi_page, cfg, total_sin_dec)
+            # El alta es responsabilidad del job alta_miespacio, no de la descarga.
+            # Si el servicio no esta registrado, abortamos limpio para NO contaminar
+            # con los periodos de otro servicio seleccionado en la pagina.
+            for res in por_periodo.values():
+                if not res.pdf_content:
+                    res.pdf_error = _MSG_SERVICIO_NO_REGISTRADO
+            return -1
 
         rows_raw = await _abrir_otras_facturas(mi_page, cfg)
         if await _otras_facturas_tiene_pager(mi_page):
@@ -1082,19 +1118,7 @@ async def descargar_periodos_busqueda(
             "Reconstruye la imagen Docker para instalar dependencias CFE."
         ) from exc
 
-    browser_path = _pick_browser()
-    launch_kwargs: dict = {
-        "headless": True,
-        "args": [
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-        ],
-    }
-    if browser_path:
-        launch_kwargs["executable_path"] = browser_path
-    launch_kwargs.update(_build_proxy_kwargs())
+    launch_kwargs = _chromium_launch_kwargs()
 
     max_periodos = max(1, min(int(max_periodos or 12), 60))
     por_periodo: dict[str, DescargaPeriodoPublicoResult] = {}
@@ -1104,9 +1128,7 @@ async def descargar_periodos_busqueda(
     async with async_playwright() as pw:
         browser = await pw.chromium.launch(**launch_kwargs)
         try:
-            pub_ctx = await browser.new_context(
-                accept_downloads=True, ignore_https_errors=True, user_agent=_USER_AGENT,
-            )
+            pub_ctx = await _new_public_context(browser)
             try:
                 pub_page = await pub_ctx.new_page()
                 pub_page.set_default_timeout(cfg.timeout_ms)
@@ -1141,13 +1163,12 @@ async def descargar_periodos_busqueda(
                 )
                 seed.xml_content, seed.xml_filename, seed.xml_error = nx_content, nx_name, nx_err
                 por_periodo[nperiodo] = seed
-                total_sin_dec = _total_recibo_sin_decimales(nx_content, nx_name)
 
                 # ── FASE 2: MiEspacio · Otras Facturas (XML + PDF) ───────────────
                 if cfg.mi_user and cfg.mi_pass:
                     try:
                         miespacio_count = await _fase_miespacio_otras(
-                            browser, cfg, total_sin_dec, max_periodos, por_periodo,
+                            browser, cfg, max_periodos, por_periodo,
                         )
                     except _SCRAPER_ERRORS as exc:
                         logger.warning(
@@ -1173,83 +1194,6 @@ async def descargar_periodos_busqueda(
     periodos = sorted(por_periodo.values(), key=lambda r: r.periodo, reverse=True)
     advertencia = _advertencia_discrepancia(publico=publico_count, miespacio=miespacio_count)
     return ResultadoBusquedaPeriodos(periodos=periodos, advertencia=advertencia)
-
-
-async def _fill_first_matching(page: Page, labels: list[str], value: str) -> None:
-    filled = await page.evaluate(
-        """({labels, value}) => {
-            const norm = t => String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
-            const nl = labels.map(norm);
-            const inputs = [...document.querySelectorAll('input,textarea')]
-                .filter(e => !['hidden','submit','button','image','checkbox','radio']
-                    .includes((e.getAttribute('type')||'text').toLowerCase()));
-            const best = inputs.map(inp => {
-                const hay = norm([inp.id, inp.name||'', inp.placeholder||'',
-                    inp.closest('tr,.form-group,div')?.innerText||''].join(' '));
-                const score = nl.reduce((s,l) => hay.includes(l) ? s+l.length : s, 0);
-                return {inp, score};
-            }).filter(x => x.score > 0).sort((a,b) => b.score-a.score)[0];
-            if (!best) return false;
-            best.inp.value = value;
-            best.inp.dispatchEvent(new Event('input', {bubbles:true}));
-            best.inp.dispatchEvent(new Event('change', {bubbles:true}));
-            return true;
-        }""",
-        {"labels": labels, "value": value},
-    )
-    if not filled:
-        raise ValueError(f"No se encontró campo para: {' / '.join(labels)}")
-
-
-async def _click_first_matching(page: Page, labels: list[str]) -> None:
-    clicked = await page.evaluate(
-        """(labels) => {
-            const norm = t => String(t||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
-            const nl = labels.map(norm);
-            for (const el of document.querySelectorAll('button,input,a')) {
-                if (['hidden','image'].includes((el.type||'').toLowerCase())) continue;
-                const hay = norm([el.id, el.name||'', el.value||'', el.innerText||''].join(' '));
-                if (nl.some(l => hay.includes(l))) { el.click(); return true; }
-            }
-            return false;
-        }""",
-        labels,
-    )
-    if not clicked:
-        raise ValueError(f"No se encontró botón para: {' / '.join(labels)}")
-
-
-async def _ensure_service_miespacio_legacy(page: Page, cfg: CfeScraperConfig, total_sin_dec: str) -> None:
-    digits = re.sub(r"\D", "", cfg.numero_servicio)
-    await page.goto(CFE_MIESPACIO_DEFAULT_URL, wait_until="domcontentloaded", timeout=cfg.timeout_ms)
-    await page.wait_for_timeout(1500)
-
-    exists = await page.evaluate(
-        f"""() => {{
-            const d = '{digits}';
-            const sel = document.querySelector('#ctl00_MainContent_ddlServicios');
-            const opts = sel ? [...sel.options] : [];
-            return opts.some(o => (o.value+' '+o.text).replace(/\\D/g,'').includes(d))
-                || (document.body?.innerText||'').replace(/\\D/g,'').includes(d);
-        }}"""
-    )
-    if exists:
-        logger.info(f"Servicio {cfg.numero_servicio} ya registrado en MiEspacio")
-        return
-
-    logger.info(f"Registrando servicio {cfg.numero_servicio} en MiEspacio...")
-    await page.goto(CFE_MIESPACIO_ADD_URL, wait_until="domcontentloaded", timeout=cfg.timeout_ms)
-    await page.wait_for_timeout(2000)
-
-    await _fill_first_matching(page, ["numero de servicio", "número de servicio", "rpu"], cfg.numero_servicio)
-    await _fill_first_matching(page, ["nombre del servicio", "nombre servicio"], cfg.nombre)
-    await _fill_first_matching(page, ["total a pagar", "sin decimales", "total"], total_sin_dec)
-    await _fill_first_matching(page, ["nombre corto", "alias", "corto"], cfg.alias or cfg.numero_servicio[:20])
-    await _click_first_matching(page, ["guardar", "agregar", "aceptar"])
-
-    await page.wait_for_load_state("domcontentloaded", timeout=10000)
-    await page.wait_for_timeout(3000)
-
 
 
 async def _select_service_miespacio(page: Page, cfg: CfeScraperConfig) -> dict:
@@ -1322,40 +1266,6 @@ async def _select_service_miespacio(page: Page, cfg: CfeScraperConfig) -> dict:
     return service
 
 
-async def _ensure_service_miespacio(page: Page, cfg: CfeScraperConfig, total_sin_dec: str) -> None:
-    try:
-        await _select_service_miespacio(page, cfg)
-        logger.info(f"Servicio {cfg.numero_servicio} ya registrado en MiEspacio")
-        return
-    except MiEspacioServiceNotFound:
-        pass
-
-    logger.info(f"Registrando servicio {cfg.numero_servicio} en MiEspacio...")
-    await page.goto(CFE_MIESPACIO_ADD_URL, wait_until="domcontentloaded", timeout=cfg.timeout_ms)
-    await page.wait_for_timeout(2000)
-
-    await _fill_first_matching(page, ["numero de servicio", "número de servicio", "rpu"], cfg.numero_servicio)
-    await _fill_first_matching(page, ["nombre del servicio", "nombre servicio"], cfg.nombre)
-    await _fill_first_matching(page, ["total a pagar", "sin decimales", "total"], total_sin_dec)
-    await _fill_first_matching(page, ["nombre corto", "alias", "corto"], cfg.alias or cfg.numero_servicio[:20])
-    await _click_first_matching(page, ["guardar", "agregar", "aceptar"])
-
-    try:
-        await page.wait_for_load_state("domcontentloaded", timeout=10_000)
-    except Exception:
-        pass
-    await page.wait_for_timeout(3000)
-    try:
-        await _select_service_miespacio(page, cfg)
-    except MiEspacioServiceNotFound:
-        logger.warning(
-            "Servicio %s registrado en MiEspacio pero aun no visible (propagacion pendiente)",
-            cfg.numero_servicio,
-        )
-        raise
-
-
-
 async def _read_download(download) -> tuple[bytes, str] | None:
     tmp_path = await download.path()
     if not tmp_path:
@@ -1386,19 +1296,7 @@ async def descargar_pdf_periodo(cfg: CfeScraperConfig, periodo: str) -> Descarga
         )
         return result
 
-    browser_path = _pick_browser()
-    launch_kwargs: dict = {
-        "headless": True,
-        "args": [
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-        ],
-    }
-    if browser_path:
-        launch_kwargs["executable_path"] = browser_path
-    launch_kwargs.update(_build_proxy_kwargs())
+    launch_kwargs = _chromium_launch_kwargs()
 
     try:
         async with async_playwright() as pw:
@@ -1481,19 +1379,7 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
         logger.error(result.error)
         return result
 
-    browser_path = _pick_browser()
-    launch_kwargs: dict = {
-        "headless": True,
-        "args": [
-            "--disable-blink-features=AutomationControlled",
-            "--no-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-gpu",
-        ],
-    }
-    if browser_path:
-        launch_kwargs["executable_path"] = browser_path
-    launch_kwargs.update(_build_proxy_kwargs())
+    launch_kwargs = _chromium_launch_kwargs()
 
     try:
         async with async_playwright() as pw:
@@ -1503,9 +1389,7 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
                 xml_captured: list[bytes] = []
                 xml_names: list[str] = []
 
-                pub_ctx = await browser.new_context(
-                    accept_downloads=True, ignore_https_errors=True, user_agent=_USER_AGENT
-                )
+                pub_ctx = await _new_public_context(browser)
                 pub_page = await pub_ctx.new_page()
                 pub_page.set_default_timeout(cfg.timeout_ms)
 
@@ -1610,8 +1494,15 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
                         )
                         return result
 
-                    total_sin_dec = _total_recibo_sin_decimales(result.xml_content, result.xml_filename)
-                    await _ensure_service_miespacio(mi_page, cfg, total_sin_dec)
+                    # El alta es responsabilidad del job alta_miespacio, no de la
+                    # descarga. Si el servicio no esta registrado, abortamos limpio.
+                    try:
+                        await _select_service_miespacio(mi_page, cfg)
+                    except MiEspacioServiceNotFound:
+                        result.pdf_error = _MSG_SERVICIO_NO_REGISTRADO
+                        state = await mi_ctx.storage_state()
+                        result.session_json_nuevo = json.dumps(state)
+                        return result
 
                     try:
                         rows_raw = await _abrir_otras_facturas(mi_page, cfg)
@@ -1661,3 +1552,211 @@ async def descargar_recibo(cfg: CfeScraperConfig) -> DescargaResult:
             result.error = f"Error inesperado: {exc}"
 
     return result
+
+
+# ── Alta de servicio en MiEspacio (flujo independiente de la descarga) ──────────
+# CFE valida el "Total a pagar (sin decimales)" contra su registro y rechaza el
+# alta si no coincide; el mensaje del portal es "...no coincide con nuestro
+# registro...". El total correcto NO es round(cfdi.total): se obtiene de los
+# candidatos del XML (IMPTOTAL/IMPTOTALXML/TOTAL_SIN_ADE) del ultimo y penultimo
+# recibo del portal publico, que se prueban hasta que CFE acepta.
+
+_ALTA_OK_RE = re.compile(r"agregad[oa]\s+exitosamente", re.I)
+_ALTA_TOTAL_MAL_RE = re.compile(r"no\s+coincide", re.I)
+
+
+async def _candidatos_total_publico(browser, cfg: CfeScraperConfig) -> list[str]:
+    """Total a pagar (sin decimales) del ultimo y penultimo recibo del portal
+    publico, como candidatos sin duplicados para el alta en MiEspacio."""
+    pub_ctx = await _new_public_context(browser)
+    candidatos: list[str] = []
+    try:
+        pub_page = await pub_ctx.new_page()
+        pub_page.set_default_timeout(cfg.timeout_ms)
+        rows = await _open_public_history(pub_page, cfg)
+        if not rows:
+            raise ValueError(await _public_history_diagnostic(pub_page, rows))
+        for row in rows[:2]:  # ultimo y penultimo recibo
+            periodo = row["periodo"]
+            content, name, _err = await _descargar_artefacto_con_reintento(pub_page, cfg, periodo, "xml")
+            if not content:
+                continue
+            try:
+                for total in candidatos_total_a_pagar(content, name or f"{cfg.numero_servicio}.xml"):
+                    if total not in candidatos:
+                        candidatos.append(total)
+            except ValueError as exc:
+                logger.warning(
+                    "No se pudo extraer total para alta servicio=%s periodo=%s: %s",
+                    cfg.numero_servicio, periodo, exc,
+                )
+    finally:
+        try:
+            await pub_ctx.close()
+        except _SCRAPER_ERRORS:
+            pass
+    return candidatos
+
+
+async def _leer_resultado_alta(page: Page) -> dict:
+    """Lee el resultado del alta tras Guardar: ok / total_mal / mensaje conciso."""
+    info = await page.evaluate(
+        """() => {
+            const main = document.querySelector('#ctl00_MainContent, #MainContent') || document.body;
+            const alertas = [...document.querySelectorAll(
+                '.alert,[role=alert],.message,.error,.swal2-html-container,.modal-body')]
+                .map(e => (e.innerText || '').trim()).filter(Boolean);
+            return {url: location.href, main_text: (main.innerText || ''), alertas};
+        }"""
+    )
+    alertas = info.get("alertas", [])
+    texto = f"{' '.join(alertas)} {info.get('main_text', '')}"
+    ok = bool(_ALTA_OK_RE.search(texto))
+    total_mal = bool(_ALTA_TOTAL_MAL_RE.search(texto))
+    mensaje = next(
+        (a for a in alertas if _ALTA_OK_RE.search(a) or _ALTA_TOTAL_MAL_RE.search(a)),
+        alertas[0] if alertas else "",
+    )
+    return {"ok": ok, "total_mal": total_mal, "mensaje": mensaje[:300]}
+
+
+async def _registrar_servicio_con_candidatos(
+    page: Page, cfg: CfeScraperConfig, candidatos: list[str]
+) -> tuple[bool, Optional[str], str]:
+    """Da de alta el servicio probando cada candidato de total a pagar hasta que
+    CFE acepte. Devuelve (exito, total_usado, mensaje)."""
+    ultimo_msg = ""
+    for total in candidatos:
+        await page.goto(CFE_MIESPACIO_ADD_URL, wait_until="domcontentloaded", timeout=cfg.timeout_ms)
+        await page.wait_for_timeout(1500)
+        try:
+            await page.fill("#ctl00_MainContent_txtRpu", cfg.numero_servicio)
+            await page.fill("#ctl00_MainContent_txtNombreServicio", cfg.nombre)
+            await page.fill("#ctl00_MainContent_txtTotalAPagar", total)
+            await page.fill("#ctl00_MainContent_txtNombreCorto", cfg.alias or cfg.numero_servicio[:20])
+            await page.click("#ctl00_MainContent_btnGuardar")
+        except _SCRAPER_ERRORS as exc:
+            ultimo_msg = f"No se pudo enviar el formulario de alta: {exc}"
+            continue
+        try:
+            await page.wait_for_load_state("networkidle", timeout=15_000)
+        except _SCRAPER_ERRORS:
+            pass
+        await page.wait_for_timeout(2000)
+
+        resultado = await _leer_resultado_alta(page)
+        ultimo_msg = resultado["mensaje"] or ultimo_msg
+        if resultado["ok"]:
+            logger.info("Servicio %s registrado en MiEspacio total=%s", cfg.numero_servicio, total)
+            return True, total, resultado["mensaje"]
+        if resultado["total_mal"]:
+            logger.info(
+                "Total %s no coincide para servicio=%s; probando siguiente candidato",
+                total, cfg.numero_servicio,
+            )
+            continue
+        logger.warning(
+            "Alta MiEspacio servicio=%s total=%s respuesta inesperada: %s",
+            cfg.numero_servicio, total, ultimo_msg,
+        )
+    return False, None, ultimo_msg or "CFE rechazo el alta del servicio."
+
+
+async def registrar_servicio_miespacio(cfg: CfeScraperConfig) -> ResultadoAlta:
+    """
+    Alta del servicio en MiEspacio, independiente de la descarga de recibos.
+    Idempotente: si ya existe devuelve estado 'ya_existia'. Si no, obtiene el total
+    del ultimo/penultimo recibo del portal publico y lo registra probando candidatos.
+    """
+    if not (cfg.mi_user and cfg.mi_pass):
+        return ResultadoAlta(estado="error", mensaje="Faltan credenciales CFE MiEspacio.")
+    try:
+        from playwright.async_api import async_playwright
+    except ModuleNotFoundError as exc:
+        if exc.name != "playwright":
+            raise
+        return ResultadoAlta(estado="error", mensaje="Playwright no esta instalado en el entorno.")
+
+    launch_kwargs = _chromium_launch_kwargs()
+
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(**launch_kwargs)
+        try:
+            mi_ctx, mi_page = await _setup_miespacio_page(browser, cfg)
+            try:
+                block = await _detect_block(mi_page)
+                if block:
+                    return ResultadoAlta(estado="bloqueado", mensaje=block)
+                if not await _is_logged_in(mi_page):
+                    return ResultadoAlta(
+                        estado="sesion_invalida",
+                        mensaje=(
+                            "La sesion CFE MiEspacio expiro o no existe. "
+                            "Renueva la sesion en Recibos CFE."
+                        ),
+                    )
+                try:
+                    await _select_service_miespacio(mi_page, cfg)
+                    return ResultadoAlta(
+                        estado="ya_existia",
+                        mensaje="El servicio ya estaba registrado en MiEspacio.",
+                    )
+                except MiEspacioServiceNotFound:
+                    pass
+
+                # No existe: solo ahora bajamos el total del portal publico (evita
+                # ese scraping en el caso idempotente "ya_existia").
+                try:
+                    candidatos = await _candidatos_total_publico(browser, cfg)
+                except _SCRAPER_ERRORS as exc:
+                    candidatos = []
+                    logger.warning(
+                        "No se pudieron obtener candidatos de total servicio=%s: %s",
+                        cfg.numero_servicio, exc,
+                    )
+                if not candidatos:
+                    return ResultadoAlta(
+                        estado="sin_total",
+                        mensaje=(
+                            "No se pudo obtener el total a pagar del recibo del portal "
+                            "publico para registrar el servicio."
+                        ),
+                    )
+
+                ok, total, msg = await _registrar_servicio_con_candidatos(mi_page, cfg, candidatos)
+
+                # Fallback ante copy de CFE no reconocido por el regex: si el alta
+                # parece haber fallado pero el servicio YA aparece en el dropdown,
+                # el alta si tuvo exito (fuente mas confiable que el banner).
+                if not ok:
+                    try:
+                        await _select_service_miespacio(mi_page, cfg)
+                        ok = True
+                    except _SCRAPER_ERRORS:
+                        pass
+
+                session_json = None
+                try:
+                    session_json = json.dumps(await mi_ctx.storage_state())
+                except _SCRAPER_ERRORS:
+                    pass
+                if ok:
+                    return ResultadoAlta(
+                        estado="registrado", mensaje=msg, total_usado=total,
+                        session_json_nuevo=session_json, candidatos_probados=candidatos,
+                    )
+                return ResultadoAlta(
+                    estado="total_no_coincide",
+                    mensaje=msg or "CFE rechazo el alta: el total a pagar no coincide.",
+                    session_json_nuevo=session_json, candidatos_probados=candidatos,
+                )
+            finally:
+                try:
+                    await mi_ctx.close()
+                except _SCRAPER_ERRORS:
+                    pass
+        finally:
+            try:
+                await browser.close()
+            except _SCRAPER_ERRORS:
+                pass

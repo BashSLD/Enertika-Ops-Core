@@ -286,6 +286,48 @@ async def crear_servicio(
     )
 
 
+@router.post("/servicios/{servicio_id}/reintentar-alta", response_class=HTMLResponse)
+async def reintentar_alta_miespacio(
+    request: Request,
+    servicio_id: UUID,
+    modulo: str | None = Query(default=None),
+    conn=Depends(get_db_connection),
+    user=Depends(get_current_user_context),
+    _=_viewer,
+):
+    svc = get_cfe_service()
+    modulo_activo, modulos_accesibles = _resolver_modulos(user, modulo)
+    await _get_servicio_accesible(svc, conn, servicio_id, user)
+    toast_type = "success"
+    toast_msg = ""
+    status_code = 200
+    try:
+        toast_msg, _servicio = await svc.reintentar_alta_miespacio(conn, servicio_id)
+    except ValueError as exc:
+        toast_msg = str(exc)
+        toast_type = "error"
+        status_code = 400
+    except asyncpg.PostgresError as exc:
+        logger.error(f"Error de BD reencolando alta MiEspacio CFE para {servicio_id}: {exc}")
+        toast_msg = "Error interno al reencolar el registro."
+        toast_type = "error"
+        status_code = 500
+    servicios = await svc.listar_servicios(
+        conn, modulos=[modulo_activo] if modulo_activo else modulos_accesibles
+    )
+    return templates.TemplateResponse(
+        request, "cfe/partials/lista_servicios.html",
+        {
+            "servicios": servicios,
+            "modulo": modulo_activo,
+            "modulos_accesibles": modulos_accesibles,
+            "user": user,
+            "_toast": {"message": toast_msg, "type": toast_type},
+        },
+        status_code=status_code,
+    )
+
+
 # ── Descargas ─────────────────────────────────────────────────────────────────
 
 @router.post("/xml-excel", response_class=StreamingResponse, include_in_schema=False)

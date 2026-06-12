@@ -30,7 +30,13 @@ from modules.shared.services.cfe.schemas import CfeReceipt, CfeXmlInput
 from .analysis import analisis_sin_datos, construir_analisis_recibos, filtrar_xmls_completados
 from .constants import CFE_CONFIG_KEYS, SHAREPOINT_CFE_ROOT, SHAREPOINT_CFE_STAGING_ROOT
 from .db_service import CfeDBService, get_cfe_db_service
-from .scraper import CfeScraperConfig, descargar_pdf_periodo, descargar_periodos_busqueda, descargar_recibo
+from .scraper import (
+    CfeScraperConfig,
+    descargar_pdf_periodo,
+    descargar_periodos_busqueda,
+    descargar_recibo,
+    registrar_servicio_miespacio,
+)
 
 logger = logging.getLogger("CfeService")
 
@@ -237,13 +243,33 @@ class CfeService:
                 )
             # El servicio existe en otro módulo: agregar este módulo al array
             await self.db.agregar_modulo_a_servicio(conn, existing["id"], modulo)
+            # Verifica/registra en MiEspacio si aun no esta (idempotente).
+            await self.db.marcar_alta_miespacio_pendiente(conn, existing["id"])
             return existing, False
         nuevo = await self.db.crear_servicio(
             conn, numero_servicio=numero_servicio, nombre=nombre, alias=alias,
             lada=lada, telefono=telefono, email=email, creado_por=usuario_id,
             modulos=[modulo],
         )
+        # Encola el alta en MiEspacio (job del worker, independiente de la descarga).
+        await self.db.marcar_alta_miespacio_pendiente(conn, nuevo["id"])
         return nuevo, True
+
+    async def reintentar_alta_miespacio(
+        self, conn: asyncpg.Connection, servicio_id: UUID
+    ) -> tuple[str, dict]:
+        """Reencola el alta en MiEspacio de un servicio (tras un error)."""
+        servicio = await self.db.get_servicio_by_id(conn, servicio_id)
+        if not servicio:
+            raise ValueError("Servicio no encontrado.")
+        if servicio.get("miespacio_estatus") == "registrado":
+            raise ValueError("El servicio ya está registrado en MiEspacio.")
+        encolado = await self.db.marcar_alta_miespacio_pendiente(conn, servicio_id)
+        if not encolado:
+            raise ValueError("El registro en MiEspacio ya está en curso.")
+        servicio["miespacio_estatus"] = "pendiente"
+        servicio["miespacio_error"] = None
+        return "Registro en MiEspacio encolado. La página se actualizará automáticamente.", servicio
 
     # ── Descarga ──────────────────────────────────────────────────────────
 
@@ -412,6 +438,28 @@ class CfeService:
         Llamado por el worker en cada ciclo. Reclama UN trabajo (atomico) y lo ejecuta
         con timeout. Procesa de a uno por ciclo para acotar memoria/CPU.
         """
+        # Alta en MiEspacio: prerequisito de la descarga. Se procesa primero y se
+        # corta el ciclo para no encadenar dos scrapes (acota memoria/CPU/bloqueo IP).
+        async with pool.acquire() as conn:
+            servicio_alta = await self.db.reclamar_alta_miespacio(conn)
+        if servicio_alta:
+            logger.info(
+                "[CFE] Alta MiEspacio reclamada servicio_id=%s numero=%s",
+                servicio_alta["id"], servicio_alta["numero_servicio"],
+            )
+            async with _scrape_lock:
+                try:
+                    await asyncio.wait_for(
+                        self._ejecutar_alta_miespacio(pool, servicio_alta), timeout=240,
+                    )
+                except asyncio.TimeoutError:
+                    async with pool.acquire() as conn:
+                        await self.db.marcar_miespacio_estatus(
+                            conn, servicio_alta["id"], "error",
+                            "El registro en MiEspacio excedió el tiempo límite.",
+                        )
+            return
+
         async with pool.acquire() as conn:
             busqueda = await self.db.reclamar_busqueda_periodos(conn)
         if busqueda:
@@ -476,6 +524,7 @@ class CfeService:
         """Marca error trabajos atascados en 'descargando' (worker reiniciado a mitad)."""
         async with pool.acquire() as conn:
             await self.db.reaper_descargando(conn, minutos=15)
+            await self.db.reaper_alta_miespacio_colgada(conn, minutos=15)
         await self.limpiar_busquedas_expiradas(pool)
 
     async def limpiar_busquedas_expiradas(self, pool: asyncpg.Pool) -> None:
@@ -505,6 +554,40 @@ class CfeService:
         for busqueda in expiradas:
             for item in all_items[busqueda["id"]]:
                 await self._borrar_staging_item(None, sp, item, _sp_cfg=sp_cfg)
+
+    async def _ejecutar_alta_miespacio(self, pool: asyncpg.Pool, servicio: dict) -> None:
+        """Registra el servicio en MiEspacio (si no existe) y actualiza su estatus.
+        Idempotente: 'ya_existia' y 'registrado' marcan 'registrado'."""
+        async with pool.acquire() as conn:
+            cfg_global = await self._get_cfe_config(conn)
+        cfg = self._build_scraper_config(servicio, cfg_global)
+        try:
+            resultado = await registrar_servicio_miespacio(cfg)
+        except Exception as exc:
+            logger.exception(
+                "[CFE] Error inesperado en alta MiEspacio servicio=%s", servicio["numero_servicio"]
+            )
+            async with pool.acquire() as conn:
+                await self.db.marcar_miespacio_estatus(
+                    conn, servicio["id"], "error", f"Error inesperado: {exc}"
+                )
+            return
+
+        logger.info(
+            "[CFE] Alta MiEspacio servicio=%s estado=%s total=%s",
+            servicio["numero_servicio"], resultado.estado, resultado.total_usado,
+        )
+        async with pool.acquire() as conn:
+            if resultado.session_json_nuevo:
+                await self._save_session(conn, resultado.session_json_nuevo)
+            if resultado.estado in ("registrado", "ya_existia"):
+                await self.db.marcar_miespacio_estatus(conn, servicio["id"], "registrado", None)
+                return
+            if resultado.estado == "sesion_invalida":
+                await self._marcar_sesion_invalida(conn)
+            await self.db.marcar_miespacio_estatus(
+                conn, servicio["id"], "error", resultado.mensaje or "No se pudo registrar el servicio."
+            )
 
     async def _ejecutar_busqueda_periodos(self, pool: asyncpg.Pool, busqueda: dict) -> None:
         async with pool.acquire() as conn:

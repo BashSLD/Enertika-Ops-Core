@@ -35,6 +35,7 @@ class CfeDBService:
             f"""
             SELECT s.id, s.numero_servicio, s.nombre, s.alias, s.lada, s.telefono,
                    s.email, s.activo, s.creado_en, s.modulos,
+                   s.miespacio_estatus, s.miespacio_error,
                    COUNT(DISTINCT d.periodo) FILTER (
                        WHERE d.estatus = 'completado'
                          AND d.tipo = 'xml'
@@ -108,6 +109,77 @@ class CfeDBService:
             servicio_id, modulo,
         )
         return dict(row) if row else {}
+
+    # ── Alta en MiEspacio (job del worker, independiente de la descarga) ──────
+
+    async def marcar_alta_miespacio_pendiente(
+        self, conn: asyncpg.Connection, servicio_id: UUID
+    ) -> bool:
+        """Encola el alta del servicio en MiEspacio. Idempotente: no reencola si ya
+        esta registrado o en proceso. Devuelve True si quedo encolado."""
+        row = await conn.fetchrow(
+            """
+            UPDATE tb_cfe_servicios
+            SET miespacio_estatus = 'pendiente', miespacio_error = NULL
+            WHERE id = $1
+              AND miespacio_estatus NOT IN ('registrado', 'registrando', 'pendiente')
+            RETURNING id
+            """,
+            servicio_id,
+        )
+        return row is not None
+
+    async def reclamar_alta_miespacio(self, conn: asyncpg.Connection) -> Optional[dict]:
+        """Reclama atomicamente un servicio pendiente de alta y lo pasa a 'registrando'.
+        Sella miespacio_verificado_en como marca de inicio para que el reaper pueda
+        rescatar altas colgadas (worker reiniciado a mitad)."""
+        row = await conn.fetchrow(
+            """
+            UPDATE tb_cfe_servicios
+            SET miespacio_estatus = 'registrando', miespacio_verificado_en = now()
+            WHERE id = (
+                SELECT id FROM tb_cfe_servicios
+                WHERE miespacio_estatus = 'pendiente'
+                ORDER BY creado_en
+                FOR UPDATE SKIP LOCKED
+                LIMIT 1
+            )
+            RETURNING *
+            """
+        )
+        return dict(row) if row else None
+
+    async def reaper_alta_miespacio_colgada(self, conn: asyncpg.Connection, minutos: int = 15) -> int:
+        """Devuelve a 'pendiente' las altas atascadas en 'registrando' (worker reiniciado
+        o timeout) para que el siguiente ciclo las reintente."""
+        result = await conn.execute(
+            """
+            UPDATE tb_cfe_servicios
+            SET miespacio_estatus = 'pendiente'
+            WHERE miespacio_estatus = 'registrando'
+              AND miespacio_verificado_en < now() - make_interval(mins => $1)
+            """,
+            minutos,
+        )
+        return int(result.split()[-1]) if result else 0
+
+    async def marcar_miespacio_estatus(
+        self, conn: asyncpg.Connection, servicio_id: UUID, estatus: str,
+        error: Optional[str] = None,
+    ) -> None:
+        await conn.execute(
+            """
+            UPDATE tb_cfe_servicios
+            SET miespacio_estatus = $2,
+                miespacio_error = $3,
+                miespacio_verificado_en = CASE
+                    WHEN $2 = 'registrado' THEN now()
+                    ELSE miespacio_verificado_en
+                END
+            WHERE id = $1
+            """,
+            servicio_id, estatus, error,
+        )
 
     async def get_descargas_por_servicio(
         self, conn: asyncpg.Connection, servicio_id: UUID

@@ -101,7 +101,8 @@
        badge pase a "Resultados listos" sin recargar a mano. El guard evita pisar
        un modal abierto (la busqueda activa ya se ve dentro del modal). #}
     {% set busquedas_activas = servicios | selectattr('busqueda_activa_estatus', 'in', ['pendiente', 'descargando']) | list %}
-    {% if busquedas_activas %}
+    {% set altas_en_proceso = servicios | selectattr('miespacio_estatus', 'in', ['pendiente', 'registrando']) | list %}
+    {% if busquedas_activas or altas_en_proceso %}
     <div hx-get="/cfe/ui{% if modulo %}?modulo={{ modulo }}{% endif %}"
          hx-target="#main-content"
          hx-swap="innerHTML"
@@ -126,6 +127,19 @@
                         {% if s.alias %}<span class="text-xs bg-gray-100 text-gray-500 px-2 py-0.5 rounded">{{ s.alias }}</span>{% endif %}
                     </div>
                     <p class="text-sm text-gray-500 mt-0.5 font-mono">{{ s.numero_servicio }}</p>
+                    {% if s.miespacio_estatus in ['pendiente', 'registrando'] %}
+                    <span class="mt-1 inline-flex items-center gap-1 text-xs text-amber-600 font-medium">
+                        <svg class="animate-spin h-3 w-3" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+                        </svg>
+                        Registrando en MiEspacio…
+                    </span>
+                    {% elif s.miespacio_estatus == 'error' %}
+                    <span class="mt-1 inline-flex items-center gap-1 text-xs text-red-600 font-medium" title="{{ s.miespacio_error }}">
+                        <span class="h-1.5 w-1.5 rounded-full bg-red-500"></span>No registrado en MiEspacio
+                    </span>
+                    {% endif %}
                     <div class="mt-1 flex items-center gap-3 text-xs text-gray-400">
                         {% if s.ultima_descarga %}
                         <span>Última descarga: {{ s.ultima_descarga | time_mx('%d/%m/%Y') }}</span>
@@ -168,6 +182,15 @@
                        class="text-xs bg-green-700 hover:bg-green-800 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
                         Descargar ZIP
                     </a>
+                    {% endif %}
+                    {% if s.miespacio_estatus == 'error' %}
+                    <button type="button"
+                        hx-post="/cfe/servicios/{{ s.id }}/reintentar-alta{% if modulo %}?modulo={{ modulo }}{% endif %}"
+                        hx-target="#cfe-lista"
+                        hx-swap="outerHTML"
+                        class="text-xs bg-red-600 hover:bg-red-700 text-white px-3 py-1.5 rounded-lg font-medium transition-colors">
+                        Reintentar registro
+                    </button>
                     {% endif %}
                     <button type="button"
                         hx-get="/cfe/servicios/{{ s.id }}/modal-buscar-periodos{% if modulo %}?modulo={{ modulo }}{% endif %}"
