@@ -1,12 +1,188 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="flex flex-col justify-center items-center min-h-[80vh] animate-fade-in">
+<style>
+    /* ===== Login — Intro "ECO" + rayos eléctricos (autocontenido) ===== */
+
+    /* Splash de intro a pantalla completa */
+    .eco-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 60;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        overflow: hidden;
+        background: linear-gradient(135deg, #123456 0%, #0E2A47 100%);
+        animation: eco-splash-out 0.6s ease-in 1.25s forwards;
+    }
+
+    @keyframes eco-splash-out {
+        to {
+            opacity: 0;
+            visibility: hidden;
+        }
+    }
+
+    /* Palabra ECO con zoom-in */
+    .eco-word {
+        position: relative;
+        z-index: 10;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        line-height: 1;
+        color: #00BABB;
+        font-size: clamp(5rem, 22vw, 16rem);
+        text-shadow: 0 0 30px rgba(0, 186, 187, 0.6), 0 0 60px rgba(0, 186, 187, 0.3);
+        animation:
+            eco-zoom-in 1s cubic-bezier(0.34, 1.56, 0.64, 1) both,
+            eco-zoom-out 0.6s ease-in 1.25s forwards;
+    }
+
+    @keyframes eco-zoom-in {
+        0% {
+            transform: scale(0.3);
+            opacity: 0;
+        }
+
+        60% {
+            opacity: 1;
+        }
+
+        100% {
+            transform: scale(1);
+            opacity: 1;
+        }
+    }
+
+    @keyframes eco-zoom-out {
+        from {
+            transform: scale(1);
+        }
+
+        to {
+            transform: scale(1.25);
+        }
+    }
+
+    /* Rayos del splash */
+    .eco-rays {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        z-index: 5;
+    }
+
+    .eco-ray {
+        stroke: #00BABB;
+        stroke-width: 2.5;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        fill: none;
+        stroke-dasharray: 100;
+        stroke-dashoffset: 100;
+        filter: drop-shadow(0 0 6px rgba(0, 186, 187, 0.8));
+        animation:
+            eco-ray-draw 0.5s ease-out both,
+            eco-ray-flicker 1.6s ease-in-out 0.7s infinite;
+    }
+
+    .eco-ray:nth-child(1) { animation-delay: 0.25s, 0.70s; }
+    .eco-ray:nth-child(2) { animation-delay: 0.35s, 0.90s; }
+    .eco-ray:nth-child(3) { animation-delay: 0.45s, 0.80s; }
+    .eco-ray:nth-child(4) { animation-delay: 0.30s, 1.00s; }
+    .eco-ray:nth-child(5) { animation-delay: 0.50s, 0.75s; }
+    .eco-ray:nth-child(6) { animation-delay: 0.40s, 0.95s; }
+
+    @keyframes eco-ray-draw {
+        from { stroke-dashoffset: 100; }
+        to { stroke-dashoffset: 0; }
+    }
+
+    @keyframes eco-ray-flicker {
+        0%, 100% { opacity: 1; }
+        20% { opacity: 0.55; }
+        40% { opacity: 0.9; }
+        60% { opacity: 0.4; }
+        80% { opacity: 0.85; }
+    }
+
+    /* Contenido del login se revela tras el splash */
+    .login-content {
+        animation: login-reveal 0.7s ease-out 1.5s both;
+    }
+
+    @keyframes login-reveal {
+        from {
+            opacity: 0;
+            transform: translateY(24px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    /* Rayos sutiles permanentes alrededor del ícono */
+    .icon-rays {
+        position: absolute;
+        inset: -25%;
+        width: 150%;
+        height: 150%;
+        z-index: 0;
+        pointer-events: none;
+    }
+
+    .icon-ray {
+        stroke: #00BABB;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        fill: none;
+        filter: drop-shadow(0 0 4px rgba(0, 186, 187, 0.7));
+        animation: eco-ray-flicker 2s ease-in-out infinite;
+    }
+
+    .icon-ray:nth-child(2) { animation-delay: 0.6s; }
+    .icon-ray:nth-child(3) { animation-delay: 1.1s; }
+
+    /* Accesibilidad: sin movimiento, sin splash */
+    @media (prefers-reduced-motion: reduce) {
+        .eco-splash { display: none; }
+        .login-content { animation: none; }
+        .eco-word, .eco-ray, .icon-ray { animation: none; }
+    }
+</style>
+
+<!-- Splash de intro: "ECO" con zoom + rayos eléctricos -->
+<div class="eco-splash" aria-hidden="true">
+    <svg class="eco-rays" viewBox="0 0 800 360" fill="none" preserveAspectRatio="xMidYMid slice">
+        <polyline class="eco-ray" pathLength="100" points="400,170 360,120 385,95 330,40 350,10" />
+        <polyline class="eco-ray" pathLength="100" points="400,170 445,115 420,90 470,35 455,5" />
+        <polyline class="eco-ray" pathLength="100" points="395,185 320,170 345,150 270,135 295,115 205,100" />
+        <polyline class="eco-ray" pathLength="100" points="405,185 480,170 455,150 535,135 510,115 600,100" />
+        <polyline class="eco-ray" pathLength="100" points="395,195 355,250 385,275 335,330 360,360" />
+        <polyline class="eco-ray" pathLength="100" points="405,195 450,250 420,275 470,335 445,360" />
+    </svg>
+    <span class="eco-word">ECO</span>
+</div>
+
+<!-- Contenido del login -->
+<div class="login-content flex flex-col justify-center items-center min-h-[80vh]">
     <div class="relative mb-8 group">
         <!-- Turquesa glow effect -->
         <div
             class="absolute -inset-4 bg-[#00BABB]/30 rounded-full blur-xl opacity-70 animate-pulse group-hover:opacity-100 transition duration-1000">
         </div>
+
+        <!-- Rayos sutiles permanentes alrededor del ícono -->
+        <svg class="icon-rays" viewBox="0 0 200 200" fill="none" aria-hidden="true">
+            <polyline class="icon-ray" points="30,55 52,72 42,90 66,104" />
+            <polyline class="icon-ray" points="170,55 148,72 158,90 134,104" />
+            <polyline class="icon-ray" points="100,8 90,34 110,40 100,66" />
+        </svg>
 
         <!-- Lightning Icon -->
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor"
@@ -27,6 +203,7 @@
 
     <!-- Login Button / Action Area -->
     <a href="/auth/login"
+        onclick="try { sessionStorage.setItem('eco_welcome', '1'); } catch (e) {}"
         class="bg-[#00BABB] hover:bg-[#009999] text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition duration-200 flex items-center gap-3">
         <svg class="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
             <path
