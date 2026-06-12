@@ -11,18 +11,19 @@
                 max-w-[95vw] sm:max-w-[600px] lg:max-w-[700px]
                 max-h-[90dvh] flex flex-col animate-scale-in" @click.stop>
 
-        <!-- HEADER con Gradiente Corporativo -->
-        <!-- HEADER con Gradiente Dinámico -->
-        <div class="px-6 py-4 bg-gradient-to-r flex justify-between items-center transition-all duration-300" :class="{
-                'from-yellow-400 to-orange-500': '{{ op.status_global|lower }}' == 'pendiente',
-                'from-blue-400 to-indigo-600': ['en revision', 'en revisión'].includes('{{ op.status_global|lower }}'),
-                'from-[#00BABB] to-[#123456]': '{{ op.status_global|lower }}' == 'en proceso',
-                'from-green-400 to-emerald-600': ['entregado', 'ganada', 'monitoreo de cotización', 'monitoreo de cotizacion'].includes('{{ op.status_global|lower }}'),
-                'from-emerald-500 to-green-700': '{{ op.status_global|lower }}' == 'cerrada',
-                'from-orange-400 to-orange-600': '{{ op.status_global|lower }}' == 'comentarios recibidos',
-                'from-red-400 to-rose-600': ['cancelado', 'error', 'perdida', 'perdido'].includes('{{ op.status_global|lower }}'),
-                'from-gray-500 to-gray-700': !['pendiente', 'en revision', 'en revisión', 'en proceso', 'entregado', 'ganada', 'monitoreo de cotización', 'monitoreo de cotizacion', 'cerrada', 'comentarios recibidos', 'cancelado', 'error', 'perdida', 'perdido'].includes('{{ op.status_global|lower }}')
-             }" x-data x-init="if('{{ op.status_global|lower }}' == 'ganada') {
+        <!-- HEADER con Gradiente Corporativo (estatico, derivado en servidor) -->
+        {% set _status = (op.status_global or '')|lower %}
+        {% if _status == 'pendiente' %}{% set header_gradient = 'from-yellow-400 to-orange-500' %}
+        {% elif _status in ['en revision', 'en revisión'] %}{% set header_gradient = 'from-blue-400 to-indigo-600' %}
+        {% elif _status == 'en proceso' %}{% set header_gradient = 'from-[#00BABB] to-[#123456]' %}
+        {% elif _status in ['entregado', 'ganada', 'monitoreo de cotización', 'monitoreo de cotizacion'] %}{% set header_gradient = 'from-green-400 to-emerald-600' %}
+        {% elif _status == 'cerrada' %}{% set header_gradient = 'from-emerald-500 to-green-700' %}
+        {% elif _status == 'comentarios recibidos' %}{% set header_gradient = 'from-orange-400 to-orange-600' %}
+        {% elif _status in ['cancelado', 'error', 'perdida', 'perdido'] %}{% set header_gradient = 'from-red-400 to-rose-600' %}
+        {% else %}{% set header_gradient = 'from-gray-500 to-gray-700' %}
+        {% endif %}
+        <div class="px-6 py-4 bg-gradient-to-r {{ header_gradient }} flex justify-between items-center"
+             x-data x-init="if('{{ op.status_global|lower }}' == 'ganada') {
                 await new Promise(resolve => setTimeout(resolve, 500)); 
                 confetti({
                     particleCount: 150,
