@@ -22,6 +22,7 @@ from .metrics_models import (
     MetricaCalidadRegistro,
     MetricaEntregaTecnologia,
     MetricaEntregaResumen,
+    MetricaMonitoreoItem,
 )
 
 logger = logging.getLogger("MetricsDBService")
@@ -644,6 +645,202 @@ class MetricsDBService:
             por_tecnologia=por_tecnologia,
             entregas_sin_hora=sum(int(row['sin_hora'] or 0) for row in rows),
         )
+
+    async def get_tiempo_en_monitoreo(
+        self,
+        conn: asyncpg.Connection,
+        fecha_inicio: date,
+        fecha_fin: date,
+        user_id: UUID = None,
+        tipo_solicitud_id: int = None,
+        tecnologia_id: int = None
+    ) -> List[MetricaMonitoreoItem]:
+        """
+        Oportunidades con tiempo en 'Monitoreo de Cotizacion' (orden=6) cuyo intervalo
+        intersecta el rango. Informativo: NO alimenta el lead time ni el SLA (ese tiempo
+        se descuenta en get_tiempo_entrega_por_tecnologia y get_comparativo_sla_ajustado).
+        Los intervalos abiertos (sigue en monitoreo) se miden hasta NOW().
+        """
+        params: list = [fecha_inicio, fecha_fin]
+        extra_filters = self._build_filters(params, user_id, tipo_solicitud_id, tecnologia_id)
+
+        query = f"""
+            WITH monitoreo_intervalos AS (
+                SELECT
+                    h.id_oportunidad,
+                    e.orden,
+                    h.fecha_cambio_sla AS inicio,
+                    LEAD(h.fecha_cambio_sla) OVER (
+                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
+                    ) AS fin
+                FROM tb_historial_estatus h
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+            ),
+            monitoreo AS (
+                SELECT
+                    id_oportunidad,
+                    SUM(EXTRACT(EPOCH FROM (COALESCE(fin, NOW()) - inicio)) / 86400.0) AS dias_monitoreo,
+                    bool_or(fin IS NULL) AS sigue_en_monitoreo
+                FROM monitoreo_intervalos
+                WHERE orden = 6
+                  AND (inicio AT TIME ZONE 'America/Mexico_City')::date <= $2
+                  AND (COALESCE(fin, NOW()) AT TIME ZONE 'America/Mexico_City')::date >= $1
+                GROUP BY id_oportunidad
+            )
+            SELECT
+                o.id_oportunidad,
+                o.op_id_estandar,
+                o.cliente_nombre,
+                o.titulo_proyecto,
+                COALESCE(t.nombre, 'Sin tecnología') AS tecnologia,
+                COALESCE(u.nombre, 'Sin asignar') AS responsable_simulacion,
+                o.es_licitacion,
+                m.dias_monitoreo,
+                m.sigue_en_monitoreo
+            FROM monitoreo m
+            JOIN tb_oportunidades o ON m.id_oportunidad = o.id_oportunidad
+            LEFT JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
+            LEFT JOIN tb_usuarios u ON o.responsable_simulacion_id = u.id_usuario
+            WHERE TRUE
+              {extra_filters}
+            ORDER BY m.dias_monitoreo DESC
+        """
+
+        try:
+            rows = await conn.fetch(query, *params)
+            return [
+                MetricaMonitoreoItem(
+                    id_oportunidad=str(row['id_oportunidad']),
+                    op_id_estandar=row['op_id_estandar'],
+                    cliente_nombre=row['cliente_nombre'],
+                    titulo_proyecto=row['titulo_proyecto'],
+                    tecnologia=row['tecnologia'],
+                    responsable_simulacion=row['responsable_simulacion'],
+                    es_licitacion=bool(row['es_licitacion']),
+                    dias_en_monitoreo=round(float(row['dias_monitoreo'] or 0), 1),
+                    sigue_en_monitoreo=bool(row['sigue_en_monitoreo']),
+                )
+                for row in rows
+            ]
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de BD obteniendo tiempo en monitoreo: {e}")
+            raise
+
+    async def get_detalle_entrega(
+        self,
+        conn: asyncpg.Connection,
+        fecha_inicio: date,
+        fecha_fin: date,
+        user_id: UUID = None,
+        tipo_solicitud_id: int = None,
+        tecnologia_id: int = None,
+        limite: int = 50
+    ) -> List[dict]:
+        """
+        Detalle por oportunidad del lead time solicitud->Entregado, ordenado de mas
+        lento a mas rapido. Mismo criterio que get_tiempo_entrega_por_tecnologia:
+        el lead time neto descuenta el tiempo en Monitoreo de Cotizacion (orden=6).
+        Expone bruto/monitoreo/neto para explicar de donde sale cada outlier.
+        """
+        params: list = [fecha_inicio, fecha_fin]
+        extra_filters = self._build_filters(params, user_id, tipo_solicitud_id, tecnologia_id)
+        params.append(limite)
+        limite_idx = len(params)
+
+        query = f"""
+            WITH entregas_en_rango AS (
+                SELECT DISTINCT ON (h.id_oportunidad)
+                    h.id_oportunidad,
+                    h.fecha_cambio_sla AS fecha_entrega_sla
+                FROM tb_historial_estatus h
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
+                WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
+                  AND e.orden = 5
+                  AND e.es_estatus_final = true
+                  AND o.fecha_solicitud IS NOT NULL
+                  {extra_filters}
+                ORDER BY h.id_oportunidad, h.fecha_cambio_sla DESC, h.fecha_creacion DESC, h.id DESC
+            ),
+            entregas_efectivas AS (
+                SELECT
+                    er.id_oportunidad,
+                    COALESCE(o.fecha_entrega_simulacion, er.fecha_entrega_sla) AS fecha_entrega,
+                    o.fecha_solicitud
+                FROM entregas_en_rango er
+                JOIN tb_oportunidades o ON er.id_oportunidad = o.id_oportunidad
+                WHERE COALESCE(o.fecha_entrega_simulacion, er.fecha_entrega_sla) > o.fecha_solicitud
+            ),
+            transiciones AS (
+                SELECT
+                    h.id_oportunidad,
+                    e.orden,
+                    h.fecha_cambio_sla AS inicio,
+                    LEAD(h.fecha_cambio_sla) OVER (
+                        PARTITION BY h.id_oportunidad
+                        ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
+                    ) AS fin
+                FROM tb_historial_estatus h
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+                WHERE h.id_oportunidad IN (SELECT id_oportunidad FROM entregas_efectivas)
+            ),
+            tiempo_monitoreo AS (
+                SELECT
+                    t.id_oportunidad,
+                    SUM(EXTRACT(EPOCH FROM (LEAST(t.fin, ee.fecha_entrega) - t.inicio)) / 86400.0) AS dias_monitoreo
+                FROM transiciones t
+                JOIN entregas_efectivas ee ON t.id_oportunidad = ee.id_oportunidad
+                WHERE t.orden = 6
+                  AND t.fin IS NOT NULL
+                  AND t.inicio < ee.fecha_entrega
+                  AND t.fin > t.inicio
+                GROUP BY t.id_oportunidad
+            )
+            SELECT
+                o.id_oportunidad,
+                o.op_id_estandar,
+                o.cliente_nombre,
+                o.titulo_proyecto,
+                COALESCE(t.nombre, 'Sin tecnología') AS tecnologia,
+                COALESCE(u.nombre, 'Sin asignar') AS responsable_simulacion,
+                o.es_licitacion,
+                EXTRACT(EPOCH FROM (ee.fecha_entrega - ee.fecha_solicitud)) / 86400.0 AS dias_brutos,
+                COALESCE(tm.dias_monitoreo, 0) AS dias_monitoreo,
+                GREATEST(
+                    EXTRACT(EPOCH FROM (ee.fecha_entrega - ee.fecha_solicitud)) / 86400.0
+                    - COALESCE(tm.dias_monitoreo, 0),
+                    0
+                ) AS dias_netos
+            FROM entregas_efectivas ee
+            JOIN tb_oportunidades o ON ee.id_oportunidad = o.id_oportunidad
+            LEFT JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
+            LEFT JOIN tb_usuarios u ON o.responsable_simulacion_id = u.id_usuario
+            LEFT JOIN tiempo_monitoreo tm ON ee.id_oportunidad = tm.id_oportunidad
+            ORDER BY dias_netos DESC
+            LIMIT ${limite_idx}
+        """
+
+        try:
+            rows = await conn.fetch(query, *params)
+            return [
+                {
+                    "id_oportunidad": str(row["id_oportunidad"]),
+                    "op_id_estandar": row["op_id_estandar"],
+                    "cliente_nombre": row["cliente_nombre"],
+                    "titulo_proyecto": row["titulo_proyecto"],
+                    "tecnologia": row["tecnologia"],
+                    "responsable_simulacion": row["responsable_simulacion"],
+                    "es_licitacion": bool(row["es_licitacion"]),
+                    "dias_brutos": round(float(row["dias_brutos"] or 0), 1),
+                    "dias_monitoreo": round(float(row["dias_monitoreo"] or 0), 1),
+                    "dias_netos": round(float(row["dias_netos"] or 0), 1),
+                }
+                for row in rows
+            ]
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de BD obteniendo detalle de entrega: {e}")
+            raise
 
     async def get_calidad_registro(
         self,

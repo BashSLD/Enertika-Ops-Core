@@ -87,6 +87,20 @@ class MetricaEntregaResumen:
 
 
 @dataclass
+class MetricaMonitoreoItem:
+    """Oportunidad con tiempo en 'Monitoreo de Cotizacion' (informativo, no SLA)."""
+    id_oportunidad: str
+    op_id_estandar: str
+    cliente_nombre: str
+    titulo_proyecto: str
+    tecnologia: str
+    responsable_simulacion: str
+    es_licitacion: bool
+    dias_en_monitoreo: float
+    sigue_en_monitoreo: bool
+
+
+@dataclass
 class MetricaCalidadRegistro:
     """Mide disciplina de captura entre fecha real y registro en sistema."""
     total_transiciones: int

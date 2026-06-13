@@ -189,7 +189,13 @@ async def get_datos_metricas(
         tipo_solicitud_id=tipo_int, tecnologia_id=tecnologia_int
     )
 
-    # 8. Calidad de registro (solo Admin): lag, bloqueos y ráfagas de captura
+    # 8. Tiempo en Monitoreo de Cotización (informativo, no SLA)
+    monitoreo = await metrics_db.get_tiempo_en_monitoreo(
+        conn, start.date(), end.date(), user_id=user_uuid,
+        tipo_solicitud_id=tipo_int, tecnologia_id=tecnologia_int
+    )
+
+    # 9. Calidad de registro (solo Admin): lag, bloqueos y ráfagas de captura
     calidad_registro = None
     if is_admin:
         calidad_registro = await metrics_db.get_calidad_registro(
@@ -205,6 +211,7 @@ async def get_datos_metricas(
         "ciclo_revision": ciclo_revision,
         "comparativo_sla": comparativo_sla,
         "entrega_tecnologia": entrega_tecnologia,
+        "monitoreo": monitoreo,
         "calidad_registro": calidad_registro,
         "fecha_inicio": start.date().isoformat(),
         "fecha_fin": end.date().isoformat(),
@@ -283,5 +290,49 @@ async def get_detalle_transicion(
         "estatus_origen": estatus_origen,
         "estatus_destino": estatus_destino,
         **_stats_dias(oportunidades),
+        **context
+    })
+
+
+@router.get("/api/metricas-operativas/detalle-entrega", include_in_schema=False)
+async def get_detalle_entrega(
+    request: Request,
+    fecha_inicio: str = Query(...),
+    fecha_fin: str = Query(...),
+    user_id: str = Query(None),
+    tipo_solicitud: str = Query(None),
+    tecnologia: str = Query(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    metrics_db: MetricsDBService = Depends(get_metrics_db_service),
+    _=require_module_access("simulacion", "viewer")
+):
+    """Detalle por oportunidad del lead time solicitud->Entregado (neto de Monitoreo)."""
+    if not _puede_ver_kpis(context):
+        return templates.TemplateResponse(request, "simulacion/partials/messages/error.html", {"title": "Acceso denegado", "message": "No tienes permisos para esta sección."})
+
+    try:
+        start = datetime.fromisoformat(fecha_inicio).date()
+        end = datetime.fromisoformat(fecha_fin).date()
+    except ValueError:
+        return templates.TemplateResponse(request, "simulacion/partials/messages/error.html", {"title": "Fechas inválidas", "message": "El rango de fechas no es válido."})
+
+    user_uuid = None
+    if user_id:
+        try:
+            user_uuid = UUID(user_id)
+        except ValueError:
+            pass
+
+    tipo_int = int(tipo_solicitud) if tipo_solicitud and tipo_solicitud.isdigit() else None
+    tecnologia_int = int(tecnologia) if tecnologia and tecnologia.isdigit() else None
+
+    oportunidades = await metrics_db.get_detalle_entrega(
+        conn, start, end, user_id=user_uuid,
+        tipo_solicitud_id=tipo_int, tecnologia_id=tecnologia_int
+    )
+
+    return templates.TemplateResponse(request, "simulacion/partials/detalle_oportunidades_entrega.html", {
+        "oportunidades": oportunidades,
         **context
     })

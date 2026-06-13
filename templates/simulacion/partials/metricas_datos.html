@@ -28,12 +28,13 @@
                     d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
             </svg>
             Tiempo de entrega (solicitud → Entregado)
-            {% call info_tooltip() %}
-                Lead time total de cada oportunidad: días naturales desde la fecha de
-                solicitud hasta que se marca como <strong>Entregado</strong>. Arriba el
-                promedio/mínimo/máximo global; abajo el desglose por tecnología.
-                <strong>Alto impacto</strong> marca las tecnologías cuyo promedio supera
-                el promedio global del período.
+            {% call info_tooltip(ancho='w-80') %}
+                Lead time de cada oportunidad: días naturales desde la fecha de solicitud
+                hasta que se marca como <strong>Entregado</strong>. Se <strong>descuenta</strong>
+                el tiempo en «Monitoreo de Cotización» (espera comercial, no proceso de
+                simulación); ese tiempo se muestra aparte abajo. Arriba el promedio/mínimo/máximo
+                global; abajo el desglose por tecnología. <strong>Alto impacto</strong> marca
+                las tecnologías cuyo promedio supera el promedio global del período.
             {% endcall %}
         </h3>
         <span class="text-xs text-gray-400">Días naturales</span>
@@ -113,6 +114,89 @@
         </p>
     </div>
     {% endif %}
+
+    <!-- Drill-down: oportunidades por lead time (identificar outliers) -->
+    <div class="mt-4 pt-3 border-t border-gray-100" x-data="{ open: false }">
+        <button type="button" @click="open = !open"
+            hx-get="/simulacion/api/metricas-operativas/detalle-entrega?fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}"
+            hx-target="#detalle-entrega" hx-swap="innerHTML" hx-trigger="click once"
+            class="text-sm text-blue-600 hover:text-blue-800 font-medium flex items-center gap-1 transition-colors">
+            <svg class="w-4 h-4 transform transition-transform" :class="{ 'rotate-180': open }"
+                fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"></path>
+            </svg>
+            <span x-text="open ? 'Ocultar detalle' : 'Ver oportunidades por lead time'"></span>
+        </button>
+        <div id="detalle-entrega" x-show="open" x-collapse class="mt-3"></div>
+    </div>
+</div>
+{% endif %}
+
+<!-- Sección 0b: Tiempo en Monitoreo de Cotización (informativo, no SLA) -->
+{% if monitoreo %}
+<div class="bg-white rounded-lg shadow p-5 mb-6">
+    <h3 class="text-base font-bold text-gray-900 mb-1 flex items-center gap-2">
+        <svg class="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+        </svg>
+        Tiempo en Monitoreo de Cotización
+        {% call info_tooltip(ancho='w-80') %}
+            Días que cada oportunidad ha pasado en «Monitoreo de Cotización» (espera de
+            decisión del cliente tras entregar la cotización). Es <strong>informativo</strong>:
+            este tiempo se descuenta del lead time de entrega y <strong>no impacta</strong>
+            el SLA de simulación.
+        {% endcall %}
+    </h3>
+    <p class="text-sm text-gray-500 mb-4">No cuenta para el SLA de simulación.</p>
+
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+            <thead>
+                <tr class="bg-gray-50 border-b text-xs uppercase tracking-wide text-gray-500">
+                    <th class="px-3 py-2 text-left font-semibold">OP ID</th>
+                    <th class="px-3 py-2 text-left font-semibold">Cliente</th>
+                    <th class="px-3 py-2 text-left font-semibold">Proyecto</th>
+                    <th class="px-3 py-2 text-left font-semibold">Tecnología</th>
+                    <th class="px-3 py-2 text-left font-semibold">Responsable</th>
+                    <th class="px-3 py-2 text-center font-semibold">Días en monitoreo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for op in monitoreo %}
+                <tr class="border-b border-gray-100 hover:bg-cyan-50 transition-colors">
+                    <td class="px-3 py-2">
+                        <a href="#" hx-get="/simulacion/modals/detalle/{{ op.id_oportunidad }}"
+                            hx-target="#modal-action-container" hx-swap="innerHTML"
+                            hx-disabled-elt="this" hx-sync="this:drop" hx-indicator="#global-loading-overlay"
+                            class="text-blue-600 hover:text-blue-800 font-medium hover:underline">
+                            {{ op.op_id_estandar }}
+                        </a>
+                        {% if op.es_licitacion %}
+                        <span class="ml-1 px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">LIC</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-gray-700">{{ op.cliente_nombre }}</td>
+                    <td class="px-3 py-2 text-gray-600 max-w-xs truncate" title="{{ op.titulo_proyecto }}">
+                        {{ op.titulo_proyecto }}
+                    </td>
+                    <td class="px-3 py-2">
+                        <span class="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded">{{ op.tecnologia }}</span>
+                    </td>
+                    <td class="px-3 py-2 text-gray-600">{{ op.responsable_simulacion }}</td>
+                    <td class="px-3 py-2 text-center">
+                        <span class="font-bold text-cyan-700">{{ op.dias_en_monitoreo }}d</span>
+                        {% if op.sigue_en_monitoreo %}
+                        <span class="ml-1 px-1.5 py-0.5 text-xs bg-cyan-100 text-cyan-700 rounded">en curso</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
 </div>
 {% endif %}
 
@@ -349,6 +433,16 @@
         {% endcall %}
     </h3>
     <p class="text-sm text-gray-500 -mt-2 mb-4">Tiempos en días naturales (incluyen fines de semana).</p>
+
+    <div class="mb-4 p-3 bg-amber-50 rounded-lg border-l-4 border-amber-400">
+        <p class="text-xs text-amber-900">
+            El registro del ciclo de revisión de Dirección se consolidó a partir de
+            <span class="font-semibold">mayo de 2026</span> (primer «Comentarios Recibidos»
+            registrado el 14-may-2026). Las oportunidades entregadas antes de esa fecha no
+            pasaron por estos estatus en el sistema, por lo que estos promedios pueden estar
+            <span class="font-semibold">subestimados</span> y la muestra es aún reducida.
+        </p>
+    </div>
 
     <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
         <div class="bg-purple-50 rounded-lg p-4 text-center">

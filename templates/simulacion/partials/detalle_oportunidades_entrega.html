@@ -1,0 +1,71 @@
+{# templates/simulacion/partials/detalle_oportunidades_entrega.html #}
+
+<div class="p-4">
+    <div class="flex items-center justify-between mb-4 pb-3 border-b border-gray-200">
+        <span class="text-sm text-gray-600">
+            <strong>{{ oportunidades | length }}</strong> oportunidades entregadas, ordenadas
+            por lead time (más lento primero)
+        </span>
+        <span class="text-xs text-gray-400">«Neto» descuenta el tiempo en Monitoreo de Cotización</span>
+    </div>
+
+    {% if oportunidades %}
+    <div class="overflow-x-auto max-h-96">
+        <table class="w-full text-sm">
+            <thead class="sticky top-0 bg-gray-100">
+                <tr>
+                    <th class="px-3 py-2 text-left font-semibold text-gray-700">OP ID</th>
+                    <th class="px-3 py-2 text-left font-semibold text-gray-700">Cliente</th>
+                    <th class="px-3 py-2 text-left font-semibold text-gray-700">Proyecto</th>
+                    <th class="px-3 py-2 text-left font-semibold text-gray-700">Tecnología</th>
+                    <th class="px-3 py-2 text-left font-semibold text-gray-700">Responsable</th>
+                    <th class="px-3 py-2 text-center font-semibold text-gray-700">Lead time neto</th>
+                    <th class="px-3 py-2 text-center font-semibold text-gray-700">Bruto</th>
+                    <th class="px-3 py-2 text-center font-semibold text-gray-700">Monitoreo</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for op in oportunidades %}
+                <tr class="border-b border-gray-100 hover:bg-blue-50 transition-colors">
+                    <td class="px-3 py-2">
+                        <a href="#" hx-get="/simulacion/modals/detalle/{{ op.id_oportunidad }}"
+                            hx-target="#modal-action-container" hx-swap="innerHTML"
+                            hx-disabled-elt="this" hx-sync="this:drop" hx-indicator="#global-loading-overlay"
+                            class="text-blue-600 hover:text-blue-800 font-medium hover:underline">
+                            {{ op.op_id_estandar }}
+                        </a>
+                        {% if op.es_licitacion %}
+                        <span class="ml-1 px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">LIC</span>
+                        {% endif %}
+                    </td>
+                    <td class="px-3 py-2 text-gray-700">{{ op.cliente_nombre }}</td>
+                    <td class="px-3 py-2 text-gray-600 max-w-xs truncate" title="{{ op.titulo_proyecto }}">
+                        {{ op.titulo_proyecto }}
+                    </td>
+                    <td class="px-3 py-2">
+                        <span class="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded">{{ op.tecnologia }}</span>
+                    </td>
+                    <td class="px-3 py-2 text-gray-600">{{ op.responsable_simulacion }}</td>
+                    <td class="px-3 py-2 text-center">
+                        <span
+                            class="font-semibold {% if op.dias_netos > 15 %}text-red-600{% elif op.dias_netos > 7 %}text-orange-600{% else %}text-green-600{% endif %}">
+                            {{ op.dias_netos }}d
+                        </span>
+                    </td>
+                    <td class="px-3 py-2 text-center text-gray-500">{{ op.dias_brutos }}d</td>
+                    <td class="px-3 py-2 text-center">
+                        {% if op.dias_monitoreo > 0 %}
+                        <span class="text-cyan-700">-{{ op.dias_monitoreo }}d</span>
+                        {% else %}
+                        <span class="text-gray-300">—</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <p class="text-gray-500 text-center py-6">No hay entregas en el período seleccionado</p>
+    {% endif %}
+</div>
