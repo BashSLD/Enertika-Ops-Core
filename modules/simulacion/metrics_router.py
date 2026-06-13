@@ -3,7 +3,7 @@ Router de Métricas Operativas del Módulo Simulación (solo Admin/Manager).
 """
 from fastapi import APIRouter, Request, Depends, HTTPException, Query
 from fastapi.templating import Jinja2Templates
-from datetime import datetime
+from datetime import datetime, date
 from uuid import UUID
 
 from core.security import get_current_user_context
@@ -40,6 +40,20 @@ def _stats_dias(oportunidades: list) -> dict:
     }
 
 
+def _rango_por_defecto() -> tuple[date, date]:
+    """Ventana por defecto de la sección: últimos 3 meses naturales.
+
+    Del primero del mes hace 2 meses hasta hoy (mes en curso + 2 previos). Se
+    refresca solo cada cambio de mes y arranca en datos post-ECO confiables.
+    """
+    hoy = now_mx().date()
+    anio, mes = hoy.year, hoy.month - 2
+    if mes <= 0:
+        mes += 12
+        anio -= 1
+    return date(anio, mes, 1), hoy
+
+
 def _puede_ver_kpis(context: dict) -> bool:
     """Política de visibilidad de los KPIs operativos.
 
@@ -69,8 +83,10 @@ async def get_metricas_operativas(
     if not _puede_ver_kpis(context):
         raise HTTPException(status_code=403, detail="Acceso denegado")
 
-    usuarios = await db_service.get_usuarios_activos(conn)
+    usuarios = await db_service.get_responsables_simulacion_con_ops(conn)
     tipos_solicitud = await db_service.get_tipos_solicitud(conn)
+    tecnologias = await db_service.get_catalog_tecnologias(conn)
+    rango_inicio, rango_fin = _rango_por_defecto()
 
     if is_htmx(request):
         template = "simulacion/metricas_operativas.html"
@@ -80,6 +96,9 @@ async def get_metricas_operativas(
     return templates.TemplateResponse(request, template, {
         "usuarios": [dict(r) for r in usuarios],
         "tipos_solicitud": [dict(r) for r in tipos_solicitud],
+        "tecnologias": tecnologias,
+        "rango_inicio": rango_inicio.isoformat(),
+        "rango_fin": rango_fin.isoformat(),
         "inner_template": "simulacion/metricas_operativas.html",
         **context
     })
@@ -92,6 +111,7 @@ async def get_datos_metricas(
     fecha_fin: str = Query(None),
     user_id: str = Query(None),
     tipo_solicitud: str = Query(None),
+    tecnologia: str = Query(None),
     context=Depends(get_current_user_context),
     conn=Depends(get_db_connection),
     metrics_service: MetricsService = Depends(get_metrics_service),
@@ -106,16 +126,16 @@ async def get_datos_metricas(
         })
     is_admin = context.get("is_admin")
 
-    # Parsear fechas (todo el historial por defecto)
-    start = datetime(2020, 1, 1)
-    end = now_mx()
+    # Parsear fechas (últimos 3 meses por defecto)
+    rango_inicio, rango_fin = _rango_por_defecto()
+    start = datetime.combine(rango_inicio, datetime.min.time())
+    end = datetime.combine(rango_fin, datetime.min.time())
     if fecha_inicio and fecha_fin:
         try:
             start = datetime.fromisoformat(fecha_inicio)
             end = datetime.fromisoformat(fecha_fin)
         except ValueError:
-            start = datetime(2020, 1, 1)
-            end = now_mx()
+            pass  # se conserva el rango por defecto ya asignado arriba
 
     user_uuid = None
     if user_id:
@@ -128,9 +148,14 @@ async def get_datos_metricas(
     if tipo_solicitud and tipo_solicitud.isdigit():
         tipo_int = int(tipo_solicitud)
 
+    tecnologia_int = None
+    if tecnologia and tecnologia.isdigit():
+        tecnologia_int = int(tecnologia)
+
     # 1. Tiempo por estatus
     metricas_estatus = await metrics_db.get_tiempo_por_estatus(
-        conn, start.date(), end.date(), user_id=user_uuid, tipo_solicitud_id=tipo_int
+        conn, start.date(), end.date(), user_id=user_uuid,
+        tipo_solicitud_id=tipo_int, tecnologia_id=tecnologia_int
     )
 
     # 2. Cuellos de botella (lógica en service)
@@ -138,29 +163,38 @@ async def get_datos_metricas(
 
     # 3. Análisis de ciclos
     ciclos = await metrics_db.get_analisis_ciclos(
-        conn, start.date(), end.date(), tipo_solicitud_id=tipo_int
+        conn, start.date(), end.date(), tipo_solicitud_id=tipo_int, tecnologia_id=tecnologia_int
     )
 
     # 4. Transiciones par a par (estado actual del pipeline)
     transiciones = await metrics_db.get_transiciones_par_a_par(
-        conn, user_id=user_uuid, tipo_solicitud_id=tipo_int
+        conn, user_id=user_uuid, tipo_solicitud_id=tipo_int, tecnologia_id=tecnologia_int
     )
 
     # 5. Métricas del ciclo de revisión (Dirección + retrabajo)
     ciclo_revision = await metrics_db.get_metricas_ciclo_revision(
-        conn, start.date(), end.date(), user_id=user_uuid, tipo_solicitud_id=tipo_int
+        conn, start.date(), end.date(), user_id=user_uuid,
+        tipo_solicitud_id=tipo_int, tecnologia_id=tecnologia_int
     )
 
     # 6. Comparativo SLA actual vs ajustado sin tiempo en revisión
     comparativo_sla = await metrics_db.get_comparativo_sla_ajustado(
-        conn, start.date(), end.date(), user_id=user_uuid, tipo_solicitud_id=tipo_int
+        conn, start.date(), end.date(), user_id=user_uuid,
+        tipo_solicitud_id=tipo_int, tecnologia_id=tecnologia_int
     )
 
-    # 7. Calidad de registro (solo Admin): lag, bloqueos y ráfagas de captura
+    # 7. Tiempo total solicitud -> Entregado, global y por tecnología
+    entrega_tecnologia = await metrics_db.get_tiempo_entrega_por_tecnologia(
+        conn, start.date(), end.date(), user_id=user_uuid,
+        tipo_solicitud_id=tipo_int, tecnologia_id=tecnologia_int
+    )
+
+    # 8. Calidad de registro (solo Admin): lag, bloqueos y ráfagas de captura
     calidad_registro = None
     if is_admin:
         calidad_registro = await metrics_db.get_calidad_registro(
-            conn, start.date(), end.date(), user_id=user_uuid, tipo_solicitud_id=tipo_int
+            conn, start.date(), end.date(), user_id=user_uuid,
+            tipo_solicitud_id=tipo_int, tecnologia_id=tecnologia_int
         )
 
     return templates.TemplateResponse(request, "simulacion/partials/metricas_datos.html", {
@@ -170,6 +204,7 @@ async def get_datos_metricas(
         "transiciones": transiciones,
         "ciclo_revision": ciclo_revision,
         "comparativo_sla": comparativo_sla,
+        "entrega_tecnologia": entrega_tecnologia,
         "calidad_registro": calidad_registro,
         "fecha_inicio": start.date().isoformat(),
         "fecha_fin": end.date().isoformat(),
