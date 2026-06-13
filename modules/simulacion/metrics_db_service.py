@@ -828,8 +828,13 @@ class MetricsDBService:
         El orden del flujo proviene del catálogo (A.4), sin dict hardcodeado.
         """
         filters = [
+            # 'Ganada' es es_estatus_final = false a proposito (dispara proyecto Gate
+            # y recordatorios de oportunidad ganada), pero es un resultado terminal:
+            # se excluye por nombre, igual que en comercial/db_service.py, para no
+            # contar dias transcurridos desde que se gano como pipeline activo.
             "o.id_estatus_global NOT IN ("
-            "  SELECT id FROM tb_cat_estatus_oportunidades WHERE es_estatus_final = true"
+            "  SELECT id FROM tb_cat_estatus_oportunidades"
+            "  WHERE es_estatus_final = true OR LOWER(nombre) = 'ganada'"
             ")"
         ]
         params: list = []
