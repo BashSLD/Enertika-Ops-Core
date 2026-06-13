@@ -9,6 +9,10 @@
         </svg>
         Tiempo Promedio por Estatus
     </h3>
+    <p class="text-sm text-gray-500 -mt-2 mb-4">
+        Días naturales (incluye fines de semana). &laquo;Tiempo Prom.&raquo; es el promedio por transición;
+        &laquo;% Tiempo Total&raquo;, la participación en el tiempo acumulado de todos los estatus.
+    </p>
 
     {% if metricas_estatus %}
     <div class="overflow-x-auto">
@@ -198,17 +202,18 @@
         </svg>
         Ciclo de Revisión
     </h3>
+    <p class="text-sm text-gray-500 -mt-2 mb-4">Tiempos en días naturales (incluyen fines de semana).</p>
 
     <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
         <div class="bg-purple-50 rounded-lg p-4 text-center">
             <p class="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-1">Tiempo en Revisión</p>
             <p class="text-2xl font-bold text-purple-700">{{ ciclo_revision.tiempo_revision_direccion_dias }}d</p>
-            <p class="text-xs text-gray-500 mt-1">promedio de Dirección</p>
+            <p class="text-xs text-gray-500 mt-1">promedio total de Dirección</p>
         </div>
         <div class="bg-orange-50 rounded-lg p-4 text-center">
             <p class="text-xs font-semibold text-orange-600 uppercase tracking-wide mb-1">Tiempo de Retrabajo</p>
             <p class="text-2xl font-bold text-orange-700">{{ ciclo_revision.tiempo_retrabajo_simulacion_dias }}d</p>
-            <p class="text-xs text-gray-500 mt-1">promedio de Simulación</p>
+            <p class="text-xs text-gray-500 mt-1">promedio en Comentarios Recibidos</p>
         </div>
         <div class="bg-blue-50 rounded-lg p-4 text-center">
             <p class="text-xs font-semibold text-blue-600 uppercase tracking-wide mb-1">Rondas de Revisión</p>
@@ -262,7 +267,7 @@
             <div class="bg-amber-50 rounded-lg p-4 text-center">
                 <p class="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">Tiempo Descontado</p>
                 <p class="text-2xl font-bold text-amber-700">{{ comparativo_sla.tiempo_revision_descontado_dias }}d</p>
-                <p class="text-xs text-gray-500 mt-1">promedio en revisión</p>
+                <p class="text-xs text-gray-500 mt-1">promedio en revisión hasta la entrega</p>
             </div>
             <div class="bg-cyan-50 rounded-lg p-4 text-center">
                 <p class="text-xs font-semibold text-cyan-700 uppercase tracking-wide mb-1">Impacto</p>
