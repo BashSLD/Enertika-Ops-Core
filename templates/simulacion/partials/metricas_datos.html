@@ -1,5 +1,23 @@
 {# templates/simulacion/partials/metricas_datos.html #}
 
+{# Tooltip informativo reutilizable: ícono "i" + popover Alpine. El contenido HTML
+   se pasa como cuerpo del {% call %} y se renderiza vía caller(). #}
+{% macro info_tooltip(ancho='w-72', color='text-gray-400 hover:text-gray-600') %}
+<span class="relative inline-flex items-center" x-data="{ open: false }" @click.outside="open = false">
+    <button type="button" @click="open = !open" aria-label="Más información"
+        class="{{ color }} transition-colors">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+        </svg>
+    </button>
+    <div x-show="open" x-cloak x-transition @click.stop
+        class="absolute left-0 top-6 z-30 {{ ancho }} max-w-[80vw] rounded-lg border border-gray-200 bg-white p-3 text-xs font-normal normal-case leading-relaxed text-gray-600 shadow-lg">
+        {{ caller() }}
+    </div>
+</span>
+{% endmacro %}
+
 <!-- Sección 0: Tiempo de entrega (solicitud → Entregado) y desglose por tecnología -->
 {% if entrega_tecnologia and entrega_tecnologia.total_oportunidades > 0 %}
 <div class="bg-white rounded-lg shadow p-5 mb-6">
@@ -10,6 +28,13 @@
                     d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
             </svg>
             Tiempo de entrega (solicitud → Entregado)
+            {% call info_tooltip() %}
+                Lead time total de cada oportunidad: días naturales desde la fecha de
+                solicitud hasta que se marca como <strong>Entregado</strong>. Arriba el
+                promedio/mínimo/máximo global; abajo el desglose por tecnología.
+                <strong>Alto impacto</strong> marca las tecnologías cuyo promedio supera
+                el promedio global del período.
+            {% endcall %}
         </h3>
         <span class="text-xs text-gray-400">Días naturales</span>
     </div>
@@ -99,6 +124,15 @@
                 d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path>
         </svg>
         Tiempo Promedio por Estatus
+        {% call info_tooltip(ancho='w-80') %}
+            Para cada estatus del pipeline de simulación (Pendiente, En Proceso, En
+            Revisión, Comentarios Recibidos), cuánto dura en promedio una oportunidad
+            <strong>desde que entra al estatus hasta que pasa al siguiente</strong>. Se
+            mide por transición: cada vez que una oportunidad entra cuenta una vez. Solo
+            cuenta intervalos ya cerrados (el tiempo del estatus actual de una OP viva se
+            ve en «Transiciones Actuales del Pipeline»). <strong>% Tiempo Total</strong>:
+            qué fracción del tiempo acumulado de todos los estatus se consume aquí.
+        {% endcall %}
     </h3>
     <p class="text-sm text-gray-500 -mt-2 mb-4">
         Días naturales (incluye fines de semana). &laquo;Tiempo Prom.&raquo; es el promedio por transición;
@@ -159,6 +193,15 @@
         </svg>
         Transiciones Actuales del Pipeline
         <span class="text-sm font-normal text-gray-500 ml-2">(última transición de cada oportunidad activa)</span>
+        {% call info_tooltip(ancho='w-80') %}
+            Foto del estado actual: para cada oportunidad viva (estatus no terminal) se
+            toma su <strong>última transición</strong> (origen → destino) y se agrupa.
+            <strong>Días Prom. en Destino</strong> = cuántos días llevan esas
+            oportunidades en su estatus actual, ahora mismo. Sirve para ver qué está
+            detenido y dónde. Las oportunidades ganadas se excluyen (son resultado
+            terminal); «Monitoreo de Cotización» sí aparece porque es espera activa del
+            cliente. El badge ↩ Retroceso marca regresos a un estatus anterior del flujo.
+        {% endcall %}
     </h3>
 
     <div class="overflow-x-auto">
@@ -243,6 +286,11 @@
             </path>
         </svg>
         Cuellos de Botella Detectados
+        {% call info_tooltip(color='text-red-400 hover:text-red-600') %}
+            Derivado de «Tiempo Promedio por Estatus»: resalta los estatus más lentos del
+            pipeline y los clasifica por impacto (Alto / Medio). Despliega cada uno para
+            ver las oportunidades concretas que están afectando ese promedio.
+        {% endcall %}
     </h3>
 
     <div class="space-y-4">
@@ -292,6 +340,13 @@
             </path>
         </svg>
         Ciclo de Revisión
+        {% call info_tooltip(ancho='w-80') %}
+            Sobre las oportunidades entregadas en el rango: <strong>Tiempo en
+            Revisión</strong> = días totales que Dirección las tuvo en «En Revisión»;
+            <strong>Tiempo de Retrabajo</strong> = días en «Comentarios Recibidos» donde
+            Simulación corrige; <strong>Rondas de Revisión</strong> = cuántas veces se
+            regresó a revisión. Abajo, qué porcentaje de las entregadas pasó por revisión.
+        {% endcall %}
     </h3>
     <p class="text-sm text-gray-500 -mt-2 mb-4">Tiempos en días naturales (incluyen fines de semana).</p>
 
@@ -332,7 +387,19 @@
     <div class="mt-5 border-t border-gray-200 pt-5">
         <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
             <div>
-                <h4 class="text-base font-bold text-gray-900">Comparativo SLA actual vs ajustado</h4>
+                <h4 class="text-base font-bold text-gray-900 flex items-center gap-2">
+                    Comparativo SLA actual vs ajustado
+                    {% call info_tooltip(ancho='w-80') %}
+                        <strong>SLA Actual</strong>: días de solicitud a entrega (el KPI
+                        oficial). <strong>SLA Ajustado</strong>: ese mismo tiempo menos lo
+                        que la oportunidad pasó en «En Revisión» antes de entregar, es
+                        decir, <em>si no contáramos lo que Dirección tardó revisando,
+                        ¿qué tan rápido se vería el SLA del equipo?</em>
+                        <strong>Tiempo Descontado</strong>: promedio de revisión que se
+                        quitó. <strong>Impacto</strong>: % de reducción. Es una lectura
+                        analítica: no cambia el KPI almacenado.
+                    {% endcall %}
+                </h4>
                 <p class="text-sm text-gray-500">Lectura analítica sin modificar el KPI almacenado.</p>
             </div>
             <span class="rounded-md px-2 py-1 text-xs font-semibold {% if comparativo_sla.descuento_sla_activo %}bg-green-100 text-green-700{% else %}bg-gray-100 text-gray-700{% endif %}">
@@ -381,6 +448,12 @@
         </svg>
         Calidad de registro
         <span class="text-sm font-normal text-gray-500 ml-2">solo Admin</span>
+        {% call info_tooltip(ancho='w-80') %}
+            Mide la confiabilidad del <strong>dato</strong>, no del proceso: el desfase
+            (lag) entre el momento real del cambio y cuándo se capturó, registros hechos
+            en bloque y ráfagas de captura por usuario. Un lag alto o muchas ráfagas
+            indican que los tiempos de las demás secciones podrían estar sesgados.
+        {% endcall %}
     </h3>
 
     {% if calidad_registro.total_transiciones > 0 %}
@@ -437,6 +510,12 @@
             </path>
         </svg>
         Análisis de Ciclos de Retrabajo
+        {% call info_tooltip() %}
+            Cuántas veces, en promedio y como máximo, las oportunidades
+            <strong>retroceden</strong> en el flujo (por ejemplo En Revisión ↔
+            Comentarios Recibidos). Muchos ciclos indican idas y vueltas de retrabajo
+            entre Simulación y Dirección.
+        {% endcall %}
     </h3>
 
     <div class="space-y-3">
