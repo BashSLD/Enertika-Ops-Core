@@ -63,6 +63,30 @@ class MetricaComparativoSLA:
 
 
 @dataclass
+class MetricaEntregaTecnologia:
+    """Tiempo solicitud -> Entregado (dias naturales) por tecnologia."""
+    tecnologia: str
+    total_oportunidades: int
+    tiempo_promedio_dias: float
+    tiempo_min_dias: float
+    tiempo_max_dias: float
+    es_alto_impacto: bool  # promedio de la tecnologia por encima del promedio global
+
+
+@dataclass
+class MetricaEntregaResumen:
+    """Resumen global del tiempo solicitud -> Entregado mas el desglose por tecnologia."""
+    total_oportunidades: int
+    tiempo_promedio_dias: float
+    tiempo_min_dias: float
+    tiempo_max_dias: float
+    por_tecnologia: list
+    # Entregas registradas a las 00:00 (legacy sin hora de entrega): su lead time
+    # puede estar subestimado hasta ~1 dia. Dispara la nota de confiabilidad.
+    entregas_sin_hora: int = 0
+
+
+@dataclass
 class MetricaCalidadRegistro:
     """Mide disciplina de captura entre fecha real y registro en sistema."""
     total_transiciones: int

@@ -20,6 +20,8 @@ from .metrics_models import (
     MetricaCicloRevision,
     MetricaComparativoSLA,
     MetricaCalidadRegistro,
+    MetricaEntregaTecnologia,
+    MetricaEntregaResumen,
 )
 
 logger = logging.getLogger("MetricsDBService")
@@ -27,16 +29,29 @@ logger = logging.getLogger("MetricsDBService")
 
 class MetricsDBService:
 
-    def _build_filters(self, params: list, user_id=None, tipo_solicitud_id=None) -> tuple[str, str]:
-        user_filter = ""
-        tipo_filter = ""
+    def _build_filters(
+        self,
+        params: list,
+        user_id=None,
+        tipo_solicitud_id=None,
+        tecnologia_id=None,
+    ) -> str:
+        """Construye el bloque AND de filtros opcionales sobre la tabla `o`.
+
+        Devuelve un unico fragmento SQL (puede ir vacio) para interpolar dentro
+        del WHERE. Los filtros no pasados (None) se omiten.
+        """
+        clauses: list[str] = []
         if user_id:
             params.append(user_id)
-            user_filter = f"AND o.responsable_simulacion_id = ${len(params)}"
+            clauses.append(f"AND o.responsable_simulacion_id = ${len(params)}")
         if tipo_solicitud_id:
             params.append(tipo_solicitud_id)
-            tipo_filter = f"AND o.id_tipo_solicitud = ${len(params)}"
-        return user_filter, tipo_filter
+            clauses.append(f"AND o.id_tipo_solicitud = ${len(params)}")
+        if tecnologia_id:
+            params.append(tecnologia_id)
+            clauses.append(f"AND o.id_tecnologia = ${len(params)}")
+        return "\n                  ".join(clauses)
 
     async def get_tiempo_por_estatus(
         self,
@@ -44,7 +59,8 @@ class MetricsDBService:
         fecha_inicio: date,
         fecha_fin: date,
         user_id: UUID = None,
-        tipo_solicitud_id: int = None
+        tipo_solicitud_id: int = None,
+        tecnologia_id: int = None
     ) -> List[MetricaEstatus]:
         """
         Calcula tiempo promedio en cada estatus no-terminal.
@@ -54,7 +70,7 @@ class MetricsDBService:
         Los terminales se excluyen del resultado y del porcentaje (A.2).
         """
         params: list = [fecha_inicio, fecha_fin]
-        user_filter, tipo_filter = self._build_filters(params, user_id, tipo_solicitud_id)
+        extra_filters = self._build_filters(params, user_id, tipo_solicitud_id, tecnologia_id)
 
         query = f"""
             WITH oportunidades_en_rango AS (
@@ -63,8 +79,7 @@ class MetricsDBService:
                 JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
                 WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
                   AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
-                  {user_filter}
-                  {tipo_filter}
+                  {extra_filters}
             ),
             todas_transiciones AS (
                 SELECT
@@ -129,7 +144,8 @@ class MetricsDBService:
         conn: asyncpg.Connection,
         fecha_inicio: date,
         fecha_fin: date,
-        tipo_solicitud_id: int = None
+        tipo_solicitud_id: int = None,
+        tecnologia_id: int = None
     ) -> List[MetricaCiclos]:
         """
         Analiza ciclos de retrabajo (ej: En Proceso ↔ En Revisión).
@@ -140,7 +156,7 @@ class MetricsDBService:
         un dict hardcodeado (A.4).
         """
         params: list = [fecha_inicio, fecha_fin]
-        _, tipo_filter = self._build_filters(params, tipo_solicitud_id=tipo_solicitud_id)
+        extra_filters = self._build_filters(params, tipo_solicitud_id=tipo_solicitud_id, tecnologia_id=tecnologia_id)
 
         query = f"""
             WITH oportunidades_en_rango AS (
@@ -149,7 +165,7 @@ class MetricsDBService:
                 JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
                 WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
                   AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
-                  {tipo_filter}
+                  {extra_filters}
             ),
             transiciones_seq AS (
                 SELECT
@@ -217,7 +233,8 @@ class MetricsDBService:
         fecha_inicio: date,
         fecha_fin: date,
         user_id: UUID = None,
-        tipo_solicitud_id: int = None
+        tipo_solicitud_id: int = None,
+        tecnologia_id: int = None
     ) -> MetricaCicloRevision:
         """
         Mide el ciclo de revisión de Dirección y retrabajo de Simulación.
@@ -234,7 +251,7 @@ class MetricsDBService:
         rotuladas distinto en la UI ("total de Dirección" vs "hasta la entrega").
         """
         params: list = [fecha_inicio, fecha_fin]
-        user_filter, tipo_filter = self._build_filters(params, user_id, tipo_solicitud_id)
+        extra_filters = self._build_filters(params, user_id, tipo_solicitud_id, tecnologia_id)
 
         query = f"""
             WITH oportunidades_entregadas AS (
@@ -246,8 +263,7 @@ class MetricsDBService:
                   AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
                   AND e.orden = 5
                   AND e.es_estatus_final = true
-                  {user_filter}
-                  {tipo_filter}
+                  {extra_filters}
             ),
             transiciones AS (
                 SELECT
@@ -336,7 +352,8 @@ class MetricsDBService:
         fecha_inicio: date,
         fecha_fin: date,
         user_id: UUID = None,
-        tipo_solicitud_id: int = None
+        tipo_solicitud_id: int = None,
+        tecnologia_id: int = None
     ) -> MetricaComparativoSLA:
         """
         Compara el SLA actual contra una lectura ajustada.
@@ -352,7 +369,7 @@ class MetricsDBService:
         )
 
         params: list = [fecha_inicio, fecha_fin]
-        user_filter, tipo_filter = self._build_filters(params, user_id, tipo_solicitud_id)
+        extra_filters = self._build_filters(params, user_id, tipo_solicitud_id, tecnologia_id)
 
         query = f"""
             WITH entregas_en_rango AS (
@@ -367,8 +384,7 @@ class MetricsDBService:
                   AND e.orden = 5
                   AND e.es_estatus_final = true
                   AND o.fecha_solicitud IS NOT NULL
-                  {user_filter}
-                  {tipo_filter}
+                  {extra_filters}
                 ORDER BY h.id_oportunidad, h.fecha_cambio_sla DESC, h.fecha_creacion DESC, h.id DESC
             ),
             entregas_efectivas AS (
@@ -456,13 +472,122 @@ class MetricsDBService:
             logger.error(f"Error de BD obteniendo comparativo SLA ajustado: {e}")
             raise
 
+    async def get_tiempo_entrega_por_tecnologia(
+        self,
+        conn: asyncpg.Connection,
+        fecha_inicio: date,
+        fecha_fin: date,
+        user_id: UUID = None,
+        tipo_solicitud_id: int = None,
+        tecnologia_id: int = None
+    ) -> MetricaEntregaResumen:
+        """
+        Tiempo total solicitud -> Entregado (dias naturales) global y por tecnologia.
+
+        Mismo ancla de entrega que get_comparativo_sla_ajustado
+        (orden=5, COALESCE(fecha_entrega_simulacion, fecha entrega del historial)).
+        El resumen global se agrega en Python a partir del desglose por tecnologia
+        (promedio ponderado por conteo) para una sola pasada de SQL.
+
+        "Alto impacto" es dinamico: una tecnologia se marca cuando su promedio
+        supera el promedio global del periodo/filtro, no por una lista fija.
+        """
+        params: list = [fecha_inicio, fecha_fin]
+        extra_filters = self._build_filters(params, user_id, tipo_solicitud_id, tecnologia_id)
+
+        query = f"""
+            WITH entregas_en_rango AS (
+                SELECT DISTINCT ON (h.id_oportunidad)
+                    h.id_oportunidad,
+                    h.fecha_cambio_sla AS fecha_entrega_sla
+                FROM tb_historial_estatus h
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
+                WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
+                  AND e.orden = 5
+                  AND e.es_estatus_final = true
+                  AND o.fecha_solicitud IS NOT NULL
+                  {extra_filters}
+                ORDER BY h.id_oportunidad, h.fecha_cambio_sla DESC, h.fecha_creacion DESC, h.id DESC
+            ),
+            base AS (
+                SELECT
+                    COALESCE(t.nombre, 'Sin tecnología') AS tecnologia,
+                    EXTRACT(EPOCH FROM (
+                        COALESCE(o.fecha_entrega_simulacion, er.fecha_entrega_sla) - o.fecha_solicitud
+                    )) / 86400.0 AS dias,
+                    -- Entrega a las 00:00 = legacy sin hora real (carga previa a ECO).
+                    -- Marca el registro como no confiable a nivel sub-dia.
+                    (COALESCE(o.fecha_entrega_simulacion, er.fecha_entrega_sla)
+                        AT TIME ZONE 'America/Mexico_City')::time = TIME '00:00:00' AS sin_hora
+                FROM entregas_en_rango er
+                JOIN tb_oportunidades o ON er.id_oportunidad = o.id_oportunidad
+                LEFT JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
+                WHERE COALESCE(o.fecha_entrega_simulacion, er.fecha_entrega_sla) > o.fecha_solicitud
+            )
+            SELECT
+                tecnologia,
+                COUNT(*) AS total,
+                AVG(dias) AS tiempo_promedio,
+                MIN(dias) AS tiempo_min,
+                MAX(dias) AS tiempo_max,
+                COUNT(*) FILTER (WHERE sin_hora) AS sin_hora
+            FROM base
+            GROUP BY tecnologia
+            ORDER BY tiempo_promedio DESC
+        """
+
+        try:
+            rows = await conn.fetch(query, *params)
+        except asyncpg.PostgresError as e:
+            logger.error(f"Error de BD obteniendo tiempo de entrega por tecnología: {e}")
+            raise
+
+        por_tecnologia = [
+            MetricaEntregaTecnologia(
+                tecnologia=row['tecnologia'],
+                total_oportunidades=int(row['total'] or 0),
+                tiempo_promedio_dias=round(float(row['tiempo_promedio'] or 0), 1),
+                tiempo_min_dias=round(float(row['tiempo_min'] or 0), 1),
+                tiempo_max_dias=round(float(row['tiempo_max'] or 0), 1),
+                es_alto_impacto=False,  # se resuelve abajo contra el promedio global
+            )
+            for row in rows
+        ]
+
+        total_global = sum(t.total_oportunidades for t in por_tecnologia)
+        if total_global > 0:
+            promedio_global = round(
+                sum(t.tiempo_promedio_dias * t.total_oportunidades for t in por_tecnologia)
+                / total_global,
+                1,
+            )
+            min_global = round(min(t.tiempo_min_dias for t in por_tecnologia), 1)
+            max_global = round(max(t.tiempo_max_dias for t in por_tecnologia), 1)
+            # Alto impacto: tecnologias por encima del promedio global del periodo.
+            for t in por_tecnologia:
+                t.es_alto_impacto = t.tiempo_promedio_dias > promedio_global
+        else:
+            promedio_global = min_global = max_global = 0.0
+
+        return MetricaEntregaResumen(
+            total_oportunidades=total_global,
+            tiempo_promedio_dias=promedio_global,
+            tiempo_min_dias=min_global,
+            tiempo_max_dias=max_global,
+            por_tecnologia=por_tecnologia,
+            entregas_sin_hora=sum(int(row['sin_hora'] or 0) for row in rows),
+        )
+
     async def get_calidad_registro(
         self,
         conn: asyncpg.Connection,
         fecha_inicio: date,
         fecha_fin: date,
         user_id: UUID = None,
-        tipo_solicitud_id: int = None
+        tipo_solicitud_id: int = None,
+        tecnologia_id: int = None
     ) -> MetricaCalidadRegistro:
         """
         Reporta calidad de captura usando fecha_creacion como verdad de sistema.
@@ -490,7 +615,7 @@ class MetricsDBService:
             ventana_rafaga_min,
             umbral_rafaga_usuario,
         ]
-        user_filter, tipo_filter = self._build_filters(params, user_id, tipo_solicitud_id)
+        extra_filters = self._build_filters(params, user_id, tipo_solicitud_id, tecnologia_id)
 
         query = f"""
             WITH base AS (
@@ -508,8 +633,7 @@ class MetricsDBService:
                 JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
                 WHERE (h.fecha_creacion AT TIME ZONE 'America/Mexico_City')::date >= $1
                   AND (h.fecha_creacion AT TIME ZONE 'America/Mexico_City')::date <= $2
-                  {user_filter}
-                  {tipo_filter}
+                  {extra_filters}
             ),
             resumen AS (
                 SELECT
@@ -696,7 +820,8 @@ class MetricsDBService:
         self,
         conn: asyncpg.Connection,
         user_id: UUID = None,
-        tipo_solicitud_id: int = None
+        tipo_solicitud_id: int = None,
+        tecnologia_id: int = None
     ) -> List[MetricaTransicion]:
         """
         Estado actual del pipeline activo por par de transición.
@@ -716,6 +841,10 @@ class MetricsDBService:
         if tipo_solicitud_id:
             params.append(tipo_solicitud_id)
             filters.append(f"o.id_tipo_solicitud = ${len(params)}")
+
+        if tecnologia_id:
+            params.append(tecnologia_id)
+            filters.append(f"o.id_tecnologia = ${len(params)}")
 
         where_clause = " AND ".join(filters)
 

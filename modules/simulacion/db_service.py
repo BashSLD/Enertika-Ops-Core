@@ -220,6 +220,22 @@ class SimulacionDBService:
         """)
         return [dict(r) for r in rows]
 
+    async def get_responsables_simulacion_con_ops(self, conn) -> List[Dict[str, Any]]:
+        """Ejecutores que aparecen como responsable_simulacion en alguna oportunidad.
+
+        Fuente del filtro de métricas (mapea a responsable_simulacion_id): solo
+        responsables con datos, para que ninguna opción quede vacía. Incluye
+        inactivos con historial (el JOIN resuelve el nombre).
+        """
+        rows = await conn.fetch("""
+            SELECT DISTINCT u.id_usuario AS id, u.nombre
+            FROM tb_oportunidades o
+            JOIN tb_usuarios u ON o.responsable_simulacion_id = u.id_usuario
+            WHERE o.responsable_simulacion_id IS NOT NULL
+            ORDER BY u.nombre
+        """)
+        return [dict(r) for r in rows]
+
     async def get_tipos_solicitud(self, conn) -> List[Dict[str, Any]]:
         rows = await conn.fetch("""
             SELECT id, nombre
