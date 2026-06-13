@@ -504,8 +504,8 @@ async def _generar_pdf_response(
 ) -> _Response:
     datos = await service.get_all_report_data(conn, filtros)
     filtros_ctx = {
-        "fecha_inicio": str(filtros.fecha_inicio),
-        "fecha_fin": str(filtros.fecha_fin),
+        "fecha_inicio": filtros.fecha_inicio.strftime("%d/%m/%Y"),
+        "fecha_fin": filtros.fecha_fin.strftime("%d/%m/%Y"),
         "id_tecnologia": filtros.id_tecnologia,
         "responsable_id": getattr(filtros, "responsable_id", None),
     }

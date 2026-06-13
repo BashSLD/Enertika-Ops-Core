@@ -25,7 +25,7 @@
             }
 
             @bottom-right {
-                content: "Pagina " counter(page) " de " counter(pages);
+                content: "Página " counter(page) " de " counter(pages);
                 font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif;
                 font-size: 6.5pt;
                 color: #94a3b8;
@@ -273,6 +273,11 @@
             margin-bottom: 14px;
         }
 
+        /* 5 tarjetas (cuando hay ganadas): repartir al 20% para no desbordar */
+        .kpi-grid.k5 .kpi-card {
+            width: 20%;
+        }
+
         .kpi-card {
             width: 25%;
             background: #ffffff;
@@ -502,6 +507,30 @@
             color: #94a3b8;
         }
 
+        /* Especificidad: .dt tbody td (0,1,2) gana a .sem-*/.p-* (0,1,0).
+           Estas reglas (0,2,2) restauran el color del semaforo en las celdas. */
+        .dt tbody td.sem-green,
+        .dt tbody td.p-g {
+            color: #16a34a;
+            font-weight: 700;
+        }
+
+        .dt tbody td.sem-amber,
+        .dt tbody td.p-a {
+            color: #d97706;
+            font-weight: 700;
+        }
+
+        .dt tbody td.sem-red,
+        .dt tbody td.p-r {
+            color: #dc2626;
+            font-weight: 700;
+        }
+
+        .dt tbody td.sem-gray {
+            color: #94a3b8;
+        }
+
         /* Divisor visual entre secciones de una misma pagina */
         .section-divider {
             border: none;
@@ -562,7 +591,7 @@
         <img src="logos/header.png" alt="Enertika">
     </div>
     <div class="pdf-footer-logo">
-        <img src="logos/footer.png" alt=""><span>ENERTIKA &mdash; Reporte Analitico de Simulacion</span>
+        <img src="logos/footer.png" alt=""><span>ENERTIKA &mdash; Reporte Analítico de Simulación</span>
     </div>
 
     <!-- ========================================================
@@ -577,8 +606,8 @@
         <div class="cover-inner">
             <div class="cover-eyebrow">Enertika &nbsp;&bull;&nbsp; Energ&iacute;a a tu medida</div>
             <div class="cover-accent-line"></div>
-            <div class="cover-title">Reporte<br>Analitico</div>
-            <div class="cover-title-sub">Modulo de Simulacion de Proyectos</div>
+            <div class="cover-title">Reporte<br>Analítico</div>
+            <div class="cover-title-sub">Módulo de Simulación de Proyectos</div>
             <hr class="cover-divider">
             <table class="cover-meta-grid">
                 <tr>
@@ -608,7 +637,7 @@
     {% if filtros.id_tecnologia or filtros.responsable_id %}
     <div class="filtros">
         Filtros &mdash;
-        {% if filtros.id_tecnologia %}Tecnologia: <strong>{{ filtros.id_tecnologia }}</strong>{% endif %}
+        {% if filtros.id_tecnologia %}Tecnología: <strong>{{ filtros.id_tecnologia }}</strong>{% endif %}
         {% if filtros.responsable_id %}{% if filtros.id_tecnologia %} &middot; {% endif %}Usuario: <strong>{{
             filtros.responsable_id }}</strong>{% endif %}
     </div>
@@ -616,7 +645,7 @@
 
     <div class="section-title">Resumen Ejecutivo</div>
 
-    <table class="kpi-grid">
+    <table class="kpi-grid {% if m.ganadas > 0 %}k5{% endif %}">
         <tr>
             <td class="kpi-card">
                 <div class="kv">{{ m.total_solicitudes }}</div>
@@ -653,8 +682,8 @@
         <tr>
             <td class="ml">Entregas a tiempo — plazo interno</td>
             <td class="mv">{{ m.entregas_a_tiempo_interno }}</td>
-            <td class="ml">En espera</td>
-            <td class="mv">{{ m.en_espera }}</td>
+            <td class="ml">Tiempo promedio de entrega</td>
+            <td class="mv">{% if m.tiempo_promedio_dias is not none %}{{ m.tiempo_promedio_dias }} d{% else %}—{% endif %}</td>
         </tr>
         {% if m.sim_adicionales_count > 0 %}
         <tr>
@@ -671,12 +700,12 @@
     {# Graficas: Estatus + Tendencia mensual en la misma pagina #}
     {% if charts.estatus or charts.mensual %}
     <hr class="section-divider">
-    <div class="section-label mb-10">Distribucion y Tendencia Mensual</div>
+    <div class="section-label mb-10">Distribución y Tendencia Mensual</div>
     <table class="chart-pair">
         <tr>
             {% if charts.estatus %}
             <td>
-                <div class="chart-title">Distribucion por Estatus</div>
+                <div class="chart-title">Distribución por Estatus</div>
                 <img src="{{ charts.estatus }}" alt="">
             </td>
             {% endif %}
@@ -695,7 +724,7 @@
      PAGINA 3 — CONTABILIZACION + TENDENCIA MENSUAL
 ======================================================== -->
     <div class="page-break"></div>
-    <div class="section-title">Contabilizacion por Tipo de Solicitud</div>
+    <div class="section-title">Contabilización por Tipo de Solicitud</div>
 
     {% if tablas.contabilizacion %}
     <table class="dt mb-18">
@@ -739,7 +768,6 @@
 
     {% set meses_abr =
     {1:'Ene',2:'Feb',3:'Mar',4:'Abr',5:'May',6:'Jun',7:'Jul',8:'Ago',9:'Sep',10:'Oct',11:'Nov',12:'Dic'} %}
-    {% set meses_list = [1,2,3,4,5,6,7,8,9,10,11,12] %}
 
     {# Metricas a mostrar: (etiqueta, clave en tablas.mensual) #}
     {% set filas_key = [
@@ -748,13 +776,21 @@
     ('% Cumpl. interno', 'porcentaje_en_plazo_interno'),
     ('En espera', 'en_espera'),
     ('Canceladas', 'canceladas'),
-    ('Perdidas', 'perdidas'),
+    ('Pérdidas', 'perdidas'),
     ] %}
+
+    {# Solo mostrar los meses con datos en el rango (evita columnas vacias). #}
+    {% set ns_meses = namespace(items=[]) %}
+    {% for _etq, _clave in filas_key %}
+    {% set _fila = tablas.mensual.get(_clave) %}
+    {% if _fila %}{% set ns_meses.items = ns_meses.items + (_fila.valores.keys() | list) %}{% endif %}
+    {% endfor %}
+    {% set meses_list = ns_meses.items | unique | sort %}
 
     <table class="dt dt-mensual">
         <thead>
             <tr>
-                <th class="tl" style="width:18%;">Metrica</th>
+                <th class="tl" style="width:18%;">Métrica</th>
                 {% for mes in meses_list %}
                 <th>{{ meses_abr[mes] }}</th>
                 {% endfor %}
@@ -782,13 +818,13 @@
     {# Seccion de Solicitudes Canceladas/Perdidas y Motivos de Cierre #}
     {% if tablas.motivos_cierre %}
     <hr class="section-divider">
-    <div class="section-title" style="margin-top:4px;">Solicitudes Canceladas / Perdidas — Motivos de Cierre</div>
+    <div class="section-title" style="margin-top:4px;">Solicitudes Canceladas / Pérdidas — Motivos de Cierre</div>
 
     <table class="dt mb-14">
         <thead>
             <tr>
                 <th class="tl" style="width:45%;">Motivo</th>
-                <th style="width:25%;">Categoria</th>
+                <th style="width:25%;">Categoría</th>
                 <th style="width:15%;">Cantidad</th>
                 <th style="width:15%;">% del Total</th>
             </tr>
@@ -807,7 +843,7 @@
     </table>
     {% else %}
     <hr class="section-divider">
-    <div class="section-title" style="margin-top:4px;">Solicitudes Canceladas / Perdidas — Motivos de Cierre</div>
+    <div class="section-title" style="margin-top:4px;">Solicitudes Canceladas / Pérdidas — Motivos de Cierre</div>
     <p style="font-size:8.5pt;color:#94a3b8;font-style:italic;margin-bottom:18px;">Sin solicitudes canceladas o perdidas
         con motivo de cierre en este periodo.</p>
     {% endif %}
@@ -817,13 +853,13 @@
      PAGINA 4 — TECNOLOGIA + GRAFICAS USUARIOS
 ======================================================== -->
     <div class="page-break"></div>
-    <div class="section-title">Analisis por Tecnologia</div>
+    <div class="section-title">Análisis por Tecnología</div>
 
     {% if tablas.tecnologias %}
     <table class="dt mb-14">
         <thead>
             <tr>
-                <th class="tl">Tecnologia</th>
+                <th class="tl">Tecnología</th>
                 <th>Solicitudes</th>
                 <th>Ofertas</th>
                 <th>A Tiempo Int.</th>
@@ -832,6 +868,7 @@
         </thead>
         <tbody>
             {% for t in tablas.tecnologias %}
+            {% if t.total_solicitudes or t.total_ofertas %}
             <tr>
                 <td class="tl">{{ t.nombre }}</td>
                 <td>{{ t.total_solicitudes }}</td>
@@ -839,6 +876,7 @@
                 <td>{{ t.entregas_a_tiempo_interno }}</td>
                 <td>{{ t.entregas_a_tiempo_compromiso }}</td>
             </tr>
+            {% endif %}
             {% endfor %}
         </tbody>
     </table>
@@ -846,7 +884,7 @@
 
     {% if charts.tecnologia %}
     <div class="chart-full mb-14">
-        <div class="chart-title" style="text-align:left;">Distribucion de Solicitudes por Tecnologia</div>
+        <div class="chart-title" style="text-align:left;">Distribución de Solicitudes por Tecnología</div>
         <img src="{{ charts.tecnologia }}" alt="">
     </div>
     {% endif %}
@@ -936,12 +974,12 @@
     {% if tablas.alta_iteracion %}
     <div style="page-break-before: avoid; margin-top: 28px;">
         <h2 style="font-size:10pt;font-weight:700;color:#0A2463;margin:0 0 4px 0;letter-spacing:0.03em;">
-            ATENCION: Proyectos con Alta Iteracion de Actualizaciones
+            ATENCIÓN: Proyectos con Alta Iteración de Actualizaciones
         </h2>
         <p style="font-size:7.5pt;color:#64748b;margin:0 0 10px 0;">
-            Los siguientes proyectos acumulan mas de 3 solicitudes del tipo
-            <em>Actualizacion</em> en su ciclo completo. Una alta iteracion puede indicar
-            requerimientos iniciales poco definidos o ciclos de decision prolongados,
+            Los siguientes proyectos acumulan más de 3 solicitudes del tipo
+            <em>Actualización</em> en su ciclo completo. Una alta iteración puede indicar
+            requerimientos iniciales poco definidos o ciclos de decisión prolongados,
             lo cual reduce la probabilidad de cierre. Se recomienda revisar los
             stages de mejora en la etapa comercial.
         </p>
@@ -968,10 +1006,10 @@
                     <td style="padding:5px 8px;color:#475569;">
                         {%- set partes = [] -%}
                         {%- if row.cnt_pre_oferta > 0 -%}{%- set _ = partes.append(row.cnt_pre_oferta ~ ' Pre Oferta') -%}{%- endif -%}
-                        {%- if row.cnt_actualizaciones > 0 -%}{%- set _ = partes.append(row.cnt_actualizaciones ~ ' Actualizacion') -%}{%- endif -%}
+                        {%- if row.cnt_actualizaciones > 0 -%}{%- set _ = partes.append(row.cnt_actualizaciones ~ ' Actualización') -%}{%- endif -%}
                         {%- if row.cnt_levantamientos > 0 -%}{%- set _ = partes.append(row.cnt_levantamientos ~ ' Levantamiento') -%}{%- endif -%}
                         {%- if row.cnt_ofertas_finales > 0 -%}{%- set _ = partes.append(row.cnt_ofertas_finales ~ ' Oferta Final') -%}{%- endif -%}
-                        {%- if row.cnt_licitaciones > 0 -%}{%- set _ = partes.append(row.cnt_licitaciones ~ ' Licitacion') -%}{%- endif -%}
+                        {%- if row.cnt_licitaciones > 0 -%}{%- set _ = partes.append(row.cnt_licitaciones ~ ' Licitación') -%}{%- endif -%}
                         {%- if row.cnt_otros > 0 -%}{%- set _ = partes.append(row.cnt_otros ~ ' Otros') -%}{%- endif -%}
                         {{ partes | join(' · ') }}
                     </td>
@@ -995,15 +1033,15 @@
     {% if tablas.tarde_revision %}
     <div style="page-break-before: avoid; margin-top: 28px;">
         <h2 style="font-size:10pt;font-weight:700;color:#0A2463;margin:0 0 4px 0;letter-spacing:0.03em;">
-            Oportunidades Tarde con Espera de Direccion &gt; {{ tablas.tarde_revision.umbral_horas }} h Habiles
+            Oportunidades Tarde con Espera de Dirección &gt; {{ tablas.tarde_revision.umbral_horas }} h Hábiles
         </h2>
         <p style="font-size:7.5pt;color:#64748b;margin:0 0 10px 0;">
             Las siguientes oportunidades se marcaron como <em>Entrega tarde</em> pero
-            permanecieron mas de {{ tablas.tarde_revision.umbral_horas }} horas habiles en
-            <em>En Revision</em> (espera de Direccion). El tiempo excluye sabados y domingos:
-            si una oferta entra a revision el viernes y se devuelve el lunes, el fin de semana
-            no cuenta. Sirve para distinguir el retraso atribuible a la espera de revision del
-            atribuible a Simulacion.
+            permanecieron más de {{ tablas.tarde_revision.umbral_horas }} horas hábiles en
+            <em>En Revisión</em> (espera de Dirección). El tiempo excluye sábados y domingos:
+            si una oferta entra a revisión el viernes y se devuelve el lunes, el fin de semana
+            no cuenta. Sirve para distinguir el retraso atribuible a la espera de revisión del
+            atribuible a Simulación.
         </p>
         {% if tablas.tarde_revision.oportunidades %}
         <table style="width:100%;border-collapse:collapse;font-size:7.5pt;">
@@ -1013,7 +1051,7 @@
                     <th style="padding:5px 8px;text-align:left;font-weight:600;">Cliente</th>
                     <th style="padding:5px 8px;text-align:left;font-weight:600;">Proyecto</th>
                     <th style="padding:5px 8px;text-align:left;font-weight:600;">Responsable</th>
-                    <th style="padding:5px 8px;text-align:center;font-weight:600;width:80px;">Horas habiles en revision</th>
+                    <th style="padding:5px 8px;text-align:center;font-weight:600;width:80px;">Horas hábiles en revisión</th>
                     <th style="padding:5px 8px;text-align:center;font-weight:600;width:44px;">Rondas</th>
                 </tr>
             </thead>
@@ -1036,7 +1074,7 @@
         </table>
         {% else %}
         <p style="font-size:8pt;color:#16a34a;margin:0;font-weight:600;">
-            Ninguna oportunidad tarde estuvo mas de {{ tablas.tarde_revision.umbral_horas }} horas habiles en revision en este periodo.
+            Ninguna oportunidad tarde estuvo más de {{ tablas.tarde_revision.umbral_horas }} horas hábiles en revisión en este periodo.
         </p>
         {% endif %}
     </div>
