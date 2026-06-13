@@ -90,6 +90,8 @@ from modules.compras.sat_router import router as sat_router
 app.include_router(sat_router)
 from modules.simulacion import router as simulacion_router
 app.include_router(simulacion_router.router)
+from modules.simulacion.metrics_router import router as simulacion_metrics_router
+app.include_router(simulacion_metrics_router)
 from modules.simulacion.report_router import router as report_router
 app.include_router(report_router)
 from modules.levantamientos.router import router as levantamientos_router

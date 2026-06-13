@@ -1,0 +1,252 @@
+"""
+Router de Métricas Operativas del Módulo Simulación (solo Admin/Manager).
+"""
+from fastapi import APIRouter, Request, Depends, HTTPException, Query
+from fastapi.templating import Jinja2Templates
+from datetime import datetime
+from uuid import UUID
+
+from core.security import get_current_user_context
+from core.permissions import require_module_access
+from core.config import settings
+from core.database import get_db_connection
+from core.timezone import now_mx
+from core.jinja_filters import register_timezone_filters
+
+from modules.shared.utils import is_htmx
+from .db_service import SimulacionDBService, get_db_service
+from .metrics_service import MetricsService, get_metrics_service
+from .metrics_db_service import MetricsDBService, get_metrics_db_service
+
+templates = Jinja2Templates(directory="templates")
+templates.env.globals["DEBUG_MODE"] = settings.DEBUG_MODE
+register_timezone_filters(templates.env)
+
+router = APIRouter(
+    prefix="/simulacion",
+    tags=["Módulo Simulación"],
+)
+
+
+def _stats_dias(oportunidades: list) -> dict:
+    """Estadísticas (promedio/máx/mín) de 'dias_en_estatus' para el detalle."""
+    if not oportunidades:
+        return {"promedio_dias": 0, "max_dias": 0, "min_dias": 0}
+    dias_list = [op['dias_en_estatus'] for op in oportunidades]
+    return {
+        "promedio_dias": round(sum(dias_list) / len(dias_list), 1),
+        "max_dias": round(max(dias_list), 1),
+        "min_dias": round(min(dias_list), 1),
+    }
+
+
+def _puede_ver_kpis(context: dict) -> bool:
+    """Política de visibilidad de los KPIs operativos.
+
+    Solo ADMIN global o MANAGER con rol de módulo viewer-o-superior en
+    'simulacion'. Un module-admin sin rol MANAGER global NO ve los KPIs.
+    """
+    if context.get("role") == "ADMIN":
+        return True
+    if context.get("role") == "MANAGER":
+        return bool(context.get("module_roles", {}).get("simulacion"))
+    return False
+
+
+# ========================================
+# MÉTRICAS OPERATIVAS (Solo ADMIN / MANAGER)
+# ========================================
+
+@router.api_route("/metricas-operativas", methods=["GET", "HEAD"], include_in_schema=False)
+async def get_metricas_operativas(
+    request: Request,
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    db_service: SimulacionDBService = Depends(get_db_service),
+    _=require_module_access("simulacion", "viewer")
+):
+    """Dashboard de métricas operativas de Simulación (Admins y Managers)."""
+    if not _puede_ver_kpis(context):
+        raise HTTPException(status_code=403, detail="Acceso denegado")
+
+    usuarios = await db_service.get_usuarios_activos(conn)
+    tipos_solicitud = await db_service.get_tipos_solicitud(conn)
+
+    if is_htmx(request):
+        template = "simulacion/metricas_operativas.html"
+    else:
+        template = "simulacion/dashboard.html"
+
+    return templates.TemplateResponse(request, template, {
+        "usuarios": [dict(r) for r in usuarios],
+        "tipos_solicitud": [dict(r) for r in tipos_solicitud],
+        "inner_template": "simulacion/metricas_operativas.html",
+        **context
+    })
+
+
+@router.get("/api/metricas-operativas/datos", include_in_schema=False)
+async def get_datos_metricas(
+    request: Request,
+    fecha_inicio: str = Query(None),
+    fecha_fin: str = Query(None),
+    user_id: str = Query(None),
+    tipo_solicitud: str = Query(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    metrics_service: MetricsService = Depends(get_metrics_service),
+    metrics_db: MetricsDBService = Depends(get_metrics_db_service),
+    _=require_module_access("simulacion", "viewer")
+):
+    """API para obtener métricas de estatus con detalle."""
+    if not _puede_ver_kpis(context):
+        return templates.TemplateResponse(request, "simulacion/partials/messages/error.html", {
+            "title": "Acceso denegado",
+            "message": "Se requiere ser Admin o Manager con acceso al módulo."
+        })
+    is_admin = context.get("is_admin")
+
+    # Parsear fechas (todo el historial por defecto)
+    start = datetime(2020, 1, 1)
+    end = now_mx()
+    if fecha_inicio and fecha_fin:
+        try:
+            start = datetime.fromisoformat(fecha_inicio)
+            end = datetime.fromisoformat(fecha_fin)
+        except ValueError:
+            start = datetime(2020, 1, 1)
+            end = now_mx()
+
+    user_uuid = None
+    if user_id:
+        try:
+            user_uuid = UUID(user_id)
+        except ValueError:
+            pass
+
+    tipo_int = None
+    if tipo_solicitud and tipo_solicitud.isdigit():
+        tipo_int = int(tipo_solicitud)
+
+    # 1. Tiempo por estatus
+    metricas_estatus = await metrics_db.get_tiempo_por_estatus(
+        conn, start.date(), end.date(), user_id=user_uuid, tipo_solicitud_id=tipo_int
+    )
+
+    # 2. Cuellos de botella (lógica en service)
+    cuellos = metrics_service.get_cuellos_botella(metricas_estatus)
+
+    # 3. Análisis de ciclos
+    ciclos = await metrics_db.get_analisis_ciclos(
+        conn, start.date(), end.date(), tipo_solicitud_id=tipo_int
+    )
+
+    # 4. Transiciones par a par (estado actual del pipeline)
+    transiciones = await metrics_db.get_transiciones_par_a_par(
+        conn, user_id=user_uuid, tipo_solicitud_id=tipo_int
+    )
+
+    # 5. Métricas del ciclo de revisión (Dirección + retrabajo)
+    ciclo_revision = await metrics_db.get_metricas_ciclo_revision(
+        conn, start.date(), end.date(), user_id=user_uuid, tipo_solicitud_id=tipo_int
+    )
+
+    # 6. Comparativo SLA actual vs ajustado sin tiempo en revisión
+    comparativo_sla = await metrics_db.get_comparativo_sla_ajustado(
+        conn, start.date(), end.date(), user_id=user_uuid, tipo_solicitud_id=tipo_int
+    )
+
+    # 7. Calidad de registro (solo Admin): lag, bloqueos y ráfagas de captura
+    calidad_registro = None
+    if is_admin:
+        calidad_registro = await metrics_db.get_calidad_registro(
+            conn, start.date(), end.date(), user_id=user_uuid, tipo_solicitud_id=tipo_int
+        )
+
+    return templates.TemplateResponse(request, "simulacion/partials/metricas_datos.html", {
+        "metricas_estatus": metricas_estatus,
+        "cuellos_botella": cuellos,
+        "ciclos": ciclos,
+        "transiciones": transiciones,
+        "ciclo_revision": ciclo_revision,
+        "comparativo_sla": comparativo_sla,
+        "calidad_registro": calidad_registro,
+        "fecha_inicio": start.date().isoformat(),
+        "fecha_fin": end.date().isoformat(),
+        **context
+    })
+
+
+@router.get("/api/metricas-operativas/detalle-estatus", include_in_schema=False)
+async def get_detalle_estatus(
+    request: Request,
+    estatus: str = Query(...),
+    fecha_inicio: str = Query(...),
+    fecha_fin: str = Query(...),
+    user_id: str = Query(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    metrics_db: MetricsDBService = Depends(get_metrics_db_service),
+    _=require_module_access("simulacion", "viewer")
+):
+    """Obtiene detalle de oportunidades en un estatus específico."""
+    if not _puede_ver_kpis(context):
+        return templates.TemplateResponse(request, "simulacion/partials/messages/error.html", {"title": "Acceso denegado", "message": "No tienes permisos para esta sección."})
+
+    try:
+        start = datetime.fromisoformat(fecha_inicio).date()
+        end = datetime.fromisoformat(fecha_fin).date()
+    except ValueError:
+        return templates.TemplateResponse(request, "simulacion/partials/messages/error.html", {"title": "Fechas inválidas", "message": "El rango de fechas no es válido."})
+
+    user_uuid = None
+    if user_id:
+        try:
+            user_uuid = UUID(user_id)
+        except ValueError:
+            pass
+
+    oportunidades = await metrics_db.get_oportunidades_por_estatus(
+        conn, estatus, start, end, user_id=user_uuid
+    )
+
+    return templates.TemplateResponse(request, "simulacion/partials/detalle_oportunidades_estatus.html", {
+        "oportunidades": oportunidades,
+        **_stats_dias(oportunidades),
+        **context
+    })
+
+
+@router.get("/api/metricas-operativas/detalle-transicion", include_in_schema=False)
+async def get_detalle_transicion(
+    request: Request,
+    estatus_origen: str = Query(...),
+    estatus_destino: str = Query(...),
+    user_id: str = Query(None),
+    context=Depends(get_current_user_context),
+    conn=Depends(get_db_connection),
+    metrics_db: MetricsDBService = Depends(get_metrics_db_service),
+    _=require_module_access("simulacion", "viewer")
+):
+    """Obtiene detalle de oportunidades para una transición específica (origen → destino)."""
+    if not _puede_ver_kpis(context):
+        return templates.TemplateResponse(request, "simulacion/partials/messages/error.html", {"title": "Acceso denegado", "message": "No tienes permisos para esta sección."})
+
+    user_uuid = None
+    if user_id:
+        try:
+            user_uuid = UUID(user_id)
+        except ValueError:
+            pass
+
+    oportunidades = await metrics_db.get_oportunidades_por_transicion(
+        conn, estatus_origen, estatus_destino, user_id=user_uuid
+    )
+
+    return templates.TemplateResponse(request, "simulacion/partials/detalle_oportunidades_transicion.html", {
+        "oportunidades": oportunidades,
+        "estatus_origen": estatus_origen,
+        "estatus_destino": estatus_destino,
+        **_stats_dias(oportunidades),
+        **context
+    })

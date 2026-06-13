@@ -29,7 +29,7 @@ sys.modules.setdefault("redis", redis_module)
 sys.modules.setdefault("redis.asyncio", redis_asyncio_module)
 sys.modules.setdefault("redis.exceptions", redis_exceptions_module)
 
-from modules.simulacion.metrics_service import MetricsService
+from modules.simulacion.metrics_db_service import MetricsDBService
 
 
 class FakeConn:
@@ -68,7 +68,7 @@ async def fake_get_global_configs_bulk(conn, specs):
 @pytest.mark.asyncio
 async def test_get_comparativo_sla_ajustado_calcula_resumen(monkeypatch):
     monkeypatch.setattr(
-        "modules.simulacion.metrics_service.ConfigService.get_global_config",
+        "modules.simulacion.metrics_db_service.ConfigService.get_global_config",
         fake_get_global_config,
     )
     conn = FakeConn(
@@ -81,7 +81,7 @@ async def test_get_comparativo_sla_ajustado_calcula_resumen(monkeypatch):
     )
     user_id = uuid4()
 
-    resultado = await MetricsService().get_comparativo_sla_ajustado(
+    resultado = await MetricsDBService().get_comparativo_sla_ajustado(
         conn,
         date(2026, 1, 1),
         date(2026, 1, 31),
@@ -104,7 +104,7 @@ async def test_get_comparativo_sla_ajustado_calcula_resumen(monkeypatch):
 @pytest.mark.asyncio
 async def test_get_calidad_registro_calcula_resumen(monkeypatch):
     monkeypatch.setattr(
-        "modules.simulacion.metrics_service.ConfigService.get_global_configs_bulk",
+        "modules.simulacion.metrics_db_service.ConfigService.get_global_configs_bulk",
         fake_get_global_configs_bulk,
     )
     conn = FakeConn(
@@ -122,7 +122,7 @@ async def test_get_calidad_registro_calcula_resumen(monkeypatch):
     )
     user_id = uuid4()
 
-    resultado = await MetricsService().get_calidad_registro(
+    resultado = await MetricsDBService().get_calidad_registro(
         conn,
         date(2026, 2, 1),
         date(2026, 2, 28),
