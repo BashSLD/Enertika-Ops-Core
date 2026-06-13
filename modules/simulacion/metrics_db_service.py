@@ -431,16 +431,39 @@ class MetricsDBService:
                   AND t.fin > t.inicio
                 GROUP BY t.id_oportunidad
             ),
+            tiempo_monitoreo AS (
+                -- orden=6: Monitoreo de Cotizacion previo a la entrega (espera comercial,
+                -- no proceso de simulacion). Se descuenta del SLA actual igual que en
+                -- get_tiempo_entrega_por_tecnologia para que ambas lecturas no diverjan.
+                SELECT
+                    t.id_oportunidad,
+                    SUM(
+                        EXTRACT(EPOCH FROM (
+                            LEAST(t.fin, ee.fecha_entrega) - t.inicio
+                        )) / 86400.0
+                    ) AS dias_monitoreo
+                FROM transiciones t
+                JOIN entregas_efectivas ee ON t.id_oportunidad = ee.id_oportunidad
+                WHERE t.orden = 6
+                  AND t.fin IS NOT NULL
+                  AND t.inicio < ee.fecha_entrega
+                  AND t.fin > t.inicio
+                GROUP BY t.id_oportunidad
+            ),
             base AS (
                 -- Total y descuento comparten base (días naturales) y ancla de entrega.
+                -- El "actual" ya viene neto de Monitoreo de Cotizacion (espera comercial).
                 SELECT
                     ee.id_oportunidad,
-                    EXTRACT(EPOCH FROM (
-                        ee.fecha_entrega - ee.fecha_solicitud
-                    )) / 86400.0 AS dias_actuales,
+                    GREATEST(
+                        EXTRACT(EPOCH FROM (ee.fecha_entrega - ee.fecha_solicitud)) / 86400.0
+                        - COALESCE(tm.dias_monitoreo, 0),
+                        0
+                    ) AS dias_actuales,
                     COALESCE(tr.dias_revision, 0) AS dias_revision
                 FROM entregas_efectivas ee
                 LEFT JOIN tiempo_revision tr ON ee.id_oportunidad = tr.id_oportunidad
+                LEFT JOIN tiempo_monitoreo tm ON ee.id_oportunidad = tm.id_oportunidad
             )
             SELECT
                 COUNT(*) AS total_oportunidades,
@@ -482,10 +505,15 @@ class MetricsDBService:
         tecnologia_id: int = None
     ) -> MetricaEntregaResumen:
         """
-        Tiempo total solicitud -> Entregado (dias naturales) global y por tecnologia.
+        Tiempo solicitud -> Entregado (dias naturales) global y por tecnologia.
 
         Mismo ancla de entrega que get_comparativo_sla_ajustado
         (orden=5, COALESCE(fecha_entrega_simulacion, fecha entrega del historial)).
+        Se DESCUENTA el tiempo en 'Monitoreo de Cotizacion' (orden=6) que cayera
+        dentro de la ventana solicitud->entrega: es espera comercial, no proceso de
+        simulacion, y solo aparece dentro de la ventana por captura fuera de orden.
+        El mismo descuento se aplica en get_comparativo_sla_ajustado para no divergir.
+
         El resumen global se agrega en Python a partir del desglose por tecnologia
         (promedio ponderado por conteo) para una sola pasada de SQL.
 
@@ -511,20 +539,57 @@ class MetricsDBService:
                   {extra_filters}
                 ORDER BY h.id_oportunidad, h.fecha_cambio_sla DESC, h.fecha_creacion DESC, h.id DESC
             ),
-            base AS (
+            entregas_efectivas AS (
                 SELECT
-                    COALESCE(t.nombre, 'Sin tecnología') AS tecnologia,
-                    EXTRACT(EPOCH FROM (
-                        COALESCE(o.fecha_entrega_simulacion, er.fecha_entrega_sla) - o.fecha_solicitud
-                    )) / 86400.0 AS dias,
-                    -- Entrega a las 00:00 = legacy sin hora real (carga previa a ECO).
-                    -- Marca el registro como no confiable a nivel sub-dia.
-                    (COALESCE(o.fecha_entrega_simulacion, er.fecha_entrega_sla)
-                        AT TIME ZONE 'America/Mexico_City')::time = TIME '00:00:00' AS sin_hora
+                    er.id_oportunidad,
+                    COALESCE(o.fecha_entrega_simulacion, er.fecha_entrega_sla) AS fecha_entrega,
+                    o.fecha_solicitud,
+                    o.id_tecnologia
                 FROM entregas_en_rango er
                 JOIN tb_oportunidades o ON er.id_oportunidad = o.id_oportunidad
-                LEFT JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
                 WHERE COALESCE(o.fecha_entrega_simulacion, er.fecha_entrega_sla) > o.fecha_solicitud
+            ),
+            transiciones AS (
+                SELECT
+                    h.id_oportunidad,
+                    e.orden,
+                    h.fecha_cambio_sla AS inicio,
+                    LEAD(h.fecha_cambio_sla) OVER (
+                        PARTITION BY h.id_oportunidad
+                        ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
+                    ) AS fin
+                FROM tb_historial_estatus h
+                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+                WHERE h.id_oportunidad IN (SELECT id_oportunidad FROM entregas_efectivas)
+            ),
+            tiempo_monitoreo AS (
+                -- orden=6: Monitoreo de Cotizacion, topado en la entrega (espera comercial
+                -- previa a la entrega por captura fuera de orden; no es proceso de simulacion).
+                SELECT
+                    t.id_oportunidad,
+                    SUM(EXTRACT(EPOCH FROM (LEAST(t.fin, ee.fecha_entrega) - t.inicio)) / 86400.0) AS dias_monitoreo
+                FROM transiciones t
+                JOIN entregas_efectivas ee ON t.id_oportunidad = ee.id_oportunidad
+                WHERE t.orden = 6
+                  AND t.fin IS NOT NULL
+                  AND t.inicio < ee.fecha_entrega
+                  AND t.fin > t.inicio
+                GROUP BY t.id_oportunidad
+            ),
+            base AS (
+                SELECT
+                    COALESCE(tec.nombre, 'Sin tecnología') AS tecnologia,
+                    GREATEST(
+                        EXTRACT(EPOCH FROM (ee.fecha_entrega - ee.fecha_solicitud)) / 86400.0
+                        - COALESCE(tm.dias_monitoreo, 0),
+                        0
+                    ) AS dias,
+                    -- Entrega a las 00:00 = legacy sin hora real (carga previa a ECO).
+                    -- Marca el registro como no confiable a nivel sub-dia.
+                    (ee.fecha_entrega AT TIME ZONE 'America/Mexico_City')::time = TIME '00:00:00' AS sin_hora
+                FROM entregas_efectivas ee
+                LEFT JOIN tb_cat_tecnologias tec ON ee.id_tecnologia = tec.id
+                LEFT JOIN tiempo_monitoreo tm ON ee.id_oportunidad = tm.id_oportunidad
             )
             SELECT
                 tecnologia,
