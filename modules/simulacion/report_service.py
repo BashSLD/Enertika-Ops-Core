@@ -24,6 +24,7 @@ import asyncio
 from dateutil.relativedelta import relativedelta
 
 from .constants import (
+    FECHA_INICIO_KPI_TIEMPO,
     UMBRAL_MIN_ENTREGAS,
     UMBRAL_RATIO_LICITACIONES,
     PESO_CUMPLIMIENTO_COMPROMISO,
@@ -122,12 +123,21 @@ class ReportesSimulacionService:
         u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
         u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso")
 
+        # El tiempo de elaboración solo es confiable desde la puesta en marcha de ECO.
+        # Si el rango inicia antes, el promedio es parcial y el reporte lo advierte.
+        tiempo_parcial = filtros.fecha_inicio < FECHA_INICIO_KPI_TIEMPO
+
         if not row:
-            return MetricasGenerales(umbrales_interno=u_interno, umbrales_compromiso=u_compromiso)
+            return MetricasGenerales(
+                umbrales_interno=u_interno,
+                umbrales_compromiso=u_compromiso,
+                tiempo_promedio_parcial=tiempo_parcial,
+            )
 
         return MetricasGenerales(
             umbrales_interno=u_interno,
             umbrales_compromiso=u_compromiso,
+            tiempo_promedio_parcial=tiempo_parcial,
             total_solicitudes=row['total_solicitudes'] or 0,
             total_ofertas=row['total_ofertas'] or 0,
             en_espera=row['en_espera'] or 0,

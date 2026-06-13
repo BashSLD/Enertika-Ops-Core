@@ -28,6 +28,7 @@ from .report_service import (
     get_reportes_service,
     FiltrosReporte
 )
+from .constants import FECHA_INICIO_KPI_TIEMPO
 from core.charts.service import generar_charts_simulacion
 from core.config_service import ConfigService
 from core.config import settings
@@ -517,6 +518,7 @@ async def _generar_pdf_response(
             "charts": charts,
             "tablas": datos,
             "generado_por": generado_por,
+            "kpi_tiempo_desde": FECHA_INICIO_KPI_TIEMPO.strftime("%d/%m/%Y"),
         },
     )
     filename = pdf_service.generate_filename(

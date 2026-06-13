@@ -166,6 +166,7 @@ class MetricasGenerales(KPIMetricsMixin):
 
     sin_fecha_entrega: int = 0
     tiempo_promedio_horas: Optional[float] = None
+    tiempo_promedio_parcial: bool = False
     ganadas: int = 0
     sim_adicionales_count: int = 0
 

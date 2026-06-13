@@ -683,8 +683,15 @@
             <td class="ml">Entregas a tiempo — plazo interno</td>
             <td class="mv">{{ m.entregas_a_tiempo_interno }}</td>
             <td class="ml">Tiempo promedio de entrega</td>
-            <td class="mv">{% if m.tiempo_promedio_dias is not none %}{{ m.tiempo_promedio_dias }} d{% else %}—{% endif %}</td>
+            <td class="mv">{% if m.tiempo_promedio_parcial %}n/d{% elif m.tiempo_promedio_dias is not none %}{{ m.tiempo_promedio_dias }} d{% else %}—{% endif %}</td>
         </tr>
+        {% if m.tiempo_promedio_parcial %}
+        <tr>
+            <td class="ml" colspan="4" style="font-size:9px;color:#6b7280;">
+                Tiempo promedio de entrega no disponible: el rango incluye fechas previas a la puesta en marcha de ECO ({{ kpi_tiempo_desde }}), cuando aún no se registraba el tiempo de elaboración.
+            </td>
+        </tr>
+        {% endif %}
         {% if m.sim_adicionales_count > 0 %}
         <tr>
             <td class="ml" colspan="2" style="font-size:9px;color:#6b7280;">
@@ -1079,6 +1086,12 @@
         {% endif %}
     </div>
     {% endif %}
+
+    <div style="margin-top:18px;padding:10px 14px;background:#f0f9ff;border-left:3px solid #00BABB;border-radius:4px;">
+        <p style="margin:0;font-size:8.5pt;color:#334155;line-height:1.5;">
+            <strong style="color:#0A2463;">Nota:</strong> La calidad de estos datos depende del uso de la herramienta: cada oportunidad registrada a tiempo y con su información completa nos da métricas más precisas y mejor trazabilidad.
+        </p>
+    </div>
 
 </body>
 

@@ -2,6 +2,17 @@
 Constantes para cálculo de scores y categorización de desempeño
 """
 
+from datetime import date
+
+# ============================================
+# CORTE DE DATOS HISTÓRICOS (ECO)
+# ============================================
+FECHA_INICIO_KPI_TIEMPO = date(2026, 3, 1)
+"""Fecha de puesta en marcha de ECO: desde aquí 'tiempo_elaboracion_horas' se registra
+con hora real. Antes, los datos legacy quedaron sin tiempo o a las 00:00, por lo que el
+promedio de elaboración no es representativo. Los reportes cuyo rango inicie antes de
+esta fecha muestran una nota en lugar del Tiempo promedio de entrega."""
+
 # ============================================
 # UMBRALES DE CATEGORIZACIÓN
 # ============================================
