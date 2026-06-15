@@ -867,7 +867,12 @@ class ReportesSimulacionService:
             'mensual': await self.get_resumen_mensual(conn, filtros),
             'motivos_cierre': await self.db.get_chart_motivos_cierre(conn, asdict(filtros)),
             'alta_iteracion': await self.get_clientes_alta_iteracion(conn, filtros),
-            'tarde_revision': await self.get_oportunidades_tarde_revision(conn, filtros),
+            # Desactivado 2026-06-15: la metrica de "espera de Direccion" cuenta horas habiles
+            # completas sin respetar la jornada/hora de corte (18:00). Pendiente redefinir.
+            # Al no pasar la clave, el template omite toda la seccion ({% if tablas.tarde_revision %}).
+            # Ver backlog "Metricas operativas simulacion". Funciones get_oportunidades_tarde_revision
+            # (este service y report_db_service) se conservan para reactivar.
+            # 'tarde_revision': await self.get_oportunidades_tarde_revision(conn, filtros),
         }
 
     async def get_datos_graficas(
