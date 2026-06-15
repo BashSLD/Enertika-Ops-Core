@@ -239,127 +239,132 @@ class SimulacionService:
         """
         # 0. Obtener estado actual y configuración
         status_map = await self._get_status_ids(conn)
-        
-        current_data = await self.db.get_oportunidad_for_update(conn, id_oportunidad)
-            
-        if not current_data:
-            raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
-            
-        total_sitios = await self.db.get_total_sitios_count(conn, id_oportunidad)
 
-        # 0.5 Validacion Inteligente Multisitio (Pre-Permission Check)
-        # Permitir si queda 1 solo sitio pendiente (se cerrará en cascada)
-        sitios_pendientes = 0
-        if total_sitios > 1:
-            sitios_pendientes = await self.db.get_sitios_pendientes_count(
-                conn, id_oportunidad, 
-                [status_map["entregado"], status_map["cancelado"], status_map["perdido"], status_map["ganada"]]
-            )
-            
-            # Solo bloqueamos si hay MÁS de 1 sitio pendiente
-            if datos.id_estatus_global == status_map["entregado"] and sitios_pendientes > 1:
-                raise HTTPException(
-                    status_code=400, 
-                    detail=f"Bloqueo de Calidad: Existen {sitios_pendientes} sitios activos. Debe cerrar sitios individuales hasta que quede solo uno."
+        async with conn.transaction():
+            current_data = await self.db.get_oportunidad_for_update(conn, id_oportunidad)
+
+            if not current_data:
+                raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
+
+            total_sitios = await self.db.get_total_sitios_count(conn, id_oportunidad)
+
+            # 0.5 Validacion Inteligente Multisitio (Pre-Permission Check)
+            # Permitir si queda 1 solo sitio pendiente (se cerrará en cascada)
+            sitios_pendientes = 0
+            if total_sitios > 1:
+                sitios_pendientes = await self.db.get_sitios_pendientes_count(
+                    conn, id_oportunidad, 
+                    [status_map["entregado"], status_map["cancelado"], status_map["perdido"], status_map["ganada"]]
                 )
 
-        # 0.6 Historial de Cambios de Deadline (FUTURA IMPLEMENTACIÓN)
-        # Actualmente el frontend no envía 'id_motivo_cambio_deadline', por lo que este bloque no se ejecuta.
-        # Se planea activar cuando se requiera justificar cambios de fecha negociada.
-        current_deadline_nego = current_data['deadline_negociado']
-        if datos.deadline_negociado and datos.deadline_negociado != current_deadline_nego:
-            if datos.id_motivo_cambio_deadline:
-                await self.registrar_cambio_deadline(
+                # Solo bloqueamos si hay MÁS de 1 sitio pendiente
+                if datos.id_estatus_global == status_map["entregado"] and sitios_pendientes > 1:
+                    raise HTTPException(
+                        status_code=400, 
+                        detail=f"Bloqueo de Calidad: Existen {sitios_pendientes} sitios activos. Debe cerrar sitios individuales hasta que quede solo uno."
+                    )
+
+            # 0.6 Historial de Cambios de Deadline (FUTURA IMPLEMENTACIÓN)
+            # Actualmente el frontend no envía 'id_motivo_cambio_deadline', por lo que este bloque no se ejecuta.
+            # Se planea activar cuando se requiera justificar cambios de fecha negociada.
+            current_deadline_nego = current_data['deadline_negociado']
+            if datos.deadline_negociado and datos.deadline_negociado != current_deadline_nego:
+                if datos.id_motivo_cambio_deadline:
+                    await self.registrar_cambio_deadline(
+                        conn,
+                        id_oportunidad,
+                        deadline_anterior=current_deadline_nego,
+                        deadline_nuevo=datos.deadline_negociado,
+                        id_motivo_cambio=datos.id_motivo_cambio_deadline,
+                        comentario=datos.comentario_cambio_deadline,
+                        user_context=user_context
+                    )
+
+            # 1. Resolver Permisos y Validaciones (In-Place Update of datos)
+            datos = await self._resolve_update_permissions(
+                conn, current_data, datos, user_context, status_map, total_sitios
+            )
+
+            # 1.5. Validar transición de estatus y fecha/hora real (enforcement §5.1 / §5.2)
+            now_mx = await self.get_current_datetime_mx(conn)
+            es_cierre_terminal = await self._validate_status_transition(conn, id_oportunidad, current_data, datos, now_mx)
+
+            # 2. Calcular KPIs de Entrega (Padre)
+            kpi_sla_val, kpi_compromiso_val, tiempo_elaboracion_horas = await self._calculate_kpis_entrega_padre(
+                conn, current_data, datos, status_map
+            )
+
+            # 3. Ejecutar Update del Padre
+            # Helper params dict update
+            datos_dict = datos.model_dump()
+            datos_dict.update({
+                'kpi_sla_val': kpi_sla_val,
+                'kpi_compromiso_val': kpi_compromiso_val,
+                'tiempo_elaboracion_horas': tiempo_elaboracion_horas
+            })
+            await self.db.update_oportunidad_padre(conn, id_oportunidad, datos_dict)
+
+            # 3.1. Si deadline_negociado cambió y la op es (o pasa a ser) terminal,
+            # recalcular KPIs de sitios ya cerrados individualmente.
+            # update_sitios_cascada omite terminales (NOT IN), así que el recálculo
+            # debe hacerse explícitamente para que el reporte refleje el nuevo deadline.
+            _terminales = {
+                status_map["entregado"], status_map["perdido"],
+                status_map["cancelado"], status_map["ganada"],
+            }
+            if (
+                datos.deadline_negociado != current_deadline_nego
+                and current_data['deadline_calculado'] is not None
+                and (
+                    current_data['id_estatus_global'] in _terminales
+                    or datos.id_estatus_global in _terminales
+                )
+            ):
+                await self.db.recalcular_kpis_sitios_por_deadline(
                     conn,
                     id_oportunidad,
-                    deadline_anterior=current_deadline_nego,
-                    deadline_nuevo=datos.deadline_negociado,
-                    id_motivo_cambio=datos.id_motivo_cambio_deadline,
-                    comentario=datos.comentario_cambio_deadline,
-                    user_context=user_context
+                    current_data['deadline_calculado'],
+                    datos.deadline_negociado,
                 )
 
-        # 1. Resolver Permisos y Validaciones (In-Place Update of datos)
-        datos = await self._resolve_update_permissions(
-            conn, current_data, datos, user_context, status_map, total_sitios
-        )
+            # 3.5. Insertar Historial (Si Cambio Estatus)
+            if datos.id_estatus_global != current_data['id_estatus_global']:
+                # Usar fecha capturada por el usuario (backdating) o la hora actual
+                fecha_real = datos.fecha_cambio_real or now_mx
+                fecha_sla = await self._calculate_fecha_sla(conn, fecha_real)
 
-        # 1.5. Validar transición de estatus y fecha/hora real (enforcement §5.1 / §5.2)
-        now_mx = await self.get_current_datetime_mx(conn)
-        es_cierre_terminal = await self._validate_status_transition(conn, id_oportunidad, current_data, datos, now_mx)
+                await self.db.insert_historial_estatus(
+                    conn,
+                    id_oportunidad,
+                    current_data['id_estatus_global'],
+                    datos.id_estatus_global,
+                    fecha_real,
+                    fecha_sla,
+                    user_context['user_db_id'],
+                )
 
-        # 2. Calcular KPIs de Entrega (Padre)
-        kpi_sla_val, kpi_compromiso_val, tiempo_elaboracion_horas = await self._calculate_kpis_entrega_padre(
-            conn, current_data, datos, status_map
-        )
-
-        # 3. Ejecutar Update del Padre
-        # Helper params dict update
-        datos_dict = datos.model_dump()
-        datos_dict.update({
-            'kpi_sla_val': kpi_sla_val,
-            'kpi_compromiso_val': kpi_compromiso_val,
-            'tiempo_elaboracion_horas': tiempo_elaboracion_horas
-        })
-        await self.db.update_oportunidad_padre(conn, id_oportunidad, datos_dict)
-
-        # 3.1. Si deadline_negociado cambió y la op es (o pasa a ser) terminal,
-        # recalcular KPIs de sitios ya cerrados individualmente.
-        # update_sitios_cascada omite terminales (NOT IN), así que el recálculo
-        # debe hacerse explícitamente para que el reporte refleje el nuevo deadline.
-        _terminales = {
-            status_map["entregado"], status_map["perdido"],
-            status_map["cancelado"], status_map["ganada"],
-        }
-        if (
-            datos.deadline_negociado != current_deadline_nego
-            and current_data['deadline_calculado'] is not None
-            and (
-                current_data['id_estatus_global'] in _terminales
-                or datos.id_estatus_global in _terminales
-            )
-        ):
-            await self.db.recalcular_kpis_sitios_por_deadline(
-                conn,
-                id_oportunidad,
-                current_data['deadline_calculado'],
-                datos.deadline_negociado,
+            # 4. Manejar Cascada a Sitios y Retrabajos
+            await self._handle_site_updates(
+                conn, id_oportunidad, current_data, datos, status_map, total_sitios, sitios_pendientes
             )
 
-        # 3.5. Insertar Historial (Si Cambio Estatus)
-        if datos.id_estatus_global != current_data['id_estatus_global']:
-            # Usar fecha capturada por el usuario (backdating) o la hora actual
-            fecha_real = datos.fecha_cambio_real or now_mx
-            fecha_sla = await self._calculate_fecha_sla(conn, fecha_real)
+            # 4.5. Guardar simulaciones adicionales (solo en cierre Entregado/Perdido)
+            es_cierre_kpi = datos.id_estatus_global in [status_map["entregado"], status_map["perdido"]]
+            if es_cierre_kpi and datos.simulaciones_adicionales:
+                await self.db.insert_simulaciones_adicionales(
+                    conn,
+                    id_oportunidad,
+                    datos.simulaciones_adicionales,
+                    kpi_sla_val,
+                    kpi_compromiso_val,
+                    datos.fecha_entrega_simulacion
+                )
 
-            await self.db.insert_historial_estatus(
-                conn,
-                id_oportunidad,
-                current_data['id_estatus_global'],
-                datos.id_estatus_global,
-                fecha_real,
-                fecha_sla,
-                user_context['user_db_id'],
-            )
-
-        # 4. Manejar Cascada a Sitios y Retrabajos
-        await self._handle_site_updates(
-            conn, id_oportunidad, current_data, datos, status_map, total_sitios, sitios_pendientes
-        )
-
-        # 4.5. Guardar simulaciones adicionales (solo en cierre Entregado/Perdido)
-        es_cierre_kpi = datos.id_estatus_global in [status_map["entregado"], status_map["perdido"]]
-        if es_cierre_kpi and datos.simulaciones_adicionales:
-            await self.db.insert_simulaciones_adicionales(
-                conn,
-                id_oportunidad,
-                datos.simulaciones_adicionales,
-                kpi_sla_val,
-                kpi_compromiso_val,
-                datos.fecha_entrega_simulacion
-            )
-
-        # 5. Enviar Notificaciones
+        # 5. Enviar Notificaciones (fuera de la transacción a propósito).
+        # _send_update_notifications traga PostgresError ("no critico"); si corriera
+        # dentro de la transacción, ese error la dejaria abortada y el COMMIT fallaria,
+        # revirtiendo el negocio. Post-commit, una falla de notificacion queda aislada
+        # y el pg_notify/outbox solo se emiten si la transaccion realmente comiteo.
         await self._send_update_notifications(
             conn, id_oportunidad, current_data, datos, user_context
         )
