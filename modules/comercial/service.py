@@ -89,11 +89,11 @@ from .db_service import (
     QUERY_GET_JEFE_BY_ROL_ORG,
     QUERY_GET_EQUIPO_PROYECTO_ACTIVO,
     QUERY_CHECK_GRUPO_BLOQUEADOR,
-    QUERY_GET_RESPONSABLE_COMERCIAL_ID,
     QUERY_GET_RESPONSABLE_EFECTIVO,
     QUERY_UPDATE_RESPONSABLE_COMERCIAL,
     QUERY_INSERT_TRANSFERENCIA,
     QUERY_GET_USUARIO_NOMBRE_EMAIL,
+    QUERY_GET_RECEPTOR_TRANSFERENCIA_COMERCIAL,
     QUERY_GET_OP_ESTATUS_NOMBRE,
 )
 
@@ -1065,9 +1065,9 @@ class ComercialService:
         if responsable_actual == new_owner_id:
             raise HTTPException(status_code=400, detail="El usuario seleccionado ya es el responsable actual.")
 
-        nuevo = await conn.fetchrow(QUERY_GET_USUARIO_NOMBRE_EMAIL, new_owner_id)
+        nuevo = await conn.fetchrow(QUERY_GET_RECEPTOR_TRANSFERENCIA_COMERCIAL, new_owner_id)
         if nuevo is None:
-            raise HTTPException(status_code=400, detail="El usuario destino no existe.")
+            raise HTTPException(status_code=400, detail="El usuario destino no existe, está inactivo o no tiene acceso al módulo Comercial.")
 
         anterior = await conn.fetchrow(QUERY_GET_USUARIO_NOMBRE_EMAIL, responsable_actual)
 

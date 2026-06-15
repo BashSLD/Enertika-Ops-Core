@@ -181,7 +181,7 @@ QUERY_GET_USUARIOS_RESPONSABLES_COMERCIAL = """
 QUERY_GET_ALL_USUARIOS = "SELECT id_usuario, nombre FROM tb_usuarios WHERE is_active = true ORDER BY nombre"
 
 QUERY_GET_USUARIOS_CON_ACCESO_COMERCIAL = """
-    SELECT DISTINCT u.id_usuario, u.nombre
+    SELECT u.id_usuario, u.nombre
     FROM tb_usuarios u
     WHERE u.is_active = true
       AND (
@@ -190,6 +190,7 @@ QUERY_GET_USUARIOS_CON_ACCESO_COMERCIAL = """
             SELECT 1 FROM tb_permisos_modulos pm
             WHERE pm.usuario_id = u.id_usuario
               AND pm.modulo_slug = 'comercial'
+              AND pm.rol_modulo IN ('editor', 'admin')
         )
       )
     ORDER BY u.nombre
@@ -318,12 +319,6 @@ QUERY_CHECK_GRUPO_BLOQUEADOR = """
 # Updates
 QUERY_UPDATE_EMAIL_ENVIADO = "UPDATE tb_oportunidades SET email_enviado = TRUE WHERE id_oportunidad = $1"
 QUERY_UPDATE_PRIORIDAD = "UPDATE tb_oportunidades SET prioridad = $1 WHERE id_oportunidad = $2"
-QUERY_UPDATE_OPORTUNIDAD_OWNER = "UPDATE tb_oportunidades SET creado_por_id = $1 WHERE id_oportunidad = $2"
-
-QUERY_GET_RESPONSABLE_COMERCIAL_ID = "SELECT responsable_comercial_id FROM tb_oportunidades WHERE id_oportunidad = $1"
-# COALESCE: returns NULL only when the row is missing (creado_por_id is NOT NULL).
-# Use this instead of QUERY_GET_RESPONSABLE_COMERCIAL_ID to distinguish "row not found"
-# from "responsable_comercial_id is NULL" — both returned None with the plain column query.
 QUERY_GET_RESPONSABLE_EFECTIVO = """
     SELECT COALESCE(responsable_comercial_id, creado_por_id) AS responsable_id
     FROM tb_oportunidades WHERE id_oportunidad = $1
@@ -335,6 +330,21 @@ QUERY_INSERT_TRANSFERENCIA = """
     ) VALUES ($1, $2, $3, $4, $5)
 """
 QUERY_GET_USUARIO_NOMBRE_EMAIL = "SELECT nombre, email FROM tb_usuarios WHERE id_usuario = $1"
+QUERY_GET_RECEPTOR_TRANSFERENCIA_COMERCIAL = """
+    SELECT u.nombre, u.email
+    FROM tb_usuarios u
+    WHERE u.id_usuario = $1
+      AND u.is_active = true
+      AND (
+        u.rol_sistema = 'ADMIN'
+        OR EXISTS (
+            SELECT 1 FROM tb_permisos_modulos pm
+            WHERE pm.usuario_id = u.id_usuario
+              AND pm.modulo_slug = 'comercial'
+              AND pm.rol_modulo IN ('editor', 'admin')
+        )
+      )
+"""
 QUERY_GET_OP_ESTATUS_NOMBRE = """
     SELECT estatus.nombre
     FROM tb_oportunidades o
