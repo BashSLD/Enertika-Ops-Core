@@ -243,7 +243,7 @@ async def subir_firma(
     firma_bytes = await firma_file.read()
     pending_id = UUID(solicitud_pendiente_id) if solicitud_pendiente_id else None
     try:
-        await perfil_service.guardar_firma(conn, usuario_id, firma_bytes, "subida", pending_id)
+        firma_bytes = await perfil_service.guardar_firma(conn, usuario_id, firma_bytes, "subida", pending_id)
     except ValueError as exc:
         return toast_error(request, str(exc), status_code=200)
 
@@ -279,7 +279,7 @@ async def guardar_firma_dibujada(
 
     pending_id = UUID(solicitud_pendiente_id) if solicitud_pendiente_id else None
     try:
-        await perfil_service.guardar_firma(conn, usuario_id, firma_bytes, "dibujada", pending_id)
+        firma_bytes = await perfil_service.guardar_firma(conn, usuario_id, firma_bytes, "dibujada", pending_id)
     except ValueError as exc:
         return toast_error(request, str(exc), status_code=200)
 
@@ -288,7 +288,7 @@ async def guardar_firma_dibujada(
         "perfil/partials/form_firma.html",
         {
             "firma": {"tipo_firma": "dibujada"},
-            "firma_b64": firma_b64.split(",", 1)[-1],
+            "firma_b64": perfil_service.firma_bytes_to_base64(firma_bytes),
             "solicitud_pendiente_id": solicitud_pendiente_id,
             "context": context,
             "toast_msg": "Firma guardada correctamente.",
