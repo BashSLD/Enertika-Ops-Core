@@ -92,10 +92,26 @@ def clean_text(value):
     # Eliminar espacios al inicio y final solamente
     return text.strip()
 
+def dhm(valor_dias) -> str:
+    """Convierte días decimales a formato compacto '1D 12h', '12h' o '3D'."""
+    if valor_dias is None:
+        return "—"
+    dias = int(float(valor_dias))
+    horas = round((float(valor_dias) - dias) * 24)
+    if horas == 24:
+        dias += 1
+        horas = 0
+    if dias == 0:
+        return f"{horas}h"
+    if horas == 0:
+        return f"{dias}D"
+    return f"{dias}D {horas}h"
+
+
 def register_timezone_filters(jinja_env):
     """
     Registra los filtros de timezone en una instancia de Jinja2.
-    
+
     Uso:
         from core.jinja_filters import register_timezone_filters
         templates = Jinja2Templates(directory="templates")
@@ -104,4 +120,5 @@ def register_timezone_filters(jinja_env):
     jinja_env.filters["time_mx"] = datetime_mx_format
     jinja_env.filters["input_date"] = datetime_input_format
     jinja_env.filters["clean_text"] = clean_text
+    jinja_env.filters["dhm"] = dhm
     jinja_env.globals["static_v"] = _STATIC_V

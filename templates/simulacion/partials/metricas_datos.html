@@ -44,17 +44,17 @@
     <div class="grid grid-cols-3 gap-3 mb-5">
         <div class="bg-indigo-50 rounded-lg p-3 text-center">
             <p class="text-[11px] font-semibold text-indigo-600 uppercase tracking-wide mb-0.5">Promedio</p>
-            <p class="text-xl font-bold text-indigo-700">{{ entrega_tecnologia.tiempo_promedio_dias }}d</p>
+            <p class="text-xl font-bold text-indigo-700">{{ entrega_tecnologia.tiempo_promedio_dias | dhm }}</p>
             <p class="text-[11px] text-gray-500 mt-0.5">{{ entrega_tecnologia.total_oportunidades }} oportunidades</p>
         </div>
         <div class="bg-green-50 rounded-lg p-3 text-center">
             <p class="text-[11px] font-semibold text-green-600 uppercase tracking-wide mb-0.5">Mínimo</p>
-            <p class="text-xl font-bold text-green-700">{{ entrega_tecnologia.tiempo_min_dias }}d</p>
+            <p class="text-xl font-bold text-green-700">{{ entrega_tecnologia.tiempo_min_dias | dhm }}</p>
             <p class="text-[11px] text-gray-500 mt-0.5">entrega más rápida</p>
         </div>
         <div class="bg-red-50 rounded-lg p-3 text-center">
             <p class="text-[11px] font-semibold text-red-600 uppercase tracking-wide mb-0.5">Máximo</p>
-            <p class="text-xl font-bold text-red-700">{{ entrega_tecnologia.tiempo_max_dias }}d</p>
+            <p class="text-xl font-bold text-red-700">{{ entrega_tecnologia.tiempo_max_dias | dhm }}</p>
             <p class="text-[11px] text-gray-500 mt-0.5">entrega más lenta</p>
         </div>
     </div>
@@ -89,11 +89,11 @@
                     <td class="px-3 py-2 text-center text-gray-600">{{ tec.total_oportunidades }}</td>
                     <td class="px-3 py-2 text-center">
                         <span class="font-bold {% if tec.es_alto_impacto %}text-amber-700{% else %}text-gray-800{% endif %}">
-                            {{ tec.tiempo_promedio_dias }}d
+                            {{ tec.tiempo_promedio_dias | dhm }}
                         </span>
                     </td>
-                    <td class="px-3 py-2 text-center text-gray-500">{{ tec.tiempo_min_dias }}d</td>
-                    <td class="px-3 py-2 text-center text-gray-500">{{ tec.tiempo_max_dias }}d</td>
+                    <td class="px-3 py-2 text-center text-gray-500">{{ tec.tiempo_min_dias | dhm }}</td>
+                    <td class="px-3 py-2 text-center text-gray-500">{{ tec.tiempo_max_dias | dhm }}</td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -101,7 +101,7 @@
     </div>
     <p class="text-[11px] text-gray-400 mt-3">
         "Alto impacto" marca las tecnologías cuyo promedio supera el promedio global del período
-        ({{ entrega_tecnologia.tiempo_promedio_dias }}d).
+        ({{ entrega_tecnologia.tiempo_promedio_dias | dhm }}).
     </p>
 
     {% if entrega_tecnologia.entregas_sin_hora > 0 %}
@@ -187,7 +187,7 @@
                     </td>
                     <td class="px-3 py-2 text-gray-600">{{ op.responsable_simulacion }}</td>
                     <td class="px-3 py-2 text-center">
-                        <span class="font-bold text-cyan-700">{{ op.dias_en_monitoreo }}d</span>
+                        <span class="font-bold text-cyan-700">{{ op.dias_en_monitoreo | dhm }}</span>
                         {% if op.sigue_en_monitoreo %}
                         <span class="ml-1 px-1.5 py-0.5 text-xs bg-cyan-100 text-cyan-700 rounded">en curso</span>
                         {% endif %}
@@ -240,7 +240,7 @@
                     <td class="px-4 py-3 font-medium">{{ metrica.estatus_nombre }}</td>
                     <td class="px-4 py-3 text-center">
                         <span class="text-base font-bold text-blue-600">
-                            {{ metrica.tiempo_promedio_dias }}d
+                            {{ metrica.tiempo_promedio_dias | dhm }}
                         </span>
                     </td>
                     <td class="px-4 py-3 text-center text-gray-600">
@@ -328,7 +328,7 @@
                         </span>
                     </td>
                     <td class="px-4 py-3 text-center">
-                        <span class="text-gray-600">{{ trans.dias_promedio_en_destino }}d</span>
+                        <span class="text-gray-600">{{ trans.dias_promedio_en_destino | dhm }}</span>
                     </td>
                     <td class="px-4 py-3 text-center">
                         <button type="button" @click="open = !open"
@@ -385,7 +385,7 @@
                 <div>
                     <span class="font-bold text-gray-900 text-base">{{ cuello.estatus_lento }}</span>
                     <span class="text-sm text-gray-600 ml-2">
-                        ({{ cuello.tiempo_promedio }}d promedio)
+                        ({{ cuello.tiempo_promedio | dhm }} promedio)
                     </span>
                 </div>
                 <span
@@ -447,12 +447,12 @@
     <div class="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
         <div class="bg-purple-50 rounded-lg p-4 text-center">
             <p class="text-xs font-semibold text-purple-600 uppercase tracking-wide mb-1">Tiempo en Revisión</p>
-            <p class="text-xl font-bold text-purple-700">{{ ciclo_revision.tiempo_revision_direccion_dias }}d</p>
+            <p class="text-xl font-bold text-purple-700">{{ ciclo_revision.tiempo_revision_direccion_dias | dhm }}</p>
             <p class="text-xs text-gray-500 mt-1">promedio entre las que pasaron por revisión</p>
         </div>
         <div class="bg-orange-50 rounded-lg p-4 text-center">
             <p class="text-xs font-semibold text-orange-600 uppercase tracking-wide mb-1">Tiempo de Retrabajo</p>
-            <p class="text-xl font-bold text-orange-700">{{ ciclo_revision.tiempo_retrabajo_simulacion_dias }}d</p>
+            <p class="text-xl font-bold text-orange-700">{{ ciclo_revision.tiempo_retrabajo_simulacion_dias | dhm }}</p>
             <p class="text-xs text-gray-500 mt-1">promedio entre las que pasaron por revisión</p>
         </div>
         <div class="bg-blue-50 rounded-lg p-4 text-center">
@@ -508,23 +508,23 @@
         <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div class="bg-slate-50 rounded-lg p-4 text-center">
                 <p class="text-xs font-semibold text-slate-600 uppercase tracking-wide mb-1">SLA Actual</p>
-                <p class="text-xl font-bold text-slate-800">{{ comparativo_sla.tiempo_actual_promedio_dias }}d</p>
+                <p class="text-xl font-bold text-slate-800">{{ comparativo_sla.tiempo_actual_promedio_dias | dhm }}</p>
                 <p class="text-xs text-gray-500 mt-1">{{ comparativo_sla.total_oportunidades }} oportunidades</p>
             </div>
             <div class="bg-teal-50 rounded-lg p-4 text-center">
                 <p class="text-xs font-semibold text-teal-600 uppercase tracking-wide mb-1">SLA Ajustado</p>
-                <p class="text-xl font-bold text-teal-700">{{ comparativo_sla.tiempo_ajustado_promedio_dias }}d</p>
+                <p class="text-xl font-bold text-teal-700">{{ comparativo_sla.tiempo_ajustado_promedio_dias | dhm }}</p>
                 <p class="text-xs text-gray-500 mt-1">sin tiempo en revisión</p>
             </div>
             <div class="bg-amber-50 rounded-lg p-4 text-center">
                 <p class="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-1">Tiempo Descontado</p>
-                <p class="text-xl font-bold text-amber-700">{{ comparativo_sla.tiempo_revision_descontado_dias }}d</p>
+                <p class="text-xl font-bold text-amber-700">{{ comparativo_sla.tiempo_revision_descontado_dias | dhm }}</p>
                 <p class="text-xs text-gray-500 mt-1">promedio en revisión hasta la entrega</p>
             </div>
             <div class="bg-cyan-50 rounded-lg p-4 text-center">
                 <p class="text-xs font-semibold text-cyan-700 uppercase tracking-wide mb-1">Impacto</p>
                 <p class="text-xl font-bold text-cyan-700">-{{ comparativo_sla.reduccion_pct }}%</p>
-                <p class="text-xs text-gray-500 mt-1">{{ comparativo_sla.reduccion_promedio_dias }}d menos</p>
+                <p class="text-xs text-gray-500 mt-1">{{ comparativo_sla.reduccion_promedio_dias | dhm }} menos</p>
             </div>
         </div>
     </div>

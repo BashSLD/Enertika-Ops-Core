@@ -13,15 +13,15 @@
         <div class="flex items-center gap-6 text-sm">
             <div>
                 <span class="text-gray-500">Promedio:</span>
-                <span class="font-bold text-blue-600 ml-1">{{ promedio_dias }}d</span>
+                <span class="font-bold text-blue-600 ml-1">{{ promedio_dias | dhm }}</span>
             </div>
             <div>
                 <span class="text-gray-500">Máx:</span>
-                <span class="font-bold text-red-600 ml-1">{{ max_dias }}d</span>
+                <span class="font-bold text-red-600 ml-1">{{ max_dias | dhm }}</span>
             </div>
             <div>
                 <span class="text-gray-500">Mín:</span>
-                <span class="font-bold text-green-600 ml-1">{{ min_dias }}d</span>
+                <span class="font-bold text-green-600 ml-1">{{ min_dias | dhm }}</span>
             </div>
         </div>
     </div>
@@ -66,7 +66,7 @@
                     <td class="px-3 py-2 text-center">
                         <span
                             class="font-semibold {% if op.dias_en_estatus > 5 %}text-red-600{% elif op.dias_en_estatus > 3 %}text-orange-600{% else %}text-green-600{% endif %}">
-                            {{ op.dias_en_estatus }}d
+                            {{ op.dias_en_estatus | dhm }}
                         </span>
                     </td>
                 </tr>

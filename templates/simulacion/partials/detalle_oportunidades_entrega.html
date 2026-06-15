@@ -49,13 +49,13 @@
                     <td class="px-3 py-2 text-center">
                         <span
                             class="font-semibold {% if op.dias_netos > 15 %}text-red-600{% elif op.dias_netos > 7 %}text-orange-600{% else %}text-green-600{% endif %}">
-                            {{ op.dias_netos }}d
+                            {{ op.dias_netos | dhm }}
                         </span>
                     </td>
-                    <td class="px-3 py-2 text-center text-gray-500">{{ op.dias_brutos }}d</td>
+                    <td class="px-3 py-2 text-center text-gray-500">{{ op.dias_brutos | dhm }}</td>
                     <td class="px-3 py-2 text-center">
                         {% if op.dias_monitoreo > 0 %}
-                        <span class="text-cyan-700">-{{ op.dias_monitoreo }}d</span>
+                        <span class="text-cyan-700">-{{ op.dias_monitoreo | dhm }}</span>
                         {% else %}
                         <span class="text-gray-300">—</span>
                         {% endif %}

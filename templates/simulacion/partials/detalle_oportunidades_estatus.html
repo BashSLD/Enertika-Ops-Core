@@ -68,7 +68,7 @@
                     <td class="px-3 py-2 text-right">
                         <span
                             class="font-bold {% if op.dias_en_estatus > 7 %}text-red-600{% elif op.dias_en_estatus > 3 %}text-orange-600{% else %}text-gray-700{% endif %}">
-                            {{ op.dias_en_estatus }}d
+                            {{ op.dias_en_estatus | dhm }}
                         </span>
                     </td>
                 </tr>
@@ -88,7 +88,7 @@
                 </svg>
                 <span class="text-gray-600 font-medium">Promedio:</span>
             </div>
-            <strong class="text-lg text-blue-700">{{ promedio_dias }}d</strong>
+            <strong class="text-lg text-blue-700">{{ promedio_dias | dhm }}</strong>
         </div>
         <div class="bg-red-50 p-3 rounded-lg border border-red-200">
             <div class="flex items-center gap-2 mb-1">
@@ -98,7 +98,7 @@
                 </svg>
                 <span class="text-gray-600 font-medium">Máximo:</span>
             </div>
-            <strong class="text-lg text-red-700">{{ max_dias }}d</strong>
+            <strong class="text-lg text-red-700">{{ max_dias | dhm }}</strong>
         </div>
         <div class="bg-green-50 p-3 rounded-lg border border-green-200">
             <div class="flex items-center gap-2 mb-1">
@@ -108,7 +108,7 @@
                 </svg>
                 <span class="text-gray-600 font-medium">Mínimo:</span>
             </div>
-            <strong class="text-lg text-green-700">{{ min_dias }}d</strong>
+            <strong class="text-lg text-green-700">{{ min_dias | dhm }}</strong>
         </div>
     </div>
 </div>
