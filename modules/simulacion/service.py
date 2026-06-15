@@ -303,6 +303,29 @@ class SimulacionService:
         })
         await self.db.update_oportunidad_padre(conn, id_oportunidad, datos_dict)
 
+        # 3.1. Si deadline_negociado cambió y la op es (o pasa a ser) terminal,
+        # recalcular KPIs de sitios ya cerrados individualmente.
+        # update_sitios_cascada omite terminales (NOT IN), así que el recálculo
+        # debe hacerse explícitamente para que el reporte refleje el nuevo deadline.
+        _terminales = {
+            status_map["entregado"], status_map["perdido"],
+            status_map["cancelado"], status_map["ganada"],
+        }
+        if (
+            datos.deadline_negociado != current_deadline_nego
+            and current_data['deadline_calculado'] is not None
+            and (
+                current_data['id_estatus_global'] in _terminales
+                or datos.id_estatus_global in _terminales
+            )
+        ):
+            await self.db.recalcular_kpis_sitios_por_deadline(
+                conn,
+                id_oportunidad,
+                current_data['deadline_calculado'],
+                datos.deadline_negociado,
+            )
+
         # 3.5. Insertar Historial (Si Cambio Estatus)
         if datos.id_estatus_global != current_data['id_estatus_global']:
             # Usar fecha capturada por el usuario (backdating) o la hora actual

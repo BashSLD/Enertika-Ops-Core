@@ -450,6 +450,46 @@ class SimulacionDBService:
         """
         await conn.execute(query, id_estatus_global, fecha_cierre, kpi_interno, kpi_compromiso, id_oportunidad)
 
+    async def recalcular_kpis_sitios_por_deadline(
+        self,
+        conn,
+        id_oportunidad: UUID,
+        deadline_calculado,
+        deadline_negociado,
+    ):
+        """Recalcula kpi_status en sitios y simulaciones adicionales con los deadlines actuales.
+
+        Necesario cuando deadline_negociado cambia sobre una op ya cerrada: update_sitios_cascada
+        omite sitios terminales, por lo que el recálculo debe hacerse explícitamente.
+        """
+        deadline_compromiso = deadline_negociado or deadline_calculado
+        await conn.execute(
+            """
+            WITH upd_sitios AS (
+                UPDATE tb_sitios_oportunidad
+                SET
+                    kpi_status_interno    = CASE
+                        WHEN fecha_cierre <= $2 THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END,
+                    kpi_status_compromiso = CASE
+                        WHEN fecha_cierre <= $3 THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END
+                WHERE id_oportunidad = $1
+                  AND fecha_cierre IS NOT NULL
+                RETURNING 1
+            )
+            UPDATE tb_simulaciones_adicionales
+            SET
+                kpi_status_interno    = CASE
+                    WHEN fecha_entrega <= $2 THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END,
+                kpi_status_compromiso = CASE
+                    WHEN fecha_entrega <= $3 THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END
+            WHERE id_oportunidad = $1
+              AND fecha_entrega IS NOT NULL
+            """,
+            id_oportunidad,
+            deadline_calculado,
+            deadline_compromiso,
+        )
+
     async def update_retrabajo_single(self, conn, id_oportunidad: UUID, id_motivo_retrabajo: int):
         await conn.execute("""
             UPDATE tb_sitios_oportunidad
