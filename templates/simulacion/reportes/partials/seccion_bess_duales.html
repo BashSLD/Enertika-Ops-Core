@@ -1,0 +1,64 @@
+{# templates/simulacion/reportes/partials/seccion_bess_duales.html #}
+{# Sección de Almacenamiento (BESS), contabilizada aparte de los KPIs de FV. #}
+{# Espejo web del bloque del PDF (reporte_analitica.html). #}
+
+{% if bess and bess.total %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+    <div class="flex items-center gap-2 mb-1">
+        <span class="w-3 h-3 bg-blue-500 rounded-full"></span>
+        <h3 class="text-base font-bold text-gray-900">Almacenamiento (BESS)</h3>
+    </div>
+    <p class="text-sm text-gray-500 mb-4">
+        Entregas de BESS (responsabilidad de Almacenamiento), contabilizadas aparte de los
+        KPIs de FV de Simulación.
+    </p>
+
+    <div class="overflow-x-auto">
+        <table class="w-full text-sm min-w-[640px]">
+            <thead>
+                <tr class="bg-gray-100 text-gray-700">
+                    <th class="px-4 py-2 text-center font-semibold">Total</th>
+                    <th class="px-4 py-2 text-center font-semibold text-teal-700 bg-teal-50">A Tiempo Int.</th>
+                    <th class="px-4 py-2 text-center font-semibold text-teal-700 bg-teal-50">Tarde Int.</th>
+                    <th class="px-4 py-2 text-center font-semibold text-teal-700 bg-teal-50">% Int.</th>
+                    <th class="px-4 py-2 text-center font-semibold text-blue-700 bg-blue-50">A Tiempo Comp.</th>
+                    <th class="px-4 py-2 text-center font-semibold text-blue-700 bg-blue-50">Tarde Comp.</th>
+                    <th class="px-4 py-2 text-center font-semibold text-blue-700 bg-blue-50">% Comp.</th>
+                    <th class="px-4 py-2 text-center font-semibold">Sin Fecha</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td class="px-4 py-3 text-center font-bold text-gray-900">{{ bess.total }}</td>
+
+                    <td class="px-4 py-3 text-center bg-teal-50/50 font-semibold text-green-600">
+                        {{ bess.entregas_a_tiempo_interno }}
+                    </td>
+                    <td class="px-4 py-3 text-center bg-teal-50/50 font-semibold text-red-600">
+                        {{ bess.entregas_tarde_interno }}
+                    </td>
+                    <td class="px-4 py-3 text-center bg-teal-50/50">
+                        <span class="font-bold text-lg text-{{ bess.semaforo_interno }}-600">
+                            {{ bess.porcentaje_a_tiempo_interno }}%
+                        </span>
+                    </td>
+
+                    <td class="px-4 py-3 text-center bg-blue-50/50 font-semibold text-green-600">
+                        {{ bess.entregas_a_tiempo_compromiso }}
+                    </td>
+                    <td class="px-4 py-3 text-center bg-blue-50/50 font-semibold text-orange-600">
+                        {{ bess.entregas_tarde_compromiso }}
+                    </td>
+                    <td class="px-4 py-3 text-center bg-blue-50/50">
+                        <span class="font-bold text-lg text-{{ bess.semaforo_compromiso }}-600">
+                            {{ bess.porcentaje_a_tiempo_compromiso }}%
+                        </span>
+                    </td>
+
+                    <td class="px-4 py-3 text-center font-semibold text-gray-500">{{ bess.sin_fecha }}</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}

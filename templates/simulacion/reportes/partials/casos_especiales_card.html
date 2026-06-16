@@ -1,0 +1,42 @@
+{# templates/simulacion/reportes/partials/casos_especiales_card.html #}
+{# Conteo de casos especiales (Monitoreo/Montaje): fuera de KPIs, contabilizados aparte. #}
+{# Espejo del bloque de Metricas Operativas; fuente: historial de estatus. #}
+
+{% if (casos_especiales | sum(attribute='total_paso')) + (casos_especiales | sum(attribute='abiertos')) > 0 %}
+<div class="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+    <div class="flex items-center gap-2 mb-1">
+        <svg class="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+        </svg>
+        <h3 class="text-base font-bold text-gray-900">Casos especiales (fuera de KPIs)</h3>
+    </div>
+    <p class="text-sm text-gray-500 mb-4">
+        «Monitoreo de Cotización» y «Montaje de oferta» salen del flujo normal y no cuentan
+        en KPIs ni métricas. Se contabilizan aquí, desde el historial (incluye las que después
+        se entregaron).
+    </p>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {% for caso in casos_especiales %}
+        {% if caso.total_paso or caso.abiertos %}
+        <div class="border border-cyan-200 bg-cyan-50 rounded-lg p-4">
+            <p class="text-sm font-bold text-cyan-800 mb-3">{{ caso.estatus }}</p>
+            <div class="flex items-end gap-8">
+                <div>
+                    <p class="text-3xl font-extrabold text-cyan-700 leading-none">{{ caso.total_paso }}</p>
+                    <p class="text-xs text-gray-500 uppercase tracking-wide mt-1">Pasaron en el periodo</p>
+                </div>
+                <div>
+                    <p class="text-3xl font-extrabold text-gray-700 leading-none">{{ caso.abiertos }}</p>
+                    <p class="text-xs text-gray-500 uppercase tracking-wide mt-1">Abiertas hoy</p>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+</div>
+{% endif %}

@@ -232,6 +232,15 @@ class ReportesSimulacionService:
             sin_fecha=row['sin_fecha'] or 0,
         )
 
+    async def get_conteo_casos_especiales(self, conn, filtros: FiltrosReporte) -> List[Dict[str, Any]]:
+        """Conteo de casos especiales (Monitoreo/Montaje) para el reporte.
+
+        Quedan fuera de los KPIs, pero se contabilizan aparte (desde historial) para no
+        perder su volumen. Devuelve por estatus: total_paso (pasaron por el estatus en el
+        rango) y abiertos (snapshot actual).
+        """
+        return await self.db.get_report_conteo_casos_especiales(conn, asdict(filtros))
+
     async def get_tabla_contabilizacion(self, conn, filtros: FiltrosReporte) -> List[FilaContabilizacion]:
         cats = await self.db.get_report_catalog_ids(conn)
         rows = await self.db.get_report_tabla_contabilizacion(conn, asdict(filtros), cats)
@@ -884,6 +893,7 @@ class ReportesSimulacionService:
             'metricas': await self.get_metricas_generales(conn, filtros),
             'tecnologias': await self.get_metricas_por_tecnologia(conn, filtros),
             'bess': await self.get_seccion_bess(conn, filtros),
+            'casos_especiales': await self.get_conteo_casos_especiales(conn, filtros),
             'contabilizacion': await self.get_tabla_contabilizacion(conn, filtros),
             'usuarios': await self.get_detalle_por_usuario(conn, filtros),
             'mensual': await self.get_resumen_mensual(conn, filtros),

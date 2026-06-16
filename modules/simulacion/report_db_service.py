@@ -339,6 +339,67 @@ class ReportDBService:
         row = await conn.fetchrow(query, *p.values)
         return dict(row) if row else None
 
+    async def get_report_conteo_casos_especiales(self, conn, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Conteo de casos especiales (Monitoreo/Montaje) para el reporte, desde historial.
+
+        - total_paso: oportunidades cuya transicion AL estatus especial cayo en el rango
+          del reporte. Se cuenta desde historial (no por estatus actual) para no perder las
+          que pasaron por el estatus y terminaron en Entregado.
+        - abiertos: snapshot de las que estan hoy en el estatus.
+
+        Es la unica seccion del reporte que NO excluye los casos especiales: su proposito es
+        contabilizarlos. Los especiales se identifican por el flag de catalogo
+        (`activa_exclusion_kpis_simulacion`), no por nombre. Respeta los filtros de
+        tecnologia/tipo/responsable del reporte (el rango de fechas aplica solo a total_paso).
+        """
+        p = _P()
+        fi = p.add(filters['fecha_inicio'])
+        ff = p.add(filters['fecha_fin'])
+
+        extra = []
+        if filters.get('id_tecnologia'):
+            extra.append(f"o.id_tecnologia = {p.add(filters['id_tecnologia'])}")
+        if filters.get('id_tipo_solicitud'):
+            extra.append(f"o.id_tipo_solicitud = {p.add(filters['id_tipo_solicitud'])}")
+        if filters.get('responsable_id'):
+            extra.append(f"o.responsable_simulacion_id = {p.add(filters['responsable_id'])}")
+        extra_sql = (" AND " + " AND ".join(extra)) if extra else ""
+
+        query = f"""
+            WITH especiales AS (
+                SELECT id, nombre
+                FROM tb_cat_estatus_oportunidades
+                WHERE activa_exclusion_kpis_simulacion = true
+            ),
+            paso AS (
+                SELECT e.nombre AS estatus, COUNT(DISTINCT h.id_oportunidad) AS total
+                FROM tb_historial_estatus h
+                JOIN especiales e ON h.id_estatus_nuevo = e.id
+                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
+                WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= {fi}
+                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= {ff}
+                  {extra_sql}
+                GROUP BY e.nombre
+            ),
+            abiertos AS (
+                SELECT e.nombre AS estatus, COUNT(*) AS total
+                FROM tb_oportunidades o
+                JOIN especiales e ON o.id_estatus_global = e.id
+                WHERE TRUE {extra_sql}
+                GROUP BY e.nombre
+            )
+            SELECT
+                e.nombre AS estatus,
+                COALESCE(p.total, 0) AS total_paso,
+                COALESCE(a.total, 0) AS abiertos
+            FROM especiales e
+            LEFT JOIN paso p ON p.estatus = e.nombre
+            LEFT JOIN abiertos a ON a.estatus = e.nombre
+            ORDER BY e.nombre
+        """
+        rows = await conn.fetch(query, *p.values)
+        return [dict(r) for r in rows]
+
     async def get_chart_motivos_cierre(self, conn, filters: Dict[str, Any]) -> List[Dict[str, Any]]:
         p = _P()
         where = self._build_where(p, filters)

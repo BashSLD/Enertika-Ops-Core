@@ -266,6 +266,19 @@ function initPdfCharts() {
         {% include "simulacion/reportes/partials/tech_tables_duales.html" %}
     </section>
 
+    <!-- SECTION 3b: Almacenamiento (BESS) — contabilizado aparte de los KPIs de FV -->
+    {% if bess and bess.total %}
+    <section id="seccion-bess">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="text-lg font-semibold text-gray-900 flex items-center gap-2">
+                <span class="w-1.5 h-6 bg-blue-500 rounded-r-full"></span>
+                Almacenamiento (BESS)
+            </h2>
+        </div>
+        {% include "simulacion/reportes/partials/seccion_bess_duales.html" %}
+    </section>
+    {% endif %}
+
     <!-- SECTION 4: Tabla de Contabilización (Pivot Tipos) -->
     <section>
         <div class="flex items-center justify-between mb-4">
@@ -311,6 +324,11 @@ function initPdfCharts() {
             </h2>
         </div>
         {% include "simulacion/reportes/partials/user_detail_duales.html" %}
+    </section>
+
+    <!-- SECTION 7: Casos especiales (Monitoreo/Montaje) — fuera de KPIs -->
+    <section>
+        {% include "simulacion/reportes/partials/casos_especiales_card.html" %}
     </section>
 
     {# ============================================================ #}

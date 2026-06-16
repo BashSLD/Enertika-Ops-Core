@@ -32,7 +32,15 @@
             </div>
         </div>
 
-        {# Comparativa de KPIs (Dos mini-cards lado a lado) #}
+        {# Comparativa de KPIs (Dos mini-cards lado a lado).
+           BESS no tiene KPI de FV: sus entregas viven en la sección Almacenamiento (BESS).
+           Se ocultan los mini-cards (darían 0%) y se enlaza a esa sección. #}
+        {% if tech.nombre == 'BESS' %}
+        <div class="mb-4 bg-blue-50 rounded-lg p-3 border border-blue-100 text-xs text-blue-800">
+            Los KPI de BESS se reportan aparte{% if bess and bess.total %}:
+            <a href="#seccion-bess" class="font-semibold underline">Ver Almacenamiento (BESS)</a>{% endif %}.
+        </div>
+        {% else %}
         <div class="grid grid-cols-2 gap-3 mb-4">
             {# KPI Interno #}
             <div class="bg-indigo-50 rounded-lg p-3 border border-indigo-100">
@@ -54,6 +62,7 @@
                 </div>
             </div>
         </div>
+        {% endif %}
 
         {# Métricas Adicionales #}
         <div class="flex-1">
@@ -86,10 +95,19 @@
                         <td class="py-2 text-gray-500 pl-1">Actualizaciones</td>
                         <td class="py-2 text-right font-medium text-violet-600">{{ tech.versiones }}</td>
                     </tr>
-                    {% if tech.potencia_total_kwp > 0 %}
+                    {# Potencia (kWp) y/o Capacidad (kWh) según tecnología:
+                       BESS -> kWh; FV + BESS -> kWp y kWh; resto (FV/FV AISLADO/BOMBEO) -> kWp #}
+                    {% if tech.nombre != 'BESS' and tech.potencia_total_kwp > 0 %}
                     <tr>
                         <td class="py-2 text-gray-500 pl-1">Potencia Total</td>
                         <td class="py-2 text-right font-medium text-gray-900">{{ tech.potencia_total_kwp|round(1) }} kWp
+                        </td>
+                    </tr>
+                    {% endif %}
+                    {% if tech.nombre in ['BESS', 'FV + BESS'] and tech.capacidad_total_kwh > 0 %}
+                    <tr>
+                        <td class="py-2 text-gray-500 pl-1">Capacidad Total</td>
+                        <td class="py-2 text-right font-medium text-gray-900">{{ tech.capacidad_total_kwh|round(1) }} kWh
                         </td>
                     </tr>
                     {% endif %}

@@ -196,6 +196,8 @@ async def get_analisis_detallado(
     tabla_contab = await service.get_tabla_contabilizacion(conn, filtros)
     metricas_usuarios = await service.get_detalle_por_usuario(conn, filtros)
     resumen_mensual = await service.get_resumen_mensual(conn, filtros)
+    bess = await service.get_seccion_bess(conn, filtros)
+    casos_especiales = await service.get_conteo_casos_especiales(conn, filtros)
     
     # Graficas para canvas PDF ocultos (best-effort)
     try:
@@ -243,6 +245,8 @@ async def get_analisis_detallado(
         "catalogos": catalogos,
         "metricas": metricas,
         "tecnologias": metricas_tech,
+        "bess": bess,
+        "casos_especiales": casos_especiales,
         "filas": tabla_contab,
         "usuarios": metricas_usuarios,
         "resumen": resumen_mensual,

@@ -704,6 +704,36 @@
         {% endif %}
     </table>
 
+    {# Casos especiales (Monitoreo/Montaje): fuera de KPIs, contabilizados aparte #}
+    {% if (tablas.casos_especiales | sum(attribute='total_paso')) + (tablas.casos_especiales | sum(attribute='abiertos')) > 0 %}
+    <div class="section-title" style="font-size:11pt;">Casos especiales (fuera de KPIs)</div>
+    <p style="font-size:8pt;color:#64748b;margin:0 0 8px;">
+        «Monitoreo de Cotización» y «Montaje de oferta» salen del flujo normal y no cuentan en
+        KPIs ni métricas. Contabilizados aparte desde el historial (incluye las que después se
+        entregaron).
+    </p>
+    <table class="dt mb-14">
+        <thead>
+            <tr>
+                <th class="tl">Estatus</th>
+                <th>Pasaron en el periodo</th>
+                <th>Abiertas hoy</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in tablas.casos_especiales %}
+            {% if c.total_paso or c.abiertos %}
+            <tr>
+                <td class="tl">{{ c.estatus }}</td>
+                <td>{{ c.total_paso }}</td>
+                <td>{{ c.abiertos }}</td>
+            </tr>
+            {% endif %}
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
     {# Graficas: Estatus + Tendencia mensual en la misma pagina #}
     {% if charts.estatus or charts.mensual %}
     <hr class="section-divider">
