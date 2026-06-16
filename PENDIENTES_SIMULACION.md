@@ -118,9 +118,14 @@ historial. La exclusión se identifica por el flag de catálogo
 - Implementado en `service.py`, `db_service.py`, `metrics_db_service.py`, modal y `metricas_datos.html`.
 - Tests en `tests/test_simulacion_status_notifications.py` y `tests/test_simulacion_metrics_service.py`.
 
-**PENDIENTE — Fase 4 del decouple FV/BESS:** aplicar el filtro
-`COALESCE(o.excluir_kpis_simulacion, false) = false` (y la migración a `cuenta_para_kpi`) en
-`modules/simulacion/report_db_service.py`. Se hace junto con la reescritura de los CTEs de KPI que
-leerán `tb_entregas_componente` (ver `PLAN_DECOUPLE_FV_BESS.md`), para no refactorizar ese archivo
-dos veces. Costo temporal aceptado: entre el deploy de Montaje y la Fase 4, el PDF de KPIs aún
-contaría las oportunidades de Montaje/Monitoreo.
+**Fase 4 del decouple FV/BESS — CÓDIGO LISTO 2026-06-16.** Reescritura única de
+`modules/simulacion/report_db_service.py`: los KPIs de entrega/cumplimiento leen de
+`tb_entregas_componente` (`componente='FV'`) con JOIN a `tb_oportunidades` + filtro
+`COALESCE(o.excluir_kpis_simulacion, false) = false` + `e.cuenta_para_kpi=true` (reemplaza el
+hardcode `IN(entregado,perdido,ganada)`). Sección BESS aparte (`SeccionBESS` + render en
+`reporte_analitica.html`). Conteos de volumen sin cambios. Builder `_P` elimina el frágil
+`len(params)-N`.
+
+**FALTA antes de desplegar:** aplicar `migrations/112_backfill_entregas_componente_historico.sql`
+en PROD (backfill histórico completo de `tb_entregas_componente` sin filtro de año; sin él, los
+reportes que abarquen 2025 perderían los sitios FV/BESS puros que la mig 108 dejó fuera).

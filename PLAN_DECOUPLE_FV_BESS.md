@@ -14,7 +14,15 @@
   351/353 KPIs coinciden con backfill; 2 son mejoras (rellenan KPI NULL donde hay fecha).
 - **Fase 3 (botón "FV Terminado") CÓDIGO LISTO 2026-06-15** — falta desplegar. db_service + service +
   endpoint `POST /simulacion/fv-terminado/{id}` + banner en modal (solo híbridos, doble confirmación).
-- **Fase 4:** pendiente.
+- **Fase 4 (reportes + UI + PDF) CÓDIGO LISTO 2026-06-16** — reescritura única de
+  `report_db_service.py`: KPIs de entrega leen de `tb_entregas_componente` (`componente='FV'`)
+  con JOIN a oportunidades + `COALESCE(o.excluir_kpis_simulacion,false)=false` + `e.cuenta_para_kpi`
+  (reemplaza el hardcode `IN(entregado,perdido,ganada)`); builder de params `_P` (mata `len(params)-N`);
+  sección BESS separada (`get_report_seccion_bess` + dataclass `SeccionBESS` + render en
+  `reporte_analitica.html`). Conteos de volumen (total_solicitudes, en_espera, canceladas,
+  no_viables, ganadas, distribuciones) sin cambios. **Requiere `migrations/112`** (backfill histórico
+  total de `tb_entregas_componente`, sin filtro de año) APLICADA en PROD para no perder KPIs de 2025.
+  Validado read-only vs PROD: FV-family coincide (Δ≤1 por la "mejora" ya documentada en Fase 5).
 - Refresh PROD→DEV sigue diferido (pruebas activas en DEV).
 **Objetivo:** Separar las métricas de FV (responsabilidad de Simulación) de las de BESS
 (responsabilidad de otra área) en oportunidades híbridas FV+BESS, sin alterar los KPIs
@@ -225,11 +233,50 @@ Una fila por **(entrega física × tecnología presente)**. Unifica `tb_sitios_o
   `core/workflow/notification_service.py` (Graph API) + outbox `tb_correos_notificaciones`.
 - **Independiente del decouple** — se puede construir en cualquier momento.
 
-**Fase 4 — Reportes + UI + PDF**
+**Fase 4 — Reportes + UI + PDF** — **CÓDIGO LISTO 2026-06-16** (falta aplicar `migrations/112` + desplegar)
 - Secciones KPI de Simulación: `WHERE componente='FV' AND area_responsable='SIMULACION'`.
 - BESS en sección propia (UI + PDF): cuántos a tiempo / tarde.
 - Refactor de los CTEs en `modules/simulacion/report_db_service.py` (hoy hacen UNION de
   sitios + sim_adicionales y cuentan `id_sitio`; pasan a contar componentes).
+- **DECISIÓN (2026-06-15) — `report_db_service.py` se toca UNA sola vez, aquí:** Montaje hace todo
+  su trabajo SIN tocar este archivo (solo `metrics_db_service.py`). Esta Fase 4 es el único refactor
+  de `report_db_service.py` e integra de entrada los tres ejes: (1) leer de `tb_entregas_componente`,
+  (2) separar sección BESS, (3) filtro `excluir_kpis_simulacion` + `cuenta_para_kpi` (de Montaje).
+  Por eso **Montaje va antes que esta Fase 4**, y la exclusión en KPIs de reporte se implementa aquí,
+  no en Montaje. Ver sección "Integración" de `PLAN_MONTAJE_OFERTA_KPIS_SIMULACION.md`.
+
+### Guía técnica para reducir la fragilidad de `report_db_service.py` (aprovechar este refactor)
+
+El archivo es frágil por: (a) índices de parámetros calculados a mano (`idx_entregado = len(params) - 8`),
+(b) IDs de catálogo pasados como parámetros, (c) el mismo CTE `UNION ALL` repetido en ~6 métodos.
+Como la Fase 4 reescribe esas queries de todos modos, aplicar estas mejoras sin costo extra:
+
+- **Nivel 1 — Resolver catálogos DENTRO del SQL (mayor impacto).** En vez de pasar IDs como params
+  y calcular `idx_X`, filtrar contra el catálogo:
+  ```sql
+  -- en vez de:  id_estatus_global IN ($idx_entregado, $idx_perdido, $idx_ganada)
+  -- usar:       id_estatus_global IN (SELECT id FROM tb_cat_estatus_oportunidades WHERE cuenta_para_kpi)
+  ```
+  Elimina la mayoría de los `idx_` calculados. El patrón ya existe en `get_report_tiempo_promedio_global`
+  (`WHERE LOWER(nombre) IN (...)`); generalizarlo. **La migración de Montaje a `cuenta_para_kpi` ES
+  este fix** — al cambiar `IN (entregado,perdido,ganada)` por `e.cuenta_para_kpi=true`, esos params y
+  sus índices desaparecen. Montaje + Fase 4 reducen la fragilidad como efecto secundario.
+
+- **Nivel 2 — Builder de parámetros (mata el `len(params)-N`).** Helper que auto-asigna placeholders:
+  ```python
+  class P:
+      def __init__(self): self.vals = []
+      def add(self, v): self.vals.append(v); return f"${len(self.vals)}"
+  # uso:  q = f"... WHERE o.fecha_solicitud >= {p.add(fecha_inicio)} ..."; await conn.fetch(q, *p.vals)
+  ```
+  Elimina el cálculo manual de índices (la clase de bug más peligrosa). ~15 líneas.
+
+- **Nivel 3 — Vista que encapsule el CTE repetido (opcional).** Crear `v_entregas_componente_kpi`
+  (el `UNION ALL` + JOINs comunes, ya con `excluir_kpis_simulacion`); los ~6 métodos hacen
+  `SELECT … FROM v_entregas_componente_kpi WHERE …` en vez de repetir el CTE. Evaluar según cuánta
+  duplicación quede tras migrar a componentes.
+
+Prioridad: Niveles 1 y 2 (alto valor, bajo costo dentro de este refactor); Nivel 3 según convenga.
 
 **Fase 5 — Sincronía** — **CÓDIGO LISTO 2026-06-15** (falta aplicar `migrations/110` + desplegar)
 - `migrations/110_entregas_componente_fecha_manual.sql`: añade flag `editado_manual` (protege

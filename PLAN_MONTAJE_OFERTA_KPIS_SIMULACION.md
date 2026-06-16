@@ -3,7 +3,7 @@
 > **Afinado y verificado contra código el 2026-06-15.** Ver secciones
 > "Estado verificado" e "Integración con decouple FV/BESS" al final.
 >
-> **Estado (2026-06-16): IMPLEMENTADO salvo reportes PDF (Fase 4 decouple).**
+> **Estado (2026-06-16): IMPLEMENTADO (incluye reportes PDF — Fase 4 decouple, CÓDIGO LISTO).**
 > - Migración **111** aplicada y verificada en PROD (columnas + estatus Montaje id 16 + backfill).
 > - `service.py`: clave `montaje_oferta` en `_get_status_ids`; `_validate_status_transition` y
 >   `_validate_status_pair` generalizados por el flag `activa_exclusion_kpis_simulacion`
@@ -19,7 +19,9 @@
 >   (tarjetas de conteo "Casos especiales").
 > - Tests: `tests/test_simulacion_status_notifications.py` (transiciones) y
 >   `tests/test_simulacion_metrics_service.py` (exclusión + conteo).
-> - **PENDIENTE:** `report_db_service.py` (KPIs del PDF) → se integra en la **Fase 4 del decouple**.
+> - **HECHO (2026-06-16, Fase 4 decouple):** `report_db_service.py` reescrito — KPIs del PDF aplican
+>   `COALESCE(o.excluir_kpis_simulacion,false)=false` + `e.cuenta_para_kpi` y leen de
+>   `tb_entregas_componente`. Falta aplicar `migrations/112` (backfill histórico) + desplegar.
 
 ## Objetivo
 
