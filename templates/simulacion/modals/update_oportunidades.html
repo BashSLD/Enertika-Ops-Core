@@ -12,7 +12,8 @@
             perdido_id: {{ status_ids.perdido }},
             comentarios_recibidos_id: {{ status_ids.comentarios_recibidos | default('null') }},
             monitoreo_cotizacion_id: {{ status_ids.monitoreo_cotizacion | default('null') }},
-            
+            montaje_oferta_id: {{ status_ids.montaje_oferta | default('null') }},
+
             originalIdInterno: '{{ op.id_interno_simulacion or '' }}',
             currentIdInterno: '{{ op.id_interno_simulacion or '' }}',
             
@@ -83,6 +84,22 @@
                 }
                 this.errors = {};
                 let valid = true;
+
+                // Confirmación extra: marcar como caso especial (Monitoreo/Montaje) saca la
+                // oportunidad del flujo normal y la excluye de KPIs/métricas. Solo al entrar.
+                if (this.status != this.initialStatus &&
+                    (this.status == this.monitoreo_cotizacion_id || this.status == this.montaje_oferta_id)) {
+                    const nombre = this.status == this.monitoreo_cotizacion_id
+                        ? 'Monitoreo de Cotización' : 'Montaje de oferta';
+                    const confirmado = confirm(`¿Estás seguro de marcar como "${nombre}"?\n\n` +
+                        'Esta oportunidad se contabilizará aparte y no contará en KPIs ni en métricas operativas.');
+                    if (!confirmado) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        event.stopImmediatePropagation();
+                        return false;
+                    }
+                }
 
                 // Validación 1: Entregado/Perdido requieren responsable asignado
                 // Cancelado está exento (no entra en métricas)
@@ -243,12 +260,13 @@
                                 </svg>
                                 Estatus Simulación
                             </label>
-                            {% set current_status = namespace(orden=none, nombre='', final=false) %}
+                            {% set current_status = namespace(orden=none, nombre='', final=false, especial=false) %}
                             {% for st in estatus_global %}
                                 {% if st.id == op.id_estatus_global %}
                                     {% set current_status.orden = st.orden %}
                                     {% set current_status.nombre = st.nombre %}
                                     {% set current_status.final = st.es_estatus_final %}
+                                    {% set current_status.especial = st.activa_exclusion_kpis_simulacion %}
                                 {% endif %}
                             {% endfor %}
                             <select name="id_estatus_global" x-model.number="status" {% if not can_manage %}disabled{% endif %}
@@ -258,12 +276,12 @@
                                 {% set has_order = st.orden is not none and current_status.orden is not none %}
                                 {% set diff = st.orden - current_status.orden if has_order else none %}
                                 {% set is_entregado = st.nombre == 'Entregado' %}
-                                {% set es_monitoreo = st.nombre == 'Monitoreo de Cotización' %}
+                                {% set es_especial = st.activa_exclusion_kpis_simulacion %}
                                 {% set salida_terminal = st.es_estatus_final and not is_entregado %}
-                                {% set entrega_valida = is_entregado and current_status.nombre in ('Comentarios Recibidos', 'Monitoreo de Cotización') %}
-                                {% set flujo_valido = (diff == 1 or diff == -1) and not st.es_estatus_final and not es_monitoreo %}
-                                {% set salida_monitoreo = current_status.nombre == 'Monitoreo de Cotización' and not st.es_estatus_final %}
-                                {% set is_valid = is_current or ((not current_status.final) and (salida_terminal or entrega_valida or flujo_valido or es_monitoreo or salida_monitoreo)) %}
+                                {% set entrega_valida = is_entregado and (current_status.nombre == 'Comentarios Recibidos' or current_status.especial) %}
+                                {% set flujo_valido = (diff == 1 or diff == -1) and not st.es_estatus_final and not es_especial %}
+                                {% set salida_especial = current_status.especial and not st.es_estatus_final %}
+                                {% set is_valid = is_current or ((not current_status.final) and (salida_terminal or entrega_valida or flujo_valido or es_especial or salida_especial)) %}
                                 <option value="{{ st.id }}" {% if not is_valid %}disabled{% endif %}>{{ st.nombre }}</option>
                                 {% endfor %}
                             </select>
@@ -277,14 +295,14 @@
                                 </svg>
                                 Dirección revisó la propuesta y devolvió comentarios al equipo de simulación.
                             </p>
-                            <p x-show="status === monitoreo_cotizacion_id"
+                            <p x-show="status === monitoreo_cotizacion_id || status === montaje_oferta_id"
                                x-transition
                                class="mt-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1 flex items-center gap-1">
                                 <svg class="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                                         d="M10 9v6m4-6v6m7-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
                                 </svg>
-                                La oportunidad queda en stand-by fuera del flujo normal. Para reactivarla, selecciona el estatus al que deseas regresar.
+                                La oportunidad queda en stand-by fuera del flujo normal y no contará en KPIs ni en métricas operativas. Para reactivarla, selecciona el estatus al que deseas regresar.
                             </p>
                         </div>
 

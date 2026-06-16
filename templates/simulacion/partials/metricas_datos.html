@@ -132,8 +132,8 @@
 </div>
 {% endif %}
 
-<!-- Sección 0b: Tiempo en Monitoreo de Cotización (informativo, no SLA) -->
-{% if monitoreo %}
+<!-- Sección 0b: Casos especiales (Monitoreo / Montaje) — conteo informativo, fuera de KPIs -->
+{% if casos_especiales %}
 <div class="bg-white rounded-lg shadow p-5 mb-6">
     <h3 class="text-base font-bold text-gray-900 mb-1 flex items-center gap-2">
         <svg class="w-5 h-5 text-cyan-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -142,60 +142,32 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                 d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
         </svg>
-        Tiempo en Monitoreo de Cotización
+        Casos especiales (fuera de KPIs)
         {% call info_tooltip(ancho='w-80') %}
-            Días que cada oportunidad ha pasado en «Monitoreo de Cotización» (espera de
-            decisión del cliente tras entregar la cotización). Es <strong>informativo</strong>:
-            este tiempo se descuenta del lead time de entrega y <strong>no impacta</strong>
-            el SLA de simulación.
+            «Monitoreo de Cotización» y «Montaje de oferta» son estatus especiales: la
+            oportunidad sale del flujo normal y <strong>no cuenta</strong> en KPIs ni en
+            métricas operativas. Aquí se contabilizan aparte, desde el historial, para no
+            perder su volumen (incluye las que después se entregaron).
         {% endcall %}
     </h3>
-    <p class="text-sm text-gray-500 mb-4">No cuenta para el SLA de simulación.</p>
+    <p class="text-sm text-gray-500 mb-4">No cuentan para el SLA ni para las métricas operativas.</p>
 
-    <div class="overflow-x-auto">
-        <table class="w-full text-sm">
-            <thead>
-                <tr class="bg-gray-50 border-b text-xs uppercase tracking-wide text-gray-500">
-                    <th class="px-3 py-2 text-left font-semibold">OP ID</th>
-                    <th class="px-3 py-2 text-left font-semibold">Cliente</th>
-                    <th class="px-3 py-2 text-left font-semibold">Proyecto</th>
-                    <th class="px-3 py-2 text-left font-semibold">Tecnología</th>
-                    <th class="px-3 py-2 text-left font-semibold">Responsable</th>
-                    <th class="px-3 py-2 text-center font-semibold">Días en monitoreo</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for op in monitoreo %}
-                <tr class="border-b border-gray-100 hover:bg-cyan-50 transition-colors">
-                    <td class="px-3 py-2">
-                        <a href="#" hx-get="/simulacion/modals/detalle/{{ op.id_oportunidad }}"
-                            hx-target="#modal-action-container" hx-swap="innerHTML"
-                            hx-disabled-elt="this" hx-sync="this:drop" hx-indicator="#global-loading-overlay"
-                            class="text-blue-600 hover:text-blue-800 font-medium hover:underline">
-                            {{ op.op_id_estandar }}
-                        </a>
-                        {% if op.es_licitacion %}
-                        <span class="ml-1 px-1.5 py-0.5 text-xs bg-purple-100 text-purple-700 rounded">LIC</span>
-                        {% endif %}
-                    </td>
-                    <td class="px-3 py-2 text-gray-700">{{ op.cliente_nombre }}</td>
-                    <td class="px-3 py-2 text-gray-600 max-w-xs truncate" title="{{ op.titulo_proyecto }}">
-                        {{ op.titulo_proyecto }}
-                    </td>
-                    <td class="px-3 py-2">
-                        <span class="px-2 py-0.5 text-xs bg-gray-100 text-gray-700 rounded">{{ op.tecnologia }}</span>
-                    </td>
-                    <td class="px-3 py-2 text-gray-600">{{ op.responsable_simulacion }}</td>
-                    <td class="px-3 py-2 text-center">
-                        <span class="font-bold text-cyan-700">{{ op.dias_en_monitoreo | dhm }}</span>
-                        {% if op.sigue_en_monitoreo %}
-                        <span class="ml-1 px-1.5 py-0.5 text-xs bg-cyan-100 text-cyan-700 rounded">en curso</span>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {% for caso in casos_especiales %}
+        <div class="border border-cyan-200 bg-cyan-50 rounded-lg p-4">
+            <p class="text-sm font-bold text-cyan-800 mb-3">{{ caso.estatus }}</p>
+            <div class="flex items-end gap-8">
+                <div>
+                    <p class="text-3xl font-extrabold text-cyan-700 leading-none">{{ caso.total_paso }}</p>
+                    <p class="text-xs text-gray-500 uppercase tracking-wide mt-1">Pasaron en el periodo</p>
+                </div>
+                <div>
+                    <p class="text-3xl font-extrabold text-gray-700 leading-none">{{ caso.abiertos }}</p>
+                    <p class="text-xs text-gray-500 uppercase tracking-wide mt-1">Abiertas hoy</p>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
     </div>
 </div>
 {% endif %}
