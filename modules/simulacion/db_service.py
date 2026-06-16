@@ -24,12 +24,12 @@ class SimulacionDBService:
         """Obtiene opciones para el dropdown de estatus global, filtrando por módulo."""
         if exclude_id:
             rows = await conn.fetch(
-                "SELECT id, nombre, orden, es_estatus_final FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' AND id != $1 ORDER BY orden NULLS LAST",
+                "SELECT id, nombre, orden, es_estatus_final, activa_exclusion_kpis_simulacion FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' AND id != $1 ORDER BY orden NULLS LAST",
                 exclude_id
             )
         else:
             rows = await conn.fetch(
-                "SELECT id, nombre, orden, es_estatus_final FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY orden NULLS LAST"
+                "SELECT id, nombre, orden, es_estatus_final, activa_exclusion_kpis_simulacion FROM tb_cat_estatus_oportunidades WHERE activo = true AND modulo_aplicable = 'SIMULACION' ORDER BY orden NULLS LAST"
             )
         return [dict(r) for r in rows]
 
@@ -50,7 +50,7 @@ class SimulacionDBService:
     async def get_estatus_oportunidades_activos(self, conn) -> List[Dict[str, Any]]:
         rows = await conn.fetch(
             """
-            SELECT id, nombre, orden, es_estatus_final
+            SELECT id, nombre, orden, es_estatus_final, activa_exclusion_kpis_simulacion
             FROM tb_cat_estatus_oportunidades
             WHERE activo = true
             """
@@ -355,8 +355,11 @@ class SimulacionDBService:
                 capacidad_cierre_bess_kwh = $9,
                 kpi_status_sla_interno = $10,
                 kpi_status_compromiso = $11,
-                tiempo_elaboracion_horas = $12
-            WHERE id_oportunidad = $13
+                tiempo_elaboracion_horas = $12,
+                -- Monotono: una vez excluida (Monitoreo/Montaje) se conserva aunque
+                -- la op pase despues a Entregado. Nunca se apaga desde aqui.
+                excluir_kpis_simulacion = excluir_kpis_simulacion OR $13
+            WHERE id_oportunidad = $14
         """
         await conn.execute(query,
             datos['id_interno_simulacion'],
@@ -371,6 +374,7 @@ class SimulacionDBService:
             datos['kpi_sla_val'],
             datos['kpi_compromiso_val'],
             datos['tiempo_elaboracion_horas'],
+            datos.get('excluir_kpis_simulacion', False),
             id_oportunidad
         )
 
@@ -450,6 +454,13 @@ class SimulacionDBService:
         """
         await conn.execute(query, id_estatus_global, fecha_cierre, kpi_interno, kpi_compromiso, id_oportunidad)
 
+    async def _oportunidad_excluida(self, conn, id_oportunidad: UUID) -> bool:
+        """True si la oportunidad es caso especial (Monitoreo/Montaje), excluida de KPIs."""
+        return bool(await conn.fetchval(
+            "SELECT excluir_kpis_simulacion FROM tb_oportunidades WHERE id_oportunidad = $1",
+            id_oportunidad,
+        ))
+
     async def recalcular_kpis_sitios_por_deadline(
         self,
         conn,
@@ -463,6 +474,25 @@ class SimulacionDBService:
         omite sitios terminales, por lo que el recálculo debe hacerse explícitamente.
         """
         deadline_compromiso = deadline_negociado or deadline_calculado
+
+        # Oportunidades excluidas (Monitoreo/Montaje): conservar fechas pero sin KPI.
+        if await self._oportunidad_excluida(conn, id_oportunidad):
+            await conn.execute(
+                """
+                WITH upd_sitios AS (
+                    UPDATE tb_sitios_oportunidad
+                    SET kpi_status_interno = NULL, kpi_status_compromiso = NULL
+                    WHERE id_oportunidad = $1 AND fecha_cierre IS NOT NULL
+                    RETURNING 1
+                )
+                UPDATE tb_simulaciones_adicionales
+                SET kpi_status_interno = NULL, kpi_status_compromiso = NULL
+                WHERE id_oportunidad = $1 AND fecha_entrega IS NOT NULL
+                """,
+                id_oportunidad,
+            )
+            return
+
         await conn.execute(
             """
             WITH upd_sitios AS (
@@ -504,15 +534,21 @@ class SimulacionDBService:
         """
         lev = "(SELECT id FROM tb_cat_tipos_solicitud WHERE LOWER(nombre) = 'levantamiento')"
 
-        # Set de UPDATE comun a los 4 upserts (protege valores manuales)
-        on_conflict_set = """
-            DO UPDATE SET
-                deadline_calculado    = EXCLUDED.deadline_calculado,
-                deadline_negociado    = EXCLUDED.deadline_negociado,
-                magnitud = CASE WHEN tb_entregas_componente.editado_manual
-                                THEN tb_entregas_componente.magnitud ELSE EXCLUDED.magnitud END,
-                fecha_entrega = CASE WHEN tb_entregas_componente.editado_manual
-                                THEN tb_entregas_componente.fecha_entrega ELSE EXCLUDED.fecha_entrega END,
+        # Oportunidades excluidas (Monitoreo/Montaje): se siguen sincronizando magnitud/fecha/
+        # deadline, pero el KPI queda en NULL para no contar como cumplimiento.
+        excluida = await self._oportunidad_excluida(conn, id_oportunidad)
+
+        if excluida:
+            # Columnas KPI en el ON CONFLICT y para filas nuevas: siempre NULL.
+            kpi_on_conflict = """
+                kpi_status_interno = NULL,
+                kpi_status_compromiso = NULL,
+            """
+
+            def kpi_expr(fecha_expr):
+                return "NULL, NULL"
+        else:
+            kpi_on_conflict = """
                 kpi_status_interno = CASE
                     WHEN (CASE WHEN tb_entregas_componente.editado_manual
                                THEN tb_entregas_componente.fecha_entrega ELSE EXCLUDED.fecha_entrega END) IS NULL THEN NULL
@@ -525,17 +561,29 @@ class SimulacionDBService:
                     WHEN (CASE WHEN tb_entregas_componente.editado_manual
                                THEN tb_entregas_componente.fecha_entrega ELSE EXCLUDED.fecha_entrega END)
                          <= COALESCE(EXCLUDED.deadline_negociado, EXCLUDED.deadline_calculado) THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END,
+            """
+
+            # KPI computado de fecha vs deadline (para filas nuevas)
+            def kpi_expr(fecha_expr):
+                return f"""
+                    CASE WHEN {fecha_expr} IS NULL THEN NULL
+                         WHEN {fecha_expr} <= o.deadline_calculado THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END,
+                    CASE WHEN {fecha_expr} IS NULL THEN NULL
+                         WHEN {fecha_expr} <= COALESCE(o.deadline_negociado, o.deadline_calculado) THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END
+                """
+
+        # Set de UPDATE comun a los 4 upserts (protege valores manuales)
+        on_conflict_set = f"""
+            DO UPDATE SET
+                deadline_calculado    = EXCLUDED.deadline_calculado,
+                deadline_negociado    = EXCLUDED.deadline_negociado,
+                magnitud = CASE WHEN tb_entregas_componente.editado_manual
+                                THEN tb_entregas_componente.magnitud ELSE EXCLUDED.magnitud END,
+                fecha_entrega = CASE WHEN tb_entregas_componente.editado_manual
+                                THEN tb_entregas_componente.fecha_entrega ELSE EXCLUDED.fecha_entrega END,
+                {kpi_on_conflict}
                 updated_at = now()
         """
-
-        # KPI computado de fecha vs deadline (para filas nuevas)
-        def kpi_expr(fecha_expr):
-            return f"""
-                CASE WHEN {fecha_expr} IS NULL THEN NULL
-                     WHEN {fecha_expr} <= o.deadline_calculado THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END,
-                CASE WHEN {fecha_expr} IS NULL THEN NULL
-                     WHEN {fecha_expr} <= COALESCE(o.deadline_negociado, o.deadline_calculado) THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END
-            """
 
         # 1. FV desde sitios (tech != 2)
         fecha_sitio = "COALESCE(s.fecha_cierre, o.fecha_entrega_simulacion)"

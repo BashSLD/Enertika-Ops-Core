@@ -105,6 +105,7 @@ class SimulacionService:
             "perdido":                 get_id("Perdido"),
             "ganada":                  get_id("Ganada"),
             "monitoreo_cotizacion":    get_id("Monitoreo de Cotización"),
+            "montaje_oferta":          get_id("Montaje de oferta"),
             "comentarios_recibidos":   get_id("Comentarios Recibidos"),
         }
 
@@ -287,7 +288,7 @@ class SimulacionService:
 
             # 1.5. Validar transición de estatus y fecha/hora real (enforcement §5.1 / §5.2)
             now_mx = await self.get_current_datetime_mx(conn)
-            es_cierre_terminal = await self._validate_status_transition(conn, id_oportunidad, current_data, datos, now_mx)
+            es_cierre_terminal, activa_exclusion_kpis = await self._validate_status_transition(conn, id_oportunidad, current_data, datos, now_mx)
 
             # 2. Calcular KPIs de Entrega (Padre)
             kpi_sla_val, kpi_compromiso_val, tiempo_elaboracion_horas = await self._calculate_kpis_entrega_padre(
@@ -300,7 +301,10 @@ class SimulacionService:
             datos_dict.update({
                 'kpi_sla_val': kpi_sla_val,
                 'kpi_compromiso_val': kpi_compromiso_val,
-                'tiempo_elaboracion_horas': tiempo_elaboracion_horas
+                'tiempo_elaboracion_horas': tiempo_elaboracion_horas,
+                # Al entrar a Monitoreo/Montaje se marca la exclusión; el UPDATE es monótono
+                # (OR) por lo que se conserva aunque la op pase después a Entregado.
+                'excluir_kpis_simulacion': activa_exclusion_kpis,
             })
             await self.db.update_oportunidad_padre(conn, id_oportunidad, datos_dict)
 
@@ -739,7 +743,10 @@ class SimulacionService:
             )
 
         if destino["es_estatus_final"]:
-            if self._is_entregado(destino) and origen["nombre"] != "Comentarios Recibidos":
+            if self._is_entregado(destino) and not (
+                origen["nombre"] == "Comentarios Recibidos"
+                or origen["activa_exclusion_kpis_simulacion"]
+            ):
                 raise HTTPException(
                     status_code=400,
                     detail=(
@@ -747,6 +754,10 @@ class SimulacionService:
                         "'Comentarios Recibidos'."
                     ),
                 )
+            return
+
+        # Estatus especiales (Monitoreo/Montaje): entrada/salida desde cualquier activo.
+        if origen["activa_exclusion_kpis_simulacion"] or destino["activa_exclusion_kpis_simulacion"]:
             return
 
         if origen["orden"] is None or destino["orden"] is None:
@@ -1051,13 +1062,16 @@ class SimulacionService:
         Valida que la transición de estatus siga el flujo secuencial (§5.1)
         y la fecha real sea coherente (§5.2).
         Lanza HTTPException(400) si alguna regla es violada.
-        Devuelve True si el nuevo estatus es terminal (cierre de modal).
+        Devuelve (es_terminal, activa_exclusion):
+        - es_terminal: True si el nuevo estatus es terminal (cierre de modal).
+        - activa_exclusion: True si el nuevo estatus marca la oportunidad como excluida de KPIs
+          (Monitoreo de Cotización / Montaje de oferta), por su flag de catálogo.
         """
         id_actual = current_data['id_estatus_global']
         id_nuevo = datos.id_estatus_global
 
         if id_actual == id_nuevo:
-            return False
+            return False, False
 
         # Cargar catálogo completo (< 10 filas) para evitar roundtrips extra en mensajes de error
         catalog, by_orden = await self._get_catalogo_estatus(conn)
@@ -1080,7 +1094,11 @@ class SimulacionService:
 
         if nuevo['es_estatus_final']:
             # Entregado requiere pasar primero por Comentarios Recibidos (revisión obligatoria)
-            if nuevo['nombre'] == 'Entregado' and actual['nombre'] not in ('Comentarios Recibidos', 'Monitoreo de Cotización'):
+            # o desde un estatus especial de exclusión (Monitoreo/Montaje).
+            if nuevo['nombre'] == 'Entregado' and not (
+                actual['nombre'] == 'Comentarios Recibidos'
+                or actual['activa_exclusion_kpis_simulacion']
+            ):
                 raise HTTPException(
                     status_code=400,
                     detail=(
@@ -1089,8 +1107,8 @@ class SimulacionService:
                     )
                 )
             # Cancelado/Perdido: permitidos desde cualquier activo → sin más restricción
-        elif actual['nombre'] == 'Monitoreo de Cotización' or nuevo['nombre'] == 'Monitoreo de Cotización':
-            pass  # stand-by: entrada desde cualquier activo, salida a cualquier activo
+        elif actual['activa_exclusion_kpis_simulacion'] or nuevo['activa_exclusion_kpis_simulacion']:
+            pass  # stand-by (Monitoreo/Montaje): entrada desde cualquier activo, salida a cualquier activo
         elif actual['orden'] is not None and nuevo['orden'] is not None:
             diferencia = nuevo['orden'] - actual['orden']
             if diferencia > 1:
@@ -1113,7 +1131,7 @@ class SimulacionService:
                 )
 
         await self._validate_fecha_cambio(conn, id_oportunidad, datos, now_mx)
-        return nuevo['es_estatus_final']
+        return nuevo['es_estatus_final'], bool(nuevo['activa_exclusion_kpis_simulacion'])
 
     async def _handle_site_updates(
         self,
