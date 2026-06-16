@@ -23,3 +23,9 @@ SHAREPOINT_CFE_TOOLS_FOLDER = "herramientas"
 
 # Módulos con acceso a esta funcionalidad
 CFE_MODULE_SLUGS = ["oym", "simulacion"]
+
+# Umbral de duracion de una busqueda de periodos: minimo 300s, +90s por cada
+# periodo solicitado. Lo usan tanto el asyncio.wait_for() en procesar_pendientes
+# como el reaper SQL que rescata busquedas colgadas — deben coincidir.
+CFE_BUSQUEDA_TIMEOUT_MIN_SEGUNDOS = 300
+CFE_BUSQUEDA_TIMEOUT_SEGUNDOS_POR_PERIODO = 90

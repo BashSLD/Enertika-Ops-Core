@@ -29,7 +29,13 @@ from modules.shared.services.cfe.excel import generar_excel_cfe
 from modules.shared.services.cfe.schemas import CfeReceipt, CfeXmlInput
 
 from .analysis import analisis_sin_datos, construir_analisis_recibos, filtrar_xmls_completados
-from .constants import CFE_CONFIG_KEYS, SHAREPOINT_CFE_ROOT, SHAREPOINT_CFE_STAGING_ROOT
+from .constants import (
+    CFE_BUSQUEDA_TIMEOUT_MIN_SEGUNDOS,
+    CFE_BUSQUEDA_TIMEOUT_SEGUNDOS_POR_PERIODO,
+    CFE_CONFIG_KEYS,
+    SHAREPOINT_CFE_ROOT,
+    SHAREPOINT_CFE_STAGING_ROOT,
+)
 from .db_service import CfeDBService, get_cfe_db_service
 from .scraper import (
     CfeScraperConfig,
@@ -494,7 +500,10 @@ class CfeService:
                 try:
                     await asyncio.wait_for(
                         self._ejecutar_busqueda_periodos(pool, busqueda),
-                        timeout=max(300, int(busqueda["max_periodos"]) * 90),
+                        timeout=max(
+                            CFE_BUSQUEDA_TIMEOUT_MIN_SEGUNDOS,
+                            int(busqueda["max_periodos"]) * CFE_BUSQUEDA_TIMEOUT_SEGUNDOS_POR_PERIODO,
+                        ),
                     )
                 except asyncio.TimeoutError:
                     async with pool.acquire() as conn:
@@ -546,6 +555,7 @@ class CfeService:
         async with pool.acquire() as conn:
             await self.db.reaper_descargando(conn, minutos=15)
             await self.db.reaper_alta_miespacio_colgada(conn, minutos=15)
+            await self.db.reaper_busqueda_colgada(conn)
         await self.limpiar_busquedas_expiradas(pool)
 
     async def limpiar_busquedas_expiradas(self, pool: asyncpg.Pool) -> None:

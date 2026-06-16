@@ -7,6 +7,8 @@ from uuid import UUID
 
 import asyncpg
 
+from .constants import CFE_BUSQUEDA_TIMEOUT_MIN_SEGUNDOS, CFE_BUSQUEDA_TIMEOUT_SEGUNDOS_POR_PERIODO
+
 logger = logging.getLogger("CfeDBService")
 
 # Regla unica "busqueda activa de un servicio": filtro de estatus + prioridad.
@@ -592,6 +594,27 @@ class CfeDBService:
               AND creado_en < now() - make_interval(mins => $1)
             """,
             minutos,
+        )
+        return int(result.split()[-1]) if result else 0
+
+    async def reaper_busqueda_colgada(self, conn: asyncpg.Connection, margen_minutos: int = 5) -> int:
+        """Marca error las busquedas atascadas en 'descargando' (worker reiniciado
+        a mitad, p.ej. por un deploy). El umbral espeja el asyncio.wait_for de
+        _ejecutar_busqueda_periodos, para no cortar una busqueda larga que todavia
+        esta legitimamente en curso."""
+        result = await conn.execute(
+            """
+            UPDATE tb_cfe_busquedas
+            SET estatus = 'error',
+                mensaje_error = 'Busqueda interrumpida (worker reiniciado o timeout).',
+                actualizado_en = now()
+            WHERE estatus = 'descargando'
+              AND actualizado_en < now() - (
+                    make_interval(secs => GREATEST($2, max_periodos * $3))
+                    + make_interval(mins => $1)
+                  )
+            """,
+            margen_minutos, CFE_BUSQUEDA_TIMEOUT_MIN_SEGUNDOS, CFE_BUSQUEDA_TIMEOUT_SEGUNDOS_POR_PERIODO,
         )
         return int(result.split()[-1]) if result else 0
 
