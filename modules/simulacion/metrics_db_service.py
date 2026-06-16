@@ -22,7 +22,7 @@ from .metrics_models import (
     MetricaCalidadRegistro,
     MetricaEntregaTecnologia,
     MetricaEntregaResumen,
-    MetricaMonitoreoItem,
+    MetricaCasoEspecial,
 )
 
 logger = logging.getLogger("MetricsDBService")
@@ -36,11 +36,17 @@ class MetricsDBService:
         user_id=None,
         tipo_solicitud_id=None,
         tecnologia_id=None,
+        excluir_kpis: bool = True,
     ) -> str:
         """Construye el bloque AND de filtros opcionales sobre la tabla `o`.
 
         Devuelve un unico fragmento SQL (puede ir vacio) para interpolar dentro
         del WHERE. Los filtros no pasados (None) se omiten.
+
+        `excluir_kpis` (default True): excluye oportunidades marcadas como caso
+        especial (Monitoreo de Cotizacion / Montaje de oferta) para que no entren
+        en metricas operativas. La seccion informativa de Monitoreo lo pasa False
+        a proposito, ya que su objetivo es contabilizar precisamente esas.
         """
         clauses: list[str] = []
         if user_id:
@@ -52,6 +58,8 @@ class MetricsDBService:
         if tecnologia_id:
             params.append(tecnologia_id)
             clauses.append(f"AND o.id_tecnologia = ${len(params)}")
+        if excluir_kpis:
+            clauses.append("AND COALESCE(o.excluir_kpis_simulacion, false) = false")
         return "\n                  ".join(clauses)
 
     async def get_tiempo_por_estatus(
@@ -646,7 +654,7 @@ class MetricsDBService:
             entregas_sin_hora=sum(int(row['sin_hora'] or 0) for row in rows),
         )
 
-    async def get_tiempo_en_monitoreo(
+    async def get_conteo_casos_especiales(
         self,
         conn: asyncpg.Connection,
         fecha_inicio: date,
@@ -654,76 +662,71 @@ class MetricsDBService:
         user_id: UUID = None,
         tipo_solicitud_id: int = None,
         tecnologia_id: int = None
-    ) -> List[MetricaMonitoreoItem]:
+    ) -> List[MetricaCasoEspecial]:
         """
-        Oportunidades con tiempo en 'Monitoreo de Cotizacion' (orden=6) cuyo intervalo
-        intersecta el rango. Informativo: NO alimenta el lead time ni el SLA (ese tiempo
-        se descuenta en get_tiempo_entrega_por_tecnologia y get_comparativo_sla_ajustado).
-        Los intervalos abiertos (sigue en monitoreo) se miden hasta NOW().
+        Conteo informativo de los estatus especiales (Monitoreo de Cotizacion /
+        Montaje de oferta), que quedan fuera de KPIs y metricas operativas.
+
+        Se cuenta desde historial (no estatus actual) para no perder oportunidades
+        que pasaron por el estatus y terminaron en Entregado:
+        - total_paso: oportunidades cuya transicion AL estatus cayo en el rango.
+        - abiertos: oportunidades actualmente en el estatus (snapshot, sin rango).
+
+        Es la unica seccion que NO excluye los casos especiales: su proposito es
+        precisamente contabilizarlos. Los estatus especiales se identifican por el
+        flag de catalogo, no por nombre, asi nuevos casos entran sin tocar codigo.
         """
         params: list = [fecha_inicio, fecha_fin]
-        extra_filters = self._build_filters(params, user_id, tipo_solicitud_id, tecnologia_id)
+        extra_filters = self._build_filters(
+            params, user_id, tipo_solicitud_id, tecnologia_id, excluir_kpis=False
+        )
 
         query = f"""
-            WITH monitoreo_intervalos AS (
-                SELECT
-                    h.id_oportunidad,
-                    e.orden,
-                    h.fecha_cambio_sla AS inicio,
-                    LEAD(h.fecha_cambio_sla) OVER (
-                        PARTITION BY h.id_oportunidad ORDER BY h.fecha_cambio_sla, h.fecha_creacion, h.id
-                    ) AS fin
-                FROM tb_historial_estatus h
-                JOIN tb_cat_estatus_oportunidades e ON h.id_estatus_nuevo = e.id
+            WITH especiales AS (
+                SELECT id, nombre
+                FROM tb_cat_estatus_oportunidades
+                WHERE activa_exclusion_kpis_simulacion = true
             ),
-            monitoreo AS (
-                SELECT
-                    id_oportunidad,
-                    SUM(EXTRACT(EPOCH FROM (COALESCE(fin, NOW()) - inicio)) / 86400.0) AS dias_monitoreo,
-                    bool_or(fin IS NULL) AS sigue_en_monitoreo
-                FROM monitoreo_intervalos
-                WHERE orden = 6
-                  AND (inicio AT TIME ZONE 'America/Mexico_City')::date <= $2
-                  AND (COALESCE(fin, NOW()) AT TIME ZONE 'America/Mexico_City')::date >= $1
-                GROUP BY id_oportunidad
+            paso AS (
+                SELECT e.nombre AS estatus, COUNT(DISTINCT h.id_oportunidad) AS total
+                FROM tb_historial_estatus h
+                JOIN especiales e ON h.id_estatus_nuevo = e.id
+                JOIN tb_oportunidades o ON h.id_oportunidad = o.id_oportunidad
+                WHERE (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date >= $1
+                  AND (h.fecha_cambio_sla AT TIME ZONE 'America/Mexico_City')::date <= $2
+                  {extra_filters}
+                GROUP BY e.nombre
+            ),
+            abiertos AS (
+                SELECT e.nombre AS estatus, COUNT(*) AS total
+                FROM tb_oportunidades o
+                JOIN especiales e ON o.id_estatus_global = e.id
+                WHERE TRUE
+                  {extra_filters}
+                GROUP BY e.nombre
             )
             SELECT
-                o.id_oportunidad,
-                o.op_id_estandar,
-                o.cliente_nombre,
-                o.titulo_proyecto,
-                COALESCE(t.nombre, 'Sin tecnología') AS tecnologia,
-                COALESCE(u.nombre, 'Sin asignar') AS responsable_simulacion,
-                o.es_licitacion,
-                m.dias_monitoreo,
-                m.sigue_en_monitoreo
-            FROM monitoreo m
-            JOIN tb_oportunidades o ON m.id_oportunidad = o.id_oportunidad
-            LEFT JOIN tb_cat_tecnologias t ON o.id_tecnologia = t.id
-            LEFT JOIN tb_usuarios u ON o.responsable_simulacion_id = u.id_usuario
-            WHERE TRUE
-              {extra_filters}
-            ORDER BY m.dias_monitoreo DESC
+                e.nombre AS estatus,
+                COALESCE(p.total, 0) AS total_paso,
+                COALESCE(a.total, 0) AS abiertos
+            FROM especiales e
+            LEFT JOIN paso p ON p.estatus = e.nombre
+            LEFT JOIN abiertos a ON a.estatus = e.nombre
+            ORDER BY e.nombre
         """
 
         try:
             rows = await conn.fetch(query, *params)
             return [
-                MetricaMonitoreoItem(
-                    id_oportunidad=str(row['id_oportunidad']),
-                    op_id_estandar=row['op_id_estandar'],
-                    cliente_nombre=row['cliente_nombre'],
-                    titulo_proyecto=row['titulo_proyecto'],
-                    tecnologia=row['tecnologia'],
-                    responsable_simulacion=row['responsable_simulacion'],
-                    es_licitacion=bool(row['es_licitacion']),
-                    dias_en_monitoreo=round(float(row['dias_monitoreo'] or 0), 1),
-                    sigue_en_monitoreo=bool(row['sigue_en_monitoreo']),
+                MetricaCasoEspecial(
+                    estatus=row['estatus'],
+                    total_paso=int(row['total_paso'] or 0),
+                    abiertos=int(row['abiertos'] or 0),
                 )
                 for row in rows
             ]
         except asyncpg.PostgresError as e:
-            logger.error(f"Error de BD obteniendo tiempo en monitoreo: {e}")
+            logger.error(f"Error de BD obteniendo conteo de casos especiales: {e}")
             raise
 
     async def get_detalle_entrega(

@@ -189,8 +189,8 @@ async def get_datos_metricas(
         tipo_solicitud_id=tipo_int, tecnologia_id=tecnologia_int
     )
 
-    # 8. Tiempo en Monitoreo de Cotización (informativo, no SLA)
-    monitoreo = await metrics_db.get_tiempo_en_monitoreo(
+    # 8. Casos especiales (Monitoreo/Montaje): conteo informativo, fuera de KPIs y métricas
+    casos_especiales = await metrics_db.get_conteo_casos_especiales(
         conn, start.date(), end.date(), user_id=user_uuid,
         tipo_solicitud_id=tipo_int, tecnologia_id=tecnologia_int
     )
@@ -211,7 +211,7 @@ async def get_datos_metricas(
         "ciclo_revision": ciclo_revision,
         "comparativo_sla": comparativo_sla,
         "entrega_tecnologia": entrega_tecnologia,
-        "monitoreo": monitoreo,
+        "casos_especiales": casos_especiales,
         "calidad_registro": calidad_registro,
         "fecha_inicio": start.date().isoformat(),
         "fecha_fin": end.date().isoformat(),
