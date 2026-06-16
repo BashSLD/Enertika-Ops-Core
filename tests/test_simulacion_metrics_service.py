@@ -44,6 +44,18 @@ class FakeConn:
         return self.row
 
 
+class FakeFetchConn:
+    def __init__(self, rows):
+        self.rows = rows
+        self.query = None
+        self.args = None
+
+    async def fetch(self, query, *args):
+        self.query = query
+        self.args = args
+        return self.rows
+
+
 async def fake_get_global_config(conn, clave, default, tipo=str):
     values = {
         "DESCONTAR_TIEMPO_REVISION_SLA": True,
@@ -146,3 +158,33 @@ async def test_get_calidad_registro_calcula_resumen(monkeypatch):
     assert conn.args == (date(2026, 2, 1), date(2026, 2, 28), 1440, 2, 10, 10, user_id, 4)
     assert "o.responsable_simulacion_id = $7" in conn.query
     assert "o.id_tipo_solicitud = $8" in conn.query
+
+
+@pytest.mark.asyncio
+async def test_metricas_operativas_excluyen_casos_especiales():
+    # Las métricas operativas deben filtrar las oportunidades excluidas (Monitoreo/Montaje).
+    conn = FakeFetchConn([])
+    await MetricsDBService().get_tiempo_por_estatus(
+        conn, date(2026, 1, 1), date(2026, 1, 31)
+    )
+    assert "COALESCE(o.excluir_kpis_simulacion, false) = false" in conn.query
+
+
+@pytest.mark.asyncio
+async def test_conteo_casos_especiales_cuenta_sin_excluir():
+    # El conteo informativo NO excluye: su propósito es contabilizar Monitoreo/Montaje.
+    conn = FakeFetchConn([
+        {"estatus": "Monitoreo de Cotización", "total_paso": 5, "abiertos": 2},
+        {"estatus": "Montaje de oferta", "total_paso": 3, "abiertos": 1},
+    ])
+    resultado = await MetricsDBService().get_conteo_casos_especiales(
+        conn, date(2026, 1, 1), date(2026, 1, 31)
+    )
+
+    assert [r.estatus for r in resultado] == ["Monitoreo de Cotización", "Montaje de oferta"]
+    assert (resultado[0].total_paso, resultado[0].abiertos) == (5, 2)
+    assert (resultado[1].total_paso, resultado[1].abiertos) == (3, 1)
+    # No aplica el filtro de exclusión (cuenta precisamente las excluidas)...
+    assert "COALESCE(o.excluir_kpis_simulacion, false) = false" not in conn.query
+    # ...e identifica los especiales por el flag de catálogo, no por nombre.
+    assert "activa_exclusion_kpis_simulacion = true" in conn.query

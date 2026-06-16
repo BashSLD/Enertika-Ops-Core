@@ -145,18 +145,32 @@ async def fake_get_global_config(conn, clave, default, tipo=str):
     return values.get(clave, default)
 
 
-def status_row(id_estatus, nombre, es_final):
+def status_row(id_estatus, nombre, es_final, activa_exclusion=False):
     return {
         "id": id_estatus,
         "nombre": nombre,
         "es_estatus_final": es_final,
+        "activa_exclusion_kpis_simulacion": activa_exclusion,
     }
 
 
-def catalog_row(id_estatus, nombre, orden, es_final):
-    row = status_row(id_estatus, nombre, es_final)
+def catalog_row(id_estatus, nombre, orden, es_final, activa_exclusion=False):
+    row = status_row(id_estatus, nombre, es_final, activa_exclusion)
     row["orden"] = orden
     return row
+
+
+def catalog_con_especiales():
+    """Catálogo SIMULACION incluyendo los estatus especiales Monitoreo (14) y Montaje (16)."""
+    return [
+        catalog_row(1, "Pendiente", 1, False),
+        catalog_row(2, "En Proceso", 2, False),
+        catalog_row(3, "En Revisión", 3, False),
+        catalog_row(15, "Comentarios Recibidos", 4, False),
+        catalog_row(5, "Entregado", 5, True),
+        catalog_row(14, "Monitoreo de Cotización", 6, False, activa_exclusion=True),
+        catalog_row(16, "Montaje de oferta", 7, False, activa_exclusion=True),
+    ]
 
 
 def history_event(id_estatus, fecha):
@@ -422,3 +436,70 @@ async def test_status_notification_blocks_non_terminal_batch(monkeypatch):
     )
 
     assert should_notify is False
+
+
+# ---------------------------------------------------------------------------
+# Transiciones a/desde estatus especiales (Monitoreo / Montaje de oferta)
+# ---------------------------------------------------------------------------
+
+async def _run_transition(current_id, nuevo_id, catalog=None):
+    """Ejecuta _validate_status_transition con un catálogo que incluye especiales."""
+    service = SimulacionService()
+    now = datetime(2026, 1, 2, 9, 0, tzinfo=MX)
+    service.get_current_datetime_mx = async_now(now)
+    service.db = FakeSimulacionDB(catalog or catalog_con_especiales())
+    return await service._validate_status_transition(
+        FakeConn(),
+        uuid4(),
+        {"id_estatus_global": current_id},
+        SimpleNamespace(id_estatus_global=nuevo_id, fecha_cambio_real=None),
+        now,
+    )
+
+
+@pytest.mark.asyncio
+async def test_transicion_pendiente_a_montaje_marca_exclusion():
+    # Pendiente (1) -> Montaje de oferta (16): permitido y activa la exclusión.
+    es_terminal, activa_exclusion = await _run_transition(1, 16)
+    assert es_terminal is False
+    assert activa_exclusion is True
+
+
+@pytest.mark.asyncio
+async def test_transicion_a_monitoreo_marca_exclusion():
+    # En Proceso (2) -> Monitoreo de Cotización (14): permitido y activa la exclusión.
+    es_terminal, activa_exclusion = await _run_transition(2, 14)
+    assert es_terminal is False
+    assert activa_exclusion is True
+
+
+@pytest.mark.asyncio
+async def test_transicion_montaje_a_entregado_permitida():
+    # Montaje (16) -> Entregado (5): permitido (terminal), sin reactivar exclusión.
+    es_terminal, activa_exclusion = await _run_transition(16, 5)
+    assert es_terminal is True
+    assert activa_exclusion is False
+
+
+@pytest.mark.asyncio
+async def test_transicion_monitoreo_a_entregado_permitida():
+    # Monitoreo (14) -> Entregado (5): se conserva el comportamiento previo.
+    es_terminal, activa_exclusion = await _run_transition(14, 5)
+    assert es_terminal is True
+    assert activa_exclusion is False
+
+
+@pytest.mark.asyncio
+async def test_salida_de_montaje_a_activo_permitida():
+    # Montaje (16) -> En Proceso (2): salida del stand-by a un activo, sin error.
+    es_terminal, activa_exclusion = await _run_transition(16, 2)
+    assert es_terminal is False
+    assert activa_exclusion is False
+
+
+@pytest.mark.asyncio
+async def test_entregado_directo_sin_revision_rechazado():
+    # En Proceso (2) -> Entregado (5): sigue prohibido (ni Comentarios ni especial).
+    with pytest.raises(HTTPException) as exc:
+        await _run_transition(2, 5)
+    assert getattr(exc.value, "status_code", None) == 400
