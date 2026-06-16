@@ -91,7 +91,7 @@
                     (this.status == this.monitoreo_cotizacion_id || this.status == this.montaje_oferta_id)) {
                     const nombre = this.status == this.monitoreo_cotizacion_id
                         ? 'Monitoreo de Cotización' : 'Montaje de oferta';
-                    const confirmado = confirm(`¿Estás seguro de marcar como "${nombre}"?\n\n` +
+                    const confirmado = confirm(`¿Estás seguro de marcar como «${nombre}»?\n\n` +
                         'Esta oportunidad se contabilizará aparte y no contará en KPIs ni en métricas operativas.');
                     if (!confirmado) {
                         event.preventDefault();
