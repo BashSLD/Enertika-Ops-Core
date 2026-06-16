@@ -454,6 +454,25 @@ class SimulacionDBService:
         """
         await conn.execute(query, id_estatus_global, fecha_cierre, kpi_interno, kpi_compromiso, id_oportunidad)
 
+    async def update_sitios_estatus_espejo(self, conn, id_oportunidad: UUID, id_estatus_global: int):
+        """Espejo de estatus a los sitios NO terminales, sin cierre (caso especial Montaje).
+
+        A diferencia de update_sitios_cascada, NO toca fecha_cierre (no es un cierre) y deja
+        el KPI de sitio en NULL: el caso especial queda fuera de KPIs igual que el padre.
+        """
+        query = """
+            UPDATE tb_sitios_oportunidad
+            SET id_estatus_global = $1,
+                kpi_status_interno = NULL,
+                kpi_status_compromiso = NULL
+            WHERE id_oportunidad = $2
+            AND id_estatus_global NOT IN (
+                SELECT id FROM tb_cat_estatus_oportunidades
+                WHERE LOWER(nombre) IN ('entregado', 'cancelado', 'perdido', 'ganada')
+            )
+        """
+        await conn.execute(query, id_estatus_global, id_oportunidad)
+
     async def _oportunidad_excluida(self, conn, id_oportunidad: UUID) -> bool:
         """True si la oportunidad es caso especial (Monitoreo/Montaje), excluida de KPIs."""
         return bool(await conn.fetchval(

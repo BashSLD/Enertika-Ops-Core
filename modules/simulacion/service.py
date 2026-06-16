@@ -1170,10 +1170,18 @@ class SimulacionService:
             
             # Actualiza todos los sitios abiertos (cascada) con KPIs duales
             await self.db.update_sitios_cascada(
-                conn, id_oportunidad, datos.id_estatus_global, 
+                conn, id_oportunidad, datos.id_estatus_global,
                 fecha_cierre_cascada, kpi_sitio_interno, kpi_sitio_compromiso
             )
-        
+
+        # 1.b Montaje de oferta (caso especial): los sitios abiertos reflejan el estatus
+        # del padre (espejo), pero NO es un cierre. No se toca fecha_cierre y el KPI de
+        # sitio queda en NULL (excluido de KPIs, igual que el padre).
+        elif datos.id_estatus_global == status_map["montaje_oferta"]:
+            await self.db.update_sitios_estatus_espejo(
+                conn, id_oportunidad, datos.id_estatus_global
+            )
+
         # 2. Procesar Retrabajos si estatus = ENTREGADO y es_retrabajo = True
         if datos.id_estatus_global == status_map["entregado"] and datos.es_retrabajo:
             if total_sitios == 1:
