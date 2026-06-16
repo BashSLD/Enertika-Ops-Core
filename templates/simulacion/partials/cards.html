@@ -528,6 +528,18 @@
                                             title="La oportunidad se ha ganado">
                                             🎉 Cerrada
                                         </span>
+                                        {% elif status == 'montaje de oferta' %}
+                                        <span
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-amber-100 text-amber-800 border border-amber-300 shadow-sm"
+                                            title="Caso especial: en stand-by, fuera del flujo normal y excluida de KPIs">
+                                            Montaje de oferta
+                                        </span>
+                                        {% elif status == 'monitoreo de cotización' or status == 'monitoreo de cotizacion' %}
+                                        <span
+                                            class="px-2 py-0.5 inline-flex text-xs leading-5 font-bold rounded-lg bg-purple-100 text-purple-800 border border-purple-300 shadow-sm"
+                                            title="Caso especial: en stand-by, fuera del flujo normal y excluida de KPIs">
+                                            Monitoreo de Cotización
+                                        </span>
                                         {% else %}
                                         <span
                                             class="px-2 py-0.5 inline-flex text-xs leading-5 font-semibold rounded-full bg-gray-100 text-gray-600"

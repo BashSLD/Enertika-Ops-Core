@@ -861,10 +861,14 @@ class ComercialService:
                 
         else:  # activos
             # Estados ACTIVOS - Inclusión explícita
+            # Montaje/Monitoreo son casos especiales (stand-by, excluidos de KPIs) pero
+            # siguen activos: deben verse aquí igual que En Proceso (no tienen tab propio).
             ids_activos = [
                 cats['estatus'].get('pendiente'),
                 cats['estatus'].get('en revisión'),  # Con tilde según BD
-                cats['estatus'].get('en proceso')
+                cats['estatus'].get('en proceso'),
+                cats['estatus'].get('montaje de oferta'),
+                cats['estatus'].get('monitoreo de cotización'),  # Con tilde según BD
             ]
             ids_activos = [i for i in ids_activos if i is not None]
             
