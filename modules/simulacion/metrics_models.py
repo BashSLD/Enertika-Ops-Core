@@ -71,6 +71,7 @@ class MetricaEntregaTecnologia:
     tiempo_min_dias: float
     tiempo_max_dias: float
     es_alto_impacto: bool  # promedio de la tecnologia por encima del promedio global
+    id_tecnologia: int | None = None  # para el drill-down por tecnologia (None = 'Sin tecnología')
 
 
 @dataclass

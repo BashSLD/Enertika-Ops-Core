@@ -71,8 +71,8 @@
                     <th class="px-3 py-2 text-center font-semibold">Máx</th>
                 </tr>
             </thead>
-            <tbody>
-                {% for tec in entrega_tecnologia.por_tecnologia %}
+            {% for tec in entrega_tecnologia.por_tecnologia %}
+            <tbody x-data="{ open: false }">
                 <tr class="border-b {% if tec.es_alto_impacto %}bg-amber-50{% else %}hover:bg-gray-50{% endif %} transition-colors">
                     <td class="px-3 py-2">
                         <div class="flex items-center gap-2">
@@ -86,7 +86,19 @@
                             {% endif %}
                         </div>
                     </td>
-                    <td class="px-3 py-2 text-center text-gray-600">{{ tec.total_oportunidades }}</td>
+                    <td class="px-3 py-2 text-center">
+                        {% if tec.id_tecnologia %}
+                        <button type="button" @click="open = !open"
+                            hx-get="/simulacion/api/metricas-operativas/detalle-entrega?fecha_inicio={{ fecha_inicio }}&fecha_fin={{ fecha_fin }}&tecnologia={{ tec.id_tecnologia }}"
+                            hx-target="#detalle-entrega-tec-{{ tec.id_tecnologia }}" hx-swap="innerHTML" hx-trigger="click once"
+                            title="Ver las oportunidades contadas"
+                            class="font-semibold text-blue-600 hover:text-blue-800 underline decoration-dotted underline-offset-2">
+                            {{ tec.total_oportunidades }}
+                        </button>
+                        {% else %}
+                        <span class="text-gray-600">{{ tec.total_oportunidades }}</span>
+                        {% endif %}
+                    </td>
                     <td class="px-3 py-2 text-center">
                         <span class="font-bold {% if tec.es_alto_impacto %}text-amber-700{% else %}text-gray-800{% endif %}">
                             {{ tec.tiempo_promedio_dias | dhm }}
@@ -95,8 +107,17 @@
                     <td class="px-3 py-2 text-center text-gray-500">{{ tec.tiempo_min_dias | dhm }}</td>
                     <td class="px-3 py-2 text-center text-gray-500">{{ tec.tiempo_max_dias | dhm }}</td>
                 </tr>
-                {% endfor %}
+                {% if tec.id_tecnologia %}
+                <tr x-show="open" x-collapse>
+                    <td colspan="5" class="px-3 py-2 bg-gray-50">
+                        <div id="detalle-entrega-tec-{{ tec.id_tecnologia }}">
+                            <div class="flex justify-center py-4"><div class="spinner-enertika w-5 h-5"></div></div>
+                        </div>
+                    </td>
+                </tr>
+                {% endif %}
             </tbody>
+            {% endfor %}
         </table>
     </div>
     <p class="text-[11px] text-gray-400 mt-3">

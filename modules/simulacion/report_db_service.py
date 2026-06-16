@@ -48,6 +48,13 @@ class _P:
 _KPI_STATUS = "e.cuenta_para_kpi = true"
 _NO_EXCLUIDA = "COALESCE(o.excluir_kpis_simulacion, false) = false"
 
+# Tiempo de elaboración de FV (en horas): desde la solicitud hasta la fecha_entrega
+# del componente FV (la fecha de "FV Terminado" en híbridos). Reemplaza a
+# o.tiempo_elaboracion_horas, que en híbridos llega hasta la entrega CONJUNTA y queda
+# contaminado por la demora de BESS. En FV puro FV.fecha_entrega == fecha_entrega_simulacion
+# → idéntico a antes (sin regresión); BESS puro no tiene componente FV → sale solo.
+_TIEMPO_FV_HORAS = "EXTRACT(EPOCH FROM (ec.fecha_entrega - o.fecha_solicitud)) / 3600.0"
+
 # Las 4 columnas de conteo dual (interno/compromiso, a tiempo/tarde) sobre los
 # componentes (`ec`). Definición única reutilizada por todas las queries de KPI.
 _KPI_COUNT_COLS = (
@@ -174,14 +181,9 @@ class ReportDBService:
                 {_componente_kpi_from(where, 'FV')}
             ),
             agg_tiempo AS (
-                SELECT AVG(o.tiempo_elaboracion_horas) as tiempo_promedio_horas
-                FROM tb_sitios_oportunidad s
-                JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
-                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
-                {where}
-                  AND o.tiempo_elaboracion_horas IS NOT NULL
-                  AND {_KPI_STATUS}
-                  AND {_NO_EXCLUIDA}
+                SELECT AVG({_TIEMPO_FV_HORAS}) as tiempo_promedio_horas
+                {_componente_kpi_from(where, 'FV')}
+                  AND ec.fecha_entrega IS NOT NULL
                   AND o.id_tipo_solicitud != {ph_lev}
             )
             SELECT ab.*, af.*, tt.tiempo_promedio_horas
@@ -216,13 +218,9 @@ class ReportDBService:
 
         query = f"""
             WITH tiempos AS (
-                SELECT tiempo_elaboracion_horas / 24 as dias
-                FROM tb_oportunidades o
-                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
-                {where}
-                AND o.tiempo_elaboracion_horas IS NOT NULL
-                AND {_KPI_STATUS}
-                AND {_NO_EXCLUIDA}
+                SELECT ({_TIEMPO_FV_HORAS}) / 24 as dias
+                {_componente_kpi_from(where, 'FV')}
+                AND ec.fecha_entrega IS NOT NULL
                 AND o.id_tipo_solicitud != (
                     SELECT id FROM tb_cat_tipos_solicitud WHERE LOWER(nombre) = 'levantamiento'
                 )
@@ -284,14 +282,9 @@ class ReportDBService:
                 GROUP BY o.id_tecnologia
             ),
             agg_tiempo AS (
-                SELECT o.id_tecnologia, AVG(o.tiempo_elaboracion_horas) as tiempo_promedio_horas
-                FROM tb_sitios_oportunidad s
-                JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
-                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
-                {where}
-                  AND o.tiempo_elaboracion_horas IS NOT NULL
-                  AND {_KPI_STATUS}
-                  AND {_NO_EXCLUIDA}
+                SELECT o.id_tecnologia, AVG({_TIEMPO_FV_HORAS}) as tiempo_promedio_horas
+                {_componente_kpi_from(where, 'FV')}
+                  AND ec.fecha_entrega IS NOT NULL
                   AND o.id_tipo_solicitud != {ph_lev}
                 GROUP BY o.id_tecnologia
             )
@@ -592,17 +585,19 @@ class ReportDBService:
         ph_lev = p.add(cats['tipos'].get('levantamiento'))
 
         query = f"""
-            SELECT ts.nombre as tipo, AVG(o.tiempo_elaboracion_horas) / 24 as dias_promedio
-            FROM tb_oportunidades o
+            SELECT ts.nombre as tipo, AVG({_TIEMPO_FV_HORAS}) / 24 as dias_promedio
+            FROM tb_entregas_componente ec
+            JOIN tb_oportunidades o ON ec.id_oportunidad = o.id_oportunidad
             JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
             JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
             {where}
             AND o.responsable_simulacion_id = {ph_user}
-            AND o.tiempo_elaboracion_horas IS NOT NULL
+            AND ec.componente = 'FV'
+            AND ec.fecha_entrega IS NOT NULL
             AND {_KPI_STATUS}
             AND {_NO_EXCLUIDA}
             AND o.id_tipo_solicitud != {ph_lev}
-            GROUP BY ts.nombre HAVING AVG(o.tiempo_elaboracion_horas) IS NOT NULL
+            GROUP BY ts.nombre
         """
         rows = await conn.fetch(query, *p.values)
         return {row['tipo']: round(float(row['dias_promedio']), 1) for row in rows}
@@ -682,14 +677,9 @@ class ReportDBService:
                 GROUP BY o.responsable_simulacion_id
             ),
             agg_tiempo AS (
-                SELECT o.responsable_simulacion_id, AVG(o.tiempo_elaboracion_horas) as tiempo_promedio_horas
-                FROM tb_sitios_oportunidad s
-                JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
-                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
-                {where_batch}
-                  AND o.tiempo_elaboracion_horas IS NOT NULL
-                  AND {_KPI_STATUS}
-                  AND {_NO_EXCLUIDA}
+                SELECT o.responsable_simulacion_id, AVG({_TIEMPO_FV_HORAS}) as tiempo_promedio_horas
+                {_componente_kpi_from(where_batch, 'FV')}
+                  AND ec.fecha_entrega IS NOT NULL
                   AND o.id_tipo_solicitud != {ph_lev}
                 GROUP BY o.responsable_simulacion_id
             )
@@ -766,14 +756,9 @@ class ReportDBService:
                 GROUP BY o.responsable_simulacion_id, o.id_tecnologia
             ),
             agg_tiempo AS (
-                SELECT o.responsable_simulacion_id, o.id_tecnologia, AVG(o.tiempo_elaboracion_horas) as tiempo_promedio_horas
-                FROM tb_sitios_oportunidad s
-                JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
-                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
-                {where_batch}
-                  AND o.tiempo_elaboracion_horas IS NOT NULL
-                  AND {_KPI_STATUS}
-                  AND {_NO_EXCLUIDA}
+                SELECT o.responsable_simulacion_id, o.id_tecnologia, AVG({_TIEMPO_FV_HORAS}) as tiempo_promedio_horas
+                {_componente_kpi_from(where_batch, 'FV')}
+                  AND ec.fecha_entrega IS NOT NULL
                   AND o.id_tipo_solicitud != {ph_lev}
                 GROUP BY o.responsable_simulacion_id, o.id_tecnologia
             )
@@ -882,17 +867,18 @@ class ReportDBService:
             SELECT
                 o.responsable_simulacion_id,
                 ts.nombre as tipo,
-                AVG(o.tiempo_elaboracion_horas) / 24 as dias_promedio
-            FROM tb_oportunidades o
+                AVG({_TIEMPO_FV_HORAS}) / 24 as dias_promedio
+            FROM tb_entregas_componente ec
+            JOIN tb_oportunidades o ON ec.id_oportunidad = o.id_oportunidad
             JOIN tb_cat_tipos_solicitud ts ON o.id_tipo_solicitud = ts.id
             JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
             {where_batch}
-            AND o.tiempo_elaboracion_horas IS NOT NULL
+            AND ec.componente = 'FV'
+            AND ec.fecha_entrega IS NOT NULL
             AND {_KPI_STATUS}
             AND {_NO_EXCLUIDA}
             AND o.id_tipo_solicitud != {ph_lev}
             GROUP BY o.responsable_simulacion_id, ts.nombre
-            HAVING AVG(o.tiempo_elaboracion_horas) IS NOT NULL
         """
         rows = await conn.fetch(query, *p.values)
         return [dict(r) for r in rows]
@@ -906,13 +892,9 @@ class ReportDBService:
             WITH tiempos AS (
                 SELECT
                     o.responsable_simulacion_id,
-                    o.tiempo_elaboracion_horas / 24 AS dias
-                FROM tb_oportunidades o
-                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
-                {where_batch}
-                AND o.tiempo_elaboracion_horas IS NOT NULL
-                AND {_KPI_STATUS}
-                AND {_NO_EXCLUIDA}
+                    ({_TIEMPO_FV_HORAS}) / 24 AS dias
+                {_componente_kpi_from(where_batch, 'FV')}
+                AND ec.fecha_entrega IS NOT NULL
                 AND o.id_tipo_solicitud != (
                     SELECT id FROM tb_cat_tipos_solicitud WHERE LOWER(nombre) = 'levantamiento'
                 )
@@ -1021,14 +1003,9 @@ class ReportDBService:
                 GROUP BY mes
             ),
             agg_tiempo AS (
-                SELECT {mes_expr} as mes, AVG(o.tiempo_elaboracion_horas) as tiempo_promedio
-                FROM tb_sitios_oportunidad s
-                JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
-                JOIN tb_cat_estatus_oportunidades e ON o.id_estatus_global = e.id
-                {where}
-                  AND o.tiempo_elaboracion_horas IS NOT NULL
-                  AND {_KPI_STATUS}
-                  AND {_NO_EXCLUIDA}
+                SELECT {mes_expr} as mes, AVG({_TIEMPO_FV_HORAS}) as tiempo_promedio
+                {_componente_kpi_from(where, 'FV')}
+                  AND ec.fecha_entrega IS NOT NULL
                   AND o.id_tipo_solicitud != {ph_lev}
                 GROUP BY mes
             )

@@ -588,6 +588,7 @@ class MetricsDBService:
             base AS (
                 SELECT
                     COALESCE(tec.nombre, 'Sin tecnología') AS tecnologia,
+                    ee.id_tecnologia,
                     GREATEST(
                         EXTRACT(EPOCH FROM (ee.fecha_entrega - ee.fecha_solicitud)) / 86400.0
                         - COALESCE(tm.dias_monitoreo, 0),
@@ -602,13 +603,14 @@ class MetricsDBService:
             )
             SELECT
                 tecnologia,
+                id_tecnologia,
                 COUNT(*) AS total,
                 AVG(dias) AS tiempo_promedio,
                 MIN(dias) AS tiempo_min,
                 MAX(dias) AS tiempo_max,
                 COUNT(*) FILTER (WHERE sin_hora) AS sin_hora
             FROM base
-            GROUP BY tecnologia
+            GROUP BY tecnologia, id_tecnologia
             ORDER BY tiempo_promedio DESC
         """
 
@@ -626,6 +628,7 @@ class MetricsDBService:
                 tiempo_min_dias=round(float(row['tiempo_min'] or 0), 1),
                 tiempo_max_dias=round(float(row['tiempo_max'] or 0), 1),
                 es_alto_impacto=False,  # se resuelve abajo contra el promedio global
+                id_tecnologia=row['id_tecnologia'],
             )
             for row in rows
         ]
@@ -1043,7 +1046,7 @@ class MetricsDBService:
                 o.clasificacion_solicitud as clasificacion,
                 u_sim.nombre as responsable_simulacion,
                 u_sol.nombre as solicitado_por,
-                COALESCE(
+                GREATEST(
                     EXTRACT(EPOCH FROM (
                         COALESCE(pc.fecha_fin_estatus, NOW()) - pc.fecha_inicio_estatus
                     )) / 86400.0,
@@ -1155,7 +1158,10 @@ class MetricsDBService:
                 ut.estatus_destino,
                 COUNT(*) AS cantidad,
                 AVG(
-                    EXTRACT(EPOCH FROM (NOW() - ut.fecha_cambio_sla)) / 86400.0
+                    -- fecha_cambio_sla es el ancla SLA (snapeada a la hora de corte) y puede
+                    -- quedar en el futuro vs NOW() para cambios de hoy previos al corte; se
+                    -- pisa en 0 para que el "tiempo en estatus actual" no salga negativo.
+                    GREATEST(EXTRACT(EPOCH FROM (NOW() - ut.fecha_cambio_sla)) / 86400.0, 0)
                 ) AS dias_promedio_en_destino,
                 COALESCE(ut.orden_origen, 0) AS orden_origen,
                 COALESCE(ut.orden_destino, 0) AS orden_destino
@@ -1231,7 +1237,7 @@ class MetricsDBService:
                 u_sim.nombre as responsable_simulacion,
                 u_sol.nombre as solicitado_por,
                 ut.fecha_transicion,
-                COALESCE(
+                GREATEST(
                     EXTRACT(EPOCH FROM (NOW() - ut.fecha_transicion)) / 86400.0,
                     0
                 ) as dias_en_estatus
