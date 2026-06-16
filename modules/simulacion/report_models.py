@@ -224,6 +224,28 @@ class MetricaTecnologia(KPIMetricsMixin):
 
 
 @dataclass
+class SeccionBESS(KPIMetricsMixin):
+    """Sección de Almacenamiento (BESS) reportada aparte de los KPIs de FV.
+
+    Mide cuántos componentes BESS se entregaron a tiempo / tarde. Los KPI de FV
+    (responsabilidad de Simulación) viven en MetricasGenerales / MetricaTecnologia;
+    BESS es responsabilidad de otra área y se muestra por separado.
+    """
+    umbrales_interno: Optional[UmbralesKPI] = None
+    umbrales_compromiso: Optional[UmbralesKPI] = None
+
+    total: int = 0
+
+    entregas_a_tiempo_interno: int = 0
+    entregas_tarde_interno: int = 0
+
+    entregas_a_tiempo_compromiso: int = 0
+    entregas_tarde_compromiso: int = 0
+
+    sin_fecha: int = 0
+
+
+@dataclass
 class FilaContabilizacion(KPIMetricsMixin):
     """Fila de la tabla de contabilización con KPIs duales."""
     id_tipo_solicitud: int

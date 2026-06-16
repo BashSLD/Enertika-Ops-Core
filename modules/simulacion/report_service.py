@@ -43,6 +43,7 @@ from .report_models import (
     ConfiguracionScore,
     MetricasGenerales,
     MetricaTecnologia,
+    SeccionBESS,
     FilaContabilizacion,
     ResumenUsuario,
     DetalleUsuario,
@@ -210,6 +211,26 @@ class ReportesSimulacionService:
             )
             for row in rows
         ]
+
+    async def get_seccion_bess(self, conn, filtros: FiltrosReporte) -> SeccionBESS:
+        row = await self.db.get_report_seccion_bess(conn, asdict(filtros))
+
+        u_interno = await ConfigService.get_umbrales_kpi(conn, "kpi_interno")
+        u_compromiso = await ConfigService.get_umbrales_kpi(conn, "kpi_compromiso")
+
+        if not row or not row['total']:
+            return SeccionBESS(umbrales_interno=u_interno, umbrales_compromiso=u_compromiso)
+
+        return SeccionBESS(
+            umbrales_interno=u_interno,
+            umbrales_compromiso=u_compromiso,
+            total=row['total'] or 0,
+            entregas_a_tiempo_interno=row['entregas_a_tiempo_interno'] or 0,
+            entregas_tarde_interno=row['entregas_tarde_interno'] or 0,
+            entregas_a_tiempo_compromiso=row['entregas_a_tiempo_compromiso'] or 0,
+            entregas_tarde_compromiso=row['entregas_tarde_compromiso'] or 0,
+            sin_fecha=row['sin_fecha'] or 0,
+        )
 
     async def get_tabla_contabilizacion(self, conn, filtros: FiltrosReporte) -> List[FilaContabilizacion]:
         cats = await self.db.get_report_catalog_ids(conn)
@@ -862,6 +883,7 @@ class ReportesSimulacionService:
         return {
             'metricas': await self.get_metricas_generales(conn, filtros),
             'tecnologias': await self.get_metricas_por_tecnologia(conn, filtros),
+            'bess': await self.get_seccion_bess(conn, filtros),
             'contabilizacion': await self.get_tabla_contabilizacion(conn, filtros),
             'usuarios': await self.get_detalle_por_usuario(conn, filtros),
             'mensual': await self.get_resumen_mensual(conn, filtros),

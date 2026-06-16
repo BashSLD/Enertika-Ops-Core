@@ -889,6 +889,45 @@
     </table>
     {% endif %}
 
+    {% if tablas.bess and tablas.bess.total %}
+    {% set b = tablas.bess %}
+    <div class="section-title" style="font-size:11pt;">Almacenamiento (BESS)</div>
+    <p style="font-size:8pt;color:#64748b;margin:0 0 8px;">
+        Entregas de BESS (responsabilidad de Almacenamiento), contabilizadas aparte de los
+        KPIs de FV de Simulación.
+    </p>
+    <table class="dt mb-14">
+        <thead>
+            <tr>
+                <th>Total</th>
+                <th>A Tiempo Int.</th>
+                <th>Tarde Int.</th>
+                <th>% Int.</th>
+                <th>A Tiempo Comp.</th>
+                <th>Tarde Comp.</th>
+                <th>% Comp.</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>{{ b.total }}</td>
+                <td>{{ b.entregas_a_tiempo_interno }}</td>
+                <td>{{ b.entregas_tarde_interno }}</td>
+                <td
+                    class="{% if b.porcentaje_a_tiempo_interno >= 80 %}p-g{% elif b.porcentaje_a_tiempo_interno >= 60 %}p-a{% else %}p-r{% endif %}">
+                    {{ b.porcentaje_a_tiempo_interno }}%
+                </td>
+                <td>{{ b.entregas_a_tiempo_compromiso }}</td>
+                <td>{{ b.entregas_tarde_compromiso }}</td>
+                <td
+                    class="{% if b.porcentaje_a_tiempo_compromiso >= 80 %}p-g{% elif b.porcentaje_a_tiempo_compromiso >= 60 %}p-a{% else %}p-r{% endif %}">
+                    {{ b.porcentaje_a_tiempo_compromiso }}%
+                </td>
+            </tr>
+        </tbody>
+    </table>
+    {% endif %}
+
     {% if charts.tecnologia %}
     <div class="chart-full mb-14">
         <div class="chart-title" style="text-align:left;">Distribución de Solicitudes por Tecnología</div>
