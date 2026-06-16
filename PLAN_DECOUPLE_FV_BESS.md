@@ -243,7 +243,7 @@ Una fila por **(entrega física × tecnología presente)**. Unifica `tb_sitios_o
   de `report_db_service.py` e integra de entrada los tres ejes: (1) leer de `tb_entregas_componente`,
   (2) separar sección BESS, (3) filtro `excluir_kpis_simulacion` + `cuenta_para_kpi` (de Montaje).
   Por eso **Montaje va antes que esta Fase 4**, y la exclusión en KPIs de reporte se implementa aquí,
-  no en Montaje. Ver sección "Integración" de `PLAN_MONTAJE_OFERTA_KPIS_SIMULACION.md`.
+  no en Montaje. Ver sección "Integración" de `MD/PLAN_MONTAJE_OFERTA_KPIS_SIMULACION.md`.
 
 ### Guía técnica para reducir la fragilidad de `report_db_service.py` (aprovechar este refactor)
 

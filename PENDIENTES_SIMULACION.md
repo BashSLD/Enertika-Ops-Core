@@ -4,6 +4,35 @@
 
 ---
 
+## 0. Rama `feat/decouple-fv-bess` — pendiente de pipe + deploy
+
+**Estado (2026-06-16):** Decouple FV/BESS + Montaje de oferta + correcciones de reportes
+**IMPLEMENTADOS**. Migraciones **108–112 aplicadas en PROD y DEV**. La rama está 16+ commits
+adelante de `main`, con cambios adicionales de esta sesión **sin commitear** en el working tree.
+
+**HECHO (ya no es pendiente):**
+- Montaje de oferta + exclusión KPIs (mig 111). Detalle: `MD/PLAN_MONTAJE_OFERTA_KPIS_SIMULACION.md`.
+- Decouple Fases 1 (mig 108), 3 (botón "FV Terminado"), 4 (reportes), 5 (sync, mig 110) — código.
+- Correcciones UI/PDF (commiteadas). Detalle: `MD/CORRECCIONES_REPORTES_DECOUPLE_FV_BESS.md`.
+- **Sesión 2 (sin commitear):** tiempo de entrega ahora se mide desde el componente FV
+  (`_TIEMPO_FV_HORAS`, 9 queries en `report_db_service.py`) → limpia la contaminación de BESS en
+  híbridos; tooltips en cards KPI (denominador = ofertas FV evaluables) y en secciones de reportes;
+  tabla "Desempeño por Tecnología" muestra "—" para BESS; fix de días negativos (`GREATEST(...,0)`)
+  en 3 métodos de `metrics_db_service.py`; drill-down por tecnología en "Tiempo de entrega"; ícono
+  Resumen Ejecutivo reducido; separación de la sección BESS en el PDF.
+
+**PENDIENTE:**
+1. **Pipe + deploy** — correr `/simplify` y `/code-review` sobre el diff (sesión nueva, sobre el
+   working tree sin commitear), commit, merge a `main` y desplegar. *Bloqueante:* sin deploy, el sync
+   de Fase 5 no corre → las entregas nuevas no generan fila de componente.
+2. **Decouple Fase 2 (Excel)** — script listo (`scripts/decouple_fv_bess/importar_correccion.py`);
+   espera a que el equipo llene las 45 filas. Las reclasificaciones de tecnología se aplican aparte (manual).
+3. **Decouple Fase 6 (recordatorio 16:00 MX)** — **NO construido**. Worker task + sección de
+   destinatarios en admin (`SIMULACION_RECORDATORIO_TARGETS`). Independiente del resto.
+4. **Full-sync Fase 5 (opcional)** — 2 KPIs NULL históricos; se auto-corrigen al tocar esas oportunidades.
+
+---
+
 ## 1. Botón "Historial" en Métricas Operativas
 
 **Estado:** Sin punto de entrada — el historial fue removido del modal de actualización y aún no se re-expone.
@@ -103,9 +132,9 @@ La portada muestra el ID de tecnología y el ID de responsable cuando se filtra.
 
 ## 5. Estatus "Montaje de oferta" y exclusión KPI de Monitoreo/Montaje
 
-**Plan detallado:** `PLAN_MONTAJE_OFERTA_KPIS_SIMULACION.md`
+**Plan detallado:** `MD/PLAN_MONTAJE_OFERTA_KPIS_SIMULACION.md` (archivado, ejecutado).
 
-**Estado (2026-06-16): IMPLEMENTADO salvo reportes PDF.**
+**Estado (2026-06-16): IMPLEMENTADO COMPLETO (incl. reportes PDF).**
 
 Se agregó el estatus `Montaje de oferta` (similar a `Monitoreo de Cotización`). Ambos son
 estatus especiales: pueden saltar el flujo normal de revisión, pueden pasar después a
@@ -126,6 +155,6 @@ hardcode `IN(entregado,perdido,ganada)`). Sección BESS aparte (`SeccionBESS` + 
 `reporte_analitica.html`). Conteos de volumen sin cambios. Builder `_P` elimina el frágil
 `len(params)-N`.
 
-**FALTA antes de desplegar:** aplicar `migrations/112_backfill_entregas_componente_historico.sql`
-en PROD (backfill histórico completo de `tb_entregas_componente` sin filtro de año; sin él, los
-reportes que abarquen 2025 perderían los sitios FV/BESS puros que la mig 108 dejó fuera).
+**`migrations/112_backfill_entregas_componente_historico.sql` YA APLICADA** en PROD y DEV
+(backfill histórico completo de `tb_entregas_componente`; verificado 2026-06-16: 435 filas).
+Lo único que falta es el **pipe + deploy** de la rama (ver sección 0).
