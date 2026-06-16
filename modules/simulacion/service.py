@@ -360,6 +360,14 @@ class SimulacionService:
                     datos.fecha_entrega_simulacion
                 )
 
+        # 4.6. Sincronizar tabla de componentes (decouple FV/BESS). Post-commit y best-effort
+        # por la misma razon que las notificaciones: un PostgresError aqui no debe revertir el
+        # cierre ya comiteado. Ver PLAN_DECOUPLE_FV_BESS.md Fase 5.
+        try:
+            await self.db.sync_componentes_oportunidad(conn, id_oportunidad)
+        except asyncpg.PostgresError as sync_err:
+            logger.error(f"Sync componentes fallo (no critico) para {id_oportunidad}: {sync_err}")
+
         # 5. Enviar Notificaciones (fuera de la transacción a propósito).
         # _send_update_notifications traga PostgresError ("no critico"); si corriera
         # dentro de la transacción, ese error la dejaria abortada y el COMMIT fallaria,
@@ -473,6 +481,37 @@ class SimulacionService:
         )
         
         logger.info(f"Sitios batch actualizados. KPIs: interno={kpi_interno}, compromiso={kpi_compromiso}, retrabajo={datos.es_retrabajo}")
+
+        # Sincronizar tabla de componentes (decouple FV/BESS). Best-effort.
+        try:
+            await self.db.sync_componentes_oportunidad(conn, id_oportunidad)
+        except asyncpg.PostgresError as sync_err:
+            logger.error(f"Sync componentes fallo (no critico) para {id_oportunidad}: {sync_err}")
+
+    async def marcar_fv_terminado(self, conn, id_oportunidad: UUID, user_context: dict) -> Tuple[datetime, int]:
+        """Marca la parte FV de un hibrido (FV+BESS) como terminada, independiente del estatus.
+
+        Fecha automatica (now_mx), como los demas estatus. Asegura que existan los componentes
+        FV (sincroniza), fija su fecha + editado_manual y recalcula KPI FV. Solo aplica a
+        id_tecnologia = 3. Idempotente. Devuelve (fecha, num_componentes_fv).
+        """
+        op = await self.db.get_oportunidad_by_id(conn, id_oportunidad)
+        if not op:
+            raise HTTPException(status_code=404, detail="Oportunidad no encontrada")
+        if op["id_tecnologia"] != 3:
+            raise HTTPException(
+                status_code=400,
+                detail="Marcar 'FV Terminado' solo aplica a oportunidades FV + BESS.",
+            )
+
+        now_mx = await self.get_current_datetime_mx(conn)
+        # Asegurar que existan filas de componente FV (una op activa puede no tenerlas aun)
+        await self.db.sync_componentes_oportunidad(conn, id_oportunidad)
+        filas = await self.db.marcar_fv_terminado(conn, id_oportunidad, now_mx)
+        logger.info(
+            f"FV terminado marcado en {id_oportunidad}: {filas} componente(s) FV, fecha {now_mx}"
+        )
+        return now_mx, filas
 
     async def _resolve_update_permissions(
         self, 

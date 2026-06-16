@@ -702,6 +702,7 @@ async def _build_edit_modal_context(
             })
 
     simulaciones_adicionales = await db_service.get_simulaciones_adicionales(conn, id_oportunidad)
+    fv_terminado = await db_service.get_fv_terminado(conn, id_oportunidad)
     historial_timeline = await service.get_historial_timeline(conn, id_oportunidad)
     umbral_lag_registro_min = await ConfigService.get_global_config(conn, "UMBRAL_LAG_NOTIFICACION", 1440, int)
 
@@ -721,6 +722,7 @@ async def _build_edit_modal_context(
         "es_multisitio": es_multisitio,
         "is_bess_related": op["id_tecnologia"] in [2, 3],
         "is_bess_only": op["id_tecnologia"] == 2,
+        "fv_terminado_fecha": fv_terminado["fecha_entrega"] if fv_terminado else None,
         "simulaciones_adicionales": simulaciones_adicionales,
         "form_message": form_message,
     }
@@ -740,6 +742,26 @@ async def get_edit_modal(
     if not modal_context:
         return JSONResponse(status_code=404, content={"message": "Oportunidad no encontrada"})
     return templates.TemplateResponse(request, "simulacion/modals/update_oportunidades.html", modal_context)
+
+
+@router.post("/fv-terminado/{id_oportunidad}", include_in_schema=False)
+async def marcar_fv_terminado(
+    request: Request,
+    id_oportunidad: UUID,
+    service: SimulacionService = Depends(get_simulacion_service),
+    conn = Depends(get_db_connection),
+    context = Depends(get_current_user_context),
+    _ = require_module_access("simulacion", "editor"),
+):
+    """Marca la parte FV de un hibrido (FV+BESS) como terminada. Accion independiente del estatus."""
+    fecha, _filas = await service.marcar_fv_terminado(conn, id_oportunidad, context)
+    msg = f"FV marcado como terminado el {fecha.strftime('%d/%m/%Y %H:%M')}."
+    return templates.TemplateResponse(
+        request,
+        "simulacion/partials/messages/success_inline.html",
+        {"message": msg, "id_oportunidad": id_oportunidad},
+    )
+
 
 @router.put("/update/{id_oportunidad}")
 async def update_simulacion(

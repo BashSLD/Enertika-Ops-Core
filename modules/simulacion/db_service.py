@@ -490,6 +490,162 @@ class SimulacionDBService:
             deadline_compromiso,
         )
 
+    async def sync_componentes_oportunidad(self, conn, id_oportunidad: UUID):
+        """Upsert idempotente de tb_entregas_componente para UNA oportunidad.
+
+        Mantiene la tabla de componentes al dia tras cierres/cascadas/cambios de deadline.
+        Misma logica que la migracion 108 (FV si tech!=2, BESS si tech in (2,3); magnitud del
+        padre en el primer sitio; sim_adicionales con magnitud propia) pero por-oportunidad y
+        sin filtro de fecha (aplica a datos nuevos). Excluye Levantamiento.
+
+        Respeta editado_manual: si el componente fue fijado a mano (boton FV Terminado / import),
+        NO sobrescribe fecha_entrega ni magnitud; solo refresca deadlines y recalcula KPI contra
+        la fecha vigente. El KPI se computa de fecha vs deadline (no se copia el del sitio).
+        """
+        lev = "(SELECT id FROM tb_cat_tipos_solicitud WHERE LOWER(nombre) = 'levantamiento')"
+
+        # Set de UPDATE comun a los 4 upserts (protege valores manuales)
+        on_conflict_set = """
+            DO UPDATE SET
+                deadline_calculado    = EXCLUDED.deadline_calculado,
+                deadline_negociado    = EXCLUDED.deadline_negociado,
+                magnitud = CASE WHEN tb_entregas_componente.editado_manual
+                                THEN tb_entregas_componente.magnitud ELSE EXCLUDED.magnitud END,
+                fecha_entrega = CASE WHEN tb_entregas_componente.editado_manual
+                                THEN tb_entregas_componente.fecha_entrega ELSE EXCLUDED.fecha_entrega END,
+                kpi_status_interno = CASE
+                    WHEN (CASE WHEN tb_entregas_componente.editado_manual
+                               THEN tb_entregas_componente.fecha_entrega ELSE EXCLUDED.fecha_entrega END) IS NULL THEN NULL
+                    WHEN (CASE WHEN tb_entregas_componente.editado_manual
+                               THEN tb_entregas_componente.fecha_entrega ELSE EXCLUDED.fecha_entrega END)
+                         <= EXCLUDED.deadline_calculado THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END,
+                kpi_status_compromiso = CASE
+                    WHEN (CASE WHEN tb_entregas_componente.editado_manual
+                               THEN tb_entregas_componente.fecha_entrega ELSE EXCLUDED.fecha_entrega END) IS NULL THEN NULL
+                    WHEN (CASE WHEN tb_entregas_componente.editado_manual
+                               THEN tb_entregas_componente.fecha_entrega ELSE EXCLUDED.fecha_entrega END)
+                         <= COALESCE(EXCLUDED.deadline_negociado, EXCLUDED.deadline_calculado) THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END,
+                updated_at = now()
+        """
+
+        # KPI computado de fecha vs deadline (para filas nuevas)
+        def kpi_expr(fecha_expr):
+            return f"""
+                CASE WHEN {fecha_expr} IS NULL THEN NULL
+                     WHEN {fecha_expr} <= o.deadline_calculado THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END,
+                CASE WHEN {fecha_expr} IS NULL THEN NULL
+                     WHEN {fecha_expr} <= COALESCE(o.deadline_negociado, o.deadline_calculado) THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END
+            """
+
+        # 1. FV desde sitios (tech != 2)
+        fecha_sitio = "COALESCE(s.fecha_cierre, o.fecha_entrega_simulacion)"
+        await conn.execute(f"""
+            INSERT INTO tb_entregas_componente (
+                id_oportunidad, id_sitio, origen, componente, area_responsable,
+                magnitud, unidad, fecha_entrega, deadline_calculado, deadline_negociado,
+                kpi_status_interno, kpi_status_compromiso
+            )
+            SELECT s.id_oportunidad, s.id_sitio, 'sitio', 'FV', 'SIMULACION',
+                CASE WHEN row_number() OVER (PARTITION BY s.id_oportunidad ORDER BY s.fecha_carga, s.id_sitio) = 1
+                     THEN o.potencia_cierre_fv_kwp ELSE 0 END,
+                'kWp', {fecha_sitio}, o.deadline_calculado, o.deadline_negociado,
+                {kpi_expr(fecha_sitio)}
+            FROM tb_sitios_oportunidad s
+            JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
+            WHERE o.id_oportunidad = $1 AND o.id_tecnologia != 2
+              AND o.id_tipo_solicitud IS DISTINCT FROM {lev}
+            ON CONFLICT (id_sitio, componente) WHERE id_sitio IS NOT NULL
+            {on_conflict_set}
+        """, id_oportunidad)
+
+        # 2. BESS desde sitios (tech in (2,3))
+        await conn.execute(f"""
+            INSERT INTO tb_entregas_componente (
+                id_oportunidad, id_sitio, origen, componente, area_responsable,
+                magnitud, unidad, fecha_entrega, deadline_calculado, deadline_negociado,
+                kpi_status_interno, kpi_status_compromiso
+            )
+            SELECT s.id_oportunidad, s.id_sitio, 'sitio', 'BESS', 'ALMACENAMIENTO',
+                CASE WHEN row_number() OVER (PARTITION BY s.id_oportunidad ORDER BY s.fecha_carga, s.id_sitio) = 1
+                     THEN o.capacidad_cierre_bess_kwh ELSE 0 END,
+                'kWh', {fecha_sitio}, o.deadline_calculado, o.deadline_negociado,
+                {kpi_expr(fecha_sitio)}
+            FROM tb_sitios_oportunidad s
+            JOIN tb_oportunidades o ON s.id_oportunidad = o.id_oportunidad
+            WHERE o.id_oportunidad = $1 AND o.id_tecnologia IN (2, 3)
+              AND o.id_tipo_solicitud IS DISTINCT FROM {lev}
+            ON CONFLICT (id_sitio, componente) WHERE id_sitio IS NOT NULL
+            {on_conflict_set}
+        """, id_oportunidad)
+
+        # 3. FV desde simulaciones adicionales (tech != 2)
+        await conn.execute(f"""
+            INSERT INTO tb_entregas_componente (
+                id_oportunidad, id_sim_adicional, origen, componente, area_responsable,
+                magnitud, unidad, fecha_entrega, deadline_calculado, deadline_negociado,
+                kpi_status_interno, kpi_status_compromiso
+            )
+            SELECT sa.id_oportunidad, sa.id, 'sim_adicional', 'FV', 'SIMULACION',
+                sa.potencia_cierre_fv_kwp, 'kWp', sa.fecha_entrega, o.deadline_calculado, o.deadline_negociado,
+                {kpi_expr("sa.fecha_entrega")}
+            FROM tb_simulaciones_adicionales sa
+            JOIN tb_oportunidades o ON sa.id_oportunidad = o.id_oportunidad
+            WHERE o.id_oportunidad = $1 AND o.id_tecnologia != 2
+              AND o.id_tipo_solicitud IS DISTINCT FROM {lev}
+            ON CONFLICT (id_sim_adicional, componente) WHERE id_sim_adicional IS NOT NULL
+            {on_conflict_set}
+        """, id_oportunidad)
+
+        # 4. BESS desde simulaciones adicionales (tech in (2,3))
+        await conn.execute(f"""
+            INSERT INTO tb_entregas_componente (
+                id_oportunidad, id_sim_adicional, origen, componente, area_responsable,
+                magnitud, unidad, fecha_entrega, deadline_calculado, deadline_negociado,
+                kpi_status_interno, kpi_status_compromiso
+            )
+            SELECT sa.id_oportunidad, sa.id, 'sim_adicional', 'BESS', 'ALMACENAMIENTO',
+                sa.capacidad_cierre_bess_kwh, 'kWh', sa.fecha_entrega, o.deadline_calculado, o.deadline_negociado,
+                {kpi_expr("sa.fecha_entrega")}
+            FROM tb_simulaciones_adicionales sa
+            JOIN tb_oportunidades o ON sa.id_oportunidad = o.id_oportunidad
+            WHERE o.id_oportunidad = $1 AND o.id_tecnologia IN (2, 3)
+              AND o.id_tipo_solicitud IS DISTINCT FROM {lev}
+            ON CONFLICT (id_sim_adicional, componente) WHERE id_sim_adicional IS NOT NULL
+            {on_conflict_set}
+        """, id_oportunidad)
+
+    async def get_fv_terminado(self, conn, id_oportunidad: UUID) -> Optional[Dict[str, Any]]:
+        """Devuelve la fecha FV marcada a mano (editado_manual) si existe, o None."""
+        row = await conn.fetchrow("""
+            SELECT fecha_entrega, editado_manual
+            FROM tb_entregas_componente
+            WHERE id_oportunidad = $1 AND componente = 'FV' AND editado_manual = true
+            ORDER BY fecha_entrega DESC NULLS LAST
+            LIMIT 1
+        """, id_oportunidad)
+        return dict(row) if row else None
+
+    async def marcar_fv_terminado(self, conn, id_oportunidad: UUID, fecha: datetime) -> int:
+        """Fija la fecha FV de los componentes FV de la oportunidad y marca editado_manual.
+
+        Recalcula KPI FV contra los deadlines de cada componente. Idempotente. Devuelve el
+        numero de componentes FV afectados.
+        """
+        res = await conn.execute("""
+            UPDATE tb_entregas_componente
+            SET fecha_entrega = $2,
+                editado_manual = true,
+                kpi_status_interno = CASE
+                    WHEN deadline_calculado IS NULL THEN NULL
+                    WHEN $2 <= deadline_calculado THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END,
+                kpi_status_compromiso = CASE
+                    WHEN deadline_calculado IS NULL THEN NULL
+                    WHEN $2 <= COALESCE(deadline_negociado, deadline_calculado) THEN 'Entrega a tiempo' ELSE 'Entrega tarde' END,
+                updated_at = now()
+            WHERE id_oportunidad = $1 AND componente = 'FV'
+        """, id_oportunidad, fecha)
+        return int(res.split()[-1])
+
     async def update_retrabajo_single(self, conn, id_oportunidad: UUID, id_motivo_retrabajo: int):
         await conn.execute("""
             UPDATE tb_sitios_oportunidad
